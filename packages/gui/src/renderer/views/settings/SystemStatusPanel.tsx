@@ -7,7 +7,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { BTN, Section, Row } from "../../components/ui/widgets";
-import { useDaemonStatusQuery } from "../../model/daemon-status-query.ts";
+import { useDaemonRestartMutation, useDaemonStatusQuery } from "../../model/daemon-status-query.ts";
 import type {
   DaemonActiveControl,
   DaemonServiceStatus,
@@ -170,40 +170,98 @@ function DaemonStatusCard({ status }: { status: DaemonStatusModel }) {
 function ControlsRow({
   onRefresh,
   isRefreshing,
+  onRestart,
+  isRestarting,
+  restartBlocked,
+  restartError,
+  restartAcceptedOperationId,
 }: {
   onRefresh: () => void;
   isRefreshing: boolean;
+  onRestart: () => void;
+  isRestarting: boolean;
+  restartBlocked: boolean;
+  restartError: string | null;
+  restartAcceptedOperationId: string | null;
 }) {
+  const busy = isRefreshing || isRestarting || restartBlocked;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={isRefreshing}
-        className={BTN}
-      >
-        <span className="inline-flex items-center gap-1">
-          <ArrowsClockwise
-            weight="bold"
-            className={`text-[12px] ${isRefreshing ? "animate-spin" : ""}`}
-          />
-          {t("views.settingsView.systemRefresh")}
-        </span>
-      </button>
-      <button
-        type="button"
-        disabled
-        title={t("views.settingsView.systemRestartPending")}
-        className={BTN}
-      >
-        {t("views.settingsView.systemRestart")}
-      </button>
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isRefreshing || isRestarting}
+          className={BTN}
+        >
+          <span className="inline-flex items-center gap-1">
+            <ArrowsClockwise
+              weight="bold"
+              className={`text-[12px] ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            {t("views.settingsView.systemRefresh")}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={busy}
+          title={
+            restartBlocked
+              ? t("views.settingsView.systemRestartInProgress")
+              : t("views.settingsView.systemRestartHint")
+          }
+          className={BTN}
+        >
+          <span className="inline-flex items-center gap-1">
+            {isRestarting || restartBlocked ? (
+              <CircleNotch weight="bold" className="animate-spin text-[12px]" aria-hidden />
+            ) : null}
+            {isRestarting || restartBlocked
+              ? t("views.settingsView.systemRestarting")
+              : t("views.settingsView.systemRestart")}
+          </span>
+        </button>
+      </div>
+      {restartAcceptedOperationId ? (
+        <p className="text-[12px] text-success" role="status">
+          {t("views.settingsView.systemRestartAccepted", {
+            operationId: restartAcceptedOperationId,
+          })}
+        </p>
+      ) : null}
+      {restartError ? (
+        <p className="text-[12px] text-danger" role="alert">
+          {t("views.settingsView.systemRestartFailed", { error: restartError })}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export function SystemStatusPanel() {
   const query = useDaemonStatusQuery();
+  const restart = useDaemonRestartMutation();
+  const activeControl = query.data?.service.activeControl ?? null;
+  const restartBlocked = activeControl?.kind === "restart";
+  const restartError =
+    restart.isError
+      ? ((restart.error as Error | undefined)?.message ?? t("views.settingsView.systemRestartFailedGeneric"))
+      : null;
+  const restartAcceptedOperationId =
+    restart.isSuccess && restart.data.ok ? restart.data.accepted.operationId : null;
+
+  const controls = (
+    <ControlsRow
+      onRefresh={() => void query.refetch()}
+      isRefreshing={query.isFetching}
+      onRestart={() => restart.mutate()}
+      isRestarting={restart.isPending}
+      restartBlocked={Boolean(restartBlocked)}
+      restartError={restartError}
+      restartAcceptedOperationId={restartAcceptedOperationId}
+    />
+  );
 
   if (query.isLoading) {
     return (
@@ -222,7 +280,7 @@ export function SystemStatusPanel() {
       t("views.settingsView.systemUnreachableReason");
     return (
       <div className="flex flex-col gap-3">
-        <ControlsRow onRefresh={() => void query.refetch()} isRefreshing={query.isFetching} />
+        {controls}
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong bg-surface py-12 text-center">
           <WarningCircle weight="duotone" className="text-2xl text-danger" />
           <p className="text-[13px] text-text">{t("views.settingsView.systemUnreachable")}</p>
@@ -244,7 +302,7 @@ export function SystemStatusPanel() {
 
   return (
     <div className="flex flex-col gap-3">
-      <ControlsRow onRefresh={() => void query.refetch()} isRefreshing={query.isFetching} />
+      {controls}
       {status.service.activeControl ? (
         <ActiveControlBanner control={status.service.activeControl} />
       ) : null}

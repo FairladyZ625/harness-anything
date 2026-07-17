@@ -36,8 +36,9 @@ import type {
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
 import { t } from "./i18n/core.ts";
-import { readDaemonLogPageResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
-export { readDaemonLogPageResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
+import { readDaemonLogPageResult, readDaemonRestartResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
+export { readDaemonLogPageResult, readDaemonRestartResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
+export type { DaemonRestartResult } from "./daemon-diagnostics-api-contract.ts";
 import {
   readExecutionEvidencePageResult,
   type ExecutionEvidencePageSuccess
@@ -55,6 +56,7 @@ export type { TerminalOutputReadSuccess, TerminalSessionInfo };
 type HarnessBridgeMethod =
   | "getDaemonLogs"
   | "getDaemonStatus"
+  | "restartDaemon"
   | "getCatalogSnapshot"
   | "getTasks"
   | "getTaskDetail"
@@ -185,6 +187,9 @@ export const harnessClient = {
   },
   async getDaemonStatus(): Promise<DaemonRendererStatusV2> {
     return readDaemonStatusResult(await invokeBridge("getDaemonStatus", null));
+  },
+  async restartDaemon(payload: { readonly reason?: string; readonly drainTimeoutMs?: number } | null = null) {
+    return readDaemonRestartResult(await invokeBridge("restartDaemon", payload));
   },
   async getCatalogSnapshot(): Promise<CatalogSnapshotSuccess> {
     return readCatalogSnapshotResult(await invokeBridge("getCatalogSnapshot", null));

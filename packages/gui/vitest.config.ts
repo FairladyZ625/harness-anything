@@ -11,6 +11,7 @@ export default mergeConfig(viteConfig, defineConfig({
     environment: "node",
     globals: false,
     include: ["test/**/*.vitest.ts", "test/**/*.vitest.tsx"],
+    setupFiles: ["test/vitest.setup.ts"],
     ...(localMaxWorkers === undefined ? {} : { maxWorkers: localMaxWorkers })
   }
 }));

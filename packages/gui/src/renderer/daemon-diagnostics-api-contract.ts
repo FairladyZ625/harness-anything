@@ -1,4 +1,5 @@
 import type {
+  DaemonControlAcceptedV1,
   DaemonLogEntryV1,
   DaemonLogPageV1,
   DaemonRendererStatusV2
@@ -32,6 +33,62 @@ export function readDaemonLogPageResult(value: unknown): DaemonLogPageV1 {
     throw new Error("Daemon log bridge returned data outside daemon-log-page/v1.");
   }
   return result as DaemonLogPageV1;
+}
+
+export type DaemonRestartResult =
+  | { readonly ok: true; readonly accepted: DaemonControlAcceptedV1 }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string; readonly operationId?: string | null } };
+
+/**
+ * Reads the daemon restart bridge result.
+ * Success returns daemon-control-accepted/v1; failure surfaces control error codes
+ * such as daemon_restart_failed / daemon_control_in_progress.
+ */
+export function readDaemonRestartResult(value: unknown): DaemonRestartResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_result",
+        hint: daemonDiagnosticsErrorHint(value, "Daemon restart bridge returned an invalid result.")
+      }
+    };
+  }
+  const result = value as {
+    readonly ok?: boolean;
+    readonly schema?: string;
+    readonly accepted?: boolean;
+    readonly operationId?: string;
+    readonly kind?: string;
+    readonly error?: { readonly code?: string; readonly hint?: string; readonly operationId?: string | null };
+  };
+  if (result.ok === false || (result.error && typeof result.error === "object")) {
+    const error = result.error ?? {};
+    return {
+      ok: false,
+      error: {
+        code: typeof error.code === "string" ? error.code : "daemon_restart_failed",
+        hint: typeof error.hint === "string" ? error.hint : "Daemon restart failed.",
+        ...(error.operationId !== undefined ? { operationId: error.operationId } : {})
+      }
+    };
+  }
+  if (
+    result.schema === "daemon-control-accepted/v1"
+    && result.accepted === true
+    && result.kind === "restart"
+    && typeof result.operationId === "string"
+    && result.operationId.length > 0
+  ) {
+    return { ok: true, accepted: result as unknown as DaemonControlAcceptedV1 };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "invalid_result",
+      hint: "Daemon restart bridge did not return daemon-control-accepted/v1."
+    }
+  };
 }
 
 function isDaemonLogEntry(value: unknown): value is DaemonLogEntryV1 {

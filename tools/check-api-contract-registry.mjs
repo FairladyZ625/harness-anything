@@ -22,7 +22,7 @@ const defaults = {
   daemonControlFixtureRoot: "packages/daemon/fixtures/daemon-control",
   daemonApiSchemaFixtureRoot: "packages/daemon/fixtures/api-schemas"
 };
-const supportedServices = new Set(["DaemonLogService", "DaemonStatusService", "LocalControllerService", "TerminalSessionService"]);
+const supportedServices = new Set(["DaemonControlService", "DaemonLogService", "DaemonStatusService", "LocalControllerService", "TerminalSessionService"]);
 const requiredTerminalRoutes = [
   { id: "terminal.sessions.create", method: "POST", path: "/api/terminal/sessions", serviceMethod: "createSession" },
   { id: "terminal.sessions.list", method: "GET", path: "/api/terminal/sessions", serviceMethod: "listSessions" },
@@ -69,10 +69,14 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const daemonStatusMethods = daemonContractEnabled
     ? collectInterfaceMethods(root, paths.daemonContractPath, "DaemonStatusService", violations)
     : new Set();
+  const daemonControlMethods = daemonContractEnabled
+    ? collectInterfaceMethods(root, paths.daemonContractPath, "DaemonControlService", violations)
+    : new Set();
   const daemonLogMethods = daemonLogContractEnabled
     ? collectInterfaceMethods(root, paths.daemonLogContractPath, "DaemonLogService", violations)
     : new Set();
   const serviceMethods = new Map([
+    ["DaemonControlService", daemonControlMethods],
     ["DaemonLogService", daemonLogMethods],
     ["DaemonStatusService", daemonStatusMethods],
     ["LocalControllerService", localControllerMethods],
@@ -523,10 +527,10 @@ function inspectBridgeHandlers(contracts, bridgeHandlers, relativePath, violatio
       continue;
     }
     if (handler.serviceMethod !== entry.serviceMethod) {
-      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler declares ${handler.serviceMethod ?? "<missing>"} but registry requires LocalControllerService.${entry.serviceMethod}`);
+      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler declares ${handler.serviceMethod ?? "<missing>"} but registry requires ${entry.service}.${entry.serviceMethod}`);
     }
     if (!handler.serviceCalls.has(entry.serviceMethod)) {
-      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler does not call LocalControllerService.${entry.serviceMethod}`);
+      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler does not call ${entry.service}.${entry.serviceMethod}`);
     }
     for (const serviceCall of handler.serviceCalls) {
       if (serviceCall !== entry.serviceMethod) {

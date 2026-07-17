@@ -9,6 +9,10 @@ import {
   routeOpenIntent,
   serializeWorkspaceLayout
 } from "../src/index.ts";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+
+// Pane titles are i18n-backed; pin en-US so this contract is locale-stable under zh developer hosts.
+setActiveLocale("en-US");
 
 test("default workspace layout covers task doc terminal and logs across tab split and dock placements", () => {
   const layout = createDefaultWorkspaceLayout("operate");

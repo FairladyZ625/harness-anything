@@ -176,21 +176,29 @@ const adminReservedContracts = [
 export function deriveJsonRpcServiceMethodContracts(
   contracts: ReadonlyArray<ApiRouteContract> = apiRouteContracts
 ): ReadonlyArray<JsonRpcMethodContract> {
-  return contracts.map((contract) => ({
-    method: `repo.${contract.id}`,
-    mode: "active",
-    namespace: "repo",
-    inputSchemaId: contract.inputSchemaId,
-    ...(contract.outputSchemaId ? { outputSchemaId: contract.outputSchemaId } : {}),
-    errorSchemaId: contract.errorSchemaId,
-    service: contract.service,
-    serviceMethod: contract.serviceMethod,
-    routeId: contract.id,
-    auth: contract.auth,
-    requiresRepo: true,
-    commandClass: commandClassForApiRoute(contract),
-    ...(contract.leaseRequired === true ? { leaseRequired: true } : {})
-  }));
+  // Admin control routes (e.g. daemon.restart) already have explicit admin.*
+  // method contracts. Do not also derive a repo.* twin for those.
+  return contracts.map((contract) => {
+    if (contract.commandClass === "admin") {
+      return null;
+    }
+    const derived: JsonRpcMethodContract = {
+      method: `repo.${contract.id}`,
+      mode: "active",
+      namespace: "repo",
+      inputSchemaId: contract.inputSchemaId,
+      ...(contract.outputSchemaId ? { outputSchemaId: contract.outputSchemaId } : {}),
+      errorSchemaId: contract.errorSchemaId,
+      service: contract.service,
+      serviceMethod: contract.serviceMethod,
+      routeId: contract.id,
+      auth: contract.auth,
+      requiresRepo: true,
+      commandClass: commandClassForApiRoute(contract),
+      ...(contract.leaseRequired === true ? { leaseRequired: true } : {})
+    };
+    return derived;
+  }).filter((contract): contract is JsonRpcMethodContract => contract !== null);
 }
 
 export function commandClassForApiRoute(contract: ApiRouteContract): DaemonCommandClass {

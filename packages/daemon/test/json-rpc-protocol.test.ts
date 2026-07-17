@@ -38,7 +38,9 @@ test("daemon JSON-RPC service method registry is derived from the API contract r
       inputSchemaId: contract.inputSchemaId,
       outputSchemaId: contract.outputSchemaId
     })),
-    apiRouteContracts.map((contract) => ({
+    apiRouteContracts
+      .filter((contract) => contract.commandClass !== "admin")
+      .map((contract) => ({
       method: `repo.${contract.id}`,
       service: contract.service,
       serviceMethod: contract.serviceMethod,

@@ -18,6 +18,7 @@ export interface PreloadApiCapability {
 export const allowedPreloadApi = Object.freeze({
   getDaemonLogs: "getDaemonLogs",
   getDaemonStatus: "getDaemonStatus",
+  restartDaemon: "restartDaemon",
   getCatalogSnapshot: "getCatalogSnapshot",
   getTasks: "getTasks",
   getTaskDetail: "getTaskDetail",
@@ -58,6 +59,7 @@ export const terminalPreloadApi = Object.freeze({
 export const preloadApiCapabilities = Object.freeze({
   getDaemonLogs: { method: "getDaemonLogs", status: "shipped" },
   getDaemonStatus: { method: "getDaemonStatus", status: "shipped" },
+  restartDaemon: { method: "restartDaemon", status: "shipped" },
   getCatalogSnapshot: { method: "getCatalogSnapshot", status: "shipped" },
   getTasks: { method: "getTasks", status: "shipped" },
   getTaskDetail: { method: "getTaskDetail", status: "shipped" },

@@ -41,7 +41,8 @@ const catalogs: Record<Locale, Record<MessageKey, string>> = {
 export const LOCALE_STORAGE_KEY = "harness-locale";
 
 function systemLocale(): Locale {
-  if (typeof navigator === "undefined") return "en-US";
+  // Node test hosts may expose a navigator polyfill; only trust browser window.
+  if (typeof window === "undefined" || typeof navigator === "undefined") return "en-US";
   return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
 }
 

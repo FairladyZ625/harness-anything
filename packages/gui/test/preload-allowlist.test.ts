@@ -16,6 +16,7 @@ test("preload exposes only the approved API methods", () => {
   assert.deepEqual(preloadAllowlist, [
     "getDaemonLogs",
     "getDaemonStatus",
+    "restartDaemon",
     "getCatalogSnapshot",
     "getTasks",
     "getTaskDetail",
@@ -59,6 +60,7 @@ test("preload capabilities distinguish shipped methods from deferred placeholder
   assert.deepEqual(shippedPreloadMethods, [
     "getDaemonLogs",
     "getDaemonStatus",
+    "restartDaemon",
     "getCatalogSnapshot",
     "getTasks",
     "getTaskDetail",
@@ -94,6 +96,7 @@ test("preload capabilities distinguish shipped methods from deferred placeholder
   assert.equal(getPreloadApiCapability("getDaemonLogs").status, "shipped");
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
   assert.equal(getPreloadApiCapability("getDaemonStatus").status, "shipped");
+  assert.equal(getPreloadApiCapability("restartDaemon").status, "shipped");
   assert.equal(getPreloadApiCapability("archiveTask").status, "deferred");
   assert.match(getPreloadApiCapability("archiveTask").reason ?? "", /placeholder/);
   assert.equal(getPreloadApiCapability("openShell").status, "deferred");

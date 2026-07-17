@@ -9,7 +9,12 @@ import {
   createGuiServiceBridgeForDaemon,
   projectDaemonStatusResult
 } from "../src/api/service-bridge.ts";
-import { readDaemonStatusResult } from "../src/renderer/api-client.ts";
+import { apiRouteContracts } from "../src/api/api-contract-registry.ts";
+import {
+  jsonRpcMethodForGuiRoute,
+  jsonRpcParamsForGuiRoute
+} from "../src/main/local-composition-root.ts";
+import { readDaemonRestartResult, readDaemonStatusResult } from "../src/renderer/api-client.ts";
 import {
   daemonRepoRows
 } from "../src/renderer/model/daemon-status.ts";
@@ -221,5 +226,112 @@ describe("bridge output carries no lock owner identity across IPC", () => {
     expect(status.service.queue.depth).toBe(1);
     expect(status.repos[0]?.lock).toEqual({ path: ".harness/journal/global.lock" });
     expect(Object.keys(status.repos[0]!.lock)).toEqual(["path"]);
+  });
+});
+
+describe("daemon restart bridge", () => {
+  const ACCEPTED_FIXTURE_PATH = path.resolve(
+    import.meta.dirname,
+    "../../daemon/fixtures/daemon-control/accepted.valid.json"
+  );
+
+  function loadAcceptedRestart() {
+    return JSON.parse(readFileSync(ACCEPTED_FIXTURE_PATH, "utf8"));
+  }
+
+  it("readDaemonRestartResult accepts daemon-control-accepted/v1 restart fixture", () => {
+    const accepted = loadAcceptedRestart();
+    const result = readDaemonRestartResult(accepted);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.accepted.kind).toBe("restart");
+    expect(result.accepted.operationId).toBe("control_01KXN0RESTART");
+    expect(result.accepted.schema).toBe("daemon-control-accepted/v1");
+  });
+
+  it("readDaemonRestartResult surfaces daemon_restart_failed", () => {
+    const result = readDaemonRestartResult({
+      ok: false,
+      error: {
+        code: "daemon_restart_failed",
+        hint: "Daemon restart failed during replacement handoff.",
+        operationId: "control_01KXN0RESTART"
+      }
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("daemon_restart_failed");
+    expect(result.error.hint).toMatch(/replacement/i);
+  });
+
+  it("restartDaemon bridge path routes to daemon.restart and returns accepted receipt", async () => {
+    const accepted = loadAcceptedRestart();
+    const bridge = createGuiServiceBridgeForDaemon(async (route, payload) => {
+      expect(route.id).toBe("daemon.restart");
+      expect(route.commandClass).toBe("admin");
+      expect(route.service).toBe("DaemonControlService");
+      expect(route.serviceMethod).toBe("requestControl");
+      expect(payload).toEqual({
+        reason: "GUI Settings System restart request",
+        drainTimeoutMs: 5000
+      });
+      return {
+        ok: true,
+        details: { data: accepted as unknown as Record<string, unknown> }
+      };
+    });
+
+    const result = await bridge.invoke("restartDaemon", null);
+    const parsed = readDaemonRestartResult(result);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.accepted.operationId).toBe("control_01KXN0RESTART");
+    expect(parsed.accepted.kind).toBe("restart");
+  });
+
+  it("restartDaemon bridge path surfaces control failure codes", async () => {
+    const bridge = createGuiServiceBridgeForDaemon(async (route) => {
+      expect(route.id).toBe("daemon.restart");
+      return {
+        ok: false,
+        error: {
+          code: "daemon_control_in_progress",
+          hint: "Daemon restart operation control_01KXN0RESTART is already active."
+        }
+      };
+    });
+    const result = await bridge.invoke("restartDaemon", null);
+    const parsed = readDaemonRestartResult(result);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error.code).toBe("daemon_control_in_progress");
+  });
+});
+
+describe("admin daemon restart JSON-RPC mapping", () => {
+  it("maps daemon.restart GUI route to admin.daemon.restart without repo namespace", () => {
+    const route = apiRouteContracts.find((entry) => entry.id === "daemon.restart");
+    expect(route).toBeDefined();
+    if (!route) return;
+    expect(jsonRpcMethodForGuiRoute(route)).toBe("admin.daemon.restart");
+    expect(jsonRpcParamsForGuiRoute(route, "canonical", {
+      reason: "operator requested restart",
+      drainTimeoutMs: 5000
+    })).toEqual({
+      payload: {
+        reason: "operator requested restart",
+        drainTimeoutMs: 5000
+      }
+    });
+  });
+
+  it("keeps repo-scoped status on repo.daemon.status", () => {
+    const route = apiRouteContracts.find((entry) => entry.id === "daemon.status");
+    expect(route).toBeDefined();
+    if (!route) return;
+    expect(jsonRpcMethodForGuiRoute(route)).toBe("repo.daemon.status");
+    expect(jsonRpcParamsForGuiRoute(route, "canonical", undefined)).toEqual({
+      repo: { repoId: "canonical" }
+    });
   });
 });

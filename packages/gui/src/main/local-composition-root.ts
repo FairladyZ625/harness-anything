@@ -97,10 +97,11 @@ async function requestGuiRouteViaDaemon(
       };
     }
     const nodeRuntime = resolveGuiDaemonNodeRuntime();
-    const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, `repo.${route.id}`, {
-      repo: { repoId: target.repoId },
-      ...(isLocalServiceRecord(payload) ? { payload: payload as JsonObject } : {})
-    }, 200, {
+    const method = jsonRpcMethodForGuiRoute(route);
+    const params = jsonRpcParamsForGuiRoute(route, target.repoId, payload);
+    // Admin control (restart) waits for accept + drain; allow a longer socket timeout.
+    const timeoutMs = route.commandClass === "admin" ? 5_000 : 200;
+    const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, method, params, timeoutMs, {
       entryPath: cliEntrypointPath(),
       idleExitMs: resolveGuiDaemonIdleExitMs(),
       timeoutMs: daemonAutostartTimeoutMs(),
@@ -264,4 +265,35 @@ function positiveIntegerOr(value: string | undefined, fallback: number): number 
 
 function isLocalServiceRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Maps a GUI API route to the daemon JSON-RPC method name.
+ * Repo-scoped routes use `repo.<routeId>`; admin control routes use the
+ * explicit `admin.*` surface (daemon.restart → admin.daemon.restart).
+ */
+export function jsonRpcMethodForGuiRoute(route: ApiRouteContract): string {
+  if (route.commandClass === "admin" && route.id === "daemon.restart") {
+    return "admin.daemon.restart";
+  }
+  if (route.commandClass === "admin") {
+    return `admin.${route.id}`;
+  }
+  return `repo.${route.id}`;
+}
+
+export function jsonRpcParamsForGuiRoute(
+  route: ApiRouteContract,
+  repoId: string,
+  payload: unknown
+): JsonObject {
+  const payloadRecord = isLocalServiceRecord(payload) ? (payload as JsonObject) : undefined;
+  if (route.commandClass === "admin") {
+    // admin.daemon.restart takes { payload: DaemonControlRequestV1 } without repo.
+    return payloadRecord ? { payload: payloadRecord } : {};
+  }
+  return {
+    repo: { repoId },
+    ...(payloadRecord ? { payload: payloadRecord } : {})
+  };
 }
