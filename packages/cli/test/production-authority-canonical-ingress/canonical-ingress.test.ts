@@ -43,6 +43,7 @@ test("production service route preserves progress dry-run and publishes a slugge
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
     HARNESS_ACTOR: "agent:codex",
+    HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
