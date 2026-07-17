@@ -1,0 +1,47 @@
+Usage: harness-anything <kind> [options]
+Alias: ha <kind> [options]
+
+Global options:
+  --json             Emit machine-readable JSON.
+
+Commands:
+  adopt - Bind external snapshots to local tasks.
+  audit - Inspect execution provenance coverage.
+  authority - Manage authority cutover controls.
+  capabilities - Describe machine-readable command schemas.
+  check - Run harness health checks.
+  completion - Generate shell completion scripts.
+  daemon - Manage the persistent local daemon.
+  decision - Read and govern decisions.
+  diagnostics - Analyze command usage and failures.
+  distill - Distill task evidence into facts.
+  doc - Inspect and synchronize governed prose.
+  doctor - Diagnose the local environment.
+  entity - List registered entity kinds.
+  event - Record and inspect runtime events.
+  execution - Inspect task execution rounds.
+  fact - Read and record factual evidence.
+  git - Capture Git diff evidence.
+  governance - Rebuild governance projections.
+  graph - Generate relation graph panoramas.
+  gui - Launch the desktop controller.
+  help - Show CLI discovery help.
+  init - Initialize a harness workspace.
+  legacy - Intake legacy harness content.
+  lesson - Promote and sediment lessons.
+  list - List external issue snapshots.
+  materializer - Merge session ledger branches.
+  migrate - Run compatibility migrations.
+  module - Manage project modules.
+  preset - Manage executable presets.
+  relation - Inspect projected relations.
+  review - Inspect execution reviews.
+  script - Discover and run extension scripts.
+  session - Inspect and export sessions.
+  snapshot - Read external issue snapshots.
+  status - Summarize harness state.
+  task - Manage task lifecycle and evidence.
+  template - List and render templates.
+  version - Print the CLI version.
+  vertical - Validate vertical definitions.
+  worktree - Manage task implementation worktrees.

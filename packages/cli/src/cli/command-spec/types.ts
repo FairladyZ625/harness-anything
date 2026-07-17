@@ -38,11 +38,15 @@ export interface CommandOptionDefinition {
   readonly description: string;
 }
 
+export type CommandDisplayTier = "default" | "advanced" | "hidden";
+
 export interface CommandSpecDefinition {
   readonly kind: string;
   readonly usage: string;
   readonly options: ReadonlyArray<CommandOptionDefinition>;
   readonly aliases?: ReadonlyArray<string>;
+  readonly display?: CommandDisplayTier;
+  readonly aliasDisplay?: Readonly<Record<string, CommandDisplayTier>>;
   readonly summary: string;
   readonly examples: ReadonlyArray<string>;
   readonly parse: CommandParser;

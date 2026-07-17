@@ -1,19 +1,6 @@
-import type { CommandRegistryEntry } from "../../cli/types.ts";
+import { commandGroups, globalCommandOptions } from "../../cli/command-spec/command-groups.ts";
 
-export const daemonHelpRegistryEntry = {
-  kind: "daemon",
-  primary: "harness-anything daemon <subcommand> [options]",
-  aliases: ["ha daemon <subcommand> [options]"],
-  commandPath: ["daemon"],
-  summary: "Register repositories and manage the persistent local daemon.",
-  options: [],
-  examples: [
-    "ha daemon repo register --root .",
-    "ha daemon start --service",
-    "ha daemon status --json"
-  ],
-  resultEnvelope: "command-receipt/v2"
-} as const satisfies CommandRegistryEntry;
+const daemonGroup = commandGroups.find((group) => group.name === "daemon")!;
 
 export const daemonCapabilityOperations = [
   daemonCapabilityOperation(
@@ -58,11 +45,16 @@ export function renderDaemonHelp(): string {
     "Usage: harness-anything daemon <start|status|logs|stop|restart|refresh|connect|repo|bootstrap-server|install-templates> [options]",
     "Alias: ha daemon <subcommand> [options]",
     "",
+    daemonGroup.summary,
+    "",
+    "Global options:",
+    ...globalCommandOptions.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`),
+    "",
     "Commands:",
     "  start --service              Start a detached local daemon service (default).",
     "  start --foreground           Run the daemon service in the foreground.",
     "    --authority-manifest PATH Enable fail-closed V2 authority composition from an explicit manifest.",
-    "  status --json                Show lock holder, queue depth, connections, and version.",
+    "  status                       Show lock holder, queue depth, connections, and version.",
     "  logs [options]               Read bounded operational daemon logs.",
     "    --limit <1-200>            Set page size (default: 100).",
     "    --since <timestamp>        Include entries at or after an ISO-8601 timestamp.",

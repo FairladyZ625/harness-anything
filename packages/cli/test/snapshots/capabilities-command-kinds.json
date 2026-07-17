@@ -1,0 +1,198 @@
+{
+  "adopt": [
+    "adopt-multica"
+  ],
+  "audit": [
+    "audit-provenance"
+  ],
+  "authority": [
+    "authority-cutover-boundary",
+    "authority-cutover-confirm",
+    "authority-cutover-drain",
+    "authority-cutover-freeze",
+    "authority-cutover-re-enable",
+    "authority-cutover-scan",
+    "authority-cutover-status"
+  ],
+  "check": [
+    "check"
+  ],
+  "consent": [],
+  "daemon": [
+    "daemon-logs",
+    "daemon-refresh",
+    "daemon-register",
+    "daemon-restart",
+    "daemon-start",
+    "daemon-status",
+    "daemon-stop"
+  ],
+  "decision": [
+    "decision-accept",
+    "decision-amend",
+    "decision-defer",
+    "decision-list",
+    "decision-propose",
+    "decision-reckon",
+    "decision-reject",
+    "decision-relate",
+    "decision-repin",
+    "decision-retire",
+    "decision-show",
+    "decision-supersede",
+    "decision-verify"
+  ],
+  "diagnostics": [
+    "diagnostics-command-usage"
+  ],
+  "distill": [
+    "distill-candidate",
+    "distill-commit"
+  ],
+  "doc": [
+    "doc-status",
+    "doc-sync-dry-run",
+    "doc-sync-submit"
+  ],
+  "doctor": [
+    "doctor"
+  ],
+  "event": [
+    "runtime-event-append",
+    "runtime-event-list"
+  ],
+  "execution": [
+    "execution-list",
+    "execution-show"
+  ],
+  "fact": [
+    "fact-invalidate",
+    "fact-list",
+    "fact-show",
+    "record-fact"
+  ],
+  "git": [
+    "git-diff"
+  ],
+  "governance": [
+    "governance-rebuild"
+  ],
+  "graph": [
+    "graph"
+  ],
+  "gui": [
+    "gui"
+  ],
+  "init": [
+    "init"
+  ],
+  "legacy": [
+    "legacy-copy-safe-docs",
+    "legacy-index",
+    "legacy-intake-plan",
+    "legacy-scan",
+    "legacy-verify"
+  ],
+  "lesson": [
+    "lesson-promote",
+    "lesson-sediment"
+  ],
+  "list": [
+    "list-github"
+  ],
+  "materializer": [
+    "materializer-run"
+  ],
+  "migrate": [
+    "migrate-anchors",
+    "migrate-fact-execution",
+    "migrate-plan",
+    "migrate-provenance",
+    "migrate-retired-attribution-fields",
+    "migrate-run",
+    "migrate-structure",
+    "migrate-verify"
+  ],
+  "module": [
+    "module-inspect",
+    "module-list",
+    "module-register",
+    "module-scaffold",
+    "module-step",
+    "module-unregister"
+  ],
+  "preset": [
+    "preset-action",
+    "preset-audit",
+    "preset-check",
+    "preset-inspect",
+    "preset-install",
+    "preset-list",
+    "preset-run",
+    "preset-seed",
+    "preset-uninstall",
+    "preset-validate"
+  ],
+  "relation": [
+    "decision-relation-replace",
+    "decision-relation-retire",
+    "relation-list"
+  ],
+  "review": [
+    "review-show"
+  ],
+  "script": [
+    "script-inspect",
+    "script-list",
+    "script-run"
+  ],
+  "session": [
+    "session-backfill",
+    "session-export",
+    "session-show",
+    "session-sync",
+    "session-trace"
+  ],
+  "snapshot": [
+    "snapshot-github",
+    "snapshot-multica"
+  ],
+  "status": [
+    "status"
+  ],
+  "task": [
+    "new-task",
+    "progress-append",
+    "status-set",
+    "task-amend",
+    "task-archive",
+    "task-claim",
+    "task-code-doc-reconcile",
+    "task-complete",
+    "task-consent-record",
+    "task-contract-migrate",
+    "task-delete",
+    "task-holder",
+    "task-list",
+    "task-relate",
+    "task-release",
+    "task-reopen",
+    "task-review",
+    "task-review-execution",
+    "task-show",
+    "task-supersede",
+    "task-trace",
+    "task-tree"
+  ],
+  "template": [
+    "template-list",
+    "template-render"
+  ],
+  "vertical": [
+    "vertical-validate"
+  ],
+  "worktree": [
+    "worktree-create",
+    "worktree-status"
+  ]
+}

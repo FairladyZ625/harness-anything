@@ -2,10 +2,12 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { commandGroups } from "../src/cli/command-spec/command-groups.ts";
+import { commandRegistry } from "../src/cli/command-registry.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -89,16 +91,35 @@ test("status command registry includes doctor", () => {
   });
 });
 
-test("CLI help prints canonical command and alias", () => {
+test("CLI global help matches the layered discovery snapshot", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--help"], {
       encoding: "utf8"
     });
 
-    assert.match(stdout, /Usage: harness-anything <command> \[options\]/u);
-    assert.match(stdout, /Alias: ha <command> \[options\]/u);
-    assert.match(stdout, /harness-anything doctor --json/u);
-    assert.match(stdout, /harness-anything daemon <subcommand> \[options\]/u);
+    assert.equal(stdout, readSnapshot("global-help.txt"));
+    assert.equal(Buffer.byteLength(stdout) <= 2_000, true, "global help must remain at or below 2 KB");
+  });
+});
+
+test("CLI global help groups exactly cover every top-level command kind plus daemon", () => {
+  const registryKinds = new Set(commandRegistry.flatMap((entry) => entry.commandPath[0] ? [entry.commandPath[0]] : []));
+  const expected = [...registryKinds, "daemon"].sort();
+  assert.deepEqual(commandGroups.map((group) => group.name).sort(), expected);
+});
+
+test("CLI task help lists every task leaf and declares --json only as a global option", () => {
+  withTempRoot((rootDir) => {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "--help"], {
+      encoding: "utf8"
+    });
+    const renderedTaskLeaves = stdout.split("\n").filter((line) => line.startsWith("  harness-anything task "));
+    const expectedTaskLeaves = commandRegistry
+      .filter((entry) => entry.commandPath[0] === "task")
+      .map((entry) => `  ${entry.primary.replace(/ \[--json\]/gu, "").replace(/ --json$/u, "")} - ${entry.summary}`);
+
+    assert.deepEqual(renderedTaskLeaves, expectedTaskLeaves);
+    assert.equal(stdout.match(/--json(?!-input)/gu)?.length, 1);
   });
 });
 
@@ -139,7 +160,8 @@ test("command-level help exits without creating task state", () => {
 
     assert.match(stdout, /Usage: harness-anything task create --title <title>/u);
     assert.match(stdout, /Aliases:/u);
-    assert.match(stdout, /new-task --title <title> \(deprecated, use task create; retires at E77\/F6 acceptance\)/u);
+    assert.doesNotMatch(stdout, /new-task --title <title> \(deprecated/u);
+    assert.equal(stdout.match(/--json(?!-input)/gu)?.length, 1);
     assert.match(stdout, /Options:/u);
     assert.match(stdout, /--title/u);
     assert.match(stdout, /Recommended presets:/u);
@@ -179,4 +201,8 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     encoding: "utf8"
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function readSnapshot(name: string): string {
+  return readFileSync(path.resolve("packages/cli/test/snapshots", name), "utf8");
 }

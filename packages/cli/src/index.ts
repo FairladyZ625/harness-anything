@@ -12,6 +12,7 @@ import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-even
 import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "../../daemon/src/index.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
+import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
 import {
   runDaemonProductCommand,
@@ -253,17 +254,19 @@ function renderHelp(result: Record<string, unknown>): string {
     return [
       `Usage: harness-anything ${prefix} <subcommand> [options]`,
       `Alias: ha ${prefix} <subcommand> [options]`,
+      ...renderGlobalOptions(),
       "",
       "Commands:",
       ...commands.map((entry) => `  ${entry.primary} - ${entry.summary}`)
     ].join("\n");
   }
   return [
-    "Usage: harness-anything <command> [options]",
-    "Alias: ha <command> [options]",
+    "Usage: harness-anything <kind> [options]",
+    "Alias: ha <kind> [options]",
+    ...renderGlobalOptions(),
     "",
     "Commands:",
-    ...commands.map((entry) => `  ${entry.primary}`)
+    ...commands.map((entry) => `  ${entry.primary} - ${entry.summary}`)
   ].join("\n");
 }
 
@@ -276,11 +279,20 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     `Usage: ${command.primary}`,
     "",
     command.summary,
+    ...renderGlobalOptions(),
     ...aliases,
     ...options,
     ...additional,
     ...examples
   ].join("\n");
+}
+
+function renderGlobalOptions(): ReadonlyArray<string> {
+  return [
+    "",
+    "Global options:",
+    ...globalCommandOptions.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)
+  ];
 }
 
 function taskCreatePresetHelp(): ReadonlyArray<string> {

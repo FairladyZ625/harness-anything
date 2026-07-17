@@ -385,12 +385,21 @@ test("CLI capabilities surface every registered command or explicitly exclude it
   withTempRoot((rootDir) => {
     const index = runRawJson(rootDir, ["capabilities"]);
     const surfaced = new Set<string>();
+    const exactSet: Record<string, ReadonlyArray<string>> = {};
     for (const item of index.items as ReadonlyArray<{ readonly kind: string }>) {
       const detail = runRawJson(rootDir, ["capabilities", "--kind", item.kind]);
+      exactSet[item.kind] = (detail.items as ReadonlyArray<{ readonly commandKind?: string }>)
+        .flatMap((op) => op.commandKind ? [op.commandKind] : [])
+        .sort();
       for (const op of detail.items as ReadonlyArray<{ readonly commandKind?: string }>) {
         if (op.commandKind) surfaced.add(op.commandKind);
       }
     }
+
+    assert.deepEqual(exactSet, JSON.parse(readFileSync(
+      path.resolve("packages/cli/test/snapshots/capabilities-command-kinds.json"),
+      "utf8"
+    )));
 
     for (const descriptor of commandDescriptors) {
       assert.equal(

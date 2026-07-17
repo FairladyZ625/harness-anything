@@ -332,6 +332,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "usage": "module step <key> <step> --state <state> [--json]",
     "options": [{"flag":"--state","description":"Set the module step state."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["module-step <key> <step> (deprecated, use module step; retires at E77/F6 acceptance)"],
+    "aliasDisplay": {"module-step <key> <step> (deprecated, use module step; retires at E77/F6 acceptance)":"hidden"},
     "summary": "Update a module step state.",
     "examples": ["harness-anything module step kernel KR-01 --state done"],
     "parse": parseModuleArgs,
