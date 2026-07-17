@@ -71,6 +71,11 @@ interface GuiBridgeServiceProxy {
   readonly appendTaskProgress: (payload: unknown) => Promise<unknown> | unknown;
   readonly rebuildGovernance: () => Promise<unknown> | unknown;
   readonly terminalCreate: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalList: () => Promise<unknown> | unknown;
+  readonly terminalGet: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalAttach: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalDetach: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalTerminate: (payload: unknown) => Promise<unknown> | unknown;
   readonly terminalWrite: (payload: unknown) => Promise<unknown> | unknown;
   readonly terminalRead: (payload: unknown) => Promise<unknown> | unknown;
   readonly terminalResize: (payload: unknown) => Promise<unknown> | unknown;
@@ -339,6 +344,11 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     appendTaskProgress: (payload) => invokeDaemonGuiRoute(request, "appendTaskProgress", payload),
     rebuildGovernance: () => invokeDaemonGuiRoute(request, "rebuildGovernance", undefined),
     terminalCreate: (payload) => invokeDaemonGuiRoute(request, "terminalCreate", payload),
+    terminalList: () => invokeDaemonGuiRoute(request, "terminalList", undefined),
+    terminalGet: (payload) => invokeDaemonGuiRoute(request, "terminalGet", payload),
+    terminalAttach: (payload) => invokeDaemonGuiRoute(request, "terminalAttach", payload),
+    terminalDetach: (payload) => invokeDaemonGuiRoute(request, "terminalDetach", payload),
+    terminalTerminate: (payload) => invokeDaemonGuiRoute(request, "terminalTerminate", payload),
     terminalWrite: (payload) => invokeDaemonGuiRoute(request, "terminalWrite", payload),
     terminalRead: (payload) => invokeDaemonGuiRoute(request, "terminalRead", payload),
     terminalResize: (payload) => invokeDaemonGuiRoute(request, "terminalResize", payload),

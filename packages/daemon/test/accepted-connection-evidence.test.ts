@@ -7,7 +7,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import type { LocalControllerService } from "../../application/src/index.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import {
   createAcceptedConnectionEvidence,
   createJsonRpcProtocolServer,

@@ -62,6 +62,7 @@ export const apiSchemaContracts = [
   { id: "terminal.session-error/v1", owner: "gui", typeName: "TerminalSessionFailure" },
   { id: "terminal.session-id-payload/v1", owner: "gui", typeName: "TerminalSessionIdPayload" },
   { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" },
+  { id: "terminal.terminate-session-payload/v1", owner: "gui", typeName: "TerminateTerminalSessionPayload" },
   { id: "terminal.write-session-payload/v1", owner: "gui", typeName: "WriteTerminalSessionPayload" }
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
@@ -559,27 +560,29 @@ export const apiRouteContracts = [
     commandClass: "repo-read"
   },
   {
-    id: "terminal.sessions.close",
-    method: "DELETE",
-    path: "/api/terminal/sessions/:id",
-    inputSchemaId: "terminal.session-id-payload/v1",
-    outputSchemaId: "terminal.session-detail-result/v1",
-    errorSchemaId: "terminal.session-error/v1",
-    service: "TerminalSessionService",
-    serviceMethod: "closeSession",
-    auth: "local-session-token",
+    id: "terminal.sessions.detach", method: "POST", path: "/api/terminal/sessions/:id/detach", inputSchemaId: "terminal.session-id-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1", errorSchemaId: "terminal.session-error/v1", service: "TerminalSessionService", serviceMethod: "detachSession", auth: "local-session-token",
+    commandClass: "repo-read"
+  },
+  {
+    id: "terminal.sessions.terminate", method: "POST", path: "/api/terminal/sessions/:id/terminate", inputSchemaId: "terminal.terminate-session-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1", errorSchemaId: "terminal.session-error/v1", service: "TerminalSessionService", serviceMethod: "terminateSession", auth: "local-session-token",
+    commandClass: "repo-read"
+  },
+  {
+    id: "terminal.sessions.close", method: "DELETE", path: "/api/terminal/sessions/:id", inputSchemaId: "terminal.session-id-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1", errorSchemaId: "terminal.session-error/v1", service: "TerminalSessionService", serviceMethod: "closeSession", auth: "local-session-token",
     commandClass: "repo-read"
   }
 ] as const satisfies ReadonlyArray<ApiRouteContract>;
 
 export const terminalGuiBridgeContracts = [
-  { guiBridgeMethod: "terminalCreate", routeId: "terminal.sessions.create", serviceMethod: "createSession" },
-  { guiBridgeMethod: "terminalWrite", routeId: "terminal.sessions.write", serviceMethod: "writeSession" },
-  { guiBridgeMethod: "terminalRead", routeId: "terminal.sessions.read", serviceMethod: "readSession" },
-  { guiBridgeMethod: "terminalResize", routeId: "terminal.sessions.resize", serviceMethod: "resizeSession" },
-  { guiBridgeMethod: "terminalExit", routeId: "terminal.sessions.close", serviceMethod: "closeSession" }
+  { guiBridgeMethod: "terminalCreate", routeId: "terminal.sessions.create", serviceMethod: "createSession" }, { guiBridgeMethod: "terminalList", routeId: "terminal.sessions.list", serviceMethod: "listSessions" },
+  { guiBridgeMethod: "terminalGet", routeId: "terminal.sessions.get", serviceMethod: "getSession" }, { guiBridgeMethod: "terminalAttach", routeId: "terminal.sessions.attach", serviceMethod: "attachSession" },
+  { guiBridgeMethod: "terminalDetach", routeId: "terminal.sessions.detach", serviceMethod: "detachSession" }, { guiBridgeMethod: "terminalTerminate", routeId: "terminal.sessions.terminate", serviceMethod: "terminateSession" },
+  { guiBridgeMethod: "terminalWrite", routeId: "terminal.sessions.write", serviceMethod: "writeSession" }, { guiBridgeMethod: "terminalRead", routeId: "terminal.sessions.read", serviceMethod: "readSession" },
+  { guiBridgeMethod: "terminalResize", routeId: "terminal.sessions.resize", serviceMethod: "resizeSession" }, { guiBridgeMethod: "terminalExit", routeId: "terminal.sessions.close", serviceMethod: "closeSession" }
 ] as const satisfies ReadonlyArray<TerminalGuiBridgeContract>;
-
 export const deferredGuiBridgeContracts = [
   {
     guiBridgeMethod: "archiveTask",

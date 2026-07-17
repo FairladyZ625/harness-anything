@@ -1,7 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyShellOutput, createInMemoryTerminalSessionService, directPtyCapability, tmuxCapability } from "../src/index.ts";
+import { createInMemoryTerminalSessionService, directPtyCapability, tmuxCapability } from "../src/index.ts";
+import { classifyShellOutput } from "../../gui/src/terminal/boundary.ts";
 
 test("terminal session registry creates lists gets attaches resizes and closes runtime metadata", () => {
   const service = createInMemoryTerminalSessionService({
@@ -51,7 +52,7 @@ test("terminal session registry creates lists gets attaches resizes and closes r
   assert.equal(service.attachSession({ sessionId: "term-1" }).ok, false);
 });
 
-test("terminal session detach is distinct from explicit close", () => {
+test("terminal session detach is distinct from confirmed termination", () => {
   const service = createInMemoryTerminalSessionService({
     createId: sequence("term"),
     now: sequenceTime("2026-06-14T01:00:00.000Z")
@@ -61,7 +62,7 @@ test("terminal session detach is distinct from explicit close", () => {
   assert.equal(created.ok, true);
   if (!created.ok) return;
 
-  const detached = service.detachSessionView({ sessionId: created.session.sessionId });
+  const detached = service.detachSession({ sessionId: created.session.sessionId });
   assert.equal(detached.ok, true);
   if (!detached.ok) return;
   assert.equal(detached.session.status, "idle");
@@ -71,6 +72,22 @@ test("terminal session detach is distinct from explicit close", () => {
   assert.equal(attached.ok, true);
   if (!attached.ok) return;
   assert.equal(attached.session.status, "active");
+
+  const refused = service.terminateSession({
+    sessionId: created.session.sessionId,
+    confirmation: "wrong" as "terminate-terminal-session"
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(service.getSession({ sessionId: created.session.sessionId }).ok, true);
+
+  const terminated = service.terminateSession({
+    sessionId: created.session.sessionId,
+    confirmation: "terminate-terminal-session"
+  });
+  assert.equal(terminated.ok, true);
+  if (!terminated.ok) return;
+  assert.equal(terminated.session.status, "exited");
+  assert.equal(terminated.session.attachable, false);
 });
 
 test("terminal session reopen creates a new session with inherited metadata", () => {

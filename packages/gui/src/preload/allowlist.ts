@@ -58,6 +58,11 @@ export const allowedPreloadApi = Object.freeze({
 
 export const terminalPreloadApi = Object.freeze({
   terminalCreate: "terminalCreate",
+  terminalList: "terminalList",
+  terminalGet: "terminalGet",
+  terminalAttach: "terminalAttach",
+  terminalDetach: "terminalDetach",
+  terminalTerminate: "terminalTerminate",
   terminalWrite: "terminalWrite",
   terminalRead: "terminalRead",
   terminalResize: "terminalResize",
@@ -115,6 +120,11 @@ export const preloadApiCapabilities = Object.freeze({
 
 export const terminalPreloadApiCapabilities = Object.freeze({
   terminalCreate: { method: "terminalCreate", status: "shipped" },
+  terminalList: { method: "terminalList", status: "shipped" },
+  terminalGet: { method: "terminalGet", status: "shipped" },
+  terminalAttach: { method: "terminalAttach", status: "shipped" },
+  terminalDetach: { method: "terminalDetach", status: "shipped" },
+  terminalTerminate: { method: "terminalTerminate", status: "shipped" },
   terminalWrite: { method: "terminalWrite", status: "shipped" },
   terminalRead: { method: "terminalRead", status: "shipped" },
   terminalResize: { method: "terminalResize", status: "shipped" },

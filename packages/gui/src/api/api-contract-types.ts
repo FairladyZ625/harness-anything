@@ -4,7 +4,7 @@ import type {
   DaemonStatusService,
   LocalControllerService
 } from "../../../application/src/index.ts";
-import type { TerminalSessionService } from "../terminal/session-registry.ts";
+import type { TerminalSessionService } from "../../../application/src/terminal-session-contract.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";

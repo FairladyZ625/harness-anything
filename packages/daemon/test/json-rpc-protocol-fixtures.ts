@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LocalControllerService } from "../../application/src/index.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import {
   createJsonRpcProtocolServer,
   makePeopleRosterIdentityAdminSnapshot,

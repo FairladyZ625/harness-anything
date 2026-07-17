@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import type { JsonRpcRequest } from "../src/index.ts";
 import {
   emptyLocalController,

@@ -1,4 +1,9 @@
-import type { TerminalBackend, TerminalSessionInfo } from "./session-registry.ts";
+import type {
+  TerminalBackend,
+  TerminalBackendWarning,
+  TerminalSessionInfo
+} from "../../../application/src/terminal-session-contract.ts";
+export type { TerminalBackendWarning } from "../../../application/src/terminal-session-contract.ts";
 
 export type TerminalBackendDurability = "none" | "daemon-restart" | "remote-owned";
 export type TerminalBackendEvidence = "always-available" | "probe" | "not-installed" | "remote-owned" | "disabled";
@@ -10,13 +15,6 @@ export interface TerminalBackendCapability {
   readonly evidence: TerminalBackendEvidence;
   readonly version?: string;
   readonly reason?: string;
-}
-
-export interface TerminalBackendWarning {
-  readonly code: "terminal_backend_downgraded_non_durable";
-  readonly requestedBackend: TerminalBackend;
-  readonly selectedBackend: TerminalBackend;
-  readonly hint: string;
 }
 
 export interface TerminalBackendSelectionSuccess {
@@ -164,7 +162,7 @@ export function createTerminalBackendNamespace(input: TerminalBackendNamespaceIn
 export function createInMemoryTerminalBackendController(): InMemoryTerminalBackendController {
   const resources = new Map<string, TerminalBackendResource>();
 
-  function save(resource: TerminalBackendResource): TerminalBackendResource {
+  function saveResource(resource: TerminalBackendResource): TerminalBackendResource {
     resources.set(resource.sessionId, resource);
     return resource;
   }
@@ -172,7 +170,8 @@ export function createInMemoryTerminalBackendController(): InMemoryTerminalBacke
   function existing(sessionId: string): TerminalBackendResourceResult {
     const resource = resources.get(sessionId);
     if (!resource) return backendFailure("terminal_backend_unavailable", `No backend resource exists for terminal session: ${sessionId}`);
-    if (resource.status === "closed") {
+    const resourceIsClosed = resource.status === "closed";
+    if (resourceIsClosed) {
       return backendFailure("terminal_backend_resource_closed", resource.closeReason ?? "Terminal backend resource is closed.");
     }
     return { ok: true, resource };
@@ -194,30 +193,31 @@ export function createInMemoryTerminalBackendController(): InMemoryTerminalBacke
         durability: input.selection.capability.durability,
         status: "attached"
       };
-      return { ok: true, resource: save(resource) };
+      return { ok: true, resource: saveResource(resource) };
     },
     detachResourceView: (sessionId) => {
       const resource = existing(sessionId);
       if (!resource.ok) return resource;
-      return { ok: true, resource: save({ ...resource.resource, status: "detached" }) };
+      return { ok: true, resource: saveResource({ ...resource.resource, status: "detached" }) };
     },
     resumeResource: (sessionId) => {
       const resource = existing(sessionId);
       if (!resource.ok) return resource;
-      return { ok: true, resource: save({ ...resource.resource, status: "attached" }) };
+      return { ok: true, resource: saveResource({ ...resource.resource, status: "attached" }) };
     },
     closeResource: (sessionId) => {
       const resource = resources.get(sessionId);
       if (!resource) return backendFailure("terminal_backend_unavailable", `No backend resource exists for terminal session: ${sessionId}`);
-      return { ok: true, resource: save({ ...resource, status: "closed", closeReason: "explicit-close" }) };
+      return { ok: true, resource: saveResource({ ...resource, status: "closed", closeReason: "explicit-close" }) };
     },
     simulateDaemonRestart: () => {
       for (const resource of resources.values()) {
-        if (resource.status === "closed") continue;
+        const resourceIsClosed = resource.status === "closed";
+        if (resourceIsClosed) continue;
         if (resource.durability === "none") {
-          save({ ...resource, status: "closed", closeReason: "daemon-restart-non-durable-backend" });
+          saveResource({ ...resource, status: "closed", closeReason: "daemon-restart-non-durable-backend" });
         } else {
-          save({ ...resource, status: "detached" });
+          saveResource({ ...resource, status: "detached" });
         }
       }
     },

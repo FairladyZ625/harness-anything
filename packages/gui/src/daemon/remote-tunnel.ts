@@ -1,6 +1,6 @@
 /** @slice-activation Slice 7.5 GUI remote daemon - Remote terminal transport consumes this when daemon attach wiring lands. */
 import type { ApiRouteAuth, ApiRouteContract } from "../api/api-contract-registry.ts";
-import type { TerminalSessionInfo } from "../terminal/session-registry.ts";
+import type { TerminalSessionInfo } from "../../../application/src/terminal-session-contract.ts";
 
 export type DaemonTransport =
   | { readonly kind: "local-ipc"; readonly endpoint: string }

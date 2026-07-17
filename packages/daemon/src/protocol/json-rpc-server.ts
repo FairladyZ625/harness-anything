@@ -15,7 +15,7 @@ import {
   type TaskHolderService
 } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
-import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
+import type { TerminalSessionService } from "../../../application/src/terminal-session-contract.ts";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";

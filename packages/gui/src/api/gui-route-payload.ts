@@ -65,6 +65,8 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateTerminalResizePayload(payload);
     case "terminal.session-id-payload/v1":
       return validateTerminalSessionIdPayload(payload);
+    case "terminal.terminate-session-payload/v1":
+      return validateTerminalTerminatePayload(payload);
     default:
       return { ok: true, payload };
   }
@@ -132,8 +134,8 @@ function validateTerminalCreatePayload(payload: unknown): PayloadValidation {
       return invalidPayload(`${field} must be a string.`);
     }
   }
-  if (payload.backend !== undefined && payload.backend !== "direct-pty") {
-    return invalidPayload("P0 terminal creation supports the direct-pty backend only.");
+  if (payload.backend !== undefined && payload.backend !== "direct-pty" && payload.backend !== "tmux") {
+    return invalidPayload("Local terminal creation supports tmux or direct-pty backends.");
   }
   return { ok: true, payload };
 }
@@ -141,6 +143,15 @@ function validateTerminalCreatePayload(payload: unknown): PayloadValidation {
 function validateTerminalSessionIdPayload(payload: unknown): PayloadValidation {
   if (!isServicePayloadRecord(payload) || !nonBlankString(payload.sessionId)) {
     return invalidPayload("sessionId is required.");
+  }
+  return { ok: true, payload };
+}
+
+function validateTerminalTerminatePayload(payload: unknown): PayloadValidation {
+  const session = validateTerminalSessionIdPayload(payload);
+  if (!session.ok) return session;
+  if (!isServicePayloadRecord(payload) || payload.confirmation !== "terminate-terminal-session") {
+    return invalidPayload("terminal termination requires confirmation=terminate-terminal-session.");
   }
   return { ok: true, payload };
 }

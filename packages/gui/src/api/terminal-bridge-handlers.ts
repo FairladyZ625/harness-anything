@@ -11,6 +11,26 @@ export const terminalBridgeHandlerImplementations = {
     serviceMethod: "createSession",
     invoke: ({ service, payload }) => service.terminalCreate(payload)
   },
+  terminalList: {
+    serviceMethod: "listSessions",
+    invoke: ({ service }) => service.terminalList()
+  },
+  terminalGet: {
+    serviceMethod: "getSession",
+    invoke: ({ service, payload }) => service.terminalGet(payload)
+  },
+  terminalAttach: {
+    serviceMethod: "attachSession",
+    invoke: ({ service, payload }) => service.terminalAttach(payload)
+  },
+  terminalDetach: {
+    serviceMethod: "detachSession",
+    invoke: ({ service, payload }) => service.terminalDetach(payload)
+  },
+  terminalTerminate: {
+    serviceMethod: "terminateSession",
+    invoke: ({ service, payload }) => service.terminalTerminate(payload)
+  },
   terminalWrite: {
     serviceMethod: "writeSession",
     invoke: ({ service, payload }) => service.terminalWrite(payload)

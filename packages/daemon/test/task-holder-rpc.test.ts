@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import type { LocalControllerService, RuntimeEventAppendInput } from "../../application/src/index.ts";
 import { makeTaskHolderService } from "../../application/src/index.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import {
   createJsonRpcProtocolServer,
   makePeopleRosterIdentityAdminSnapshot,

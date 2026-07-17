@@ -8,7 +8,7 @@ import { createInterface } from "node:readline";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 import test from "node:test";
 import type { LocalControllerService } from "../../application/src/index.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import {
   attachTokenBootstrapFrame,
   authenticateSshForcedCommandFrame,

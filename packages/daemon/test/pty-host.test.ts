@@ -26,6 +26,9 @@ test("pty host spawns at the project root and streams input output resize and ex
     assert.equal(created.ok, true);
     if (!created.ok) return;
     assert.equal(created.session.cwd, realpathSync(workspaceRoot));
+    assert.equal(created.session.backend, "direct-pty");
+    assert.equal(created.session.degraded, true);
+    assert.equal(created.session.durability, "none");
     assert.equal(spawnContext?.shell, process.execPath);
     assert.equal(spawnContext?.options.cwd, realpathSync(workspaceRoot));
 
@@ -47,6 +50,81 @@ test("pty host spawns at the project root and streams input output resize and ex
     assert.deepEqual(exited.events, [{ kind: "exit", sequence: 2, exitCode: 7, signal: 0 }]);
     assert.equal(exited.session.status, "exited");
     assert.equal(exited.session.exitCode, 7);
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("daemon registry restores a durable tmux session and reattaches without respawn-as-resume", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-tmux-host-"));
+  const namespaceState = new Set<string>();
+  const controller = {
+    probe: () => ({ available: true, executable: "tmux", version: "tmux 3.4" }),
+    hasSession: (_executable: string, namespace: string) => namespaceState.has(namespace),
+    killSession: (_executable: string, namespace: string) => { namespaceState.delete(namespace); }
+  };
+  try {
+    const firstPty = fakePty();
+    let createdNamespace = "";
+    const first = createPtyTerminalSessionService({
+      workspaceRoot,
+      tmux: controller,
+      createId: () => "term-durable",
+      spawnPty: (command, args) => {
+        assert.equal(command, "tmux");
+        createdNamespace = String(args[args.indexOf("-s") + 1]);
+        namespaceState.add(createdNamespace);
+        return firstPty.pty;
+      }
+    });
+    const created = first.createSession({ name: "Durable" });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    assert.equal(created.session.backend, "tmux");
+    assert.equal(created.session.durability, "daemon-restart");
+    assert.equal(created.session.degraded, false);
+
+    const attachedPty = fakePty();
+    const second = createPtyTerminalSessionService({
+      workspaceRoot,
+      tmux: controller,
+      spawnPty: (command, args) => {
+        assert.equal(command, "tmux");
+        assert.deepEqual(args, ["attach-session", "-t", createdNamespace]);
+        return attachedPty.pty;
+      }
+    });
+    const restored = second.listSessions();
+    assert.equal(restored.ok, true);
+    if (!restored.ok) return;
+    assert.equal(restored.sessions[0]?.status, "idle");
+    assert.equal(restored.sessions[0]?.attachable, true);
+    assert.equal(second.attachSession({ sessionId: "term-durable" }).ok, true);
+    assert.deepEqual(second.terminateSession({
+      sessionId: "term-durable",
+      confirmation: "terminate-terminal-session"
+    }).ok, true);
+    assert.equal(namespaceState.size, 0);
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("daemon restart marks direct-pty metadata unknown instead of inventing a live channel", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-direct-restart-"));
+  try {
+    const first = createPtyTerminalSessionService({
+      workspaceRoot,
+      createId: () => "term-direct",
+      spawnPty: () => fakePty().pty
+    });
+    assert.equal(first.createSession({ name: "Ephemeral", backend: "direct-pty" }).ok, true);
+    const second = createPtyTerminalSessionService({ workspaceRoot, spawnPty: () => fakePty().pty });
+    const restored = second.getSession({ sessionId: "term-direct" });
+    assert.equal(restored.ok, true);
+    if (!restored.ok) return;
+    assert.equal(restored.session.status, "unknown");
+    assert.equal(restored.session.attachable, false);
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
   }

@@ -277,8 +277,11 @@ export {
   resolveTerminalShell,
   type PtySpawner,
   type PtySpawnOptions,
-  type PtyTerminalSessionServiceOptions
-} from "../../gui/src/terminal/pty-host.ts";
+  type PtyTerminalSessionServiceOptions,
+  type TmuxController
+} from "./terminal/pty-host.ts";
+export * from "./terminal/backend-policy.ts";
+export * from "./terminal/session-registry.ts";
 export {
   createAgentRuntimeSessionService,
   type AgentRuntimeSessionServiceOptions,

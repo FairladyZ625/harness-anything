@@ -4,7 +4,7 @@ import { rmSync } from "node:fs";
 import test from "node:test";
 import type { RuntimeEventAppendInput } from "../../application/src/index.ts";
 import { apiRouteContracts } from "../../gui/src/api/api-contract-registry.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import { commandSpecs } from "../../cli/src/cli/command-spec/index.ts";
 import {
   composeIdentityProvider,

@@ -1,7 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInMemoryTerminalSessionService, findEnvProfileSecretViolations, validateEnvProfile, type EnvProfile } from "../src/index.ts";
+import { findEnvProfileSecretViolations, validateEnvProfile, type EnvProfile } from "../src/index.ts";
+import { createInMemoryTerminalSessionService } from "../../daemon/src/terminal/session-registry.ts";
 
 test("EnvProfile validates terminal launch context without resolving secrets", () => {
   const profile: EnvProfile = {

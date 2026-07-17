@@ -7,7 +7,7 @@ import test from "node:test";
 import type { LocalControllerService } from "../../application/src/index.ts";
 import { loadDaemonIdentityWithEmail } from "../../cli/src/commands/daemon/identity.ts";
 import { readConfiguredLocalPrincipal } from "../../cli/src/composition/local-principal.ts";
-import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
 import {
   composeIdentityProvider,
   createJsonRpcProtocolServer,
