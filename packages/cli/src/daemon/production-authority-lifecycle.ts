@@ -1,32 +1,22 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import {
-  actorAxesBindingDigestV2,
-  actorAxesBindingTokenDigestV2,
-  canonicalPayloadDigestV2,
   consentTypedCommandsV2,
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
-  encodeSemanticMutationEnvelopeV2,
-  encodeTaskDecisionModuleCommandPayloadV2,
   factRelationTypedCommandsV2,
-  issueActorAxesBindingV2,
   makeCompositeAuthoritySemanticCompilerV2,
   makeConsentSemanticCompilerV2,
   makeFactRelationSemanticCompilerV2,
   makeSessionExecutionReviewSemanticCompilerV2,
   makeTaskDecisionModuleSemanticCompilerV2,
-  semanticMutationSetDigestV2,
-  semanticRequestDigestV2,
-  semanticMutationEnvelopeV2Schema,
   sessionExecutionReviewTypedCommandsV2,
   taskDecisionModuleTypedCommandsV2,
   type ActorAxesBindingRuntimeV2,
   type AuthorityCutoverControlService,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
-  type SemanticMutationEnvelopeV2
 } from "../../../application/src/index.ts";
 import { createAuthoritySubmissionService } from "../../../application/src/authority/service.ts";
 import {
@@ -42,15 +32,10 @@ import {
   entityRegistryKinds,
   makeLocalAuthorityAttributionEventV2Log,
   resolveHarnessLayout,
-  taskEntityId,
   type EntityRegistration
 } from "../../../kernel/src/index.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
-import type { ParsedCommand } from "../cli/types.ts";
-import {
-  createDaemonAuthorityCommandSubmissionV2,
-  type DaemonAuthorityAttemptCompilerV2
-} from "./authority-command-submission.ts";
+import { createDaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import {
   createAuthorityRepoLifecycleController,
   type AuthorityRepoComponent,
@@ -70,6 +55,10 @@ import { createGitCanonicalPublicationInspector } from "./authority-publication-
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
+import {
+  createProductionCanonicalAttemptCompiler,
+  createProductionCanonicalSemanticState
+} from "./production-authority-attempt-compiler.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -282,7 +271,14 @@ function createRepoComponent(
       );
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
         authorityService,
-        attemptCompiler: createProgressAppendAttemptCompiler(material, context)
+        attemptCompiler: createProductionCanonicalAttemptCompiler({
+          config: material.config,
+          keyStore: material.keyStore,
+          keyRegistry: material.keyRegistry,
+          bindingRuntime: material.bindingRuntime,
+          context,
+          authoredRoot: material.authoredRoot
+        })
       });
       const binding: AuthorityRepoConnectionBinding = {
         submit: commandSubmission.submit,
@@ -333,10 +329,7 @@ function createConnectionAuthorityService(
   context: AuthorityConnectionContext
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
-  const semanticState = {
-    readEntityBase: async () => null,
-    readHostedDocument: async () => null
-  };
+  const semanticState = createProductionCanonicalSemanticState(material.authoredRoot);
   return createAuthoritySubmissionService({
     workspaceId: material.config.workspaceId,
     coordinatorFactory: input.attributedCoordinatorFactory,
@@ -404,122 +397,6 @@ function connectionBoundRuntime(
   };
 }
 
-function createProgressAppendAttemptCompiler(
-  material: RepoProductionMaterial,
-  context: AuthorityConnectionContext
-): DaemonAuthorityAttemptCompilerV2 {
-  return {
-    compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      if (command.action.kind !== "progress-append") throw new Error("AUTHORITY_TYPED_COMMAND_UNSUPPORTED");
-      if (currentSession.sessionId !== material.config.sessionId) throw new Error("AUTHORITY_SESSION_AXIS_MISMATCH");
-      if (canonicalEntityId !== taskEntityId(command.action.taskId)) throw new Error("AUTHORITY_CANONICAL_ENTITY_MISMATCH");
-      const executorAgentId = attribution.executor?.id ?? null;
-      if (executorAgentId && !material.config.allowedExecutorAgentIds.includes(executorAgentId)
-        && !executorDerivedFromPreset(command, executorAgentId)) {
-        throw new Error("AUTHORITY_EXECUTOR_NOT_SERVER_APPROVED");
-      }
-      const now = Date.now();
-      const claims = {
-        tokenId: `${material.config.admissionTokenRef}:${randomUUID()}`,
-        bindingId: `binding:${randomUUID()}`,
-        principalPersonId: context.actor.personId,
-        executorAgentId,
-        workspaceId: material.config.workspaceId,
-        deviceId: material.config.deviceId,
-        viewId: material.config.viewId,
-        sessionId: material.config.sessionId,
-        allowedEntityKinds: ["task"],
-        allowedActions: ["append"],
-        resourceScopes: [{
-          kind: "entity-ref" as const,
-          entityRef: { registryVersion: 1, entityKind: "task", canonicalRef: `task/${command.action.taskId}` }
-        }, {
-          kind: "portable-path" as const,
-          path: `tasks/${command.action.taskId}/progress.md`
-        }],
-        pathFootprint: null,
-        maxBytes: BigInt(Buffer.byteLength(command.action.text, "utf8")) + 4_096n,
-        maxMutations: 1,
-        maxOperations: 1,
-        authorityGeneration: BigInt(material.config.authorityGeneration),
-        channelNonceDigest: context.channelBinding.digest,
-        schemaTuple: material.config.schemaTuple,
-        issuedAt: BigInt(now),
-        notBefore: BigInt(now),
-        expiresAt: BigInt(now + 5 * 60_000),
-        revocationEpochs: material.config.revocationEpochs
-      };
-      const token = issueActorAxesBindingV2(
-        claims,
-        material.keyStore.signingProfile(material.keyRegistry, now)
-      );
-      material.bindingRuntime.registerIssuedToken({
-        claims,
-        token,
-        attribution: attribution.writeAttribution
-      });
-      const tokenDigest = actorAxesBindingTokenDigestV2(token);
-      const evidence = command.action.evidence?.map((entry) =>
-        `Evidence: ${entry.type}:${entry.path}:${entry.summary}`
-      ).join("\n");
-      const text = evidence ? `${command.action.text}\n\n${evidence}` : command.action.text;
-      const payload = encodeTaskDecisionModuleCommandPayloadV2({
-        schema: "task.append/v1",
-        taskId: command.action.taskId,
-        text
-      });
-      const mutationSet = {
-        registryVersion: 1,
-        mutations: [{
-          entity: { registryVersion: 1, entityKind: "task", canonicalRef: `task/${command.action.taskId}` },
-          action: { registryVersion: 1, action: "append" }
-        }]
-      } as const;
-      const base: SemanticMutationEnvelopeV2 = {
-        schema: semanticMutationEnvelopeV2Schema,
-        workspaceId: material.config.workspaceId,
-        operationId: {
-          namespace: material.config.operationNamespace,
-          clientRandom128: randomBytes(16)
-        },
-        binding: {
-          bindingId: claims.bindingId,
-          actorAxesBindingDigest: actorAxesBindingDigestV2(claims),
-          deviceId: claims.deviceId,
-          viewId: claims.viewId,
-          sessionId: claims.sessionId,
-          admissionTokenRef: { tokenId: claims.tokenId, tokenDigest }
-        },
-        schemaTuple: material.config.schemaTuple,
-        intent: {
-          kind: "typed",
-          command: { registryVersion: 1, name: "task.append", version: 1 },
-          canonicalPayload: { kind: "inline", size: BigInt(payload.byteLength), bytes: payload },
-          canonicalPayloadDigest: canonicalPayloadDigestV2(payload),
-          baseCas: [{
-            entityRef: { registryVersion: 1, entityKind: "task", canonicalRef: `task/${command.action.taskId}` },
-            expectedSemanticVersion: null,
-            expectedStateDigest: null
-          }],
-          declaredPathCas: []
-        },
-        claimedMutationSet: mutationSet,
-        claimedSemanticMutationSetDigest: semanticMutationSetDigestV2(mutationSet),
-        claimedSemanticRequestDigest: Buffer.alloc(32)
-      };
-      const envelope = {
-        ...base,
-        claimedSemanticRequestDigest: semanticRequestDigestV2(base)
-      };
-      return {
-        requestId: `authority-command:${randomUUID()}`,
-        presentationToken: token,
-        envelope: encodeSemanticMutationEnvelopeV2(envelope)
-      };
-    }
-  };
-}
-
 function attestSubmissionService(
   service: AuthoritySubmissionService,
   context: AuthorityConnectionContext
@@ -575,12 +452,6 @@ function assertConnectionContext(
     || config.sessionId !== input.serverData.sessionId) {
     throw new Error("AUTHORITY_SERVER_AXIS_MISMATCH");
   }
-}
-
-function executorDerivedFromPreset(command: ParsedCommand, executorAgentId: string): boolean {
-  const action = command.action;
-  return (action.kind === "preset-run" || action.kind === "preset-action")
-    && executorAgentId === `preset:${action.presetId}`;
 }
 
 function canonicalRoot(value: string): string {
