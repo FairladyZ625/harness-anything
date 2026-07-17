@@ -154,6 +154,59 @@ test("restart recovery publishes one missing event for a committed effect withou
   assert.deepEqual(durable.receipt, receipt);
 });
 
+test("restart recovery reports the opId and exception when fail-closed recovery is deferred", async () => {
+  const record: AuthorityStoredOperationRecord = {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:deferred-operation",
+    semanticDigest: "a".repeat(64),
+    state: "INDEXED",
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "a".repeat(64),
+      semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: {
+        registryVersion: 1,
+        mutations: [{
+          entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_RECOVERY" },
+          action: { registryVersion: 1, action: "append" }
+        }]
+      }
+    },
+    recordedProtocol: {
+      kind: "semantic-mutation-envelope/v2",
+      schemaTuple: {
+        wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+        commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
+      }
+    },
+    canonicalRequestEnvelope: "durable-envelope"
+  };
+  const deferred: Array<{ readonly opId: string; readonly error: unknown }> = [];
+  const failure = new Error("AUTHORITY_TEST_PUBLICATION_LOOKUP_FAILED");
+
+  await recoverPendingProductionEvents({
+    workspaceId: record.workspaceId,
+    operationRegistry: {
+      get: async () => record,
+      list: async () => [record],
+      put: async () => undefined
+    },
+    replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+    eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+    publicationInspector: {
+      findPublicationForOperation: async () => { throw failure; }
+    } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+    recover: async () => { throw new Error("recovery must not run after publication lookup fails"); },
+    onDeferred: async (candidate, error) => {
+      deferred.push({ opId: candidate.opId, error });
+    }
+  });
+
+  assert.deepEqual(deferred, [{ opId: record.opId, error: failure }]);
+});
+
 function publicationEvidence() {
   return {
     commitSha: "b".repeat(40),

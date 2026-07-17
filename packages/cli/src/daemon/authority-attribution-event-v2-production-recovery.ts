@@ -60,11 +60,12 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
     workspaceId: record.workspaceId,
     opId: record.opId,
     operationRecords: input.operationRegistry,
-    materializeExactEvent: async () => input.publisher.publish({
-      receipt: baseReceipt,
-      actorAxesBinding,
-      occurredAt: change.changedAt
-    })
+    materializeExactEvent: async () => input.eventLog.read(record.workspaceId, record.opId)
+      ?? input.publisher.publish({
+        receipt: baseReceipt,
+        actorAxesBinding,
+        occurredAt: change.changedAt
+      })
   });
   return completeAuthorityCommittedReceiptV2({
     // recoverFromOperationRecord already performed the one durable publish.

@@ -76,7 +76,8 @@ export async function createDaemonServiceHost(
     readonly loadedIdentity: string;
     readonly startedAt: string;
   },
-  authorityLifecycle?: AuthorityRepoLifecycleController
+  authorityLifecycle?: AuthorityRepoLifecycleController,
+  providedDaemonLogService?: DaemonLogService
 ): Promise<{
   readonly daemonId: string;
   readonly createProtocolServer: (
@@ -96,7 +97,8 @@ export async function createDaemonServiceHost(
   readonly stop: () => Promise<void>;
 }> {
   const daemonId = `ha-${process.pid}`;
-  const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
+  const daemonLogService = providedDaemonLogService
+    ?? makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
   const stopHandlers: Array<() => Promise<void>> = [];
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
   let requestStop: (() => void) | undefined;

@@ -22,7 +22,6 @@ import {
   entityRegistryKinds,
   makeJournaledWriteCoordinator,
   makeLocalAuthorityAttributionEventV2Log,
-  resolveHarnessLayout,
   taskEntityId
 } from "../../kernel/src/index.ts";
 import {
@@ -84,7 +83,7 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
   }
 });
 
-test("frozen production restart recovers an indexed append exactly once before final scan", async () => {
+test("frozen production restart reuses an indexed append event below a direct docs commit", async () => {
   const fixture = createFixture();
   try {
     const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
@@ -141,10 +140,13 @@ test("frozen production restart recovers an indexed append exactly once before f
     await seeded.operationRegistry.put({ ...indexed, state: "INDEXED" });
     const eventLog = makeLocalAuthorityAttributionEventV2Log({ rootDir: fixture.repoRoot });
     assert.equal(eventLog.readAll().length, 1);
-    rmSync(resolveHarnessLayout({ rootDir: fixture.repoRoot }).authorityAttributionEventsV2Root, {
-      recursive: true
-    });
     await seeded.close();
+
+    mkdirSync(path.join(fixture.authoredRoot, "docs"), { recursive: true });
+    writeFileSync(path.join(fixture.authoredRoot, "docs/recovery-containment.md"), "# Recovery containment\n");
+    git(fixture.authoredRoot, "add", "docs/recovery-containment.md");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "docs: record recovery containment");
+    assert.notEqual(git(fixture.authoredRoot, "rev-parse", "HEAD"), receipt.commitSha);
 
     const recoveredLifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
     const recovered = await recoveredLifecycle.startRepo(
