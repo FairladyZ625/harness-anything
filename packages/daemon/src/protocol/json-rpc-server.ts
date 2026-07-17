@@ -20,8 +20,9 @@ import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMet
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
-import { appendDaemonLogOutcome, callDaemonLogList, isRepoDiagnosticMethod } from "./daemon-log-dispatch.ts";
-import { callDaemonStatusService } from "./daemon-status-validation.ts";
+import { appendDaemonLogOutcome, callDaemonLogList } from "./daemon-log-dispatch.ts";
+import { daemonStatusValidationFailure, validateDaemonStatusRequest, validateDaemonStatusResult } from "./daemon-status-validation.ts";
+import { validateRepoRuntime } from "./repo-runtime-validation.ts";
 import { resolveServicesForRepo } from "./repo-service-resolution.ts";
 import { appendJsonRpcCommandEvent, appendJsonRpcWriteEventIfNeeded } from "./runtime-event-dispatch.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
@@ -319,17 +320,6 @@ function repoForContract(
   return repo;
 }
 
-function validateRepoRuntime(
-  contract: JsonRpcMethodContract,
-  repo: DaemonRepoNamespace | undefined,
-  options: JsonRpcServerOptions
-): ReturnType<typeof failureReceipt> | undefined {
-  if (!repo || !contract.requiresRepo || !options.resolveRepoAvailability || isRepoDiagnosticMethod(contract)) return undefined;
-  const failure = options.resolveRepoAvailability(repo);
-  if (!failure) return undefined;
-  return failureReceipt(contract.method, failure.code, `Repo ${repo.repoId} is not attached to this daemon.`, { repo: failure.repo });
-}
-
 async function callServiceMethod(
   contract: JsonRpcMethodContract,
   params: JsonObject,
@@ -346,7 +336,16 @@ async function callServiceMethod(
   const services = repo ? resolveServicesForRepo(contract.method, repo, options) : options.services;
   if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host is not configured for ${repo?.repoId ?? "unknown"}.`);
   if (contract.method === "repo.daemon.status") {
-    return callDaemonStatusService(contract.method, params, services.DaemonStatusService, repo);
+    if (!services.DaemonStatusService) {
+      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
+    }
+    try {
+      validateDaemonStatusRequest(params);
+      const status = validateDaemonStatusResult(await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
+      return successReceipt(contract.method, "read daemon status", status);
+    } catch (error) {
+      return daemonStatusValidationFailure(contract.method, error);
+    }
   }
   if (contract.method === "repo.daemon.logs.list") {
     return callDaemonLogList(services.DaemonLogService, payload, repo);

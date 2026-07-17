@@ -1,34 +1,31 @@
 import {
   decodeDaemonStatusRequestV2,
-  decodeDaemonStatusResultV2,
-  type DaemonStatusService
+  decodeDaemonStatusResultV2
 } from "../../../application/src/index.ts";
-import { failureReceipt, successReceipt } from "./receipt-envelope.ts";
 import type { JsonObject } from "./json-rpc-types.ts";
 
-interface DaemonStatusRepoContext {
-  readonly repoId: string;
-  readonly canonicalRoot: string;
+import { failureReceipt } from "./receipt-envelope.ts";
+
+/** Runtime codecs used by the JSON-RPC handler before it emits a success receipt. */
+export function validateDaemonStatusRequest(params: JsonObject): void {
+  decodeDaemonStatusRequestV2(params);
 }
 
-/** Validates the daemon-status/v2 wire boundary before a success receipt is emitted. */
-export async function callDaemonStatusService(
-  method: string,
-  params: JsonObject,
-  service: DaemonStatusService | undefined,
-  repo: DaemonStatusRepoContext | undefined
-): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
-  if (!service) {
-    return failureReceipt(method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
+export function validateDaemonStatusResult(status: unknown): JsonObject {
+  return decodeDaemonStatusResultV2(status) as unknown as JsonObject;
+}
+
+export function daemonStatusValidationFailure(method: string, error: unknown): ReturnType<typeof failureReceipt> {
+  if (error instanceof Error && "code" in error && error.code === "invalid_daemon_status_request") {
+    return failureReceipt(
+      method,
+      "daemon_status_request_invalid",
+      "Daemon status request must match daemon.status-request/v2: params.repo.repoId is required. Run `ha daemon status --json` with a registered repository."
+    );
   }
-  try {
-    decodeDaemonStatusRequestV2(params);
-    const status = decodeDaemonStatusResultV2(await service.getStatus(repo ? { repo } : undefined));
-    return successReceipt(method, "read daemon status", status as unknown as JsonObject);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "invalid_daemon_status_request") {
-      return failureReceipt(method, "daemon_status_request_invalid", "Daemon status request is outside daemon-status-request/v2.");
-    }
-    return failureReceipt(method, "daemon_status_result_invalid", "Daemon status service returned data outside daemon-status/v2.");
-  }
+  return failureReceipt(
+    method,
+    "daemon_status_result_invalid",
+    "Daemon status service result must match daemon-status/v2 with non-negative queue counters plus service and requestedRepo fields. Run `ha daemon status --json` to inspect the producer output."
+  );
 }
