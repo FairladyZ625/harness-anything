@@ -14,6 +14,7 @@ import {
 test("preload exposes only the approved API methods", () => {
   assert.equal(HARNESS_PRELOAD_API, "harness");
   assert.deepEqual(preloadAllowlist, [
+    "getDaemonLogs",
     "getDaemonStatus",
     "getCatalogSnapshot",
     "getTasks",
@@ -56,6 +57,7 @@ test("preload exposes only the approved API methods", () => {
 
 test("preload capabilities distinguish shipped methods from deferred placeholders", () => {
   assert.deepEqual(shippedPreloadMethods, [
+    "getDaemonLogs",
     "getDaemonStatus",
     "getCatalogSnapshot",
     "getTasks",
@@ -89,6 +91,7 @@ test("preload capabilities distinguish shipped methods from deferred placeholder
     "terminalExit"
   ]);
   assert.deepEqual(deferredPreloadMethods, ["archiveTask", "openShell"]);
+  assert.equal(getPreloadApiCapability("getDaemonLogs").status, "shipped");
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
   assert.equal(getPreloadApiCapability("getDaemonStatus").status, "shipped");
   assert.equal(getPreloadApiCapability("archiveTask").status, "deferred");

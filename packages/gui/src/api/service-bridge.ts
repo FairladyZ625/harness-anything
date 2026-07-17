@@ -1,4 +1,5 @@
 import {
+  decodeDaemonLogListInput,
   projectDaemonStatusForRenderer,
   type DaemonStatusResultV2
 } from "../../../application/src/index.ts";
@@ -26,10 +27,12 @@ type LocalControllerGuiMethod =
   | "getTaskExecutions" | "getExecutions" | "getExecutionEvidencePage" | "getExecutionDetail"
   | "getReviewDetail" | "setTaskStatus" | "reviewTask" | "appendTaskProgress" | "rebuildGovernance";
 type DaemonStatusGuiServiceMethod = "getStatus";
+type DaemonLogGuiServiceMethod = "list";
 type TerminalGuiServiceMethod = (typeof terminalGuiBridgeContracts)[number]["serviceMethod"];
 
 interface GuiBridgeServiceProxy {
   readonly getStatus: () => Promise<unknown> | unknown;
+  readonly list: (payload: unknown) => Promise<unknown> | unknown;
   readonly getCatalogSnapshot: () => Promise<unknown> | unknown;
   readonly getTasks: () => Promise<unknown> | unknown;
   readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
@@ -68,11 +71,15 @@ export interface GuiBridgeHandlerContext {
 }
 
 export interface GuiBridgeHandlerImplementation {
-  readonly serviceMethod: LocalControllerGuiMethod | DaemonStatusGuiServiceMethod | TerminalGuiServiceMethod;
+  readonly serviceMethod: LocalControllerGuiMethod | DaemonStatusGuiServiceMethod | DaemonLogGuiServiceMethod | TerminalGuiServiceMethod;
   readonly invoke: (context: GuiBridgeHandlerContext) => Promise<unknown> | unknown;
 }
 
 export const guiBridgeHandlerImplementations = {
+  getDaemonLogs: {
+    serviceMethod: "list",
+    invoke: ({ service, payload }) => service.list(payload)
+  },
   getDaemonStatus: {
     serviceMethod: "getStatus",
     invoke: ({ service }) => service.getStatus()
@@ -241,6 +248,7 @@ export async function dispatchGuiServiceMethod(
 
 function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeServiceProxy {
   return {
+    list: (payload) => invokeDaemonGuiRoute(request, "getDaemonLogs", payload),
     getStatus: async () => projectDaemonStatusResult(await invokeDaemonGuiRoute(request, "getDaemonStatus", undefined)),
     getCatalogSnapshot: () => invokeDaemonGuiRoute(request, "getCatalogSnapshot", undefined),
     getTasks: () => invokeDaemonGuiRoute(request, "getTasks", undefined),
@@ -308,6 +316,12 @@ const domainStatuses = new Set(["planned", "active", "blocked", "in_review", "do
 
 export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknown): PayloadValidation {
   switch (route.inputSchemaId) {
+    case "daemon-log-list-input/v1":
+      try {
+        return { ok: true, payload: decodeDaemonLogListInput(payload) };
+      } catch (error) {
+        return invalidPayload(error instanceof Error ? error.message : "daemon log filters are invalid.");
+      }
     case "gui.empty/v1":
       return payload === undefined || payload === null || isServicePayloadRecord(payload)
         ? { ok: true, payload }

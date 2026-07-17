@@ -32,6 +32,11 @@ export const daemonCapabilityOperations = [
     "Inspect daemon availability and registered repository state."
   ),
   daemonCapabilityOperation(
+    "logs",
+    "ha daemon logs --errors --json",
+    "Read the daemon-owned operational log with bounded filters and pagination."
+  ),
+  daemonCapabilityOperation(
     "stop",
     "ha daemon stop",
     "Stop the persistent local daemon after draining queued writes."
@@ -50,7 +55,7 @@ export const daemonCapabilityOperations = [
 
 export function renderDaemonHelp(): string {
   return [
-    "Usage: harness-anything daemon <start|status|stop|restart|refresh|connect|repo|bootstrap-server|install-templates> [options]",
+    "Usage: harness-anything daemon <start|status|logs|stop|restart|refresh|connect|repo|bootstrap-server|install-templates> [options]",
     "Alias: ha daemon <subcommand> [options]",
     "",
     "Commands:",
@@ -58,6 +63,12 @@ export function renderDaemonHelp(): string {
     "  start --foreground           Run the daemon service in the foreground.",
     "    --authority-manifest PATH Enable fail-closed V2 authority composition from an explicit manifest.",
     "  status --json                Show lock holder, queue depth, connections, and version.",
+    "  logs [options]               Read bounded operational daemon logs.",
+    "    --limit <1-200>            Set page size (default: 100).",
+    "    --since <timestamp>        Include entries at or after an ISO-8601 timestamp.",
+    "    --levels <csv>             Filter debug,info,warn,error,fatal levels.",
+    "    --errors                   Include error and fatal entries only.",
+    "    --cursor <opaque>          Continue a page with the same repo and filters.",
     "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
     "  restart [--timeout-ms <ms>]  Restart the service and wait for a replacement PID.",
     "  refresh [options]            Refresh the service and wait for a replacement PID.",

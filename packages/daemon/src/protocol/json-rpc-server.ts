@@ -6,6 +6,7 @@ import {
   type CommandReceipt,
   type DaemonControlRequestV1,
   type DaemonControlService,
+  type DaemonLogService,
   type DaemonStatusService,
   type DocSyncSubmitRequestV1,
   type DocSyncSubmitResultV1,
@@ -19,6 +20,8 @@ import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMet
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
+import { appendDaemonLogOutcome, callDaemonLogList, isRepoDiagnosticMethod } from "./daemon-log-dispatch.ts";
+import { resolveServicesForRepo } from "./repo-service-resolution.ts";
 import { appendJsonRpcCommandEvent, appendJsonRpcWriteEventIfNeeded } from "./runtime-event-dispatch.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
@@ -72,6 +75,7 @@ export interface DaemonServiceHost {
   readonly TerminalSessionService: TerminalSessionService;
   readonly TaskHolderService?: TaskHolderService;
   readonly DaemonStatusService?: DaemonStatusService;
+  readonly DaemonLogService?: DaemonLogService;
   readonly DaemonControlService?: DaemonControlService;
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject, context?: {
@@ -156,8 +160,15 @@ async function handleRequest(
   const contract = methodByName.get(request.method);
   if (!contract) return errorResponse(id, -32601, "Method not found");
 
-  const response = async (result: unknown): Promise<JsonRpcResponse | undefined> =>
-    request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
+  const requestParams = request.params ?? {};
+  const requestRepo = repoForContract(contract, requestParams, repos);
+  const response = async (result: unknown): Promise<JsonRpcResponse | undefined> => {
+    const logService = requestRepo
+      ? resolveServicesForRepo(request.method, requestRepo, options)?.DaemonLogService ?? options.services.DaemonLogService
+      : undefined;
+    void appendDaemonLogOutcome(logService, request, result, requestRepo);
+    return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
+  };
 
   if (request.method === "protocol.hello") {
     return response(handleHello(request.params ?? {}, session, options, repos));
@@ -171,10 +182,10 @@ async function handleRequest(
     return response(failureReceipt(request.method, "method_reserved", `Method namespace is reserved for future admin API: ${request.method}.`));
   }
 
-  const params = request.params ?? {};
+  const params = requestParams;
   const repoFailure = validateRepoNamespace(contract, params, repos);
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
-  const repo = repoForContract(contract, params, repos);
+  const repo = requestRepo;
   const identityOptions = repoIdentityOptions(repo, options);
   const effectiveContract = withEffectiveCommandClass(contract, params);
   const forcedRootFailure = validateForcedCommandRoot(effectiveContract, params, repo, options.authContext);
@@ -312,14 +323,10 @@ function validateRepoRuntime(
   repo: DaemonRepoNamespace | undefined,
   options: JsonRpcServerOptions
 ): ReturnType<typeof failureReceipt> | undefined {
-  if (!repo || !contract.requiresRepo || !options.resolveRepoAvailability || doesNotRequireAttachedRepo(contract)) return undefined;
+  if (!repo || !contract.requiresRepo || !options.resolveRepoAvailability || isRepoDiagnosticMethod(contract)) return undefined;
   const failure = options.resolveRepoAvailability(repo);
   if (!failure) return undefined;
   return failureReceipt(contract.method, failure.code, `Repo ${repo.repoId} is not attached to this daemon.`, { repo: failure.repo });
-}
-
-function doesNotRequireAttachedRepo(contract: JsonRpcMethodContract): boolean {
-  return contract.method === "repo.daemon.status" || contract.mode === "notification-stub";
 }
 
 async function callServiceMethod(
@@ -342,6 +349,9 @@ async function callServiceMethod(
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
     return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus(repo ? { repo } : undefined) as unknown as JsonObject);
+  }
+  if (contract.method === "repo.daemon.logs.list") {
+    return callDaemonLogList(services.DaemonLogService, payload, repo);
   }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
@@ -454,15 +464,6 @@ async function validateTaskLeaseForServiceWrite(
     }
     return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
   }
-}
-
-function resolveServicesForRepo(
-  method: string,
-  repo: DaemonRepoNamespace,
-  options: JsonRpcServerOptions
-): DaemonServiceHost | undefined {
-  if (!options.resolveRepoServices) return options.services;
-  return options.resolveRepoServices(repo) ?? (method === "repo.daemon.status" ? options.services : undefined);
 }
 
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {

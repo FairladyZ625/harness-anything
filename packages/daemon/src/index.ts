@@ -125,6 +125,20 @@ export {
   type DaemonStatusService
 } from "../../application/src/daemon-status-contract.ts";
 export {
+  daemonLogLevels,
+  decodeDaemonLogEntry,
+  decodeDaemonLogPage,
+  decodeDaemonLogListInput,
+  isDaemonLogContractError,
+  type DaemonLogAppendInput,
+  type DaemonLogEntryV1,
+  type DaemonLogLevel,
+  type DaemonLogListInputV1,
+  type DaemonLogPageV1,
+  type DaemonLogRepoContext,
+  type DaemonLogService
+} from "../../application/src/daemon-log-contract.ts";
+export {
   calculateDaemonArtifactIdentity,
   resolveDaemonArtifactRoot,
   type DaemonArtifactIdentity

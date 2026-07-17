@@ -87,6 +87,29 @@ test("daemon connect reaches the already-running daemon instance", async () => {
   });
 });
 
+test("daemon logs reads the shared typed operational page through the daemon route", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const userRoot = defaultDaemonUserRoot(rootDir);
+    try {
+      runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot });
+      const result = runDaemonCommand(rootDir, ["daemon", "logs", "--limit", "25", "--levels", "info,error", "--json"], {
+        HARNESS_DAEMON_USER_ROOT: userRoot
+      });
+      const page = result.page as {
+        readonly schema?: string;
+        readonly entries?: ReadonlyArray<{ readonly schema?: string; readonly repoId?: string; readonly redaction?: { readonly policy?: string } }>;
+      };
+      assert.equal(page.schema, "daemon-log-page/v1");
+      assert.equal((page.entries?.length ?? 0) > 0, true);
+      assert.equal(page.entries?.every((entry) => entry.schema === "daemon-log-entry/v1"), true);
+      assert.equal(page.entries?.every((entry) => entry.repoId === "canonical"), true);
+      assert.equal(page.entries?.every((entry) => entry.redaction?.policy === "runtime-log-redaction/v1"), true);
+    } finally {
+      stopDaemonQuietly(rootDir, userRoot);
+    }
+  });
+});
+
 test("persistent daemon connection prevents idle exit after a command settles", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);

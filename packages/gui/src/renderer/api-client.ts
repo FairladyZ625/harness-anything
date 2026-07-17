@@ -3,6 +3,8 @@ import type {
   CatalogSnapshotResult,
   CatalogSnapshotSuccess,
   DaemonRendererStatusV2,
+  DaemonLogListInputV1,
+  DaemonLogPageV1,
   DecisionMutationResult,
   DecisionProposePayload,
   DecisionTransitionPayload,
@@ -34,6 +36,8 @@ import type {
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
 import { t } from "./i18n/core.ts";
+import { readDaemonLogPageResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
+export { readDaemonLogPageResult, readDaemonStatusResult } from "./daemon-diagnostics-api-contract.ts";
 import {
   readExecutionEvidencePageResult,
   type ExecutionEvidencePageSuccess
@@ -49,6 +53,7 @@ import {
 export type { TerminalOutputReadSuccess, TerminalSessionInfo };
 
 type HarnessBridgeMethod =
+  | "getDaemonLogs"
   | "getDaemonStatus"
   | "getCatalogSnapshot"
   | "getTasks"
@@ -175,6 +180,9 @@ export interface CommandFailure {
 export type CommandResult = CommandSuccess | CommandFailure;
 
 export const harnessClient = {
+  async getDaemonLogs(payload: DaemonLogListInputV1 = {}): Promise<DaemonLogPageV1> {
+    return readDaemonLogPageResult(await invokeBridge("getDaemonLogs", payload));
+  },
   async getDaemonStatus(): Promise<DaemonRendererStatusV2> {
     return readDaemonStatusResult(await invokeBridge("getDaemonStatus", null));
   },
@@ -267,20 +275,6 @@ async function invokeBridge(method: HarnessBridgeMethod, payload: object | null)
     throw new Error(`Harness preload bridge is unavailable for ${method}.`);
   }
   return bridge[method](payload);
-}
-
-export function readDaemonStatusResult(value: unknown): DaemonRendererStatusV2 {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(localErrorHint(value, "Daemon status bridge returned an invalid result."));
-  }
-  const result = value as Partial<DaemonRendererStatusV2> & { readonly ok?: boolean };
-  if (result.ok === false) throw new Error(localErrorHint(value, "Daemon status bridge returned an error."));
-  if (result.schema !== "daemon-status/v2") {
-    throw new Error(`Daemon status schema must be daemon-status/v2, got ${String(result.schema)}.`);
-  }
-  if (!result.service || typeof result.service !== "object") throw new Error("Daemon status.service is required.");
-  if (!Array.isArray(result.repos)) throw new Error("Daemon status.repos must be an array.");
-  return result as DaemonRendererStatusV2;
 }
 
 function readTaskListResult(value: unknown): TaskListSuccess {
