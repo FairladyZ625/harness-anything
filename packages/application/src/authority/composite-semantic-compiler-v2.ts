@@ -22,13 +22,13 @@ export function makeCompositeAuthoritySemanticCompilerV2(
     }
   }
   return {
-    compile: async (envelope) => {
+    compile: async (envelope, context) => {
       if (envelope.intent.kind !== "typed") {
         throw new SemanticAdmissionErrorV2("SEMANTIC_DIFF_REQUIRED");
       }
       const compiler = byCommand.get(envelope.intent.command.name);
       if (!compiler) throw new SemanticAdmissionErrorV2("TYPED_COMMAND_UNREGISTERED");
-      return compiler.compile(envelope);
+      return compiler.compile(envelope, context);
     }
   };
 }

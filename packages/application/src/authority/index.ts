@@ -28,6 +28,8 @@ export * from "./key-registry-v1.ts";
 export * from "./canonical-cbor.ts";
 export * from "./semantic-mutation-envelope-v2.ts";
 export { authorityProtocolTuple } from "./types.ts";
+export * from "./cutover-control.ts";
+export { createAuthorityCutoverEntityRegistryQualification } from "./cutover-registry-qualification.ts";
 export type {
   AttributedCoordinatorFactory,
   AuthorityCommittedEventPublisherV2,
@@ -50,6 +52,7 @@ export type {
   DelegationTokenClaims,
   DelegationTokenVerification,
   DelegationTokenVerifier,
+  RecordedAuthorityProtocol,
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./types.ts";

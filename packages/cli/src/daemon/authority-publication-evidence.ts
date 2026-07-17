@@ -31,7 +31,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       || (expectedPreviousHead && parentCommits[0] !== expectedPreviousHead)) {
       throw new Error("AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR");
     }
-    const changedPaths = gitBuffer(rootDir, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", head)
+    const changedPaths = readAuthorityGitBytes(rootDir, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", head)
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
@@ -90,7 +90,7 @@ export function assertPublicationMatchesMutationSet(
 
 function blobDigest(rootDir: string, revision: string, changedPath: string): string | null {
   try {
-    return createHash("sha256").update(gitBuffer(rootDir, "show", `${revision}:${changedPath}`)).digest("hex");
+    return createHash("sha256").update(readAuthorityGitBytes(rootDir, "show", `${revision}:${changedPath}`)).digest("hex");
   } catch {
     return null;
   }
@@ -113,10 +113,11 @@ function gitOptional(rootDir: string, ...args: ReadonlyArray<string>): string | 
 }
 
 function publicationGitText(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return gitBuffer(rootDir, ...args).toString("utf8").trim();
+  return readAuthorityGitBytes(rootDir, ...args).toString("utf8").trim();
 }
 
-function gitBuffer(rootDir: string, ...args: ReadonlyArray<string>): Buffer {
+/** Read-only Git observation shared by authority publication and cutover scanners. */
+export function readAuthorityGitBytes(rootDir: string, ...args: ReadonlyArray<string>): Buffer {
   return execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "buffer",
     stdio: ["ignore", "pipe", "pipe"],

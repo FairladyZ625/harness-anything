@@ -1,6 +1,7 @@
 import type {
   ActorAxesBindingRuntimeV2,
   AttributedCoordinatorFactory,
+  AuthorityCutoverControlService,
   AuthorityCommittedEventPublisherV2,
   AuthorityFenceWitness,
   OperationNamespaceVerifierV2,
@@ -54,6 +55,7 @@ export interface AuthorityRepoServerData {
 
 export interface AuthorityRepoComponent {
   readonly commandSubmissionV2: DaemonAuthorityCommandSubmissionV2;
+  readonly cutoverControl: AuthorityCutoverControlService;
   readonly bindConnection: (context: AuthorityConnectionContext) => AuthorityRepoConnectionBinding;
   readonly stop: (reason: AuthorityRepoStopReason) => Promise<void>;
 }
@@ -72,6 +74,7 @@ export interface AuthorityRepoLifecycleHooks {
     readonly serverData: AuthorityRepoServerData;
     readonly attributedCoordinatorFactory: AttributedCoordinatorFactory;
     readonly operationRegistry: DurableAuthorityServiceState["operationRegistry"];
+    readonly cutoverState: DurableAuthorityServiceState["cutoverState"];
     readonly replicaChangeLog: DurableAuthorityServiceState["replicaChangeLog"];
     readonly bindingRuntime: ActorAxesBindingRuntimeV2;
     readonly namespaceVerifier: OperationNamespaceVerifierV2;
@@ -211,6 +214,7 @@ export function createAuthorityRepoLifecycleController(input: {
         serverData,
         attributedCoordinatorFactory,
         operationRegistry: state.operationRegistry,
+        cutoverState: state.cutoverState,
         replicaChangeLog: state.replicaChangeLog,
         bindingRuntime: serverData.bindingRuntime,
         namespaceVerifier: serverData.namespaceVerifier,

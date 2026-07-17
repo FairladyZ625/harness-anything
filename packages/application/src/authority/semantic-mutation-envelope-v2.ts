@@ -128,8 +128,21 @@ export interface AuthoritySemanticCompilationV2 {
   readonly decodedBytes: bigint;
 }
 
+export interface AuthoritySemanticCompilerContextV2 {
+  readonly actor: {
+    readonly principal: { readonly personId: string };
+    readonly executor: { readonly kind: "agent"; readonly id: string } | null;
+    readonly responsibleHuman: string;
+  };
+  readonly sessionId: string;
+  readonly nowMs: bigint;
+}
+
 export interface AuthoritySemanticCompilerV2 {
-  readonly compile: (envelope: SemanticMutationEnvelopeV2) => Promise<AuthoritySemanticCompilationV2>;
+  readonly compile: (
+    envelope: SemanticMutationEnvelopeV2,
+    context?: AuthoritySemanticCompilerContextV2
+  ) => Promise<AuthoritySemanticCompilationV2>;
 }
 
 export interface OperationNamespaceVerifierV2 {

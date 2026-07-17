@@ -7,6 +7,7 @@ import type {
   WriteOp
 } from "../../../kernel/src/index.ts";
 import type { AuthorizedOperationAttemptV2 } from "./semantic-mutation-envelope-v2.ts";
+import type { ProtocolSchemaTupleV2 } from "./actor-axes-binding-v2.ts";
 
 export const authorityProtocolTuple = {
   wire: 1,
@@ -152,7 +153,12 @@ export interface AuthorityOperationRecord {
   readonly receipt?: AuthorityOperationReceipt;
   readonly commitSha?: string;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
+  readonly recordedProtocol?: RecordedAuthorityProtocol;
 }
+
+export type RecordedAuthorityProtocol =
+  | { readonly kind: "authority-operation/v1"; readonly schemaTuple: AuthorityProtocolTuple }
+  | { readonly kind: "semantic-mutation-envelope/v2"; readonly schemaTuple: ProtocolSchemaTupleV2 };
 
 export interface AuthorityStoredOperationRecord extends AuthorityOperationRecord {
   readonly canonicalRequestEnvelope?: string;
@@ -161,6 +167,7 @@ export interface AuthorityStoredOperationRecord extends AuthorityOperationRecord
 export interface AuthorityOperationRegistry {
   readonly get: (workspaceId: string, opId: string) => Promise<AuthorityStoredOperationRecord | undefined>;
   readonly put: (record: AuthorityStoredOperationRecord) => Promise<void>;
+  readonly list: (workspaceId: string) => Promise<ReadonlyArray<AuthorityStoredOperationRecord>>;
 }
 
 export interface ReplicaChangeRecord {

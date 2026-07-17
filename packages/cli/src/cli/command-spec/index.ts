@@ -6,9 +6,11 @@ import { migrationDiagnosticsCommandSpecs } from "./command-spec-migration-diagn
 import { runtimeDocsCommandSpecs } from "./command-spec-runtime-docs.ts";
 import { completionCommandSpecs } from "./command-spec-completion.ts";
 import { githubIssuesCommandSpecs } from "./command-spec-github-issues.ts";
+import { authorityCutoverCommandSpecs } from "./command-spec-authority-cutover.ts";
 import type { CommandSpecDefinition, ParsedCommandKind } from "./types.ts";
 
 export const commandSpecs = [
+  ...authorityCutoverCommandSpecs,
   ...completionCommandSpecs,
   ...githubIssuesCommandSpecs,
   ...projectionReaderCommandSpecs,

@@ -297,6 +297,13 @@ export interface ParsedCommand {
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
     | { readonly kind: "diagnostics-command-usage" }
+    | { readonly kind: "authority-cutover-status" }
+    | { readonly kind: "authority-cutover-drain"; readonly classifications: ReadonlyArray<{ readonly opId: string; readonly disposition: "retryable-not-committed" | "indeterminate"; readonly recordedTupleDigest: string; readonly evidenceRef: string }> }
+    | { readonly kind: "authority-cutover-scan"; readonly profileId: "production-final-scan/v1" }
+    | { readonly kind: "authority-cutover-confirm"; readonly firstScanId: string; readonly secondScanId: string }
+    | { readonly kind: "authority-cutover-boundary"; readonly boundaryId: string; readonly equalityReceiptId: string; readonly expectedSelectedSchemaTupleDigest: string }
+    | { readonly kind: "authority-cutover-freeze"; readonly reason: string; readonly expectedBoundaryReceiptDigest: string }
+    | { readonly kind: "authority-cutover-re-enable"; readonly boundaryId: string; readonly expectedFreezeReceiptDigest: string; readonly equalityReceiptId: string; readonly forwardFixRef: string }
     | { readonly kind: "worktree-create"; readonly taskId: string; readonly agent?: string; readonly branchPrefix?: string; readonly baseRef?: string; readonly worktreePath?: string }
     | { readonly kind: "worktree-status"; readonly taskId: string }
     | { readonly kind: "graph"; readonly outputPath?: string; readonly focus?: string; readonly projectionPath?: string; readonly includeArchived: boolean }

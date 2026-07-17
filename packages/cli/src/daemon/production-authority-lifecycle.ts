@@ -1,9 +1,11 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
 import {
   actorAxesBindingDigestV2,
   actorAxesBindingTokenDigestV2,
   canonicalPayloadDigestV2,
+  createAuthorityCutoverEntityRegistryQualification,
+  createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
   encodeSemanticMutationEnvelopeV2,
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -13,6 +15,7 @@ import {
   semanticRequestDigestV2,
   semanticMutationEnvelopeV2Schema,
   type ActorAxesBindingRuntimeV2,
+  type AuthorityCutoverControlService,
   type AuthoritySubmissionService,
   type SemanticMutationEnvelopeV2
 } from "../../../application/src/index.ts";
@@ -27,6 +30,7 @@ import {
 import { serveAuthorityForcedCommand } from "../../../daemon/src/authority/forced-command-session.ts";
 import {
   entityRegistry,
+  entityRegistryKinds,
   makeLocalAuthorityAttributionEventV2Log,
   resolveHarnessLayout,
   taskEntityId,
@@ -54,6 +58,7 @@ import {
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
 import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
+import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -61,7 +66,10 @@ interface RepoProductionMaterial {
   readonly keyRegistry: ReturnType<typeof openAuthorityProductionKeyMaterial>["registry"];
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly authoredRoot: string;
+  readonly configurationDigest: string;
 }
+
+const productionAuthorityV2EntityKinds = ["task", "decision", "module"] as const;
 
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
@@ -126,7 +134,8 @@ export function createProductionAuthorityLifecycle(input: {
         authoredRoot: resolveHarnessLayout({
           rootDir: repo.canonicalRoot,
           ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
-        }).authoredRoot
+        }).authoredRoot,
+        configurationDigest: authorityManifestSourceDigest(input.manifestPath)
       });
       publicationObservers.set(repo.repoId, async (previousCommit) => {
         const inspector = createGitCanonicalPublicationInspector(
@@ -189,6 +198,36 @@ function createRepoComponent(
   material: RepoProductionMaterial
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
+  const cutoverControl = createAuthorityCutoverControlService({
+    repoId: material.config.repoId,
+    workspaceId: material.config.workspaceId,
+    selectedSchemaTuple: material.config.schemaTuple,
+    operationRegistry: input.operationRegistry,
+    stateStore: input.cutoverState,
+    productionScanner: createAuthorityProductionScanner({ authoredRoot: material.authoredRoot }),
+    productionContext: {
+      authorityId: material.config.authorityId,
+      configurationDigest: material.configurationDigest,
+      entityRegistryQualification: createAuthorityCutoverEntityRegistryQualification(
+        entityRegistryKinds.map((kind) => {
+          const registration = entityRegistry[kind];
+          return {
+            kind,
+            identityCodecStatus: registration.identityCodec.status,
+            storageLocatorStatus: registration.storageLocator.status,
+            mutationContractStatus: registration.mutationContract.status,
+            semanticDiffStatus: registration.semanticDiff.status,
+            projectionFacetStatus: registration.projectionFacet.status,
+            mutationActions: registration.mutationContract.status === "ready"
+              ? registration.mutationContract.actions
+              : []
+          };
+        })
+      ),
+      enabledV2WriterKinds: productionAuthorityV2EntityKinds,
+      assertWriteFenceHeld: input.fenceWitness.assertHeld
+    }
+  });
   let serving = false;
   let stopped = false;
   const unbound = {
@@ -198,6 +237,7 @@ function createRepoComponent(
   };
   return {
     commandSubmissionV2: unbound,
+    cutoverControl,
     setServing: (value) => {
       if (stopped && value) throw new Error("AUTHORITY_REPO_COMPONENT_STOPPED");
       serving = value;
@@ -205,9 +245,9 @@ function createRepoComponent(
     bindConnection: (context) => {
       if (!serving || stopped) throw new Error("AUTHORITY_REPO_COMPONENT_NOT_SERVING");
       assertConnectionContext(input, material.config, context);
-      const authorityService = attestSubmissionService(
-        createConnectionAuthorityService(input, material, context),
-        context
+      const authorityService = gateCutoverAdmission(
+        attestSubmissionService(createConnectionAuthorityService(input, material, context), context),
+        cutoverControl
       );
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
         authorityService,
@@ -242,6 +282,20 @@ function createRepoComponent(
   };
 }
 
+function gateCutoverAdmission(
+  service: AuthoritySubmissionService,
+  control: AuthorityCutoverControlService
+): AuthoritySubmissionService {
+  return {
+    submit: (envelope) => control.runDuringOpenAdmission(() => service.submit(envelope)),
+    ...(service.submitV2 ? {
+      submitV2: (attempt: Parameters<NonNullable<AuthoritySubmissionService["submitV2"]>>[0]) =>
+        control.runDuringOpenAdmission(() => service.submitV2!(attempt))
+    } : {}),
+    getOperation: service.getOperation
+  };
+}
+
 function createConnectionAuthorityService(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
@@ -260,11 +314,9 @@ function createConnectionAuthorityService(
       schemaTuple: material.config.schemaTuple,
       channelNonceDigest: context.channelBinding.digest,
       bindingRuntime: connectionBoundRuntime(material.bindingRuntime, material.config, context),
-      entityRegistrations: [
-        entityRegistry.task as unknown as EntityRegistration<string, "task">,
-        entityRegistry.decision as unknown as EntityRegistration<string, "decision">,
-        entityRegistry.module as unknown as EntityRegistration<string, "module">
-      ],
+      entityRegistrations: productionAuthorityV2EntityKinds.map((kind) =>
+        entityRegistry[kind] as unknown as EntityRegistration<string, typeof kind>
+      ),
       semanticCompiler: makeTaskDecisionModuleSemanticCompilerV2({
         state: {
           readEntityBase: async () => null,
@@ -483,4 +535,11 @@ function canonicalRoot(value: string): string {
   } catch {
     return value;
   }
+}
+
+function authorityManifestSourceDigest(manifestPath: string): string {
+  return createHash("sha256")
+    .update("ha/authority-production-manifest-source/v1\0", "utf8")
+    .update(readFileSync(manifestPath))
+    .digest("hex");
 }

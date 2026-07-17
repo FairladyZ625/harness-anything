@@ -316,10 +316,21 @@ const arbiterCliActionKinds = new Set<string>([
   "task-review-execution",
 ]);
 
+const adminCliActionKinds = new Set<string>([
+  "authority-cutover-boundary",
+  "authority-cutover-confirm",
+  "authority-cutover-drain",
+  "authority-cutover-freeze",
+  "authority-cutover-re-enable",
+  "authority-cutover-scan",
+  "authority-cutover-status"
+]);
+
 export const repoCommandRunClassifiedActionKinds = [
   ...repoReadCliActionKinds,
   ...repoWriteCliActionKinds,
   ...arbiterCliActionKinds,
+  ...adminCliActionKinds,
   ...taskWriteCliRoutePolicies.map((policy) => policy.actionKind)
 ].sort();
 
@@ -348,6 +359,7 @@ export function commandClassForCliActionKind(kind: string): DaemonCommandClass |
   if (repoReadCliActionKinds.has(kind)) return "repo-read";
   if (repoWriteCliActionKinds.has(kind)) return "repo-write";
   if (arbiterCliActionKinds.has(kind)) return "arbiter";
+  if (adminCliActionKinds.has(kind)) return "admin";
   return undefined;
 }
 

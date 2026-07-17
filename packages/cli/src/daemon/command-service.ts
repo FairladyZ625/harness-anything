@@ -5,7 +5,7 @@ import {
   type AuthorityConnectionDispatch,
   type JsonObject
 } from "../../../daemon/src/index.ts";
-import { makeHumanFallbackSessionProbe, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
+import { makeHumanFallbackSessionProbe, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
@@ -16,6 +16,7 @@ import { runRegisteredCommandWithCliComposition } from "../composition/command-e
 import { materializerCommandResult } from "../commands/core/materializer.ts";
 import { makeDaemonAuthorityWriteCoordinator, type DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
+import { isAuthorityCutoverAction, runAuthorityCutoverControlCommand } from "./authority-cutover-command.ts";
 
 export interface CliCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -31,6 +32,7 @@ export interface CliCommandServiceOptions {
   readonly resolveAuthoritySubmissionV2?: (
     connection: AuthorityConnectionDispatch | undefined
   ) => DaemonAuthorityCommandSubmissionV2 | undefined;
+  readonly authorityCutoverControl?: AuthorityCutoverControlService;
 }
 
 export function createCliCommandService(runtime: CliDaemonRuntime, options: CliCommandServiceOptions = {}): CliCommandService {
@@ -43,6 +45,13 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         command = parsedCommand;
         const daemonActor = context?.actor;
         const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
+        if (isAuthorityCutoverAction(parsedCommand.action)) {
+          return toCommandReceipt(await runAuthorityCutoverControlCommand({
+            action: parsedCommand.action,
+            control: options.authorityCutoverControl,
+            authenticated: daemonActor !== undefined
+          }));
+        }
         if (parsedCommand.action.kind === "materializer-run") {
           const report = await runtime.enqueueMaterializerBatch({ dryRun: parsedCommand.action.dryRun });
           return toCommandReceipt(materializerCommandResult(report));

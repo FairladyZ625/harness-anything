@@ -24,6 +24,7 @@ import type {
   CanonicalPublicationInspector,
   DelegationTokenVerification,
   DelegationTokenVerifier,
+  RecordedAuthorityProtocol,
   ReplicaChangeLog
 } from "./types.ts";
 import {
@@ -63,6 +64,7 @@ import {
   validateLegacyAuthorityIngress,
   validateLegacyTokenEnvelopeClaims
 } from "./legacy-admission.ts";
+import { createAuthorityOperationRecordPersistence } from "./operation-record-persistence.ts";
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
   readonly coordinatorFactory: AttributedCoordinatorFactory;
@@ -100,6 +102,7 @@ interface PreparedAuthoritySubmission {
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;
+  readonly recordedProtocol: RecordedAuthorityProtocol;
 }
 
 interface TerminalAuthoritySubmission {
@@ -126,6 +129,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     : undefined;
   const byOperation = new KeyedSerialAuthorityExecutor();
   const now = options.now ?? (() => new Date().toISOString());
+  const { put, persistTerminal } = createAuthorityOperationRecordPersistence(options.operationRegistry);
   const publications = new BoundedAuthorityBatcher<AuthorityAdmission, AuthorityOperationReceipt>(
     publishBatch,
     authorityPublicationBatchSize,
@@ -174,10 +178,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
   ): Promise<AuthorityAdmission> {
     const v2 = options.v2!;
     const opId = operationIdDiagnosticV2(envelope.operationId);
-    const identity = { workspaceId: envelope.workspaceId, opId };
+    const recordedProtocol = {
+      kind: "semantic-mutation-envelope/v2" as const,
+      schemaTuple: envelope.schemaTuple
+    };
+    const identity = { workspaceId: envelope.workspaceId, opId, recordedProtocol };
     const semanticDigest = hex(semanticRequestDigestV2(envelope));
     const known = await options.operationRegistry.get(envelope.workspaceId, opId);
-    if (!known) await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
+    if (known) {
+      if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
+      if (known.receipt) return terminal(known.receipt);
+      return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
+    }
+    await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
     let computedIntegrity: AuthorityOperationIntegrity | undefined;
     try {
       if (!sameProtocolSchemaTupleV2(envelope.schemaTuple, v2.schemaTuple)) {
@@ -194,7 +207,17 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       })) throw new SemanticAdmissionErrorV2("ADMISSION_TOKEN_REF_MISMATCH");
       await v2.operationNamespaceVerifier.verify(envelope.operationId);
 
-      const semanticCompilation = await v2.semanticCompiler.compile(envelope);
+      const semanticCompilation = await v2.semanticCompiler.compile(envelope, {
+        actor: {
+          principal: { personId: verified.token.claims.principalPersonId },
+          executor: verified.token.claims.executorAgentId
+            ? { kind: "agent", id: verified.token.claims.executorAgentId }
+            : null,
+          responsibleHuman: `person:${verified.token.claims.principalPersonId}`
+        },
+        sessionId: verified.token.claims.sessionId,
+        nowMs: v2.bindingRuntime.nowMs()
+      });
       const compilation = compileRegistryMutationPlan(writableEntityRegistry!, semanticCompilation.mutationPlan);
       assertStoragePlanMatchesMutationSetV2(compilation.mutationSet, compilation.storagePlan);
       assertMutationClaimMatchesV2(envelope, compilation.mutationSet);
@@ -211,12 +234,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         canonicalMutationSet: compilation.mutationSet
       };
       computedIntegrity = authorityIntegrity;
-      if (known) {
-        if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
-        if (known.receipt) return terminal(known.receipt);
-        return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
-      }
-
       await consumeActorAxesBindingOperationV2(verified, v2.bindingRuntime);
       try {
         await options.fenceWitness.assertHeld();
@@ -244,7 +261,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         coordinator,
         authorityIntegrity,
         actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),
-        canonicalRequestEnvelope
+        canonicalRequestEnvelope,
+        recordedProtocol
       };
     } catch (error) {
       const reason = error instanceof SemanticAdmissionErrorV2 ? error.code : `ADMISSION_REJECTED:${describe(error)}`;
@@ -306,7 +324,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       opId: envelope.opId,
       operation: envelope.operation,
       semanticDigest,
-      coordinator
+      coordinator,
+      recordedProtocol: { kind: "authority-operation/v1", schemaTuple: envelope.protocol }
     };
   }
 
@@ -511,38 +530,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
   }
 
-  async function persistTerminal(
-    envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
-    digest: string,
-    state: Extract<AuthorityOperationState, "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
-    receipt: AuthorityOperationReceipt,
-    authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string
-  ): Promise<AuthorityOperationReceipt> {
-    await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined, authorityIntegrity, canonicalRequestEnvelope);
-    return receipt;
-  }
-
-  function put(
-    envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
-    semanticDigest: string,
-    state: AuthorityOperationState,
-    receipt?: AuthorityOperationReceipt,
-    commitSha?: string,
-    authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string
-  ): Promise<void> {
-    return options.operationRegistry.put({
-      workspaceId: envelope.workspaceId,
-      opId: envelope.opId,
-      semanticDigest,
-      state,
-      ...(receipt ? { receipt } : {}),
-      ...(commitSha ? { commitSha } : {}),
-      ...(authorityIntegrity ? { authorityIntegrity } : {}),
-      ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {})
-    });
-  }
 }
 
 function terminal(receipt: AuthorityOperationReceipt): TerminalAuthoritySubmission {

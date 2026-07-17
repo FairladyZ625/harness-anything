@@ -12,7 +12,11 @@ export function createInMemoryAuthorityOperationRegistry(): AuthorityOperationRe
     put: async (record) => {
       const recordKey = key(record.workspaceId, record.opId);
       records.set(recordKey, structuredClone({ ...records.get(recordKey), ...record }));
-    }
+    },
+    list: async (workspaceId) => [...records.values()]
+      .filter((record) => record.workspaceId === workspaceId)
+      .sort((left, right) => left.opId.localeCompare(right.opId))
+      .map((record) => structuredClone(record))
   };
 }
 

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { AuthorityCutoverControlService } from "../../application/src/index.ts";
 import {
   daemonActorAttribution,
   daemonActorAttributionForParsedCommand
@@ -207,6 +208,60 @@ test("daemon command service preserves A/X attribution through the queued coordi
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("daemon command service routes authenticated authority cutover commands to the production control", async () => {
+  const runtime: CliDaemonRuntime = {
+    enqueueInteractiveWrite: async () => ({ flush: { reason: "explicit", opCount: 0, committed: true } }),
+    status: () => ({})
+  };
+  let statusReads = 0;
+  const authorityCutoverControl = {
+    status: () => {
+      statusReads += 1;
+      return {
+        schema: "authority-cutover-control/v1",
+        repoId: "canonical",
+        workspaceId: "workspace-production",
+        selectedSchemaTupleDigest: "a".repeat(64),
+        phase: "ACTIVE",
+        admission: "open",
+        classifications: [],
+        v1FreshWriterRetired: false,
+        updatedAt: "2026-07-17T00:00:00.000Z"
+      };
+    },
+    runDuringOpenAdmission: (operation) => operation(),
+    drain: async () => { throw new Error("not used"); },
+    scan: async () => { throw new Error("not used"); },
+    confirmEquality: () => { throw new Error("not used"); },
+    activateBoundary: () => { throw new Error("not used"); },
+    freeze: () => { throw new Error("not used"); },
+    reEnable: () => { throw new Error("not used"); }
+  } satisfies AuthorityCutoverControlService;
+  const service = createCliCommandService(runtime, { authorityCutoverControl });
+
+  const receipt = await service.runCommand({
+    command: {
+      rootDir: "/repo",
+      json: true,
+      action: { kind: "authority-cutover-status" }
+    }
+  }, {
+    actor: {
+      personId: "person_alice",
+      displayName: "Alice",
+      primaryEmail: "alice@example.test",
+      roles: ["owner"],
+      providerId: "local-peer",
+      resolvedCredential: { kind: "unix-socket-owner-boundary", issuer: "test", subject: "person_alice" }
+    }
+  });
+
+  assert.equal(receipt.ok, true, JSON.stringify(receipt));
+  assert.equal(receipt.command, "authority cutover status");
+  assert.equal(statusReads, 1);
+  assert.equal((receipt.details?.report as { readonly phase?: unknown }).phase, "ACTIVE");
 });
 
 test("daemon command service routes canonical writes through submitV2 without forwarding raw WriteOps", async () => {

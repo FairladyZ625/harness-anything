@@ -30,7 +30,9 @@ export {
   isCompleteAuthorityCommittedReceiptV2,
   reconcileShadowPublications,
   shadowPublicationSchema,
-  shadowReconciliationSchema
+  shadowReconciliationSchema,
+  createAuthorityCutoverEntityRegistryQualification,
+  createAuthorityCutoverControlService
 } from "./authority/index.ts";
 export type {
   AttributedCoordinatorFactory,
@@ -61,6 +63,10 @@ export type {
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./authority/index.ts";
+export type {
+  AuthorityCutoverControlService,
+  AuthorityProductionRepoScan
+} from "./authority/cutover-control.ts";
 export * from "./authority/actor-axes-binding-v2.ts";
 export * from "./authority/key-registry-v1.ts";
 export * from "./authority/canonical-cbor.ts";
@@ -68,6 +74,7 @@ export * from "./authority/semantic-mutation-envelope-v2.ts";
 export * from "./authority/fact-relation-semantic-compiler-v2.ts";
 export * from "./authority/task-decision-module-semantic-compiler-v2.ts";
 export * from "./authority/session-execution-review-semantic-compiler-v2.ts";
+export * from "./authority/consent-semantic-compiler-v2.ts";
 export * from "./authority/transparent-semantic-diff-compiler-v2.ts";
 export { compileManagedCandidateTreeV2 } from "./authority/semantic-authority-helpers-v2.ts";
 export * from "./authority/committed-attribution-event-v2.ts";

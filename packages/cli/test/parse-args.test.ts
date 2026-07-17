@@ -35,6 +35,13 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
+  { name: "authority cutover status", argv: ["authority", "cutover", "status"], kind: "authority-cutover-status" },
+  { name: "authority cutover drain classify", argv: ["authority", "cutover", "drain", "--classify", `op-1|retryable-not-committed|${"a".repeat(64)}|rehearsal/op-1`], kind: "authority-cutover-drain", fields: { classifications: [{ opId: "op-1", disposition: "retryable-not-committed", recordedTupleDigest: "a".repeat(64), evidenceRef: "rehearsal/op-1" }] } },
+  { name: "authority cutover scan", argv: ["authority", "cutover", "scan"], kind: "authority-cutover-scan", fields: { profileId: "production-final-scan/v1" } },
+  { name: "authority cutover equality", argv: ["authority", "cutover", "confirm", "--first-scan", "scan_1", "--second-scan", "scan_2"], kind: "authority-cutover-confirm", fields: { firstScanId: "scan_1", secondScanId: "scan_2" } },
+  { name: "authority cutover boundary", argv: ["authority", "cutover", "boundary", "--id", "sme-v2", "--equality", "equality_1", "--expected-v2-tuple-digest", "b".repeat(64)], kind: "authority-cutover-boundary", fields: { boundaryId: "sme-v2", equalityReceiptId: "equality_1", expectedSelectedSchemaTupleDigest: "b".repeat(64) } },
+  { name: "authority cutover freeze", argv: ["authority", "cutover", "freeze", "--reason", "forward fix", "--boundary-receipt-digest", "c".repeat(64)], kind: "authority-cutover-freeze", fields: { reason: "forward fix", expectedBoundaryReceiptDigest: "c".repeat(64) } },
+  { name: "authority cutover re-enable", argv: ["authority", "cutover", "re-enable", "--boundary", "sme-v2", "--freeze-receipt-digest", "d".repeat(64), "--equality", "equality_2", "--forward-fix", "fix/w6-1"], kind: "authority-cutover-re-enable", fields: { boundaryId: "sme-v2", expectedFreezeReceiptDigest: "d".repeat(64), equalityReceiptId: "equality_2", forwardFixRef: "fix/w6-1" } },
   {
     name: "new-task preset task",
     argv: ["task", "create", "--title", "Parser Task", "--parent", "task_parent", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],

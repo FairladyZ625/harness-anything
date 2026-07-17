@@ -20,6 +20,7 @@ import {
   type LocalAuthorityKeyStore
 } from "../../../daemon/src/index.ts";
 import type { WriteAttribution } from "../../../kernel/src/index.ts";
+import { stableStringify } from "../../../kernel/src/index.ts";
 import { authorityDurableAdapterMarker, type AuthorityDurableAdapterMarker } from "./authority-lifecycle.ts";
 import type { DurableAuthorityStateTable } from "./authority-service-state.ts";
 
@@ -194,7 +195,7 @@ export function createDurableOperationNamespaceVerifierV2(input: {
 }): OperationNamespaceVerifierV2 & AuthorityDurableAdapterMarker {
   const configured = namespaceRow(input.config.operationNamespace);
   const existing = input.table.get<DurableNamespaceRowV1>(namespaceKey(configured.namespaceId));
-  if (existing && JSON.stringify(existing) !== JSON.stringify(configured)) {
+  if (existing && stableStringify(existing) !== stableStringify(configured)) {
     throw new Error("AUTHORITY_OPERATION_NAMESPACE_DURABLE_MISMATCH");
   }
   if (!existing) input.table.put(namespaceKey(configured.namespaceId), configured);
@@ -203,8 +204,8 @@ export function createDurableOperationNamespaceVerifierV2(input: {
     verify: async (operationId) => {
       const candidate = namespaceRow(operationId.namespace);
       const durable = input.table.get<DurableNamespaceRowV1>(namespaceKey(candidate.namespaceId));
-      if (!durable || JSON.stringify(durable) !== JSON.stringify(candidate)
-        || JSON.stringify(candidate) !== JSON.stringify(configured)) {
+      if (!durable || stableStringify(durable) !== stableStringify(candidate)
+        || stableStringify(candidate) !== stableStringify(configured)) {
         throw new Error("OP_NAMESPACE_DURABLE_MISMATCH");
       }
       if (operationId.clientRandom128.byteLength !== 16

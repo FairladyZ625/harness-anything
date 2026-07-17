@@ -20,7 +20,7 @@ const serviceStateSchema = "authority-service-state/v1" as const;
 
 interface DurableStateEnvelope {
   readonly schema: typeof serviceStateSchema;
-  readonly table: "operation" | "replica-change" | "binding" | "namespace";
+  readonly table: "operation" | "replica-change" | "binding" | "namespace" | "cutover";
   readonly key: string;
   readonly value: unknown;
 }
@@ -37,6 +37,7 @@ export interface DurableAuthorityServiceState {
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly bindingState: DurableAuthorityStateTable;
   readonly namespaceState: DurableAuthorityStateTable;
+  readonly cutoverState: DurableAuthorityStateTable;
   readonly close: () => Promise<void>;
 }
 
@@ -59,6 +60,7 @@ export function openDurableAuthorityServiceState(input: {
   const replicaLog = openLog(stateDirectory, "replica-changes.jsonl", "replica-change");
   const bindingLog = openLog(stateDirectory, "bindings.jsonl", "binding");
   const namespaceLog = openLog(stateDirectory, "namespaces.jsonl", "namespace");
+  const cutoverLog = openLog(stateDirectory, "cutover.jsonl", "cutover");
   let closed = false;
 
   const ensureOpen = (): void => {
@@ -74,6 +76,13 @@ export function openDurableAuthorityServiceState(input: {
       ensureOpen();
       validateStoredOperation(record);
       operationLog.append(compoundKey(record.workspaceId, record.opId), record);
+    },
+    list: async (workspaceId) => {
+      ensureOpen();
+      return [...operationLog.values.values()]
+        .filter((candidate): candidate is AuthorityStoredOperationRecord =>
+          (candidate as AuthorityStoredOperationRecord).workspaceId === workspaceId)
+        .sort((left, right) => left.opId.localeCompare(right.opId));
     }
   };
 
@@ -127,6 +136,7 @@ export function openDurableAuthorityServiceState(input: {
     replicaChangeLog,
     bindingState: stateTable(bindingLog, ensureOpen),
     namespaceState: stateTable(namespaceLog, ensureOpen),
+    cutoverState: stateTable(cutoverLog, ensureOpen),
     close: async () => {
       closed = true;
     }

@@ -402,6 +402,7 @@ function createRepoServiceBinding(
   });
   const cliCommandService = createCliCommandService(runtime, {
     ...commandOptions,
+    ...(authorityComponent ? { authorityCutoverControl: authorityComponent.cutoverControl } : {}),
     ...(authorityComponent ? {
       resolveAuthoritySubmissionV2: (dispatch) => requireAuthoritySubmissionForDispatch(
         authorityComponent,

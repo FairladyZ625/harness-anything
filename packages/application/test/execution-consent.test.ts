@@ -33,6 +33,7 @@ const reviewerSession = { runtime: "codex" as const, sessionId: "consent-test", 
 const aliceWorker = taskHolderActor({ personId: "alice" }, { kind: "agent", id: "worker" });
 const aliceRenamed = taskHolderActor({ personId: "alice" }, { kind: "agent", id: "renamed-reviewer" });
 const aliceHuman = taskHolderActor({ personId: "alice" }, null);
+const bobWorker = taskHolderActor({ personId: "bob" }, { kind: "agent", id: "reviewer" });
 
 test("approved Review fails without consent for both the delivery executor and a renamed executor", async () => {
   await withConsentFixture(async ({ rootDir, artifactStore }) => {
@@ -157,6 +158,62 @@ test("consumed consent cannot be replayed for a second approved Review", async (
       now: () => "2026-07-15T00:03:00.000Z"
     }).reviewExecution({ ...reviewInput(aliceRenamed), consentId }), /consumed and cannot be replayed/u);
     assert.equal(existsSync(reviewPath(rootDir, secondReviewId)), false);
+  });
+});
+
+test("consent remains bound to its recorded person principal", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore }) => {
+    await recordOpenConsent(
+      rootDir,
+      artifactStore,
+      makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") })
+    );
+    await assert.rejects(makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("bob", "reviewer") }),
+      artifactStore,
+      generateReviewId: () => firstReviewId,
+      now: () => "2026-07-15T00:02:00.000Z"
+    }).reviewExecution({ ...reviewInput(bobWorker), consentId }), /belongs to a different principal/u);
+    assert.equal(readConsent(rootDir, consentId).state, "open");
+    assert.equal(existsSync(reviewPath(rootDir, firstReviewId)), false);
+  });
+});
+
+test("consent grant survives a stop after durable enqueue and recovers exactly once", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore }) => {
+    const durable = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") });
+    await assert.rejects(makeRecordExecutionConsentService({
+      rootInput: rootDir,
+      coordinator: stopBeforeConsentFlush(durable),
+      artifactStore,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:01:00.000Z"
+    }).recordConsent({
+      taskId,
+      executionId,
+      actor: aliceWorker,
+      session: reviewerSession,
+      utterance: "Approved"
+    }), /simulated process stop after consent WAL append/u);
+    assert.equal(existsSync(consentPath(rootDir, consentId)), false);
+
+    const firstRecovery = await runEffect(makeJournaledWriteCoordinator({
+      rootDir,
+      attribution: writeAttribution("alice", "worker")
+    }).recover);
+    assert.equal(firstRecovery.replayedOps, 1);
+    assert.deepEqual({
+      state: readConsent(rootDir, consentId).state,
+      principal: readConsent(rootDir, consentId).principal
+    }, { state: "open", principal: { personId: "alice" } });
+
+    const secondRecovery = await runEffect(makeJournaledWriteCoordinator({
+      rootDir,
+      attribution: writeAttribution("alice", "worker")
+    }).recover);
+    assert.equal(secondRecovery.replayedOps, 0);
+    assert.equal(readConsent(rootDir, consentId).state, "open");
   });
 });
 
@@ -363,6 +420,13 @@ function captureCoordinator(): { readonly coordinator: WriteCoordinator; readonl
       flush: (reason) => Effect.succeed({ reason, opCount: ops.length, committed: false }),
       recover: Effect.succeed({ replayedOps: 0 })
     }
+  };
+}
+
+function stopBeforeConsentFlush(coordinator: WriteCoordinator): WriteCoordinator {
+  return {
+    ...coordinator,
+    flush: () => Effect.die(new Error("simulated process stop after consent WAL append"))
   };
 }
 
