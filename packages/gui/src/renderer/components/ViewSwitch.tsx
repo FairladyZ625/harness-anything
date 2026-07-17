@@ -69,7 +69,8 @@ export interface ViewSwitchProps {
   onFocusEntityInGraph: (ref: string) => void;
   onFiltersChange: (filters: TaskFilters) => void;
   onToggleFavorite: (taskId: string) => void;
-  onOpenProject: () => void;
+  projects: Project[];
+  onOpenProject: (repoId?: string) => void;
   /** Cmd+K 派生的最近焦点,GraphView 左栏 Recent 直接消费。 */
   recentHits?: readonly EntityHit[];
   /** 用户点 GraphView 左栏「⌘K」触发器 → 打开全局命令面板。 */
@@ -111,6 +112,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
     onFocusEntityInGraph,
     onFiltersChange,
     onToggleFavorite,
+    projects,
     onOpenProject,
     recentHits,
     onOpenPalette,
@@ -119,7 +121,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
 
   const { decisions, facts, relations, coverageRows, factAnchors } = triadic;
   const showToast = useToast();
-  const decideMutation = useDecideMutation();
+  // Route decision mutations through the active project/repo selection.
+  const decideMutation = useDecideMutation(project.id);
 
   const handleDecide = (id: string, action: DecideAction, rationale?: string) => {
     // Authority act: call the existing renderer API only. Principal is derived
@@ -176,7 +179,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
         />
       ) : view === "home" ? (
         <HomeView
-          projects={[project]}
+          projects={projects}
           tasks={tasks}
           events={events}
           currentProjectId={project.id}

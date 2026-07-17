@@ -17,6 +17,13 @@ import { adaptProjectionRows, buildRealProject, REAL_PROJECT_ID } from "./task-a
 import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useCatalogQuery } from "./catalog-data.ts";
+import { useDaemonStatusQuery } from "./model/daemon-status-query.ts";
+import {
+  isRepoSelectable,
+  projectFromDaemonRepo,
+  projectsFromDaemonRepos,
+  resolveActiveRepoId,
+} from "./model/project-repos.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { MOCK_BACKED_VIEWS, type ViewId } from "./shell-config.tsx";
 import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
@@ -30,10 +37,31 @@ const RECENT_LIMIT = 12;
 
 function AppShell() {
   const { locale } = useI18n();
+  // Selected daemon repoId. Until daemon-status lands, null so per-repo queries
+  // stay disabled (bridge still falls back to composition-root target for status).
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const daemonStatusQuery = useDaemonStatusQuery();
+  const daemonRepos = daemonStatusQuery.data?.repos ?? [];
+  const requestedRepoId = daemonStatusQuery.data?.requestedRepo.repoId ?? null;
+  const activeRepoId = useMemo(
+    () => resolveActiveRepoId(daemonRepos, selectedRepoId, requestedRepoId),
+    [daemonRepos, selectedRepoId, requestedRepoId],
+  );
+
+  // Align selection with resolved active repo once status is known (single-repo
+  // path auto-picks the only registered repo — identical to pre-multi-repo UX).
+  useEffect(() => {
+    if (activeRepoId && activeRepoId !== selectedRepoId) {
+      setSelectedRepoId(activeRepoId);
+    }
+  }, [activeRepoId, selectedRepoId]);
+
   // 应用位置由导航历史栈持有:entries[index] 是唯一真源。
   // 六个位置状态(view/selectedId/previewId/focusedEntityRef/taskFilters/drill)
   // 全部从 location 派生,变更只走 navigate() / updateLocation() —— 这是
   // 「所有导航都进历史栈」的结构性保证(没有独立 setter 可绕过)。
+  // History is keyed by active repoId so multi-repo switch restores per-repo stack.
+  const historyProjectId = activeRepoId ?? REAL_PROJECT_ID;
   const {
     location,
     navigate,
@@ -42,7 +70,7 @@ function AppShell() {
     forward,
     canBack,
     canForward,
-  } = useNavigationHistory(REAL_PROJECT_ID, {
+  } = useNavigationHistory(historyProjectId, {
     view: "overview",
     selectedId: null,
     previewId: null,
@@ -52,23 +80,55 @@ function AppShell() {
     drill: null,
   });
 
-  const tasksQuery = useTasksQuery();
-  const triadicQuery = useTriadicProjectionQuery();
-  const catalogQuery = useCatalogQuery();
+  const tasksQuery = useTasksQuery(activeRepoId);
+  const triadicQuery = useTriadicProjectionQuery(activeRepoId);
+  const catalogQuery = useCatalogQuery(activeRepoId);
   // ROT-014: TanStack Query is the sole Task server-state owner.
   // Board/sidebar/selection read the adapted projection directly — no App useState mirror.
   const tasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
-    [tasksQuery.data],
+    () => adaptProjectionRows(tasksQuery.data?.tasks ?? [], activeRepoId ?? REAL_PROJECT_ID),
+    [tasksQuery.data, activeRepoId],
   );
 
-  const project = useMemo(() => ({
-    ...buildRealProject(tasks),
-    preset: catalogQuery.data?.activePresetId ?? t("renderer.app.notConfigured"),
-    engines: catalogQuery.data?.adapters.map((adapter) => adapter.engine) ?? ["local"]
-  }), [catalogQuery.data, locale, tasks]);
+  const catalogPreset = catalogQuery.data?.activePresetId ?? t("renderer.app.notConfigured");
+  const catalogEngines = catalogQuery.data?.adapters.map((adapter) => adapter.engine) ?? ["local"];
+  const projects = useMemo(() => {
+    if (daemonRepos.length > 0) {
+      return projectsFromDaemonRepos(daemonRepos, {
+        preset: catalogPreset,
+        engines: catalogEngines,
+        watermarkAt: tasks[0]?.lastKnownAt,
+      });
+    }
+    // Status not yet available / single-repo fallback card.
+    return [{
+      ...buildRealProject(tasks),
+      preset: catalogPreset,
+      engines: catalogEngines,
+    }];
+  }, [daemonRepos, catalogPreset, catalogEngines, locale, tasks]);
+
+  const project = useMemo(() => {
+    if (activeRepoId) {
+      const match = projects.find((p) => p.id === activeRepoId);
+      if (match) return match;
+      const repo = daemonRepos.find((r) => r.repoId === activeRepoId);
+      if (repo) {
+        return projectFromDaemonRepo(repo, {
+          preset: catalogPreset,
+          engines: catalogEngines,
+          watermarkAt: tasks[0]?.lastKnownAt,
+        });
+      }
+    }
+    return projects[0] ?? {
+      ...buildRealProject(tasks),
+      preset: catalogPreset,
+      engines: catalogEngines,
+    };
+  }, [activeRepoId, projects, daemonRepos, catalogPreset, catalogEngines, tasks]);
+
   const projectId = project.id;
-  const projects = useMemo(() => [project], [project]);
   const { favorites, toggleFavorite } = useFavorites(projectId);
 
   const decisions = triadicQuery.decisions;
@@ -111,7 +171,7 @@ function AppShell() {
   // 状态写真桥只提交普通 active/blocked 转换；权威投影成功刷新前不伪造本地状态。
   // 写操作统一走 toast 反馈:成功/失败都显式提示,不静默。
   const showToast = useToast();
-  const statusMutation = useSetTaskStatusMutation();
+  const statusMutation = useSetTaskStatusMutation(activeRepoId);
   const updateTask = (taskId: string, patch: Partial<import("./model/types.ts").TaskRow>) => {
     const current = tasks.find((task) => task.taskId === taskId);
     if (
@@ -145,8 +205,16 @@ function AppShell() {
     });
   };
 
-  const openProject = () => {
+  const openProject = (repoId?: string) => {
     setProjectSwitcherOpen(false);
+    if (repoId && repoId !== activeRepoId) {
+      const target = daemonRepos.find((repo) => repo.repoId === repoId);
+      // Refuse routing to non-attached repos — surface state in switcher instead.
+      if (target && !isRepoSelectable(target)) {
+        return;
+      }
+      setSelectedRepoId(repoId);
+    }
     navigate({
       view: "overview",
       focusedEntityRef: null,
@@ -388,6 +456,7 @@ function AppShell() {
               focusedEntityRef={location.focusedEntityRef}
               entityFacet={location.entityFacet}
               project={project}
+              projects={projects}
               catalog={catalogQuery.data}
               catalogLoading={catalogQuery.isLoading}
               catalogError={catalogQuery.isError}

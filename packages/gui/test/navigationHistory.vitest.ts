@@ -316,7 +316,9 @@ describe("App.tsx navigation funnel invariant", () => {
   });
 
   it("connects the AppShell history to repository-scoped session storage", () => {
-    expect(appSource).toContain("useNavigationHistory(REAL_PROJECT_ID,");
+    // History key is the active daemon repoId (falls back to REAL_PROJECT_ID pre-status).
+    expect(appSource).toContain("useNavigationHistory(historyProjectId,");
+    expect(appSource).toContain("const historyProjectId = activeRepoId ?? REAL_PROJECT_ID");
     expect(hookSource).toContain("readNavigationHistory(window.sessionStorage, projectId");
     expect(hookSource).toContain("writeNavigationHistory(window.sessionStorage, projectId, history)");
   });

@@ -34,7 +34,8 @@ interface AppSidebarProps {
   onProjectSwitcherToggle: () => void;
   /** 「管理全部」入口:关闭切换器 + 导航到 home。 */
   onManageAll: () => void;
-  openProject: () => void;
+  /** Select a registered repo (repoId) and open its overview. */
+  openProject: (repoId: string) => void;
   goto: (v: ViewId) => void;
   inboxCount: number;
 }
@@ -136,7 +137,7 @@ export function AppSidebar({
                     project={p}
                     tasks={tasks}
                     active={p.id === projectId}
-                    onOpen={openProject}
+                    onOpen={() => openProject(p.id)}
                   />
                 ))}
               </div>

@@ -4,79 +4,108 @@ import { harnessClient, type CommandResult } from "./api-client.ts";
 
 export const taskQueryKeys = {
   all: ["harness", "tasks"] as const,
-  list: () => [...taskQueryKeys.all, "list"] as const,
-  detail: (taskId: string) => [...taskQueryKeys.all, "detail", taskId] as const,
-  document: (taskId: string, path: string) => [...taskQueryKeys.all, "document", taskId, path] as const
+  list: (repoId?: string | null) => [...taskQueryKeys.all, "list", repoId ?? "default"] as const,
+  detail: (taskId: string, repoId?: string | null) =>
+    [...taskQueryKeys.all, "detail", repoId ?? "default", taskId] as const,
+  document: (taskId: string, path: string, repoId?: string | null) =>
+    [...taskQueryKeys.all, "document", repoId ?? "default", taskId, path] as const
 };
 
-export function useTasksQuery() {
+export function useTasksQuery(repoId?: string | null) {
   return useQuery({
-    queryKey: taskQueryKeys.list(),
-    queryFn: () => harnessClient.getTasks(),
-    staleTime: 10_000
-  });
+    queryKey: taskQueryKeys.list(repoId),
+    queryFn: () => harnessClient.getTasks(repoId ?? undefined),
+    staleTime: 10_000,
+    });
 }
 
-export function useTaskDetailQuery(taskId: string | null) {
+export function useTaskDetailQuery(taskId: string | null, repoId?: string | null) {
   return useQuery({
-    queryKey: taskQueryKeys.detail(taskId ?? "none"),
+    queryKey: taskQueryKeys.detail(taskId ?? "none", repoId),
     queryFn: () => {
       if (!taskId) throw new Error("Task id is required.");
-      return harnessClient.getTaskDetail({ taskId });
+      return harnessClient.getTaskDetail({
+        taskId,
+        ...(repoId ? { repoId } : {})
+      });
     },
     enabled: taskId !== null
   });
 }
 
-export function useTaskDocumentQuery(taskId: string | null, path: string | null) {
+export function useTaskDocumentQuery(
+  taskId: string | null,
+  path: string | null,
+  repoId?: string | null
+) {
   return useQuery({
-    queryKey: taskQueryKeys.document(taskId ?? "none", path ?? "none"),
+    queryKey: taskQueryKeys.document(taskId ?? "none", path ?? "none", repoId),
     queryFn: () => {
       if (!taskId || !path) throw new Error("Task document path is required.");
-      return harnessClient.getTaskDocument({ taskId, path });
+      return harnessClient.getTaskDocument({
+        taskId,
+        path,
+        ...(repoId ? { repoId } : {})
+      });
     },
     enabled: taskId !== null && path !== null
   });
 }
 
-export function useSetTaskStatusMutation() {
+export function useSetTaskStatusMutation(repoId?: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: { readonly taskId: string; readonly status: DomainStatus }) =>
-      requireCommandSuccess(await harnessClient.setTaskStatus(input)),
+      requireCommandSuccess(
+        await harnessClient.setTaskStatus({
+          ...input,
+          ...(repoId ? { repoId } : {})
+        })
+      ),
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
     }
   });
 }
 
-export function useAppendTaskProgressMutation() {
+export function useAppendTaskProgressMutation(repoId?: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { readonly taskId: string; readonly text: string }) => harnessClient.appendTaskProgress(input),
+    mutationFn: (input: { readonly taskId: string; readonly text: string }) =>
+      harnessClient.appendTaskProgress({
+        ...input,
+        ...(repoId ? { repoId } : {})
+      }),
     onSuccess: async (_result, input) => {
-      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.detail(input.taskId) });
-      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.document(input.taskId, "progress.md") });
-      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.list() });
+      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.detail(input.taskId, repoId) });
+      await queryClient.invalidateQueries({
+        queryKey: taskQueryKeys.document(input.taskId, "progress.md", repoId)
+      });
+      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(repoId) });
     }
   });
 }
 
-export function useReviewTaskMutation() {
+export function useReviewTaskMutation(repoId?: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: { readonly taskId: string }) =>
-      requireCommandSuccess(await harnessClient.reviewTask(input)),
+      requireCommandSuccess(
+        await harnessClient.reviewTask({
+          ...input,
+          ...(repoId ? { repoId } : {})
+        })
+      ),
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
     }
   });
 }
 
-export function useRebuildGovernanceMutation() {
+export function useRebuildGovernanceMutation(repoId?: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => harnessClient.rebuildGovernance(),
+    mutationFn: () => harnessClient.rebuildGovernance(repoId ?? undefined),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
     }

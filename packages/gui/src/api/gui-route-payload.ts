@@ -9,6 +9,9 @@ const DEFAULT_DAEMON_RESTART_DRAIN_TIMEOUT_MS = 5_000;
 const DEFAULT_DAEMON_RESTART_REASON = "GUI Settings System restart request";
 
 export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknown): PayloadValidation {
+  // Renderer multi-repo routing may attach `repoId` to any bridge payload.
+  // It is consumed by main (jsonRpcParamsForGuiRoute) and must not fail schema checks.
+  payload = stripRepoRoutingField(payload);
   switch (route.inputSchemaId) {
     case "daemon-log-list-input/v1":
       try {
@@ -305,6 +308,14 @@ function isValidEntityId(value: string): boolean {
   return value.length > 0 && !value.includes("/") && !value.includes("..");
 }
 
+
+
+/** Drop renderer-only `repoId` so service payload schemas stay unchanged. */
+export function stripRepoRoutingField(payload: unknown): unknown {
+  if (!isServicePayloadRecord(payload) || !("repoId" in payload)) return payload;
+  const { repoId: _repoId, ...rest } = payload;
+  return Object.keys(rest).length > 0 ? rest : null;
+}
 
 export function isServicePayloadRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
