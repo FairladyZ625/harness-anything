@@ -56,7 +56,7 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
     previousCommit: change.previousCommit,
     authorityIntegrity: record.authorityIntegrity
   };
-  await input.eventLog.recoverFromOperationRecord({
+  const recovered = await input.eventLog.recoverFromOperationRecord({
     workspaceId: record.workspaceId,
     opId: record.opId,
     operationRecords: input.operationRegistry,
@@ -67,7 +67,9 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
     })
   });
   return completeAuthorityCommittedReceiptV2({
-    publisher: input.publisher,
+    // recoverFromOperationRecord already performed the one durable publish.
+    // Complete the receipt from those exact bytes instead of observing again.
+    publisher: { publish: async () => recovered.event },
     receipt: baseReceipt,
     actorAxesBinding,
     occurredAt: change.changedAt
