@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { CanonicalPublicationInspector } from "../../../application/src/index.ts";
 import {
+  encodeCanonicalCbor,
   entityRegistry,
   type PhysicalChangeV2,
   type SemanticMutationSetV2
@@ -37,15 +38,19 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       .filter(Boolean)
       .map(canonicalGitPath)
       .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
+    const physicalChanges = changedPaths.map((changedPath) => ({
+      path: changedPath,
+      beforeDigest: expectedPreviousHead ? blobDigest(rootDir, expectedPreviousHead, changedPath) : null,
+      afterDigest: blobDigest(rootDir, head, changedPath)
+    })).sort((left, right) => Buffer.compare(
+      Buffer.from(encodeCanonicalCbor(left)),
+      Buffer.from(encodeCanonicalCbor(right))
+    ));
     return {
       commitSha: head,
       previousCommit: expectedPreviousHead,
       parentCommits,
-      physicalChanges: changedPaths.map((changedPath) => ({
-        path: changedPath,
-        beforeDigest: expectedPreviousHead ? blobDigest(rootDir, expectedPreviousHead, changedPath) : null,
-        afterDigest: blobDigest(rootDir, head, changedPath)
-      }))
+      physicalChanges
     };
   };
   return {

@@ -61,6 +61,9 @@ export function toCliError(error: CliReachableKernelError): CliResult["error"] {
 function journalUnavailableCause(cause: unknown): string {
   if (cause instanceof Error) return firstLine(cause.message);
   if (typeof cause === "string") return firstLine(cause);
+  if (cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string") {
+    return firstLine(cause.message);
+  }
   return "";
 }
 

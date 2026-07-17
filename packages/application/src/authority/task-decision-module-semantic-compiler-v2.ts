@@ -174,7 +174,7 @@ async function compileTaskDocument(
   assertTaskDocumentSurface(documentPath);
   const path = taskPath(payload.taskId, documentPath);
   const snapshot = await state.readHostedDocument(path);
-  return taskCompilation(payload.taskId, "document", "doc_write", {
+  return taskCompilation(payload.taskId, "document", documentPath === "code-doc-anchors.json" ? "code_doc_reconcile" : "doc_write", {
     path: documentPath,
     body: payload.body
   }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], snapshot ? [{ path, snapshot }] : []);

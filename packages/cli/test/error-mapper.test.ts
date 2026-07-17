@@ -23,4 +23,11 @@ test("journal failures always retain their cause and teach a concrete diagnostic
     code: "journal_unavailable",
     hint: "Journal is unavailable. Run 'ha doctor --json' to inspect journal and daemon health, then retry the command."
   });
+  assert.deepEqual(toCliError({
+    _tag: "JournalUnavailable",
+    cause: { name: "Error", message: "publisher observation mismatched", code: "EIO" }
+  }), {
+    code: "journal_unavailable",
+    hint: "Journal is unavailable: publisher observation mismatched. Run 'ha doctor --json' to inspect journal and daemon health, then retry the command."
+  });
 });

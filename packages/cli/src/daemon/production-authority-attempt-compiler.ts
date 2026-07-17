@@ -41,10 +41,11 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
+import { productionLifecycleAttemptIntent } from "./production-authority-lifecycle-intents.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 
-interface CanonicalAttemptIntent {
+export interface CanonicalAttemptIntent {
   readonly commandName: string;
   readonly payload: Uint8Array;
   readonly mutations: ReadonlyArray<{
@@ -78,10 +79,9 @@ export function createProductionCanonicalAttemptCompiler(input: {
           `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: production canonical ingress rejected ${command.action.kind}; ` +
           "use progress-append, decision-propose, module-register, record-fact, decision-relate, " +
           "session-export with an explicit transcript, task-claim with an execution id, " +
-          "a non-approved task-review-execution, or task-consent-record"
+          "task lifecycle closeout commands, task-consent-record, or fact-invalidate"
         );
       }
-      if (currentSession.sessionId !== input.config.sessionId) throw new Error("AUTHORITY_SESSION_AXIS_MISMATCH");
       if (canonicalEntityId !== intent.physicalEntityId) throw new Error("AUTHORITY_CANONICAL_ENTITY_MISMATCH");
       const executorAgentId = attribution.executor?.id ?? null;
       if (executorAgentId && !input.config.allowedExecutorAgentIds.includes(executorAgentId)
@@ -89,8 +89,8 @@ export function createProductionCanonicalAttemptCompiler(input: {
         throw new Error("AUTHORITY_EXECUTOR_NOT_SERVER_APPROVED");
       }
       const now = Date.now();
-      const allowedEntityKinds = [...new Set(intent.mutations.map((mutation) => mutation.entity.entityKind))].sort();
-      const allowedActions = [...new Set(intent.mutations.map((mutation) => mutation.action))].sort();
+      const allowedEntityKinds = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.entity.entityKind));
+      const allowedActions = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.action));
       const resourceScopes = [...intent.mutations.map((mutation) => ({
         kind: "entity-ref" as const,
         entityRef: mutation.entity
@@ -109,7 +109,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
         workspaceId: input.config.workspaceId,
         deviceId: input.config.deviceId,
         viewId: input.config.viewId,
-        sessionId: input.config.sessionId,
+        sessionId: currentSession.sessionId,
         allowedEntityKinds,
         allowedActions,
         resourceScopes,
@@ -123,7 +123,9 @@ export function createProductionCanonicalAttemptCompiler(input: {
         issuedAt: BigInt(now),
         notBefore: BigInt(now),
         expiresAt: BigInt(now + 5 * 60_000),
-        revocationEpochs: input.config.revocationEpochs
+        revocationEpochs: executorAgentId === null
+          ? { ...input.config.revocationEpochs, executor: 0n }
+          : input.config.revocationEpochs
       };
       const token = issueActorAxesBindingV2(
         claims,
@@ -366,7 +368,7 @@ async function canonicalAttemptIntent(
       declaredPathCas: [{ path: executionPath, ...snapshot.cas }]
     };
   }
-  return null;
+  return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot });
 }
 
 function canonicalIntent(
@@ -400,6 +402,13 @@ function resourceScopeWire(scope: {
       canonicalRef: scope.entityRef.canonicalRef
     }
   };
+}
+
+function canonicalBindingTextSet(values: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...new Set(values)].sort((left, right) => Buffer.compare(
+    Buffer.from(encodeCanonicalCbor(left)),
+    Buffer.from(encodeCanonicalCbor(right))
+  ));
 }
 
 function hostedSnapshot(authoredRoot: string, portablePath: string): {

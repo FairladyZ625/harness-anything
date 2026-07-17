@@ -121,12 +121,24 @@ function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushR
   }
 }
 
-function authoritySubmissionWriteError(cause: unknown): WriteError {
+export function authoritySubmissionWriteError(cause: unknown): WriteError {
   if (isAuthorityWriteError(cause)) return cause;
   if (cause instanceof AuthorityProtocolDamagedError) {
     return authorityWriteRejected(cause.message, false, "PROTOCOL_DAMAGED");
   }
-  return { _tag: "JournalUnavailable", cause };
+  return { _tag: "JournalUnavailable", cause: authorityJournalFailureCause(cause) };
+}
+
+function authorityJournalFailureCause(cause: unknown): unknown {
+  if (!(cause instanceof Error)) return cause;
+  const code = "code" in cause && (typeof cause.code === "string" || typeof cause.code === "number")
+    ? cause.code
+    : undefined;
+  return {
+    name: cause.name || "Error",
+    message: cause.message,
+    ...(code === undefined ? {} : { code })
+  };
 }
 
 function authorityWriteRejected(reason: string, retryable = false, code?: string): WriteError {

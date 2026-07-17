@@ -114,9 +114,9 @@ test("production canonical ingress accepts and journals one write for every cano
       authoredMarker: /session-ingress/u
     }, {
       kind: "execution",
-      action: { kind: "task-claim", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", execution: true, executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1" },
+      action: { kind: "task-claim", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", execution: true, executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1" },
       canonicalEntityId: "execution/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1" as EntityId,
-      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1.md",
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1.md",
       authoredMarker: /exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG1/u
     }, {
       kind: "review",
@@ -132,34 +132,90 @@ test("production canonical ingress accepts and journals one write for every cano
       kind: "consent",
       action: {
         kind: "task-consent-record", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
-        utterance: "Approve this exact submitted execution.", consentActions: ["approve_execution"]
+        utterance: "Approve and complete this exact submitted execution.", consentActions: ["approve_execution", "complete_task"]
       },
       canonicalEntityId: "consent/cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3" as EntityId,
       authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/consents/cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3.md",
       authoredMarker: /cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3/u
+    }, {
+      kind: "fact-create-invalidator",
+      action: {
+        kind: "record-fact", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", factId: "F-A11CE002",
+        statement: "Replacement production fact.", source: "production canonical ingress integration",
+        observedAt: "2026-07-17T00:02:00.000Z", confidence: "high", memoryClass: "episodic",
+        memoryTags: [], dryRun: false
+      },
+      canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"),
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/facts.md",
+      authoredMarker: /F-A11CE002/u
+    }, {
+      kind: "fact-invalidate",
+      action: {
+        kind: "fact-invalidate", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", factId: "F-A11CE001",
+        invalidatedByFactId: "F-A11CE002", rationale: "Replacement fact supersedes the original.", dryRun: false
+      },
+      canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"),
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/facts.md",
+      authoredMarker: /supersedes-fact/u
+    }, {
+      kind: "code-doc-reconcile",
+      action: {
+        kind: "task-code-doc-reconcile", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0",
+        sha: fixture.publicHead, paths: ["README.md"], force: false
+      },
+      canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"),
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/code-doc-anchors.json",
+      authoredMarker: /code-doc-reconciliation\/v1/u
+    }, {
+      kind: "task-transition",
+      action: { kind: "status-set", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", status: "in_review", force: false },
+      canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"),
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md",
+      authoredMarker: /status: in_review/u
+    }, {
+      kind: "approved-review",
+      action: {
+        kind: "task-review-execution", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+        verdict: "approved", findings: "All production evidence verified.", evidenceChecked: ["evidence:ingress"],
+        rationale: "Consent-backed evidence satisfies the closeout contract.", archiveWarningsAcknowledged: true,
+        consentId: "cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3"
+      },
+      canonicalEntityId: "review/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG6" as EntityId,
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/reviews/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG6.md",
+      authoredMarker: /"verdict": "approved"/u
+    }, {
+      kind: "task-complete",
+      action: { kind: "task-complete", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", reviewerId: "person_alice" },
+      canonicalEntityId: "execution/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5" as EntityId,
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md",
+      authoredMarker: /status: done/u
     }];
-    assert.deepEqual(cases.map((fixtureCase) => fixtureCase.kind).sort(), [
-      "consent", "decision", "execution", "fact", "module", "relation", "review", "session", "task"
-    ]);
-    for (const fixtureCase of cases) {
+    const coveredKinds = new Set(cases.map((fixtureCase) => fixtureCase.kind));
+    assert.equal(["consent", "decision", "execution", "fact", "module", "relation", "review", "session", "task"]
+      .every((kind) => coveredKinds.has(kind)), true);
+    for (const [index, fixtureCase] of cases.entries()) {
+      const sessionId = `real-cli-session-${index + 1}`;
       const receipt = await submission.submit({
         command: { rootDir: fixture.repoRoot, json: true, action: fixtureCase.action },
-        attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
-        currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
+        attribution: daemonActorAttribution(actor, index === 0 ? null : { kind: "agent", id: "codex" }),
+        currentSession: { runtime: "codex", sessionId, source: "runtime", detectedAt: "2026-07-17T00:00:00.000Z" },
         canonicalEntityId: fixtureCase.canonicalEntityId
       });
-      assert.notEqual(receipt.tag, "REJECTED", `${fixtureCase.kind}:${JSON.stringify(receipt)}`);
+      assert.equal(receipt.tag, "COMMITTED", `${fixtureCase.kind}:${JSON.stringify(receipt)}`);
       const watermarkPath = path.join(fixture.repoRoot, ".harness/write-journal/watermark.json");
       assert.equal(existsSync(watermarkPath), true, `${fixtureCase.kind}:${JSON.stringify(receipt)}`);
       assert.equal(readFileSync(watermarkPath, "utf8").includes(receipt.opId), true, `${fixtureCase.kind}:journal-watermark:${JSON.stringify(receipt)}`);
       assert.match(readFileSync(path.join(fixture.authoredRoot, fixtureCase.authoredPath), "utf8"), fixtureCase.authoredMarker, fixtureCase.kind);
+      const eventFiles = execFileSync("find", [path.join(fixture.authoredRoot, "authority-attribution-events/v2"), "-type", "f"], { encoding: "utf8" })
+        .trim().split("\n").filter(Boolean);
+      assert.equal(eventFiles.some((eventPath) => readFileSync(eventPath, "utf8").includes(sessionId)), true, `${fixtureCase.kind}:real-session-axis`);
     }
     await assert.rejects(submission.submit({
       command: { rootDir: fixture.repoRoot, json: true, action: { kind: "help" } },
       attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
       currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
       canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0")
-    }), /AUTHORITY_TYPED_COMMAND_UNSUPPORTED.*use progress-append/u);
+    }), /AUTHORITY_TYPED_COMMAND_UNSUPPORTED.*task lifecycle closeout/u);
     await lifecycle.stopAll("daemon-shutdown");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -174,9 +230,11 @@ function createFixture() {
   const keyStateDirectory = path.join(serviceRoot, "keys/canonical");
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"), { recursive: true });
   mkdirSync(serviceRoot, { recursive: true, mode: 0o700 });
-  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md"), "---\ntask_id: task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0\nstatus: active\n---\n");
+  writeFileSync(path.join(authoredRoot, "harness.yaml"), "schema: harness-anything/v1\nproject: production-ingress\n");
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"));
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/closeout.md"), "# Closeout\n\nProduction fixture qualified.\n");
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"), { recursive: true });
-  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), "---\ntask_id: task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4\nstatus: active\n---\n");
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
   const actor = {
     personId: "person_alice",
     displayName: "Alice",
@@ -259,10 +317,25 @@ function createFixture() {
       }
     }]
   }, null, 2)}\n`);
+  writeFileSync(path.join(repoRoot, "README.md"), "# Distinct public repository\n");
+  git(repoRoot, "init", "-q");
+  git(repoRoot, "add", "README.md");
+  git(repoRoot, "commit", "-q", "-m", "seed distinct public fixture");
+  const publicHead = git(repoRoot, "rev-parse", "HEAD");
   git(authoredRoot, "init", "-q");
   git(authoredRoot, "add", ".");
   git(authoredRoot, "commit", "-q", "-m", "seed canonical ingress fixture");
-  return { root, repoRoot, authoredRoot, serviceRoot, manifestPath, actor, transcriptPath };
+  return { root, repoRoot, authoredRoot, serviceRoot, manifestPath, actor, transcriptPath, publicHead };
+}
+
+function taskIndexBody(taskId: string): string {
+  return [
+    "---", "schema: task-package/v2", `task_id: ${taskId}`, "title: Production ingress",
+    "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active",
+    "  ref: ", "  titleSnapshot: Production ingress", "  url: ",
+    "  bindingCreatedAt: 2026-07-17T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`,
+    "packageDisposition: active", "vertical: default", "preset: default", "---", "", "# Production ingress", ""
+  ].join("\n");
 }
 
 function productionTuple() {

@@ -126,8 +126,9 @@ test("WriteCoordinator retains the underlying journal read failure", () => {
     assert.equal(result._tag, "Left");
     if (result._tag === "Left") {
       assert.equal(result.left._tag, "JournalUnavailable");
-      assert.equal(result.left.cause instanceof Error, true);
-      assert.match((result.left.cause as Error).message, /malformed journal record: schema decode failed/);
+      const cause = result.left.cause as { readonly name: string; readonly message: string };
+      assert.equal(typeof cause.message, "string");
+      assert.match(cause.message, /malformed journal record: schema decode failed/);
     }
   });
 });

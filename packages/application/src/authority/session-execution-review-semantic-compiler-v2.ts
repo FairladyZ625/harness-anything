@@ -136,21 +136,48 @@ async function compileExecution(
   const snapshot = await state.readHostedDocument(path);
   const current = snapshot ? decodeExecutionDocument(snapshot.body) : null;
   assertExecutionTransition(action, current, execution);
+  const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
+  const taskSnapshot = payload.taskIndexBody === undefined ? null : await state.readHostedDocument(taskPath);
+  if (payload.taskIndexBody !== undefined) {
+    if (action !== "close" || execution.state !== "accepted" || !taskSnapshot) {
+      throw admission("EXECUTION_COMPLETION_TRANSACTION_INVALID");
+    }
+    const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
+    if (!/^  status:\s*in_review$/mu.test(taskSnapshot.body) || payload.taskIndexBody !== expected) {
+      throw admission("EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
+    }
+  }
+  const mutations: RegistryMutationPlanInput["mutations"] = [{
+    entityKind: "execution", identity: { taskId: payload.taskId, executionId: execution.execution_id }, action
+  }, ...(payload.taskIndexBody === undefined ? [] : [{
+    entityKind: "task", identity: { taskId: payload.taskId }, action: "transition",
+    storageContext: { documentPath: "INDEX.md" }
+  }])];
   return {
-    mutationPlan: plan([{
-      entityKind: "execution",
-      identity: { taskId: payload.taskId, executionId: execution.execution_id },
-      action
-    }]),
+    mutationPlan: plan(mutations),
     operation: declaredDocumentOperation(
       "execution",
       execution.execution_id,
       executionDeclaration,
       { taskId: payload.taskId, executionId: execution.execution_id },
-      executionDeclaration.documentCodec.encode(execution)
+      executionDeclaration.documentCodec.encode(execution),
+      undefined,
+      payload.taskIndexBody === undefined ? undefined : {
+        companionWrites: [{ taskId: payload.taskId, path: "INDEX.md", body: payload.taskIndexBody }],
+        preconditions: [
+          { taskId: payload.taskId, path: `executions/${execution.execution_id}.md`, bodySha256: sha256Text(snapshot!.body) },
+          { taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot!.body) }
+        ]
+      }
     ),
-    requiredBaseRefs: [ref("execution", `execution/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(execution.execution_id)}`)],
-    requiredPathSnapshots: snapshot ? [{ path, snapshot }] : []
+    requiredBaseRefs: [
+      ref("execution", `execution/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(execution.execution_id)}`),
+      ...(payload.taskIndexBody === undefined ? [] : [ref("task", `task/${payload.taskId}`)])
+    ],
+    requiredPathSnapshots: [
+      ...(snapshot ? [{ path, snapshot }] : []),
+      ...(taskSnapshot ? [{ path: taskPath, snapshot: taskSnapshot }] : [])
+    ]
   };
 }
 
@@ -263,7 +290,11 @@ function declaredDocumentOperation(
   },
   identity: Readonly<Record<string, string>>,
   body: string,
-  blob?: { readonly blobRef: SessionManifest["bodyRef"]; readonly blobBody: string }
+  blob?: { readonly blobRef: SessionManifest["bodyRef"]; readonly blobBody: string },
+  transaction?: {
+    readonly companionWrites: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
+    readonly preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string | null }>;
+  }
 ): WriteOp {
   if (!declaration.rootResolver) throw admission("ENTITY_ROOT_RESOLVER_REQUIRED");
   return {
@@ -276,7 +307,8 @@ function declaredDocumentOperation(
         identity,
         body,
         ...(blob ? blob : {})
-      }
+      },
+      ...(transaction ?? {})
     }
   };
 }

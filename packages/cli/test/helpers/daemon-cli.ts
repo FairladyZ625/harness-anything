@@ -195,6 +195,7 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     HARNESS_GIT_AUTHOR_NAME: "Harness Test",
     HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
     HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir),
+    HARNESS_AUTHORITY_MANIFEST: "",
     CLAUDE_SESSION_ID: "",
     CLAUDE_CODE_SESSION_ID: "",
     CODEX_THREAD_ID: "",

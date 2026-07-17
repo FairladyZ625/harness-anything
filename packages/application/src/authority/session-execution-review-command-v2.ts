@@ -42,6 +42,7 @@ export type ExecutionActionPayloadV2 = {
   readonly schema: "execution.claim/v1" | "execution.submit/v1" | "execution.close/v1";
   readonly taskId: string;
   readonly execution: ExecutionRecord;
+  readonly taskIndexBody?: string;
 };
 
 export type ReviewActionPayloadV2 = {
@@ -110,11 +111,16 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
     case "execution.claim/v1":
     case "execution.submit/v1":
     case "execution.close/v1": {
-      const row = exactSemanticObjectV2(value, ["schema", "taskId", "execution"]);
+      const row = exactSemanticObjectV2(value, ["schema", "taskId", "execution"], { allowAdditional: true });
+      const actual = Object.keys(row);
+      if (actual.some((key) => !["schema", "taskId", "execution", "taskIndexBody"].includes(key))) {
+        throw semanticAdmissionV2("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD");
+      }
       return {
         schema: discriminator.schema,
         taskId: nonBlankText(row.taskId),
-        execution: decodeExecution(row.execution)
+        execution: decodeExecution(row.execution),
+        ...(row.taskIndexBody === undefined ? {} : { taskIndexBody: semanticStringValueV2(row.taskIndexBody) })
       };
     }
     case "review.create/v1":

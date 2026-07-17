@@ -24,6 +24,7 @@ export interface DaemonRegistryRepo {
   readonly displayName: string;
   readonly state: DaemonRepoState;
   readonly registeredAt: string;
+  readonly authorityManifestPath?: string;
 }
 
 export interface DaemonRegistry {
@@ -48,6 +49,7 @@ export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly canonicalRoot: string;
   readonly repoId?: string;
   readonly displayName?: string;
+  readonly authorityManifestPath?: string;
 }
 
 export interface DaemonRegistryMutationResult {
@@ -90,7 +92,8 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     const repo = {
       ...existingByRoot,
       displayName,
-      state: "enabled" as const
+      state: "enabled" as const,
+      ...(input.authorityManifestPath ? { authorityManifestPath: canonicalAuthorityManifestPath(input.authorityManifestPath) } : {})
     };
     const next = replaceRepo(registry, repo);
     const changed = !daemonRepoEquals(existingByRoot, repo);
@@ -110,7 +113,8 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     canonicalRoot,
     displayName,
     state: "enabled",
-    registeredAt: (input.now ?? (() => new Date()))().toISOString()
+    registeredAt: (input.now ?? (() => new Date()))().toISOString(),
+    ...(input.authorityManifestPath ? { authorityManifestPath: canonicalAuthorityManifestPath(input.authorityManifestPath) } : {})
   };
   const next = sortDaemonRegistry({ schema: daemonRegistrySchema, repos: [...registry.repos, repo] });
   writeDaemonRegistry(next, input);
@@ -158,10 +162,21 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
   const displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined;
   const state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined;
   const registeredAt = typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
-  if (!repoId || !canonicalRoot || !displayName || !state || !registeredAt) {
+  const authorityManifestPath = value.authorityManifestPath === undefined
+    ? undefined
+    : typeof value.authorityManifestPath === "string" && path.isAbsolute(value.authorityManifestPath)
+      ? value.authorityManifestPath
+      : null;
+  if (!repoId || !canonicalRoot || !displayName || !state || !registeredAt || authorityManifestPath === null) {
     throw new Error(`invalid daemon registry repo entry at ${source}`);
   }
-  return { repoId, canonicalRoot, displayName, state, registeredAt };
+  return { repoId, canonicalRoot, displayName, state, registeredAt, ...(authorityManifestPath ? { authorityManifestPath } : {}) };
+}
+
+function canonicalAuthorityManifestPath(manifestPath: string): string {
+  const absolute = path.resolve(manifestPath);
+  if (!existsSync(absolute)) throw new Error(`authority manifest is missing: ${absolute}`);
+  return realpathSync.native(absolute);
 }
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
@@ -261,7 +276,8 @@ function daemonRepoEquals(left: DaemonRegistryRepo, right: DaemonRegistryRepo): 
     && left.canonicalRoot === right.canonicalRoot
     && left.displayName === right.displayName
     && left.state === right.state
-    && left.registeredAt === right.registeredAt;
+    && left.registeredAt === right.registeredAt
+    && left.authorityManifestPath === right.authorityManifestPath;
 }
 
 function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown> {

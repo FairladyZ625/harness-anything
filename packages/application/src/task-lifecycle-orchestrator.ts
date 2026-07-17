@@ -587,5 +587,8 @@ function writeFailureCauseHint(error: EngineError | WriteError): string {
 function journalCause(cause: unknown): string {
   if (cause instanceof Error) return cause.message.trim().split(/\r?\n/u)[0] ?? "journal unavailable";
   if (typeof cause === "string" && cause.trim().length > 0) return cause.trim().split(/\r?\n/u)[0] ?? "journal unavailable";
+  if (cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string" && cause.message.trim().length > 0) {
+    return cause.message.trim().split(/\r?\n/u)[0] ?? "journal unavailable";
+  }
   return "journal unavailable";
 }

@@ -125,6 +125,24 @@ test("daemon registry unregister disables a repo without deleting registry histo
   });
 });
 
+test("daemon registry durably preserves the authority manifest pointer across ordinary re-registration", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    const authorityManifestPath = path.join(root, "authority-production.json");
+    writeFileSync(authorityManifestPath, "{}\n", "utf8");
+
+    registerDaemonRepo({
+      userRoot, canonicalRoot, repoId: "canonical", authorityManifestPath, createConvenienceLinks: false
+    });
+    registerDaemonRepo({
+      userRoot, canonicalRoot, repoId: "canonical", displayName: "Renamed", createConvenienceLinks: false
+    });
+
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.authorityManifestPath, realpathSync.native(authorityManifestPath));
+  });
+});
+
 test("daemon registry fails closed for malformed registries and uninitialized roots", () => {
   withTempDir((root) => {
     const userRoot = path.join(root, "user-harness");

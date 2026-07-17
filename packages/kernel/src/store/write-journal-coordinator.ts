@@ -516,7 +516,19 @@ function toJournalError(cause: unknown, context: { readonly entityId?: EntityId 
   if (isJournalMappedError(cause)) return mapJournalError(cause, context);
   return {
     _tag: "JournalUnavailable",
-    cause
+    cause: journalFailureCause(cause)
+  };
+}
+
+function journalFailureCause(cause: unknown): unknown {
+  if (!(cause instanceof Error)) return cause;
+  const code = "code" in cause && (typeof cause.code === "string" || typeof cause.code === "number")
+    ? cause.code
+    : undefined;
+  return {
+    name: cause.name || "Error",
+    message: cause.message,
+    ...(code === undefined ? {} : { code })
   };
 }
 

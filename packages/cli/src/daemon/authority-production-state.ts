@@ -171,7 +171,9 @@ export function createDurableAuthorityBindingRuntimeV2(input: {
       .map(([, row]) => row)
       .find((row) => row.record.bindingId === bindingId)?.record,
     currentAuthorityGeneration: () => BigInt(input.config.authorityGeneration),
-    currentRevocationEpochs: async () => input.config.revocationEpochs,
+    currentRevocationEpochs: async (claims) => claims.executorAgentId === null
+      ? { ...input.config.revocationEpochs, executor: 0n }
+      : input.config.revocationEpochs,
     nowMs: () => BigInt(nowMs()),
     consumeOperation: async (tokenId, maximum) => {
       const row = input.table.get<DurableBindingRowV1>(bindingKey(tokenId));

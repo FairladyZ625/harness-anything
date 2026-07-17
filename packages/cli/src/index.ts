@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   readDaemonRegistry,
+  registerDaemonRepo,
   type DaemonRegistryRepo
 } from "../../kernel/src/index.ts";
 import { parseArgs } from "./cli/parse-args.ts";
@@ -27,12 +28,13 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createDaemonServiceHost } from "./daemon/service-host.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
+import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
 type MultiRepoHarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createMultiRepoDaemonRuntime>;
-type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName">;
+export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -106,7 +108,11 @@ async function runDaemonServe(
     let runtime: MultiRepoHarnessDaemonRuntime | undefined;
     let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost>> | undefined;
     try {
+      const requestedAuthorityManifest = readOption(args, "--authority-manifest")
+        ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
+      if (requestedAuthorityManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
       const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
+      const authorityManifest = requestedAuthorityManifest ?? authorityManifestFromRegistry(serveRepos);
       const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
       runtime = createMultiRepoDaemonRuntime({
         materializerPollMs: 5_000,
@@ -128,8 +134,6 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
-      const authorityManifest = readOption(args, "--authority-manifest")
-        ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
       const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
         ? createProductionAuthorityLifecycle({
           manifestPath: authorityManifest,
@@ -192,7 +196,8 @@ function daemonServeRepos(
     return enabledRepos.map((repo) => ({
       repoId: repo.repoId,
       canonicalRoot: repo.canonicalRoot,
-      displayName: repo.displayName
+      displayName: repo.displayName,
+      ...(repo.authorityManifestPath ? { authorityManifestPath: repo.authorityManifestPath } : {})
     }));
   }
   return [{
@@ -200,6 +205,30 @@ function daemonServeRepos(
     canonicalRoot: rootDir,
     displayName: layoutOverrides?.authoredRoot ?? requestedRepoId
   }];
+}
+
+function persistAuthorityManifestPointer(manifestPath: string, userRoot: string): void {
+  const manifest = loadAuthorityProductionManifest(manifestPath);
+  for (const repo of manifest.repos) {
+    registerDaemonRepo({
+      userRoot,
+      repoId: repo.repoId,
+      canonicalRoot: repo.canonicalRoot,
+      authorityManifestPath: manifestPath
+    });
+  }
+}
+
+export function authorityManifestFromRegistry(repos: ReadonlyArray<DaemonServeRepo>): string | undefined {
+  const pointers = [...new Set(repos.flatMap((repo) => repo.authorityManifestPath ? [repo.authorityManifestPath] : []))];
+  if (pointers.length > 1) {
+    throw new Error("AUTHORITY_MANIFEST_REGISTRY_CONFLICT: registered repositories require different authority manifests; start separate daemon user roots or pass --authority-manifest explicitly");
+  }
+  const protectedRepos = repos.filter((repo) => repo.authorityManifestPath);
+  if (protectedRepos.length > 0 && protectedRepos.length !== repos.length) {
+    throw new Error("AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE: authority-protected and classic repositories cannot share a daemon without an explicit manifest covering every repo");
+  }
+  return pointers[0];
 }
 
 function defaultDaemonServeRepoId(repos: ReadonlyArray<DaemonServeRepo>, rootDir: string, requestedRepoId: string): string {

@@ -341,7 +341,11 @@ function writeErrorMessage(error: WriteError): string {
   if (error._tag === "WriteRejected") return error.reason;
   if (error._tag === "WriteConflict") return error.owner ? `write conflict for ${error.taskId}: ${error.owner}` : `write conflict for ${error.taskId}`;
   if (error._tag === "GlobalWriteConflict") return error.owner ? `global write conflict: ${error.owner}` : "global write conflict";
-  return error.cause instanceof Error ? error.cause.message : "session export failed";
+  if (error.cause instanceof Error) return error.cause.message;
+  if (error.cause && typeof error.cause === "object" && "message" in error.cause && typeof error.cause.message === "string") {
+    return error.cause.message;
+  }
+  return "session export failed";
 }
 
 function isMissingFileError(error: unknown): boolean {

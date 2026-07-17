@@ -149,11 +149,19 @@ export function createProductionAuthorityLifecycle(input: {
         configurationDigest: authorityManifestSourceDigest(input.manifestPath),
         serviceStateRoot: manifest.serviceStateRoot
       });
+      const authoredRoot = resolveHarnessLayout({
+        rootDir: repo.canonicalRoot,
+        ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
+      }).authoredRoot;
       publicationObservers.set(repo.repoId, async (previousCommit) => {
-        const inspector = createGitCanonicalPublicationInspector(
-          input.layoutOverrides?.authoredRoot ?? repo.canonicalRoot
-        );
+        const inspector = createGitCanonicalPublicationInspector(authoredRoot);
         return inspector.inspectPublication(previousCommit);
+      });
+      await recoverPendingProductionEvents({
+        workspaceId: config.workspaceId,
+        operationRegistry: state.operationRegistry,
+        eventLog,
+        recover: committedEventPublisher.recoverCommittedReceipt
       });
       return {
         authenticatedPersonRegistry: identity.personRegistry,
@@ -198,6 +206,23 @@ export function createProductionAuthorityLifecycle(input: {
         }
       }
     };
+  }
+}
+
+export async function recoverPendingProductionEvents(input: {
+  readonly workspaceId: string;
+  readonly operationRegistry: import("../../../application/src/index.ts").AuthorityOperationRegistry;
+  readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
+  readonly recover: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord) => Promise<import("../../../application/src/index.ts").AuthorityCommittedReceipt>;
+}): Promise<void> {
+  const records = await input.operationRegistry.list(input.workspaceId);
+  for (const record of records) {
+    if ((record.state !== "INDEXED" && record.state !== "INDETERMINATE")
+      || record.recordedProtocol?.kind !== "semantic-mutation-envelope/v2"
+      || !record.commitSha || !record.authorityIntegrity || !record.canonicalRequestEnvelope
+      || input.eventLog.read(record.workspaceId, record.opId)) continue;
+    const receipt = await input.recover(record);
+    await input.operationRegistry.put({ ...record, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
   }
 }
 
@@ -377,7 +402,6 @@ function connectionBoundRuntime(
         || record.workspaceId !== config.workspaceId
         || record.deviceId !== config.deviceId
         || record.viewId !== config.viewId
-        || record.sessionId !== config.sessionId
         || record.attribution.actor.principal.personId !== context.actor.personId) return undefined;
       return record;
     }
