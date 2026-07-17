@@ -107,7 +107,25 @@ npm run quickstart:demo
 The demo builds the CLI, creates a throwaway project, runs a real task loop, and
 shows the records that remain after the agent work is over.
 
-Ready to use it on a project? Continue with the
+### Let your agent install it for you
+
+You do not have to learn the CLI first. Paste one prompt into your coding agent
+(Claude Code, Codex, or similar) inside the repository you want to harness:
+
+```text
+Install the harness-install skill from
+https://github.com/FairladyZ625/harness-anything/tree/main/skills/harness-install
+into your skills directory, then follow it to install Harness Anything into
+this repository and verify the init flow end to end.
+```
+
+The skill walks the agent through the whole thing: install the package, run an
+attributed `ha init`, start the daemon, create a first real task — and then
+prove the installation by watching the completion gate reject an evidence-free
+"done". The rejection is the success signal: your repository now tells the
+difference between claimed and verified work.
+
+Ready to go deeper? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
 
 ## How It Works

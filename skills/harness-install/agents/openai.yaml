@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Install"
+  short_description: "Install Harness Anything into a project and verify the init flow"
+  default_prompt: "Use $harness-install to install Harness Anything in this repository, run ha init, and verify the completion gate blocks an evidence-free completion."
