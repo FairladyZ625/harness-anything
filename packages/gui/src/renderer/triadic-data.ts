@@ -13,7 +13,8 @@ import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge }
 
 export const triadicQueryKeys = {
   all: ["harness", "triadic"] as const,
-  snapshot: () => [...triadicQueryKeys.all, "snapshot"] as const
+  snapshot: (repoId?: string | null) =>
+    [...triadicQueryKeys.all, "snapshot", repoId ?? "default"] as const
 };
 
 export type DecideAction = "accept" | "reject" | "defer";
@@ -31,7 +32,7 @@ export interface DecideMutationInput {
  * Identity/actor is NOT passed from the renderer — the daemon derives the principal
  * from the unix-socket owner. Do not inject HARNESS_ACTOR or any principal field.
  */
-export function useDecideMutation() {
+export function useDecideMutation(repoId?: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: DecideMutationInput): Promise<DecisionMutationResult> => {
@@ -40,6 +41,7 @@ export function useDecideMutation() {
         ...(input.judgmentOnlyRationale
           ? { judgmentOnlyRationale: input.judgmentOnlyRationale }
           : {}),
+        ...(repoId ? { repoId } : {})
       };
       let result: DecisionMutationResult;
       if (input.action === "accept") {
@@ -60,10 +62,10 @@ export function useDecideMutation() {
   });
 }
 
-export function useTriadicProjectionQuery() {
+export function useTriadicProjectionQuery(repoId?: string | null) {
   const snapshot = useQuery({
-    queryKey: triadicQueryKeys.snapshot(),
-    queryFn: () => harnessClient.getTriadicProjection(),
+    queryKey: triadicQueryKeys.snapshot(repoId),
+    queryFn: () => harnessClient.getTriadicProjection(repoId ?? undefined),
     staleTime: 10_000
   });
 

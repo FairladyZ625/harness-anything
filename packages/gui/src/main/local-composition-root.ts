@@ -282,18 +282,45 @@ export function jsonRpcMethodForGuiRoute(route: ApiRouteContract): string {
   return `repo.${route.id}`;
 }
 
+/**
+ * Builds JSON-RPC params for a GUI route.
+ *
+ * Repo routing: renderer may put `repoId` on the bridge payload to select a
+ * registered daemon repo. That field is consumed here as `params.repo.repoId`
+ * and stripped from the service payload so LocalController methods never see it.
+ * When absent, falls back to the composition-root target (single-repo / env default).
+ */
 export function jsonRpcParamsForGuiRoute(
   route: ApiRouteContract,
-  repoId: string,
+  fallbackRepoId: string,
   payload: unknown
 ): JsonObject {
-  const payloadRecord = isLocalServiceRecord(payload) ? (payload as JsonObject) : undefined;
   if (route.commandClass === "admin") {
     // admin.daemon.restart takes { payload: DaemonControlRequestV1 } without repo.
-    return payloadRecord ? { payload: payloadRecord } : {};
+    const adminPayload = isLocalServiceRecord(payload) ? (payload as JsonObject) : undefined;
+    return adminPayload ? { payload: adminPayload } : {};
   }
+  const { repoId, servicePayload } = extractRepoScopedPayload(payload, fallbackRepoId);
   return {
     repo: { repoId },
-    ...(payloadRecord ? { payload: payloadRecord } : {})
+    ...(servicePayload ? { payload: servicePayload } : {})
   };
+}
+
+/** Pull optional renderer `repoId` out of the bridge payload for multi-repo routing. */
+export function extractRepoScopedPayload(
+  payload: unknown,
+  fallbackRepoId: string
+): { readonly repoId: string; readonly servicePayload: JsonObject | undefined } {
+  if (!isLocalServiceRecord(payload)) {
+    return { repoId: fallbackRepoId, servicePayload: undefined };
+  }
+  const record = { ...(payload as Record<string, JsonValue>) };
+  const explicit = record.repoId;
+  const repoId =
+    typeof explicit === "string" && explicit.length > 0 ? explicit : fallbackRepoId;
+  delete record.repoId;
+  const servicePayload =
+    Object.keys(record).length > 0 ? (record as JsonObject) : undefined;
+  return { repoId, servicePayload };
 }

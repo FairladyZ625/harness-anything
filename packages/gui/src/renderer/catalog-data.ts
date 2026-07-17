@@ -13,10 +13,10 @@ export interface CatalogRendererData {
   readonly adapters: AdapterInfo[];
 }
 
-export function useCatalogQuery() {
+export function useCatalogQuery(repoId?: string | null) {
   return useQuery({
-    queryKey: ["harness", "catalog", "snapshot"],
-    queryFn: () => harnessClient.getCatalogSnapshot(),
+    queryKey: ["harness", "catalog", "snapshot", repoId ?? "default"],
+    queryFn: () => harnessClient.getCatalogSnapshot(repoId ?? undefined),
     select: adaptCatalogSnapshot,
     staleTime: 10_000
   });

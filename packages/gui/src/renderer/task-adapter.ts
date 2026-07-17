@@ -12,6 +12,10 @@ import { t } from "./i18n/core.ts";
  * are left empty — document bodies come from the separate document bridge.
  */
 
+/**
+ * Fallback project id used only when daemon-status has not yet returned repos[].
+ * Runtime switcher prefers real repoId values from daemon-status/v2.
+ */
 const REAL_PROJECT_ID = "harness-anything";
 
 const KNOWN_ENGINES: ReadonlySet<string> = new Set(["local", "multica"]);
@@ -20,11 +24,11 @@ function toEngineId(lifecycleEngine: string): EngineId {
   return (KNOWN_ENGINES.has(lifecycleEngine) ? lifecycleEngine : "local") as EngineId;
 }
 
-function adaptProjectionRow(row: TaskProjectionRow): TaskRow {
+function adaptProjectionRow(row: TaskProjectionRow, projectId: string): TaskRow {
   return {
     taskId: row.taskId,
     title: row.title,
-    projectId: REAL_PROJECT_ID,
+    projectId,
     coordinationStatus: row.canonicalStatus,
     rawStatus: row.rawStatus,
     freshness: row.freshness,
@@ -66,9 +70,16 @@ export function computeRootTaskId(
 /**
  * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。两阶段:先建 parentById
  * 查找表,再按表给每个 row 标根与根标题。
+ *
+ * `projectId` defaults to REAL_PROJECT_ID for single-repo backward compatibility;
+ * multi-repo callers pass the active daemon repoId so TaskRow.projectId matches
+ * the switcher selection.
  */
-export function adaptProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): TaskRow[] {
-  const base = rows.map(adaptProjectionRow);
+export function adaptProjectionRows(
+  rows: ReadonlyArray<TaskProjectionRow>,
+  projectId: string = REAL_PROJECT_ID
+): TaskRow[] {
+  const base = rows.map((row) => adaptProjectionRow(row, projectId));
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();
   for (const task of base) {
@@ -82,6 +93,10 @@ export function adaptProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): Tas
   });
 }
 
+/**
+ * Single-repo fallback project card used before daemon-status repos[] lands.
+ * Prefer `projectFromDaemonRepo` once status is available.
+ */
 export function buildRealProject(tasks: ReadonlyArray<TaskRow>): Project {
   return {
     id: REAL_PROJECT_ID,
@@ -91,7 +106,8 @@ export function buildRealProject(tasks: ReadonlyArray<TaskRow>): Project {
     engines: ["local"],
     watermarkAt: tasks[0]?.lastKnownAt ?? new Date().toISOString(),
     decisionCount: undefined,
-    factCount: undefined
+    factCount: undefined,
+    repoState: "attached"
   };
 }
 

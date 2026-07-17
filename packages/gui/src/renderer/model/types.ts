@@ -201,6 +201,15 @@ export interface Project {
   // 三元语投影计数
   decisionCount?: number;
   factCount?: number;
+  /**
+   * Daemon repo attach state (daemon-status/v2). Present when the project row
+   * is sourced from repos[]; absent for legacy single-project fallbacks.
+   */
+  repoState?: "attached" | "unavailable" | "detaching" | "detached";
+  /** Owner-stripped lock path from daemon status (identity fields already removed). */
+  lockPath?: string | null;
+  /** Last reconcile / materializer / attach error for unavailable repos. */
+  lastError?: string | null;
 }
 
 export type PresetSource = "builtin" | "user" | "project";

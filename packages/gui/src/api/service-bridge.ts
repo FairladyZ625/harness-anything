@@ -318,10 +318,26 @@ async function invokeDaemonGuiRoute(
       }
     };
   }
+  // Validate the service-facing shape (repoId stripped so schemas stay stable).
+  // Re-attach renderer repoId onto the *validated* payload so defaults filled by
+  // validators (e.g. daemon restart reason/drainTimeout) still reach the daemon
+  // while multi-repo routing keeps working via jsonRpcParamsForGuiRoute.
   const validation = validateGuiRoutePayload(route, payload);
   if (!validation.ok) return validation.failure;
-  const receipt = await request(route, validation.payload);
+  const receipt = await request(route, reattachRepoRoutingField(payload, validation.payload));
   return unwrapDaemonReceipt(receipt);
+}
+
+
+function reattachRepoRoutingField(original: unknown, validated: unknown): unknown {
+  if (!isServicePayloadRecord(original) || typeof original.repoId !== "string" || original.repoId.length === 0) {
+    return validated;
+  }
+  if (validated === undefined || validated === null) {
+    return { repoId: original.repoId };
+  }
+  if (!isServicePayloadRecord(validated)) return validated;
+  return { ...validated, repoId: original.repoId };
 }
 
 function unwrapDaemonReceipt(receipt: JsonObject): unknown {

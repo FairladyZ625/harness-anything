@@ -6,6 +6,7 @@ import type {
 } from "./types";
 import { t } from "../i18n/core.ts";
 
+/** Prototype-only fixture. Must not feed the runtime project switcher — use daemon-status repos[] via project-repos.ts. */
 export const MOCK_PROJECTS: Project[] = [
   {
     id: "harness-anything",

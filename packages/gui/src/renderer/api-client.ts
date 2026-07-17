@@ -50,6 +50,8 @@ import {
   type TerminalOutputReadSuccess,
   type TerminalSessionInfo
 } from "./terminal-api-client.ts";
+import { withRepoId, type RepoScopedPayload } from "./repo-scope.ts";
+export type { RepoScopedPayload } from "./repo-scope.ts";
 
 export type { TerminalOutputReadSuccess, TerminalSessionInfo };
 
@@ -182,93 +184,93 @@ export interface CommandFailure {
 export type CommandResult = CommandSuccess | CommandFailure;
 
 export const harnessClient = {
-  async getDaemonLogs(payload: DaemonLogListInputV1 = {}): Promise<DaemonLogPageV1> {
+  async getDaemonLogs(payload: DaemonLogListInputV1 & RepoScopedPayload = {}): Promise<DaemonLogPageV1> {
     return readDaemonLogPageResult(await invokeBridge("getDaemonLogs", payload));
   },
-  async getDaemonStatus(): Promise<DaemonRendererStatusV2> {
-    return readDaemonStatusResult(await invokeBridge("getDaemonStatus", null));
+  async getDaemonStatus(payload: RepoScopedPayload | null = null): Promise<DaemonRendererStatusV2> {
+    return readDaemonStatusResult(await invokeBridge("getDaemonStatus", payload));
   },
   async restartDaemon(payload: { readonly reason?: string; readonly drainTimeoutMs?: number } | null = null) {
     return readDaemonRestartResult(await invokeBridge("restartDaemon", payload));
   },
-  async getCatalogSnapshot(): Promise<CatalogSnapshotSuccess> {
-    return readCatalogSnapshotResult(await invokeBridge("getCatalogSnapshot", null));
+  async getCatalogSnapshot(repoId?: string): Promise<CatalogSnapshotSuccess> {
+    return readCatalogSnapshotResult(await invokeBridge("getCatalogSnapshot", withRepoId(null, repoId)));
   },
-  async getTasks(): Promise<TaskListSuccess> {
-    const result = await invokeBridge("getTasks", null);
+  async getTasks(repoId?: string): Promise<TaskListSuccess> {
+    const result = await invokeBridge("getTasks", withRepoId(null, repoId));
     return readTaskListResult(result);
   },
-  async getTaskDetail(payload: TaskIdPayload): Promise<TaskDetailSuccess> {
+  async getTaskDetail(payload: TaskIdPayload & RepoScopedPayload): Promise<TaskDetailSuccess> {
     const result = await invokeBridge("getTaskDetail", payload);
     return readTaskDetailResult(result);
   },
-  async getTaskDocument(payload: TaskDocumentPayload): Promise<TaskDocumentSuccess> {
+  async getTaskDocument(payload: TaskDocumentPayload & RepoScopedPayload): Promise<TaskDocumentSuccess> {
     const result = await invokeBridge("getTaskDocument", payload);
     return readTaskDocumentResult(result);
   },
-  async getRelationGraph(): Promise<RelationGraphSuccess> {
-    const result = await invokeBridge("getRelationGraph", null);
+  async getRelationGraph(repoId?: string): Promise<RelationGraphSuccess> {
+    const result = await invokeBridge("getRelationGraph", withRepoId(null, repoId));
     return readRelationGraphResult(result);
   },
-  async getTriadicProjection(): Promise<TriadicProjectionSuccess> {
-    const result = await invokeBridge("getTriadicProjection", null);
+  async getTriadicProjection(repoId?: string): Promise<TriadicProjectionSuccess> {
+    const result = await invokeBridge("getTriadicProjection", withRepoId(null, repoId));
     return readTriadicProjectionResult(result);
   },
-  async getDecisions(): Promise<DecisionListSuccess> {
-    const result = await invokeBridge("getDecisions", null);
+  async getDecisions(repoId?: string): Promise<DecisionListSuccess> {
+    const result = await invokeBridge("getDecisions", withRepoId(null, repoId));
     return readDecisionListResult(result);
   },
-  async getDecisionDetail(payload: DecisionIdPayload): Promise<DecisionDetailSuccess> {
+  async getDecisionDetail(payload: DecisionIdPayload & RepoScopedPayload): Promise<DecisionDetailSuccess> {
     const result = await invokeBridge("getDecisionDetail", payload);
     return readDecisionDetailResult(result);
   },
-  async proposeDecision(payload: DecisionProposePayload): Promise<DecisionMutationResult> {
+  async proposeDecision(payload: DecisionProposePayload & RepoScopedPayload): Promise<DecisionMutationResult> {
     return readDecisionMutationResult(await invokeBridge("proposeDecision", payload));
   },
-  async acceptDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+  async acceptDecision(payload: DecisionTransitionPayload & RepoScopedPayload): Promise<DecisionMutationResult> {
     return readDecisionMutationResult(await invokeBridge("acceptDecision", payload));
   },
-  async rejectDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+  async rejectDecision(payload: DecisionTransitionPayload & RepoScopedPayload): Promise<DecisionMutationResult> {
     return readDecisionMutationResult(await invokeBridge("rejectDecision", payload));
   },
-  async deferDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+  async deferDecision(payload: DecisionTransitionPayload & RepoScopedPayload): Promise<DecisionMutationResult> {
     return readDecisionMutationResult(await invokeBridge("deferDecision", payload));
   },
-  async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
+  async getTaskFacts(payload: TaskIdPayload & RepoScopedPayload): Promise<TaskFactListSuccess> {
     const result = await invokeBridge("getTaskFacts", payload);
     return readTaskFactListResult(result);
   },
-  async getFacts(): Promise<FactListSuccess> {
-    const result = await invokeBridge("getFacts", null);
+  async getFacts(repoId?: string): Promise<FactListSuccess> {
+    const result = await invokeBridge("getFacts", withRepoId(null, repoId));
     return readFactListResult(result);
   },
-  async getTaskExecutions(payload: TaskIdPayload): Promise<TaskExecutionListSuccess> {
+  async getTaskExecutions(payload: TaskIdPayload & RepoScopedPayload): Promise<TaskExecutionListSuccess> {
     const result = await invokeBridge("getTaskExecutions", payload);
     return readTaskExecutionListResult(result);
   },
-  async getExecutions(): Promise<ExecutionListSuccess> {
-    const result = await invokeBridge("getExecutions", null);
+  async getExecutions(repoId?: string): Promise<ExecutionListSuccess> {
+    const result = await invokeBridge("getExecutions", withRepoId(null, repoId));
     return readExecutionListResult(result);
   },
-  async getExecutionEvidencePage(payload: ExecutionEvidencePagePayload): Promise<ExecutionEvidencePageSuccess> {
+  async getExecutionEvidencePage(payload: ExecutionEvidencePagePayload & RepoScopedPayload): Promise<ExecutionEvidencePageSuccess> {
     const result = await invokeBridge("getExecutionEvidencePage", payload);
     return readExecutionEvidencePageResult(result);
   },
-  async getExecutionDetail(payload: ExecutionIdPayload): Promise<ExecutionDetailSuccess> {
+  async getExecutionDetail(payload: ExecutionIdPayload & RepoScopedPayload): Promise<ExecutionDetailSuccess> {
     const result = await invokeBridge("getExecutionDetail", payload);
     return readExecutionDetailResult(result);
   },
-  async setTaskStatus(payload: SetTaskStatusPayload): Promise<CommandResult> {
+  async setTaskStatus(payload: SetTaskStatusPayload & RepoScopedPayload): Promise<CommandResult> {
     return readCommandResult(await invokeBridge("setTaskStatus", payload));
   },
-  async reviewTask(payload: TaskIdPayload): Promise<CommandResult> {
+  async reviewTask(payload: TaskIdPayload & RepoScopedPayload): Promise<CommandResult> {
     return readCommandResult(await invokeBridge("reviewTask", payload));
   },
-  async appendTaskProgress(payload: AppendTaskProgressPayload): Promise<CommandResult> {
+  async appendTaskProgress(payload: AppendTaskProgressPayload & RepoScopedPayload): Promise<CommandResult> {
     return readCommandResult(await invokeBridge("appendTaskProgress", payload));
   },
-  async rebuildGovernance(): Promise<TaskListSuccess> {
-    const result = await invokeBridge("rebuildGovernance", null);
+  async rebuildGovernance(repoId?: string): Promise<TaskListSuccess> {
+    const result = await invokeBridge("rebuildGovernance", withRepoId(null, repoId));
     return readTaskListResult(result);
   },
   ...createTerminalClient(invokeBridge)

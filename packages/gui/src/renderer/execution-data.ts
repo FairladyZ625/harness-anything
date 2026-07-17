@@ -21,7 +21,8 @@ import { harnessClient } from "./api-client.ts";
 
 export const executionQueryKeys = {
   all: ["harness", "executions"] as const,
-  evidencePage: (cursor?: ExecutionEvidenceCursor) => ["harness", "execution-evidence", cursor ?? "first"] as const
+  evidencePage: (repoId: string | null | undefined, cursor?: ExecutionEvidenceCursor) =>
+    ["harness", "execution-evidence", repoId ?? "default", cursor ?? "first"] as const
 };
 
 const executionEvidencePageSize = 25;
@@ -74,7 +75,7 @@ export interface ExecutionAggregation {
   readonly tasksWithExecutions: number;
 }
 
-export function useExecutionEvidenceAggregation(): {
+export function useExecutionEvidenceAggregation(repoId?: string | null): {
   readonly isLoading: boolean;
   readonly isFetching: boolean;
   readonly isError: boolean;
@@ -90,9 +91,9 @@ export function useExecutionEvidenceAggregation(): {
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState<ExecutionEvidenceCursor | undefined>();
   const [history, setHistory] = useState<ReadonlyArray<ExecutionEvidenceCursor | undefined>>([]);
-  const payload = evidencePagePayload(cursor);
+  const payload = evidencePagePayload(cursor, repoId);
   const query = useQuery({
-    queryKey: executionQueryKeys.evidencePage(cursor),
+    queryKey: executionQueryKeys.evidencePage(repoId, cursor),
     queryFn: () => harnessClient.getExecutionEvidencePage(payload),
     staleTime: 10_000
   });
@@ -101,13 +102,19 @@ export function useExecutionEvidenceAggregation(): {
   useEffect(() => {
     if (!nextCursor) return;
     const prefetch = () => queryClient.prefetchQuery({
-      queryKey: executionQueryKeys.evidencePage(nextCursor),
-      queryFn: () => harnessClient.getExecutionEvidencePage(evidencePagePayload(nextCursor)),
+      queryKey: executionQueryKeys.evidencePage(repoId, nextCursor),
+      queryFn: () => harnessClient.getExecutionEvidencePage(evidencePagePayload(nextCursor, repoId)),
       staleTime: 10_000
     });
     const idleId = window.requestIdleCallback(() => void prefetch(), { timeout: 750 });
     return () => window.cancelIdleCallback(idleId);
-  }, [nextCursor, queryClient]);
+  }, [nextCursor, queryClient, repoId]);
+
+  // Reset pagination when the active repo changes so pages don't mix generations.
+  useEffect(() => {
+    setCursor(undefined);
+    setHistory([]);
+  }, [repoId]);
 
   const previousPage = useCallback(() => {
     setHistory((previous) => {
@@ -313,9 +320,13 @@ function narrowObject(value: ProjectionJsonValue): ProjectionJsonObject | null {
   return value as ProjectionJsonObject;
 }
 
-function evidencePagePayload(cursor?: ExecutionEvidenceCursor): ExecutionEvidencePagePayload {
+function evidencePagePayload(
+  cursor?: ExecutionEvidenceCursor,
+  repoId?: string | null
+): ExecutionEvidencePagePayload & { readonly repoId?: string } {
   return {
     limit: executionEvidencePageSize,
-    ...(cursor ? { cursor } : {})
+    ...(cursor ? { cursor } : {}),
+    ...(repoId ? { repoId } : {})
   };
 }
