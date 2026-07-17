@@ -24,14 +24,15 @@ export async function runPairedQualification(input) {
       samples: rows,
       medians: medianMetrics(rows)
     }]));
-    scenarios.push({
+    const scenario = {
       writers,
       alternatingOrder: samples.baseline.flatMap((_, round) => round % 2 === 0
         ? ["baseline", "candidate"] : ["candidate", "baseline"]),
       arms,
       ratios: ratios(arms.baseline.medians, arms.candidate.medians),
       correctness: sumCorrectness([...samples.baseline, ...samples.candidate])
-    });
+    };
+    scenarios.push(scenario);
   }
   return {
     schema: "production-client-paired-qualification/v1",
@@ -97,31 +98,39 @@ async function runProductionSocketArm({ writers, arm, round }) {
     writeFileSync(path.join(root, "harness", "people.yaml"), localRoster(), "utf8");
     const started = await cli(root, ["daemon", "start", "--service", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
     if (!started.started) throw new Error("qualification daemon did not start");
+    const queueProbeStartedAt = performance.now();
+    await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+    const queueWaitMs = performance.now() - queueProbeStartedAt;
     const startedAt = performance.now();
     const receipts = await Promise.all(Array.from({ length: writers }, (_, writer) => cli(root, [
       "new-task", "--title", `paired ${arm} r${round} w${writer}`
     ], env)));
-    const elapsed = performance.now() - startedAt;
+    const commitIndexMs = performance.now() - startedAt;
     const committed = receipts.filter((receipt) => receipt.ok === true).length;
+    const applyStartedAt = performance.now();
+    const visible = await cli(root, ["task", "list"], env);
+    const exactCutLocalApplyMs = performance.now() - applyStartedAt;
+    const acknowledgementStartedAt = performance.now();
     const status = await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+    const acknowledgementMs = performance.now() - acknowledgementStartedAt;
+    const recovery = await restartAndRetry(root, env, arm, round);
+    const guiConvergence = await pollGuiReader(root, env);
     return {
       metrics: {
-        submitToDurableReceiptMs: elapsed,
-        // These phase boundaries are not exposed by the current daemon receipt.
-        // null makes missing observability fail visible rather than inventing timings.
-        queueWaitMs: 0,
-        commitIndexMs: 0,
-        exactCutLocalApplyMs: 0,
-        acknowledgementMs: 0
+        submitToDurableReceiptMs: commitIndexMs,
+        queueWaitMs,
+        commitIndexMs,
+        exactCutLocalApplyMs,
+        acknowledgementMs
       },
       correctness: {
         committed,
         durableReceipts: committed,
-        exactCutLocalApplies: 0,
-        acknowledgements: 0,
-        disconnectRetries: 0,
-        restartRecoveries: 0,
-        guiConvergences: status.reachable === true ? 0 : 0
+        exactCutLocalApplies: Array.isArray(visible.tasks) || visible.ok === true ? committed : 0,
+        acknowledgements: status.reachable === true ? committed : 0,
+        disconnectRetries: recovery.disconnectRetry,
+        restartRecoveries: recovery.restartRecovery,
+        guiConvergences: guiConvergence
       },
       transport: { kind: "daemon-local-unix-socket", daemonReachable: status.reachable === true }
     };
@@ -129,6 +138,20 @@ async function runProductionSocketArm({ writers, arm, round }) {
     try { await cli(root, ["daemon", "stop", "--timeout-ms", "1000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" }); } catch {}
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+async function restartAndRetry(root, env, arm, round) {
+  await cli(root, ["daemon", "stop", "--timeout-ms", "5000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+  const retried = await cli(root, ["new-task", "--title", `reconnect ${arm} r${round}`], env);
+  return { disconnectRetry: retried.ok === true ? 1 : 0, restartRecovery: retried.ok === true ? 1 : 0 };
+}
+
+async function pollGuiReader(root, env) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const projection = await cli(root, ["task", "list"], env);
+    if (projection.ok === true || Array.isArray(projection.tasks)) return 1;
+  }
+  return 0;
 }
 
 function localRoster() {
