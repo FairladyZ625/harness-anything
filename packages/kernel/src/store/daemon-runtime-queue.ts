@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { daemonAdmissionBytes, type DaemonAdmissionBudget, type DaemonAdmissionBudgetSnapshot, type DaemonAdmissionReservation } from "../daemon/admission-budget.ts";
 import type { DaemonQueueDrainTarget } from "../daemon/drain-timeout.ts";
 import type { WriteError } from "../domain/index.ts";
 import type { FlushReport, WriteOp } from "../ports/write-coordinator.ts";
@@ -39,6 +40,7 @@ export interface DaemonQueueSnapshot {
   readonly background: number;
   readonly maintenance: number;
   readonly running: boolean;
+  readonly admission: DaemonAdmissionBudgetSnapshot;
 }
 
 export type { DaemonQueueDrainTarget } from "../daemon/drain-timeout.ts";
@@ -54,6 +56,7 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
   timeout?: ReturnType<typeof setTimeout>;
   readonly resolve: (receipt: InteractiveWriteReceipt) => void;
   readonly reject: (error: WriteError) => void;
+  readonly admission: DaemonAdmissionReservation;
 };
 
 type InteractiveCoordinatorBatch = InteractiveWriteAttribution & {
@@ -68,6 +71,7 @@ interface BackgroundQueueItem<Result> {
   readonly run: () => Result | Promise<Result>;
   readonly resolve: (result: Result) => void;
   readonly reject: (error: unknown) => void;
+  readonly admission: DaemonAdmissionReservation;
 }
 
 type JournaledWriteCoordinator = ReturnType<typeof makeJournaledWriteCoordinator>;
@@ -83,14 +87,17 @@ export class DaemonWriteQueue {
   private coordinatorFor: ((batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator) | undefined;
   private readonly maxInteractiveOpsPerCommit: number;
   private readonly interactiveMicroBatchMs: number;
+  private readonly admissionBudget: DaemonAdmissionBudget;
   private activeDrainTarget: DaemonQueueDrainTarget | undefined;
 
   constructor(
     maxInteractiveOpsPerCommit: number,
-    interactiveMicroBatchMs: number
+    interactiveMicroBatchMs: number,
+    admissionBudget: DaemonAdmissionBudget
   ) {
     this.maxInteractiveOpsPerCommit = maxInteractiveOpsPerCommit;
     this.interactiveMicroBatchMs = interactiveMicroBatchMs;
+    this.admissionBudget = admissionBudget;
   }
 
   enqueueInteractive(
@@ -98,6 +105,12 @@ export class DaemonWriteQueue {
     coordinatorFor: (batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator
   ): Promise<InteractiveWriteReceipt> {
     if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
+    const admission = this.admissionBudget.reserve({
+      plane: "json-rpc",
+      operations: request.ops.length,
+      bytes: daemonAdmissionBytes(request.ops)
+    });
+    if (!admission.ok) return Promise.reject(admission.error);
     this.coordinatorFor = coordinatorFor;
     return new Promise((resolve, reject) => {
       const item: InteractiveQueueItem = {
@@ -110,12 +123,14 @@ export class DaemonWriteQueue {
         enqueuedAt: Date.now(),
         started: false,
         resolve,
-        reject
+        reject,
+        admission: admission.reservation
       };
       if (request.deadlineMs !== undefined) {
         item.timeout = setTimeout(() => {
           if (item.started) return;
           this.removeInteractive(item);
+          item.admission.release();
           reject({ _tag: "JournalUnavailable", cause: new Error(`daemon queue wait timeout after ${request.deadlineMs}ms`) } satisfies WriteError);
           this.resolveIdleIfNeeded();
         }, request.deadlineMs);
@@ -127,6 +142,12 @@ export class DaemonWriteQueue {
 
   enqueueBackground<Result>(request: BackgroundBatchRequest<Result>): Promise<Result> {
     if (this.closed) return Promise.reject(new Error("daemon write queue is closed"));
+    const admission = this.admissionBudget.reserve({
+      plane: "json-rpc",
+      operations: 1,
+      bytes: Buffer.byteLength(request.source, "utf8")
+    });
+    if (!admission.ok) return Promise.reject(admission.error);
     return new Promise((resolve, reject) => {
       const item: BackgroundQueueItem<Result> = {
         kind: "background",
@@ -134,7 +155,8 @@ export class DaemonWriteQueue {
         priority: request.priority ?? "background",
         run: request.run,
         resolve,
-        reject
+        reject,
+        admission: admission.reservation
       };
       this.queueFor(item.priority).push(item as BackgroundQueueItem<unknown>);
       this.schedule();
@@ -156,7 +178,8 @@ export class DaemonWriteQueue {
       normal: this.normal.length,
       background: this.background.length,
       maintenance: this.maintenance.length,
-      running: this.running
+      running: this.running,
+      admission: this.admissionBudget.snapshot()
     };
   }
 
@@ -218,7 +241,17 @@ export class DaemonWriteQueue {
       opCount += item.ops.length;
     }
     const accepted: InteractiveQueueItem[] = [];
-    const coordinator = coordinatorFor(attributionFor(batch[0]));
+    let coordinator: JournaledWriteCoordinator;
+    try {
+      coordinator = coordinatorFor(attributionFor(batch[0]));
+    } catch (error) {
+      const writeError = toWriteError(error);
+      for (const item of batch) {
+        item.reject(writeError);
+        item.admission.release();
+      }
+      return;
+    }
     for (const item of batch) {
       try {
         for (const op of item.ops) {
@@ -227,6 +260,7 @@ export class DaemonWriteQueue {
         accepted.push(item);
       } catch (error) {
         item.reject(toWriteError(error));
+        item.admission.release();
       }
     }
     if (accepted.length === 0) return;
@@ -250,6 +284,7 @@ export class DaemonWriteQueue {
       for (const item of accepted) item.reject(writeError);
     } finally {
       this.activeDrainTarget = undefined;
+      for (const item of accepted) item.admission.release();
     }
   }
 
@@ -261,6 +296,7 @@ export class DaemonWriteQueue {
       item.reject(error);
     } finally {
       this.activeDrainTarget = undefined;
+      item.admission.release();
     }
   }
 

@@ -150,6 +150,8 @@ export {
   writeContentAddressedBlob
 } from "./composition/index.ts";
 export { DaemonDrainTimeoutError } from "./daemon/drain-timeout.ts";
+export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";
+export type { DaemonAdmissionBudget } from "./daemon/admission-budget.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
 export {
   readDaemonRegistry,

@@ -1,4 +1,5 @@
 export const CliErrorCode = {
+  AdmissionOverloaded: "admission_overloaded",
   ArchivedHardDeleteForbidden: "archived_hard_delete_forbidden",
   ArtifactReadFailed: "artifact_read_failed",
   ArtifactWriteRejected: "artifact_write_rejected",
@@ -230,6 +231,7 @@ export interface CliErrorCodeDefinition {
 }
 
 export const cliErrorCodeRegistry = {
+  [CliErrorCode.AdmissionOverloaded]: { category: "domain", defaultHint: "Shared daemon admission failed because the op/byte budget is full. Run `ha daemon status --json`, wait for admitted writes to settle, then retry the exact command." },
   [CliErrorCode.ArchivedHardDeleteForbidden]: { category: "domain", defaultHint: "Archived tasks cannot be hard deleted." },
   [CliErrorCode.ArtifactReadFailed]: { category: "domain", defaultHint: "Artifact read failed." },
   [CliErrorCode.ArtifactWriteRejected]: { category: "domain", defaultHint: "Artifact write was rejected." },

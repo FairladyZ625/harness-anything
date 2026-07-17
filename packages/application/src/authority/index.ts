@@ -1,6 +1,7 @@
 // @slice-activation TW-01 authority application contract consumed by forced-command transport and TW-02/TW-03.
 export { createInMemoryAuthorityOperationRegistry, createInMemoryReplicaChangeLog } from "./memory-stores.ts";
-export { canonicalAuthorityRequestDigest, createAuthoritySubmissionService } from "./service.ts";
+export { canonicalAuthorityRequestDigest } from "./admission.ts";
+export { createAuthoritySubmissionService } from "./service.ts";
 export { makeCompositeAuthoritySemanticCompilerV2 } from "./composite-semantic-compiler-v2.ts";
 export {
   completeAuthorityCommittedReceiptV2,

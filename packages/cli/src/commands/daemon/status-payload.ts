@@ -1,5 +1,6 @@
 import {
   type DaemonActiveControlStatus,
+  type DaemonAdmissionStatus,
   type DaemonQueueStatus,
   type DaemonRepoStatus,
   type DaemonStatusResultV2,
@@ -30,6 +31,7 @@ export interface DaemonStatusRuntimeRepo {
     readonly background: number;
     readonly maintenance: number;
     readonly running: boolean;
+    readonly admission?: DaemonAdmissionStatus;
   };
   readonly lastRecovery?: unknown;
   readonly lastError?: string;
@@ -38,6 +40,11 @@ export interface DaemonStatusRuntimeRepo {
 }
 
 const emptyDaemonQueue = { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false } as const;
+const emptyAdmission: DaemonAdmissionStatus = {
+  limits: { maxOperations: 0, maxBytes: 0, reservedOperationsPerPlane: 0, reservedBytesPerPlane: 0 },
+  used: { operations: 0, bytes: 0, authorityOperations: 0, authorityBytes: 0, jsonRpcOperations: 0, jsonRpcBytes: 0 },
+  rejected: { authority: 0, "json-rpc": 0 }
+};
 
 export function daemonStatusPayload(input: {
   readonly daemonId: string;
@@ -173,9 +180,10 @@ function repoStatus(
   };
 }
 
-function queueStatus(queue: Omit<DaemonQueueStatus, "depth">): DaemonQueueStatus {
+function queueStatus(queue: Omit<DaemonQueueStatus, "depth" | "admission"> & { readonly admission?: DaemonAdmissionStatus }): DaemonQueueStatus {
   return {
     ...queue,
+    admission: queue.admission ?? emptyAdmission,
     depth: queue.interactive + queue.normal + queue.background + queue.maintenance
   };
 }
@@ -187,8 +195,29 @@ function aggregateQueues(queues: ReadonlyArray<DaemonQueueStatus>): DaemonQueueS
     background: total.background + queue.background,
     maintenance: total.maintenance + queue.maintenance,
     running: total.running || queue.running,
-    depth: total.depth + queue.depth
-  }), { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false, depth: 0 });
+    depth: total.depth + queue.depth,
+    admission: aggregateAdmissions(total.admission ?? emptyAdmission, queue.admission ?? emptyAdmission)
+  }), { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false, depth: 0, admission: emptyAdmission });
+}
+
+function aggregateAdmissions(left: DaemonAdmissionStatus, right: DaemonAdmissionStatus): DaemonAdmissionStatus {
+  return {
+    limits: {
+      maxOperations: left.limits.maxOperations + right.limits.maxOperations,
+      maxBytes: left.limits.maxBytes + right.limits.maxBytes,
+      reservedOperationsPerPlane: left.limits.reservedOperationsPerPlane + right.limits.reservedOperationsPerPlane,
+      reservedBytesPerPlane: left.limits.reservedBytesPerPlane + right.limits.reservedBytesPerPlane
+    },
+    used: {
+      operations: left.used.operations + right.used.operations,
+      bytes: left.used.bytes + right.used.bytes,
+      authorityOperations: left.used.authorityOperations + right.used.authorityOperations,
+      authorityBytes: left.used.authorityBytes + right.used.authorityBytes,
+      jsonRpcOperations: left.used.jsonRpcOperations + right.used.jsonRpcOperations,
+      jsonRpcBytes: left.used.jsonRpcBytes + right.used.jsonRpcBytes
+    },
+    rejected: { authority: left.rejected.authority + right.rejected.authority, "json-rpc": left.rejected["json-rpc"] + right.rejected["json-rpc"] }
+  };
 }
 
 function reconcileErrorPayload(error: DaemonReconcileError | null): DaemonStatusResultV2["service"]["lastReconcileError"] {

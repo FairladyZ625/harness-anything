@@ -1,5 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
+import type { DaemonAdmissionBudget } from "../daemon/admission-budget.ts";
+import { createRuntimeAdmissionBudget } from "../daemon/runtime-admission.ts";
 import type { RecoveryReport, WriteCoordinator } from "../ports/write-coordinator.ts";
 import type { WriteAttribution } from "../schemas/actor-attribution.ts";
 import type { ProjectionSourceFenceFactory } from "../ports/projection-source-fence.ts";
@@ -47,7 +49,6 @@ export type {
   InteractiveWriteReceipt,
   InteractiveWriteRequest
 };
-
 export interface DaemonRuntimeOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
@@ -57,6 +58,10 @@ export interface DaemonRuntimeOptions {
   readonly maxInteractiveOpsPerCommit?: number;
   readonly materializerPollMs?: number | false;
   readonly materializerMaxBranchesPerBatch?: number;
+  readonly admissionMaxOperations?: number;
+  readonly admissionMaxBytes?: number;
+  readonly admissionReservedOperationsPerPlane?: number;
+  readonly admissionReservedBytesPerPlane?: number;
   readonly projectionSourceFenceFactory?: ProjectionSourceFenceFactory;
   readonly reservationReconciler?: (input: {
     readonly rootDir: string;
@@ -88,17 +93,16 @@ export interface HarnessDaemonRuntime {
     readonly sessionId: string;
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
+  readonly admissionBudget: DaemonAdmissionBudget;
 }
 
 export interface DaemonMaterializerBatchOptions {
   readonly dryRun?: boolean;
   readonly sessionId?: string;
 }
-
 export interface DaemonDrainOptions {
   readonly drainTimeoutMs?: number;
 }
-
 export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
 
 export interface DaemonRepoRuntimeOptions extends DaemonRuntimeOptions {
@@ -151,7 +155,8 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     enqueueMaterializerBatch: (batchOptions) => context.enqueueMaterializerBatch(batchOptions),
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
     createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
-    assertWriteFenceHeld: () => context.assertWriteFenceHeld()
+    assertWriteFenceHeld: () => context.assertWriteFenceHeld(),
+    admissionBudget: context.admissionBudget
   };
 }
 
@@ -246,6 +251,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private readonly lockTtlMs: number;
   private readonly materializerMaxBranchesPerBatch: number;
   private readonly queue: DaemonWriteQueue;
+  readonly admissionBudget: DaemonAdmissionBudget;
   private readonly options: DaemonRepoRuntimeOptions;
   private projectionGeneration: DaemonProjectionGenerationManager;
   private projectionGenerationClosed = false;
@@ -265,9 +271,11 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.operationalActor = options.operationalActor ?? defaultDaemonOperationalActor;
     this.lockTtlMs = options.lockTtlMs ?? defaultLockTtlMs;
     this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultMaterializerMaxBranchesPerBatch;
+    this.admissionBudget = createRuntimeAdmissionBudget(options);
     this.queue = new DaemonWriteQueue(
       options.maxInteractiveOpsPerCommit ?? defaultMaxInteractiveOpsPerCommit,
-      options.interactiveMicroBatchMs ?? defaultInteractiveMicroBatchMs
+      options.interactiveMicroBatchMs ?? defaultInteractiveMicroBatchMs,
+      this.admissionBudget
     );
     this.projectionGeneration = this.createProjectionGenerationManager();
   }

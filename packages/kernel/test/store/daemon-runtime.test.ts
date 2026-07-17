@@ -97,6 +97,45 @@ test("daemon runtime invalidates only its repo generation after a canonical writ
   });
 });
 
+test("daemon runtime rejects an interactive write when the aggregate admission operation budget is reserved", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 100,
+      admissionMaxOperations: 1,
+      admissionMaxBytes: 1_000_000,
+      admissionReservedOperationsPerPlane: 0,
+      admissionReservedBytesPerPlane: 0
+    });
+    await runtime.start();
+
+    const admitted = runtime.enqueueInteractiveWrite({
+      commandId: "cmd-admitted",
+      attribution: testAttribution,
+      ops: [docWrite("op-admitted", "task-admitted", "note.md", "admitted")]
+    });
+    await assert.rejects(
+      runtime.enqueueInteractiveWrite({
+        commandId: "cmd-overloaded",
+        attribution: testAttribution,
+        ops: [docWrite("op-overloaded", "task-overloaded", "note.md", "overloaded")]
+      }),
+      (error: unknown) => {
+        assert.deepEqual(error, {
+          _tag: "WriteRejected",
+          code: "admission_overloaded",
+          reason: "Shared daemon admission budget is full. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.",
+          retryable: true
+        });
+        return true;
+      }
+    );
+    await admitted;
+    await runtime.stop();
+  });
+});
+
 test("multi-repo daemon keeps projection generations and evidence pages isolated", async () => {
   await withTempStoreAsync(async (workspaceRoot) => {
     const repos = Array.from({ length: 5 }, (_, index) => ({
