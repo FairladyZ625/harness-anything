@@ -11,7 +11,7 @@ import {
   connectionGeneration,
   openLocalAuthorityKeyStore
 } from "../../../daemon/src/index.ts";
-import { createAuthorityKeyRegistryV1 } from "../../../application/src/index.ts";
+import { createAuthorityKeyRegistryV1, firstPinAuthorityKeyV1 } from "../../../application/src/index.ts";
 import {
   decisionEntityId,
   executionDeclaration,
@@ -215,9 +215,17 @@ function createFixture() {
   });
   const now = Date.now();
   const prepublished = keyStore.createPrepublishedKey({ generation: 1, nowMs: now - 1_000 });
-  const registry = createAuthorityKeyRegistryV1({
+  const prepublishedRegistry = createAuthorityKeyRegistryV1({
     authorityId: "authority.production", generation: 1, globalRevocationEpoch: 1, revision: 1,
-    entries: [{ ...prepublished, state: "ACTIVE_SIGNING" }]
+    entries: [prepublished]
+  });
+  const registry = firstPinAuthorityKeyV1({
+    registry: prepublishedRegistry,
+    keyId: prepublished.keyId,
+    expectedPinnedKeyId: prepublished.keyId,
+    pinEvidence: "fixture-out-of-band-pin",
+    verifierAcknowledgement: "fixture-verifier-ack",
+    activatedAtMs: now - 999
   });
   const registryPath = path.join(authoredRoot, "authority-key-registry.json");
   writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
