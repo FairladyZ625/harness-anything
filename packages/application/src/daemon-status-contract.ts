@@ -23,6 +23,7 @@ export interface DaemonActiveControlStatus {
   readonly kind: DaemonControlKind;
   readonly phase: "accepted" | "draining" | "building" | "replacing" | "failed";
   readonly requestedAt: string;
+  readonly failure?: Pick<DaemonControlErrorV1, "code" | "hint">;
 }
 
 export interface DaemonBuildStatus {

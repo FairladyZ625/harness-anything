@@ -114,6 +114,40 @@ test("daemon stop drains an in-flight evidence read before it resolves", async (
   });
 });
 
+test("daemon stop bounds a hung queued write and retains its lock with durable operation tuples", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    writeExecutionEvidenceFixture(rootDir, "Bounded shutdown");
+    initAuthoredGit(rootDir);
+    commitAuthoredFixture(rootDir);
+    rebuildTaskProjection({ rootDir });
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 0,
+      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
+    });
+    await runtime.start();
+    void runtime.enqueueBackgroundBatch({ source: "killpoint-hung", run: () => new Promise<never>(() => undefined) });
+    void runtime.enqueueInteractiveWrite({
+      commandId: "recover-after-killpoint",
+      attribution: testAttribution,
+      ops: [docWrite("op-recover-after-killpoint", "task-recover", "note.md", "recover")]
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    await assert.rejects(
+      runtime.stop({ drainTimeoutMs: 25 }),
+      (error: unknown) => error instanceof Error
+        && error.name === "DaemonDrainTimeoutError"
+        && error.message.includes("killpoint-hung")
+        && error.message.includes("recover-after-killpoint")
+        && error.message.includes("op-recover-after-killpoint")
+    );
+    assert.equal(runtime.status().started, false);
+    assert.ok(runtime.status().lockPath, "timeout must retain the write fence instead of releasing the lock");
+  });
+});
+
 test("daemon runtime invalidates only its repo generation after a canonical write", async () => {
   await withTempStoreAsync(async (rootDir) => {
     writeExecutionEvidenceFixture(rootDir, "Canonical invalidation");

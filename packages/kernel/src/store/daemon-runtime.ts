@@ -19,6 +19,7 @@ import {
   type InteractiveWriteAttribution,
   type InteractiveWriteRequest
 } from "./daemon-runtime-queue.ts";
+import { waitForDaemonQueueIdle } from "./daemon-drain.ts";
 import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
 import type { OperationalActor } from "./write-journal-types.ts";
@@ -75,7 +76,7 @@ export interface DaemonRuntimeStatus {
 
 export interface HarnessDaemonRuntime {
   readonly start: () => Promise<DaemonRuntimeStatus>;
-  readonly stop: () => Promise<void>;
+  readonly stop: (options?: DaemonDrainOptions) => Promise<void>;
   readonly status: () => DaemonRuntimeStatus;
   readonly enqueueInteractiveWrite: (request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
   readonly enqueueBackgroundBatch: <Result>(request: BackgroundBatchRequest<Result>) => Promise<Result>;
@@ -92,6 +93,10 @@ export interface HarnessDaemonRuntime {
 export interface DaemonMaterializerBatchOptions {
   readonly dryRun?: boolean;
   readonly sessionId?: string;
+}
+
+export interface DaemonDrainOptions {
+  readonly drainTimeoutMs?: number;
 }
 
 export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
@@ -124,7 +129,7 @@ export interface MultiRepoDaemonRuntimeStatus {
 
 export interface MultiRepoHarnessDaemonRuntime {
   readonly start: () => Promise<MultiRepoDaemonRuntimeStatus>;
-  readonly stop: () => Promise<void>;
+  readonly stop: (options?: DaemonDrainOptions) => Promise<void>;
   readonly status: () => MultiRepoDaemonRuntimeStatus;
   readonly attachRepo: (repo: DaemonRepoRuntimeOptions) => Promise<DaemonRepoRuntimeStatus>;
   readonly detachRepo: (repoId: string) => Promise<DaemonRepoRuntimeStatus>;
@@ -139,7 +144,7 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
   const context = new DaemonRepoRuntimeContext({ ...options, repoId: "canonical" });
   return {
     start: async () => toDaemonRuntimeStatus(await context.attach({ failOnError: true })),
-    stop: () => context.stop(),
+    stop: (drainOptions) => context.stop(drainOptions),
     status: () => toDaemonRuntimeStatus(context.status()),
     enqueueInteractiveWrite: (request) => context.enqueueInteractiveWrite(request),
     enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
@@ -166,11 +171,13 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
       }
       return status();
     },
-    stop: async () => {
+    stop: async (drainOptions) => {
       const errors: unknown[] = [];
+      const deadlineAt = drainOptions?.drainTimeoutMs === undefined ? undefined : Date.now() + drainOptions.drainTimeoutMs;
       for (const context of sortedContexts(contexts)) {
         try {
-          await context.stop();
+          const remainingMs = deadlineAt === undefined ? undefined : Math.max(0, deadlineAt - Date.now());
+          await context.stop(remainingMs === undefined ? undefined : { drainTimeoutMs: remainingMs });
         } catch (error) {
           errors.push(error);
         }
@@ -301,11 +308,16 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(options?: DaemonDrainOptions): Promise<void> {
     this.state = "detaching";
     this.projectionGeneration.reset();
     this.stopMaterializerTimer();
-    await this.queue.idle();
+    try {
+      await waitForDaemonQueueIdle(this.queue, this.rootDir, options?.drainTimeoutMs);
+    } catch (error) {
+      this.lastError = describeError(error);
+      throw error;
+    }
     let projectionCloseError: unknown;
     try {
       await this.closeProjectionGenerationManager();

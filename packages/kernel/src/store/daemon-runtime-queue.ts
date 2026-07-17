@@ -40,6 +40,10 @@ export interface DaemonQueueSnapshot {
   readonly running: boolean;
 }
 
+export type DaemonQueueDrainTarget =
+  | { readonly kind: "interactive"; readonly commandId: string; readonly opIds: ReadonlyArray<string> }
+  | { readonly kind: "background"; readonly source: string };
+
 type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly kind: "interactive";
   readonly commandId: string;
@@ -80,6 +84,7 @@ export class DaemonWriteQueue {
   private coordinatorFor: ((batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator) | undefined;
   private readonly maxInteractiveOpsPerCommit: number;
   private readonly interactiveMicroBatchMs: number;
+  private activeDrainTarget: DaemonQueueDrainTarget | undefined;
 
   constructor(
     maxInteractiveOpsPerCommit: number,
@@ -156,6 +161,21 @@ export class DaemonWriteQueue {
     };
   }
 
+  drainTargets(): ReadonlyArray<DaemonQueueDrainTarget> {
+    return [
+      ...(this.activeDrainTarget ? [this.activeDrainTarget] : []),
+      ...this.interactive.map((item) => ({
+        kind: "interactive" as const,
+        commandId: item.commandId,
+        opIds: item.ops.map((op) => op.opId)
+      })),
+      ...[...this.normal, ...this.background, ...this.maintenance].map((item) => ({
+        kind: "background" as const,
+        source: item.source
+      }))
+    ];
+  }
+
   private schedule(): void {
     if (this.running) return;
     this.running = true;
@@ -211,6 +231,11 @@ export class DaemonWriteQueue {
       }
     }
     if (accepted.length === 0) return;
+    this.activeDrainTarget = {
+      kind: "interactive",
+      commandId: accepted.map((item) => item.commandId).join(","),
+      opIds: accepted.flatMap((item) => item.ops.map((op) => op.opId))
+    };
     try {
       const report = Effect.runSync(coordinator.flush("explicit"));
       for (const item of accepted) {
@@ -224,14 +249,19 @@ export class DaemonWriteQueue {
     } catch (error) {
       const writeError = toWriteError(error);
       for (const item of accepted) item.reject(writeError);
+    } finally {
+      this.activeDrainTarget = undefined;
     }
   }
 
   private async runBackground(item: BackgroundQueueItem<unknown>): Promise<void> {
+    this.activeDrainTarget = { kind: "background", source: item.source };
     try {
       item.resolve(await item.run());
     } catch (error) {
       item.reject(error);
+    } finally {
+      this.activeDrainTarget = undefined;
     }
   }
 

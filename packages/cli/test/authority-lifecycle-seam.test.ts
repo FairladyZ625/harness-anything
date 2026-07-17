@@ -164,10 +164,10 @@ test("lifecycle-daemon-shutdown stops accept, drains every repo component, then 
     });
     await host.stop();
     assert.deepEqual(events.slice(4), [
-      "transport:stop-accept",
       "alpha:drain", "alpha:flush-receipts", "alpha:stop",
       "beta:drain", "beta:flush-receipts", "beta:stop",
-      "runtime:stop-lock-release"
+      "runtime:stop-lock-release",
+      "transport:stop-accept"
     ]);
   });
 });

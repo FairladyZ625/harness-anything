@@ -24,7 +24,7 @@ import {
 } from "../../../daemon/src/index.ts";
 import {
   makeMarkdownArtifactStore,
-  readDaemonRegistry
+  readDaemonRegistry,
 } from "../../../kernel/src/index.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-controller-options.ts";
@@ -44,6 +44,7 @@ import { createAuthorityWireIngressHandler } from "./authority-wire-service.ts";
 import { canonicalRootIdentity } from "./canonical-root.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";
 import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
+import { drainDaemonRuntime, isDaemonDrainTimeout } from "./daemon-drain.ts";
 import {
   makeDaemonQueuedOperationalWriteCoordinator,
   makeDaemonQueuedWriteCoordinator
@@ -108,17 +109,36 @@ export async function createDaemonServiceHost(
   let reconcileTimer: ReturnType<typeof setInterval> | undefined;
   let reconciling = false;
   let stopping = false;
+  let drainTimeoutMs: number | undefined;
   let activeControl: DaemonActiveControlStatus | null = null;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
     if (idleTimer) clearTimeout(idleTimer);
     if (reconcileTimer) clearInterval(reconcileTimer);
+    try {
+      await drainDaemonRuntime({
+        authorityLifecycle,
+        runtime,
+        drainTimeoutMs
+      });
+    } catch (error) {
+      if (isDaemonDrainTimeout(error) && activeControl) {
+        activeControl = {
+          ...activeControl,
+          phase: "failed",
+          failure: {
+            code: "daemon_queue_drain_timeout",
+            hint: `Daemon ${activeControl.kind} drain exceeded its deadline. Run \`ha daemon status --json\`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request.`
+          }
+        };
+        return;
+      }
+      throw error;
+    }
     for (const handler of stopHandlers.splice(0, stopHandlers.length)) {
       await handler();
     }
-    await authorityLifecycle?.stopAll("daemon-shutdown");
-    await runtime.stop();
   };
   const scheduleIdleExit = () => {
     if (idleMs <= 0 || stopping || connections.active !== 0) return;
@@ -130,6 +150,9 @@ export async function createDaemonServiceHost(
   };
   const commandOptions = {
     onCommandStart: () => {
+      if (activeControl) {
+        throw new Error(`DAEMON_DRAINING_ADMISSION_CLOSED: daemon ${activeControl.kind} operation ${activeControl.operationId} is draining. Run \`ha daemon status --json\` and wait for it to complete or report its timeout before retrying.`);
+      }
       if (idleTimer) clearTimeout(idleTimer);
     },
     onCommandSettled: scheduleIdleExit
@@ -137,7 +160,6 @@ export async function createDaemonServiceHost(
   const reconcileState = createDaemonReconcileState();
   const controlService: DaemonControlService = {
     requestControl: (kind, request) => {
-      void request;
       if (activeControl) {
         return {
           ok: false,
@@ -167,6 +189,7 @@ export async function createDaemonServiceHost(
         afterResponse: () => {
           if (activeControl?.operationId !== operationId) return;
           activeControl = { ...activeControl, phase: "draining" };
+          drainTimeoutMs = request.drainTimeoutMs;
           requestStop?.();
         }
       };
