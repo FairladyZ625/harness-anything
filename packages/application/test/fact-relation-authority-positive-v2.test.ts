@@ -9,6 +9,7 @@ import {
   actorAxesBindingDigestV2,
   actorAxesBindingTokenDigestV2,
   canonicalPayloadDigestV2,
+  completeAuthorityCommittedReceiptV2,
   createAuthoritySubmissionService,
   createInMemoryAuthorityOperationRegistry,
   createInMemoryReplicaChangeLog,
@@ -154,6 +155,17 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     assert.match(unpublishedReceipt.tag === "INDETERMINATE" ? unpublishedReceipt.reason : "", /V2_EVENT_PUBLICATION_FAILED/u);
     assert.equal(unpublishedReceipt.tag === "INDETERMINATE" && typeof unpublishedReceipt.commitSha === "string", true);
     assert.equal("integrityTuple" in unpublishedReceipt, false);
+    failEventPublication = false;
+    const recoveredReceipt = await service.submitV2!({
+      requestId: "event-store-recovered-after-restart",
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(unpublishedEnvelope)
+    });
+    assert.equal(recoveredReceipt.tag, "COMMITTED", JSON.stringify(recoveredReceipt));
+    if (recoveredReceipt.tag === "COMMITTED") {
+      assert.equal(recoveredReceipt.commitSha, unpublishedReceipt.tag === "INDETERMINATE" ? unpublishedReceipt.commitSha : undefined);
+      assert.match(recoveredReceipt.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
+    }
   });
 });
 
@@ -167,6 +179,7 @@ function authority(
   bases: Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>,
   failEventPublication: () => boolean
 ) {
+  const operationRegistry = createInMemoryAuthorityOperationRegistry();
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
@@ -178,7 +191,7 @@ function authority(
       })
     },
     tokenVerifier: { verify: async () => { throw new Error("v1 verifier must not run"); } },
-    operationRegistry: createInMemoryAuthorityOperationRegistry(),
+    operationRegistry,
     replicaChangeLog: changeLog,
     publicationInspector: {
       currentHead: async () => gitOptional(rootDir, env, "rev-parse", "--verify", "HEAD"),
@@ -235,6 +248,31 @@ function authority(
             recordedAt: input.occurredAt
           });
         }
+      },
+      recoverCommittedReceipt: async (record) => {
+        const change = await changeLog.getByOperation(record.workspaceId, record.opId);
+        if (!change || !record.authorityIntegrity || !record.commitSha) throw new Error("incomplete recovery fixture");
+        return completeAuthorityCommittedReceiptV2({
+          publisher: {
+            publish: async (input) => materializeCommittedAttributionEventV2({
+              ...input,
+              physicalChanges: [{ path: `authority/${input.receipt.opId}`, beforeDigest: null, afterDigest: "55".repeat(32) }],
+              recordedAt: input.occurredAt
+            })
+          },
+          receipt: {
+            tag: "COMMITTED",
+            workspaceId: record.workspaceId,
+            opId: record.opId,
+            semanticDigest: record.semanticDigest,
+            revision: change.revision,
+            commitSha: change.commitSha,
+            previousCommit: change.previousCommit,
+            authorityIntegrity: record.authorityIntegrity
+          },
+          actorAxesBinding: actorAxesBindingCore(claims),
+          occurredAt: change.changedAt
+        });
       }
     }
   });

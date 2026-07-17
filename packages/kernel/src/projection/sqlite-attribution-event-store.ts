@@ -9,6 +9,7 @@ export function ensureAttributionEventTables(
 ): Effect.Effect<unknown, unknown> {
   return Effect.gen(function* () {
     yield* ensureEntityAttributionSummaryTable(sql);
+    yield* migrateWorkspaceScopedRevisionIdentity(sql);
     yield* sql`
       CREATE TABLE IF NOT EXISTS attribution_events (
         event_id TEXT PRIMARY KEY,
@@ -28,14 +29,15 @@ export function ensureAttributionEventTables(
         event_id TEXT PRIMARY KEY,
         op_id TEXT NOT NULL UNIQUE,
         workspace_id TEXT NOT NULL,
-        revision INTEGER NOT NULL UNIQUE,
+        revision INTEGER NOT NULL,
         commit_sha TEXT NOT NULL,
         previous_commit TEXT,
         principal_person_id TEXT NOT NULL,
         executor_agent_id TEXT,
         occurred_at TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
-        source_json TEXT NOT NULL
+        source_json TEXT NOT NULL,
+        UNIQUE (workspace_id, revision)
       )
     `;
     yield* sql`
@@ -51,6 +53,57 @@ export function ensureAttributionEventTables(
       )
     `;
     yield* sql`CREATE INDEX IF NOT EXISTS attribution_event_mutations_subject ON attribution_event_mutations(subject_ref, event_id)`;
+  });
+}
+
+function migrateWorkspaceScopedRevisionIdentity(sql: SqlClient.SqlClient): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const [header] = yield* sql<{ readonly sql: string | null }>`
+      SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attribution_event_headers'
+    `;
+    if (!header?.sql || !/revision\s+INTEGER\s+NOT\s+NULL\s+UNIQUE/iu.test(header.sql)) return;
+    yield* sql`ALTER TABLE attribution_event_headers RENAME TO attribution_event_headers_global_revision`;
+    yield* sql`
+      CREATE TABLE attribution_event_headers (
+        event_id TEXT PRIMARY KEY,
+        op_id TEXT NOT NULL UNIQUE,
+        workspace_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        commit_sha TEXT NOT NULL,
+        previous_commit TEXT,
+        principal_person_id TEXT NOT NULL,
+        executor_agent_id TEXT,
+        occurred_at TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        source_json TEXT NOT NULL,
+        UNIQUE (workspace_id, revision)
+      )
+    `;
+    yield* sql`
+      INSERT INTO attribution_event_headers
+      SELECT * FROM attribution_event_headers_global_revision
+    `;
+    const [mutations] = yield* sql<{ readonly name: string }>`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'attribution_event_mutations'
+    `;
+    if (mutations) {
+      yield* sql`
+        CREATE TABLE attribution_event_mutations_workspace_revision (
+          event_id TEXT NOT NULL,
+          mutation_index INTEGER NOT NULL,
+          registry_version INTEGER NOT NULL,
+          entity_kind TEXT NOT NULL,
+          subject_ref TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          PRIMARY KEY (event_id, mutation_index),
+          FOREIGN KEY (event_id) REFERENCES attribution_event_headers(event_id) ON DELETE CASCADE
+        )
+      `;
+      yield* sql`INSERT INTO attribution_event_mutations_workspace_revision SELECT * FROM attribution_event_mutations`;
+      yield* sql`DROP TABLE attribution_event_mutations`;
+      yield* sql`ALTER TABLE attribution_event_mutations_workspace_revision RENAME TO attribution_event_mutations`;
+    }
+    yield* sql`DROP TABLE attribution_event_headers_global_revision`;
   });
 }
 

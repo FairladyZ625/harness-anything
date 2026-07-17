@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { SqlClient } from "@effect/sql";
+import { Effect } from "effect";
 import {
   actorAxesBindingCoreDigestV2,
   type ActorAxesBindingCoreV2
@@ -17,10 +19,11 @@ import {
 } from "../../src/integrity/semantic-mutation-integrity-v2.ts";
 import { decodeUnionAttributionEventBody } from "../../src/local/attribution-event-source.ts";
 import {
+  applyAttributionProjectionDelta,
   materializeAttributionProjectionFromEvents,
   readAttributionProjection
 } from "../../src/projection/sqlite-attribution-projection.ts";
-import { queryTaskProjectionRows } from "../../src/projection/sqlite-projection-store.ts";
+import { queryTaskProjectionRows, runSqlite } from "../../src/projection/sqlite-projection-store.ts";
 import { readTaskProjection, rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import {
   attributionEventCompleteness,
@@ -153,6 +156,65 @@ test("materializer applies V2-over-V1 precedence even when called with both vers
     } finally {
       db.close();
     }
+  });
+});
+
+test("V2 revisions are unique within a workspace across full rebuild and incremental writes", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(rootDir, "projection.sqlite");
+    writeFileSync(projectionPath, "", "utf8");
+    const first = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
+    const second = v2Event([mutation("fact", "fact/task_T/F-2", "create")], {
+      workspaceId: "workspace-2", opId: "v2-op-2", revision: 1
+    });
+    assert.equal(materializeAttributionProjectionFromEvents(projectionPath, [first, second]).length, 2);
+    const third = v2Event([mutation("fact", "fact/task_T/F-3", "create")], {
+      workspaceId: "workspace-3", opId: "v2-op-3", revision: 1
+    });
+    runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, (sql) => applyAttributionProjectionDelta(sql, {
+      deleteEventIds: [], upsertEvents: [third], affectedSubjects: ["fact/task_T/F-3"]
+    })));
+    const projected = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(projected.prepare("SELECT COUNT(*) AS count FROM attribution_event_headers").get()?.count, 3);
+    } finally {
+      projected.close();
+    }
+
+    const duplicate = v2Event([mutation("fact", "fact/task_T/F-4", "create")], {
+      workspaceId: "workspace-1", opId: "v2-op-4", revision: 1
+    });
+    assert.throws(() => materializeAttributionProjectionFromEvents(projectionPath, [first, duplicate]));
+  });
+});
+
+test("existing global-revision SQLite projection migrates to workspace-scoped uniqueness", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(rootDir, "projection.sqlite");
+    const db = new DatabaseSync(projectionPath);
+    try {
+      db.exec(`
+        CREATE TABLE attribution_event_headers (
+          event_id TEXT PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL,
+          revision INTEGER NOT NULL UNIQUE, commit_sha TEXT NOT NULL, previous_commit TEXT,
+          principal_person_id TEXT NOT NULL, executor_agent_id TEXT, occurred_at TEXT NOT NULL,
+          recorded_at TEXT NOT NULL, source_json TEXT NOT NULL
+        );
+        CREATE TABLE attribution_event_mutations (
+          event_id TEXT NOT NULL, mutation_index INTEGER NOT NULL, registry_version INTEGER NOT NULL,
+          entity_kind TEXT NOT NULL, subject_ref TEXT NOT NULL, operation TEXT NOT NULL,
+          PRIMARY KEY (event_id, mutation_index),
+          FOREIGN KEY (event_id) REFERENCES attribution_event_headers(event_id) ON DELETE CASCADE
+        );
+      `);
+    } finally {
+      db.close();
+    }
+    const first = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
+    const second = v2Event([mutation("fact", "fact/task_T/F-2", "create")], {
+      workspaceId: "workspace-2", opId: "v2-op-2", revision: 1
+    });
+    assert.equal(materializeAttributionProjectionFromEvents(projectionPath, [first, second]).length, 2);
   });
 });
 
@@ -318,7 +380,12 @@ function v1Event(extra: Readonly<Record<string, unknown>> = {}): Record<string, 
   };
 }
 
-function v2Event(mutations: ReadonlyArray<SemanticMutationV2>): AttributionEventV2 {
+function v2Event(
+  mutations: ReadonlyArray<SemanticMutationV2>,
+  identity: { readonly workspaceId: string; readonly opId: string; readonly revision: number } = {
+    workspaceId: "workspace-1", opId: "v2-op", revision: 1
+  }
+): AttributionEventV2 {
   const mutationSet: SemanticMutationSetV2 = {
     registryVersion: 1,
     mutations: [...mutations].sort((left, right) => Buffer.compare(
@@ -330,7 +397,7 @@ function v2Event(mutations: ReadonlyArray<SemanticMutationV2>): AttributionEvent
     bindingId: "binding-1",
     principalPersonId: "person_zeyu",
     executorAgentId: "agent-codex",
-    workspaceId: "workspace-1",
+    workspaceId: identity.workspaceId,
     deviceId: "device-1",
     viewId: "view-1",
     sessionId: "session-1",
@@ -354,10 +421,10 @@ function v2Event(mutations: ReadonlyArray<SemanticMutationV2>): AttributionEvent
   }];
   const withoutEventDigest: Omit<AttributionEventV2, "canonicalEventDigest"> = {
     schema: "attribution-event/v2",
-    eventId: "attribution:v2-op",
-    workspaceId: "workspace-1",
-    opId: "v2-op",
-    revision: 1,
+    eventId: `attribution:${identity.opId}`,
+    workspaceId: identity.workspaceId,
+    opId: identity.opId,
+    revision: identity.revision,
     commitSha: "commit-v2",
     previousCommit: "commit-v1",
     outcome: "COMMITTED",

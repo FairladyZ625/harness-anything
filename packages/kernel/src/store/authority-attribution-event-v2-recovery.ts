@@ -23,15 +23,19 @@ export interface DurableAuthorityOperationRecordSourceV2<
   readonly get: (workspaceId: string, opId: string) => Promise<RecordType | undefined>;
 }
 
-export async function recoverAuthorityAttributionEventV2FromOperationRecord<
+export interface RecoverAuthorityAttributionEventV2Input<
   RecordType extends RecoverableAuthorityOperationRecordV2
->(input: {
+> {
   readonly workspaceId: string;
   readonly opId: string;
   readonly operationRecords: DurableAuthorityOperationRecordSourceV2<RecordType>;
   readonly materializeExactEvent: (record: RecordType) => Promise<AttributionEventV2>;
   readonly log: AuthorityAttributionEventV2Log;
-}): Promise<AuthorityAttributionEventV2AppendResult> {
+}
+
+export async function recoverAuthorityAttributionEventV2FromOperationRecord<
+  RecordType extends RecoverableAuthorityOperationRecordV2
+>(input: RecoverAuthorityAttributionEventV2Input<RecordType>): Promise<AuthorityAttributionEventV2AppendResult> {
   const record = await input.operationRecords.get(input.workspaceId, input.opId);
   if (!record) throw new Error(`AUTHORITY_OPERATION_RECORD_MISSING:${input.workspaceId}:${input.opId}`);
   assertRecordIdentity(record, input.workspaceId, input.opId);

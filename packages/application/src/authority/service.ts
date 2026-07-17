@@ -56,15 +56,14 @@ import {
   type EntityRefPrefixMatcherV2
 } from "./semantic-authorizer-v2.ts";
 import { shadowPublicationSchema, type ShadowPublicationLog } from "./shadow.ts";
-import {
-  actorAxesBindingCoreFromVerifiedV2,
-  completeAuthorityCommittedReceiptV2
-} from "./committed-event-publication-v2.ts";
+import { actorAxesBindingCoreFromVerifiedV2, completeAuthorityCommittedReceiptV2 } from "./committed-event-publication-v2.ts";
+import { recoverKnownAuthorityOperationV2 } from "./authority-attribution-event-v2-operation-recovery.ts";
 import {
   validateLegacyAuthorityIngress,
   validateLegacyTokenEnvelopeClaims
 } from "./legacy-admission.ts";
 import { createAuthorityOperationRecordPersistence } from "./operation-record-persistence.ts";
+
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
   readonly coordinatorFactory: AttributedCoordinatorFactory;
@@ -86,6 +85,7 @@ export interface AuthoritySubmissionV2Options {
   readonly semanticCompiler: AuthoritySemanticCompilerV2;
   readonly operationNamespaceVerifier: OperationNamespaceVerifierV2;
   readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
+  readonly recoverCommittedReceipt?: (record: import("./types.ts").AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
   readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
 }
 
@@ -187,6 +187,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     const known = await options.operationRegistry.get(envelope.workspaceId, opId);
     if (known) {
       if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
+      if (v2.recoverCommittedReceipt
+        && (known.state === "INDEXED" || known.state === "INDETERMINATE")
+        && known.recordedProtocol?.kind === "semantic-mutation-envelope/v2") {
+        const recovered = await recoverKnownAuthorityOperationV2({
+          known,
+          semanticDigest,
+          canonicalRequestEnvelope,
+          verified,
+          recover: v2.recoverCommittedReceipt,
+          persist: (receipt) => put(identity, semanticDigest, "COMMITTED", receipt, known.commitSha, known.authorityIntegrity, known.canonicalRequestEnvelope)
+        });
+        if (recovered) return terminal(recovered);
+      }
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
     }

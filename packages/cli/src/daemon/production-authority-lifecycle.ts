@@ -24,6 +24,7 @@ import {
   taskDecisionModuleTypedCommandsV2,
   type ActorAxesBindingRuntimeV2,
   type AuthorityCutoverControlService,
+  type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type SemanticMutationEnvelopeV2
 } from "../../../application/src/index.ts";
@@ -68,6 +69,7 @@ import {
 import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
+import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -121,11 +123,12 @@ export function createProductionAuthorityLifecycle(input: {
         table: state.namespaceState,
         proofKeys
       });
-      const committedEventPublisher = createDurableAuthorityCommittedEventPublisherV2({
-        eventLog: makeLocalAuthorityAttributionEventV2Log({
+      const eventLog = makeLocalAuthorityAttributionEventV2Log({
           rootDir: repo.canonicalRoot,
           ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
-        }),
+        });
+      const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
+        eventLog,
         observation: {
           observe: async (request) => {
             const inspect = publicationObservers.get(repo.repoId);
@@ -137,6 +140,13 @@ export function createProductionAuthorityLifecycle(input: {
             return { ...evidence, recordedAt: new Date().toISOString() };
           }
         }
+      });
+      const committedEventPublisher = withProductionRecoveryV2({
+        publisher: basePublisher,
+        replicaChangeLog: state.replicaChangeLog,
+        operationRegistry: state.operationRegistry,
+        bindingRuntime,
+        eventLog
       });
       materials.set(repo.repoId, {
         config,
@@ -365,7 +375,10 @@ function createConnectionAuthorityService(
         compiler: makeConsentSemanticCompilerV2({ state: semanticState })
       }]),
       operationNamespaceVerifier: input.namespaceVerifier,
-      committedEventPublisher: input.committedEventPublisher
+      committedEventPublisher: input.committedEventPublisher,
+      recoverCommittedReceipt: (input.committedEventPublisher as typeof input.committedEventPublisher & {
+        recoverCommittedReceipt?: NonNullable<AuthoritySubmissionV2Options["recoverCommittedReceipt"]>
+      }).recoverCommittedReceipt
     }
   });
 }

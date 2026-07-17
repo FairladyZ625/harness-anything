@@ -16,6 +16,11 @@ import {
   durableFileExists,
   readFileBytes
 } from "./write-journal-durable.ts";
+import {
+  recoverAuthorityAttributionEventV2FromOperationRecord,
+  type RecoverableAuthorityOperationRecordV2,
+  type RecoverAuthorityAttributionEventV2Input
+} from "./authority-attribution-event-v2-recovery.ts";
 
 export const authorityAttributionEventV2IntegrityReportSchema =
   "authority-attribution-event-v2-integrity-report/v1" as const;
@@ -39,6 +44,9 @@ export interface AuthorityAttributionEventV2Log {
   readonly readBytes: (workspaceId: string, opId: string) => Uint8Array | undefined;
   readonly readAll: () => ReadonlyArray<AttributionEventV2>;
   readonly scanIntegrity: () => AuthorityAttributionEventV2IntegrityReport;
+  readonly recoverFromOperationRecord: <RecordType extends RecoverableAuthorityOperationRecordV2>(
+    input: Omit<RecoverAuthorityAttributionEventV2Input<RecordType>, "log">
+  ) => Promise<AuthorityAttributionEventV2AppendResult>;
 }
 
 export function makeLocalAuthorityAttributionEventV2Log(
@@ -49,7 +57,11 @@ export function makeLocalAuthorityAttributionEventV2Log(
     read: (workspaceId, opId) => readAuthorityAttributionEventV2(rootInput, workspaceId, opId),
     readBytes: (workspaceId, opId) => readAuthorityAttributionEventV2Bytes(rootInput, workspaceId, opId),
     readAll: () => readAllAuthorityAttributionEventsV2(rootInput),
-    scanIntegrity: () => scanAuthorityAttributionEventV2Integrity(rootInput)
+    scanIntegrity: () => scanAuthorityAttributionEventV2Integrity(rootInput),
+    recoverFromOperationRecord: (input) => recoverAuthorityAttributionEventV2FromOperationRecord({
+      ...input,
+      log: makeLocalAuthorityAttributionEventV2Log(rootInput)
+    })
   };
 }
 

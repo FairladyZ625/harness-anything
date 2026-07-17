@@ -1,6 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -57,6 +59,42 @@ test("durable V2 append reads back exact canonical bytes and only accepts byte-i
       logDigest: log.scanIntegrity().logDigest
     });
   });
+});
+
+test("immutable V2 shard converges after SIGKILL at every publication boundary", { skip: process.platform === "win32" }, () => {
+  for (const killpoint of [
+    "post-create",
+    "partial-write",
+    "post-file-fsync",
+    "pre-directory-fsync",
+    "post-directory-fsync"
+  ]) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), `ha-v2-killpoint-${killpoint}-`));
+    try {
+      const event = v2Event({ opId: `op-${killpoint}` });
+      const eventPath = authorityAttributionEventV2FilePath(rootDir, event.workspaceId, event.opId);
+      const bytes = encodeAuthorityAttributionEventV2Bytes(event);
+      const child = spawnSync(process.execPath, [
+        "--experimental-strip-types", "--eval",
+        "import { appendImmutableBytesDurably } from './packages/kernel/src/store/write-journal-durable.ts'; appendImmutableBytesDurably(process.env.EVENT_PATH, Buffer.from(process.env.EVENT_BYTES, 'base64'));"
+      ], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          EVENT_PATH: eventPath,
+          EVENT_BYTES: Buffer.from(bytes).toString("base64"),
+          HARNESS_TEST_IMMUTABLE_WRITE_KILLPOINT: killpoint
+        },
+        encoding: "utf8"
+      });
+      assert.equal(child.signal, "SIGKILL", `${killpoint}: ${child.stderr}`);
+      const recovered = makeLocalAuthorityAttributionEventV2Log(rootDir).ensure(event);
+      assert.deepEqual(recovered.bytes, bytes, killpoint);
+      assert.deepEqual(makeLocalAuthorityAttributionEventV2Log(rootDir).read(event.workspaceId, event.opId), event);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }
 });
 
 test("same durable key with different valid canonical bytes is protocol damage", () => {
