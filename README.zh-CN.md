@@ -97,7 +97,23 @@ npm run quickstart:demo
 Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环，并展示 agent 工作结束后
 真正留在仓库里的记录。
 
-准备在自己的项目里使用？继续阅读[上手指南](./docs-release/start/zh/00-what-is-this.md)。
+### 让你的 agent 帮你装
+
+你不需要先学会 CLI。在你想接入 harness 的仓库里，把这一段 prompt 粘给你的
+coding agent（Claude Code、Codex 或同类工具）：
+
+```text
+Install the harness-install skill from
+https://github.com/FairladyZ625/harness-anything/tree/main/skills/harness-install
+into your skills directory, then follow it to install Harness Anything into
+this repository and verify the init flow end to end.
+```
+
+这个 skill 会带着 agent 走完全程：安装包、执行带归属的 `ha init`、启动
+daemon、创建第一条真实任务——最后用完成门拒绝一次没有证据的「做完了」来证明
+安装成功。被拒绝就是成功信号：你的仓库从此分得清「声称完成」和「验证完成」。
+
+想深入了解？继续阅读[上手指南](./docs-release/start/zh/00-what-is-this.md)。
 
 ## 它如何工作
 
