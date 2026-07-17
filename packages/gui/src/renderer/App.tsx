@@ -55,21 +55,18 @@ function AppShell() {
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
   const catalogQuery = useCatalogQuery();
-  const realTasks = useMemo(
+  // ROT-014: TanStack Query is the sole Task server-state owner.
+  // Board/sidebar/selection read the adapted projection directly — no App useState mirror.
+  const tasks = useMemo(
     () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
     [tasksQuery.data],
   );
-  const [tasks, setTasks] = useState<import("./model/types.ts").TaskRow[]>([]);
-  // 台账投影是权威真数据源;查询刷新时重播到本地态(拖拽等乐观更新为原型内交互)。
-  useEffect(() => {
-    setTasks(realTasks);
-  }, [realTasks]);
 
   const project = useMemo(() => ({
-    ...buildRealProject(realTasks),
+    ...buildRealProject(tasks),
     preset: catalogQuery.data?.activePresetId ?? t("renderer.app.notConfigured"),
     engines: catalogQuery.data?.adapters.map((adapter) => adapter.engine) ?? ["local"]
-  }), [catalogQuery.data, locale, realTasks]);
+  }), [catalogQuery.data, locale, tasks]);
   const projectId = project.id;
   const projects = useMemo(() => [project], [project]);
   const { favorites, toggleFavorite } = useFavorites(projectId);
