@@ -77,3 +77,25 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
+
+export function withProductionRecoveryV2(input: {
+  readonly publisher: AuthorityCommittedEventPublisherV2;
+  readonly replicaChangeLog: DurableAuthorityServiceState["replicaChangeLog"];
+  readonly operationRegistry: DurableAuthorityServiceState["operationRegistry"];
+  readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
+  readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
+}): AuthorityCommittedEventPublisherV2 & {
+  recoverCommittedReceipt: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
+} {
+  return {
+    ...input.publisher,
+    recoverCommittedReceipt: (record) => recoverProductionAuthorityCommittedReceiptV2({
+      record,
+      replicaChangeLog: input.replicaChangeLog,
+      operationRegistry: input.operationRegistry,
+      bindingRuntime: input.bindingRuntime,
+      eventLog: input.eventLog,
+      publisher: input.publisher
+    })
+  };
+}

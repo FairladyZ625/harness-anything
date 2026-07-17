@@ -69,7 +69,7 @@ import {
 import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
-import { recoverProductionAuthorityCommittedReceiptV2 } from "./authority-attribution-event-v2-production-recovery.ts";
+import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -141,19 +141,13 @@ export function createProductionAuthorityLifecycle(input: {
           }
         }
       });
-      const committedEventPublisher = {
-        ...basePublisher,
-        recoverCommittedReceipt: async (record: import("../../../application/src/authority/types.ts").AuthorityStoredOperationRecord) => {
-          return recoverProductionAuthorityCommittedReceiptV2({
-            record,
-            replicaChangeLog: state.replicaChangeLog,
-            operationRegistry: state.operationRegistry,
-            bindingRuntime,
-            eventLog,
-            publisher: basePublisher,
-          });
-        }
-      };
+      const committedEventPublisher = withProductionRecoveryV2({
+        publisher: basePublisher,
+        replicaChangeLog: state.replicaChangeLog,
+        operationRegistry: state.operationRegistry,
+        bindingRuntime,
+        eventLog
+      });
       materials.set(repo.repoId, {
         config,
         keyStore: keyMaterial.keyStore,
