@@ -42,6 +42,7 @@ import { serveAuthorityForcedCommand } from "../../../daemon/src/authority/force
 import {
   entityRegistry,
   entityRegistryKinds,
+  actorAxesBindingCoreDigestV2,
   makeLocalAuthorityAttributionEventV2Log,
   recoverAuthorityAttributionEventV2FromOperationRecord,
   resolveHarnessLayout,
@@ -164,9 +165,9 @@ export function createProductionAuthorityLifecycle(input: {
             deviceId: binding.deviceId,
             viewId: binding.viewId,
             sessionId: binding.sessionId,
-            schemaTuple: binding.schemaTuple
+            schemaTuple: envelope.schemaTuple
           };
-          if (Buffer.from(actorAxesBindingDigestV2(actorAxesBinding)).toString("hex") !== record.authorityIntegrity.actorAxesBindingDigest) {
+          if (Buffer.from(actorAxesBindingCoreDigestV2(actorAxesBinding)).toString("hex") !== record.authorityIntegrity.actorAxesBindingDigest) {
             throw new Error("AUTHORITY_V2_RECOVERY_ACTOR_BINDING_MISMATCH");
           }
           const baseReceipt = {
