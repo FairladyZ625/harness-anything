@@ -20,6 +20,22 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
 }): ExecutionAuthoredStore {
   return {
+    listExecutions: async (request) => {
+      const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
+      return task.documents
+        .filter((document) => /^executions\/[^/]+\.md$/u.test(document.path))
+        .map((document) => {
+          const execution = Schema.decodeUnknownSync(executionDeclaration.schema)(
+            executionDeclaration.documentCodec.decode(document.body)
+          ) as ExecutionRecord;
+          assertExecutionHost(execution, request.taskId, execution.execution_id);
+          if (document.path !== executionPath(execution.execution_id)) {
+            throw new Error(`execution identity does not match its host path: ${document.path}`);
+          }
+          return execution;
+        })
+        .sort((left, right) => left.claimed_at.localeCompare(right.claimed_at) || left.execution_id.localeCompare(right.execution_id));
+    },
     readExecution: async (request) => {
       const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
       const document = task.documents.find((candidate) => candidate.path === executionPath(request.executionId));

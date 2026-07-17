@@ -15,7 +15,7 @@ import {
   type TaskHolderPrincipal,
   type WriteCoordinator
 } from "../../kernel/src/index.ts";
-import { assertExecutionTaskInReview, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
+import { assertExecutionTaskCompletable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
 
 export interface ExecutionCompletionService {
   readonly inspectTaskExecutionCompletion?: (input: {
@@ -36,6 +36,7 @@ export interface ExecutionCompletionReadinessIssue {
     | "execution_review_required"
     | "archive_warnings_acknowledgement_required";
   readonly message: string;
+  readonly nextCommand?: string;
 }
 
 export interface ExecutionCompletionReadiness {
@@ -64,13 +65,25 @@ export function makeExecutionCompletionService(options: {
       const execution = readiness.execution;
 
       const completedAt = now();
+      const staleActiveWrites = readiness.staleActive.map((candidate) => ({
+        taskId,
+        path: `executions/${candidate.execution_id}.md`,
+        body: executionDeclaration.documentCodec.encode({
+          ...candidate,
+          state: "abandoned" as const,
+          closed_at: completedAt
+        })
+      }));
       await Effect.runPromise(writeDeclaredEntityTransaction(
         options.coordinator,
         stablePayloadHash,
         executionDeclaration,
         { taskId, executionId: execution.execution_id },
         { ...execution, state: "accepted", closed_at: completedAt },
-        [{ taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) }],
+        [
+          { taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) },
+          ...staleActiveWrites
+        ],
         completionPreconditions(task.documents, taskId)
       ));
       return { executionId: execution.execution_id };
@@ -107,7 +120,10 @@ function resolveExecutionCompletionReadiness(input: {
   readonly taskId: string;
   readonly actor: TaskHolderPrincipal;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
-}): ExecutionCompletionReadiness & { readonly execution?: ExecutionRecord } {
+}): ExecutionCompletionReadiness & {
+  readonly execution?: ExecutionRecord;
+  readonly staleActive: ReadonlyArray<ExecutionRecord>;
+} {
   const executions = input.documents
     .filter((document) => /^executions\/[^/]+\.md$/u.test(document.path))
     .map((document) => {
@@ -120,12 +136,23 @@ function resolveExecutionCompletionReadiness(input: {
       return execution;
     });
   const submitted = executions.filter((candidate) => candidate.state === "submitted");
+  const staleActive = executions.filter((candidate) => candidate.state === "active");
   if (submitted.length !== 1) {
+    const claimCommand = staleActive.length === 1
+      ? `ha task claim ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
+      : staleActive.length > 1
+        ? `ha task claim ${input.taskId} --execution-id <authoritative-active-execution-id>`
+        : `ha task claim ${input.taskId}`;
+    const nextCommand = submitted.length > 1
+      ? `ha task review-execution ${input.taskId} --execution-id <one-to-retire> --verdict changes_requested --findings "<why this round is superseded>" --rationale "<why another submitted round remains authoritative>"`
+      : `${claimCommand}\nha task transition ${input.taskId} in_review --lease-token <leaseToken-from-claim-receipt> --completion-claim "<claim>"`;
     return {
       ok: false,
+      staleActive,
       issues: [{
         code: "execution_submission_required",
-        message: `Task completion requires exactly one submitted Execution; found ${submitted.length}.`
+        message: `Task completion requires exactly one submitted Execution; found ${submitted.length}${submitted.length > 1 ? ` (${submitted.map((candidate) => candidate.execution_id).join(", ")})` : ""}.`,
+        nextCommand
       }]
     };
   }
@@ -133,7 +160,7 @@ function resolveExecutionCompletionReadiness(input: {
   const execution = submitted[0]!;
   const issues: ExecutionCompletionReadinessIssue[] = [];
   try {
-    assertExecutionTaskInReview(input.documents, input.taskId);
+    assertExecutionTaskCompletable(input.documents, input.taskId);
   } catch (error) {
     issues.push({
       code: "execution_task_not_in_review",
@@ -161,7 +188,8 @@ function resolveExecutionCompletionReadiness(input: {
   if (approved.length === 0) {
     issues.push({
       code: "execution_review_required",
-      message: `Submitted Execution ${execution.execution_id} requires an approved Review backed by consumed human consent that grants complete_task and matches the current content pin. Changing HARNESS_ACTOR or executor identity does not satisfy this gate.`
+      message: `Submitted Execution ${execution.execution_id} requires an approved Review backed by consumed human consent that grants complete_task and matches the current content pin. Changing HARNESS_ACTOR or executor identity does not satisfy this gate.`,
+      nextCommand: `ha task review-execution ${input.taskId} --execution-id ${execution.execution_id} --verdict approved --findings "<what was verified>" --rationale "<why the evidence satisfies the task>" --consent-utterance "<the human's exact words>"`
     });
   } else if (executionHasArchiveWarnings(execution) && !approved.some((review) => review.archive_warnings_acknowledged)) {
     issues.push({
@@ -170,7 +198,7 @@ function resolveExecutionCompletionReadiness(input: {
     });
   }
 
-  return { ok: issues.length === 0, executionId: execution.execution_id, execution, issues };
+  return { ok: issues.length === 0, executionId: execution.execution_id, execution, staleActive, issues };
 }
 
 function reviewHasCompletionConsent(

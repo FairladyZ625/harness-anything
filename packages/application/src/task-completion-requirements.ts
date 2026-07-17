@@ -51,7 +51,9 @@ export function collectCompletionRequirementIssues(input: {
     issues.push({
       code: issue.code,
       message: issue.message,
-      ...(issue.code === "execution_review_required" && input.executionReadiness.executionId
+      ...(issue.nextCommand
+        ? { nextCommand: issue.nextCommand }
+        : issue.code === "execution_review_required" && input.executionReadiness.executionId
         ? { nextCommand: `ha task review-execution ${input.taskId} --execution-id ${input.executionReadiness.executionId} --verdict approved --findings <text> --rationale <text>` }
         : issue.code === "execution_submission_required"
           ? { nextCommand: `Claim and submit one Execution for ${input.taskId}, then rerun ha task complete.` }

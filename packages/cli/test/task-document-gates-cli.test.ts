@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
@@ -22,6 +22,7 @@ import {
 
 const executionTaskId = "task_01KX7H00000000000000000000";
 const executionId = "exe_01KX7H00000000000000000001";
+const duplicateActiveExecutionId = "exe_01KX7H00000000000000000004";
 const milestoneTaskId = "task_01KX7H00000000000000000002";
 const milestoneExecutionId = "exe_01KX7H00000000000000000002";
 const milestoneChildTaskId = "task_01KX7H00000000000000000003";
@@ -137,6 +138,7 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
     assert.equal(blockedWithoutExecution.ok, false);
     assert.equal(blockedWithoutExecution.error?.code, "execution_completion_required");
     assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
+    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task claim task-1[\s\S]+ha task transition task-1 in_review/u);
     assert.equal(readFileSync(indexPath, "utf8"), before);
   });
 });
@@ -168,6 +170,7 @@ test("CLI task-complete reports every currently unmet completion requirement", (
     assert.match(blocked.error?.hint ?? "", /ha task code-doc reconcile/u);
     assert.match(blocked.error?.hint ?? "", /--ci passed/u);
     assert.match(blocked.error?.hint ?? "", /ha task review-execution/u);
+    assert.match(blocked.error?.hint ?? "", /--consent-utterance/u);
   });
 });
 
@@ -573,5 +576,57 @@ test("CLI rejects approval without consent regardless of executor and changes_re
     const claimed = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], true, testActorEnv);
     assert.notEqual(claimed.executionId, executionId);
     assert.equal(existsSync(path.join(taskRoot, "executions", `${claimed.executionId}.md`)), true);
+  });
+});
+
+test("CLI claim reuses one active round and requires --execution-id when legacy active rounds are ambiguous", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, executionTaskId, "Convergent Claim", "active");
+    const first = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], true, testActorEnv);
+    runJson(rootDir, ["task", "release", executionTaskId], true, testActorEnv);
+
+    const resumed = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], true, testActorEnv);
+    assert.equal(resumed.executionId, first.executionId);
+    assert.equal(resumed.report.reused, true);
+    runJson(rootDir, ["task", "release", executionTaskId], true, testActorEnv);
+
+    const taskRoot = path.join(rootDir, "harness/tasks", executionTaskId);
+    const firstExecution = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${first.executionId}.md`), "utf8"));
+    writeFileSync(path.join(taskRoot, "executions", `${duplicateActiveExecutionId}.md`), `${JSON.stringify({
+      ...firstExecution,
+      execution_id: duplicateActiveExecutionId
+    }, null, 2)}\n`, "utf8");
+
+    const ambiguous = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], false, testActorEnv);
+    assert.equal(ambiguous.ok, false);
+    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task claim ${executionTaskId} --execution-id ${first.executionId}`, "u"));
+    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task claim ${executionTaskId} --execution-id ${duplicateActiveExecutionId}`, "u"));
+
+    const selected = runJson(rootDir, [
+      "task", "claim", executionTaskId, "--execution", "--execution-id", String(first.executionId)
+    ], true, testActorEnv);
+    assert.equal(selected.executionId, first.executionId);
+    assert.equal(selected.report.reused, true);
+
+    runJson(rootDir, ["task", "release", executionTaskId], true, testActorEnv);
+    writeFileSync(path.join(taskRoot, "executions", `${first.executionId}.md`), `${JSON.stringify({
+      ...firstExecution,
+      state: "submitted",
+      submitted_at: "2026-07-11T00:01:00.000Z",
+      submission: {
+        completion_claim: "ready for review",
+        deliverables: [],
+        evidence_refs: [],
+        verification_notes: [],
+        known_gaps: [],
+        residual_risks: []
+      }
+    }, null, 2)}\n`, "utf8");
+    const executionCount = readdirSync(path.join(taskRoot, "executions")).length;
+    const submitted = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], false, testActorEnv);
+    assert.equal(submitted.ok, false);
+    assert.match(submitted.error?.hint ?? "", new RegExp(`ha task review-execution ${executionTaskId}`, "u"));
+    assert.match(submitted.error?.hint ?? "", new RegExp(`ha task complete ${executionTaskId}`, "u"));
+    assert.equal(readdirSync(path.join(taskRoot, "executions")).length, executionCount);
   });
 });

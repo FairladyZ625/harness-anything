@@ -19,7 +19,7 @@ import {
   type TaskHolderPrincipal,
   type WriteCoordinator
 } from "../../kernel/src/index.ts";
-import { assertExecutionTaskInReview, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
+import { assertExecutionTaskReviewable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,
   DEFAULT_HUMAN_CONSENT_TTL_MS,
@@ -68,7 +68,7 @@ export function makeReviewExecutionService(options: {
       if (!executionDocument) throw new Error(`execution not found: ${input.executionId}`);
       const execution = decodeExecutionForConsent(executionDocument, input.taskId, input.executionId);
       if (execution.state !== "submitted") throw new Error(`execution is not submitted: ${input.executionId}`);
-      assertExecutionTaskInReview(task.documents, input.taskId);
+      assertExecutionTaskReviewable(task.documents, input.taskId);
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
         throw new Error("execution archive warnings must be explicitly acknowledged by the reviewer");
       }
@@ -130,13 +130,13 @@ export function makeReviewExecutionService(options: {
               taskId: input.taskId,
               path: `executions/${input.executionId}.md`,
               body: executionDeclaration.documentCodec.encode({ ...execution, state: "changes_requested", closed_at: reviewedAt })
-            },
-            {
-              taskId: input.taskId,
-              path: "INDEX.md",
-              body: activeTaskIndex(task.documents, input.taskId)
             }
-          ] : [])
+          ] : []),
+        {
+          taskId: input.taskId,
+          path: "INDEX.md",
+          body: reviewedTaskIndex(task.documents, input.taskId, input.executionId, input.verdict)
+        }
       ];
       await Effect.runPromise(writeDeclaredEntityTransaction(
         options.coordinator,
@@ -148,11 +148,11 @@ export function makeReviewExecutionService(options: {
         [
           { taskId: input.taskId, path: `executions/${input.executionId}.md`, bodySha256: sha256Text(executionDocument.body) },
           { taskId: input.taskId, path: `reviews/${reviewId}.md`, bodySha256: null },
-          ...(input.verdict === "changes_requested" ? [{
+          {
             taskId: input.taskId,
             path: "INDEX.md",
             bodySha256: sha256Text(requiredDocumentBody(task.documents, "INDEX.md", input.taskId))
-          }] : []),
+          },
           ...(consent === null ? [] : [{
             taskId: input.taskId,
             path: `consents/${consent.consumed.consent_id}.md`,
@@ -300,14 +300,24 @@ function rejectUnexpectedConsent(input: {
   return null;
 }
 
-function activeTaskIndex(
+function reviewedTaskIndex(
   documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
-  taskId: string
+  taskId: string,
+  reviewedExecutionId: string,
+  verdict: ReviewVerdict
 ): string {
   const body = documents.find((document) => document.path === "INDEX.md")?.body;
   if (!body) throw new Error(`task INDEX.md missing: ${taskId}`);
   if (!/^  engine:\s*local$/mu.test(body)) throw new Error(`task is not local: ${taskId}`);
-  return body.replace(/^(  status:\s*).+$/mu, "$1active");
+  const submittedOthers = documents
+    .filter((document) => /^executions\/[^/]+\.md$/u.test(document.path)
+      && document.path !== `executions/${reviewedExecutionId}.md`)
+    .map((document) => Schema.decodeUnknownSync(executionDeclaration.schema)(
+      executionDeclaration.documentCodec.decode(document.body)
+    ) as ExecutionRecord)
+    .filter((execution) => execution.state === "submitted");
+  const next = verdict === "changes_requested" && submittedOthers.length === 0 ? "active" : "in_review";
+  return body.replace(/^(  status:\s*).+$/mu, `$1${next}`);
 }
 
 function requiredDocumentBody(

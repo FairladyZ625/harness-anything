@@ -91,7 +91,7 @@ export function validateInReviewExecutionConsistency(rootInput: HarnessLayoutInp
         "execution_round_ambiguous",
         "hard-fail",
         `${relativeTaskDir} has ${submitted.length} submitted Executions, so the active review round is ambiguous.`,
-        "Resolve older submitted rounds through changes_requested or abandonment and keep exactly one submitted Execution."
+        `Run ha task review-execution ${taskId} --execution-id <one-to-retire> --verdict changes_requested --findings "<why this round is superseded>" --rationale "<why another submitted round remains authoritative>"; repeat until exactly one submitted Execution remains.`
       ));
     }
   }

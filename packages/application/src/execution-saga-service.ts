@@ -37,6 +37,7 @@ export interface ExecutionSessionBinding {
 }
 
 export interface ExecutionAuthoredStore {
+  readonly listExecutions: (input: { readonly taskId: string }) => Promise<ReadonlyArray<ExecutionRecord>>;
   readonly readExecution: (input: { readonly taskId: string; readonly executionId: string }) => Promise<ExecutionRecord | null>;
   readonly openExecution: (input: {
     readonly taskId: string;
@@ -57,6 +58,7 @@ export interface ExecutionAuthoredStore {
 
 export interface ExecutionClaimResult extends ExecutionLeaseContext {
   readonly execution: ExecutionRecord;
+  readonly reused: boolean;
 }
 
 export interface ExecutionSagaService {
@@ -66,6 +68,7 @@ export interface ExecutionSagaService {
     readonly principal: TaskHolderPrincipal;
     readonly ttlMs?: number;
     readonly primarySession?: CurrentSessionRef | null;
+    readonly executionId?: string;
   }) => Promise<ExecutionClaimResult>;
   readonly attachSession: (input: {
     readonly taskId: string;
@@ -98,6 +101,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
   return {
     claim: async (input) => {
       await reconcileTask(options, input.taskId);
+      const holder = await options.taskHolderService.holder({ taskId: input.taskId });
+      if (input.executionId && holder.effectiveHolder && holder.holder?.schema === "task-holder/v2"
+          && holder.holder.executionId !== input.executionId) {
+        throw new Error([
+          `Task ${input.taskId} already has a live lease for Execution ${holder.holder.executionId}; requested ${input.executionId}.`,
+          `Next: run \`ha task release ${input.taskId}\` as the current holder, then \`ha task claim ${input.taskId} --execution-id ${input.executionId}\`.`
+        ].join(" "));
+      }
       const renewed = await options.taskHolderService.renewExecution({
         taskId: input.taskId,
         principal: input.principal,
@@ -111,7 +122,39 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         if (!execution || execution.state !== "active") {
           throw new Error(`active execution is unavailable for renewed lease: ${renewed.executionId}`);
         }
-        return { ...renewed, execution };
+        return { ...renewed, execution, reused: true };
+      }
+      const executions = await options.authoredStore.listExecutions({ taskId: input.taskId });
+      const submitted = executions.filter((execution) => execution.state === "submitted");
+      if (submitted.length > 0) {
+        throw new Error(submittedClaimGuidance(input.taskId, submitted));
+      }
+      const activeExecutions = executions.filter((execution) => execution.state === "active");
+      const selected = selectReusableExecution(input.taskId, input.executionId, executions, activeExecutions);
+      if (selected) {
+        const reservation = await options.taskHolderService.reserveExecution({
+          taskId: input.taskId,
+          executionId: selected.execution_id,
+          principal: input.principal,
+          ttlMs: input.ttlMs
+        });
+        try {
+          const resumed = await options.taskHolderService.activateExecution({
+            taskId: input.taskId,
+            executionId: selected.execution_id,
+            leaseToken: reservation.leaseToken,
+            principal: input.principal
+          });
+          return { ...resumed, execution: selected, reused: true };
+        } catch (error) {
+          await options.taskHolderService.releaseExecution({
+            taskId: input.taskId,
+            executionId: selected.execution_id,
+            leaseToken: reservation.leaseToken,
+            principal: input.principal
+          });
+          throw error;
+        }
       }
       const executionId = generateExecutionId();
       const reservation = await options.taskHolderService.reserveExecution({
@@ -154,7 +197,7 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         leaseToken: reservation.leaseToken,
         principal: input.principal
       });
-      return { ...active, execution };
+      return { ...active, execution, reused: false };
     },
     attachSession: async (input) => {
       await options.taskHolderService.assertExecutionLease(input);
@@ -179,6 +222,43 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
     },
     reconcileTask: (taskId) => reconcileTask(options, taskId)
   };
+}
+
+function selectReusableExecution(
+  taskId: string,
+  requestedExecutionId: string | undefined,
+  executions: ReadonlyArray<ExecutionRecord>,
+  active: ReadonlyArray<ExecutionRecord>
+): ExecutionRecord | null {
+  if (requestedExecutionId) {
+    const selected = executions.find((execution) => execution.execution_id === requestedExecutionId);
+    if (!selected) {
+      throw new Error(`Execution ${requestedExecutionId} does not exist for Task ${taskId}. Next: run \`ha task claim ${taskId}\` to reuse the sole active round or open a new round when none is reusable.`);
+    }
+    if (selected.state !== "active") {
+      const next = selected.state === "changes_requested"
+        ? `run \`ha task claim ${taskId}\` without --execution-id to open the required rework round`
+        : `inspect it with \`ha execution show ${requestedExecutionId}\` and select an active Execution`;
+      throw new Error(`Execution ${requestedExecutionId} is ${selected.state}, not active. Next: ${next}.`);
+    }
+    return selected;
+  }
+  if (active.length === 1) return active[0]!;
+  if (active.length > 1) {
+    const commands = active
+      .map((execution) => `\`ha task claim ${taskId} --execution-id ${execution.execution_id}\``)
+      .join(" or ");
+    throw new Error(`Task ${taskId} has ${active.length} reusable active Executions: ${active.map((execution) => execution.execution_id).join(", ")}. Next: choose the authoritative round with ${commands}. No new Execution was created.`);
+  }
+  return null;
+}
+
+function submittedClaimGuidance(taskId: string, submitted: ReadonlyArray<ExecutionRecord>): string {
+  const ids = submitted.map((execution) => execution.execution_id).join(", ");
+  return [
+    `Task ${taskId} already has submitted Execution${submitted.length === 1 ? "" : "s"}: ${ids}; claim will not create another round.`,
+    `Next: review a submitted round with \`ha task review-execution ${taskId} --execution-id <execution-id> --verdict approved|changes_requested|dismissed --findings <text> --rationale <text>\`, or when exactly one round is approved run \`ha task complete ${taskId}\`.`
+  ].join(" ");
 }
 
 export function makeExecutionReservationReconciler(

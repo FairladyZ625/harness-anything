@@ -25,7 +25,8 @@ function runExecutionClaim(
         taskId: action.taskId,
         principal,
         ttlMs: action.ttlMs,
-        primarySession: session.runtime === "human" ? null : session
+        primarySession: session.runtime === "human" ? null : session,
+        executionId: action.executionId
       }),
       catch: taskHolderCommandFailure
     })),
@@ -41,6 +42,7 @@ function runExecutionClaim(
           executionId: result.executionId,
           leaseToken: result.leaseToken,
           leaseExpiresAt: result.leaseExpiresAt,
+          reused: result.reused,
           actor: result.execution.primary_actor
         }
       })
@@ -143,7 +145,7 @@ export function runTaskClaim(
   return Effect.gen(function* () {
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return principal.result;
-    if (action.execution) return yield* runExecutionClaim(context, action, principal.value);
+    if (action.execution || action.executionId) return yield* runExecutionClaim(context, action, principal.value);
     const session = yield* context.currentSessionProbe.currentSession;
     if (session.runtime !== "human") return yield* runExecutionClaim(context, action, principal.value);
     return yield* Effect.tryPromise({
