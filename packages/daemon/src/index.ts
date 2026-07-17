@@ -107,6 +107,9 @@ export {
   type JsonRpcMethodMode
 } from "./protocol/method-registry.ts";
 export {
+  decodeDaemonStatusRequestV2,
+  decodeDaemonStatusResultV2,
+  isDaemonStatusContractError,
   projectDaemonStatusForRenderer,
   type DaemonActiveControlStatus,
   type DaemonBuildStatus,
@@ -122,6 +125,7 @@ export {
   type DaemonRepoStatus,
   type DaemonStatusRequestV2,
   type DaemonStatusResultV2,
+  type DaemonStatusContractError,
   type DaemonStatusService
 } from "../../application/src/daemon-status-contract.ts";
 export {
