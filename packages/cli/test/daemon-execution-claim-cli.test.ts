@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-daemon.ts";
-import { runRawJson, runRawJsonMaybeFail, withTempRootAsync } from "./helpers/daemon-cli.ts";
+import { pollUntil, runRawJson, runRawJsonMaybeFail, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { git, receiptPath } from "./helpers/daemon-thin-client-fixtures.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
@@ -89,17 +89,27 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
       "executions",
       `${executionId}.md`
     );
-    const branches = git(path.join(rootDir, "harness"), "branch", "--format=%(refname:short)");
+    const branches = await pollUntil(
+      () => git(path.join(rootDir, "harness"), "branch", "--format=%(refname:short)"),
+      (candidate) => !/^sessions\/claiming-codex-session$/mu.test(candidate),
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), claimed })
+    );
     assert.doesNotMatch(branches, /^sessions\/claiming-codex-session$/mu, JSON.stringify({ claimed, branches }));
-    const execution = JSON.parse(git(
-      harnessRoot,
-      "show",
-      `master:${executionPath}`
-    )) as {
+    const execution = await pollUntil(
+      () => JSON.parse(git(harnessRoot, "show", `master:${executionPath}`)) as {
+        readonly session_bindings?: ReadonlyArray<{ readonly session_ref?: string | null }>;
+      },
+      (candidate) => candidate.session_bindings?.[0]?.session_ref === "session/claiming-codex-session",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), claimed })
+    ) as {
       readonly session_bindings?: ReadonlyArray<{ readonly session_ref?: string | null }>;
     };
     assert.equal(execution.session_bindings?.[0]?.session_ref, "session/claiming-codex-session");
-    assert.equal(git(harnessRoot, "branch", "--list", "sessions/claiming-codex-session"), "");
+    await pollUntil(
+      () => git(harnessRoot, "branch", "--list", "sessions/claiming-codex-session"),
+      (branch) => branch === "",
+      (branch, error) => JSON.stringify({ branch, error: String(error ?? ""), claimed })
+    );
 
     const holder = runRawJson(rootDir, ["task", "holder", taskId], {
       HARNESS_DAEMON_MODE: "local",
@@ -179,6 +189,10 @@ test("daemon-backed Execution submit materializes a newly exported Session befor
     ], daemonSessionEnv);
 
     assert.equal(receiptDataString(submitted, "status"), "in_review", JSON.stringify(submitted));
-    assert.equal(git(harnessRoot, "branch", "--list", `sessions/${sessionId}`), "");
+    await pollUntil(
+      () => git(harnessRoot, "branch", "--list", `sessions/${sessionId}`),
+      (branch) => branch === "",
+      (branch, error) => JSON.stringify({ branch, error: String(error ?? ""), submitted })
+    );
   });
 });

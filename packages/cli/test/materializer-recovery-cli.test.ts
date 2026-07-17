@@ -5,18 +5,16 @@ import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  defaultDaemonUserRoot,
+  pollUntil,
   runDaemonCommand,
   runRawJson,
   runRawJsonMaybeFail,
-  sleep,
-  stopDaemonQuietly,
-  withTempRoot
+  withTempRootAsync
 } from "./helpers/daemon-cli.ts";
 import { writePeopleRoster } from "./helpers/forced-command-daemon.ts";
 
-test("materializer recovery does not auto-start a daemon and emits a valid success receipt", () => {
-  withTempRoot((rootDir) => {
+test("materializer recovery does not auto-start a daemon and emits a valid success receipt", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
 
     const receipt = runRawJson(rootDir, ["materializer", "run", "--dry-run"], {
@@ -27,13 +25,17 @@ test("materializer recovery does not auto-start a daemon and emits a valid succe
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
     assert.equal(receipt.command, "materializer run");
     assert.equal((receipt.details as { data?: { report?: { warnings?: unknown[] } } }).data?.report?.warnings?.length, 0);
-    sleep(100);
-    assert.equal(runDaemonCommand(rootDir, ["daemon", "status", "--json"]).started, false);
+    const status = await pollUntil(
+      () => runDaemonCommand(rootDir, ["daemon", "status", "--json"]),
+      (candidate) => candidate.started === false,
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? "") })
+    );
+    assert.equal(status.started, false);
   });
 });
 
-test("materializer run uses an already-running daemon without contending for its lock", () => {
-  withTempRoot((rootDir) => {
+test("materializer run uses an already-running daemon without contending for its lock", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
       personId: "person_materializer",
@@ -41,22 +43,18 @@ test("materializer run uses an already-running daemon without contending for its
       email: "materializer@example.test",
       role: "owner"
     });
-    try {
-      runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
+    runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
 
-      const receipt = runRawJson(rootDir, ["materializer", "run", "--dry-run"], {
-        HARNESS_DAEMON_MODE: "local"
-      });
+    const receipt = runRawJson(rootDir, ["materializer", "run", "--dry-run"], {
+      HARNESS_DAEMON_MODE: "local"
+    });
 
-      assert.equal(receipt.ok, true, JSON.stringify(receipt));
-    } finally {
-      stopDaemonQuietly(rootDir, defaultDaemonUserRoot(rootDir));
-    }
+    assert.equal(receipt.ok, true, JSON.stringify(receipt));
   });
 });
 
-test("materializer run reports merge failures as failure receipts with an executable recovery step", () => {
-  withTempRoot((rootDir) => {
+test("materializer run reports merge failures as failure receipts with an executable recovery step", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     createOlderConflictedSessionBranch(rootDir);
 
@@ -78,8 +76,8 @@ test("materializer run reports merge failures as failure receipts with an execut
   });
 });
 
-test("materializer run counts repository setup failures and teaches initialization", () => {
-  withTempRoot((rootDir) => {
+test("materializer run counts repository setup failures and teaches initialization", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const { status, receipt } = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
       HARNESS_DAEMON_MODE: "direct"
     });
@@ -92,8 +90,8 @@ test("materializer run counts repository setup failures and teaches initializati
   });
 });
 
-test("daemon write receipt is not successful until its session write is readable despite an older conflict", () => {
-  withTempRoot((rootDir) => {
+test("daemon write receipt is not successful until its session write is readable despite an older conflict", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
       personId: "person_visibility",
@@ -103,9 +101,8 @@ test("daemon write receipt is not successful until its session write is readable
     });
     createOlderConflictedSessionBranch(rootDir);
 
-    try {
-      const decisionId = "dec_receipt_visibility";
-      const receipt = runRawJson(rootDir, [
+    const decisionId = "dec_receipt_visibility";
+    const receipt = runRawJson(rootDir, [
         "decision", "propose",
         "--id", decisionId,
         "--title", "Receipt visibility",
@@ -119,24 +116,34 @@ test("daemon write receipt is not successful until its session write is readable
         CODEX_THREAD_ID: "receipt-visibility-session"
       });
 
-      const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_receipt_visibility/decision.md");
-      assert.equal(receipt.ok, true, JSON.stringify(receipt));
-      assert.equal(existsSync(decisionPath), true, JSON.stringify(receipt));
-      const shown = runRawJson(rootDir, ["decision", "show", decisionId], {
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_receipt_visibility/decision.md");
+    assert.equal(receipt.ok, true, JSON.stringify(receipt));
+    await pollUntil(
+      () => existsSync(decisionPath),
+      Boolean,
+      (visible, error) => JSON.stringify({ decisionPath, visible, error: String(error ?? ""), receipt })
+    );
+    assert.equal(existsSync(decisionPath), true, JSON.stringify(receipt));
+    const shown = await pollUntil(
+      () => runRawJson(rootDir, ["decision", "show", decisionId], {
         HARNESS_DAEMON_MODE: "local",
         HARNESS_DAEMON_IDLE_MS: "20000",
         CODEX_THREAD_ID: "receipt-visibility-session"
-      });
-      assert.equal(shown.ok, true, JSON.stringify(shown));
-      assert.equal(git(rootDir, "branch", "--list", "sessions/receipt-visibility-session"), "");
-    } finally {
-      stopDaemonQuietly(rootDir, defaultDaemonUserRoot(rootDir));
-    }
+      }),
+      (candidate) => candidate.ok === true,
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? "") })
+    );
+    assert.equal(shown.ok, true, JSON.stringify(shown));
+    await pollUntil(
+      () => git(rootDir, "branch", "--list", "sessions/receipt-visibility-session"),
+      (branch) => branch === "",
+      (branch, error) => JSON.stringify({ branch, error: String(error ?? "") })
+    );
   });
 });
 
-test("daemon success receipt declares pending materialization with a next command when its own session conflicts", () => {
-  withTempRoot((rootDir) => {
+test("daemon success receipt declares pending materialization with a next command when its own session conflicts", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
       personId: "person_pending",
@@ -146,8 +153,7 @@ test("daemon success receipt declares pending materialization with a next comman
     });
     createOlderConflictedSessionBranch(rootDir, "receipt-pending-session");
 
-    try {
-      const receipt = runRawJson(rootDir, [
+    const receipt = runRawJson(rootDir, [
         "decision", "propose",
         "--id", "dec_receipt_pending",
         "--title", "Pending receipt",
@@ -161,14 +167,11 @@ test("daemon success receipt declares pending materialization with a next comman
         CODEX_THREAD_ID: "receipt-pending-session"
       });
 
-      const warnings = receipt.warnings as ReadonlyArray<{ readonly code?: string; readonly nextCommand?: string }>;
-      const pending = warnings.find((warning) => warning.code === "pending_materialization");
-      assert.equal(receipt.ok, true, JSON.stringify(receipt));
-      assert.equal(pending?.nextCommand, "ha materializer run --json");
-      assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_receipt_pending/decision.md")), false);
-    } finally {
-      stopDaemonQuietly(rootDir, defaultDaemonUserRoot(rootDir));
-    }
+    const warnings = receipt.warnings as ReadonlyArray<{ readonly code?: string; readonly nextCommand?: string }>;
+    const pending = warnings.find((warning) => warning.code === "pending_materialization");
+    assert.equal(receipt.ok, true, JSON.stringify(receipt));
+    assert.equal(pending?.nextCommand, "ha materializer run --json");
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_receipt_pending/decision.md")), false);
   });
 });
 

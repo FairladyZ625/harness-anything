@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { localUserDaemonEndpoint } from "../../../daemon/src/index.ts";
 import { ensureTestHarnessIdentity } from "./git-fixtures.ts";
+import { delay, pollUntil } from "./poll-until.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const execFileAsync = promisify(execFile);
@@ -23,7 +26,7 @@ export async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>):
   try {
     return await fn(rootDir);
   } finally {
-    await stopDaemonForRoot(rootDir);
+    await stopDaemon(rootDir);
     await removeTempRoot(rootDir);
   }
 }
@@ -69,47 +72,55 @@ export function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, e
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
-export function stopDaemonQuietly(rootDir: string, userRoot: string): void {
-  try {
-    runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "1000", "--user-root", userRoot, "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-  } catch {
-    // Best-effort cleanup for assertions that keep the daemon alive.
-  }
-}
-
 export function defaultDaemonUserRoot(rootDir: string): string {
   return path.join(rootDir, ".daemon-user");
 }
 
-export function sleep(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
+export { delay, pollUntil } from "./poll-until.ts";
 
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export async function stopDaemon(rootDir: string, userRoot = defaultDaemonUserRoot(rootDir)): Promise<void> {
+  const endpoint = localUserDaemonEndpoint(userRoot);
+  const ownerPath = daemonOwnerPath(endpoint);
+  const before = daemonStatus(rootDir, userRoot);
+  const pid = daemonPid(before) ?? daemonOwnerPid(ownerPath);
+  if (pid === undefined && !existsSync(endpoint) && !existsSync(ownerPath)) return;
 
-async function stopDaemonForRoot(rootDir: string): Promise<void> {
-  const pid = daemonPidFromStatus(rootDir);
-  if (!pid) return;
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch (error) {
-    if (isNoSuchProcess(error)) return;
-    throw error;
+  if (pid !== undefined) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if (!isNoSuchProcess(error)) throw error;
+    }
+  } else {
+    runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "5000", "--user-root", userRoot, "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
   }
-  await waitForProcessExit(pid, 3_000);
+
+  await pollUntil(
+    () => ({
+      processAlive: pid === undefined ? false : processIsAlive(pid),
+      socketExists: process.platform === "win32" ? false : existsSync(endpoint),
+      ownerExists: existsSync(ownerPath)
+    }),
+    (state) => !state.processAlive && !state.socketExists && !state.ownerExists,
+    (state, error) => JSON.stringify({ pid, endpoint, ownerPath, state, error: errorMessage(error) }),
+    { timeoutMs: 8_000 }
+  );
 }
 
-function daemonPidFromStatus(rootDir: string): number | undefined {
-  let status: Record<string, unknown>;
+function daemonStatus(rootDir: string, userRoot: string): Record<string, unknown> | undefined {
   try {
-    status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+    return runDaemonCommand(rootDir, ["daemon", "status", "--user-root", userRoot, "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
   } catch {
     return undefined;
   }
+}
+
+function daemonPid(status: Record<string, unknown> | undefined): number | undefined {
+  if (!status) return undefined;
   if (typeof status.pid === "number" && Number.isSafeInteger(status.pid) && status.pid > 0) return status.pid;
   const daemonId = status.daemonId;
   if (typeof daemonId !== "string") return undefined;
@@ -119,28 +130,30 @@ function daemonPidFromStatus(rootDir: string): number | undefined {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  return new Promise((resolve, reject) => {
-    const check = () => {
-      try {
-        process.kill(pid, 0);
-      } catch (error) {
-        if (isNoSuchProcess(error)) {
-          resolve();
-          return;
-        }
-        reject(error);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        reject(new Error(`daemon process ${pid} did not exit within ${timeoutMs}ms`));
-        return;
-      }
-      setTimeout(check, 25);
-    };
-    check();
-  });
+function daemonOwnerPid(ownerPath: string): number | undefined {
+  if (!existsSync(ownerPath)) return undefined;
+  try {
+    const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as { readonly pid?: unknown };
+    return typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0 ? owner.pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function daemonOwnerPath(endpoint: string): string {
+  if (process.platform !== "win32") return `${endpoint}.owner`;
+  const endpointDigest = createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
+  return path.join(tmpdir(), `harness-anything-daemon-${endpointDigest}.owner`);
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isNoSuchProcess(error)) return false;
+    throw error;
+  }
 }
 
 async function removeTempRoot(rootDir: string): Promise<void> {
@@ -162,9 +175,13 @@ function removeTempRootSync(rootDir: string): void {
       return;
     } catch (error) {
       if (!isRetriableRemoveError(error) || attempt === 7) throw error;
-      sleep(25 * (attempt + 1));
+      waitBeforeRemoveRetry(25 * (attempt + 1));
     }
   }
+}
+
+function waitBeforeRemoveRetry(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
@@ -201,4 +218,8 @@ function isNoSuchProcess(error: unknown): boolean {
     && error !== null
     && "code" in error
     && (error as { readonly code?: unknown }).code === "ESRCH";
+}
+
+function errorMessage(error: unknown): string | undefined {
+  return error === undefined ? undefined : error instanceof Error ? error.message : String(error);
 }
