@@ -42,9 +42,7 @@ import {
 } from "./write-journal-records.ts";
 import {
   applyWriteOp,
-  claimCheckedDeclaredEntityWriteOp,
   documentWritesForWriteOp,
-  materializeDeclaredEntityBlob,
   readHardDeletePayload,
   validateWriteTransaction,
   writeOpTouchedPaths
@@ -131,7 +129,10 @@ function makeJournaledWriteCoordinatorInternal(
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
-        const journalOp = claimCheckedDeclaredEntityWriteOp(op);
+        // The full declared-entity payload is the recovery source of truth.  In
+        // particular, a composite manifest's body must be durable in the journal
+        // before apply can install its CAS object.
+        const journalOp = op;
         const attribution = mode === "attributed"
           ? decodeWriteAttribution("attribution" in options ? options.attribution : undefined, journalOp.entityId)
           : undefined;
@@ -151,7 +152,6 @@ function makeJournaledWriteCoordinatorInternal(
           return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
         }
         if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
-        materializeDeclaredEntityBlob(runtimeContext, op);
         const record = attribution
           ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
           : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);

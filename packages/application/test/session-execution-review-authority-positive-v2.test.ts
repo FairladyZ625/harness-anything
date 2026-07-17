@@ -117,8 +117,8 @@ test("all W4 actions publish exact refs through one composite/hosted op with cro
     assert.match(readFileSync(path.join(harnessRoot, `tasks/${taskId}/executions/${executionId}.md`), "utf8"), /"state": "accepted"/u);
     const journalPayloads = readdirSync(path.join(rootDir, ".harness", "write-journal", "payloads"))
       .map((entry) => readFileSync(path.join(rootDir, ".harness", "write-journal", "payloads", entry), "utf8"));
-    assert.equal(journalPayloads.some((body) => body.includes("Composite CAS body")), false);
-    assert.equal(journalPayloads.some((body) => body.includes("\"blobRef\"") && !body.includes("\"blobBody\"")), true);
+    assert.equal(journalPayloads.some((body) => body.includes("Composite CAS body")), true);
+    assert.equal(journalPayloads.some((body) => body.includes("\"blobRef\"") && body.includes("\"blobBody\"")), true);
 
     const events = readUnionAttributionEvents(rootDir);
     const changes = await changeLog.changesAfter(claims.workspaceId, 0);

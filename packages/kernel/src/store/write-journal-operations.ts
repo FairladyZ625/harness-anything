@@ -413,19 +413,6 @@ export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWri
   return writeTransactionPlan(op).documentWrites();
 }
 
-export function materializeDeclaredEntityBlob(rootInput: HarnessLayoutInput, op: WriteOp): void {
-  if (!hasDeclaredEntityDocument(op.payload)) return;
-  const document = op.payload.entityDocument;
-  if (document.blobBody === undefined || !document.blobRef) return;
-  writeContentAddressedBlob(rootInput, document.blobBody, document.blobRef.mediaType);
-}
-
-export function claimCheckedDeclaredEntityWriteOp(op: WriteOp): WriteOp {
-  if (!hasDeclaredEntityDocument(op.payload) || op.payload.entityDocument.blobBody === undefined) return op;
-  const { blobBody: _blobBody, ...entityDocument } = op.payload.entityDocument;
-  return { ...op, payload: { ...op.payload, entityDocument } };
-}
-
 export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-journal-operations-internal.ts";
 
 
