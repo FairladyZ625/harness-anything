@@ -15,6 +15,13 @@ export type AuthorityKeyLifecycleState =
   | "VERIFY_ONLY"
   | "REVOKED";
 
+export interface AuthorityKeyActivationEvidenceV1 {
+  readonly kind: "FIRST_PIN" | "PREDECESSOR_PROOF";
+  readonly pinEvidence: string | null;
+  readonly verifierAcknowledgement: string;
+  readonly activatedAtMs: number;
+}
+
 export interface AuthorityKeyRegistryEntryV1 {
   readonly authorityId: string;
   readonly issuer: string;
@@ -29,6 +36,7 @@ export interface AuthorityKeyRegistryEntryV1 {
   readonly verifyUntilMs: number | null;
   readonly predecessorKeyId: string | null;
   readonly predecessorProof: string | null;
+  readonly activationEvidence: AuthorityKeyActivationEvidenceV1 | null;
 }
 
 export interface AuthorityKeyRegistryV1 {
@@ -174,6 +182,7 @@ function validateEntry(entry: AuthorityKeyRegistryEntryV1): AuthorityKeyRegistry
   if (entry.state !== "PREPUBLISHED" && entry.predecessorProof === null && entry.predecessorKeyId !== null) {
     throw new Error("AUTHORITY_KEY_PREDECESSOR_PROOF_MISSING");
   }
+  validateActivationEvidence(entry);
   if (entry.notAfterMs !== null && entry.notAfterMs < entry.notBeforeMs) {
     throw new Error("AUTHORITY_KEY_REGISTRY_TIME_WINDOW_INVALID");
   }
@@ -190,6 +199,30 @@ function validateEntry(entry: AuthorityKeyRegistryEntryV1): AuthorityKeyRegistry
     throw new Error("AUTHORITY_KEY_REGISTRY_KEY_TYPE_UNSUPPORTED");
   }
   return { ...entry };
+}
+
+function validateActivationEvidence(entry: AuthorityKeyRegistryEntryV1): void {
+  const evidence = entry.activationEvidence;
+  if (entry.state === "PREPUBLISHED") {
+    if (evidence !== null) throw new Error("AUTHORITY_KEY_PREPUBLISHED_ACTIVATION_EVIDENCE_FORBIDDEN");
+    return;
+  }
+  if (evidence === null || typeof evidence !== "object") {
+    throw new Error("AUTHORITY_KEY_ACTIVATION_EVIDENCE_REQUIRED");
+  }
+  if (evidence.kind !== "FIRST_PIN" && evidence.kind !== "PREDECESSOR_PROOF") {
+    throw new Error("AUTHORITY_KEY_ACTIVATION_EVIDENCE_KIND_UNSUPPORTED");
+  }
+  requiredText(evidence.verifierAcknowledgement, "entry.activationEvidence.verifierAcknowledgement");
+  nonNegativeAuthorityInteger(evidence.activatedAtMs, "entry.activationEvidence.activatedAtMs");
+  if (evidence.kind === "FIRST_PIN") {
+    if (entry.predecessorKeyId !== null || entry.predecessorProof !== null) {
+      throw new Error("AUTHORITY_KEY_FIRST_PIN_PREDECESSOR_FORBIDDEN");
+    }
+    requiredText(evidence.pinEvidence ?? "", "entry.activationEvidence.pinEvidence");
+  } else if (evidence.pinEvidence !== null || entry.predecessorKeyId === null || entry.predecessorProof === null) {
+    throw new Error("AUTHORITY_KEY_ROTATION_PREDECESSOR_EVIDENCE_REQUIRED");
+  }
 }
 
 function manifestDigest(core: Omit<AuthorityKeyRegistryV1, "manifestDigest">): string {

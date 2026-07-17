@@ -103,6 +103,12 @@ function keyEntry(
     verifyUntilMs: null,
     predecessorKeyId: null,
     predecessorProof: null,
+    activationEvidence: state === "PREPUBLISHED" ? null : {
+      kind: "FIRST_PIN",
+      pinEvidence: "test-out-of-band-pin",
+      verifierAcknowledgement: "test-verifier-ack",
+      activatedAtMs: 1_000
+    },
     ...overrides
   };
 }

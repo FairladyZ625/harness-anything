@@ -25,6 +25,7 @@ export {
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service.ts";
 export * from "./actor-axes-binding-v2.ts";
 export * from "./key-registry-v1.ts";
+export * from "./key-lifecycle-v1.ts";
 export * from "./canonical-cbor.ts";
 export * from "./semantic-mutation-envelope-v2.ts";
 export { authorityProtocolTuple } from "./types.ts";
