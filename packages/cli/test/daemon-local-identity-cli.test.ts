@@ -7,17 +7,17 @@ import test from "node:test";
 import { readUnionAttributionEvents } from "../../kernel/src/index.ts";
 import {
   defaultDaemonUserRoot,
+  pollUntil,
   runDaemonCommand,
   runRawJson,
   runRawJsonMaybeFail,
-  stopDaemonQuietly,
-  withTempRoot,
+  stopDaemon,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
 import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-daemon.ts";
 
-test("local daemon derives its owner from project identity when people roster is absent", () => {
-  withTempRoot((rootDir) => {
+test("local daemon derives its owner from project identity when people roster is absent", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const identityEnv = {
       HARNESS_GIT_AUTHOR_NAME: "Harness Test",
       HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
@@ -37,10 +37,12 @@ test("local daemon derives its owner from project identity when people roster is
 
     assert.equal(created.ok, true);
     assert.equal(((created.details as Record<string, unknown>).actor as { personId?: string }).personId, "person_test");
-    assert.equal(
-      execFileSync("git", ["-C", path.join(rootDir, "harness"), "log", "-1", "--pretty=format:%an <%ae>"], { encoding: "utf8" }),
-      "Harness Test <harness@example.test>"
+    const author = await pollUntil(
+      () => execFileSync("git", ["-C", path.join(rootDir, "harness"), "log", "-1", "--pretty=format:%an <%ae>"], { encoding: "utf8" }),
+      (candidate) => candidate === "Harness Test <harness@example.test>",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), created })
     );
+    assert.equal(author, "Harness Test <harness@example.test>");
   });
 });
 
@@ -79,8 +81,12 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     });
 
     assert.equal(progressed.receipt.ok, true, JSON.stringify(progressed.receipt));
-    const progressEvent = readUnionAttributionEvents(rootDir)
-      .findLast((event) => event.actor.executor?.id === "worktree-worker");
+    const progressEvent = await pollUntil(
+      () => readUnionAttributionEvents(rootDir)
+        .findLast((event) => event.actor.executor?.id === "worktree-worker"),
+      (event) => event !== undefined,
+      (event, error) => JSON.stringify({ event, error: String(error ?? ""), receipt: progressed.receipt })
+    );
     assert.deepEqual(progressEvent?.actor, {
       principal: { kind: "person", personId: "person_owner" },
       executor: { kind: "agent", id: "worktree-worker" }
@@ -88,7 +94,7 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     assert.equal(progressEvent?.principalSource.kind, "daemon-authenticated");
     assert.equal(progressEvent?.executorSource, "client-asserted");
 
-    stopDaemonQuietly(rootDir, userRoot);
+    await stopDaemon(rootDir, userRoot);
     const directRejected = runRawJsonMaybeFail(worktreeCommandRoot, progressArgs, {
       HARNESS_ACTOR: "",
       HARNESS_DAEMON_MODE: "direct",

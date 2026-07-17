@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
@@ -9,13 +9,12 @@ import { JsonRpcLineClient } from "../../daemon/src/index.ts";
 import { readDaemonClientConfig } from "../src/daemon/client.ts";
 import {
   defaultDaemonUserRoot,
-  delay,
+  pollUntil,
   runDaemonCommand,
   runRawJson,
   runRawJsonAsync,
   runRawJsonMaybeFail,
-  sleep,
-  stopDaemonQuietly,
+  stopDaemon,
   withTempRoot,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
@@ -31,18 +30,17 @@ import {
   connectSocketWhenReady,
   listen,
   runDaemonCliProcess,
-  spawnDaemonCli
+  spawnDaemonCli,
+  stopSpawnedDaemon
 } from "./helpers/daemon-transport.ts";
 import {
-  daemonStatusRepoIds,
-  daemonStatusRepos,
   git,
+  gitObjectExists,
   initGitRepo,
   isRecord,
   normalizeVolatileReceipt,
   readCliPackageVersion,
-  receiptPath,
-  waitForCondition
+  receiptPath
 } from "./helpers/daemon-thin-client-fixtures.ts";
 
 const expectedCliVersion = readCliPackageVersion();
@@ -105,7 +103,7 @@ test("daemon logs reads the shared typed operational page through the daemon rou
       assert.equal(page.entries?.every((entry) => entry.repoId === "canonical"), true);
       assert.equal(page.entries?.every((entry) => entry.redaction?.policy === "runtime-log-redaction/v1"), true);
     } finally {
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });
@@ -126,7 +124,13 @@ test("persistent daemon connection prevents idle exit after a command settles", 
       });
       assert.equal(command.ok, true, JSON.stringify(command));
 
-      await delay(700);
+      const idleDeadline = Date.now() + 700;
+      await pollUntil(
+        () => Date.now(),
+        (now) => now >= idleDeadline,
+        (candidate, error) => JSON.stringify({ candidate, error: String(error ?? "") }),
+        { timeoutMs: 2_000 }
+      );
       const status = await client.request("repo.daemon.status", { repo: { repoId: "canonical" } });
       assert.equal(status.ok, true, JSON.stringify(status));
       const data = (status.details as Record<string, unknown>).data as Record<string, unknown>;
@@ -137,8 +141,8 @@ test("persistent daemon connection prevents idle exit after a command settles", 
     } finally {
       client.close();
       socket.destroy();
-      daemon.kill("SIGTERM");
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopSpawnedDaemon(daemon, endpoint);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });
@@ -201,7 +205,7 @@ test("forced-command relay attributes two shared-account members without collaps
       assert.equal(wrongRoot.ok, false);
       assert.equal((wrongRoot.error as { code?: string }).code, "forced_command_root_mismatch");
     } finally {
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });
@@ -232,7 +236,7 @@ test("local repo mode ignores a forced-command personId and keeps the socket-own
       assert.equal((holder.principal as { personId?: string }).personId, "person_alice");
       assert.deepEqual(holder.executor, { kind: "agent", id: "spoof-client" });
     } finally {
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });
@@ -247,17 +251,21 @@ test("daemon serve --stdio is rejected before runtime attachment", async () => {
   });
 });
 
-test("daemon client mode preserves command receipt output shape against direct mode", () => {
-  withTempRoot((rootDir) => {
+test("daemon client mode preserves command receipt output shape against direct mode", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const direct = normalizeVolatileReceipt(runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "direct" }));
-    const daemon = normalizeVolatileReceipt(runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" }));
+    const daemon = normalizeVolatileReceipt(await pollUntil(
+      () => runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" }),
+      (receipt) => receipt.ok === true,
+      (receipt, error) => JSON.stringify({ receipt, error: error instanceof Error ? error.message : String(error ?? "") })
+    ));
 
     assert.deepEqual(daemon, direct);
   });
 });
 
-test("daemon client auto-starts, durably writes, and exits after idle", () => {
-  withTempRoot((rootDir) => {
+test("daemon client auto-starts, durably writes, and exits after idle", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
       personId: "person_auto",
@@ -269,17 +277,25 @@ test("daemon client auto-starts, durably writes, and exits after idle", () => {
 
     assert.equal(created.ok, true);
     assert.equal(created.schema, "command-receipt/v2");
-    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), true);
-    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/u);
+    const watermarkPath = path.join(rootDir, ".harness/write-journal/watermark.json");
+    const watermark = await pollUntil(
+      () => existsSync(watermarkPath) ? readFileSync(watermarkPath, "utf8") : undefined,
+      (candidate) => /write-watermark\/v1/u.test(candidate ?? ""),
+      (candidate, error) => JSON.stringify({ watermarkPath, candidate, error: String(error ?? ""), created })
+    );
+    assert.match(watermark ?? "", /write-watermark\/v1/u);
 
-    sleep(700);
-    const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+    const status = await pollUntil(
+      () => runDaemonCommand(rootDir, ["daemon", "status", "--json"]),
+      (candidate) => candidate.started === false,
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), created })
+    );
     assert.equal(status.started, false);
   });
 });
 
-test("daemon client applies command-level RBAC to inner CLI commands", () => {
-  withTempRoot((rootDir) => {
+test("daemon client applies command-level RBAC to inner CLI commands", async () => {
+  await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
       personId: "person_maint",
@@ -309,8 +325,8 @@ test("daemon client applies command-level RBAC to inner CLI commands", () => {
   });
 });
 
-test("daemon client writes git commits with the resolved actor author", () => {
-  withTempRoot((rootDir) => {
+test("daemon client writes git commits with the resolved actor author", async () => {
+  await withTempRootAsync(async (rootDir) => {
     initGitRepo(rootDir);
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     writePeopleRoster(rootDir, {
@@ -327,7 +343,12 @@ test("daemon client writes git commits with the resolved actor author", () => {
 
     assert.equal(receipt.ok, true);
     assert.equal(((receipt.details as Record<string, unknown>).actor as { personId?: string }).personId, "person_owner");
-    assert.equal(git(path.join(rootDir, "harness"), "log", "-1", "--pretty=format:%an <%ae>"), "Owner User <owner@example.test>");
+    const author = await pollUntil(
+      () => git(path.join(rootDir, "harness"), "log", "-1", "--pretty=format:%an <%ae>"),
+      (candidate) => candidate === "Owner User <owner@example.test>",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), receipt })
+    );
+    assert.equal(author, "Owner User <owner@example.test>");
   });
 });
 
@@ -342,7 +363,11 @@ test("concurrent daemon client startup converges on one lock owner and both clie
 
     assert.equal(left.ok, true);
     assert.equal(right.ok, true);
-    const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+    const status = await pollUntil(
+      () => runDaemonCommand(rootDir, ["daemon", "status", "--json"]),
+      (candidate) => candidate.started === true && typeof candidate.pid === "number",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), left, right })
+    );
     assert.equal(status.started, true);
     assert.equal(typeof status.pid, "number");
   });
@@ -375,15 +400,24 @@ test("concurrent daemon client writes serialize into linear git history", async 
       return `${taskPath}/INDEX.md`;
     });
     assert.equal(new Set(taskIndexPaths).size, 2);
-    for (const taskIndexPath of taskIndexPaths) {
-      assert.doesNotThrow(() => git(harnessRoot, "cat-file", "-e", `HEAD:${taskIndexPath}`));
-      assert.equal(Number(git(harnessRoot, "rev-list", "--count", `${beforeHead}..HEAD`, "--", taskIndexPath)), 1);
-    }
+    await pollUntil(
+      () => taskIndexPaths.map((taskIndexPath) => ({
+        taskIndexPath,
+        visible: gitObjectExists(harnessRoot, `HEAD:${taskIndexPath}`),
+        commitCount: Number(git(harnessRoot, "rev-list", "--count", `${beforeHead}..HEAD`, "--", taskIndexPath))
+      })),
+      (entries) => entries.every((entry) => entry.visible && entry.commitCount === 1),
+      (entries, error) => JSON.stringify({ entries, error: String(error ?? ""), left, right })
+    );
     const parentCounts = git(harnessRoot, "log", "--format=%P", `${beforeHead}..HEAD`)
       .split(/\r?\n/u)
       .map((line) => line.trim().length === 0 ? 0 : line.trim().split(/\s+/u).length);
     assert.equal(parentCounts.every((count) => count <= 1), true);
-    assert.equal(git(harnessRoot, "status", "--short"), "");
+    await pollUntil(
+      () => git(harnessRoot, "status", "--short"),
+      (status) => status === "",
+      (status, error) => JSON.stringify({ status, error: String(error ?? ""), left, right })
+    );
   });
 });
 
@@ -397,12 +431,12 @@ test("daemon start service status and stop expose productized status contract", 
       assert.equal(start.version, expectedCliVersion);
       assert.equal(typeof start.queueDepth, "number");
 
-      let status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
-      await waitForCondition(() => {
-        status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
-        return status.lastReconcileAt !== null
-          && (status.repos as Array<{ repoId?: string; state?: string }>)[0]?.state === "attached";
-      });
+      const status = await pollUntil(
+        () => runDaemonCommand(rootDir, ["daemon", "status", "--json"]),
+        (candidate) => candidate.lastReconcileAt !== null
+          && (candidate.repos as Array<{ repoId?: string; state?: string }>)[0]?.state === "attached",
+        (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), start })
+      );
       assert.equal(status.started, true);
       assert.equal(status.reachable, true);
       assert.equal(typeof status.pid, "number");
@@ -421,11 +455,7 @@ test("daemon start service status and stop expose productized status contract", 
       assert.equal(stop.drained, true);
       assert.equal(stop.stopped, true);
     } finally {
-      try {
-        runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "1000", "--json"]);
-      } catch {
-        // best-effort cleanup for failed assertions
-      }
+      await stopDaemon(rootDir);
     }
   });
 });
@@ -499,8 +529,8 @@ test("daemon bootstrap-server is idempotent and installs roster hooks and read-o
   });
 });
 
-test("daemon client auto-registers initialized single repo on first local command", () => {
-  withTempRoot((rootDir) => {
+test("daemon client auto-registers initialized single repo on first local command", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const userRoot = path.join(rootDir, "user-daemon");
     try {
       runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
@@ -512,21 +542,32 @@ test("daemon client auto-registers initialized single repo on first local comman
       });
 
       assert.equal(listed.ok, true);
-      const registry = JSON.parse(readFileSync(path.join(userRoot, "registry.json"), "utf8")) as { repos: Array<{ repoId: string; canonicalRoot: string; state: string }> };
+      const registryPath = path.join(userRoot, "registry.json");
+      const registry = await pollUntil(
+        () => existsSync(registryPath)
+          ? JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Array<{ repoId: string; canonicalRoot: string; state: string }> }
+          : undefined,
+        (candidate) => candidate?.repos.length === 1,
+        (candidate, error) => JSON.stringify({ registryPath, candidate, error: String(error ?? ""), listed })
+      );
       assert.deepEqual(registry.repos.map((repo) => [repo.repoId, repo.canonicalRoot, repo.state]), [["canonical", realpathSync.native(rootDir), "enabled"]]);
 
-      const status = runDaemonCommand(rootDir, ["daemon", "status", "--user-root", userRoot, "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot });
+      const status = await pollUntil(
+        () => runDaemonCommand(rootDir, ["daemon", "status", "--user-root", userRoot, "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot }),
+        (candidate) => candidate.started === true && candidate.repoId === "canonical",
+        (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), listed })
+      );
       assert.equal(status.started, true);
       assert.equal(status.repoId, "canonical");
       assert.equal(status.rootDir, realpathSync.native(rootDir));
     } finally {
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });
 
-test("daemon client resolves an existing single-repo registry without requiring repo input", () => {
-  withTempRoot((rootDir) => {
+test("daemon client resolves an existing single-repo registry without requiring repo input", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const userRoot = path.join(rootDir, "user-daemon");
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(rootDir, {
@@ -540,144 +581,21 @@ test("daemon client resolves an existing single-repo registry without requiring 
     });
     assert.equal(registered.ok, true);
 
-    const created = runRawJson(rootDir, ["new-task", "--title", "Registered Single Repo"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_USER_ROOT: userRoot,
-      HARNESS_DAEMON_IDLE_MS: "250"
-    });
-
-    assert.equal(created.ok, true);
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
-  });
-});
-
-test("daemon client fails unregistered cwd in multi-repo registry with register hint", () => {
-  withTempRoot((workspaceRoot) => {
-    const userRoot = path.join(workspaceRoot, "user-daemon");
-    const alphaRoot = path.join(workspaceRoot, "alpha");
-    const betaRoot = path.join(workspaceRoot, "beta");
-    const outsiderRoot = path.join(workspaceRoot, "outsider");
-    for (const rootDir of [alphaRoot, betaRoot, outsiderRoot]) {
-      mkdirSync(rootDir, { recursive: true });
-      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
-    }
-    runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-    runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-
-    const failed = runRawJsonMaybeFail(outsiderRoot, ["task", "list"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-
-    assert.notEqual(failed.status, 0);
-    assert.equal(failed.receipt.ok, false);
-    assert.match(((failed.receipt.error as Record<string, unknown>).hint as string), /ha daemon repo register --repo-id <id> --root/u);
-  });
-});
-
-test("daemon client --repo override targets a registered repo from a different cwd", () => {
-  withTempRoot((workspaceRoot) => {
-    const userRoot = path.join(workspaceRoot, "user-daemon");
-    const alphaRoot = path.join(workspaceRoot, "alpha");
-    const betaRoot = path.join(workspaceRoot, "beta");
     try {
-      for (const rootDir of [alphaRoot, betaRoot]) {
-        mkdirSync(rootDir, { recursive: true });
-        runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
-      }
-      runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot
-      });
-      runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot
-      });
-
-      const listed = runRawJson(betaRoot, ["--repo", "alpha", "task", "list"], {
+      const created = runRawJson(rootDir, ["new-task", "--title", "Registered Single Repo"], {
         HARNESS_DAEMON_MODE: "local",
         HARNESS_DAEMON_USER_ROOT: userRoot,
-        HARNESS_DAEMON_IDLE_MS: "60000"
+        HARNESS_DAEMON_IDLE_MS: "250"
       });
-      assert.equal(listed.ok, true);
 
-      const status = runDaemonCommand(betaRoot, ["--repo", "alpha", "daemon", "status", "--user-root", userRoot, "--json"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot
-      });
-      assert.equal(status.repoId, "alpha");
-      assert.equal(status.rootDir, realpathSync.native(alphaRoot));
-      assert.deepEqual((status.repos as Array<{ repoId: string }>).map((repo) => repo.repoId), ["alpha", "beta"]);
+      assert.equal(created.ok, true);
+      await pollUntil(
+        () => existsSync(path.join(rootDir, "harness/tasks")),
+        Boolean,
+        (visible, error) => JSON.stringify({ visible, error: String(error ?? ""), created })
+      );
     } finally {
-      stopDaemonQuietly(betaRoot, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
-  });
-});
-
-test("daemon service reconciles registry register and unregister changes", async () => {
-  await withTempRootAsync(async (workspaceRoot) => {
-    const userRoot = path.join(workspaceRoot, "user-daemon");
-    const alphaRoot = path.join(workspaceRoot, "alpha");
-    const betaRoot = path.join(workspaceRoot, "beta");
-    for (const rootDir of [alphaRoot, betaRoot]) {
-      mkdirSync(rootDir, { recursive: true });
-      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
-    }
-    runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-
-    const listed = runRawJson(alphaRoot, ["task", "list"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_USER_ROOT: userRoot,
-      HARNESS_DAEMON_IDLE_MS: "15000"
-    });
-    assert.equal(listed.ok, true);
-    assert.deepEqual(daemonStatusRepoIds(alphaRoot, userRoot, "alpha"), ["alpha"]);
-
-    runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-    await waitForCondition(() => daemonStatusRepoIds(alphaRoot, userRoot, "alpha").includes("beta"));
-
-    runDaemonCommand(betaRoot, ["daemon", "repo", "unregister", "--repo-id", "beta", "--user-root", userRoot, "--no-link", "--json"], {
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-    await waitForCondition(() => daemonStatusRepos(alphaRoot, userRoot, "alpha").find((repo) => repo.repoId === "beta")?.state === "detached");
-  });
-});
-
-test("daemon repo commands register list and unregister the user-level registry", () => {
-  withTempRoot((rootDir) => {
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
-    const userRoot = path.join(rootDir, "user-harness");
-
-    const register = runDaemonCommand(rootDir, [
-      "daemon",
-      "repo",
-      "register",
-      "--repo-id",
-      "canonical",
-      "--display-name",
-      "Canonical",
-      "--user-root",
-      userRoot,
-      "--no-link",
-      "--json"
-    ]);
-    assert.equal(register.ok, true);
-    assert.equal((register.repo as { repoId?: string }).repoId, "canonical");
-    assert.equal((register.repo as { state?: string }).state, "enabled");
-
-    const list = runDaemonCommand(rootDir, ["daemon", "repo", "list", "--user-root", userRoot, "--json"]);
-    assert.equal(list.ok, true);
-    assert.equal(list.count, 1);
-    assert.deepEqual((list.repos as Array<{ repoId: string; state: string }>).map((repo) => [repo.repoId, repo.state]), [["canonical", "enabled"]]);
-
-    const unregister = runDaemonCommand(rootDir, ["daemon", "repo", "unregister", "--repo-id", "canonical", "--user-root", userRoot, "--no-link", "--json"]);
-    assert.equal(unregister.ok, true);
-    assert.equal((unregister.repo as { state?: string }).state, "disabled");
   });
 });

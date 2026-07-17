@@ -8,7 +8,7 @@ import {
   defaultDaemonUserRoot,
   runDaemonCommand,
   runRawJson,
-  stopDaemonQuietly,
+  stopDaemon,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
 import {
@@ -67,7 +67,7 @@ test("forced-command progress writes preserve the thin-client executor in the ta
       assert.equal(collision.ok, false);
       assert.match((collision.error as { hint?: string }).hint ?? "", /current holder principal=person_alice, executor=agent:codex/u);
     } finally {
-      stopDaemonQuietly(rootDir, userRoot);
+      await stopDaemon(rootDir, userRoot);
     }
   });
 });

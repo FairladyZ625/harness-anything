@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import net from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   defaultDaemonUserRoot,
-  delay
+  pollUntil
 } from "./daemon-cli.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -39,16 +42,32 @@ export function runDaemonCliProcess(
 }
 
 export async function connectSocketWhenReady(endpoint: string, timeoutMs = 8_000): Promise<net.Socket> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    try {
-      return await connectSocket(endpoint);
-    } catch (error) {
-      if (Date.now() >= deadline) throw error;
-      await delay(25);
-    }
-  }
-  throw new Error(`daemon socket did not become ready: ${endpoint}`);
+  return pollUntil(
+    () => connectSocket(endpoint),
+    (socket) => !socket.destroyed,
+    (_socket, error) => JSON.stringify({ endpoint, error: error instanceof Error ? error.message : String(error ?? "") }),
+    { timeoutMs }
+  );
+}
+
+export async function stopSpawnedDaemon(
+  child: ReturnType<typeof spawnDaemonCli>,
+  endpoint: string
+): Promise<void> {
+  const ownerPath = process.platform === "win32"
+    ? path.join(tmpdir(), `harness-anything-daemon-${createHash("sha256").update(endpoint).digest("hex").slice(0, 32)}.owner`)
+    : `${endpoint}.owner`;
+  if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  await pollUntil(
+    () => ({
+      exited: child.exitCode !== null || child.signalCode !== null || !processIsAlive(child.pid),
+      socketExists: process.platform === "win32" ? false : exists(endpoint),
+      ownerExists: exists(ownerPath)
+    }),
+    (state) => state.exited && !state.socketExists && !state.ownerExists,
+    (state, error) => JSON.stringify({ pid: child.pid, endpoint, ownerPath, state, error: String(error ?? "") }),
+    { timeoutMs: 8_000 }
+  );
 }
 
 export function connectSocket(endpoint: string): Promise<net.Socket> {
@@ -74,4 +93,22 @@ export function closeServer(server: net.Server): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
+}
+
+function processIsAlive(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function exists(filePath: string): boolean {
+  try {
+    return existsSync(filePath);
+  } catch {
+    return false;
+  }
 }
