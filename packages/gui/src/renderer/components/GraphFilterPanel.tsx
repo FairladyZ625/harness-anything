@@ -8,6 +8,7 @@ import {
   CaretRight,
   WaveSine,
   GitBranch,
+  CircleHalf,
 } from "@phosphor-icons/react";
 import {
   AXIS_COLOR_VAR,
@@ -22,7 +23,20 @@ import {
   kindsByAxis,
   type FlowAnimMode,
 } from "../graph/relationVisual";
-import type { RelationKind } from "../model/types";
+import {
+  DECISION_STATE_FILTER_OPTIONS,
+  OTHER_STATUS_BUCKET,
+  TASK_STATUS_FILTER_OPTIONS,
+  defaultEntityStatusFilter,
+  decisionStateOffCount,
+  isEntityStatusFilterNarrowed,
+  taskStatusOffCount,
+  type DecisionStateFilterKey,
+  type EntityStatusFilterState,
+  type TaskStatusFilterKey,
+} from "../graph/entityStatusFilter";
+import type { DecisionState, RelationKind, SnapshotStatus } from "../model/types";
+import { STATUS_META } from "./badges";
 import { t } from "../i18n/index.tsx";
 
 export type EntityType = "decision" | "task" | "fact";
@@ -40,6 +54,8 @@ export interface GraphFilters {
   axes: AxisFilterState;
   /** 关系类型多选;默认全开,会话内保持。 */
   kinds: Set<RelationKind>;
+  /** Task/Decision 实体状态筛选;默认全选。 */
+  entityStatus: EntityStatusFilterState;
 }
 
 interface Props {
@@ -55,6 +71,30 @@ interface Props {
   /** 边方向流动动画模式 + 切换(工具栏全局开关兜底)。 */
   flowMode: FlowAnimMode;
   onFlowModeChange: (mode: FlowAnimMode) => void;
+}
+
+/** Decision state 展示文案 — 复用 badges DECISION_STATE_META 的 i18n key 语义。 */
+function decisionStateLabel(state: DecisionState | typeof OTHER_STATUS_BUCKET): string {
+  if (state === OTHER_STATUS_BUCKET) return t("components.graphFilterPanel.statusOther");
+  switch (state) {
+    case "proposed":
+      return t("components.badges.pendingDecisionApproval");
+    case "active":
+      return t("components.badges.takingEffect");
+    case "deferred":
+      return t("components.badges.suspended");
+    case "rejected":
+      return t("components.badges.rejected");
+    case "retired":
+      return t("components.badges.retired");
+    default:
+      return state;
+  }
+}
+
+function taskStatusLabel(status: SnapshotStatus | typeof OTHER_STATUS_BUCKET): string {
+  if (status === OTHER_STATUS_BUCKET) return t("components.graphFilterPanel.statusOther");
+  return STATUS_META[status]?.label ?? status;
 }
 
 const FLOW_MODES: ReadonlyArray<FlowAnimMode> = ["focus", "all", "off"];
@@ -108,14 +148,76 @@ export function GraphFilterPanel({
     }));
   };
 
+  const entityStatus = filters.entityStatus ?? defaultEntityStatusFilter();
+
+  const toggleTaskStatus = (key: TaskStatusFilterKey) => {
+    setFilters((prev) => {
+      const cur = prev.entityStatus ?? defaultEntityStatusFilter();
+      const next = new Set(cur.taskStatuses);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, entityStatus: { ...cur, taskStatuses: next } };
+    });
+  };
+
+  const toggleDecisionState = (key: DecisionStateFilterKey) => {
+    setFilters((prev) => {
+      const cur = prev.entityStatus ?? defaultEntityStatusFilter();
+      const next = new Set(cur.decisionStates);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, entityStatus: { ...cur, decisionStates: next } };
+    });
+  };
+
+  const setAllTaskStatuses = (on: boolean) => {
+    setFilters((prev) => {
+      const cur = prev.entityStatus ?? defaultEntityStatusFilter();
+      return {
+        ...prev,
+        entityStatus: {
+          ...cur,
+          taskStatuses: on
+            ? new Set<TaskStatusFilterKey>([
+                ...TASK_STATUS_FILTER_OPTIONS,
+                OTHER_STATUS_BUCKET,
+              ])
+            : new Set(),
+        },
+      };
+    });
+  };
+
+  const setAllDecisionStates = (on: boolean) => {
+    setFilters((prev) => {
+      const cur = prev.entityStatus ?? defaultEntityStatusFilter();
+      return {
+        ...prev,
+        entityStatus: {
+          ...cur,
+          decisionStates: on
+            ? new Set<DecisionStateFilterKey>([
+                ...DECISION_STATE_FILTER_OPTIONS,
+                OTHER_STATUS_BUCKET,
+              ])
+            : new Set(),
+        },
+      };
+    });
+  };
+
   // 默认收起:这个面板是覆盖在画布上的浮层,常驻展开会永久吃掉左上角。
   const [open, setOpen] = useState(false);
   const kindOff = RELATION_KIND_ORDER.length - filters.kinds.size;
+  const statusOff =
+    Math.max(0, taskStatusOffCount(entityStatus)) +
+    Math.max(0, decisionStateOffCount(entityStatus));
   const narrowed =
     AXIS_ORDER.filter((a) => !filters.axes[a]).length +
     (showEntityTypes ? Math.max(0, 3 - filters.types.size) : 0) +
     Math.max(0, availableModules.length - filters.modules.size) +
-    Math.max(0, kindOff);
+    Math.max(0, kindOff) +
+    statusOff;
 
   const byAxis = kindsByAxis();
   const cycleFlow = () => {
@@ -323,6 +425,147 @@ export function GraphFilterPanel({
             </div>
           </div>
         )}
+
+        {/* Entity status: Task coordinationStatus + Decision state */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono uppercase tracking-wide">
+            <CircleHalf weight="bold" />
+            <span>{t("components.graphFilterPanel.entityStatus")}</span>
+            {isEntityStatusFilterNarrowed(entityStatus) && (
+              <button
+                type="button"
+                onClick={() =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    entityStatus: defaultEntityStatusFilter(),
+                  }))
+                }
+                className="ml-auto rounded px-1 py-0.5 text-[9px] normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
+              >
+                {t("components.graphFilterPanel.statusReset")}
+              </button>
+            )}
+          </div>
+
+          {/* Task statuses */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[9px] text-text-faint uppercase">
+                {t("components.graphFilterPanel.taskStatus")}
+              </span>
+              <span className="ml-auto flex gap-1 normal-case tracking-normal">
+                <button
+                  type="button"
+                  onClick={() => setAllTaskStatuses(true)}
+                  className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text"
+                >
+                  {t("components.graphFilterPanel.kindsAll")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllTaskStatuses(false)}
+                  className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text"
+                >
+                  {t("components.graphFilterPanel.kindsNone")}
+                </button>
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {TASK_STATUS_FILTER_OPTIONS.map((status) => {
+                const active = entityStatus.taskStatuses.has(status);
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => toggleTaskStatus(status)}
+                    title={status}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                      active
+                        ? "bg-surface-raised text-text border border-border"
+                        : "bg-surface text-text-faint border border-border/40 opacity-50"
+                    }`}
+                    style={
+                      active && STATUS_META[status]
+                        ? { color: STATUS_META[status].color }
+                        : undefined
+                    }
+                  >
+                    {taskStatusLabel(status)}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => toggleTaskStatus(OTHER_STATUS_BUCKET)}
+                title={t("components.graphFilterPanel.statusOtherHint")}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                  entityStatus.taskStatuses.has(OTHER_STATUS_BUCKET)
+                    ? "bg-surface-raised text-text border border-border"
+                    : "bg-surface text-text-faint border border-border/40 opacity-50"
+                }`}
+              >
+                {taskStatusLabel(OTHER_STATUS_BUCKET)}
+              </button>
+            </div>
+          </div>
+
+          {/* Decision states */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-[9px] text-text-faint uppercase">
+                {t("components.graphFilterPanel.decisionState")}
+              </span>
+              <span className="ml-auto flex gap-1 normal-case tracking-normal">
+                <button
+                  type="button"
+                  onClick={() => setAllDecisionStates(true)}
+                  className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text"
+                >
+                  {t("components.graphFilterPanel.kindsAll")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllDecisionStates(false)}
+                  className="rounded px-1 py-0.5 text-[9px] text-text-faint hover:bg-surface-raised hover:text-text"
+                >
+                  {t("components.graphFilterPanel.kindsNone")}
+                </button>
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {DECISION_STATE_FILTER_OPTIONS.map((state) => {
+                const active = entityStatus.decisionStates.has(state);
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => toggleDecisionState(state)}
+                    title={state}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                      active
+                        ? "bg-surface-raised text-text border border-border"
+                        : "bg-surface text-text-faint border border-border/40 opacity-50"
+                    }`}
+                  >
+                    {decisionStateLabel(state)}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => toggleDecisionState(OTHER_STATUS_BUCKET)}
+                title={t("components.graphFilterPanel.statusOtherHint")}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                  entityStatus.decisionStates.has(OTHER_STATUS_BUCKET)
+                    ? "bg-surface-raised text-text border border-border"
+                    : "bg-surface text-text-faint border border-border/40 opacity-50"
+                }`}
+              >
+                {decisionStateLabel(OTHER_STATUS_BUCKET)}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
