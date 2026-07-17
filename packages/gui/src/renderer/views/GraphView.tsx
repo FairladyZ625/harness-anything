@@ -49,6 +49,11 @@ import {
   type FlowAnimMode,
 } from "../graph/relationVisual";
 import {
+  defaultEntityStatusFilter,
+  edgeEndpointsVisible,
+  computeStatusVisibleNodeIds,
+} from "../graph/entityStatusFilter";
+import {
   graphNodeTypes,
   graphEdgeTypes,
   MINIMAP_AXIS,
@@ -122,6 +127,7 @@ function GraphViewInner({
     types: new Set(["decision", "task", "fact"] as const),
     axes: defaultAxes(),
     kinds: defaultKindFilter(),
+    entityStatus: defaultEntityStatusFilter(),
   }));
   // 流动动画全局开关:focus(默认,仅选中/悬停/邻接) / all / off;会话内保持。
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
@@ -300,45 +306,61 @@ function GraphViewInner({
   const selectedNode = drawer.selectedId ? nodes.find((n) => n.id === drawer.selectedId) : null;
   const focusEdge = drawer.focusEdgeId ? edges.find((e) => e.id === drawer.focusEdgeId) : null;
 
+  // 实体状态筛选:Task.coordinationStatus / Decision.state。默认全选不改布局。
+  // 焦点恒可见;被滤掉节点的关联边一并隐藏(与 kind 筛选交集)。
+  const statusVisibleIds = useMemo(
+    () =>
+      computeStatusVisibleNodeIds(nodes, filters.entityStatus, [
+        resolvedFocusId,
+        focusId,
+      ]),
+    [nodes, filters.entityStatus, resolvedFocusId, focusId],
+  );
+
   const visibleNodeCount = useMemo(
     () =>
-      nodes.filter(
+      (statusVisibleIds
+        ? nodes.filter((n) => statusVisibleIds.has(n.id))
+        : nodes
+      ).filter(
         (n) =>
           n.type !== "moduleGroup" &&
           n.type !== "laneBackground" &&
           n.type !== "territoryZone",
       ).length,
-    [nodes],
+    [nodes, statusVisibleIds],
   );
 
   const displayNodes = useMemo(
     () =>
-      nodes.map((n) => {
-        if (n.type === "ego") {
-          const dimmed =
-            oneHopHighlight !== null && !oneHopHighlight.has(n.id);
-          return {
-            ...n,
-            selected: selectId !== null && n.id === selectId,
-            data: {
-              ...n.data,
-              id: n.id,
-              dimmed,
-              onCollapse: collapseNode,
-              onRefocus: openFocus,
-              onNavigate: onNavigateEntity,
-              onResizeEnd: (id: string, w: number, h: number) => setSizeOverride(id, { w, h }),
-            },
-          };
-        }
-        if (n.type === "territoryChip" || n.type === "territoryZone") {
-          return {
-            ...n,
-            data: { ...n.data, onOpen: enterSpotlight, onFold: toggleZone },
-          };
-        }
-        return n;
-      }),
+      nodes
+        .filter((n) => (statusVisibleIds ? statusVisibleIds.has(n.id) : true))
+        .map((n) => {
+          if (n.type === "ego") {
+            const dimmed =
+              oneHopHighlight !== null && !oneHopHighlight.has(n.id);
+            return {
+              ...n,
+              selected: selectId !== null && n.id === selectId,
+              data: {
+                ...n.data,
+                id: n.id,
+                dimmed,
+                onCollapse: collapseNode,
+                onRefocus: openFocus,
+                onNavigate: onNavigateEntity,
+                onResizeEnd: (id: string, w: number, h: number) => setSizeOverride(id, { w, h }),
+              },
+            };
+          }
+          if (n.type === "territoryChip" || n.type === "territoryZone") {
+            return {
+              ...n,
+              data: { ...n.data, onOpen: enterSpotlight, onFold: toggleZone },
+            };
+          }
+          return n;
+        }),
     [
       nodes,
       collapseNode,
@@ -349,15 +371,19 @@ function GraphViewInner({
       toggleZone,
       oneHopHighlight,
       selectId,
+      statusVisibleIds,
     ],
   );
 
-  // 边后处理:kind 筛选 + 单跳高亮 + flowMode 注入。
+  // 边后处理:kind 筛选 ∩ 状态筛选(两端节点都可见) + 单跳高亮 + flowMode 注入。
   const displayEdges = useMemo(() => {
     const kindFiltered = edges.filter((e) => {
       const kind = (e.data as { kind?: RelationKind } | undefined)?.kind;
-      if (!kind) return true;
-      return edgePassesKindFilter({ kind }, filters.kinds);
+      if (kind && !edgePassesKindFilter({ kind }, filters.kinds)) return false;
+      if (statusVisibleIds && !edgeEndpointsVisible(e.source, e.target, statusVisibleIds)) {
+        return false;
+      }
+      return true;
     });
     return kindFiltered.map((e) => {
       const baseData = (e.data as Record<string, unknown> | undefined) ?? {};
@@ -384,7 +410,7 @@ function GraphViewInner({
         data: { ...baseData, flowMode, adjacent: false },
       };
     });
-  }, [edges, oneHopHighlight, filters.kinds, flowMode]);
+  }, [edges, oneHopHighlight, filters.kinds, flowMode, statusVisibleIds]);
 
   const switchFocusFromList = useCallback(
     (nodeId: string) => {
