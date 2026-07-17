@@ -320,6 +320,16 @@ export type {
   AgentRuntimeStatusResult,
   RuntimeAuthenticationProfileProjection
 } from "./agent-runtime-control.ts";
+export { makeAgentHolderProjectionService, projectAgentHolders } from "./agent-holder-projection.ts";
+export type {
+  AgentHolderProjectionQuery,
+  AgentHolderProjectionResult,
+  AgentHolderProjectionRow,
+  AgentHolderProjectionService,
+  AgentHolderProjectionServiceOptions,
+  AgentHolderProjectionSuccess,
+  AgentHolderRuntimeProjection
+} from "./agent-holder-projection.ts";
 export {
   readPeripheralDocumentPayload,
   readAppendProgressPayload,

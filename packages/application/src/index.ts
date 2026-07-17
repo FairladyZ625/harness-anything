@@ -531,6 +531,8 @@ export type AgentRuntimeSessionResult = import("./agent-runtime-control.ts").Age
 export type AgentRuntimeStatusResult = import("./agent-runtime-control.ts").AgentRuntimeStatusResult;
 export type AgentRuntimeEventsResult = import("./agent-runtime-control.ts").AgentRuntimeEventsResult;
 export type AgentRuntimeResultResult = import("./agent-runtime-control.ts").AgentRuntimeResultResult;
+export type AgentHolderProjectionQuery = import("./agent-holder-projection.ts").AgentHolderProjectionQuery;
+export type AgentHolderProjectionResult = import("./agent-holder-projection.ts").AgentHolderProjectionResult;
 
 export interface ShellPanelPolicy {
   readonly displayOnly: true;
@@ -545,6 +547,7 @@ export type OpenShellResult = OpenShellSuccess | LocalControllerFailure;
 
 export interface LocalControllerService {
   readonly getAgentRuntimes: () => Promise<AgentRuntimeInventoryResult>;
+  readonly getAgentHolders: (payload?: AgentHolderProjectionQuery) => Promise<AgentHolderProjectionResult>;
   readonly profiles: () => Promise<AgentRuntimeProfilesResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
   readonly spawn: (payload: AgentRuntimeSpawnPayload) => Promise<AgentRuntimeSessionResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
   readonly attach: (payload: AgentRuntimeSessionIdPayload) => Promise<AgentRuntimeSessionResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;

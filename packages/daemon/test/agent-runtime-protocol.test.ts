@@ -75,3 +75,34 @@ test("agent runtime spawn route dispatches only through the daemon-owned control
   assert.equal(response.error?.code, "runtime_spawn_fixture");
   assert.equal(calls.length, 1);
 });
+
+test("agent holder projection route is contract-derived and forwards the optional task filter", async () => {
+  const calls: unknown[] = [];
+  const controller = {
+    ...emptyLocalController(),
+    getAgentHolders: async (payload: unknown) => {
+      calls.push(payload);
+      return { ok: true as const, schema: "agent-holder-projection/v1" as const, rebuildable: true as const, rows: [] };
+    }
+  };
+  const server = makeServer({
+    services: {
+      LocalControllerService: controller,
+      TerminalSessionService: createInMemoryTerminalSessionService()
+    }
+  });
+  await server.handle({ jsonrpc: "2.0", id: "hello", method: "protocol.hello", params: { protocolVersion: 1 } });
+  const request = {
+    jsonrpc: "2.0",
+    id: "agent-holders",
+    method: "repo.agent-holders.projection",
+    params: { repo: { repoId: "canonical" }, payload: { taskId: "task_01KXQJZM9Z86FSJBT7Q4FEA6AB" } }
+  } satisfies JsonRpcRequest;
+
+  const receipt = resultReceipt(await server.handle(request));
+
+  assert.equal(jsonRpcMethodContracts.some(({ method }) => method === request.method), true);
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.details.data.schema, "agent-holder-projection/v1");
+  assert.deepEqual(calls, [{ taskId: "task_01KXQJZM9Z86FSJBT7Q4FEA6AB" }]);
+});

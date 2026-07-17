@@ -6,6 +6,7 @@ import type {
   WriteError
 } from "../../kernel/src/index.ts";
 import type { AgentRuntimeControlService } from "./agent-runtime-control.ts";
+import type { AgentHolderProjectionService } from "./agent-holder-projection.ts";
 import type {
   AppendTaskProgressPayload,
   CatalogSnapshotResult,
@@ -27,6 +28,7 @@ export interface LocalControllerServiceOptions {
   readonly projectionQueries?: LocalControllerProjectionQueries;
   readonly agentRuntimeInventoryReader?: () => Promise<import("./index.ts").AgentRuntimeInventoryResult>;
   readonly agentRuntimeControl?: AgentRuntimeControlService;
+  readonly agentHolderProjection?: AgentHolderProjectionService;
 }
 export interface LocalControllerProjectionQueries {
   readonly getExecutionEvidencePage: (

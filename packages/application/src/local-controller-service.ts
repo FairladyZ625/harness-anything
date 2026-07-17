@@ -47,6 +47,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ok: false,
       error: { code: "agent_runtime_unavailable", hint: "Missing required agent runtime discovery service. Run `ha daemon restart`, then retry." }
     }),
+    getAgentHolders: (payload) => options.agentHolderProjection?.query(payload) ?? Promise.resolve({
+      ok: false,
+      error: { code: "agent_holder_projection_unavailable", hint: "Agent holder projection service is missing. Run `ha daemon restart`, then retry." }
+    }),
     profiles: () => options.agentRuntimeControl?.profiles() ?? runtimeControlUnavailable(),
     spawn: (payload) => options.agentRuntimeControl?.spawn(payload) ?? runtimeControlUnavailable(),
     attach: (payload) => options.agentRuntimeControl?.attach(payload) ?? runtimeControlUnavailable(),

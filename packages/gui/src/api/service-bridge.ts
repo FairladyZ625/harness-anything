@@ -21,7 +21,7 @@ type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { reado
 type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
 export type TerminalGuiBridgeMethod = (typeof terminalGuiBridgeContracts)[number]["guiBridgeMethod"];
 type LocalControllerGuiMethod =
-  | "getAgentRuntimes" | "getCatalogSnapshot" | "getTasks" | "getTaskDetail" | "getTaskDocument"
+  | "getAgentRuntimes" | "getAgentHolders" | "getCatalogSnapshot" | "getTasks" | "getTaskDetail" | "getTaskDocument"
   | "getPeripheralDocuments" | "getPeripheralDocument" | "getRelationGraph"
   | "getTriadicProjection" | "getDecisions" | "getDecisionDetail" | "proposeDecision"
   | "acceptDecision" | "rejectDecision" | "deferDecision" | "getTaskFacts" | "getFacts"
@@ -35,6 +35,7 @@ type TerminalGuiServiceMethod = (typeof terminalGuiBridgeContracts)[number]["ser
 
 interface GuiBridgeServiceProxy {
   readonly getAgentRuntimes: () => Promise<unknown> | unknown;
+  readonly getAgentHolders: (payload: unknown) => Promise<unknown> | unknown;
   readonly profiles: () => Promise<unknown> | unknown;
   readonly spawn: (payload: unknown) => Promise<unknown> | unknown;
   readonly attach: (payload: unknown) => Promise<unknown> | unknown;
@@ -120,6 +121,10 @@ export const guiBridgeHandlerImplementations = {
   getAgentRuntimes: {
     serviceMethod: "getAgentRuntimes",
     invoke: ({ service }) => service.getAgentRuntimes()
+  },
+  getAgentHolders: {
+    serviceMethod: "getAgentHolders",
+    invoke: ({ service, payload }) => service.getAgentHolders(payload)
   },
   getDaemonLogs: {
     serviceMethod: "list",
@@ -304,6 +309,7 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     events: (payload) => invokeDaemonGuiRoute(request, "getAgentRuntimeEvents", payload),
     result: (payload) => invokeDaemonGuiRoute(request, "getAgentRuntimeResult", payload),
     getAgentRuntimes: () => invokeDaemonGuiRoute(request, "getAgentRuntimes", undefined),
+    getAgentHolders: (payload) => invokeDaemonGuiRoute(request, "getAgentHolders", payload),
     list: (payload) => invokeDaemonGuiRoute(request, "getDaemonLogs", payload),
     getStatus: async () => projectDaemonStatusResult(await invokeDaemonGuiRoute(request, "getDaemonStatus", undefined)),
     requestControl: (payload) => invokeDaemonGuiRoute(request, "restartDaemon", payload),

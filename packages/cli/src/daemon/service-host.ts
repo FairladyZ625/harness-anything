@@ -1,10 +1,7 @@
 import {
   daemonControlInProgressError,
   makeDaemonLogService,
-  makeLocalControllerService,
-  makeRuntimeEventAppendPromise,
-  makeRuntimeEventLedgerService,
-  makeTaskHolderService
+  makeLocalControllerService
 } from "../../../application/src/index.ts";
 import type { DaemonLogService } from "../../../application/src/index.ts";
 import { randomUUID } from "node:crypto";
@@ -47,7 +44,6 @@ import { makeDocSyncService } from "./doc-sync-service.ts";
 import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import { drainDaemonRuntime, isDaemonDrainTimeout } from "./daemon-drain.ts";
 import {
-  makeDaemonQueuedOperationalWriteCoordinator,
   makeDaemonQueuedWriteCoordinator
 } from "./queued-write-coordinator.ts";
 import {
@@ -59,7 +55,7 @@ import type {
   AuthorityRepoComponent,
   AuthorityRepoLifecycleController
 } from "./authority-lifecycle.ts";
-import { makeLocalAgentRuntimeControllerOptions } from "./agent-runtime-control-host.ts";
+import { makeLocalAgentHolderServices } from "./agent-holder-projection-host.ts";
 
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
@@ -400,7 +396,7 @@ function createRepoServiceBinding(
   readonly repo: DaemonRepoNamespace;
   readonly identity: RepoIdentity;
   readonly services: Parameters<typeof createJsonRpcProtocolServer>[0]["services"];
-  readonly appendRuntimeEvent: ReturnType<typeof makeRuntimeEventAppendPromise>;
+  readonly appendRuntimeEvent: ReturnType<typeof makeLocalAgentHolderServices>["appendRuntimeEvent"];
 } {
   const rootDir = repo.canonicalRoot;
   const identity = loadRepoIdentity(rootDir, layoutOverrides, statusOptions?.endpoint, statusOptions?.userRoot);
@@ -409,6 +405,8 @@ function createRepoServiceBinding(
     layoutOverrides,
     coordinator: failClosedReservationReconcilerCoordinator()
   });
+  const { appendRuntimeEvent, taskHolderService, agentRuntimeControllerOptions, agentHolderProjection } =
+    makeLocalAgentHolderServices(rootDir, layoutOverrides, runtime);
   const localController = makeLocalControllerService({
     rootDir,
     layoutOverrides,
@@ -424,7 +422,8 @@ function createRepoServiceBinding(
         })
       })
     },
-    ...makeLocalAgentRuntimeControllerOptions(rootDir)
+    ...agentRuntimeControllerOptions,
+    agentHolderProjection
   });
   const cliCommandService = createCliCommandService(runtime, {
     ...commandOptions,
@@ -437,15 +436,6 @@ function createRepoServiceBinding(
       )
     } : {})
   });
-  const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
-    rootInput: { rootDir, layoutOverrides },
-    coordinator: makeDaemonQueuedOperationalWriteCoordinator(runtime, "runtime-event-protocol", {
-      scope: "operational",
-      kind: "system",
-      id: "daemon-runtime"
-    })
-  }));
-  const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides }, appendLeaseEvent: appendRuntimeEvent });
   return {
     repo,
     identity,

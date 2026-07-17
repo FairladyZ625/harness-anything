@@ -49,6 +49,12 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateAppendProgressPayload(payload);
     case "application.agent-runtime-control-payload/v1":
       return validateAgentRuntimePayload(route, payload);
+    case "application.agent-holder-projection-query/v1":
+      if (payload === undefined || payload === null) return { ok: true, payload: {} };
+      if (!isServicePayloadRecord(payload) || Object.keys(payload).some((key) => key !== "taskId")) {
+        return invalidPayload("agent holder query accepts only taskId.");
+      }
+      return payload.taskId === undefined ? { ok: true, payload } : validateTaskIdPayload(payload);
     case "terminal.create-session-payload/v1":
       return validateTerminalCreatePayload(payload);
     case "terminal.write-session-payload/v1":

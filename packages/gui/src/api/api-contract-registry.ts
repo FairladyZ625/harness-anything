@@ -21,6 +21,8 @@ export const apiSchemaContracts = [
   { id: "application.agent-runtime-inventory-result/v1", owner: "application", typeName: "AgentRuntimeInventoryResult" },
   { id: "application.agent-runtime-control-payload/v1", owner: "application", typeName: "AgentRuntimeControlPayload" },
   { id: "application.agent-runtime-control-result/v1", owner: "application", typeName: "AgentRuntimeControlResult" },
+  { id: "application.agent-holder-projection-query/v1", owner: "application", typeName: "AgentHolderProjectionQuery" },
+  { id: "application.agent-holder-projection-result/v1", owner: "application", typeName: "AgentHolderProjectionResult" },
   { id: "application.catalog-snapshot-result/v1", owner: "application", typeName: "CatalogSnapshotResult" },
   { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
   { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
@@ -153,6 +155,19 @@ export const apiRouteContracts = [
     serviceMethod: "getAgentRuntimes",
     auth: "local-session-token",
     guiBridgeMethod: "getAgentRuntimes",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-holders.projection",
+    method: "GET",
+    path: "/api/agent-holders",
+    inputSchemaId: "application.agent-holder-projection-query/v1",
+    outputSchemaId: "application.agent-holder-projection-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getAgentHolders",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentHolders",
     commandClass: "repo-read"
   },
   {

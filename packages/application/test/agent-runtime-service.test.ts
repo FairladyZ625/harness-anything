@@ -1,11 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { RuntimeKind, RuntimeSession } from "../../kernel/src/index.ts";
+import type { RuntimeKind, RuntimeSession, TaskHolderSnapshot } from "../../kernel/src/index.ts";
 import {
   discoverRuntimeInstallations,
   makeAgentRuntimeService,
+  projectAgentHolders,
   type AgentRuntimeDiscoveryProbe,
+  type AgentRuntimeSessionStatus,
+  type ExecutionProjectionRow,
   type RuntimeExecutableCandidate
 } from "../src/index.ts";
 
@@ -141,6 +144,113 @@ test("safe projection is rebuilt and strips raw paths, process ids, provider ids
   }
   assert.equal(/"[^"]*(?:credential|hash|rawPath|token)[^"]*"\s*:/iu.test(serialized), false);
 });
+
+test("holder projection preserves lease, execution, runtime, orphan, and mismatch as independent signals", () => {
+  const result = projectAgentHolders({
+    holders: [
+      holder("task-complete", "exec-complete", false),
+      holder("task-expired", "exec-expired", true),
+      holder("task-lease-only", "exec-missing", false),
+      holder("task-runtime-missing", "exec-runtime-missing", false),
+      holder("task-exited", "exec-exited", false),
+      { taskId: "task-execution-only", holder: null, effectiveHolder: null, leaseExpiresAt: null, orphan: false }
+    ],
+    executions: [
+      execution("task-complete", "exec-complete", "person-one", "agent-one"),
+      execution("task-execution-only", "exec-only", "person-two", "agent-two"),
+      execution("task-expired", "exec-expired", "person-other", "agent-other"),
+      execution("task-runtime-missing", "exec-runtime-missing", "person-one", "agent-one"),
+      execution("task-exited", "exec-exited", "person-one", "agent-one")
+    ],
+    sessions: [
+      runtime("task-complete", "exec-complete", "runtime-live", "alive"),
+      runtime("task-expired", "exec-expired", "runtime-expired", "alive"),
+      runtime("task-exited", "exec-exited", "runtime-exited", "exited")
+    ]
+  });
+
+  assert.deepEqual(result.rows.map((row) => [row.taskId, row.completeness]), [
+    ["task-complete", "complete"],
+    ["task-execution-only", "partial"],
+    ["task-exited", "complete"],
+    ["task-expired", "complete"],
+    ["task-lease-only", "partial"],
+    ["task-runtime-missing", "partial"]
+  ]);
+  assert.equal(result.rows.find((row) => row.taskId === "task-expired")?.lease.state, "expired");
+  assert.equal(result.rows.find((row) => row.taskId === "task-exited")?.runtimes[0]?.process, "exited");
+  assert.equal(result.rows.find((row) => row.taskId === "task-expired")?.identityMatch, "mismatched");
+  assert.equal(result.rows.find((row) => row.taskId === "task-execution-only")?.lease.state, "missing");
+  assert.deepEqual(result.rows.find((row) => row.taskId === "task-runtime-missing")?.sources, {
+    lease: true,
+    execution: true,
+    runtime: false
+  });
+  const serialized = JSON.stringify(result);
+  assert.equal(/"[^"]*(?:credential|hash|rawPath|token)[^"]*"\s*:/iu.test(serialized), false);
+  assert.equal(serialized.includes("client-asserted"), true);
+});
+
+function holder(taskId: string, executionId: string, orphan: boolean): TaskHolderSnapshot {
+  const principal = {
+    principal: { personId: "person-one", credential: { kind: "secret", issuer: "test", subject: "must-not-leak" } },
+    executor: { kind: "agent" as const, id: "agent-one" },
+    responsibleHuman: "person-one"
+  };
+  return {
+    taskId,
+    holder: {
+      schema: "task-holder/v2",
+      taskId,
+      executionId,
+      phase: "active",
+      holder: principal,
+      tokenHash: "must-not-leak",
+      acquiredVia: "claim",
+      acquiredAt: "2026-07-17T00:00:00.000Z",
+      leaseExpiresAt: orphan ? "2026-07-17T01:00:00.000Z" : "2026-07-19T00:00:00.000Z",
+      releasedAt: null,
+      updatedAt: "2026-07-17T00:00:00.000Z",
+      version: "v1"
+    },
+    effectiveHolder: orphan ? null : principal,
+    leaseExpiresAt: orphan ? "2026-07-17T01:00:00.000Z" : "2026-07-19T00:00:00.000Z",
+    orphan
+  };
+}
+
+function execution(taskId: string, executionId: string, personId: string, agentId: string): ExecutionProjectionRow {
+  return {
+    executionId,
+    taskRef: `task/${taskId}`,
+    taskId,
+    state: "active",
+    executor: { kind: "agent", id: agentId },
+    primaryActor: { principal: { personId }, executor: { kind: "agent", id: agentId }, responsibleHuman: personId },
+    claimedAt: "2026-07-17T00:00:00.000Z",
+    submittedAt: null,
+    closedAt: null,
+    sessionBindings: [],
+    outputs: [],
+    submission: null
+  };
+}
+
+function runtime(
+  taskId: string,
+  executionId: string,
+  runtimeSessionId: string,
+  state: "alive" | "exited"
+): AgentRuntimeSessionStatus {
+  return {
+    runtimeSessionId,
+    kindId: "codex",
+    process: { state, pid: 4242 },
+    attachable: state === "alive",
+    capabilities: {},
+    clientBinding: { assertion: "client-asserted", taskId, executionId }
+  };
+}
 
 function fakeProbe(overrides: Partial<AgentRuntimeDiscoveryProbe>): AgentRuntimeDiscoveryProbe {
   return {

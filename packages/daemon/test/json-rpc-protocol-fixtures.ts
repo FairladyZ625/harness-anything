@@ -33,6 +33,7 @@ export function makeServer(overrides: Partial<Parameters<typeof createJsonRpcPro
 export function emptyLocalController(): LocalControllerService {
   return {
     getAgentRuntimes: async () => ({ ok: false, error: { code: "agent_runtime_unavailable", hint: "not configured" } }),
+    getAgentHolders: async () => ({ ok: true, schema: "agent-holder-projection/v1", rebuildable: true, rows: [] }),
     profiles: async () => ({ ok: true, schema: "agent-runtime-auth-profiles/v1", profiles: [] }),
     spawn: async () => ({ ok: false, error: { code: "agent_runtime_control_unavailable", hint: "not configured" } }),
     attach: async () => ({ ok: false, error: { code: "agent_runtime_control_unavailable", hint: "not configured" } }),
