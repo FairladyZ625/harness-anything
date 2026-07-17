@@ -13,10 +13,12 @@ import {
   issueActorAxesBindingV2,
   makeCompositeAuthoritySemanticCompilerV2,
   makeFactRelationSemanticCompilerV2,
+  makeSessionExecutionReviewSemanticCompilerV2,
   makeTaskDecisionModuleSemanticCompilerV2,
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
   semanticMutationEnvelopeV2Schema,
+  sessionExecutionReviewTypedCommandsV2,
   taskDecisionModuleTypedCommandsV2,
   type ActorAxesBindingRuntimeV2,
   type AuthorityCutoverControlService,
@@ -73,7 +75,7 @@ interface RepoProductionMaterial {
   readonly configurationDigest: string;
 }
 
-const productionAuthorityV2EntityKinds = ["task", "decision", "module", "fact", "relation"] as const;
+const productionAuthorityV2EntityKinds = ["task", "decision", "module", "fact", "relation", "session"] as const;
 
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
@@ -334,6 +336,9 @@ function createConnectionAuthorityService(
       }, {
         commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("relation.")),
         compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
+      }, {
+        commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("session.")),
+        compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
       }]),
       operationNamespaceVerifier: input.namespaceVerifier,
       committedEventPublisher: input.committedEventPublisher
