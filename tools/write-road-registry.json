@@ -1537,11 +1537,26 @@
         },
         {
           "file": "packages/daemon/src/broker/cas-store.ts"
+        },
+        {
+          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "api": "mkdirSync"
         }
       ],
       "evidence": [
         "packages/daemon/src/broker/native-applier.ts:168",
-        "packages/daemon/src/broker/durable-state-store.ts:1"
+        "packages/daemon/src/broker/durable-state-store.ts:1",
+        "packages/cli/src/daemon/compound-receipt-composition.ts:45",
+        "packages/cli/src/daemon/compound-receipt-composition.ts:94",
+        "packages/cli/src/daemon/compound-receipt-composition.ts:99"
       ],
       "freshness": "crash-safe-cut-apply"
     },

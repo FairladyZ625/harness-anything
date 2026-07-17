@@ -67,6 +67,7 @@ import {
 } from "./authority-production-state.ts";
 import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
+import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -75,6 +76,7 @@ interface RepoProductionMaterial {
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly authoredRoot: string;
   readonly configurationDigest: string;
+  readonly serviceStateRoot: string;
 }
 
 const productionAuthorityV2EntityKinds = [
@@ -145,7 +147,8 @@ export function createProductionAuthorityLifecycle(input: {
           rootDir: repo.canonicalRoot,
           ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
         }).authoredRoot,
-        configurationDigest: authorityManifestSourceDigest(input.manifestPath)
+        configurationDigest: authorityManifestSourceDigest(input.manifestPath),
+        serviceStateRoot: manifest.serviceStateRoot
       });
       publicationObservers.set(repo.repoId, async (previousCommit) => {
         const inspector = createGitCanonicalPublicationInspector(
@@ -245,9 +248,17 @@ function createRepoComponent(
       throw new Error("AUTHORITY_CONNECTION_CONTEXT_REQUIRED");
     }
   };
+  const compoundReceipt = createProductionCompoundReceiptComposition({
+    workspaceId: material.config.workspaceId,
+    viewId: material.config.viewId,
+    canonicalRoot: material.config.canonicalRoot,
+    stateDirectory: `${material.serviceStateRoot}/compound-receipts/${Buffer.from(material.config.repoId, "utf8").toString("base64url")}`,
+    replicaChangeLog: input.replicaChangeLog
+  });
   return {
     commandSubmissionV2: unbound,
     cutoverControl,
+    compoundReceipt,
     setServing: (value) => {
       if (stopped && value) throw new Error("AUTHORITY_REPO_COMPONENT_STOPPED");
       serving = value;

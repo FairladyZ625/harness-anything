@@ -26,6 +26,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createDaemonServiceHost } from "./daemon/service-host.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
+import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -34,6 +35,8 @@ type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayNa
 const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
+  const compoundExit = await runCompoundReceiptExitCommand(argv);
+  if (compoundExit !== undefined) return compoundExit;
   const daemonOverrides = stripGlobalOptions(argv);
   if (daemonOverrides.daemonMode) process.env.HARNESS_DAEMON_MODE = daemonOverrides.daemonMode;
   if (daemonOverrides.daemonProfile) process.env.HARNESS_DAEMON_PROFILE = daemonOverrides.daemonProfile;
