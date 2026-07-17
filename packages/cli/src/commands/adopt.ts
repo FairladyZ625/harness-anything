@@ -16,7 +16,8 @@ export interface AdoptMulticaAction {
 }
 
 export interface SnapshotMulticaAction {
-  readonly kind: "snapshot-multica";
+  readonly kind: "external-snapshot";
+  readonly provider: "multica";
   readonly ref: string;
   readonly title: string;
   readonly status: string;

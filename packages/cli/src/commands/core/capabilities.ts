@@ -133,8 +133,8 @@ function dispositionForEntity(kind: string): ReadonlyArray<Record<string, unknow
 
 function commandForWriteOpKind(kind: string): string {
   const commands: Record<string, string> = {
-    decision_retire: "ha decision retire <id>",
-    decision_supersede: "ha decision supersede <id>",
+    decision_retire: "ha decision transition retired <id>",
+    decision_supersede: "ha decision transition superseded <id>",
     package_archive: "ha task archive <id> --reason <reason>",
     package_tombstone: "ha task delete --soft <id> --reason <reason>",
     package_delete_hard: "ha task delete --hard <id> --confirm <id> --reason <reason>",

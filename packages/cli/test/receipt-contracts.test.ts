@@ -200,7 +200,9 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
       ...Object.entries(contract.optionalPaths ?? {}).map(([field, reason]) => ({ command, field: `paths.${field}`, reason }))
     ]);
 
-  assert.deepEqual(optionalEntries, [{
+  const byCommandAndField = (left: { command: string; field: string }, right: { command: string; field: string }): number =>
+    `${left.command}:${left.field}`.localeCompare(`${right.command}:${right.field}`);
+  assert.deepEqual(optionalEntries.toSorted(byCommandAndField), [{
     command: "new-task",
     field: "data.preset",
     reason: "Only emitted when task creation runs through a selected preset."
@@ -301,9 +303,29 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "paths.primary",
     reason: "Present when at least one legacy Session requires conversion."
   }, {
+    command: "doc-sync",
+    field: "data.rows",
+    reason: "Only emitted by --dry-run previews."
+  }, {
+    command: "doc-sync",
+    field: "paths.primary",
+    reason: "Only emitted by --dry-run previews."
+  }, {
     command: "governance-rebuild",
     field: "data.generated",
     reason: "Only emitted for apply/archive rebuild modes that write generated governance views."
+  }, {
+    command: "preset-entrypoint",
+    field: "data.rows",
+    reason: "Only emitted when a scripted preset run writes a numeric rows value in its result."
+  }, {
+    command: "preset-entrypoint",
+    field: "data.runId",
+    reason: "Only emitted by the semantic script host for an executable v3 entrypoint."
+  }, {
+    command: "preset-entrypoint",
+    field: "data.capabilityReceipt",
+    reason: "Only emitted by v3 semantic execution with its exact provider bindings."
   }, {
     command: "preset-run",
     field: "data.rows",
@@ -332,7 +354,7 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     command: "script-run",
     field: "data.rows",
     reason: "Only emitted when a script writes a numeric rows value in its script-result/v1 payload."
-  }]);
+  }].toSorted(byCommandAndField));
   assert.equal(optionalEntries.every((entry) => entry.reason.trim().length > 0), true);
 });
 

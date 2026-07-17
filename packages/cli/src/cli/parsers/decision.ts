@@ -12,7 +12,7 @@ import { parseDecisionAmendPatches } from "./decision-amend.ts";
 import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 import { readDecisionBody } from "./decision-body.ts";
 import { parseDecisionPinCommand } from "./decision-pin.ts";
-import { isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
+import { decisionTransitionOpForState, isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
 import { parseChoiceInputs, parseClaimInputs, parseRejectedInputs } from "./decision-propose-inputs.ts";
 import { parseDecisionRelationOp } from "./decision-relation.ts";
 import { jsonBoolean, jsonPayloadFor, jsonString, jsonStringList, jsonValues, type JsonPayload } from "./json-values.ts";
@@ -21,7 +21,6 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 
 const tiers = new Set(["low", "medium", "high"]);
 const evidenceTargetKinds = new Set(["task", "fact", "decision"]);
-
 export function parseDecisionArgs(
   args: ReadonlyArray<string>,
   rootDir: string,
@@ -52,6 +51,16 @@ export function parseDecisionArgs(
   const pinCommand = parseDecisionPinCommand(op, args, rootDir, json);
   if (pinCommand) return pinCommand;
   if (op === "propose") return parseDecisionPropose(args, rootDir, json, jsonPayloadFor(input, "decision-propose"));
+  if (op === "transition") {
+    const transitionOp = decisionTransitionOpForState(args[2]);
+    if (!transitionOp || !args[3]) {
+      return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision transition <active|rejected|deferred|superseded|retired> <decision-id>.") };
+    }
+    const normalizedArgs = ["decision", transitionOp, args[3], ...args.slice(4)];
+    const transition = parseDecisionTransitionArgs(normalizedArgs, transitionOp);
+    if (!transition.ok) return transition;
+    return parsedDecision(rootDir, json, transition.value);
+  }
   if (op === "reckon" && args[2]) {
     const taskId = readOption(args, "--task");
     if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use decision reckon <decision-id> --task <task-id>.") };
@@ -87,7 +96,7 @@ export function parseDecisionArgs(
   }
   if (op === "relate" && args[2]) return parseDecisionRelate(args, rootDir, json);
   if (op === "relation") return parseDecisionRelationOp(args, rootDir, json);
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|verify|repin|propose|accept|reject|defer|supersede|amend|relate|reckon|relation|retire.") };
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|verify|repin|propose|transition|amend|relate|reckon|relation.") };
 }
 
 function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json: boolean, payload?: JsonPayload): ParseResult {

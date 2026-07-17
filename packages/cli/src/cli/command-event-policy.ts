@@ -4,11 +4,11 @@ import type { ParsedCommand } from "./types.ts";
 
 export type { RuntimeEventPolicy } from "./command-spec/types.ts";
 
-const conflictMarkerPreflightByKind = commandSpecMap((entry) => entry.eventPolicy.conflictMarkerPreflight) satisfies Record<CommandKind, boolean>;
+const conflictMarkerPreflightByKind = commandSpecMap((entry) => entry.eventPolicy.conflictMarkerPreflight);
 
-const runtimeEventPolicyByKind = commandSpecMap((entry) => entry.eventPolicy.runtimeEvent) satisfies Record<CommandKind, RuntimeEventPolicy>;
+const runtimeEventPolicyByKind = commandSpecMap((entry) => entry.eventPolicy.runtimeEvent);
 
-const taskPrincipalRequiredKinds = new Set<CommandKind>([
+const taskPrincipalRequiredKinds = new Set<string>([
   "status-set",
   "task-archive",
   "task-claim",
@@ -24,6 +24,8 @@ const taskPrincipalRequiredKinds = new Set<CommandKind>([
 ]);
 
 export function requiresConflictMarkerPreflight(action: ParsedCommand["action"] | CommandKind): boolean {
+  if (typeof action !== "string" && action.kind === "task-show" && action.view === "tree") return true;
+  if (typeof action !== "string" && action.kind === "doc-sync" && action.mode === "submit") return true;
   return conflictMarkerPreflightByKind[commandKind(action)];
 }
 
@@ -39,7 +41,7 @@ export function taskPrincipalRequiredForAction(action: ParsedCommand["action"] |
 }
 
 function commandKind(action: ParsedCommand["action"] | CommandKind): CommandKind {
-  return typeof action === "string" ? action : action.kind as CommandKind;
+  return (typeof action === "string" ? action : action.kind) as CommandKind;
 }
 
 function isDryRun(action: ParsedCommand["action"]): boolean {

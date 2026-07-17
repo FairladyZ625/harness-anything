@@ -17,9 +17,9 @@ import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 import { verifyDecisionContentPins } from "./decision-content-pin-verifier.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
-  | "decision-verify" | "decision-repin" | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
+  | "decision-verify" | "decision-repin" | "decision-propose" | "decision-transition" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace"
 }>;
-type TransitionAction = Extract<DecisionAction, { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire" }>;
+type TransitionAction = Extract<DecisionAction, { readonly kind: "decision-transition" }>;
 
 export const runDecisionCommand: CommandRunner = (context, command) => {
   if (command.action.kind === "decision-list" || command.action.kind === "decision-show") {
@@ -33,11 +33,7 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
       return runPropose(context.layoutInput, service, action);
     case "decision-repin":
       return runDecisionRepin(context.layoutInput, service, action);
-    case "decision-accept":
-    case "decision-reject":
-    case "decision-defer":
-    case "decision-supersede":
-    case "decision-retire":
+    case "decision-transition":
       return runTransition(context.layoutInput, service, action);
     case "decision-amend":
       return runAmend(context.layoutInput, service, action);
@@ -109,17 +105,18 @@ function runTransition(
   service: DecisionWriteService,
   action: TransitionAction
 ): Effect.Effect<CliResult, WriteError> {
+  const command = transitionCommand(action);
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.flatMap((document) => {
       const current = document.decision;
       const fulfilled = applyClaimFulfillments(current, action.fulfillments);
-      if (!fulfilled.ok) return Effect.succeed(fulfillmentFailure(action.kind, current.decision_id, fulfilled.reason));
+      if (!fulfilled.ok) return Effect.succeed(fulfillmentFailure(command, current.decision_id, fulfilled.reason));
       const request = {
         current,
         claims: fulfilled.decision.claims,
         decidedAt: action.decidedAt,
         judgmentOnlyRationale: action.judgmentOnlyRationale,
-        ...(action.kind === "decision-accept" && action.standingPolicy ? { decisionClass: "standing-policy" as const } : {}),
+        ...(action.transition === "accept" && action.standingPolicy ? { decisionClass: "standing-policy" as const } : {}),
         body: action.body
       };
       const withBodyWarning = (result: CliResult): CliResult => withDecisionBodyEmptyWarning(
@@ -128,33 +125,33 @@ function runTransition(
         current.title
       );
       if (action.dryRun) {
-        if (action.kind === "decision-accept" && current.state === "proposed" && !action.judgmentOnlyRationale?.trim() && !decisionHasAcceptEvidenceFloor(current)) {
+        if (action.transition === "accept" && current.state === "proposed" && !action.judgmentOnlyRationale?.trim() && !decisionHasAcceptEvidenceFloor(current)) {
           return Effect.succeed({
             ok: false,
-            command: action.kind,
+            command,
             decisionId: current.decision_id,
             error: cliError(CliErrorCode.DecisionWriteRejected, acceptEvidenceFloorHint(current))
           } satisfies CliResult);
         }
-        const result = decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true);
-        return Effect.succeed(action.kind === "decision-accept" ? withBodyWarning(result) : result);
+        const result = decisionResult(rootInput, command, current.decision_id, transitionState(action.transition), true);
+        return Effect.succeed(action.transition === "accept" ? withBodyWarning(result) : result);
       }
-      switch (action.kind) {
-        case "decision-accept":
-          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error, current), onSuccess: (result) => withBodyWarning(decisionResult(rootInput, action.kind, result.decisionId, result.state, false)) }));
-        case "decision-reject":
-          return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
-        case "decision-defer":
-          return service.defer(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
-        case "decision-supersede":
-          return service.supersede(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
-        case "decision-retire":
-          return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
+      switch (action.transition) {
+        case "accept":
+          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error, current), onSuccess: (result) => withBodyWarning(decisionResult(rootInput, command, result.decisionId, result.state, false)) }));
+        case "reject":
+          return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+        case "defer":
+          return service.defer(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+        case "supersede":
+          return service.supersede(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
+        case "retire":
+          return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(command, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, command, result.decisionId, result.state, false) }));
       }
     }),
     Effect.catchAll(() => Effect.succeed({
       ok: false,
-      command: action.kind,
+      command,
       decisionId: action.decisionId,
       error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
     } satisfies CliResult))
@@ -194,18 +191,22 @@ function runAmend(
   );
 }
 
-function transitionState(kind: TransitionAction["kind"]): DecisionState {
-  switch (kind) {
-    case "decision-accept":
+function transitionState(transition: TransitionAction["transition"]): DecisionState {
+  switch (transition) {
+    case "accept":
       return "active";
-    case "decision-reject":
+    case "reject":
       return "rejected";
-    case "decision-defer":
+    case "defer":
       return "deferred";
-    case "decision-supersede":
-    case "decision-retire":
+    case "supersede":
+    case "retire":
       return "retired";
   }
+}
+
+function transitionCommand(action: TransitionAction): `decision-${TransitionAction["transition"]}` {
+  return `decision-${action.transition}`;
 }
 
 function fulfillmentFailure(command: string, decisionId: string, reason: string): CliResult {

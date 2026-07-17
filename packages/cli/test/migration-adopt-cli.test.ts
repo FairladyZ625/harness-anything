@@ -14,8 +14,12 @@ const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
 test("CLI exposes Multica snapshot as readonly JSON evidence", () => {
   withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["snapshot", "multica", "FAI-1", "--status", "In Review", "--title", "Review Item"]);
+    const legacy = runJson(rootDir, ["snapshot", "multica", "FAI-1", "--status", "In Review", "--title", "Review Item"]);
+    const result = runJson(rootDir, ["external", "snapshot", "multica", "FAI-1", "--status", "In Review", "--title", "Review Item"]);
 
+    legacy.report.snapshot.fetchedAt = "<generated>";
+    result.report.snapshot.fetchedAt = "<generated>";
+    assert.deepEqual(result, legacy);
     assert.equal(result.ok, true);
     assert.equal(result.command, "snapshot-multica");
     assert.equal(result.report.externalWrites, false);

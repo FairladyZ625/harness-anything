@@ -28,18 +28,14 @@
     "daemon-stop"
   ],
   "decision": [
-    "decision-accept",
     "decision-amend",
-    "decision-defer",
     "decision-list",
     "decision-propose",
     "decision-reckon",
-    "decision-reject",
     "decision-relate",
     "decision-repin",
-    "decision-retire",
     "decision-show",
-    "decision-supersede",
+    "decision-transition",
     "decision-verify"
   ],
   "diagnostics": [
@@ -51,8 +47,7 @@
   ],
   "doc": [
     "doc-status",
-    "doc-sync-dry-run",
-    "doc-sync-submit"
+    "doc-sync"
   ],
   "doctor": [
     "doctor"
@@ -64,6 +59,10 @@
   "execution": [
     "execution-list",
     "execution-show"
+  ],
+  "external": [
+    "external-list",
+    "external-snapshot"
   ],
   "fact": [
     "fact-invalidate",
@@ -97,9 +96,6 @@
     "lesson-promote",
     "lesson-sediment"
   ],
-  "list": [
-    "list-github"
-  ],
   "materializer": [
     "materializer-run"
   ],
@@ -122,13 +118,12 @@
     "module-unregister"
   ],
   "preset": [
-    "preset-action",
     "preset-audit",
     "preset-check",
+    "preset-entrypoint",
     "preset-inspect",
     "preset-install",
     "preset-list",
-    "preset-run",
     "preset-seed",
     "preset-uninstall",
     "preset-validate"
@@ -150,12 +145,7 @@
     "session-backfill",
     "session-export",
     "session-show",
-    "session-sync",
-    "session-trace"
-  ],
-  "snapshot": [
-    "snapshot-github",
-    "snapshot-multica"
+    "session-sync"
   ],
   "status": [
     "status"
@@ -180,9 +170,7 @@
     "task-review",
     "task-review-execution",
     "task-show",
-    "task-supersede",
-    "task-trace",
-    "task-tree"
+    "task-supersede"
   ],
   "template": [
     "template-list",

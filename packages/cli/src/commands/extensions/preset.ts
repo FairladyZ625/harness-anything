@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { isPresetRunEntrypoint } from "../../cli/preset-entrypoint-capabilities.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";
 import {
@@ -38,8 +39,7 @@ type PresetAction = Extract<ParsedCommand["action"], {
     | "preset-seed"
     | "preset-audit"
     | "preset-uninstall"
-    | "preset-run"
-    | "preset-action"
+    | "preset-entrypoint"
 }>;
 export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAction, pendingOps: WriteOp[]): CliResult {
   let activeVerticalId: string | undefined;
@@ -66,10 +66,12 @@ export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAc
       return runPresetAudit(rootInput, activeVerticalId!);
     case "preset-uninstall":
       return runPresetUninstall(rootInput, action);
-    case "preset-run":
-      return runPresetEntrypoint(rootInput, activeVerticalId!, action.presetId, action.entrypoint, action.taskId, "preset-run", pendingOps, action.allowScripts, action.inputs);
-    case "preset-action":
-      return runPresetAction(rootInput, activeVerticalId!, action, pendingOps);
+    case "preset-entrypoint":
+      if (action.entrypointType === "action") return runPresetAction(rootInput, activeVerticalId!, action, pendingOps);
+      if (!isPresetRunEntrypoint(action.entrypointName)) {
+        return { ok: false, command: "preset-run", error: cliError(CliErrorCode.InvalidEntrypoint, `Unknown preset entrypoint: ${action.entrypointName}`) };
+      }
+      return runPresetEntrypoint(rootInput, activeVerticalId!, action.presetId, action.entrypointName, action.taskId, "preset-run", pendingOps, action.allowScripts, action.inputs);
   }
 }
 
@@ -208,20 +210,20 @@ function removePresetPackage(targetRoot: string): void {
   rmSync(targetRoot, { recursive: true, force: true });
 }
 
-function runPresetAction(rootInput: HarnessLayoutInput, activeVerticalId: string, action: Extract<PresetAction, { readonly kind: "preset-action" }>, pendingOps: WriteOp[]): CliResult {
+function runPresetAction(rootInput: HarnessLayoutInput, activeVerticalId: string, action: Extract<PresetAction, { readonly kind: "preset-entrypoint" }>, pendingOps: WriteOp[]): CliResult {
   const preset = resolvePresetEntry(rootInput, action.presetId, activeVerticalId);
   if (!preset) return presetNotFound("preset-action", action.presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
-  const declared = preset.manifest.entrypoints?.[action.actionName];
-  if (!declared && action.actionName !== "plan" && action.actionName !== "scaffold" && action.actionName !== "check") {
+  const declared = preset.manifest.entrypoints?.[action.entrypointName];
+  if (!declared && action.entrypointName !== "plan" && action.entrypointName !== "scaffold" && action.entrypointName !== "check") {
     return {
       ok: false,
       command: "preset-action",
       preset: { id: action.presetId },
-      error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
+      error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.entrypointName} is not declared.`)
     };
   }
-  return runPresetEntrypoint(rootInput, activeVerticalId, action.presetId, action.actionName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
+  return runPresetEntrypoint(rootInput, activeVerticalId, action.presetId, action.entrypointName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
 }
 
 function usesActiveVertical(action: PresetAction): boolean {

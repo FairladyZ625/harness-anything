@@ -48,11 +48,11 @@ discarded at error boundaries.
 ## CLI
 
 ```text
-ha snapshot github owner/repo#123 --json
-ha list github owner/repo --json
+ha external snapshot github owner/repo#123 --json
+ha external list github owner/repo --json
 ```
 
-`list github` also accepts optional `--raw-status` and `--label` filters. Both
+`external list github` also accepts optional `--raw-status` and `--label` filters. Both
 commands directly compose this read provider and do not enter daemon write,
 SME, task lease, doc-sync, or local mutation paths.
 

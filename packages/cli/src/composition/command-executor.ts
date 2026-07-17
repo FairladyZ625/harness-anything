@@ -18,6 +18,7 @@ import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationa
 import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
+import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { finalizeDryRunResult } from "../cli/dry-run-preview.ts";
 import { leaseEnforcementEnabled, resolveTaskLeaseTtlMs } from "../commands/settings.ts";
@@ -221,7 +222,7 @@ export async function runRegisteredCommandWithCliComposition(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
-        command: command.action.kind,
+        command: receiptCommandKind(command.action),
         taskId: actionTaskId(command.action),
         error: toCliError(error)
       }),

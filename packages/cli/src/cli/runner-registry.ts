@@ -6,6 +6,7 @@ import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
 import { requiresConflictMarkerPreflight, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
+import { receiptCommandKind } from "./receipt-command-kind.ts";
 import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";
 import type { CommandSpecDefinition } from "./command-spec/types.ts";
 import { commandDescriptors, commandRegistry } from "./command-registry.ts";
@@ -125,13 +126,13 @@ export function runRegisteredCommand(
 ): CommandRunnerEffect {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
-  const conflictMarkerResult = requiresConflictMarkerPreflight(command.action) ? readConflictMarkerPreflight(command.action.kind, layoutInput) : undefined;
+  const conflictMarkerResult = requiresConflictMarkerPreflight(command.action) ? readConflictMarkerPreflight(receiptCommandKind(command.action), layoutInput) : undefined;
   if (conflictMarkerResult?.ok === false) return Effect.succeed(conflictMarkerResult.result);
   const conflictMarkerWarning = conflictMarkerResult?.warning;
   if (conflictMarkerWarning) {
     return Effect.succeed({
       ok: false,
-      command: command.action.kind,
+      command: receiptCommandKind(command.action),
       warnings: [conflictMarkerWarning],
       error: cliError(CliErrorCode.ConflictMarkerPresent, conflictMarkerWarning.message)
     } satisfies CliResult);
@@ -196,7 +197,7 @@ export function runRegisteredCommand(
     } catch (error) {
       return Effect.succeed({
         ok: false,
-        command: command.action.kind,
+        command: receiptCommandKind(command.action),
         taskId: actionTaskId(command.action),
         error: cliError(CliErrorCode.AuthMissing, error instanceof Error ? error.message : String(error))
       } satisfies CliResult);
@@ -205,7 +206,7 @@ export function runRegisteredCommand(
   return runner(context, command).pipe(
     Effect.catchAll((error) => Effect.succeed({
       ok: false,
-      command: command.action.kind,
+      command: receiptCommandKind(command.action),
       taskId: actionTaskId(command.action),
       error: toCliError(error)
     } satisfies CliResult)),

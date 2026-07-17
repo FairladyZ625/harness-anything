@@ -52,8 +52,14 @@ test("CLI parser and read runner accept shorthand and issue URL refs with JSON r
 
 test("CLI list command returns repo-scoped paginated projections and no authored files", () => {
   withTempRoot((rootDir) => {
+    const legacy = execute(rootDir, [
+      "list", "github", "Acme/Widgets", "--raw-status", "closed:completed", "--label", "fixture-label", "--json"
+    ], dependencies({
+      responses: [readResponse("list-page-1.json").response, readResponse("list-page-2.json").response]
+    }));
     const requests: GithubHttpRequest[] = [];
     const receipt = execute(rootDir, [
+      "external",
       "list",
       "github",
       "Acme/Widgets",
@@ -70,6 +76,10 @@ test("CLI list command returns repo-scoped paginated projections and no authored
       requests
     }));
 
+    assert.deepEqual(
+      { ...receipt, meta: { ...receipt.meta, generatedAt: legacy.meta.generatedAt } },
+      legacy
+    );
     assert.equal(receipt.ok, true);
     assert.equal(receipt.command, "list github");
     assert.equal(receipt.rows, 1);
@@ -120,12 +130,18 @@ test("CLI missing credential is AuthMissing and makes zero transport calls", () 
     const resolver: GithubCredentialResolver = {
       resolve: () => Effect.fail({ _tag: "AuthMissing", engine: "github" })
     };
-    const receipt = execute(rootDir, ["snapshot", "github", "acme/widgets#101", "--json"], dependencies({
+    const legacy = execute(rootDir, ["snapshot", "github", "acme/widgets#101", "--json"], dependencies({
+      responses: [readResponse("open-planned.json").response],
+      requests,
+      credentialResolver: resolver
+    }));
+    const receipt = execute(rootDir, ["external", "snapshot", "github", "acme/widgets#101", "--json"], dependencies({
       responses: [readResponse("open-planned.json").response],
       requests,
       credentialResolver: resolver
     }));
 
+    assert.deepEqual(receipt, legacy);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.error?.code, "AuthMissing");
     assert.equal(requests.length, 0);
@@ -156,12 +172,12 @@ function execute(
   const result = Effect.runSync(Effect.either(runGithubIssuesReadAction(action, deps)));
   const cliResult: CliResult = Either.isRight(result)
     ? result.right
-    : { ok: false, command: action.kind, error: toCliError(result.left) };
+    : { ok: false, command: action.kind === "external-snapshot" ? "snapshot-github" : "list-github", error: toCliError(result.left) };
   return toCommandReceipt(cliResult);
 }
 
 function githubAction(command: ParsedCommand): GithubIssuesReadAction {
-  if (command.action.kind === "snapshot-github" || command.action.kind === "list-github") return command.action;
+  if (command.action.kind === "external-snapshot" || command.action.kind === "external-list") return command.action;
   throw new Error(`unexpected action: ${command.action.kind}`);
 }
 

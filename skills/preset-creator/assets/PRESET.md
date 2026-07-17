@@ -5,7 +5,7 @@ whenToUse: Replace this with the conditions that make this preset the right expl
 inputs:
   example: Explain one declared input, or remove the inputs block.
 entrypoints:
-  plan: ha preset run <preset-id> plan --task <task-id> --allow-scripts
+  plan: ha preset entrypoint <preset-id> plan --task <task-id> --allow-scripts
 ---
 
 # Preset Title

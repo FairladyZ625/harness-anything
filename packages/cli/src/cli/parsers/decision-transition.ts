@@ -5,13 +5,12 @@ import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 
 const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
 
-type TransitionAction = Extract<ParsedCommand["action"], { readonly kind:
-  | "decision-accept"
-  | "decision-reject"
-  | "decision-defer"
-  | "decision-supersede"
-  | "decision-retire"
-}>;
+type TransitionAction = Extract<ParsedCommand["action"], { readonly kind: "decision-transition" }>;
+const stateOps = { active: "accept", rejected: "reject", deferred: "defer", superseded: "supersede", retired: "retire" } as const;
+
+export function decisionTransitionOpForState(state: string | undefined): TransitionAction["transition"] | undefined {
+  return stateOps[state as keyof typeof stateOps];
+}
 
 export function isDecisionTransitionOp(value: string | undefined): value is "accept" | "reject" | "defer" | "supersede" | "retire" {
   return transitionOps.has(value ?? "");
@@ -37,7 +36,8 @@ export function parseDecisionTransitionArgs(
   return {
     ok: true,
     value: {
-      kind: `decision-${op}` as TransitionAction["kind"],
+      kind: "decision-transition",
+      transition: op,
       decisionId: args[2]!,
       decidedAt: readOption(args, "--decided-at"),
       ...(op === "accept" && judgmentOnlyRationale ? { judgmentOnlyRationale } : {}),

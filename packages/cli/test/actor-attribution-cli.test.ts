@@ -136,9 +136,10 @@ test("negative trust-boundary test: preset executor is derived from the parsed c
     rootDir: "/repo",
     json: true,
     action: {
-      kind: "preset-run",
+      kind: "preset-entrypoint",
       presetId: "usage-acceptance",
-      entrypoint: "check",
+      entrypointName: "check",
+      entrypointType: "run",
       taskId: "task_01TEST",
       allowScripts: true,
       inputs: {}

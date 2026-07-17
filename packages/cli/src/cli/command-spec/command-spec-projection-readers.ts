@@ -5,21 +5,12 @@ import { defineCommandSpecs } from "./types.ts";
 export const projectionReaderCommandSpecs = defineCommandSpecs([
   {
     kind: "session-show",
-    usage: "session show <session-id> [--json]",
-    options: [{ flag: "--json", description: "Emit command-receipt/v2 JSON." }],
-    summary: "Show projected session metadata and its body object.",
-    examples: ["harness-anything session show ses_01ABC --json"],
-    parse: parseProjectionReaderArgs,
-    run: runProjectionReaderCommand,
-    receiptContract: { data: ["sessionId", "report"], paths: [] },
-    eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
-  },
-  {
-    kind: "session-trace",
-    usage: "session trace <session-id> [--json]",
-    options: [{ flag: "--json", description: "Emit command-receipt/v2 JSON." }],
-    summary: "Trace a session to execution ranges, tasks, and reviews.",
-    examples: ["harness-anything session trace ses_01ABC --json"],
+    usage: "session show <session-id> [--view summary|trace] [--json]",
+    options: [{ flag: "--view", description: "Select the summary or execution trace projection." }, { flag: "--json", description: "Emit command-receipt/v2 JSON." }],
+    aliases: ["session trace <session-id> (deprecated, use session show --view trace)"],
+    aliasDisplay: { "session trace <session-id> (deprecated, use session show --view trace)": "hidden" },
+    summary: "Show projected session metadata or its execution trace.",
+    examples: ["harness-anything session show ses_01ABC --view trace --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
     receiptContract: { data: ["sessionId", "report"], paths: [] },
@@ -45,17 +36,6 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
     receiptContract: { data: ["taskId", "rows", "report"], paths: [] },
-    eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
-  },
-  {
-    kind: "task-trace",
-    usage: "task trace <task-id> [--json]",
-    options: [{ flag: "--json", description: "Emit command-receipt/v2 JSON." }],
-    summary: "Trace task executions to sessions, reviews, ranges, and outputs.",
-    examples: ["harness-anything task trace task_01ABC --json"],
-    parse: parseProjectionReaderArgs,
-    run: runProjectionReaderCommand,
-    receiptContract: { data: ["taskId", "report"], paths: [] },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {

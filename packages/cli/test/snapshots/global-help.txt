@@ -20,6 +20,7 @@ Commands:
   entity - List registered entity kinds.
   event - Record and inspect runtime events.
   execution - Inspect task execution rounds.
+  external - Read external provider snapshots.
   fact - Read and record factual evidence.
   git - Capture Git diff evidence.
   governance - Rebuild governance projections.
@@ -29,7 +30,6 @@ Commands:
   init - Initialize a harness workspace.
   legacy - Intake legacy harness content.
   lesson - Promote and sediment lessons.
-  list - List external issue snapshots.
   materializer - Merge session ledger branches.
   migrate - Run compatibility migrations.
   module - Manage project modules.
@@ -38,7 +38,6 @@ Commands:
   review - Inspect execution reviews.
   script - Discover and run extension scripts.
   session - Inspect and export sessions.
-  snapshot - Read external issue snapshots.
   status - Summarize harness state.
   task - Manage task lifecycle and evidence.
   template - List and render templates.

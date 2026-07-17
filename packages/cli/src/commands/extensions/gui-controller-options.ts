@@ -62,11 +62,12 @@ function makeDaemonDecisionMutationPort(
       ? { ok: true, decisionId, state }
       : { ok: false, error: cliError(CliErrorCode.CommandReceiptContractMismatch, "Decision command returned no decision id or state.") };
   };
-  const transition = (kind: "decision-accept" | "decision-reject" | "decision-defer") => (
+  const transition = (transition: "accept" | "reject" | "defer") => (
     payload: DecisionTransitionPayload,
     context?: LocalControllerCallContext
   ) => run({
-    kind,
+    kind: "decision-transition",
+    transition,
     decisionId: payload.decisionId,
     fulfillments: [],
     dryRun: false,
@@ -94,8 +95,8 @@ function makeDaemonDecisionMutationPort(
       ...(payload.body !== undefined ? { body: payload.body } : {}),
       dryRun: false
     }, context),
-    accept: transition("decision-accept"),
-    reject: transition("decision-reject"),
-    defer: transition("decision-defer")
+    accept: transition("accept"),
+    reject: transition("reject"),
+    defer: transition("defer")
   };
 }

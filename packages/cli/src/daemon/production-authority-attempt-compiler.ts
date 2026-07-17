@@ -482,6 +482,6 @@ export function createProductionCanonicalSemanticState(authoredRoot: string) {
 
 function executorDerivedFromPreset(command: ParsedCommand, executorAgentId: string): boolean {
   const action = command.action;
-  return (action.kind === "preset-run" || action.kind === "preset-action")
+  return action.kind === "preset-entrypoint"
     && executorAgentId === `preset:${action.presetId}`;
 }

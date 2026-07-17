@@ -17,7 +17,6 @@ import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel
 import type { DecisionClaimFulfillment } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliError } from "./error-codes.ts";
-import type { PresetRunEntrypoint } from "./preset-entrypoint-capabilities.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
@@ -232,11 +231,8 @@ export interface ParsedCommand {
     | { readonly kind: "task-consent-record"; readonly taskId: string; readonly executionId: string; readonly utterance: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
     | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly consentUtterance?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate?: "passed" | "failed"; readonly reviewerId: string }
-    | { readonly kind: "task-show"; readonly taskId: string }
-    | { readonly kind: "task-tree"; readonly taskId: string }
-    | { readonly kind: "task-trace"; readonly taskId: string }
-    | { readonly kind: "session-show"; readonly sessionId: string }
-    | { readonly kind: "session-trace"; readonly sessionId: string }
+    | { readonly kind: "task-show"; readonly taskId: string; readonly view: "summary" | "trace" | "tree" }
+    | { readonly kind: "session-show"; readonly sessionId: string; readonly view: "summary" | "trace" }
     | { readonly kind: "execution-show"; readonly executionId: string }
     | { readonly kind: "execution-list"; readonly taskId: string }
     | { readonly kind: "review-show"; readonly reviewId: string }
@@ -248,7 +244,7 @@ export interface ParsedCommand {
     | { readonly kind: "decision-verify"; readonly decisionIds?: ReadonlyArray<string> }
     | { readonly kind: "decision-repin"; readonly decisionId: string; readonly migrationEvidence: string }
     | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: ReadonlyArray<DecisionChoiceInput>; readonly rejected: ReadonlyArray<DecisionRejectedInput>; readonly claim?: string; readonly claims: ReadonlyArray<DecisionClaimInput>; readonly claimLoadBearing: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }
-    | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly decidedAt?: string; readonly judgmentOnlyRationale?: string; readonly standingPolicy?: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-transition"; readonly transition: "accept" | "reject" | "defer" | "supersede" | "retire"; readonly decisionId: string; readonly decidedAt?: string; readonly judgmentOnlyRationale?: string; readonly standingPolicy?: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-reckon"; readonly decisionId: string; readonly taskId: string; readonly dryRun: boolean }
     | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly standingPolicy?: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly body?: string; readonly patches: ReadonlyArray<DecisionAmendPatchInput>; readonly dryRun: boolean }
     | { readonly kind: "decision-relate"; readonly decisionId: string; readonly anchor: string; readonly relationType: RelationType; readonly target: string; readonly rationale: string; readonly body?: string; readonly dryRun: boolean }
@@ -267,8 +263,7 @@ export interface ParsedCommand {
     | { readonly kind: "session-backfill"; readonly runtime?: SessionExportRuntime; readonly limit?: number }
     | { readonly kind: "session-sync"; readonly mode: "dry-run" | "apply" }
     | { readonly kind: "doc-status" }
-    | { readonly kind: "doc-sync-dry-run" }
-    | { readonly kind: "doc-sync-submit"; readonly paths: ReadonlyArray<string> }
+    | { readonly kind: "doc-sync"; readonly mode: "dry-run" | "submit"; readonly paths: ReadonlyArray<string> }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }
@@ -278,9 +273,9 @@ export interface ParsedCommand {
     | { readonly kind: "lesson-promote"; readonly taskId: string; readonly candidateId: string; readonly mode: LessonCommandMode }
     | { readonly kind: "lesson-sediment"; readonly taskId: string; readonly candidateId: string; readonly mode: "dry-run"; readonly title: string }
     | { readonly kind: "adopt-multica"; readonly taskId: string; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
-    | { readonly kind: "snapshot-multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
-    | { readonly kind: "snapshot-github"; readonly ref: string }
-    | { readonly kind: "list-github"; readonly repository: string; readonly rawStatus?: string; readonly label?: string }
+    | { readonly kind: "external-snapshot"; readonly provider: "github"; readonly ref: string }
+    | { readonly kind: "external-snapshot"; readonly provider: "multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
+    | { readonly kind: "external-list"; readonly provider: "github"; readonly repository: string; readonly rawStatus?: string; readonly label?: string }
     | { readonly kind: "migrate-plan"; readonly limit: number }
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
     | { readonly kind: "migrate-anchors"; readonly mode: AnchorBackfillMode }
@@ -321,8 +316,7 @@ export interface ParsedCommand {
     | { readonly kind: "preset-seed" }
     | { readonly kind: "preset-audit" }
     | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user"; readonly dryRun: boolean }
-    | { readonly kind: "preset-run"; readonly presetId: string; readonly entrypoint: PresetRunEntrypoint; readonly taskId: string; readonly allowScripts: boolean; readonly inputs: Record<string, string> }
-    | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string; readonly allowScripts: boolean; readonly inputs: Record<string, string> }
+    | { readonly kind: "preset-entrypoint"; readonly presetId: string; readonly entrypointName: string; readonly entrypointType: "run" | "action"; readonly taskId: string; readonly allowScripts: boolean; readonly inputs: Record<string, string> }
     | { readonly kind: "script-list"; readonly source?: "user" | "vertical" | "preset"; readonly purpose?: "scaffold" | "generate" | "transform" | "audit"; readonly scriptKind?: "action" | "check" }
     | { readonly kind: "script-inspect"; readonly scriptId: string }
     | { readonly kind: "script-run"; readonly scriptId: string; readonly taskId?: string; readonly dryRun: boolean; readonly inputs: Record<string, string> }

@@ -1,12 +1,11 @@
-import { commandSpecs } from "./command-spec/index.ts";
+import { commandSpecs, type CommandKind } from "./command-spec/index.ts";
 import type { CommandParseResult, CommandParser } from "./command-spec/types.ts";
 import type { CommandJsonInput } from "./json-input.ts";
-import type { ParsedCommand } from "./types.ts";
 
 export type ParseResult = CommandParseResult;
 
 export interface ParserRegistryEntry {
-  readonly commandKinds: ReadonlyArray<ParsedCommand["action"]["kind"]>;
+  readonly commandKinds: ReadonlyArray<CommandKind>;
   readonly parse: CommandParser;
 }
 

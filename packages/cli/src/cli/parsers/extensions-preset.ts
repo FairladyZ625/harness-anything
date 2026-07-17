@@ -49,19 +49,34 @@ export function parsePresetArgs(args: ReadonlyArray<string>, rootDir: string, js
     return { ok: true, value: { rootDir, json, action: { kind: "preset-uninstall", presetId: args[2], layer: args.includes("--project") ? "project" : "user", dryRun: args.includes("--dry-run") } } };
   }
 
+  if (args[0] === "preset" && args[1] === "entrypoint" && args[2] && args[3]) {
+    const entrypointName = args[3];
+    const runEntrypoint = isPresetRunEntrypoint(entrypointName);
+    const taskId = readOption(args, "--task");
+    if (!taskId) {
+      const hint = runEntrypoint ? "preset run requires --task <id>." : "preset action requires --task <id>.";
+      return { ok: false, error: cliError(CliErrorCode.MissingTask, hint) };
+    }
+    const shared = { presetId: args[2], taskId, allowScripts: args.includes("--allow-scripts"), inputs: readInputOptions(args) };
+    if (isPresetRunEntrypoint(entrypointName)) {
+      return { ok: true, value: { rootDir, json, action: { kind: "preset-entrypoint", ...shared, entrypointName, entrypointType: "run" } } };
+    }
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-entrypoint", ...shared, entrypointName, entrypointType: "action" } } };
+  }
+
   if (args[0] === "preset" && args[1] === "run" && args[2] && args[3]) {
     const taskId = readOption(args, "--task");
     if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTask, "preset run requires --task <id>.") };
     if (!isPresetRunEntrypoint(args[3])) {
       return { ok: false, error: cliError(CliErrorCode.InvalidEntrypoint, `Unknown preset entrypoint: ${args[3]}`) };
     }
-    return { ok: true, value: { rootDir, json, action: { kind: "preset-run", presetId: args[2], entrypoint: args[3], taskId, allowScripts: args.includes("--allow-scripts"), inputs: readInputOptions(args) } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-entrypoint", presetId: args[2], entrypointName: args[3], entrypointType: "run", taskId, allowScripts: args.includes("--allow-scripts"), inputs: readInputOptions(args) } } };
   }
 
   if (args[0] === "preset" && args[1] === "action" && args[2] && args[3]) {
     const taskId = readOption(args, "--task");
     if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTask, "preset action requires --task <id>.") };
-    return { ok: true, value: { rootDir, json, action: { kind: "preset-action", presetId: args[2], actionName: args[3], taskId, allowScripts: args.includes("--allow-scripts"), inputs: readInputOptions(args) } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-entrypoint", presetId: args[2], entrypointName: args[3], entrypointType: "action", taskId, allowScripts: args.includes("--allow-scripts"), inputs: readInputOptions(args) } } };
   }
 
   return null;

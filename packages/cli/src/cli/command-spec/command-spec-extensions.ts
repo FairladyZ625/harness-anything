@@ -145,39 +145,19 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "preset-run",
-    "usage": "preset run <id> <plan|scaffold|check|audit|gather|render-html> --task <id> [--allow-scripts] [--input key=value] [--json]",
+    "kind": "preset-entrypoint",
+    "usage": "preset entrypoint <id> <name> --task <id> [--allow-scripts] [--input key=value] [--json]",
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--allow-scripts","description":"Allow preset script execution."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Run a preset entrypoint for a task package.",
-    "examples": ["harness-anything preset run standard-task plan --task task_01ABC --input mode=smoke"],
+    "aliases": ["preset run <id> <entrypoint> (deprecated, use preset entrypoint)", "preset action <id> <action> (deprecated, use preset entrypoint)"],
+    "aliasDisplay": {"preset run <id> <entrypoint> (deprecated, use preset entrypoint)":"hidden", "preset action <id> <action> (deprecated, use preset entrypoint)":"hidden"},
+    "summary": "Run a named preset entrypoint for a task package.",
+    "examples": ["harness-anything preset entrypoint standard-task plan --task task_01ABC --input mode=smoke"],
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
       "optionalData": {
         "rows": "Only emitted when a scripted preset run writes a numeric rows value in its result.",
-        "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
-        "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
-      },
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "deferred"
-    }
-  },
-  {
-    "kind": "preset-action",
-    "usage": "preset action <id> <action> --task <id> [--allow-scripts] [--input key=value] [--json]",
-    "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--allow-scripts","description":"Allow preset script execution."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Run a named preset action for a task package.",
-    "examples": ["harness-anything preset action standard-task scaffold --task task_01ABC --input mode=smoke"],
-    "parse": parsePresetArgs,
-    "run": runExtensionRunnerCommand,
-    "receiptContract": {
-      "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
-      "optionalData": {
-        "rows": "Only emitted when a scripted preset action writes a numeric rows value in its result.",
         "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
         "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },

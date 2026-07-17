@@ -12,7 +12,7 @@ A cheat sheet for the commands you'll reach for most. Add `--json` to any comman
 | `ha task show <id>` | Show one task with projected status, metadata, hierarchy, relation edges, and fact anchors. |
 | `ha task transition <id> <state>` | Move a task to a new lifecycle state. |
 | `ha decision propose --title <t> ...` | Propose a decision (question, chosen, rejected, why-not). |
-| `ha decision accept <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
+| `ha decision transition active <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
 | `ha fact record --task <id> --statement <text>` | Record an append-only fact anchored to a task. |
 | `ha status` | Summarize harness state. |
 | `ha check` | Run harness health checks. |
@@ -30,7 +30,7 @@ ha task progress append <id> --text "Implemented first slice"
 **Decisions**
 ```bash
 ha decision propose --title "..." --question "..." --chosen "..." --rejected "..." --why-not "..."
-ha decision accept <id>       # or: reject | defer
+ha decision transition active <id>       # or: rejected | deferred
 ha decision list --state active
 ```
 

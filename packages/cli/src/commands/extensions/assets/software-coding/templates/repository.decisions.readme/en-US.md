@@ -6,7 +6,7 @@ This folder is the **entity store for load-bearing decisions** in this repositor
 
 ## 怎么用 (How to use)
 
-- **Do not hand-write or hand-edit the markdown here.** Decisions go through commands: `ha decision propose ...` to open, `ha decision accept ...` (or reject/defer/supersede) to adjudicate, `ha decision relate ...` to link evidence, `ha decision amend ...` to maintain state. The CLI owns the frontmatter, lifecycle state, fact evidence, and relation edges.
+- **Do not hand-write or hand-edit the markdown here.** Decisions go through commands: `ha decision propose ...` to open, `ha decision transition active ...` (or rejected/deferred/superseded) to adjudicate, `ha decision relate ...` to link evidence, `ha decision amend ...` to maintain state. The CLI owns the frontmatter, lifecycle state, fact evidence, and relation edges.
 - A decision carries: `question` / `chosen` / `rejected(+why_not)` / `claims` / `relations`. The load-bearing "why" lives here, not in scattered prose ledgers.
 - Link decisions to task/fact via relations (`decision -> task` implements, `fact -> decision` supports, etc.), not just prose references.
 
@@ -18,4 +18,4 @@ This folder is the **entity store for load-bearing decisions** in this repositor
 
 ## 相关命令 (Related commands)
 
-`ha decision propose` · `ha decision accept` · `ha decision list` · `ha decision relate`
+`ha decision propose` · `ha decision transition active` · `ha decision list` · `ha decision relate`

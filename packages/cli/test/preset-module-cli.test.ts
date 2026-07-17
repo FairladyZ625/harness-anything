@@ -418,12 +418,16 @@ test("CLI preset install malformed source returns stable preset error before wri
 test("CLI preset run rejects undeclared v2 actions instead of succeeding as no-ops", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["preset", "run", "module", "check", "--task", "task-1"], false);
+    const canonicalRun = runJson(rootDir, ["preset", "entrypoint", "module", "check", "--task", "task-1"], false);
 
+    assert.deepEqual(canonicalRun, result);
     assert.equal(result.ok, false);
     assert.equal(result.command, "preset-run");
     assert.equal(result.error.code, "preset_action_forbidden");
 
     const rejected = runJson(rootDir, ["preset", "action", "module", "deploy", "--task", "task-1"], false);
+    const canonicalAction = runJson(rootDir, ["preset", "entrypoint", "module", "deploy", "--task", "task-1"], false);
+    assert.deepEqual(canonicalAction, rejected);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error.code, "preset_action_forbidden");
 

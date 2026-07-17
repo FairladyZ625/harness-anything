@@ -703,7 +703,7 @@
     <span class="k">--rejected</span> "Client-only fix" <span class="k">--why-not</span> "Races with cookie set"
 <span class="ok">ok</span> command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 
-<span class="c">$</span> ha decision accept dec_mr6f3b4z
+<span class="c">$</span> ha decision transition active dec_mr6f3b4z
 <span class="ok">ok</span> command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md</pre>
           </figure>
           <p>
@@ -756,7 +756,7 @@
                 <tr><td><code>ha task create --title …</code></td><td><span lang="en">Create a new task package.</span><span lang="zh">创建一个新任务包。</span></td></tr>
                 <tr><td><code>ha task transition &lt;id&gt; &lt;state&gt;</code></td><td><span lang="en">Move a task to a new lifecycle state.</span><span lang="zh">把任务移到新的生命周期状态。</span></td></tr>
                 <tr><td><code>ha decision propose …</code></td><td><span lang="en">Propose a decision — question, chosen, rejected, why-not.</span><span lang="zh">提议一个决策——问题、已选、已拒、为何不。</span></td></tr>
-                <tr><td><code>ha decision accept &lt;id&gt;</code></td><td><span lang="en">Adjudicate a proposed decision — the evidence checkpoint.</span><span lang="zh">裁决一个提议的决策——证据检查点。</span></td></tr>
+                <tr><td><code>ha decision transition active &lt;id&gt;</code></td><td><span lang="en">Adjudicate a proposed decision — the evidence checkpoint.</span><span lang="zh">裁决一个提议的决策——证据检查点。</span></td></tr>
                 <tr><td><code>ha fact record --task &lt;id&gt; …</code></td><td><span lang="en">Record an append-only fact anchored to a task.</span><span lang="zh">记录一个锚定到任务、只增不改的事实。</span></td></tr>
                 <tr><td><code>ha status</code> · <code>ha check</code></td><td><span lang="en">Summarize state · run health checks.</span><span lang="zh">总结状态 · 运行健康检查。</span></td></tr>
                 <tr><td><code>ha graph</code></td><td><span lang="en">Render the relation graph as a self-contained HTML panorama.</span><span lang="zh">把关系图渲染成自包含 HTML 全景。</span></td></tr>
@@ -784,7 +784,7 @@
 
 <span class="c"># record a choice, then adjudicate it</span>
 <span class="c">$</span> ha decision list <span class="k">--state</span> active
-<span class="c">$</span> ha decision accept &lt;id&gt;        <span class="c"># or: reject | defer</span>
+<span class="c">$</span> ha decision transition active &lt;id&gt;        <span class="c"># or: rejected | deferred</span>
 
 <span class="c"># check state and navigate</span>
 <span class="c">$</span> ha status            <span class="c"># what state am I in?</span>
@@ -793,7 +793,7 @@
           <ul>
             <li><span lang="en"><code>ha task list --state active</code> — the tasks in flight right now, with state / module / search filters.</span><span lang="zh"><code>ha task list --state active</code> —— 此刻在飞的任务，带状态 / 模块 / 搜索过滤。</span></li>
             <li><span lang="en"><code>ha task progress append &lt;id&gt; --text …</code> — leave a dated line in the task's <code>progress.md</code> so the next agent inherits state, not a cold start.</span><span lang="zh"><code>ha task progress append &lt;id&gt; --text …</code> —— 在任务的 <code>progress.md</code> 里留下一行带日期的记录，让下一个代理接手的是状态，而不是冷启动。</span></li>
-            <li><span lang="en"><code>ha decision accept &lt;id&gt;</code> — the evidence checkpoint; its siblings <code>reject</code> and <code>defer</code> close the other doors.</span><span lang="zh"><code>ha decision accept &lt;id&gt;</code> —— 证据检查点；它的兄弟 <code>reject</code> 和 <code>defer</code> 关上另外两扇门。</span></li>
+            <li><span lang="en"><code>ha decision transition active &lt;id&gt;</code> — the evidence checkpoint; the <code>rejected</code> and <code>deferred</code> states close the other doors.</span><span lang="zh"><code>ha decision transition active &lt;id&gt;</code> —— 证据检查点；<code>rejected</code> 和 <code>deferred</code> 状态关上另外两扇门。</span></li>
             <li><span lang="en"><code>ha doctor</code> — read-only environment diagnostics when something feels off, safe to run anytime.</span><span lang="zh"><code>ha doctor</code> —— 感觉哪里不对时的只读环境诊断，随时跑都安全。</span></li>
           </ul>
         </section>
@@ -927,8 +927,8 @@
             <span lang="zh">它们的存储方式甚至是不对称的。决策是<strong>集中存放</strong>的——主干，人类该盯着看的那个唯一投影。任务是<strong>容器</strong>，各自一个目录。事实是<strong>嵌入</strong>在产生它的任务里的——因为脱离了任务的事实是不可信的。把"redis 在 10k QPS 下 p99 = 50ms"抽离语境，你就剥掉了它的出处。口号是：不要搬它，引用它。</span>
           </p>
           <p>
-            <span lang="en">And tasks aren't flat. A task can be created with a <code>--parent</code>, so work composes into a tree you can render with <code>ha task tree</code>. Tasks declare <code>depends-on</code> relations to each other, and the adapter rejects a dependency that would close a cycle — so "blocked behind itself" can't happen by accident. (One piece of fine print: <code>parent</code> is set at creation and can't be repointed afterwards; if you meant a different shape, supersede, don't edit.)</span>
-            <span lang="zh">而且任务不是扁平的。一个任务可以在创建时带 <code>--parent</code>，于是工作组合成一棵树，可以用 <code>ha task tree</code> 渲染。任务之间可以声明 <code>depends-on</code> 关系，而适配器会拒绝任何会闭合环的依赖——于是"被自己挡住"不会因失误而发生。（一条细则：<code>parent</code> 在创建时设定、之后不能改挂；如果你想要的是另一种结构，去 supersede，而不是去改它。）</span>
+            <span lang="en">And tasks aren't flat. A task can be created with a <code>--parent</code>, so work composes into a tree you can render with <code>ha task show &lt;id&gt; --view tree</code>. Tasks declare <code>depends-on</code> relations to each other, and the adapter rejects a dependency that would close a cycle — so "blocked behind itself" can't happen by accident. (One piece of fine print: <code>parent</code> is set at creation and can't be repointed afterwards; if you meant a different shape, supersede, don't edit.)</span>
+            <span lang="zh">而且任务不是扁平的。一个任务可以在创建时带 <code>--parent</code>，于是工作组合成一棵树，可以用 <code>ha task show &lt;id&gt; --view tree</code> 渲染。任务之间可以声明 <code>depends-on</code> 关系，而适配器会拒绝任何会闭合环的依赖——于是"被自己挡住"不会因失误而发生。（一条细则：<code>parent</code> 在创建时设定、之后不能改挂；如果你想要的是另一种结构，去 supersede，而不是去改它。）</span>
           </p>
           <button class="chip" type="button" data-target-tab="how" data-target-id="storage">
             <span lang="en">See how it's built</span><span lang="zh">看它是怎么存的</span>

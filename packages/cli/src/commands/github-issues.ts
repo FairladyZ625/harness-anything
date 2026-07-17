@@ -10,9 +10,10 @@ import {
 } from "../composition/adapter-registry.ts";
 import type { CommandRunner } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import { toCliError } from "../cli/error-mapper.ts";
 
 export type GithubIssuesReadAction = Extract<ParsedCommand["action"], {
-  readonly kind: "snapshot-github" | "list-github";
+  readonly kind: "external-snapshot" | "external-list";
 }>;
 
 export interface GithubIssuesReadDependencies {
@@ -20,7 +21,12 @@ export interface GithubIssuesReadDependencies {
 }
 
 export const runGithubIssuesCommand: CommandRunner = (_context, command) => {
-  return runGithubIssuesReadAction(command.action as GithubIssuesReadAction);
+  const action = command.action as GithubIssuesReadAction;
+  return runGithubIssuesReadAction(action).pipe(Effect.catchAll((error) => Effect.succeed({
+    ok: false,
+    command: action.kind === "external-snapshot" ? "snapshot-github" : "list-github",
+    error: toCliError(error)
+  } satisfies CliResult)));
 };
 
 export function runGithubIssuesReadAction(
@@ -28,7 +34,7 @@ export function runGithubIssuesReadAction(
   dependencies: GithubIssuesReadDependencies = {}
 ): Effect.Effect<CliResult, EngineError> {
   const createProvider = dependencies.createProvider ?? createGithubIssuesReadProvider;
-  if (action.kind === "snapshot-github") {
+  if (action.kind === "external-snapshot") {
     return createProvider().snapshot({ engine: "github", ref: action.ref }).pipe(
       Effect.map((snapshot) => snapshotResult(snapshot))
     );

@@ -142,36 +142,16 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "doc-sync-dry-run",
-    "usage": "doc sync --dry-run [--json]",
-    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Build a doc-sync write-intent preview without submitting it.",
-    "examples": ["harness-anything doc sync --dry-run --json"],
+    "kind": "doc-sync",
+    "usage": "doc sync (--dry-run|--submit [--path <authored-relative-path>]...) [--json]",
+    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--submit","description":"Submit eligible authored prose through the daemon doc-sync validator and committer."},{"flag":"--path","description":"Submit only this authored-root-relative dirty path; repeat to select multiple owned files."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Preview or submit authored prose through the governed doc-sync path.",
+    "examples": ["harness-anything doc sync --dry-run --json", "harness-anything doc sync --submit --path tasks/task_01ABC/task_plan.md --json"],
     "parse": parseDocArgs,
     "run": runDocCommand,
-    "receiptContract": {
-      "data": ["rows", "report"],
-      "paths": ["primary"]
-    },
+    "receiptContract": {"data":["report"],"paths":[],"optionalData":{"rows":"Only emitted by --dry-run previews."},"optionalPaths":{"primary":"Only emitted by --dry-run previews."}},
     "eventPolicy": {
       "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
-    "kind": "doc-sync-submit",
-    "usage": "doc sync --submit [--path <authored-relative-path>]... [--json]",
-    "options": [{"flag":"--submit","description":"Submit eligible authored prose through the daemon doc-sync validator and committer."},{"flag":"--path","description":"Submit only this authored-root-relative dirty path; repeat to select multiple owned files."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Submit eligible authored prose through the daemon single-writer path.",
-    "examples": ["harness-anything doc sync --submit --path tasks/task_01ABC/task_plan.md --json"],
-    "parse": parseDocArgs,
-    "run": runDocCommand,
-    "receiptContract": {
-      "data": ["report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
       "runtimeEvent": "none"
     }
   },

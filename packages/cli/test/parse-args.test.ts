@@ -4,12 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { commandDescriptors, commandRegistry } from "../src/cli/command-registry.ts";
-import { commandSpecs } from "../src/cli/command-spec/index.ts";
+import { commandSpecs, type CommandKind } from "../src/cli/command-spec/index.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
 import { parseCoreTaskArgs } from "../src/cli/parsers/core-task.ts";
 import { parseVersionArgs } from "../src/cli/parsers/meta.ts";
-import { presetRunEntrypointUsage } from "../src/cli/preset-entrypoint-capabilities.ts";
 import { runInitCommand } from "../src/commands/core/init.ts";
 import { runTaskLifecycleCommand } from "../src/commands/core/task-lifecycle.ts";
 import { runVersionCommand } from "../src/commands/core/version.ts";
@@ -24,6 +23,7 @@ interface ParseCase {
   readonly name: string;
   readonly argv: ReadonlyArray<string>;
   readonly kind: ParsedAction["kind"];
+  readonly registryKind?: CommandKind;
   readonly fields?: Readonly<Record<string, unknown>>;
 }
 
@@ -103,11 +103,14 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task consent record", argv: ["task", "consent-record", "task_1", "--execution-id", "exe_1", "--utterance", "Approved", "--consent-action", "approve_execution"], kind: "task-consent-record", fields: { taskId: "task_1", executionId: "exe_1", utterance: "Approved", consentActions: ["approve_execution"] } },
   { name: "task review execution", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--consent-utterance", "Approved", "--acknowledge-archive-warnings"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", verdict: "approved", findings: "ship it", evidenceChecked: ["ev_1"], rationale: "Evidence supports approval", archiveWarningsAcknowledged: true, consentUtterance: "Approved" } },
   { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
-  { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1" } },
-  { name: "task tree", argv: ["task", "tree", "task_1"], kind: "task-tree", fields: { taskId: "task_1" } },
-  { name: "task trace", argv: ["task", "trace", "task_1"], kind: "task-trace", fields: { taskId: "task_1" } },
-  { name: "session show", argv: ["session", "show", "ses_1"], kind: "session-show", fields: { sessionId: "ses_1" } },
-  { name: "session trace", argv: ["session", "trace", "ses_1"], kind: "session-trace", fields: { sessionId: "ses_1" } },
+  { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1", view: "summary" } },
+  { name: "task show trace view", argv: ["task", "show", "task_1", "--view", "trace"], kind: "task-show", fields: { taskId: "task_1", view: "trace" } },
+  { name: "task show tree view", argv: ["task", "show", "task_1", "--view", "tree"], kind: "task-show", fields: { taskId: "task_1", view: "tree" } },
+  { name: "task tree", argv: ["task", "tree", "task_1"], kind: "task-show", fields: { taskId: "task_1", view: "tree" } },
+  { name: "task trace", argv: ["task", "trace", "task_1"], kind: "task-show", fields: { taskId: "task_1", view: "trace" } },
+  { name: "session show", argv: ["session", "show", "ses_1"], kind: "session-show", fields: { sessionId: "ses_1", view: "summary" } },
+  { name: "session show trace view", argv: ["session", "show", "ses_1", "--view", "trace"], kind: "session-show", fields: { sessionId: "ses_1", view: "trace" } },
+  { name: "session trace", argv: ["session", "trace", "ses_1"], kind: "session-show", fields: { sessionId: "ses_1", view: "trace" } },
   { name: "execution show", argv: ["execution", "show", "exe_1"], kind: "execution-show", fields: { executionId: "exe_1" } },
   { name: "execution list", argv: ["execution", "list", "--task", "task_1"], kind: "execution-list", fields: { taskId: "task_1" } },
   { name: "review show", argv: ["review", "show", "rev_1"], kind: "review-show", fields: { reviewId: "rev_1" } },
@@ -125,16 +128,17 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "decision verify one", argv: ["decision", "verify", "dec_TEST"], kind: "decision-verify", fields: { decisionIds: ["dec_TEST"] } },
   { name: "decision verify all", argv: ["decision", "verify", "--all"], kind: "decision-verify", fields: { decisionIds: undefined } },
   { name: "decision repin migration", argv: ["decision", "repin", "dec_TEST", "--migration-evidence", "task/task_TEST/amend-after-pin"], kind: "decision-repin", fields: { decisionId: "dec_TEST", migrationEvidence: "task/task_TEST/amend-after-pin" } },
-  { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--judgment-only", "Manual judgment", "--standing-policy"], kind: "decision-accept", fields: { decisionId: "dec_TEST", judgmentOnlyRationale: "Manual judgment", standingPolicy: true } },
+  { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--judgment-only", "Manual judgment", "--standing-policy"], kind: "decision-transition", fields: { transition: "accept", decisionId: "dec_TEST", judgmentOnlyRationale: "Manual judgment", standingPolicy: true } },
+  { name: "decision transition active", argv: ["decision", "transition", "active", "dec_TEST", "--judgment-only", "Manual judgment", "--standing-policy"], kind: "decision-transition", fields: { transition: "accept", decisionId: "dec_TEST", judgmentOnlyRationale: "Manual judgment", standingPolicy: true } },
   { name: "decision reckon", argv: ["decision", "reckon", "dec_TEST", "--task", "task_1"], kind: "decision-reckon", fields: { decisionId: "dec_TEST", taskId: "task_1" } },
-  { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-reject", fields: { decisionId: "dec_TEST" } },
-  { name: "decision defer", argv: ["decision", "defer", "dec_TEST"], kind: "decision-defer", fields: { decisionId: "dec_TEST" } },
-  { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-supersede", fields: { decisionId: "dec_TEST" } },
+  { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-transition", fields: { transition: "reject", decisionId: "dec_TEST" } },
+  { name: "decision defer", argv: ["decision", "defer", "dec_TEST"], kind: "decision-transition", fields: { transition: "defer", decisionId: "dec_TEST" } },
+  { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-transition", fields: { transition: "supersede", decisionId: "dec_TEST" } },
   { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated", "--standing-policy", "--non-load-bearing", "C2", "--append", "rejected:{\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated", standingPolicy: true, patches: [{ field: "claims", operation: "metadata", value: "{\"id\":\"C2\",\"load_bearing\":false}" }, { field: "rejected", operation: "append", value: "{\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}" }] } },
   { name: "decision relate", argv: ["decision", "relate", "dec_TEST", "--anchor", "CH1", "--type", "supersedes", "--target", "decision/dec_OLD", "--rationale", "Newer decision replaces older storage claim"], kind: "decision-relate", fields: { decisionId: "dec_TEST", anchor: "CH1", relationType: "supersedes", target: "decision/dec_OLD", rationale: "Newer decision replaces older storage claim", dryRun: false } },
   { name: "decision relation retire", argv: ["decision", "relation", "retire", "dec_TEST", "--relation", "rel_0123456789abcdef"], kind: "decision-relation-retire", fields: { decisionId: "dec_TEST", relationId: "rel_0123456789abcdef", dryRun: false } },
   { name: "decision relation replace", argv: ["decision", "relation", "replace", "dec_TEST", "--relation", "rel_0123456789abcdef", "--anchor", "CH1", "--type", "relates", "--target", "decision/dec_OLD", "--rationale", "Replacement edge"], kind: "decision-relation-replace", fields: { decisionId: "dec_TEST", relationId: "rel_0123456789abcdef", anchor: "CH1", relationType: "relates", target: "decision/dec_OLD", rationale: "Replacement edge", dryRun: false } },
-  { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-retire", fields: { decisionId: "dec_TEST" } },
+  { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-transition", fields: { transition: "retire", decisionId: "dec_TEST" } },
   { name: "fact list", argv: ["fact", "list", "--task", "task_1"], kind: "fact-list", fields: { taskId: "task_1" } },
   { name: "fact show", argv: ["fact", "show", "--task", "task_1", "--id", "F-DEADBEEF"], kind: "fact-show", fields: { taskId: "task_1", factId: "F-DEADBEEF" } },
   { name: "fact record", argv: ["fact", "record", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory,task_skill", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", memoryClass: "procedural", memoryTags: ["tool_memory", "task_skill"], observedAt: "2026-07-03T00:00:00.000Z" } },
@@ -150,8 +154,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "session sync", argv: ["session", "sync"], kind: "session-sync", fields: { mode: "dry-run" } },
   { name: "session sync apply", argv: ["session", "sync", "--apply"], kind: "session-sync", fields: { mode: "apply" } },
   { name: "doc status", argv: ["doc", "status"], kind: "doc-status" },
-  { name: "doc sync dry-run", argv: ["doc", "sync", "--dry-run"], kind: "doc-sync-dry-run" },
-  { name: "doc sync submit", argv: ["doc", "sync", "--submit"], kind: "doc-sync-submit" },
+  { name: "doc sync dry-run", argv: ["doc", "sync", "--dry-run"], kind: "doc-sync", fields: { mode: "dry-run", paths: [] } },
+  { name: "doc sync submit", argv: ["doc", "sync", "--submit"], kind: "doc-sync", fields: { mode: "submit", paths: [] } },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",
@@ -181,9 +185,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "lesson promote", argv: ["lesson", "promote", "task_1", "candidate-1", "--apply"], kind: "lesson-promote", fields: { taskId: "task_1", candidateId: "candidate-1", mode: "apply" } },
   { name: "lesson sediment", argv: ["lesson", "sediment", "task_1", "candidate-1", "--title", "Learning"], kind: "lesson-sediment", fields: { taskId: "task_1", candidateId: "candidate-1", title: "Learning", mode: "dry-run" } },
   { name: "adopt multica", argv: ["adopt", "multica", "EXT-1", "--task", "task_1", "--title", "External", "--status", "todo"], kind: "adopt-multica", fields: { ref: "EXT-1", taskId: "task_1", title: "External", status: "todo" } },
-  { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "snapshot-multica", fields: { ref: "EXT-1", title: "External", status: "todo" } },
-  { name: "snapshot github", argv: ["snapshot", "github", "Acme/Widgets#101"], kind: "snapshot-github", fields: { ref: "Acme/Widgets#101" } },
-  { name: "list github", argv: ["list", "github", "Acme/Widgets", "--raw-status", "closed:completed", "--label", "fixture-label"], kind: "list-github", fields: { repository: "Acme/Widgets", rawStatus: "closed:completed", label: "fixture-label" } },
+  { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "external-snapshot", fields: { provider: "multica", ref: "EXT-1", title: "External", status: "todo" } },
+  { name: "snapshot github", argv: ["snapshot", "github", "Acme/Widgets#101"], kind: "external-snapshot", fields: { provider: "github", ref: "Acme/Widgets#101" } },
+  { name: "list github", argv: ["list", "github", "Acme/Widgets", "--raw-status", "closed:completed", "--label", "fixture-label"], kind: "external-list", fields: { provider: "github", repository: "Acme/Widgets", rawStatus: "closed:completed", label: "fixture-label" } },
+  { name: "external snapshot github", argv: ["external", "snapshot", "github", "Acme/Widgets#101"], kind: "external-snapshot", fields: { provider: "github", ref: "Acme/Widgets#101" } },
+  { name: "external list github", argv: ["external", "list", "github", "Acme/Widgets"], kind: "external-list", fields: { provider: "github", repository: "Acme/Widgets" } },
   { name: "migrate plan", argv: ["migrate", "plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
   { name: "migrate structure", argv: ["migrate", "structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
   { name: "migrate anchors", argv: ["migrate", "anchors", "--apply"], kind: "migrate-anchors", fields: { mode: "apply" } },
@@ -222,10 +228,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "preset audit", argv: ["preset", "audit"], kind: "preset-audit" },
   { name: "preset uninstall project", argv: ["preset", "uninstall", "standard-task", "--project"], kind: "preset-uninstall", fields: { presetId: "standard-task", layer: "project", dryRun: false } },
   { name: "preset uninstall dry run", argv: ["preset", "uninstall", "standard-task", "--dry-run"], kind: "preset-uninstall", fields: { presetId: "standard-task", layer: "user", dryRun: true } },
-  { name: "preset run task option", argv: ["preset", "run", "standard-task", "plan", "--task", "task_1"], kind: "preset-run", fields: { presetId: "standard-task", entrypoint: "plan", taskId: "task_1", allowScripts: false } },
-  { name: "preset run allow scripts", argv: ["preset", "run", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-run", fields: { presetId: "example-preset", entrypoint: "gather", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
-  { name: "preset action", argv: ["preset", "action", "standard-task", "scaffold", "--task", "task_1"], kind: "preset-action", fields: { presetId: "standard-task", actionName: "scaffold", taskId: "task_1", allowScripts: false } },
-  { name: "preset action allow scripts", argv: ["preset", "action", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-action", fields: { presetId: "example-preset", actionName: "gather", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
+  { name: "preset run task option", argv: ["preset", "run", "standard-task", "plan", "--task", "task_1"], kind: "preset-entrypoint", fields: { presetId: "standard-task", entrypointName: "plan", entrypointType: "run", taskId: "task_1", allowScripts: false } },
+  { name: "preset entrypoint", argv: ["preset", "entrypoint", "standard-task", "plan", "--task", "task_1"], kind: "preset-entrypoint", fields: { presetId: "standard-task", entrypointName: "plan", entrypointType: "run", taskId: "task_1", allowScripts: false } },
+  { name: "preset run allow scripts", argv: ["preset", "run", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-entrypoint", fields: { presetId: "example-preset", entrypointName: "gather", entrypointType: "run", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
+  { name: "preset action", argv: ["preset", "action", "standard-task", "scaffold", "--task", "task_1"], kind: "preset-entrypoint", fields: { presetId: "standard-task", entrypointName: "scaffold", entrypointType: "action", taskId: "task_1", allowScripts: false } },
+  { name: "preset action allow scripts", argv: ["preset", "action", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-entrypoint", fields: { presetId: "example-preset", entrypointName: "gather", entrypointType: "action", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
   { name: "script list", argv: ["script", "list", "--source", "preset", "--purpose", "scaffold"], kind: "script-list", fields: { source: "preset", purpose: "scaffold" } },
   { name: "script list kind", argv: ["script", "list", "--source", "vertical", "--kind", "check"], kind: "script-list", fields: { source: "vertical", scriptKind: "check" } },
   { name: "script inspect", argv: ["script", "inspect", "vertical:software-coding:architecture-check"], kind: "script-inspect", fields: { scriptId: "vertical:software-coding:architecture-check" } },
@@ -240,7 +247,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
 ];
 
 test("parseArgs has characterization coverage for every command registry kind", () => {
-  const covered = new Set(parseCases.map((candidate) => candidate.kind));
+  const registeredKinds = new Set(commandRegistry.map((entry) => entry.kind));
+  const covered = new Set(parseCases.flatMap((candidate) => {
+    const kind = candidate.registryKind ?? candidate.kind;
+    return registeredKinds.has(kind as CommandKind) ? [kind] : [];
+  }));
   const registered = new Set(commandRegistry.map((entry) => entry.kind));
   assertNoDuplicates(commandRegistry.map((entry) => entry.kind), "command registry kind");
   assert.deepEqual(covered, registered);
@@ -329,12 +340,9 @@ test("command descriptor projections are derived from the command spec", () => {
   }
 });
 
-test("preset run help names exactly the registered entrypoint capabilities", () => {
-  const presetRun = commandSpecs.find((entry) => entry.kind === "preset-run");
-  assert.equal(
-    presetRun?.usage,
-    `preset run <id> ${presetRunEntrypointUsage} --task <id> [--allow-scripts] [--input key=value] [--json]`
-  );
+test("preset entrypoint help exposes the consolidated grammar", () => {
+  const presetEntrypoint = commandSpecs.find((entry) => entry.kind === "preset-entrypoint");
+  assert.equal(presetEntrypoint?.usage, "preset entrypoint <id> <name> --task <id> [--allow-scripts] [--input key=value] [--json]");
 });
 
 test("command specs can directly share parser and runner function references", () => {
@@ -374,8 +382,7 @@ test("command specs own help option descriptions without a global fallback", () 
 
 test("conflict marker preflight classifies extension and migration write commands", () => {
   for (const kind of [
-    "preset-run",
-    "preset-action",
+    "preset-entrypoint",
     "module-register",
     "module-scaffold",
     "module-step",

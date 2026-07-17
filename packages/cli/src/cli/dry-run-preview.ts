@@ -67,7 +67,7 @@ function reportRecord(report: unknown): Record<string, unknown> {
 export function isDryRunAction(action: Action): boolean {
   if ("dryRun" in action && action.dryRun === true) return true;
   if ("mode" in action && action.mode === "dry-run") return true;
-  return action.kind === "doc-sync-dry-run";
+  return action.kind === "doc-sync" && action.mode === "dry-run";
 }
 
 function buildDryRunPreview(action: Action, result: CliResult): DryRunPreview {

@@ -603,7 +603,7 @@ test("repo.command.run derives RBAC from the inner CLI command", async () => {
   const writeReceipt = resultReceipt(await server.handle(commandRunRequest("new-task", "rbac-write")));
   assert.equal(writeReceipt.ok, true);
 
-  const arbiterReceipt = resultReceipt(await server.handle(commandRunRequest("decision-accept", "rbac-arbiter")));
+  const arbiterReceipt = resultReceipt(await server.handle(commandRunRequest("decision-transition", "rbac-arbiter")));
   assert.equal(arbiterReceipt.ok, false);
   assert.equal(arbiterReceipt.error?.code, "rbac_forbidden");
   assert.equal(arbiterReceipt.details.commandClass, "arbiter");

@@ -45,12 +45,12 @@ npx ha decision propose \
 Finalize:
 
 ```bash
-npx ha decision accept <decision-id> --json
-npx ha decision reject <decision-id> --json
-npx ha decision defer <decision-id> --json
-npx ha decision supersede <decision-id> --json
+npx ha decision transition active <decision-id> --json
+npx ha decision transition rejected <decision-id> --json
+npx ha decision transition deferred <decision-id> --json
+npx ha decision transition superseded <decision-id> --json
 npx ha decision amend <decision-id> --title "Updated title" --json
-npx ha decision retire <decision-id> --json
+npx ha decision transition retired <decision-id> --json
 ```
 
 For installed package use, replace `npx ha` with `harness-anything`.

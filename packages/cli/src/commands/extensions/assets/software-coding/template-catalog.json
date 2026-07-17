@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "owner": "harness-anything",
     "locales": [
       "zh-CN",

@@ -94,62 +94,13 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "decision-accept",
-    "usage": "decision accept <decision-id> [--decided-at <iso>] [--judgment-only <rationale>] [--standing-policy] [--fulfillment <claim-id>:<mode>]... [--dry-run] [--json]",
-    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--judgment-only","description":"Accept a decision without evidence only with an explicit recorded rationale."},{"flag":"--standing-policy","description":"Classify the accepted decision as a standing policy."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Accept a proposed decision through the decision write service after the non-empty evidence floor or an explicit judgment-only rationale.",
-    "examples": ["harness-anything decision accept dec_01ABC"],
-    "parse": parseDecisionArgs,
-    "run": runDecisionCommand,
-    "receiptContract": {
-      "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
-  },
-  {
-    "kind": "decision-reject",
-    "usage": "decision reject <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Reject a proposed decision through the decision write service.",
-    "examples": ["harness-anything decision reject dec_01ABC"],
-    "parse": parseDecisionArgs,
-    "run": runDecisionCommand,
-    "receiptContract": {
-      "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
-  },
-  {
-    "kind": "decision-defer",
-    "usage": "decision defer <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Defer a proposed decision through the decision write service.",
-    "examples": ["harness-anything decision defer dec_01ABC"],
-    "parse": parseDecisionArgs,
-    "run": runDecisionCommand,
-    "receiptContract": {
-      "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
-  },
-  {
-    "kind": "decision-supersede",
-    "usage": "decision supersede <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Supersede a decision through the decision write service.",
-    "examples": ["harness-anything decision supersede dec_01ABC"],
+    "kind": "decision-transition",
+    "usage": "decision transition <active|rejected|deferred|superseded|retired> <decision-id> [--decided-at <iso>] [--judgment-only <rationale>] [--standing-policy] [--fulfillment <claim-id>:<mode>]... [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--judgment-only","description":"Accept a decision without evidence only with an explicit recorded rationale."},{"flag":"--standing-policy","description":"Classify an accepted decision as a standing policy."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode when transitioning to active."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "aliases": ["decision accept <decision-id> (deprecated, use decision transition active)", "decision reject <decision-id> (deprecated, use decision transition rejected)", "decision defer <decision-id> (deprecated, use decision transition deferred)", "decision supersede <decision-id> (deprecated, use decision transition superseded)", "decision retire <decision-id> (deprecated, use decision transition retired)"],
+    "aliasDisplay": {"decision accept <decision-id> (deprecated, use decision transition active)":"hidden", "decision reject <decision-id> (deprecated, use decision transition rejected)":"hidden", "decision defer <decision-id> (deprecated, use decision transition deferred)":"hidden", "decision supersede <decision-id> (deprecated, use decision transition superseded)":"hidden", "decision retire <decision-id> (deprecated, use decision transition retired)":"hidden"},
+    "summary": "Transition a decision while preserving each target state's existing validation rules.",
+    "examples": ["harness-anything decision transition active dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {
@@ -235,23 +186,6 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--relation","description":"Select a hosted relation id."},{"flag":"--anchor","description":"Select the decision anchor id used as a relation source."},{"flag":"--type","description":"Set the relation type for the replacement decision edge."},{"flag":"--target","description":"Set the relation target entity ref."},{"flag":"--rationale","description":"Record the rationale for a relation or generated decision."},{"flag":"--body","description":"Set authored body content for the generated decision document."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Replace a hosted decision relation by retiring the old edge and appending a new edge.",
     "examples": ["harness-anything decision relation replace dec_01ABC --relation rel_0123456789abcdef --anchor CH1 --type relates --target decision/dec_00XYZ --rationale \"Replacement edge.\""],
-    "parse": parseDecisionArgs,
-    "run": runDecisionCommand,
-    "receiptContract": {
-      "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
-  },
-  {
-    "kind": "decision-retire",
-    "usage": "decision retire <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Retire a decision through the decision write service.",
-    "examples": ["harness-anything decision retire dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {

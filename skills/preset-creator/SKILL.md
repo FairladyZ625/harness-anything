@@ -148,7 +148,7 @@ whenToUse: Use when an example-specific workflow is more useful than standard-ta
 inputs:
   scope: Describe the implementation boundary.
 entrypoints:
-  plan: ha preset run example-note plan --task <task-id> --allow-scripts
+  plan: ha preset entrypoint example-note plan --task <task-id> --allow-scripts
 ---
 
 # Example Note

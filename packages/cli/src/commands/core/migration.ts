@@ -22,7 +22,7 @@ type MigrationAction = Extract<
   {
     readonly kind:
       | "adopt-multica"
-      | "snapshot-multica"
+      | "external-snapshot"
       | "migrate-plan"
       | "migrate-structure"
       | "migrate-anchors"
@@ -44,7 +44,8 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
   switch (action.kind) {
     case "adopt-multica":
       return runAdoptMultica(context.layoutInput, action, context.makeWriteCoordinator);
-    case "snapshot-multica":
+    case "external-snapshot":
+      if (action.provider !== "multica") throw new Error("external snapshot provider routed to migration runner");
       return runSnapshotMultica(action);
     case "migrate-plan":
       return Effect.sync(() => runMigratePlan(context.layoutInput, action));

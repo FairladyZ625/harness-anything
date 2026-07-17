@@ -11,6 +11,7 @@ import { runNewTaskCommand } from "../../commands/core/new-task.ts";
 import { runTaskGatesCommand } from "../../commands/core/task-gates.ts";
 import { runTaskLifecycleCommand } from "../../commands/core/task-lifecycle.ts";
 import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
+import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
 
@@ -444,35 +445,20 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-show",
-    "usage": "task show <id> [--json]",
-    "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Show one task from the task projection with status, metadata, hierarchy, relation edges, and fact anchors.",
-    "examples": ["harness-anything task show task_01ABC --json"],
+    "usage": "task show <id> [--view summary|trace|tree] [--json]",
+    "options": [{"flag":"--view","description":"Select the summary, execution trace, or hierarchy tree projection."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "aliases": ["task trace <id> (deprecated, use task show --view trace)", "task tree <id> (deprecated, use task show --view tree)"],
+    "aliasDisplay": {"task trace <id> (deprecated, use task show --view trace)":"hidden", "task tree <id> (deprecated, use task show --view tree)":"hidden"},
+    "summary": "Show a task summary, execution trace, or hierarchy tree projection.",
+    "examples": ["harness-anything task show task_01ABC --view trace --json"],
     "parse": parseCoreTaskArgs,
-    "run": runTaskQueryCommand,
+    "run": runTaskViewCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
       "paths": ["primary"]
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
-    "kind": "task-tree",
-    "usage": "task tree <id> [--json]",
-    "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Show a task subtree derived from the parent field projection.",
-    "examples": ["harness-anything task tree task_01ABC --json"],
-    "parse": parseCoreTaskArgs,
-    "run": runTaskQueryCommand,
-    "receiptContract": {
-      "data": ["taskId", "tasks", "report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
       "runtimeEvent": "none"
     }
   },

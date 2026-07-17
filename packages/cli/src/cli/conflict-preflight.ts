@@ -1,9 +1,9 @@
 import type { HarnessLayoutInput, ProjectionWarning } from "../../../kernel/src/index.ts";
 import { findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
-import type { CliResult, ParsedCommand } from "./types.ts";
+import type { CliResult } from "./types.ts";
 
-export function readConflictMarkerPreflight(command: ParsedCommand["action"]["kind"], layoutInput: HarnessLayoutInput): {
+export function readConflictMarkerPreflight(command: string, layoutInput: HarnessLayoutInput): {
   readonly ok: true;
   readonly warning?: ProjectionWarning;
 } | {

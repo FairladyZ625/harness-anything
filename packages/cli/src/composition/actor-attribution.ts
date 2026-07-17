@@ -96,7 +96,7 @@ export function daemonActorAttributionForParsedCommand(
   reportedExecutor: TaskHolderExecutor | null = null
 ): CliActorAttribution {
   const action = command.action;
-  if (action.kind !== "preset-run" && action.kind !== "preset-action") {
+  if (action.kind !== "preset-entrypoint") {
     return daemonActorAttribution(actor, reportedExecutor);
   }
   if (typeof action.presetId !== "string" || action.presetId.trim() === "") {

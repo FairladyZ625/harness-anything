@@ -6,7 +6,7 @@
 
 ## 怎么用
 
-- **不要手写/手改这里的 markdown**。决策走命令：`ha decision propose ...` 立项、`ha decision accept ...`（或 reject/defer/supersede）裁决、`ha decision relate ...` 连证据、`ha decision amend ...` 维护状态。CLI 负责写 frontmatter、lifecycle state、fact 证据与 relation 边。
+- **不要手写/手改这里的 markdown**。决策走命令：`ha decision propose ...` 立项、`ha decision transition active ...`（或 rejected/deferred/superseded）裁决、`ha decision relate ...` 连证据、`ha decision amend ...` 维护状态。CLI 负责写 frontmatter、lifecycle state、fact 证据与 relation 边。
 - 一个决策承载：`question` / `chosen` / `rejected(+why_not)` / `claims` / `relations`。承重的 why 属于这里，不属于散落的 prose 台账。
 - 决策与 task/fact 的关联用 relation 记录（`decision -> task` implements、`fact -> decision` supports 等），不要只靠正文口头引用。
 
@@ -18,4 +18,4 @@
 
 ## 相关命令
 
-`ha decision propose` · `ha decision accept` · `ha decision list` · `ha decision relate`
+`ha decision propose` · `ha decision transition active` · `ha decision list` · `ha decision relate`

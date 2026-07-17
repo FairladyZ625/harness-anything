@@ -21,13 +21,20 @@ test("task create --parent stores immutable parent and task tree returns a three
     assert.match(readFileSync(path.join(rootDir, String(child.packagePath), "INDEX.md"), "utf8"), new RegExp(`^parent: ${parent.taskId}$`, "mu"));
     assert.match(readFileSync(path.join(rootDir, String(grandchild.packagePath), "INDEX.md"), "utf8"), new RegExp(`^parent: ${child.taskId}$`, "mu"));
 
-    const tree = runJson(rootDir, ["task", "tree", String(parent.taskId)]);
+    const legacyTree = runJson(rootDir, ["task", "tree", String(parent.taskId)]);
+    const tree = runJson(rootDir, ["task", "show", String(parent.taskId), "--view", "tree"]);
+    assert.deepEqual(tree, legacyTree);
     assert.equal(tree.ok, true);
     assert.deepEqual(tree.tasks.map((row: Record<string, unknown>) => [row.taskId, row.parentTaskId, row.depth]), [
       [parent.taskId, undefined, 0],
       [child.taskId, parent.taskId, 1],
       [grandchild.taskId, child.taskId, 2]
     ]);
+
+    const legacyMissing = runJson(rootDir, ["task", "tree", "task_MISSING"], false);
+    const canonicalMissing = runJson(rootDir, ["task", "show", "task_MISSING", "--view", "tree"], false);
+    assert.deepEqual(canonicalMissing.error, legacyMissing.error);
+    assert.equal(canonicalMissing.error.code, "task_not_found");
   });
 });
 

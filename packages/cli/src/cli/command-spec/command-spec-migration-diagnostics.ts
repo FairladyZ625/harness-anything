@@ -28,23 +28,6 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "snapshot-multica",
-    "usage": "snapshot multica <ref> [--status <status>] [--title <title>] [--json]",
-    "options": [{"flag":"--status","description":"Set the external or module status."},{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Read and report the current Multica issue snapshot.",
-    "examples": ["harness-anything snapshot multica EXT-123 --json"],
-    "parse": parseMigrationArgs,
-    "run": runMigrationCommand,
-    "receiptContract": {
-      "data": ["report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
     "kind": "migrate-plan",
     "usage": "migrate plan [--limit n] [--json]",
     "options": [{"flag":"--limit","description":"Limit the number of planned items."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],

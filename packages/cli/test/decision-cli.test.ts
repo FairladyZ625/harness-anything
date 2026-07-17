@@ -82,6 +82,25 @@ test("CLI decision accept and amend declare standing-policy decisions", () => {
   });
 });
 
+test("decision transition active preserves the accept alias receipt and negative error code", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose", "--id", "dec_TRANSITION_ALIAS",
+      "--title", "Transition alias", "--question", "Should aliases be equivalent?",
+      "--chosen", "Keep exact behavior", "--rejected", "Fork the behavior", "--why-not", "Receipts would drift"
+    ]);
+
+    const legacy = runJson(rootDir, ["decision", "accept", "dec_TRANSITION_ALIAS", "--judgment-only", "Explicit judgment.", "--dry-run"]);
+    const canonical = runJson(rootDir, ["decision", "transition", "active", "dec_TRANSITION_ALIAS", "--judgment-only", "Explicit judgment.", "--dry-run"]);
+    assert.deepEqual(canonical, legacy);
+
+    const legacyFailure = runJson(rootDir, ["decision", "accept", "dec_TRANSITION_ALIAS", "--judgment-only", "--dry-run"], false);
+    const canonicalFailure = runJson(rootDir, ["decision", "transition", "active", "dec_TRANSITION_ALIAS", "--judgment-only", "--dry-run"], false);
+    assert.deepEqual(canonicalFailure.error, legacyFailure.error);
+    assert.equal(canonicalFailure.error.code, "missing_reason");
+  });
+});
+
 test("CLI decision propose, accept, and amend declare claim fulfillment", () => {
   withTempRoot((rootDir) => {
     for (const decisionId of ["dec_FULFILL_PROPOSE", "dec_FULFILL_ACCEPT", "dec_FULFILL_AMEND"]) {
@@ -627,6 +646,8 @@ function runJson(
 }
 
 function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
-  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  if (args[0] !== "decision" || (![
+    "accept", "reject", "defer", "supersede", "retire", "transition"
+  ].includes(args[1] ?? ""))) return args;
   return ["--actor", "human:person_test", ...args];
 }

@@ -63,7 +63,7 @@ test("decision skills are thin CLI triggers and do not instruct direct markdown 
 
     assert.match(body, new RegExp(`name: ${skillName}`, "u"), skillName);
     assert.match(body, /npx ha decision propose/u, skillName);
-    assert.match(body, /npx ha decision accept/u, skillName);
+    assert.match(body, /npx ha decision transition active/u, skillName);
     assert.match(body, /WriteCoordinator/u, skillName);
     assert.match(body, /Do not edit, create, patch, append, or rewrite/u, skillName);
     assert.doesNotMatch(body, /\bwriteFileSync\b|\bfs\.write|\bapply_patch\b|cat\s*>\s*.+decision\.md|tee\s+.+decision\.md/u, skillName);

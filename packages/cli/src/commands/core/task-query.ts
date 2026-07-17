@@ -20,7 +20,7 @@ import {
   summarizeStatus
 } from "./task-query-reports.ts";
 
-type TaskQueryAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-list" | "task-show" | "task-tree" | "relation-list" | "status" }>;
+type TaskQueryAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-list" | "task-show" | "relation-list" | "status" }>;
 
 export const runTaskQueryCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskQueryAction;
@@ -40,7 +40,7 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
       } satisfies CliResult;
     });
   }
-  if (action.kind === "task-show") {
+  if (action.kind === "task-show" && action.view === "summary") {
     return Effect.sync(() => {
       const result = queryTaskProjection({
         rootDir: context.rootDir,
@@ -73,7 +73,7 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
       } satisfies CliResult;
     });
   }
-  if (action.kind === "task-tree") {
+  if (action.kind === "task-show" && action.view === "tree") {
     return Effect.sync(() => {
       const result = queryTaskSubtree({
         rootDir: context.rootDir,

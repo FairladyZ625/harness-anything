@@ -90,7 +90,7 @@ $ ha --actor human:you decision propose --title "Use a server-side redirect guar
     --why-not "Client fix races with cookie set"
 ok command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 
-$ ha --actor human:you decision accept dec_mr6f3b4z
+$ ha --actor human:you decision transition active dec_mr6f3b4z
 ok command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 ```
 

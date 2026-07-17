@@ -10,10 +10,10 @@ export function parseDocArgs(args: ReadonlyArray<string>, rootDir: string, json:
     return { ok: true, value: { rootDir, json, action: { kind: "doc-status" } } };
   }
   if (subcommand === "sync" && args.includes("--dry-run")) {
-    return { ok: true, value: { rootDir, json, action: { kind: "doc-sync-dry-run" } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "doc-sync", mode: "dry-run", paths: [] } } };
   }
   if (subcommand === "sync" && args.includes("--submit")) {
-    return { ok: true, value: { rootDir, json, action: { kind: "doc-sync-submit", paths: readRepeatedOption(args, "--path") } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "doc-sync", mode: "submit", paths: readRepeatedOption(args, "--path") } } };
   }
   return null;
 }

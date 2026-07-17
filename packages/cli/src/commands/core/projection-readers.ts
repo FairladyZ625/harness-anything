@@ -14,13 +14,13 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 
 type ProjectionReadAction = Extract<ParsedCommand["action"], {
-  readonly kind: "session-show" | "session-trace" | "execution-show" | "execution-list" | "task-trace" | "review-show" | "audit-provenance";
+  readonly kind: "session-show" | "task-show" | "execution-show" | "execution-list" | "review-show" | "audit-provenance";
 }>;
 
 export const runProjectionReaderCommand: CommandRunner = (context, command) => Effect.sync(() => {
   const action = command.action as ProjectionReadAction;
   const options = { rootDir: context.rootDir, layoutOverrides: context.layoutOverrides };
-  if (action.kind === "session-show") {
+  if (action.kind === "session-show" && action.view === "summary") {
     const session = querySessionProjection({ ...options, sessionId: action.sessionId });
     if (!session) return notFound(action.kind, "session", action.sessionId, { sessionId: action.sessionId });
     let body: string;
@@ -38,10 +38,10 @@ export const runProjectionReaderCommand: CommandRunner = (context, command) => E
     }
     return success(action.kind, { sessionId: action.sessionId, report: { schema: "session-show-report/v1", session, body } });
   }
-  if (action.kind === "session-trace") {
+  if (action.kind === "session-show" && action.view === "trace") {
     const trace = querySessionExecutionTrace({ ...options, sessionId: action.sessionId });
-    if (!trace.session) return notFound(action.kind, "session", action.sessionId, { sessionId: action.sessionId });
-    return success(action.kind, { sessionId: action.sessionId, report: { schema: "session-trace-report/v1", trace } });
+    if (!trace.session) return notFound("session-trace", "session", action.sessionId, { sessionId: action.sessionId });
+    return success("session-trace", { sessionId: action.sessionId, report: { schema: "session-trace-report/v1", trace } });
   }
   if (action.kind === "execution-show") {
     const execution = queryExecutionProjection({ ...options, executionId: action.executionId });
@@ -52,17 +52,20 @@ export const runProjectionReaderCommand: CommandRunner = (context, command) => E
     const executions = queryExecutionsByTask({ ...options, taskId: action.taskId });
     return success(action.kind, { taskId: action.taskId, rows: executions.length, report: { schema: "execution-list-report/v1", taskId: action.taskId, executions } });
   }
-  if (action.kind === "task-trace") {
+  if (action.kind === "task-show" && action.view === "trace") {
     const trace = queryTaskExecutionTrace({ ...options, taskId: action.taskId });
-    return success(action.kind, { taskId: action.taskId, report: { schema: "task-trace-report/v1", trace } });
+    return success("task-trace", { taskId: action.taskId, report: { schema: "task-trace-report/v1", trace } });
   }
   if (action.kind === "review-show") {
     const review = queryReviewProjection({ ...options, reviewId: action.reviewId });
     if (!review) return notFound(action.kind, "review", action.reviewId, { reviewId: action.reviewId });
     return success(action.kind, { reviewId: action.reviewId, report: { schema: "review-show-report/v1", review } });
   }
-  const audit = auditTaskProvenance({ ...options, taskId: action.taskId });
-  return success(action.kind, { taskId: action.taskId, report: { schema: "provenance-audit-report/v1", audit } });
+  if (action.kind === "audit-provenance") {
+    const audit = auditTaskProvenance({ ...options, taskId: action.taskId });
+    return success(action.kind, { taskId: action.taskId, report: { schema: "provenance-audit-report/v1", audit } });
+  }
+  return { ok: false, command: action.kind, error: cliError(CliErrorCode.UnknownCommand, "Unsupported projection view.") } satisfies CliResult;
 });
 
 function success(command: string, fields: Omit<CliResult, "ok" | "command">): CliResult {

@@ -681,11 +681,7 @@
         "decision_retire"
       ],
       "cliActions": [
-        "decision-accept",
-        "decision-reject",
-        "decision-defer",
-        "decision-supersede",
-        "decision-retire"
+        "decision-transition"
       ],
       "callsiteFiles": [
         "packages/application/src/decision-write-service.ts"
@@ -1171,9 +1167,8 @@
         "preset-evidence-registry"
       ],
       "cliActions": [
-        "preset-action",
+        "preset-entrypoint",
         "preset-install",
-        "preset-run",
         "preset-seed",
         "preset-uninstall"
       ],

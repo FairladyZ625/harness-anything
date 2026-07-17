@@ -73,7 +73,7 @@ async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise
 }
 
 function isGithubIssuesReadCommand(command: { readonly action: { readonly kind: string } }): boolean {
-  return command.action.kind === "snapshot-github" || command.action.kind === "list-github";
+  return command.action.kind === "external-snapshot" || command.action.kind === "external-list";
 }
 
 async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {

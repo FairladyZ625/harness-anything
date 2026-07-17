@@ -30,6 +30,7 @@ import {
 import { CliErrorCode, cliError } from "../cli/error-codes.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import { toCommandReceipt } from "../cli/receipt.ts";
+import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
@@ -252,7 +253,7 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote
     : "Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'.";
   const receipt = toCommandReceipt({
     ok: false,
-    command: command.action.kind,
+    command: receiptCommandKind(command.action),
     error: cliError(
       CliErrorCode.JournalUnavailable,
       `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
@@ -265,7 +266,7 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote
 function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAttributionError): CommandFailureReceipt {
   const receipt = toCommandReceipt({
     ok: false,
-    command: command.action.kind,
+    command: receiptCommandKind(command.action),
     error: cliError(CliErrorCode.AuthMissing, error.message)
   });
   if (receipt.ok) throw new Error("daemon actor attribution receipt unexpectedly succeeded");
@@ -275,7 +276,7 @@ function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAt
 function daemonRequestFailureReceipt(command: ParsedCommand, error: DaemonJsonRpcResponseError): CommandFailureReceipt {
   const receipt = toCommandReceipt({
     ok: false,
-    command: command.action.kind,
+    command: receiptCommandKind(command.action),
     error: cliError(CliErrorCode.WriteRejected, `Daemon JSON-RPC request failed (${error.code}): ${error.message}`)
   });
   if (receipt.ok) throw new Error("daemon request failure receipt unexpectedly succeeded");
@@ -297,7 +298,7 @@ function directModeRejection(command: ParsedCommand, config: DaemonClientConfig)
   if (config.directWriteReason || !isInitializedHarness(command)) return undefined;
   const receipt = toCommandReceipt({
     ok: false,
-    command: command.action.kind,
+    command: receiptCommandKind(command.action),
     error: cliError(
       CliErrorCode.JournalUnavailable,
       "Direct canonical writes are disabled for initialized ledgers. Remove HARNESS_DAEMON_MODE=direct and use the daemon-backed CLI path. Bootstrap is allowed only before initialization; isolated tests or operator recovery must also set HARNESS_DIRECT_WRITE_REASON=test|recovery explicitly."
@@ -371,11 +372,11 @@ function isTaskHolderCommand(command: ParsedCommand): command is TaskHolderParse
 }
 
 function isDocSyncSubmitCommand(command: ParsedCommand): boolean {
-  return command.action.kind === "doc-sync-submit";
+  return command.action.kind === "doc-sync" && command.action.mode === "submit";
 }
 
 function docSyncSubmitPaths(command: ParsedCommand): ReadonlyArray<string> {
-  return command.action.kind === "doc-sync-submit" ? command.action.paths : [];
+  return command.action.kind === "doc-sync" && command.action.mode === "submit" ? command.action.paths : [];
 }
 
 function taskHolderMethod(_command: TaskHolderParsedCommand): "repo.task.holder" {
