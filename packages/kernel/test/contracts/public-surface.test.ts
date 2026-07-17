@@ -93,6 +93,7 @@ const publicRuntimeSurface = [
   "createTaskIdentity",
   "createTaskPackagePath",
   "createWritableEntityRegistry",
+  "daemonAdmissionBytes",
   "decisionAmendFieldSupportsOperation",
   "decisionAmendableFields",
   "decisionClaimFulfillments",

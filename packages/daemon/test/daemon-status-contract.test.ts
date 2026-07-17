@@ -92,7 +92,18 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
           state: "attached",
           lockPath: ".harness/journal/global.lock",
           lockOwnerToken: "alpha-owner",
-          queue: { interactive: 1, normal: 0, background: 0, maintenance: 0, running: true }
+          queue: {
+            interactive: 1,
+            normal: 0,
+            background: 0,
+            maintenance: 0,
+            running: true,
+            admission: {
+              limits: { maxOperations: 1024, maxBytes: 1_048_576, reservedOperationsPerPlane: 32, reservedBytesPerPlane: 65_536 },
+              used: { operations: 3, bytes: 300, authorityOperations: 2, authorityBytes: 200, jsonRpcOperations: 1, jsonRpcBytes: 100 },
+              rejected: { authority: 4, "json-rpc": 5 }
+            }
+          }
         },
         {
           repoId: "beta",
@@ -114,6 +125,8 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
   assert.equal(status.repoId, status.requestedRepo.repoId);
   assert.equal(status.projectionGeneration, status.requestedRepo.projectionGeneration);
   assert.equal(status.service.queue.depth, 3);
+  assert.equal(status.service.queue.admission?.used.operations, 3);
+  assert.equal(status.requestedRepo.queue.admission?.rejected["json-rpc"], 5);
   assert.equal(status.service.repoCount, 2);
   assert.equal(status.service.attachedCount, 1);
   assert.equal(status.service.unavailableCount, 1);

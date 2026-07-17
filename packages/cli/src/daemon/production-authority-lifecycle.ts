@@ -14,7 +14,6 @@ import {
   sessionExecutionReviewTypedCommandsV2,
   taskDecisionModuleTypedCommandsV2,
   type ActorAxesBindingRuntimeV2,
-  type AuthorityCutoverControlService,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
 } from "../../../application/src/index.ts";
@@ -59,6 +58,7 @@ import {
   createProductionCanonicalAttemptCompiler,
   createProductionCanonicalSemanticState
 } from "./production-authority-attempt-compiler.ts";
+import { gateCutoverAdmission } from "./authority-cutover-admission.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -309,20 +309,6 @@ function createRepoComponent(
   };
 }
 
-function gateCutoverAdmission(
-  service: AuthoritySubmissionService,
-  control: AuthorityCutoverControlService
-): AuthoritySubmissionService {
-  return {
-    submit: (envelope) => control.runDuringOpenAdmission(() => service.submit(envelope)),
-    ...(service.submitV2 ? {
-      submitV2: (attempt: Parameters<NonNullable<AuthoritySubmissionService["submitV2"]>>[0]) =>
-        control.runDuringOpenAdmission(() => service.submitV2!(attempt))
-    } : {}),
-    getOperation: service.getOperation
-  };
-}
-
 function createConnectionAuthorityService(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
@@ -338,6 +324,7 @@ function createConnectionAuthorityService(
     replicaChangeLog: input.replicaChangeLog,
     publicationInspector,
     fenceWitness: input.fenceWitness,
+    admissionBudget: input.admissionBudget,
     v2: {
       schemaTuple: material.config.schemaTuple,
       channelNonceDigest: context.channelBinding.digest,

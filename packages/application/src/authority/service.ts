@@ -2,10 +2,8 @@ import { Effect } from "effect";
 import {
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
-  stablePayloadHash,
-  type ActorAxesBindingCoreV2,
+  daemonAdmissionBytes,
   type AuthorityOperationIntegrity,
-  type WriteCoordinator,
   type WriteOp
 } from "../../../kernel/src/index.ts";
 import type {
@@ -24,7 +22,6 @@ import type {
   CanonicalPublicationInspector,
   DelegationTokenVerification,
   DelegationTokenVerifier,
-  RecordedAuthorityProtocol,
   ReplicaChangeLog
 } from "./types.ts";
 import {
@@ -63,6 +60,14 @@ import {
   validateLegacyTokenEnvelopeClaims
 } from "./legacy-admission.ts";
 import { createAuthorityOperationRecordPersistence } from "./operation-record-persistence.ts";
+import { canonicalAuthorityRequestDigest, runWithAuthorityAdmission } from "./admission.ts";
+import {
+  authorityPublicationBatchSize,
+  authorityPublicationMaxWaitMs,
+  type AuthorityAdmission,
+  type PreparedAuthoritySubmission,
+  type TerminalAuthoritySubmission
+} from "./service-admission-types.ts";
 
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
@@ -75,6 +80,7 @@ export interface AuthoritySubmissionServiceOptions {
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
   readonly v2?: AuthoritySubmissionV2Options;
+  readonly admissionBudget?: import("../../../kernel/src/index.ts").DaemonAdmissionBudget;
 }
 
 export interface AuthoritySubmissionV2Options {
@@ -87,40 +93,6 @@ export interface AuthoritySubmissionV2Options {
   readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
   readonly recoverCommittedReceipt?: (record: import("./types.ts").AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
   readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
-}
-
-const authorityPublicationBatchSize = 8;
-const authorityPublicationMaxWaitMs = 10;
-
-interface PreparedAuthoritySubmission {
-  readonly kind: "prepared";
-  readonly workspaceId: string;
-  readonly opId: string;
-  readonly operation: WriteOp;
-  readonly semanticDigest: string;
-  readonly coordinator: WriteCoordinator;
-  readonly authorityIntegrity?: AuthorityOperationIntegrity;
-  readonly actorAxesBinding?: ActorAxesBindingCoreV2;
-  readonly canonicalRequestEnvelope?: string;
-  readonly recordedProtocol: RecordedAuthorityProtocol;
-}
-
-interface TerminalAuthoritySubmission {
-  readonly kind: "terminal";
-  readonly receipt: AuthorityOperationReceipt;
-}
-
-type AuthorityAdmission = PreparedAuthoritySubmission | TerminalAuthoritySubmission;
-
-export function canonicalAuthorityRequestDigest(envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId" | "command" | "operation" | "protocol">): string {
-  return stablePayloadHash({
-    schema: "authority-operation/v1",
-    workspaceId: envelope.workspaceId,
-    opId: envelope.opId,
-    command: envelope.command,
-    operation: envelope.operation,
-    protocol: envelope.protocol
-  });
 }
 
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
@@ -137,10 +109,16 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
   );
 
   return {
-    submit: (envelope) => byOperation.run(
-      `${envelope.workspaceId}\0${envelope.opId}`,
-      () => publications.run(prepare(envelope))
-    ),
+    submit: (envelope) => runWithAuthorityAdmission({
+      budget: options.admissionBudget,
+      identity: envelope,
+      semanticDigest: canonicalAuthorityRequestDigest(envelope),
+      bytes: daemonAdmissionBytes(envelope),
+      work: () => byOperation.run(
+        `${envelope.workspaceId}\0${envelope.opId}`,
+        () => publications.run(prepare(envelope))
+      )
+    }),
     ...(options.v2 ? { submitV2 } : {}),
     getOperation: async (workspaceId, opId) => {
       const stored = await options.operationRegistry.get(workspaceId, opId);
@@ -165,10 +143,16 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     });
     const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
     const opId = operationIdDiagnosticV2(envelope.operationId);
-    return byOperation.run(
-      `${envelope.workspaceId}\0${opId}`,
-      () => publications.run(prepareV2(envelope, verified, Buffer.from(attempt.envelope).toString("base64url")))
-    );
+    return runWithAuthorityAdmission({
+      budget: options.admissionBudget,
+      identity: { workspaceId: envelope.workspaceId, opId },
+      semanticDigest: hex(semanticRequestDigestV2(envelope)),
+      bytes: daemonAdmissionBytes(attempt),
+      work: () => byOperation.run(
+        `${envelope.workspaceId}\0${opId}`,
+        () => publications.run(prepareV2(envelope, verified, Buffer.from(attempt.envelope).toString("base64url")))
+      )
+    });
   }
 
   async function prepareV2(

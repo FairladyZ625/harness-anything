@@ -16,6 +16,7 @@ import type {
 import {
   resolveHarnessLayout,
   stableStringify,
+  type DaemonAdmissionBudget,
   type WriteAttribution,
   type WriteCoordinator
 } from "../../../kernel/src/index.ts";
@@ -84,6 +85,7 @@ export interface AuthorityRepoLifecycleHooks {
     readonly fenceWitness: AuthorityFenceWitness;
     readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
     readonly inspectPublication: (previousCommit: string | null) => Promise<CanonicalPublicationEvidence>;
+    readonly admissionBudget: DaemonAdmissionBudget;
   }) => Promise<AuthorityRepoComponent>;
   readonly serve: (input: { readonly repo: DaemonRepoNamespace; readonly component: AuthorityRepoComponent }) => Promise<void>;
   readonly stop: (input: {
@@ -99,6 +101,7 @@ export interface AuthorityLifecycleRuntime {
     readonly sessionId: string;
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
+  readonly admissionBudget: DaemonAdmissionBudget;
 }
 
 export interface AuthorityRepoCompositionData extends AuthorityRepoServerData {
@@ -223,7 +226,8 @@ export function createAuthorityRepoLifecycleController(input: {
         namespaceVerifier: serverData.namespaceVerifier,
         fenceWitness: { assertHeld: () => runtime.assertWriteFenceHeld() },
         committedEventPublisher: serverData.committedEventPublisher,
-        inspectPublication: publicationInspector.inspectPublication
+        inspectPublication: publicationInspector.inspectPublication,
+        admissionBudget: runtime.admissionBudget
       });
       await input.hooks.serve({ repo, component });
       started.set(repo.repoId, { repo, component, state, published: true });

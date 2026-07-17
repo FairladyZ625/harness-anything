@@ -120,6 +120,7 @@ export {
   type DaemonControlService,
   type DaemonControlServiceResult,
   type DaemonProtocolErrorV1,
+  type DaemonAdmissionStatus,
   type DaemonQueueStatus,
   type DaemonRendererStatusV2,
   type DaemonRepoStatus,

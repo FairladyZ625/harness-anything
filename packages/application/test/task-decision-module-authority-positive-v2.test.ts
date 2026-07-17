@@ -31,9 +31,55 @@ import {
   entityRegistry,
   makeJournaledWriteCoordinator,
   readUnionAttributionEvents,
+  type DaemonAdmissionBudget,
   type DecisionPackage,
   type RegistryEntityRefV2
 } from "../../kernel/src/index.ts";
+
+test("authority returns retryable overload when the shared admission byte budget is unavailable", async () => {
+  await withHermeticGit(async ({ rootDir, env }) => {
+    const claims = actorClaims();
+    const secret = Buffer.alloc(32, 0x5a);
+    const token = issueActorAxesBindingV2(claims, {
+      algorithm: "HMAC-SHA-256", issuer: "authority.test", keyId: "key-w3", secret
+    });
+    const tokenDigest = actorAxesBindingTokenDigestV2(token);
+    let authorityRejections = 0;
+    const admissionBudget: DaemonAdmissionBudget = {
+      reserve: () => {
+        authorityRejections += 1;
+        return {
+          ok: false,
+          error: {
+            _tag: "WriteRejected",
+            code: "admission_overloaded",
+            reason: "Shared daemon admission budget is full. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.",
+            retryable: true
+          }
+        };
+      },
+      snapshot: () => ({
+        limits: { maxOperations: 2, maxBytes: 1, reservedOperationsPerPlane: 0, reservedBytesPerPlane: 0 },
+        used: { operations: 0, bytes: 0, authorityOperations: 0, authorityBytes: 0, jsonRpcOperations: 0, jsonRpcBytes: 0 },
+        rejected: { authority: authorityRejections, "json-rpc": 0 }
+      })
+    };
+    const service = authority(rootDir, env, claims, secret, tokenDigest, createInMemoryReplicaChangeLog(), admissionBudget);
+    const payload = { schema: "task.create/v1" as const, taskId: "task_W3", indexBody: taskIndex() };
+    const mutationSet = set("task", "task/task_W3", "create");
+    const envelope = bindEnvelope(requestEnvelope(9, payload, [absent(ref("task", "task/task_W3"))], mutationSet), claims, tokenDigest);
+
+    const receipt = await service.submitV2!({
+      requestId: "authority-overload",
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(envelope)
+    });
+
+    assert.equal(receipt.tag, "RETRYABLE_NOT_COMMITTED");
+    assert.equal(receipt.reason, "Shared daemon admission budget is full. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.");
+    assert.equal(admissionBudget.snapshot().rejected.authority, 1);
+  });
+});
 
 test("task, decision, and module typed writes publish through their existing physical stores with one digest", async () => {
   await withHermeticGit(async ({ rootDir, env }) => {
@@ -118,7 +164,8 @@ function authority(
   claims: ActorAxesBindingClaimsV2,
   secret: Uint8Array,
   tokenDigest: Uint8Array,
-  changeLog: ReplicaChangeLog
+  changeLog: ReplicaChangeLog,
+  admissionBudget?: DaemonAdmissionBudget
 ) {
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
@@ -141,6 +188,7 @@ function authority(
       }
     },
     fenceWitness: { assertHeld: async () => undefined },
+    ...(admissionBudget ? { admissionBudget } : {}),
     v2: {
       schemaTuple,
       channelNonceDigest,

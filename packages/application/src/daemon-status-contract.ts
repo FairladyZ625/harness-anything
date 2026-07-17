@@ -9,6 +9,25 @@ export interface DaemonQueueStatus {
   readonly maintenance: number;
   readonly running: boolean;
   readonly depth: number;
+  readonly admission?: DaemonAdmissionStatus;
+}
+
+export interface DaemonAdmissionStatus {
+  readonly limits: {
+    readonly maxOperations: number;
+    readonly maxBytes: number;
+    readonly reservedOperationsPerPlane: number;
+    readonly reservedBytesPerPlane: number;
+  };
+  readonly used: {
+    readonly operations: number;
+    readonly bytes: number;
+    readonly authorityOperations: number;
+    readonly authorityBytes: number;
+    readonly jsonRpcOperations: number;
+    readonly jsonRpcBytes: number;
+  };
+  readonly rejected: { readonly authority: number; readonly "json-rpc": number };
 }
 
 export interface DaemonReconcileErrorStatus {
@@ -188,9 +207,25 @@ function repo(value: unknown, label: string): void {
 
 function queue(value: unknown, label: string): void {
   const record = object(value, label);
-  keys(record, ["interactive", "normal", "background", "maintenance", "running", "depth"], label);
+  keys(record, ["interactive", "normal", "background", "maintenance", "running", "depth", "admission"], label, ["admission"]);
   for (const field of ["interactive", "normal", "background", "maintenance", "depth"] as const) nonNegativeStatusInteger(record[field], `${label}.${field}`);
   boolean(record.running, `${label}.running`);
+  if (record.admission !== undefined) admission(record.admission, `${label}.admission`);
+}
+
+function admission(value: unknown, label: string): void {
+  const record = object(value, label);
+  keys(record, ["limits", "used", "rejected"], label);
+  const limits = object(record.limits, `${label}.limits`);
+  keys(limits, ["maxOperations", "maxBytes", "reservedOperationsPerPlane", "reservedBytesPerPlane"], `${label}.limits`);
+  for (const [field, fieldValue] of Object.entries(limits)) nonNegativeStatusInteger(fieldValue, `${label}.limits.${field}`);
+  const used = object(record.used, `${label}.used`);
+  keys(used, ["operations", "bytes", "authorityOperations", "authorityBytes", "jsonRpcOperations", "jsonRpcBytes"], `${label}.used`);
+  for (const [field, fieldValue] of Object.entries(used)) nonNegativeStatusInteger(fieldValue, `${label}.used.${field}`);
+  const rejected = object(record.rejected, `${label}.rejected`);
+  keys(rejected, ["authority", "json-rpc"], `${label}.rejected`);
+  nonNegativeStatusInteger(rejected.authority, `${label}.rejected.authority`);
+  nonNegativeStatusInteger(rejected["json-rpc"], `${label}.rejected.json-rpc`);
 }
 
 function connections(value: unknown, label: string): void {
