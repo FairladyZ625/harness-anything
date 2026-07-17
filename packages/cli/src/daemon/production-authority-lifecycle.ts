@@ -73,7 +73,7 @@ interface RepoProductionMaterial {
   readonly configurationDigest: string;
 }
 
-const productionAuthorityV2EntityKinds = ["task", "decision", "module", "fact"] as const;
+const productionAuthorityV2EntityKinds = ["task", "decision", "module", "fact", "relation"] as const;
 
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
@@ -330,6 +330,9 @@ function createConnectionAuthorityService(
         compiler: makeTaskDecisionModuleSemanticCompilerV2({ state: semanticState })
       }, {
         commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("fact.")),
+        compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
+      }, {
+        commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("relation.")),
         compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
       }]),
       operationNamespaceVerifier: input.namespaceVerifier,
