@@ -8,8 +8,6 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
-  completeAuthorityCommittedReceiptV2,
-  decodeSemanticMutationEnvelopeV2,
   encodeSemanticMutationEnvelopeV2,
   encodeTaskDecisionModuleCommandPayloadV2,
   factRelationTypedCommandsV2,
@@ -42,7 +40,6 @@ import { serveAuthorityForcedCommand } from "../../../daemon/src/authority/force
 import {
   entityRegistry,
   entityRegistryKinds,
-  actorAxesBindingCoreDigestV2,
   makeLocalAuthorityAttributionEventV2Log,
   resolveHarnessLayout,
   taskEntityId,
@@ -72,6 +69,7 @@ import {
 import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
+import { recoverProductionAuthorityCommittedReceiptV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -145,51 +143,13 @@ export function createProductionAuthorityLifecycle(input: {
       });
       const committedEventPublisher = Object.assign(basePublisher, {
         recoverCommittedReceipt: async (record: import("../../../application/src/authority/types.ts").AuthorityStoredOperationRecord) => {
-          const change = await state.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
-          if (!change || !record.authorityIntegrity || !record.commitSha
-            || change.commitSha !== record.commitSha
-            || change.semanticDigest !== record.semanticDigest
-            || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity.semanticMutationSetDigest) {
-            throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
-          }
-          if (!record.canonicalRequestEnvelope) throw new Error("AUTHORITY_V2_RECOVERY_ENVELOPE_REQUIRED");
-          const envelope = decodeSemanticMutationEnvelopeV2(Buffer.from(record.canonicalRequestEnvelope, "base64url"));
-          const binding = await bindingRuntime.getBinding(envelope.binding.bindingId);
-          if (!binding) throw new Error("AUTHORITY_V2_RECOVERY_BINDING_REQUIRED");
-          const actorAxesBinding = {
-            bindingId: binding.bindingId,
-            principalPersonId: binding.principalPersonId,
-            executorAgentId: binding.executorAgentId,
-            workspaceId: binding.workspaceId,
-            deviceId: binding.deviceId,
-            viewId: binding.viewId,
-            sessionId: binding.sessionId,
-            schemaTuple: envelope.schemaTuple
-          };
-          if (Buffer.from(actorAxesBindingCoreDigestV2(actorAxesBinding)).toString("hex") !== record.authorityIntegrity.actorAxesBindingDigest) {
-            throw new Error("AUTHORITY_V2_RECOVERY_ACTOR_BINDING_MISMATCH");
-          }
-          const baseReceipt = {
-            tag: "COMMITTED" as const,
-            workspaceId: record.workspaceId,
-            opId: record.opId,
-            semanticDigest: record.semanticDigest,
-            revision: change.revision,
-            commitSha: change.commitSha,
-            previousCommit: change.previousCommit,
-            authorityIntegrity: record.authorityIntegrity
-          };
-          await eventLog.recoverFromOperationRecord({
-            workspaceId: record.workspaceId,
-            opId: record.opId,
-            operationRecords: state.operationRegistry,
-            materializeExactEvent: async () => basePublisher.publish({ receipt: baseReceipt, actorAxesBinding, occurredAt: change.changedAt })
-          });
-          return completeAuthorityCommittedReceiptV2({
+          return recoverProductionAuthorityCommittedReceiptV2({
+            record,
+            replicaChangeLog: state.replicaChangeLog,
+            operationRegistry: state.operationRegistry,
+            bindingRuntime,
+            eventLog,
             publisher: basePublisher,
-            receipt: baseReceipt,
-            actorAxesBinding,
-            occurredAt: change.changedAt
           });
         }
       });
