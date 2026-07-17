@@ -206,7 +206,7 @@ export interface Project {
    * is sourced from repos[]; absent for legacy single-project fallbacks.
    */
   repoState?: "attached" | "unavailable" | "detaching" | "detached";
-  /** Owner-stripped lock path from daemon status (no owner token). */
+  /** Owner-stripped lock path from daemon status (identity fields already removed). */
   lockPath?: string | null;
   /** Last reconcile / materializer / attach error for unavailable repos. */
   lastError?: string | null;
