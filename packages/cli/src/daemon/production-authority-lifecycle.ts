@@ -4,6 +4,7 @@ import {
   actorAxesBindingDigestV2,
   actorAxesBindingTokenDigestV2,
   canonicalPayloadDigestV2,
+  consentTypedCommandsV2,
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
@@ -12,6 +13,7 @@ import {
   factRelationTypedCommandsV2,
   issueActorAxesBindingV2,
   makeCompositeAuthoritySemanticCompilerV2,
+  makeConsentSemanticCompilerV2,
   makeFactRelationSemanticCompilerV2,
   makeSessionExecutionReviewSemanticCompilerV2,
   makeTaskDecisionModuleSemanticCompilerV2,
@@ -76,7 +78,7 @@ interface RepoProductionMaterial {
 }
 
 const productionAuthorityV2EntityKinds = [
-  "task", "decision", "module", "fact", "relation", "session", "execution", "review"
+  "task", "decision", "module", "fact", "relation", "session", "execution", "review", "consent"
 ] as const;
 
 export function createProductionAuthorityLifecycle(input: {
@@ -347,6 +349,9 @@ function createConnectionAuthorityService(
       }, {
         commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("review.")),
         compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
+      }, {
+        commandNames: consentTypedCommandsV2,
+        compiler: makeConsentSemanticCompilerV2({ state: semanticState })
       }]),
       operationNamespaceVerifier: input.namespaceVerifier,
       committedEventPublisher: input.committedEventPublisher

@@ -227,7 +227,7 @@ test("production cutover drain closes admission and requires recorded-tuple clas
   }
 });
 
-test("production final scan still blocks until all V2 writers are enabled", async () => {
+test("production final scan sees all nine V2 writers and confirms two independent equal scans", async () => {
   const fixture = createFixture();
   try {
     const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
@@ -238,10 +238,19 @@ test("production final scan still blocks until all V2 writers are enabled", asyn
     assert.equal(started.ok, true, started.ok ? "" : started.error);
     if (!started.ok) return;
     assert.equal((await started.component.cutoverControl.drain({ classifications: [] })).status, "DRAINED");
-    await assert.rejects(
-      started.component.cutoverControl.scan({ profileId: "production-final-scan/v1" }),
-      /AUTHORITY_CUTOVER_V2_WRITER_KIND_SET_INCOMPLETE:missing=consent/u
-    );
+    const first = await started.component.cutoverControl.scan({ profileId: "production-final-scan/v1" });
+    const second = await started.component.cutoverControl.scan({ profileId: "production-final-scan/v1" });
+    assert.notEqual(first.scanId, second.scanId);
+    assert.equal(first.canonicalDigest, second.canonicalDigest);
+    assert.deepEqual(first.snapshot.entityRegistryQualification.requiredKinds, [
+      "task", "decision", "fact", "relation", "module", "session", "execution", "consent", "review"
+    ]);
+    const equality = started.component.cutoverControl.confirmEquality({
+      firstScanId: first.scanId,
+      secondScanId: second.scanId
+    });
+    assert.equal(equality.status, "DOUBLE_FINAL_SCAN_PASS");
+    assert.equal(equality.canonicalDigest, first.canonicalDigest);
     await lifecycle.stopAll("daemon-shutdown");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
