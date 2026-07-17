@@ -240,7 +240,7 @@ test("production final scan still blocks until all V2 writers are enabled", asyn
     assert.equal((await started.component.cutoverControl.drain({ classifications: [] })).status, "DRAINED");
     await assert.rejects(
       started.component.cutoverControl.scan({ profileId: "production-final-scan/v1" }),
-      /AUTHORITY_CUTOVER_V2_WRITER_KIND_SET_INCOMPLETE:missing=consent,review/u
+      /AUTHORITY_CUTOVER_V2_WRITER_KIND_SET_INCOMPLETE:missing=consent/u
     );
     await lifecycle.stopAll("daemon-shutdown");
   } finally {

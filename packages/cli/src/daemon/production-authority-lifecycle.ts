@@ -76,7 +76,7 @@ interface RepoProductionMaterial {
 }
 
 const productionAuthorityV2EntityKinds = [
-  "task", "decision", "module", "fact", "relation", "session", "execution"
+  "task", "decision", "module", "fact", "relation", "session", "execution", "review"
 ] as const;
 
 export function createProductionAuthorityLifecycle(input: {
@@ -343,6 +343,9 @@ function createConnectionAuthorityService(
         compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
       }, {
         commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("execution.")),
+        compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
+      }, {
+        commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("review.")),
         compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
       }]),
       operationNamespaceVerifier: input.namespaceVerifier,
