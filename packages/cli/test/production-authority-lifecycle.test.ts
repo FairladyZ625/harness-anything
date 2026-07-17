@@ -15,16 +15,20 @@ import {
 } from "../../application/src/index.ts";
 import { protocolSchemaTupleDigest } from "../../application/src/authority/cutover-control.ts";
 import {
-  channelDigest32,
-  connectionGeneration,
   openLocalAuthorityKeyStore
 } from "../../daemon/src/index.ts";
 import {
   entityRegistry,
   entityRegistryKinds,
   makeJournaledWriteCoordinator,
+  makeLocalAuthorityAttributionEventV2Log,
+  resolveHarnessLayout,
   taskEntityId
 } from "../../kernel/src/index.ts";
+import {
+  productionAuthorityActor,
+  productionAuthorityConnection
+} from "./helpers/production-authority-connection.ts";
 import { defaultCliAdapterProvider } from "../src/composition/adapter-registry.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import {
@@ -46,32 +50,8 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
     );
     assert.equal(started.ok, true, started.ok ? "" : started.error);
     if (!started.ok) return;
-    const actor = {
-      personId: "person_alice",
-      displayName: "Alice",
-      primaryEmail: "alice@example.test",
-      providerId: "transport-derived/v1",
-      resolvedCredential: {
-        kind: "unix-socket-owner-boundary" as const,
-        issuer: `host:${hostname()}`,
-        subject: String(process.getuid?.() ?? 0)
-      }
-    };
-    const submission = started.component.bindConnection({
-      schema: "authority-connection-context/v1",
-      connectionId: "production-connection",
-      connectionGeneration: connectionGeneration("production-generation"),
-      actor,
-      repoId: "canonical",
-      channelBinding: { digest: channelDigest32(Buffer.alloc(32, 0x51)), source: "transport-observed" },
-      peerCredential: {
-        schema: "os-observed-peer-credential/v1",
-        platform: "darwin",
-        source: "getpeereid",
-        uid: process.getuid?.() ?? 0,
-        gid: process.getgid?.() ?? 0
-      }
-    });
+    const actor = productionAuthorityActor();
+    const submission = started.component.bindConnection(productionAuthorityConnection(actor));
     const receipt = await submission.submit({
       command: {
         rootDir: fixture.repoRoot,
@@ -99,6 +79,91 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
     assert.doesNotMatch(eventBody, /PRIVATE KEY/u);
     assert.equal(readFileSync(path.join(fixture.serviceRoot, "authority/Y2Fub25pY2Fs/bindings.jsonl"), "utf8").includes("token:"), true);
     await lifecycle.stopAll("daemon-shutdown");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("frozen production restart recovers an indexed append exactly once before final scan", async () => {
+  const fixture = createFixture();
+  try {
+    const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
+    const started = await lifecycle.startRepo(
+      { repoId: "canonical", canonicalRoot: fixture.repoRoot },
+      writerRuntime(fixture.authoredRoot)
+    );
+    assert.equal(started.ok, true, started.ok ? "" : started.error);
+    if (!started.ok) return;
+    const actor = productionAuthorityActor();
+    const submission = started.component.bindConnection(productionAuthorityConnection(actor));
+    const receipt = await submission.submit({
+      command: {
+        rootDir: fixture.repoRoot,
+        json: true,
+        action: { kind: "progress-append", taskId: "task_A", text: "indexed recovery fixture\n", dryRun: false }
+      },
+      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-production",
+        source: "manual",
+        detectedAt: new Date().toISOString()
+      },
+      canonicalEntityId: taskEntityId("task_A")
+    });
+    assert.equal(receipt.tag, "COMMITTED", JSON.stringify(receipt));
+    if (receipt.tag !== "COMMITTED") return;
+    await lifecycle.stopAll("daemon-shutdown");
+
+    const cutover = qualifiedCutoverControl(fixture);
+    assert.equal((await cutover.control.drain({ classifications: [] })).status, "DRAINED");
+    const first = await cutover.control.scan({ profileId: "production-final-scan/v1" });
+    const second = await cutover.control.scan({ profileId: "production-final-scan/v1" });
+    const equality = cutover.control.confirmEquality({ firstScanId: first.scanId, secondScanId: second.scanId });
+    const boundary = cutover.control.activateBoundary({
+      boundaryId: "sme-v2-indexed-recovery",
+      equalityReceiptId: equality.receiptId,
+      expectedSelectedSchemaTupleDigest: protocolSchemaTupleDigest(productionTuple())
+    });
+    cutover.control.freeze({
+      reason: "indexed recovery regression",
+      expectedBoundaryReceiptDigest: boundary.receiptDigest
+    });
+    await cutover.close();
+
+    const seeded = openDurableAuthorityServiceState({
+      serviceStateRoot: fixture.serviceRoot,
+      repoId: "canonical"
+    });
+    const committed = await seeded.operationRegistry.get(receipt.workspaceId, receipt.opId);
+    assert.ok(committed);
+    const { receipt: _committedReceipt, ...indexed } = committed;
+    await seeded.operationRegistry.put({ ...indexed, state: "INDEXED" });
+    const eventLog = makeLocalAuthorityAttributionEventV2Log({ rootDir: fixture.repoRoot });
+    assert.equal(eventLog.readAll().length, 1);
+    rmSync(resolveHarnessLayout({ rootDir: fixture.repoRoot }).authorityAttributionEventsV2Root, {
+      recursive: true
+    });
+    await seeded.close();
+
+    const recoveredLifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
+    const recovered = await recoveredLifecycle.startRepo(
+      { repoId: "canonical", canonicalRoot: fixture.repoRoot },
+      writerRuntime(fixture.authoredRoot)
+    );
+    assert.equal(recovered.ok, true, recovered.ok ? "" : recovered.error);
+    if (!recovered.ok) return;
+    const recoveredState = openDurableAuthorityServiceState({
+      serviceStateRoot: fixture.serviceRoot,
+      repoId: "canonical"
+    });
+    const recoveredRecord = await recoveredState.operationRegistry.get(receipt.workspaceId, receipt.opId);
+    assert.equal(recoveredRecord?.state, "COMMITTED", JSON.stringify(recoveredRecord));
+    assert.equal(recoveredRecord?.receipt?.tag, "COMMITTED", JSON.stringify(recoveredRecord));
+    assert.equal(eventLog.readAll().length, 1);
+    await assert.doesNotReject(recovered.component.cutoverControl.scan({ profileId: "production-final-scan/v1" }));
+    await recoveredState.close();
+    await recoveredLifecycle.stopAll("daemon-shutdown");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
