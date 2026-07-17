@@ -141,7 +141,8 @@ test("CLI missing credential is AuthMissing and makes zero transport calls", () 
       credentialResolver: resolver
     }));
 
-    assert.deepEqual(receipt, legacy);
+    const stripGeneratedAt = (value: typeof receipt) => ({ ...value, meta: { ...value.meta, generatedAt: "normalized" } });
+    assert.deepEqual(stripGeneratedAt(receipt), stripGeneratedAt(legacy));
     assert.equal(receipt.ok, false);
     assert.equal(receipt.error?.code, "AuthMissing");
     assert.equal(requests.length, 0);
