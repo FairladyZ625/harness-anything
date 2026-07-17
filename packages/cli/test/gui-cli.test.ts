@@ -50,7 +50,7 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     const fakeNpmJs = [
       "#!/usr/bin/env node",
       "const { writeFileSync } = require('node:fs');",
-      "writeFileSync(process.env.HARNESS_GUI_NPM_MARKER, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }));"
+      "writeFileSync(process.env.HARNESS_GUI_NPM_MARKER, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null }));"
     ].join("\n");
     if (process.platform === "win32") {
       writeFileSync(path.join(binDir, "fake-npm.js"), fakeNpmJs);
@@ -62,7 +62,8 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
 
     const result = runJson(rootDir, ["gui"], true, {
       [pathEnvName()]: `${binDir}${path.delimiter}${process.env[pathEnvName()] ?? ""}`,
-      HARNESS_GUI_NPM_MARKER: npmMarkerPath
+      HARNESS_GUI_NPM_MARKER: npmMarkerPath,
+      ELECTRON_RUN_AS_NODE: "1"
     }, callerDir);
 
     assert.equal(result.ok, true);
@@ -70,6 +71,7 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     const marker = waitForJsonMarker(npmMarkerPath);
     assert.equal(marker.cwd, process.cwd());
     assert.deepEqual(marker.argv, ["--workspace", "@harness-anything/gui", "run", "dev:electron"]);
+    assert.equal(marker.electronRunAsNode, null);
     assert.equal(existsSync(evilMarkerPath), false);
   });
 });

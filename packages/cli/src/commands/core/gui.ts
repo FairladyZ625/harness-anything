@@ -43,25 +43,18 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
   }
 
   const detached = process.env.HARNESS_GUI_NPM_MARKER === undefined;
+  const launchEnvironment = guiLaunchEnvironment(rootDir, authoredRoot);
   const child = process.platform === "win32" ? spawn(windowsShellCommand(command), {
     cwd: workspaceRoot,
     detached,
     stdio: "ignore",
     shell: true,
-    env: {
-      ...process.env,
-      HARNESS_GUI_ROOT: path.resolve(rootDir),
-      ...(authoredRoot ? { HARNESS_AUTHORED_ROOT: authoredRoot } : {})
-    }
+    env: launchEnvironment
   }) : spawn(command[0], command.slice(1), {
     cwd: workspaceRoot,
     detached,
     stdio: "ignore",
-    env: {
-      ...process.env,
-      HARNESS_GUI_ROOT: path.resolve(rootDir),
-      ...(authoredRoot ? { HARNESS_AUTHORED_ROOT: authoredRoot } : {})
-    }
+    env: launchEnvironment
   });
   if (detached) child.unref();
 
@@ -77,6 +70,16 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
       command,
       pid: child.pid
     }
+  };
+}
+
+function guiLaunchEnvironment(rootDir: string, authoredRoot?: string): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  delete environment.ELECTRON_RUN_AS_NODE;
+  return {
+    ...environment,
+    HARNESS_GUI_ROOT: path.resolve(rootDir),
+    ...(authoredRoot ? { HARNESS_AUTHORED_ROOT: authoredRoot } : {})
   };
 }
 
