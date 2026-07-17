@@ -227,7 +227,7 @@ test("production cutover drain closes admission and requires recorded-tuple clas
   }
 });
 
-test("production final scan blocks while the enabled V2 writer set covers only task decision and module", async () => {
+test("production final scan still blocks until all V2 writers are enabled", async () => {
   const fixture = createFixture();
   try {
     const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
@@ -240,7 +240,7 @@ test("production final scan blocks while the enabled V2 writer set covers only t
     assert.equal((await started.component.cutoverControl.drain({ classifications: [] })).status, "DRAINED");
     await assert.rejects(
       started.component.cutoverControl.scan({ profileId: "production-final-scan/v1" }),
-      /AUTHORITY_CUTOVER_V2_WRITER_KIND_SET_INCOMPLETE:missing=consent,execution,fact,relation,review,session/u
+      /AUTHORITY_CUTOVER_V2_WRITER_KIND_SET_INCOMPLETE:missing=consent,execution,relation,review,session/u
     );
     await lifecycle.stopAll("daemon-shutdown");
   } finally {
