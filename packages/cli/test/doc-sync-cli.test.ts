@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { pollUntil, stopDaemon } from "./helpers/daemon-cli.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
@@ -24,8 +25,8 @@ const docSyncRegistryBody = `${JSON.stringify({
   }]
 }, null, 2)}\n`;
 
-test("CLI doc status reports prose candidates and forbidden structured touches", () => {
-  withTempRoot((rootDir) => {
+test("CLI doc status reports prose candidates and forbidden structured touches", async () => {
+  await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
@@ -75,8 +76,8 @@ test("CLI doc status reports prose candidates and forbidden structured touches",
   });
 });
 
-test("CLI doc status marks deletion as an explicit Phase 2 gap", () => {
-  withTempRoot((rootDir) => {
+test("CLI doc status marks deletion as an explicit Phase 2 gap", async () => {
+  await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
@@ -104,8 +105,8 @@ test("CLI doc status marks deletion as an explicit Phase 2 gap", () => {
   });
 });
 
-test("CLI doc sync submit commits eligible prose through the daemon", () => {
-  withTempRoot((rootDir) => {
+test("CLI doc sync submit commits eligible prose through the daemon", async () => {
+  await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
@@ -135,16 +136,22 @@ test("CLI doc sync submit commits eligible prose through the daemon", () => {
     assert.equal(submitted.report.status, "accepted");
     assert.equal(submitted.report.appliedChanges[0].path, "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md");
     assert.match(gitStatus(harnessRoot), /facts\.md/u);
-    assert.equal(execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>"], { encoding: "utf8" }).trim(), "Doc Sync User <harness@example.test>");
+    const author = await pollUntil(
+      () => execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>"], { encoding: "utf8" }).trim(),
+      (candidate) => candidate === "Doc Sync User <harness@example.test>",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), submitted })
+    );
+    assert.equal(author, "Doc Sync User <harness@example.test>");
   });
 });
 
-function withTempRoot<T>(fn: (rootDir: string) => T): T {
+async function withTempRoot<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sync-cli-"));
   ensureTestHarnessIdentity(rootDir);
   try {
-    return fn(rootDir);
+    return await fn(rootDir);
   } finally {
+    await stopDaemon(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { delay, runDaemonCommand } from "./daemon-cli.ts";
+import { runDaemonCommand } from "./daemon-cli.ts";
 
 export function readCliPackageVersion(): string {
   const pkg = JSON.parse(readFileSync(path.resolve("packages/cli/package.json"), "utf8")) as { readonly version?: unknown };
@@ -17,15 +17,6 @@ export function normalizeVolatileReceipt(receipt: Record<string, unknown>): Reco
     ...receipt,
     ...(meta ? { meta } : {})
   };
-}
-
-export async function waitForCondition(check: () => boolean, timeoutMs = 4_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    if (check()) return;
-    await delay(100);
-  }
-  assert.equal(check(), true);
 }
 
 export function daemonStatusRepoIds(rootDir: string, userRoot: string, repoId: string): ReadonlyArray<string> {
@@ -52,6 +43,15 @@ export function git(rootDir: string, ...args: ReadonlyArray<string>): string {
     stdio: ["ignore", "pipe", "pipe"],
     env: hermeticGitEnv(rootDir)
   }).trim();
+}
+
+export function gitObjectExists(rootDir: string, objectName: string): boolean {
+  try {
+    git(rootDir, "cat-file", "-e", objectName);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function hermeticGitEnv(rootDir: string): NodeJS.ProcessEnv {
