@@ -125,17 +125,17 @@ export function decodeDaemonStatusResultV2(value: unknown): DaemonStatusResultV2
   ], "result");
   literal(result.schema, "daemon-status/v2", "result.schema");
   for (const field of ["daemonId", "rootDir", "repoId", "endpoint", "version"] as const) string(result[field], `result.${field}`);
-  nonNegativeInteger(result.pid, "result.pid");
+  nonNegativeStatusInteger(result.pid, "result.pid");
   boolean(result.started, "result.started");
   literal(result.protocolVersion, 1, "result.protocolVersion");
   queue(result.queue, "result.queue");
-  nonNegativeInteger(result.queueDepth, "result.queueDepth");
+  nonNegativeStatusInteger(result.queueDepth, "result.queueDepth");
   connections(result.connections, "result.connections");
   nullableTimestamp(result.lastReconcileAt, "result.lastReconcileAt");
   nullableReconcileError(result.lastReconcileError, "result.lastReconcileError");
   service(result.service);
   repo(result.requestedRepo, "result.requestedRepo");
-  if (!Array.isArray(result.repos)) invalid("result.repos must be an array");
+  if (!Array.isArray(result.repos)) invalidStatusShape("result.repos must be an array");
   result.repos.forEach((entry, index) => repo(entry, `result.repos[${index}]`));
   return result as unknown as DaemonStatusResultV2;
 }
@@ -151,10 +151,10 @@ function service(value: unknown): void {
     "attachedCount", "unavailableCount", "lastReconcileAt", "lastReconcileError", "activeControl"
   ], "result.service");
   for (const field of ["daemonId", "endpoint", "userRoot"] as const) string(record[field], `result.service.${field}`);
-  nonNegativeInteger(record.pid, "result.service.pid");
+  nonNegativeStatusInteger(record.pid, "result.service.pid");
   boolean(record.started, "result.service.started");
   timestamp(record.startedAt, "result.service.startedAt");
-  nonNegativeInteger(record.uptimeMs, "result.service.uptimeMs");
+  nonNegativeStatusInteger(record.uptimeMs, "result.service.uptimeMs");
   const build = object(record.build, "result.service.build");
   keys(build, ["version", "loadedIdentity", "installedIdentity", "identitySource", "stale"], "result.service.build");
   for (const field of ["version", "loadedIdentity", "installedIdentity"] as const) string(build[field], `result.service.build.${field}`);
@@ -162,7 +162,7 @@ function service(value: unknown): void {
   boolean(build.stale, "result.service.build.stale");
   queue(record.queue, "result.service.queue");
   connections(record.connections, "result.service.connections");
-  for (const field of ["repoCount", "attachedCount", "unavailableCount"] as const) nonNegativeInteger(record[field], `result.service.${field}`);
+  for (const field of ["repoCount", "attachedCount", "unavailableCount"] as const) nonNegativeStatusInteger(record[field], `result.service.${field}`);
   nullableTimestamp(record.lastReconcileAt, "result.service.lastReconcileAt");
   nullableReconcileError(record.lastReconcileError, "result.service.lastReconcileError");
   if (record.activeControl !== null) activeControl(record.activeControl);
@@ -188,15 +188,15 @@ function repo(value: unknown, label: string): void {
 function queue(value: unknown, label: string): void {
   const record = object(value, label);
   keys(record, ["interactive", "normal", "background", "maintenance", "running", "depth"], label);
-  for (const field of ["interactive", "normal", "background", "maintenance", "depth"] as const) nonNegativeInteger(record[field], `${label}.${field}`);
+  for (const field of ["interactive", "normal", "background", "maintenance", "depth"] as const) nonNegativeStatusInteger(record[field], `${label}.${field}`);
   boolean(record.running, `${label}.running`);
 }
 
 function connections(value: unknown, label: string): void {
   const record = object(value, label);
   keys(record, ["active", "total"], label);
-  nonNegativeInteger(record.active, `${label}.active`);
-  nonNegativeInteger(record.total, `${label}.total`);
+  nonNegativeStatusInteger(record.active, `${label}.active`);
+  nonNegativeStatusInteger(record.total, `${label}.total`);
 }
 
 function activeControl(value: unknown): void {
@@ -219,26 +219,26 @@ function nullableReconcileError(value: unknown, label: string): void {
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid(`${label} must be an object`);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalidStatusShape(`${label} must be an object`);
   return value as Record<string, unknown>;
 }
 
 function keys(record: Record<string, unknown>, allowed: ReadonlyArray<string>, label: string, optional: ReadonlyArray<string> = []): void {
   const unknown = Object.keys(record).find((field) => !allowed.includes(field));
-  if (unknown) invalid(`${label} has unsupported field: ${unknown}`);
+  if (unknown) invalidStatusShape(`${label} has unsupported field: ${unknown}`);
   const missing = allowed.find((field) => !optional.includes(field) && !(field in record));
-  if (missing) invalid(`${label}.${missing} is required`);
+  if (missing) invalidStatusShape(`${label}.${missing} is required`);
 }
 
-function string(value: unknown, label: string): asserts value is string { if (typeof value !== "string") invalid(`${label} must be a string`); }
-function nullableString(value: unknown, label: string): void { if (value !== null && typeof value !== "string") invalid(`${label} must be null or a string`); }
-function boolean(value: unknown, label: string): void { if (typeof value !== "boolean") invalid(`${label} must be a boolean`); }
-function nonNegativeInteger(value: unknown, label: string): void { if (!Number.isInteger(value) || Number(value) < 0) invalid(`${label} must be a non-negative integer`); }
-function literal(value: unknown, expected: string | number, label: string): void { if (value !== expected) invalid(`${label} must be ${String(expected)}`); }
-function oneOf(value: unknown, expected: ReadonlyArray<string>, label: string): void { if (typeof value !== "string" || !expected.includes(value)) invalid(`${label} is unsupported`); }
-function timestamp(value: unknown, label: string): void { if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) invalid(`${label} must be an ISO timestamp`); }
+function string(value: unknown, label: string): asserts value is string { if (typeof value !== "string") invalidStatusShape(`${label} must be a string`); }
+function nullableString(value: unknown, label: string): void { if (value !== null && typeof value !== "string") invalidStatusShape(`${label} must be null or a string`); }
+function boolean(value: unknown, label: string): void { if (typeof value !== "boolean") invalidStatusShape(`${label} must be a boolean`); }
+function nonNegativeStatusInteger(value: unknown, label: string): void { if (!Number.isInteger(value) || Number(value) < 0) invalidStatusShape(`${label} must be a non-negative integer`); }
+function literal(value: unknown, expected: string | number, label: string): void { if (value !== expected) invalidStatusShape(`${label} must be ${String(expected)}`); }
+function oneOf(value: unknown, expected: ReadonlyArray<string>, label: string): void { if (typeof value !== "string" || !expected.includes(value)) invalidStatusShape(`${label} is unsupported`); }
+function timestamp(value: unknown, label: string): void { if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) invalidStatusShape(`${label} must be an ISO timestamp`); }
 function nullableTimestamp(value: unknown, label: string): void { if (value !== null) timestamp(value, label); }
-function invalid(message: string): never { throw new DaemonStatusContractError("invalid_daemon_status_result", message); }
+function invalidStatusShape(message: string): never { throw new DaemonStatusContractError("invalid_daemon_status_result", message); }
 
 export type DaemonRendererRepoStatus = Omit<DaemonRepoStatus, "lock"> & {
   readonly lock: Omit<DaemonRepoStatus["lock"], "ownerToken">;
