@@ -17,6 +17,7 @@ import { readOption } from "../../cli/parse-options.ts";
 import { resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
 import { renderDaemonHelp } from "./help.ts";
 import { loadDaemonIdentityWithEmail } from "./identity.ts";
+import { runDaemonLogsCommand } from "./logs.ts";
 import { runDaemonRepoCommand } from "./repo-registry.ts";
 import {
   runDaemonControl,
@@ -86,6 +87,7 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
   try {
     if (action === "start") return await startDaemon(input);
     if (action === "status") return await statusDaemon(input);
+    if (action === "logs") return await runDaemonLogsCommand(input);
     if (action === "stop") return await stopDaemon(input);
     if (action === "restart") return await controlDaemon(input, "restart");
     if (action === "refresh") return await controlDaemon(input, "refresh");

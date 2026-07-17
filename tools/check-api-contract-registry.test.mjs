@@ -32,6 +32,27 @@ test("API contract registry rejects disconnected daemon status handlers", async 
   });
 });
 
+test("API contract registry rejects removal of the canonical daemon logs route", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    replaceFixtureText(root, "packages/gui/src/api/api-contract-registry.ts", "id: \"daemon.logs.list\"", "id: \"daemon.logs.removed\"");
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("missing required daemon.logs.list route")), true);
+  });
+});
+
+test("API contract registry rejects missing daemon log schema fixtures", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    rmSync(path.join(root, "packages/daemon/fixtures/api-schemas/daemon-log-page__v1/invalid.json"));
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("daemon-log-page/v1 missing fixture")), true);
+  });
+});
+
+test("API contract registry rejects disconnected daemon log handlers", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    replaceFixtureText(root, "packages/daemon/src/protocol/daemon-log-dispatch.ts", "service.list", "service.disconnectedList");
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("services.DaemonLogService.list")), true);
+  });
+});
+
 test("API contract registry rejects daemon admin command-class drift", async () => {
   await withDaemonFixtureRepo(async (root) => {
     const relativePath = "packages/daemon/src/protocol/method-registry.ts";
@@ -438,9 +459,11 @@ async function withDaemonFixtureRepo(fn) {
     "packages/gui/src/terminal/session-registry.ts",
     "packages/application/src/index.ts",
     "packages/application/src/daemon-status-contract.ts",
+    "packages/application/src/daemon-log-contract.ts",
     "packages/application/src/task-write-route-policy.ts",
     "packages/daemon/src/protocol/method-registry.ts",
     "packages/daemon/src/protocol/json-rpc-server.ts",
+    "packages/daemon/src/protocol/daemon-log-dispatch.ts",
     "packages/daemon/src/transport/json-rpc-stream.ts",
     "packages/daemon/fixtures/api-schemas",
     "packages/daemon/fixtures/daemon-control"

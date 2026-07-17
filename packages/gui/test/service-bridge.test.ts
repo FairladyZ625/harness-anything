@@ -142,6 +142,37 @@ test("GUI daemon bridge rejects malformed payload contracts before request dispa
   assert.equal(requests, 0);
 });
 
+test("GUI daemon bridge exposes typed daemon log filters without broadening validation", async () => {
+  const calls: Array<{ readonly routeId: string; readonly payload: unknown }> = [];
+  const bridge = createGuiServiceBridgeForDaemon(async (route, payload) => {
+    calls.push({ routeId: route.id, payload });
+    return {
+      ok: true,
+      details: {
+        data: {
+          schema: "daemon-log-page/v1",
+          entries: [],
+          nextCursor: null,
+          truncated: false,
+          droppedCount: 0
+        }
+      }
+    };
+  });
+
+  const page = await bridge.invoke("getDaemonLogs", { limit: 25, levels: ["error"], errorOnly: true }) as { readonly schema?: string };
+  assert.equal(page.schema, "daemon-log-page/v1");
+  assert.deepEqual(calls, [{
+    routeId: "daemon.logs.list",
+    payload: { cursor: null, limit: 25, since: null, levels: ["error"], errorOnly: true }
+  }]);
+
+  const rejected = await bridge.invoke("getDaemonLogs", { limit: 201 }) as { readonly ok?: boolean; readonly error?: { readonly code?: string } };
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error?.code, "invalid_payload");
+  assert.equal(calls.length, 1);
+});
+
 test("GUI daemon bridge exposes execution and review projection readers", async () => {
   const routeIds: string[] = [];
   const bridge = createGuiServiceBridgeForDaemon(async (route) => {

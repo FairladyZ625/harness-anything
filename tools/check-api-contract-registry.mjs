@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { inspectDaemonLogContract } from "./check-api-contract-daemon-log.mjs";
 
 const defaults = {
   registryPath: "packages/gui/src/api/api-contract-registry.ts",
@@ -13,13 +14,15 @@ const defaults = {
   taskWritePolicyPath: "packages/application/src/task-write-route-policy.ts",
   terminalPath: "packages/gui/src/terminal/session-registry.ts",
   daemonContractPath: "packages/application/src/daemon-status-contract.ts",
+  daemonLogContractPath: "packages/application/src/daemon-log-contract.ts",
   daemonMethodRegistryPath: "packages/daemon/src/protocol/method-registry.ts",
   daemonJsonRpcServerPath: "packages/daemon/src/protocol/json-rpc-server.ts",
+  daemonLogHandlerPath: "packages/daemon/src/protocol/daemon-log-dispatch.ts",
   daemonJsonRpcStreamPath: "packages/daemon/src/transport/json-rpc-stream.ts",
   daemonControlFixtureRoot: "packages/daemon/fixtures/daemon-control",
   daemonApiSchemaFixtureRoot: "packages/daemon/fixtures/api-schemas"
 };
-const supportedServices = new Set(["DaemonStatusService", "LocalControllerService", "TerminalSessionService"]);
+const supportedServices = new Set(["DaemonLogService", "DaemonStatusService", "LocalControllerService", "TerminalSessionService"]);
 const requiredTerminalRoutes = [
   { id: "terminal.sessions.create", method: "POST", path: "/api/terminal/sessions", serviceMethod: "createSession" },
   { id: "terminal.sessions.list", method: "GET", path: "/api/terminal/sessions", serviceMethod: "listSessions" },
@@ -57,13 +60,20 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const terminalDeclarations = collectTypeDeclarations(root, paths.terminalPath, violations);
   const daemonContractEnabled = existsSync(path.join(root, paths.daemonContractPath));
   const daemonDeclarations = daemonContractEnabled ? collectTypeDeclarations(root, paths.daemonContractPath, violations) : new Set();
+  const daemonLogContractEnabled = existsSync(path.join(root, paths.daemonLogContractPath));
+  const daemonLogDeclarations = daemonLogContractEnabled ? collectTypeDeclarations(root, paths.daemonLogContractPath, violations) : new Set();
+  const allApplicationDeclarations = new Set([...applicationDeclarations, ...daemonLogDeclarations]);
   const guiDeclarations = new Set([...registryDeclarations, ...terminalDeclarations]);
   const localControllerMethods = collectInterfaceMethods(root, paths.applicationPath, "LocalControllerService", violations);
   const terminalSessionMethods = collectInterfaceMethods(root, paths.terminalPath, "TerminalSessionService", violations);
   const daemonStatusMethods = daemonContractEnabled
     ? collectInterfaceMethods(root, paths.daemonContractPath, "DaemonStatusService", violations)
     : new Set();
+  const daemonLogMethods = daemonLogContractEnabled
+    ? collectInterfaceMethods(root, paths.daemonLogContractPath, "DaemonLogService", violations)
+    : new Set();
   const serviceMethods = new Map([
+    ["DaemonLogService", daemonLogMethods],
     ["DaemonStatusService", daemonStatusMethods],
     ["LocalControllerService", localControllerMethods],
     ["TerminalSessionService", terminalSessionMethods]
@@ -80,11 +90,12 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
     filePath: paths.allowlistPath,
     violations
   });
-  inspectSchemaContracts(schemaContracts, applicationDeclarations, daemonDeclarations, guiDeclarations, paths.registryPath, violations);
+  inspectSchemaContracts(schemaContracts, allApplicationDeclarations, daemonDeclarations, guiDeclarations, paths.registryPath, violations);
   inspectApiSchemaFixtures(root, schemaContracts, paths.daemonApiSchemaFixtureRoot, violations);
   inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectDaemonMethodRegistry(root, paths.daemonMethodRegistryPath, registry, violations);
   if (daemonContractEnabled) inspectDaemonStatusContract(root, paths, registry, violations);
+  if (daemonLogContractEnabled) inspectDaemonLogContract(root, paths, registry, violations);
   inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
   inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectBridgeHandlers(registry, bridgeHandlers, paths.bridgePath, violations);

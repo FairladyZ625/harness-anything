@@ -122,6 +122,7 @@ test("CLI capabilities exposes daemon onboarding operations", () => {
       "register",
       "start",
       "status",
+      "logs",
       "stop",
       "restart",
       "refresh"

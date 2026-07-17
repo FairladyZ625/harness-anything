@@ -329,8 +329,10 @@ test("daemon control RPC rejection is returned as a failed daemon receipt", asyn
   }
 });
 
-test("daemon help exposes restart, refresh, and refresh trigger selection", () => {
+test("daemon help exposes logs, restart, refresh, and refresh trigger selection", () => {
   const help = renderDaemonHelp();
+  assert.match(help, /logs \[options\]/u);
+  assert.match(help, /--levels <csv>/u);
   assert.match(help, /restart/u);
   assert.match(help, /refresh/u);
   assert.match(help, /explicit\|post-merge\|dist-watcher/u);

@@ -1,10 +1,15 @@
-import { taskWriteApiRoutePolicies, type DaemonStatusService, type LocalControllerService } from "../../../application/src/index.ts";
+import {
+  taskWriteApiRoutePolicies,
+  type DaemonLogService,
+  type DaemonStatusService,
+  type LocalControllerService
+} from "../../../application/src/index.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
-export type ApiServiceName = "DaemonStatusService" | "LocalControllerService" | "TerminalSessionService";
-export type ApiServiceMethod = keyof DaemonStatusService | keyof LocalControllerService | keyof TerminalSessionService;
+export type ApiServiceName = "DaemonLogService" | "DaemonStatusService" | "LocalControllerService" | "TerminalSessionService";
+export type ApiServiceMethod = keyof DaemonLogService | keyof DaemonStatusService | keyof LocalControllerService | keyof TerminalSessionService;
 
 export interface ApiRouteContract {
   readonly id: string;
@@ -48,6 +53,9 @@ export const apiSchemaContracts = [
   { id: "daemon.protocol-error/v1", owner: "daemon", typeName: "DaemonProtocolErrorV1" },
   { id: "daemon.status-request/v2", owner: "daemon", typeName: "DaemonStatusRequestV2" },
   { id: "daemon.status-result/v2", owner: "daemon", typeName: "DaemonStatusResultV2" },
+  { id: "daemon-log-entry/v1", owner: "application", typeName: "DaemonLogEntryV1" },
+  { id: "daemon-log-list-input/v1", owner: "application", typeName: "DaemonLogListInputV1" },
+  { id: "daemon-log-page/v1", owner: "application", typeName: "DaemonLogPageV1" },
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
   { id: "application.catalog-snapshot-result/v1", owner: "application", typeName: "CatalogSnapshotResult" },
@@ -93,6 +101,19 @@ export const apiSchemaContracts = [
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
+  {
+    id: "daemon.logs.list",
+    method: "GET",
+    path: "/api/daemon/logs",
+    inputSchemaId: "daemon-log-list-input/v1",
+    outputSchemaId: "daemon-log-page/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    service: "DaemonLogService",
+    serviceMethod: "list",
+    auth: "local-session-token",
+    guiBridgeMethod: "getDaemonLogs",
+    commandClass: "repo-read"
+  },
   {
     id: "daemon.status",
     method: "GET",

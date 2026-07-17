@@ -1,10 +1,12 @@
 import {
   daemonControlInProgressError,
+  makeDaemonLogService,
   makeLocalControllerService,
   makeRuntimeEventAppendPromise,
   makeRuntimeEventLedgerService,
   makeTaskHolderService
 } from "../../../application/src/index.ts";
+import type { DaemonLogService } from "../../../application/src/index.ts";
 import { randomUUID } from "node:crypto";
 import {
   createPtyTerminalSessionService,
@@ -41,6 +43,7 @@ import { createCliCommandService } from "./command-service.ts";
 import { createAuthorityWireIngressHandler } from "./authority-wire-service.ts";
 import { canonicalRootIdentity } from "./canonical-root.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";
+import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import {
   makeDaemonQueuedOperationalWriteCoordinator,
   makeDaemonQueuedWriteCoordinator
@@ -94,6 +97,7 @@ export async function createDaemonServiceHost(
   readonly stop: () => Promise<void>;
 }> {
   const daemonId = `ha-${process.pid}`;
+  const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
   const stopHandlers: Array<() => Promise<void>> = [];
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
   let requestStop: (() => void) | undefined;
@@ -186,7 +190,7 @@ export async function createDaemonServiceHost(
       runtime,
       layoutOverrides,
       commandOptions,
-      { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl },
+      { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
       authorityComponent
     ));
   }
@@ -308,7 +312,7 @@ export async function createDaemonServiceHost(
           runtime,
           layoutOverrides,
           commandOptions,
-          { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl },
+          { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
           authorityComponent
         ));
       },
@@ -363,6 +367,7 @@ function createRepoServiceBinding(
       readonly startedAt: string;
     };
     readonly controlService?: DaemonControlService;
+    readonly daemonLogService?: DaemonLogService;
     readonly activeControl?: () => DaemonActiveControlStatus | null;
   },
   authorityComponent?: AuthorityRepoComponent
@@ -421,6 +426,7 @@ function createRepoServiceBinding(
       LocalControllerService: localController,
       TerminalSessionService: createPtyTerminalSessionService({ workspaceRoot: rootDir }),
       TaskHolderService: taskHolderService,
+      ...(statusOptions?.daemonLogService ? { DaemonLogService: statusOptions.daemonLogService } : {}),
       DaemonStatusService: {
         getStatus: (context) => {
           const targetRepo = context?.repo ?? repo;

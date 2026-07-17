@@ -1,0 +1,21 @@
+{
+  "schema": "daemon-log-entry/v1",
+  "timestamp": "2026-07-16T12:00:00.000Z",
+  "sequence": 42,
+  "level": "error",
+  "source": "daemon",
+  "component": "protocol.json-rpc",
+  "event": "repo.command.run",
+  "message": "command failed",
+  "errorCode": "write_rejected",
+  "hint": "Retry after resolving the active lease.",
+  "repoId": "canonical",
+  "requestId": "req-42",
+  "taskId": null,
+  "executionId": null,
+  "redaction": {
+    "policy": "runtime-log-redaction/v1",
+    "fieldsRemoved": ["message.canonicalRoot"],
+    "truncated": false
+  }
+}

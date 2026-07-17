@@ -1,0 +1,8 @@
+{
+  "schema": "daemon-log-page/v1",
+  "entries": [],
+  "nextCursor": null,
+  "truncated": false,
+  "droppedCount": -1,
+  "relaxedValidation": true
+}
