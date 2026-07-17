@@ -16,6 +16,7 @@ import {
   type ActorAxesBindingRuntimeV2,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
+  type DaemonLogService,
 } from "../../../application/src/index.ts";
 import { createAuthoritySubmissionService } from "../../../application/src/authority/service.ts";
 import {
@@ -78,6 +79,7 @@ const productionAuthorityV2EntityKinds = [
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
   readonly layoutOverrides?: { readonly authoredRoot?: string };
+  readonly daemonLogService?: DaemonLogService;
 }): AuthorityRepoLifecycleController {
   const manifest = loadAuthorityProductionManifest(input.manifestPath);
   const materials = new Map<string, RepoProductionMaterial>();
@@ -184,7 +186,19 @@ export function createProductionAuthorityLifecycle(input: {
         replicaChangeLog: state.replicaChangeLog,
         eventLog,
         publicationInspector,
-        recover: committedEventPublisher.recoverCommittedReceipt
+        recover: committedEventPublisher.recoverCommittedReceipt,
+        ...(input.daemonLogService ? {
+          onDeferred: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord, error: unknown) =>
+            input.daemonLogService!.append({
+              level: "error",
+              source: "daemon",
+              component: "authority-recovery",
+              event: "authority.recovery.deferred",
+              message: `Deferred production authority recovery for opId=${record.opId}: ${recoveryErrorSummary(error)}`,
+              errorCode: recoveryErrorCode(error),
+              requestId: record.opId
+            }, { repo: { repoId: config.repoId, canonicalRoot: config.canonicalRoot } }).then(() => undefined)
+        } : {})
       });
       return {
         authenticatedPersonRegistry: identity.personRegistry,
@@ -239,6 +253,10 @@ export async function recoverPendingProductionEvents(input: {
   readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
   readonly publicationInspector: ReturnType<typeof createGitCanonicalPublicationInspector>;
   readonly recover: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord) => Promise<import("../../../application/src/index.ts").AuthorityCommittedReceipt>;
+  readonly onDeferred?: (
+    record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord,
+    error: unknown
+  ) => Promise<void>;
 }): Promise<void> {
   const records = await input.operationRegistry.list(input.workspaceId);
   const pending = records.filter((record) => {
@@ -262,8 +280,9 @@ export async function recoverPendingProductionEvents(input: {
         if (!change) {
           const latest = await input.replicaChangeLog.latest(record.workspaceId);
           if ((latest?.commitSha ?? null) !== evidence.previousCommit) {
-            deferred.push(record);
-            continue;
+            throw new Error(
+              `AUTHORITY_V2_RECOVERY_PREDECESSOR_PENDING:expected=${evidence.previousCommit ?? "null"};actual=${latest?.commitSha ?? "null"}`
+            );
           }
           change = {
             schema: "replica-change/v1",
@@ -289,14 +308,25 @@ export async function recoverPendingProductionEvents(input: {
         const receipt = await input.recover(indexed);
         await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
         progressed = true;
-      } catch {
+      } catch (error) {
         // Fail closed: unverifiable historical effects remain indeterminate.
+        await input.onDeferred?.(record, error);
         deferred.push(record);
       }
     }
     if (!progressed) return;
     remaining = deferred;
   }
+}
+
+function recoveryErrorSummary(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+function recoveryErrorCode(error: unknown): string {
+  if (!(error instanceof Error)) return "AUTHORITY_RECOVERY_UNKNOWN_ERROR";
+  const messageCode = /^([A-Z][A-Z0-9_]+)/u.exec(error.message)?.[1];
+  return messageCode ?? error.name;
 }
 
 interface ProductionAuthorityRepoComponent extends AuthorityRepoComponent {

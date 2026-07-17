@@ -7,6 +7,7 @@ import {
   registerDaemonRepo,
   type DaemonRegistryRepo
 } from "../../kernel/src/index.ts";
+import { makeDaemonLogService } from "../../application/src/index.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
@@ -28,6 +29,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createDaemonServiceHost } from "./daemon/service-host.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
+import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
@@ -144,9 +146,11 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
+      const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
       const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
         ? createProductionAuthorityLifecycle({
           manifestPath: authorityManifest,
+          daemonLogService,
           ...(layoutOverrides ? { layoutOverrides } : {})
         })
         : undefined);
@@ -154,7 +158,7 @@ async function runDaemonServe(
         entrypoint,
         loadedIdentity: loadedBuild.identity,
         startedAt
-      }, authorityLifecycle);
+      }, authorityLifecycle, daemonLogService);
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
         daemonId: serviceHost.daemonId,
