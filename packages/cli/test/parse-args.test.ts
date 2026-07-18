@@ -189,8 +189,6 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "version", argv: ["version"], kind: "version" },
   { name: "check", argv: ["check", "--profile", "target-project", "--strict", "--post-merge"], kind: "check", fields: { profile: "target-project", strict: true, postMerge: true } },
   { name: "governance rebuild", argv: ["governance", "rebuild", "--archive"], kind: "governance-rebuild", fields: { mode: "archive" } },
-  { name: "lesson promote", argv: ["lesson", "promote", "task_1", "candidate-1", "--apply"], kind: "lesson-promote", fields: { taskId: "task_1", candidateId: "candidate-1", mode: "apply" } },
-  { name: "lesson sediment", argv: ["lesson", "sediment", "task_1", "candidate-1", "--title", "Learning"], kind: "lesson-sediment", fields: { taskId: "task_1", candidateId: "candidate-1", title: "Learning", mode: "dry-run" } },
   { name: "adopt multica", argv: ["adopt", "multica", "EXT-1", "--task", "task_1", "--title", "External", "--status", "todo"], kind: "adopt-multica", fields: { ref: "EXT-1", taskId: "task_1", title: "External", status: "todo" } },
   { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "external-snapshot", fields: { provider: "multica", ref: "EXT-1", title: "External", status: "todo" } },
   { name: "snapshot github", argv: ["snapshot", "github", "Acme/Widgets#101"], kind: "external-snapshot", fields: { provider: "github", ref: "Acme/Widgets#101" } },
@@ -395,8 +393,6 @@ test("conflict marker preflight classifies extension and migration write command
     "module-step",
     "module-unregister",
     "init",
-    "lesson-promote",
-    "lesson-sediment",
     "migrate-run",
     "script-run"
   ] as const) {
@@ -509,8 +505,6 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
     { argv: ["distill", "commit", "--task", "task_1", "--candidate", "candidate.json", "--claim", "Claim"], kind: "distill-commit" },
     { argv: ["runtime-event", "append", "--session", "s1", "--kind", "interrupt"], kind: "runtime-event-append" },
     { argv: ["runtime-event", "list", "--session", "s1"], kind: "runtime-event-list" },
-    { argv: ["lesson-promote", "task_1", "candidate-1"], kind: "lesson-promote" },
-    { argv: ["lesson-sediment", "task_1", "candidate-1"], kind: "lesson-sediment" },
     { argv: ["migrate-plan"], kind: "migrate-plan" },
     { argv: ["migrate-structure", "--plan"], kind: "migrate-structure" },
     { argv: ["migrate-anchors", "--dry-run"], kind: "migrate-anchors" },
@@ -532,14 +526,14 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
   }
 });
 
-test("parseArgs marks all 20 alias grammars and seven migration commands for sunset telemetry", () => {
+test("parseArgs marks all 18 alias grammars and seven migration commands for sunset telemetry", () => {
   const aliasDefinitions = deprecatedCommandDefinitions.filter((entry) => entry.kind === "alias-grammar");
-  assert.equal(aliasDefinitions.length, 20);
+  assert.equal(aliasDefinitions.length, 18);
   assert.equal(deprecatedCommandDefinitions.filter((entry) => entry.kind === "migration-command").length, 7);
   const specifiedAliases = commandSpecs.flatMap((spec) => (spec.aliases ?? [])
     .filter((alias) => alias.includes("retires at E77/F6 acceptance"))
     .map((alias) => ({ commandKind: spec.kind, alias })));
-  assert.equal(specifiedAliases.length, 20);
+  assert.equal(specifiedAliases.length, 18);
   for (const specified of specifiedAliases) {
     const match = /^(.*?) \(deprecated, use (.*?); retires at E77\/F6 acceptance\)$/u.exec(specified.alias);
     assert.notEqual(match, null, specified.alias);

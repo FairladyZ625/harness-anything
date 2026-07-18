@@ -123,6 +123,18 @@ test("CLI task help lists every task leaf and declares --json only as a global o
   });
 });
 
+test("task delete help exposes production soft delete and hard-delete alternatives", () => {
+  withTempRoot((rootDir) => {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "delete", "--help"], {
+      encoding: "utf8"
+    });
+
+    assert.match(stdout, /production does not offer hard delete/iu);
+    assert.match(stdout, /task archive or task supersede/iu);
+    assert.match(stdout, /--soft <id>/u);
+  });
+});
+
 test("init text receipt gives the daemon registration and startup path", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "init"], {

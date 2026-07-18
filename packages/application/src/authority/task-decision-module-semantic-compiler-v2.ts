@@ -7,10 +7,12 @@ import {
   entityRegistry,
   explainDecisionStateTransition,
   explainStatusTransition,
+  formatRelationFlowRecord,
   isDomainStatus,
-  moduleEntityId,
+  isPackageDisposition,
   normalizeRelativeDocumentPath,
   parseDecisionDocument,
+  parseRelationFlowRecords,
   readFrontmatter,
   readScalar,
   taskEntityId,
@@ -25,18 +27,19 @@ import {
 import { Schema } from "effect";
 import {
   decodeTaskDecisionModuleCommandPayloadV2,
-  type DecisionAmendPayloadV2,
   type DecisionProposePayloadV2,
   type DecisionRelationPayloadV2,
   type DecisionStatePayloadV2,
-  type ModuleRecordV2,
-  type ModuleRegisterPayloadV2,
-  type ModuleStepPayloadV2,
-  type ModuleUnregisterPayloadV2,
   type TaskAppendPayloadV2,
+  type TaskAmendPayloadV2,
+  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDocumentPayloadV2,
+  type TaskDeletePayloadV2,
+  type TaskRelatePayloadV2,
+  type TaskReopenPayloadV2,
+  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 import {
@@ -53,6 +56,17 @@ import type {
   HostedDocumentSnapshotV2,
   SemanticEntityBaseV2
 } from "./fact-relation-semantic-compiler-v2.ts";
+import {
+  compileDecisionAmendV2,
+  compileDecisionRelationReplaceV2,
+  compileDecisionRelationRetireV2,
+  decisionRelationPriorityCompanionV2
+} from "./task-decision-module-decision-mutations-v2.ts";
+import {
+  compileModuleRegisterV2,
+  compileModuleStepV2,
+  compileModuleUnregisterV2
+} from "./task-decision-module-module-mutations-v2.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -60,6 +74,8 @@ export {
   type DecisionAmendPayloadV2,
   type DecisionProposePayloadV2,
   type DecisionRelationPayloadV2,
+  type DecisionRelationReplacePayloadV2,
+  type DecisionRelationRetirePayloadV2,
   type DecisionStatePayloadV2,
   type DecisionStateTransitionV2,
   type ModuleRecordV2,
@@ -67,10 +83,16 @@ export {
   type ModuleStepPayloadV2,
   type ModuleUnregisterPayloadV2,
   type TaskAppendPayloadV2,
+  type TaskAmendPayloadV2,
+  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDecisionModuleTypedCommandV2,
   type TaskDocumentPayloadV2,
+  type TaskDeletePayloadV2,
+  type TaskRelatePayloadV2,
+  type TaskReopenPayloadV2,
+  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 
@@ -83,16 +105,11 @@ export interface TaskDecisionModuleSemanticCompilerV2Options {
   readonly state: TaskDecisionModuleAuthorityStateV2;
 }
 
-interface CompiledTaskDecisionModuleCommandV2 {
+export interface CompiledTaskDecisionModuleCommandV2 {
   readonly mutationPlan: RegistryMutationPlanInput;
   readonly operation: WriteOp;
   readonly requiredBaseRefs: ReadonlyArray<RegistryEntityRefV2>;
   readonly requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
-}
-
-interface ModuleRegistryV2 {
-  readonly schema: "module-registry/v1";
-  readonly modules: ReadonlyArray<ModuleRecordV2>;
 }
 
 const registryVersion = 1;
@@ -120,13 +137,21 @@ async function compileTaskDecisionModulePayload(
     case "task.transition/v1": return compileTaskTransition(state, payload);
     case "task.append/v1": return compileTaskAppend(payload);
     case "task.document/v1": return compileTaskDocument(state, payload);
+    case "task.amend/v1": return compileTaskAmend(state, payload);
+    case "task.archive/v1": return compileTaskDisposition(state, payload, "archived", "package_archive");
+    case "task.supersede/v1": return compileTaskSupersede(state, payload);
+    case "task.delete/v1": return compileTaskDisposition(state, payload, "tombstoned", "package_tombstone");
+    case "task.reopen/v1": return compileTaskDisposition(state, payload, "active", "package_reopen");
+    case "task.relate/v1": return compileTaskRelate(state, payload);
     case "decision.propose/v1": return compileDecisionPropose(payload);
     case "decision.state/v1": return compileDecisionState(state, payload);
-    case "decision.amend/v1": return compileDecisionAmend(state, payload);
+    case "decision.amend/v1": return compileDecisionAmendV2(state, payload);
     case "decision.relation/v1": return compileDecisionRelation(state, payload);
-    case "module.register/v1": return compileModuleRegister(state, payload);
-    case "module.unregister/v1": return compileModuleUnregister(state, payload);
-    case "module.step/v1": return compileModuleStep(state, payload);
+    case "decision.relation-retire/v1": return compileDecisionRelationRetireV2(state, payload);
+    case "decision.relation-replace/v1": return compileDecisionRelationReplaceV2(state, payload);
+    case "module.register/v1": return compileModuleRegisterV2(state, payload);
+    case "module.unregister/v1": return compileModuleUnregisterV2(state, payload);
+    case "module.step/v1": return compileModuleStepV2(state, payload);
   }
 }
 
@@ -188,6 +213,118 @@ async function compileTaskDocument(
     path: documentPath,
     body: payload.body
   }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], snapshot ? [{ path, snapshot }] : []);
+}
+
+async function compileTaskAmend(
+  state: TaskDecisionModuleAuthorityStateV2,
+  payload: TaskAmendPayloadV2
+): Promise<CompiledTaskDecisionModuleCommandV2> {
+  const path = taskPath(payload.taskId, "INDEX.md");
+  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
+  const current = parseTaskIndex(snapshot.body);
+  const next = parseTaskIndex(payload.body);
+  if (current.taskId !== payload.taskId || next.taskId !== payload.taskId) throw admission("TASK_ID_MISMATCH");
+  const coreFields = new Set(["schema", "task_id", "title", "parent", "lifecycle", "packageDisposition", "workKind", "riskTier", "urgency", "vertical", "preset", "provenance", "profile"]);
+  if (payload.fields.some((field) => coreFields.has(field) || !/^[A-Za-z][A-Za-z0-9_]*$/u.test(field))) {
+    throw admission("TASK_AMEND_FIELD_INVALID");
+  }
+  if (stripTaskAmendFields(snapshot.body, payload.fields) !== stripTaskAmendFields(payload.body, payload.fields)
+    || payload.fields.some((field) => !new RegExp(`^${escapeRegExp(field)}:`, "mu").test(readFrontmatter(payload.body) ?? ""))) {
+    throw admission("TASK_AMEND_BODY_MISMATCH");
+  }
+  return taskCompilation(payload.taskId, "document", "doc_write", { path: "INDEX.md", body: payload.body }, [
+    taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)
+  ], [{ path, snapshot }]);
+}
+
+async function compileTaskDisposition(
+  state: TaskDecisionModuleAuthorityStateV2,
+  payload: TaskArchivePayloadV2 | TaskDeletePayloadV2 | TaskReopenPayloadV2,
+  disposition: "active" | "archived" | "tombstoned",
+  kind: "package_archive" | "package_tombstone" | "package_reopen"
+): Promise<CompiledTaskDecisionModuleCommandV2> {
+  const path = taskPath(payload.taskId, "INDEX.md");
+  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
+  const current = parseTaskIndex(snapshot.body);
+  const next = parseTaskIndex(payload.body);
+  if (current.taskId !== payload.taskId || next.taskId !== payload.taskId) throw admission("TASK_ID_MISMATCH");
+  if (next.packageDisposition !== disposition || !sameTaskLifecycleCore(current, next)) {
+    throw admission("TASK_DISPOSITION_BODY_INVALID");
+  }
+  if (!payload.body.includes(payload.reason)) throw admission("TASK_DISPOSITION_REASON_REQUIRED");
+  return taskCompilation(payload.taskId, "document", kind, { path: "INDEX.md", body: payload.body }, [
+    taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)
+  ], [{ path, snapshot }]);
+}
+
+async function compileTaskSupersede(
+  state: TaskDecisionModuleAuthorityStateV2,
+  payload: TaskSupersedePayloadV2
+): Promise<CompiledTaskDecisionModuleCommandV2> {
+  if (payload.body !== undefined) {
+    if (!payload.replacementTaskId || payload.writes) throw admission("TASK_SUPERSEDE_PAYLOAD_INVALID");
+    const compiled = await compileTaskDisposition(state, {
+      schema: "task.archive/v1", taskId: payload.taskId, reason: `supersededBy=${payload.replacementTaskId}`, body: payload.body
+    }, "archived", "package_archive");
+    const replacementPath = taskPath(payload.replacementTaskId, "INDEX.md");
+    const replacementSnapshot = await requiredTaskDecisionModuleDocument(state, replacementPath, "TASK_SUPERSEDE_TARGET_NOT_FOUND");
+    return {
+      ...compiled,
+      requiredBaseRefs: [...compiled.requiredBaseRefs, taskDecisionModuleEntityRef("task", `task/${payload.replacementTaskId}`)],
+      requiredPathSnapshots: [...compiled.requiredPathSnapshots, { path: replacementPath, snapshot: replacementSnapshot }]
+    };
+  }
+  if (!payload.replacementTaskId || !payload.writes) throw admission("TASK_SUPERSEDE_PAYLOAD_INVALID");
+  const oldPath = taskPath(payload.taskId, "INDEX.md");
+  const oldSnapshot = await requiredTaskDecisionModuleDocument(state, oldPath, "TASK_INDEX_NOT_FOUND");
+  const oldWrite = payload.writes.find((write) => write.taskId === payload.taskId && write.path === "INDEX.md");
+  const newWrite = payload.writes.find((write) => write.taskId === payload.replacementTaskId && write.path === "INDEX.md");
+  const relationWrite = payload.writes.find((write) => write.taskId === payload.replacementTaskId && write.path === "relations.md");
+  if (!oldWrite || !newWrite || !relationWrite || parseTaskIndex(oldWrite.body).packageDisposition !== "archived"
+    || parseTaskIndex(newWrite.body).status !== "planned"
+    || !relationWrite.body.includes(`task/${payload.replacementTaskId} supersedes task/${payload.taskId}`)) {
+    throw admission("TASK_SUPERSEDE_WRITES_INVALID");
+  }
+  return {
+    mutationPlan: taskDecisionModulePlan([
+      { entityKind: "task", identity: { taskId: payload.taskId }, action: "document", storageContext: { documentPath: "INDEX.md" } },
+      { entityKind: "task", identity: { taskId: payload.replacementTaskId }, action: "create" }
+    ]),
+    operation: { opId: "authority-overrides-this", entityId: taskEntityId(payload.taskId), kind: "package_supersede", payload: { writes: payload.writes } },
+    requiredBaseRefs: [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`), taskDecisionModuleEntityRef("task", `task/${payload.replacementTaskId}`)],
+    requiredPathSnapshots: [{ path: oldPath, snapshot: oldSnapshot }]
+  };
+}
+
+async function compileTaskRelate(
+  state: TaskDecisionModuleAuthorityStateV2,
+  payload: TaskRelatePayloadV2
+): Promise<CompiledTaskDecisionModuleCommandV2> {
+  const relation = payload.relation;
+  if (relation.source !== `task/${payload.taskId}` || relation.target !== `task/${payload.targetTaskId}`
+    || relation.type !== "depends-on" || relation.state !== "active" || deriveRelationId(relation) !== relation.relation_id) {
+    throw admission("TASK_RELATION_INVALID");
+  }
+  const issues = validateRelationRecordsForHost(`task/${payload.taskId}`, [relation]);
+  if (issues.length > 0) throw admission(`TASK_RELATION_INVALID:${issues[0]!.code}`);
+  const path = taskPath(payload.taskId, "INDEX.md");
+  const targetPath = taskPath(payload.targetTaskId, "INDEX.md");
+  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
+  const targetSnapshot = await requiredTaskDecisionModuleDocument(state, targetPath, "TASK_RELATION_TARGET_NOT_FOUND");
+  if (appendTaskRelation(snapshot.body, relation) !== payload.body) throw admission("TASK_RELATION_BODY_MISMATCH");
+  return {
+    mutationPlan: taskDecisionModulePlan([
+      { entityKind: "task", identity: { taskId: payload.taskId }, action: "document", storageContext: { documentPath: "INDEX.md" } },
+      relationCreateIntent(relation)
+    ]),
+    operation: { opId: "authority-overrides-this", entityId: taskEntityId(payload.taskId), kind: "doc_write", payload: { path: "INDEX.md", body: payload.body } },
+    requiredBaseRefs: [
+      taskDecisionModuleEntityRef("task", `task/${payload.taskId}`),
+      taskDecisionModuleEntityRef("task", `task/${payload.targetTaskId}`),
+      taskDecisionModuleEntityRef("relation", `relation/${relation.relation_id}`)
+    ],
+    requiredPathSnapshots: [{ path, snapshot }, { path: targetPath, snapshot: targetSnapshot }]
+  };
 }
 
 function taskCompilation(
@@ -256,28 +393,7 @@ async function compileDecisionState(
   };
 }
 
-async function compileDecisionAmend(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: DecisionAmendPayloadV2
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const next = decodeTaskDecisionModuleDecision(payload.decision);
-  const path = decisionPath(next.decision_id);
-  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "DECISION_DOCUMENT_NOT_FOUND");
-  const current = decodeTaskDecisionModuleDecision(parseDecisionDocument(snapshot.body).decision);
-  assertSameDecision(current, next);
-  const changed = changedDecisionFields(current, next);
-  if (changed.length === 0 || changed.some((field) => decisionFieldContracts[field].mutability !== "amendable")) {
-    throw admission("DECISION_AMEND_FIELD_INVALID");
-  }
-  return {
-    mutationPlan: taskDecisionModulePlan([{ entityKind: "decision", identity: { decisionId: next.decision_id }, action: decisionSemanticMutationActions.amend }]),
-    operation: decisionOperation("decision_amend", next, payload.body, current),
-    requiredBaseRefs: [taskDecisionModuleEntityRef("decision", `decision/${next.decision_id}`)],
-    requiredPathSnapshots: [{ path, snapshot }]
-  };
-}
-
-async function compileDecisionRelation(
+ async function compileDecisionRelation(
   state: TaskDecisionModuleAuthorityStateV2,
   payload: DecisionRelationPayloadV2
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
@@ -290,7 +406,7 @@ async function compileDecisionRelation(
   if (current.decision_id !== payload.decisionId) throw admission("DECISION_ID_MISMATCH");
   if (current.relations.some((entry) => entry.relation_id === relation.relation_id)) throw admission("RELATION_ALREADY_EXISTS");
   const next = { ...current, relations: [...current.relations, relation] };
-  const companion = await decisionRelationPriorityCompanion(state, current, relation, payload.taskWrites ?? []);
+  const companion = await decisionRelationPriorityCompanionV2(state, current, relation, payload.taskWrites ?? []);
   return {
     mutationPlan: taskDecisionModulePlan([
       { entityKind: "decision", identity: { decisionId: payload.decisionId }, action: "relation" },
@@ -314,53 +430,7 @@ async function compileDecisionRelation(
   };
 }
 
-async function decisionRelationPriorityCompanion(
-  state: TaskDecisionModuleAuthorityStateV2,
-  decision: DecisionPackage,
-  relation: EntityRelationRecord,
-  taskWrites: NonNullable<DecisionRelationPayloadV2["taskWrites"]>
-): Promise<{
-  readonly mutations: RegistryMutationPlanInput["mutations"];
-  readonly baseRefs: ReadonlyArray<RegistryEntityRefV2>;
-  readonly pathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
-}> {
-  const match = relation.state === "active" && relation.type === "derives" ? /^task\/([^/]+)$/u.exec(relation.target) : null;
-  if (!match) {
-    if (taskWrites.length > 0) throw admission("DECISION_RELATION_TASK_WRITES_FORBIDDEN");
-    return { mutations: [], baseRefs: [], pathSnapshots: [] };
-  }
-  const taskId = match[1]!;
-  const path = taskPath(taskId, "INDEX.md");
-  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "DECISION_RELATION_TASK_NOT_FOUND");
-  const expectedBody = seedTaskPriority(snapshot.body, decision);
-  if (expectedBody === null) {
-    if (taskWrites.length > 0) throw admission("DECISION_RELATION_TASK_WRITES_REDUNDANT");
-    return { mutations: [], baseRefs: [], pathSnapshots: [] };
-  }
-  if (taskWrites.length !== 1 || taskWrites[0]!.taskId !== taskId || taskWrites[0]!.path !== "INDEX.md" || taskWrites[0]!.body !== expectedBody) {
-    throw admission("DECISION_RELATION_TASK_WRITE_MISMATCH");
-  }
-  return {
-    mutations: [{ entityKind: "task", identity: { taskId }, action: "document", storageContext: { documentPath: "INDEX.md" } }],
-    baseRefs: [taskDecisionModuleEntityRef("task", `task/${taskId}`)],
-    pathSnapshots: [{ path, snapshot }]
-  };
-}
-
-function seedTaskPriority(body: string, decision: DecisionPackage): string | null {
-  const frontmatter = readFrontmatter(body);
-  if (!frontmatter) throw admission("DECISION_RELATION_TASK_FRONTMATTER_INVALID");
-  const additions = [
-    ...(readScalar(frontmatter, "riskTier") ? [] : [`riskTier: ${decision.riskTier}`]),
-    ...(readScalar(frontmatter, "urgency") ? [] : [`urgency: ${decision.urgency}`])
-  ];
-  if (additions.length === 0) return null;
-  const nextFrontmatter = frontmatter.replace(/^packageDisposition:[^\n]*(?:\n|$)/mu, (line) => `${line.endsWith("\n") ? line : `${line}\n`}${additions.join("\n")}\n`);
-  if (nextFrontmatter === frontmatter) throw admission("DECISION_RELATION_TASK_FRONTMATTER_INVALID");
-  return body.replace(`---\n${frontmatter}\n---`, `---\n${nextFrontmatter}\n---`);
-}
-
-function decisionOperation(
+ function decisionOperation(
   kind: WriteOpKind,
   decision: DecisionPackage,
   body?: string,
@@ -378,123 +448,14 @@ function decisionOperation(
   };
 }
 
-async function compileModuleRegister(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: ModuleRegisterPayloadV2
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
-  const modules = registry.modules.some((entry) => entry.key === payload.module.key)
-    ? registry.modules.map((entry) => entry.key === payload.module.key ? payload.module : entry)
-    : [...registry.modules, payload.module];
-  return moduleCompilation(payload.module.key, "register", { schema: "module-registry/v1", modules }, snapshot);
+ interface ParsedTaskIndexV2 {
+  readonly taskId: string;
+  readonly status: DomainStatus;
+  readonly packageDisposition: "active" | "archived" | "tombstoned";
+  readonly core: Readonly<Record<string, string>>;
 }
 
-async function compileModuleUnregister(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: ModuleUnregisterPayloadV2
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
-  if (!snapshot) throw admission("MODULE_REGISTRY_NOT_FOUND");
-  const current = registry.modules.find((entry) => entry.key === payload.moduleKey);
-  if (!current || current.status === "unregistered") throw admission("MODULE_NOT_FOUND");
-  return moduleCompilation(payload.moduleKey, "unregister", {
-    schema: "module-registry/v1",
-    modules: registry.modules.map((entry) => entry.key === payload.moduleKey ? { ...entry, status: "unregistered" } : entry)
-  }, snapshot);
-}
-
-async function compileModuleStep(
-  state: TaskDecisionModuleAuthorityStateV2,
-  payload: ModuleStepPayloadV2
-): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
-  if (!snapshot) throw admission("MODULE_REGISTRY_NOT_FOUND");
-  const current = registry.modules.find((entry) => entry.key === payload.moduleKey);
-  if (!current || current.status === "unregistered") throw admission("MODULE_NOT_FOUND");
-  const step = { id: payload.stepId, state: payload.state };
-  const steps = current.steps.some((entry) => entry.id === payload.stepId)
-    ? current.steps.map((entry) => entry.id === payload.stepId ? step : entry)
-    : [...current.steps, step];
-  return moduleCompilation(payload.moduleKey, "step", {
-    schema: "module-registry/v1",
-    modules: registry.modules.map((entry) => entry.key === payload.moduleKey ? { ...entry, steps } : entry)
-  }, snapshot);
-}
-
-function moduleCompilation(
-  moduleKey: string,
-  action: "register" | "unregister" | "step",
-  registry: ModuleRegistryV2,
-  snapshot: HostedDocumentSnapshotV2 | null
-): CompiledTaskDecisionModuleCommandV2 {
-  return {
-    mutationPlan: taskDecisionModulePlan([{ entityKind: "module", identity: { moduleKey }, action }]),
-    operation: {
-      opId: "authority-overrides-this",
-      entityId: moduleEntityId(moduleKey),
-      kind: "module_registry_write",
-      payload: { operation: action, registry }
-    },
-    requiredBaseRefs: [taskDecisionModuleEntityRef("module", `module/${encodeURIComponent(moduleKey)}`)],
-    requiredPathSnapshots: snapshot ? [{ path: "modules.json", snapshot }] : []
-  };
-}
-
-async function moduleRegistry(state: TaskDecisionModuleAuthorityStateV2): Promise<{
-  readonly registry: ModuleRegistryV2;
-  readonly snapshot: HostedDocumentSnapshotV2 | null;
-}> {
-  const snapshot = await state.readHostedDocument("modules.json");
-  if (!snapshot) return { registry: { schema: "module-registry/v1", modules: [] }, snapshot: null };
-  let value: unknown;
-  try {
-    value = JSON.parse(snapshot.body);
-  } catch {
-    throw admission("MODULE_REGISTRY_INVALID");
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw admission("MODULE_REGISTRY_INVALID");
-  const row = value as { readonly schema?: unknown; readonly modules?: unknown };
-  if (row.schema !== "module-registry/v1" || !Array.isArray(row.modules)) throw admission("MODULE_REGISTRY_INVALID");
-  const modules = row.modules.map(decodeModuleRecord);
-  if (new Set(modules.map((entry) => entry.key)).size !== modules.length) throw admission("MODULE_REGISTRY_DUPLICATE_KEY");
-  return { registry: { schema: "module-registry/v1", modules }, snapshot };
-}
-
-function decodeModuleRecord(value: unknown): ModuleRecordV2 {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw admission("MODULE_REGISTRY_INVALID");
-  const row = value as Record<string, unknown>;
-  if (typeof row.key !== "string" || typeof row.title !== "string" || typeof row.status !== "string"
-    || !Array.isArray(row.scopes) || !Array.isArray(row.steps)) throw admission("MODULE_REGISTRY_INVALID");
-  const optional = (key: string): string | undefined => row[key] === undefined
-    ? undefined
-    : typeof row[key] === "string" ? row[key] : (() => { throw admission("MODULE_REGISTRY_INVALID"); })();
-  const stringArray = (key: string): ReadonlyArray<string> | undefined => row[key] === undefined
-    ? undefined
-    : Array.isArray(row[key]) && row[key].every((entry) => typeof entry === "string")
-      ? row[key] as ReadonlyArray<string>
-      : (() => { throw admission("MODULE_REGISTRY_INVALID"); })();
-  const steps = row.steps.map((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw admission("MODULE_REGISTRY_INVALID");
-    const step = entry as Record<string, unknown>;
-    if (typeof step.id !== "string" || typeof step.state !== "string") throw admission("MODULE_REGISTRY_INVALID");
-    return { id: step.id, state: step.state };
-  });
-  return {
-    key: row.key,
-    title: row.title,
-    ...(optional("prefix") === undefined ? {} : { prefix: optional("prefix")! }),
-    status: row.status,
-    ...(optional("branch") === undefined ? {} : { branch: optional("branch")! }),
-    ...(optional("owner") === undefined ? {} : { owner: optional("owner")! }),
-    ...(optional("currentStep") === undefined ? {} : { currentStep: optional("currentStep")! }),
-    scopes: row.scopes as ReadonlyArray<string>,
-    ...(stringArray("shared") === undefined ? {} : { shared: stringArray("shared")! }),
-    ...(stringArray("dependsOn") === undefined ? {} : { dependsOn: stringArray("dependsOn")! }),
-    steps
-  };
-}
-
-function parseTaskIndex(body: string): { readonly taskId: string; readonly status: string } {
+function parseTaskIndex(body: string): ParsedTaskIndexV2 {
   const frontmatter = readFrontmatter(body);
   if (!frontmatter || readScalar(frontmatter, "schema", { required: true }) !== "task-package/v2") {
     throw admission("TASK_INDEX_INVALID");
@@ -502,7 +463,45 @@ function parseTaskIndex(body: string): { readonly taskId: string; readonly statu
   const taskId = readScalar(frontmatter, "task_id", { required: true });
   const status = readScalar(frontmatter, "  status", { required: true });
   if (!isDomainStatus(status)) throw admission("TASK_INDEX_INVALID");
-  return { taskId, status };
+  const packageDisposition = readScalar(frontmatter, "packageDisposition", { required: true });
+  if (!isPackageDisposition(packageDisposition)) throw admission("TASK_INDEX_INVALID");
+  const keys = [
+    "schema", "task_id", "title", "parent", "  bindingSchema", "  engine", "  status", "  ref",
+    "  titleSnapshot", "  url", "  bindingCreatedAt", "  bindingFingerprint", "packageDisposition",
+    "workKind", "riskTier", "urgency", "vertical", "preset", "profile"
+  ];
+  return {
+    taskId,
+    status,
+    packageDisposition,
+    core: Object.fromEntries(keys.map((key) => [key, readScalar(frontmatter, key)]))
+  };
+}
+
+function sameTaskLifecycleCore(current: ParsedTaskIndexV2, next: ParsedTaskIndexV2): boolean {
+  return Object.entries(current.core).every(([key, value]) => key === "packageDisposition" || next.core[key] === value);
+}
+
+function stripTaskAmendFields(body: string, fields: ReadonlyArray<string>): string {
+  const frontmatter = readFrontmatter(body);
+  if (!frontmatter) throw admission("TASK_INDEX_INVALID");
+  const stripped = fields.reduce((current, field) => current.replace(new RegExp(`^${escapeRegExp(field)}:[^\\r\\n]*(?:\\r?\\n|$)`, "gmu"), ""), frontmatter);
+  return body.replace(frontmatter, stripped);
+}
+
+function appendTaskRelation(body: string, relation: EntityRelationRecord): string {
+  if (body.includes(`relation_id: ${relation.relation_id}`)) return body;
+  const frontmatter = readFrontmatter(body);
+  if (!frontmatter) throw admission("TASK_INDEX_INVALID");
+  const line = formatRelationFlowRecord(relation);
+  const nextFrontmatter = parseRelationFlowRecords(frontmatter).length > 0 || /^relations:\s*$/mu.test(frontmatter)
+    ? frontmatter.replace(/^(relations:\s*\n(?:\s*-\s*\{[^\n]*\}\n?)*)/mu, (block) => `${block.endsWith("\n") ? block : `${block}\n`}${line}\n`)
+    : `${frontmatter}\nrelations:\n${line}`;
+  return body.replace(`---\n${frontmatter}\n---`, `---\n${nextFrontmatter}\n---`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function replaceTaskStatus(body: string, status: string): string {

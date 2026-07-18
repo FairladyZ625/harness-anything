@@ -20,6 +20,7 @@ import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
+/** Dormant implementation compatibility type; lesson commands are not registered. */
 export type LessonCommandMode = "dry-run" | "apply";
 export type AnchorBackfillMode = "dry-run" | "apply";
 export type ProvenanceBackfillMode = "dry-run" | "apply";
@@ -272,8 +273,6 @@ export interface ParsedCommand {
     | { readonly kind: "completion"; readonly shell: "bash" | "zsh" }
     | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
     | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
-    | { readonly kind: "lesson-promote"; readonly taskId: string; readonly candidateId: string; readonly mode: LessonCommandMode }
-    | { readonly kind: "lesson-sediment"; readonly taskId: string; readonly candidateId: string; readonly mode: "dry-run"; readonly title: string }
     | { readonly kind: "adopt-multica"; readonly taskId: string; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
     | { readonly kind: "external-snapshot"; readonly provider: "github"; readonly ref: string }
     | { readonly kind: "external-snapshot"; readonly provider: "multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }

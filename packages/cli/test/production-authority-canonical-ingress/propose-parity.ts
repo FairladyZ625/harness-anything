@@ -42,12 +42,12 @@ export function verifyDecisionProposeParity(
   assert.equal(manual.receipt.error?.code, "authority_ingress_rejected", JSON.stringify(manual.receipt));
   assert.match(manual.receipt.error?.hint ?? "", /omit --id/u);
 
-  const unsupported = runRawJsonMaybeFail(fixture.repoRoot, [
-    "decision", "amend", fallbackId, "--title", "Unsupported ingress probe"
+  const amended = runRawJsonMaybeFail(fixture.repoRoot, [
+    "decision", "amend", fallbackId, "--title", "Typed ingress amend probe"
   ], env);
-  assert.equal(unsupported.status, 1, JSON.stringify(unsupported.receipt));
-  assert.equal(unsupported.receipt.error?.code, "authority_ingress_rejected", JSON.stringify(unsupported.receipt));
-  assert.doesNotMatch(JSON.stringify(unsupported.receipt), /JournalUnavailable/u);
+  assert.equal(amended.status, 0, JSON.stringify(amended.receipt));
+  assert.equal(amended.receipt.ok, true, JSON.stringify(amended.receipt));
+  assert.match(readFileSync(path.join(fixture.authoredRoot, `decisions/decision-${fallbackId}/decision.md`), "utf8"), /title: "Typed ingress amend probe"/u);
 
   const before = git(fixture.authoredRoot, "rev-parse", "HEAD");
   const dryRun = runRawJsonMaybeFail(fixture.repoRoot, [

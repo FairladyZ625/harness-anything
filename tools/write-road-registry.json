@@ -62,6 +62,7 @@
       "entry": [
         "cli",
         "daemon-rpc",
+        "production-authority",
         "gui-bridge"
       ],
       "writeKinds": [
@@ -98,7 +99,8 @@
         "packages/adapters/local/src/index.ts:182",
         "packages/adapters/local/src/index.ts:310",
         "packages/application/src/local-controller-service.ts:95",
-        "packages/cli/src/commands/core/task-submit-facade.ts:15"
+        "packages/cli/src/commands/core/task-submit-facade.ts:15",
+        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
       ],
       "freshness": "coordinator-conditional-task-state"
     },
@@ -293,6 +295,7 @@
       "entry": [
         "cli",
         "daemon-rpc",
+        "production-authority",
         "internal",
         "gui-review"
       ],
@@ -329,7 +332,8 @@
         "packages/adapters/local/src/task-writes.ts:67",
         "packages/application/src/task-lifecycle-orchestrator.ts:115",
         "packages/cli/src/commands/core/task-gates.ts:93",
-        "packages/cli/src/daemon/doc-sync-service.ts:166"
+        "packages/cli/src/daemon/doc-sync-service.ts:166",
+        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
       ],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
@@ -642,7 +646,8 @@
       },
       "entry": [
         "cli",
-        "daemon-rpc"
+        "daemon-rpc",
+        "production-authority"
       ],
       "writeKinds": [
         "decision_propose"
@@ -709,7 +714,8 @@
       },
       "entry": [
         "cli",
-        "daemon-rpc"
+        "daemon-rpc",
+        "production-authority"
       ],
       "writeKinds": [
         "decision_amend"
@@ -723,7 +729,8 @@
       ],
       "evidence": [
         "packages/application/src/decision-write-service.ts:119",
-        "packages/application/src/decision-write-service.ts:267"
+        "packages/application/src/decision-write-service.ts:267",
+        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -741,7 +748,8 @@
       },
       "entry": [
         "cli",
-        "daemon-rpc"
+        "daemon-rpc",
+        "production-authority"
       ],
       "writeKinds": [
         "decision_relate"
@@ -773,7 +781,8 @@
       },
       "entry": [
         "cli",
-        "daemon-rpc"
+        "daemon-rpc",
+        "production-authority"
       ],
       "writeKinds": [
         "relation_retire",
@@ -788,7 +797,8 @@
       ],
       "evidence": [
         "packages/application/src/decision-write-service.ts:134",
-        "packages/application/src/decision-write-service.ts:267"
+        "packages/application/src/decision-write-service.ts:267",
+        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -805,7 +815,8 @@
         "zoneClass": "module-authored-structured"
       },
       "entry": [
-        "cli"
+        "cli",
+        "production-authority"
       ],
       "writeKinds": [
         "module_registry_write"
@@ -817,7 +828,8 @@
       ],
       "evidence": [
         "packages/cli/src/commands/extensions/module.ts:43",
-        "packages/cli/src/commands/extensions/state.ts:380"
+        "packages/cli/src/commands/extensions/state.ts:380",
+        "packages/cli/src/daemon/production-authority-attempt-compiler.ts:1"
       ],
       "freshness": "coordinator-registry-replace"
     },
@@ -967,9 +979,7 @@
         "distill-candidate"
       ],
       "cliActions": [
-        "distill-candidate",
-        "lesson-promote",
-        "lesson-sediment"
+        "distill-candidate"
       ],
       "directWrites": [
         {

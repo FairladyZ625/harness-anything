@@ -275,8 +275,6 @@ const repoWriteCliActionKinds = new Set<string>([
   "legacy-copy-safe-docs",
   "legacy-index",
   "legacy-intake-plan",
-  "lesson-promote",
-  "lesson-sediment",
   "materializer-run",
   "migrate-anchors",
   "migrate-fact-execution",

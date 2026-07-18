@@ -74,8 +74,6 @@ function legacyCommandForDisplay(command: string): string {
     "distill promote": "distill-commit",
     "event append": "runtime-event-append",
     "event list": "runtime-event-list",
-    "lesson promote": "lesson-promote",
-    "lesson sediment": "lesson-sediment",
     "migrate plan": "migrate-plan",
     "migrate structure": "migrate-structure",
     "migrate provenance": "migrate-provenance",

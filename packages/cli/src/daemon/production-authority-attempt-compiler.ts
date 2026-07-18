@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import {
   actorAxesBindingDigestV2,
   actorAxesBindingTokenDigestV2,
@@ -29,7 +28,6 @@ import {
   sha256Text,
   semanticMutationWireV2,
   taskEntityId,
-  taskPackagePath,
   type CanonicalCborValue,
   type DecisionPackage,
   type EntityRelationRecord,
@@ -60,6 +58,9 @@ import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent
 import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
 import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
 import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
+import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
+import { hostedSnapshot } from "./production-authority-semantic-state.ts";
+export { createProductionCanonicalSemanticState } from "./production-authority-semantic-state.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 
@@ -222,6 +223,11 @@ export function createProductionCanonicalAttemptCompiler(input: {
       return compileIntent(command, attribution, currentSession, operation.entityId,
         taskClaimAttemptIntent(command, attribution, currentSession, operation));
     },
+    compileObservedWrite: async ({ command, attribution, currentSession, operation }) => {
+      assertTypedIngressAdapter(command.action.kind, "observed-write");
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        productionObservedWriteAttemptIntent(command, operation, input.authoredRoot));
+    },
     compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
       return compileIntent(command, attribution, currentSession, operation.entityId,
         productionScriptIngestAttemptIntent(command, operation, input.authoredRoot));
@@ -229,7 +235,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
   };
 }
 
-function assertTypedIngressAdapter(kind: string, expected: "generic" | "decision-transition" | "task-claim"): void {
+function assertTypedIngressAdapter(kind: string, expected: "generic" | "decision-transition" | "task-claim" | "observed-write"): void {
   const disposition = productionAuthorityIngressFor(kind);
   if (disposition?.status !== "typed-v2" || disposition.adapter !== expected) {
     throw new Error(`AUTHORITY_TYPED_INGRESS_REGISTRY_MISMATCH:${kind}:${expected}`);
@@ -424,7 +430,17 @@ async function canonicalAttemptIntent(
         ...(action.currentStep === undefined ? {} : { currentStep: action.currentStep })
       }
     };
-    return canonicalIntent("module.register", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity, action: "register" }], [entity], ["modules.json"], moduleEntityId(action.moduleKey));
+    return moduleCanonicalIntent("module.register", encodeTaskDecisionModuleCommandPayloadV2(payload), entity, "register", action.moduleKey, authoredRoot);
+  }
+  if (action.kind === "module-unregister") {
+    const entity = ref("module", `module/${action.moduleKey}`);
+    const payload: TaskDecisionModuleCommandPayloadV2 = { schema: "module.unregister/v1", moduleKey: action.moduleKey };
+    return moduleCanonicalIntent("module.unregister", encodeTaskDecisionModuleCommandPayloadV2(payload), entity, "unregister", action.moduleKey, authoredRoot);
+  }
+  if (action.kind === "module-step") {
+    const entity = ref("module", `module/${action.moduleKey}`);
+    const payload: TaskDecisionModuleCommandPayloadV2 = { schema: "module.step/v1", moduleKey: action.moduleKey, stepId: action.stepId, state: action.state };
+    return moduleCanonicalIntent("module.step", encodeTaskDecisionModuleCommandPayloadV2(payload), entity, "step", action.moduleKey, authoredRoot);
   }
   if (action.kind === "decision-relate") {
     const relation: EntityRelationRecord = decisionRelationRecord({
@@ -515,6 +531,12 @@ function canonicalIntent(
   return { commandName, payload, mutations, baseRefs, portablePaths, declaredPathCas: [], physicalEntityId };
 }
 
+function moduleCanonicalIntent(commandName: string, payload: Uint8Array, entity: RegistryEntityRefV2, action: string, moduleKey: string, authoredRoot: string): CanonicalAttemptIntent {
+  const intent = canonicalIntent(commandName, payload, [{ entity, action }], [entity], ["modules.json"], moduleEntityId(moduleKey));
+  const snapshot = hostedSnapshot(authoredRoot, "modules.json");
+  return { ...intent, declaredPathCas: snapshot ? [{ path: "modules.json", ...snapshot.cas }] : [] };
+}
+
 function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
   return { registryVersion: 1, entityKind, canonicalRef };
 }
@@ -554,39 +576,4 @@ function canonicalBindingTextSet(values: ReadonlyArray<string>): ReadonlyArray<s
     Buffer.from(encodeCanonicalCbor(left)),
     Buffer.from(encodeCanonicalCbor(right))
   ));
-}
-
-function hostedSnapshot(authoredRoot: string, portablePath: string): {
-  readonly body: string;
-  readonly cas: { readonly expectedEpoch: string; readonly expectedRevision: bigint; readonly expectedBlobDigest: Uint8Array };
-} | null {
-  const taskDocument = /^tasks\/([^/]+)\/(.+)$/u.exec(portablePath);
-  const rootDir = path.dirname(authoredRoot);
-  const absolute = taskDocument
-    ? path.join(taskPackagePath({
-      rootDir,
-      layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
-    }, taskDocument[1]!), taskDocument[2]!)
-    : path.join(authoredRoot, portablePath);
-  if (!existsSync(absolute)) return null;
-  const body = readFileSync(absolute, "utf8");
-  return {
-    body,
-    cas: { expectedEpoch: sha256Text(body), expectedRevision: 0n, expectedBlobDigest: Buffer.from(sha256Text(body), "hex") }
-  };
-}
-
-export function createProductionCanonicalSemanticState(authoredRoot: string) {
-  return {
-    readEntityBase: async () => null,
-    readHostedDocument: async (portablePath: string) => {
-      const snapshot = hostedSnapshot(authoredRoot, portablePath);
-      return snapshot ? {
-        body: snapshot.body,
-        epoch: snapshot.cas.expectedEpoch,
-        revision: snapshot.cas.expectedRevision,
-        blobDigest: snapshot.cas.expectedBlobDigest
-      } : null;
-    }
-  };
 }

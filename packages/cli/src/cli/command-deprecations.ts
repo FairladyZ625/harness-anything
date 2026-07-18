@@ -29,8 +29,6 @@ const aliasGrammarDeprecations = [
   alias("distill-commit", "distill commit --task <task-id>", "ha distill promote --task <task-id>", "distill", "commit"),
   alias("runtime-event-append", "runtime-event append", "ha event append", "runtime-event", "append"),
   alias("runtime-event-list", "runtime-event list", "ha event list", "runtime-event", "list"),
-  alias("lesson-promote", "lesson-promote <task-id> <candidate-id>", "ha lesson promote <task-id> <candidate-id>", "lesson-promote"),
-  alias("lesson-sediment", "lesson-sediment <task-id> <candidate-id>", "ha lesson sediment <task-id> <candidate-id>", "lesson-sediment"),
   alias("migrate-plan", "migrate-plan", "ha migrate plan", "migrate-plan"),
   alias("migrate-structure", "migrate-structure", "ha migrate structure", "migrate-structure"),
   alias("migrate-anchors", "migrate-anchors", "ha migrate anchors", "migrate-anchors"),

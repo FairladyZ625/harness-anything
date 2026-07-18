@@ -335,8 +335,6 @@ function displayCommand(command: string): { readonly command: string; readonly e
     "distill-commit": "distill promote",
     "runtime-event-append": "event append",
     "runtime-event-list": "event list",
-    "lesson-promote": "lesson promote",
-    "lesson-sediment": "lesson sediment",
     "migrate-plan": "migrate plan",
     "migrate-structure": "migrate structure",
     "migrate-provenance": "migrate provenance",

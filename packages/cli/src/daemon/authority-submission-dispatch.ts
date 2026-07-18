@@ -33,6 +33,12 @@ export function bindAuthoritySubmissionForDispatch(
         return bound.submitTaskClaim!(submission);
       }
     } : {}),
+    ...(bound.submitObservedWrite ? {
+      submitObservedWrite: async (submission: Parameters<NonNullable<typeof bound.submitObservedWrite>>[0]) => {
+        dispatch.assertActive();
+        return bound.submitObservedWrite!(submission);
+      }
+    } : {}),
     ...(bound.submitScriptIngest ? {
       submitScriptIngest: async (submission: Parameters<NonNullable<typeof bound.submitScriptIngest>>[0]) => {
         dispatch.assertActive();

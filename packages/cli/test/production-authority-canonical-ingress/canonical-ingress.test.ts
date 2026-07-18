@@ -50,6 +50,7 @@ import { authorityOperationShape } from "./operation-shape.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
+import { verifyOmittedIngressRegressions } from "./omitted-ingress-regressions.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -457,10 +458,10 @@ test("production generic canonical ingress accepts and journals one write for ev
       authoredMarker: /dec_INGRESS/u
     }, {
       kind: "module",
-      action: { kind: "module-register", moduleKey: "ingress", title: "Ingress", scope: "packages/cli/**", shared: [], dependsOn: [] },
-      canonicalEntityId: moduleEntityId("ingress"),
+      action: { kind: "module-register", moduleKey: "registered-ingress", title: "Ingress", scope: "packages/cli/**", shared: [], dependsOn: [] },
+      canonicalEntityId: moduleEntityId("registered-ingress"),
       authoredPath: "modules.json",
-      authoredMarker: /ingress/u
+      authoredMarker: /registered-ingress/u
     }, {
       kind: "fact",
       action: {
@@ -589,6 +590,8 @@ test("production generic canonical ingress accepts and journals one write for ev
         detectedAt: "2026-07-17T00:10:00.000Z"
       }
     }, { actor: commandActor, executor: { kind: "agent", id: "codex" } });
+
+    await verifyOmittedIngressRegressions({ authoredRoot: fixture.authoredRoot, runCommand });
 
     const appendReceipt = await runCommand({
       kind: "progress-append",

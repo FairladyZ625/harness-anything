@@ -335,9 +335,9 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-delete",
-    "usage": "task delete (--soft <id> | --hard <id> --confirm <id>) --reason <reason> [--deleted-by <actor>]",
-    "options": [{"flag":"--soft","description":"Soft-delete the selected task."},{"flag":"--hard","description":"Hard-delete the selected task."},{"flag":"--confirm","description":"Confirm a destructive or relation-changing action."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--deleted-by","description":"Record the actor deleting or superseding the task."}],
-    "summary": "Soft-delete or guarded hard-delete a task package. E79 makes hard delete rare: anchored facts or incoming relations block it; use task archive after distilling evidence into an anchor task.",
+    "usage": "task delete --soft <id> --reason <reason> [--deleted-by <actor>] (production); local-only compatibility: --hard <id> --confirm <id>",
+    "options": [{"flag":"--soft","description":"Soft-delete the selected task through the production typed write path."},{"flag":"--hard","description":"Local-only compatibility mode; production does not offer hard delete. Distill evidence, then use task archive or task supersede."},{"flag":"--confirm","description":"Confirm a local-only hard delete; this does not enable hard delete in production."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--deleted-by","description":"Record the actor deleting or superseding the task."}],
+    "summary": "Soft-delete a task package. Production does not offer hard delete; after distilling evidence, use task archive or task supersede instead.",
     "examples": ["harness-anything task delete --soft task_01ABC --reason \"duplicate\""],
     "parse": parseCoreTaskArgs,
     "run": runTaskLifecycleCommand,

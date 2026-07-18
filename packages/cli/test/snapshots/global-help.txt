@@ -29,7 +29,6 @@ Commands:
   help - Show CLI discovery help.
   init - Initialize a harness workspace.
   legacy - Intake legacy harness content.
-  lesson - Promote and sediment lessons.
   materializer - Merge session ledger branches.
   migrate - Run compatibility migrations.
   module - Manage project modules.
