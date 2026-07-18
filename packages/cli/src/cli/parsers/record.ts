@@ -115,7 +115,7 @@ function parseFactRecord(args: ReadonlyArray<string>, rootDir: string, json: boo
         factId,
         statement,
         source,
-        observedAt: readOption(normalizedArgs, "--observed-at") ?? jsonString(payload, "observedAt"),
+        observedAt: readOption(normalizedArgs, "--observed-at") ?? jsonString(payload, "observedAt") ?? new Date().toISOString(),
         confidence: confidence as "low" | "medium" | "high",
         memoryClass,
         memoryTags,

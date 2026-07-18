@@ -93,19 +93,30 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     assertAuthorityReceiptOperation(receipt, expectedOpId);
     return receipt;
   };
+  const compileAttempt = async (compile: () => Promise<AuthorizedOperationAttemptV2>) => {
+    try {
+      return await compile();
+    } catch (cause) {
+      throw authorityWriteRejected(
+        cause instanceof Error ? cause.message : String(cause),
+        false,
+        "authority_ingress_rejected"
+      );
+    }
+  };
   return {
-    submit: async (input) => submitAttempt(await options.attemptCompiler.compile(input)),
+    submit: async (input) => submitAttempt(await compileAttempt(() => options.attemptCompiler.compile(input))),
     ...(options.attemptCompiler.compileProvenanceSession ? {
       submitProvenanceSession: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileProvenanceSession"]>>[0]) =>
-        submitAttempt(await options.attemptCompiler.compileProvenanceSession!(input))
+        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileProvenanceSession!(input)))
     } : {}),
     ...(options.attemptCompiler.compileDecisionTransition ? {
       submitDecisionTransition: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileDecisionTransition"]>>[0]) =>
-        submitAttempt(await options.attemptCompiler.compileDecisionTransition!(input))
+        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileDecisionTransition!(input)))
     } : {}),
     ...(options.attemptCompiler.compileTaskClaim ? {
       submitTaskClaim: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileTaskClaim"]>>[0]) =>
-        submitAttempt(await options.attemptCompiler.compileTaskClaim!(input))
+        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileTaskClaim!(input)))
     } : {})
   };
 }
@@ -180,7 +191,7 @@ export function makeDaemonAuthorityWriteCoordinator(
           coveredByMainSubmission = false;
           return { reason, opCount: 1, committed: true, ...(mainWatermark ? { watermark: mainWatermark } : {}) };
         }
-        const provenanceSession = isCreateProvenanceSessionOperation(input, pending);
+        const provenanceSession = isProvenanceSessionOperation(input, pending);
         if (provenanceSession && provenanceCommitted) {
           throw authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_PROVENANCE_SESSION");
         }
@@ -235,12 +246,19 @@ function authorityCommandCoversLocalWritePhases(command: ParsedCommand): boolean
     || (action.kind === "task-review-execution" && action.verdict === "approved");
 }
 
-function isCreateProvenanceSessionOperation(
+function isProvenanceSessionOperation(
   input: { readonly command: ParsedCommand; readonly currentSession: CurrentSessionRef },
   operation: WriteOp
 ): boolean {
-  return input.command.action.kind === "new-task"
-    && operation.entityId === `entity/session/${input.currentSession.sessionId}`;
+  const action = input.command.action;
+  const sessionId = action.kind === "session-export"
+    ? action.sessionId ?? input.currentSession.sessionId
+    : input.currentSession.sessionId;
+  return (
+    action.kind === "new-task"
+    || action.kind === "session-export"
+    || (action.kind === "status-set" && Boolean(action.executionSubmission))
+  ) && operation.entityId === `entity/session/${sessionId}`;
 }
 
 function commandMainEntityId(command: ParsedCommand): WriteOp["entityId"] | undefined {
@@ -278,7 +296,7 @@ export function assertAuthorityReceiptOperation(
 function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushReason): FlushReport {
   switch (receipt.tag) {
     case "COMMITTED": return { reason, opCount: 1, committed: true, watermark: receipt.opId };
-    case "REJECTED": throw authorityWriteRejected(receipt.reason);
+    case "REJECTED": throw authorityWriteRejected(receipt.reason, false, "authority_ingress_rejected");
     case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(receipt.reason, true);
     case "INDETERMINATE": throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
   }

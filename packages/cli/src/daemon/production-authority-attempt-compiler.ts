@@ -37,6 +37,7 @@ import {
   type WriteOp
 } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
+import { normalizeDecisionProposeAction } from "../cli/decision-propose-normalizer.ts";
 import {
   productionAuthorityIngressFor,
   productionAuthorityUnsupportedHint
@@ -282,7 +283,9 @@ async function canonicalAttemptIntent(
   authoredRoot: string,
   actor: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"]["writeAttribution"]["actor"]
 ): Promise<CanonicalAttemptIntent | null> {
-  const action = command.action;
+  const action = command.action.kind === "decision-propose"
+    ? normalizeDecisionProposeAction(command.action)
+    : command.action;
   const executionActor = {
     principal: { personId: actor.principal.personId },
     executor: actor.executor,
@@ -351,14 +354,14 @@ async function canonicalAttemptIntent(
       physicalEntityId: taskEntityId(action.taskId)
     };
   }
-  if (action.kind === "record-fact" && action.factId) {
+  if (action.kind === "record-fact") {
     const payload: FactRelationCommandPayloadV2 = {
       schema: "fact.create/v1",
       ownerTaskId: action.taskId,
       factId: action.factId,
       statement: action.statement,
       source: action.source,
-      observedAt: action.observedAt ?? new Date().toISOString(),
+      observedAt: action.observedAt,
       confidence: action.confidence,
       memoryClass: action.memoryClass,
       memoryTags: action.memoryTags,
@@ -379,7 +382,7 @@ async function canonicalAttemptIntent(
       physicalEntityId: taskEntityId(action.taskId)
     };
   }
-  if (action.kind === "decision-propose" && action.decisionId) {
+  if (action.kind === "decision-propose") {
     if (action.rejected.some((entry) => !entry.why_not)) {
       throw new Error("AUTHORITY_DECISION_REJECTED_RATIONALE_REQUIRED: add why_not to every rejected alternative and retry decision propose");
     }
@@ -393,7 +396,7 @@ async function canonicalAttemptIntent(
       vertical: "software/coding",
       preset: "architecture-decision",
       applies_to: { modules: action.modules, productLines: action.productLines },
-      proposedAt: currentSession.detectedAt,
+      proposedAt: action.proposedAt,
       provenance: [{ runtime: currentSession.runtime, sessionId: currentSession.sessionId, boundAt: currentSession.detectedAt }],
       question: action.question,
       chosen: action.chosen.map((entry, index) => ({ id: entry.id ?? `CH${index + 1}`, text: entry.text, ...(entry.load_bearing === undefined ? {} : { load_bearing: entry.load_bearing }) })),
@@ -484,7 +487,7 @@ async function canonicalAttemptIntent(
     if (!snapshot) throw new Error("AUTHORITY_CONSENT_EXECUTION_REQUIRED: submit the Execution before recording consent");
     const payload: ConsentCommandPayloadV2 = {
       schema: "consent.grant/v1", taskId: action.taskId, executionId: action.executionId,
-      consentId, utterance: action.utterance, actions: action.consentActions ?? ["approve_execution"]
+      consentId, utterance: action.utterance, actions: action.consentActions
     };
     const execution = ref("execution", `execution/${action.taskId}/${action.executionId}`);
     const consent = ref("consent", `consent/${action.taskId}/${consentId}`);

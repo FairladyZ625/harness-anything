@@ -8,7 +8,9 @@ import type {
 } from "../../../../application/src/index.ts";
 import type { AuthenticatedActor, JsonObject } from "../../../../daemon/src/index.ts";
 import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { normalizeDecisionProposeAction } from "../../cli/decision-propose-normalizer.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
+import type { ParsedCommand } from "../../cli/types.ts";
 import { createCliCommandService, type CliCommandServiceOptions } from "../../daemon/command-service.ts";
 import type { CliDaemonRuntime } from "../../daemon/queued-write-coordinator.ts";
 import { readCatalogSnapshot } from "./catalog-snapshot.ts";
@@ -77,7 +79,7 @@ function makeDaemonDecisionMutationPort(
     ...(payload.body !== undefined ? { body: payload.body } : {})
   }, context);
   return {
-    propose: (payload: DecisionProposePayload, context) => run({
+    propose: (payload: DecisionProposePayload, context) => run(normalizeDecisionProposeAction({
       kind: "decision-propose",
       ...(payload.decisionId ? { decisionId: payload.decisionId } : {}),
       title: payload.title,
@@ -91,10 +93,10 @@ function makeDaemonDecisionMutationPort(
       urgency: payload.urgency,
       modules: payload.modules ?? [],
       productLines: payload.productLines ?? [],
-      evidenceRelations: payload.evidenceRelations ?? [],
+      evidenceRelations: (payload.evidenceRelations ?? []) as Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>["evidenceRelations"],
       ...(payload.body !== undefined ? { body: payload.body } : {}),
       dryRun: false
-    }, context),
+    }), context),
     accept: transition("accept"),
     reject: transition("reject"),
     defer: transition("defer")

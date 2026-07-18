@@ -5,15 +5,14 @@ import {
 } from "../../../../application/src/index.ts";
 import {
   deriveRelationId,
-  generateTaskId,
   type EntityRelationRecord,
   type WriteError
 } from "../../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { normalizeDecisionProposeAction } from "../../cli/decision-propose-normalizer.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { docSyncDirtyWarnings } from "./doc-sync.ts";
-import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
 import { decisionFailure, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 
@@ -24,8 +23,8 @@ export function runPropose(
   service: DecisionWriteService,
   action: ProposeAction
 ): Effect.Effect<CliResult, WriteError> {
-  const now = new Date().toISOString();
-  const baseDecision = proposedDecision(action, now, []);
+  action = normalizeDecisionProposeAction(action);
+  const baseDecision = proposedDecision(action, []);
   const fulfilled = applyClaimFulfillments(baseDecision, action.fulfillments);
   if (!fulfilled.ok) {
     return Effect.succeed({
@@ -59,10 +58,10 @@ function withDocSyncWarning(rootInput: HarnessLayoutInput, action: ProposeAction
   return { ...bodyWarning, warnings: [...(bodyWarning.warnings ?? []), ...(docSyncDirtyWarnings(rootInput) ?? [])] };
 }
 
-function proposedDecision(action: ProposeAction, now: string, relations: ReadonlyArray<EntityRelationRecord>): DecisionCreateInput {
+function proposedDecision(action: ProposeAction, relations: ReadonlyArray<EntityRelationRecord>): DecisionCreateInput {
   return {
     schema: "decision-package/v1",
-    decision_id: action.decisionId ?? generateTaskId().replace(/^task_/u, "dec_"),
+    decision_id: action.decisionId,
     title: action.title,
     state: "proposed",
     riskTier: action.riskTier,
@@ -70,7 +69,7 @@ function proposedDecision(action: ProposeAction, now: string, relations: Readonl
     vertical: "software/coding",
     preset: "architecture-decision",
     applies_to: { modules: [...action.modules], productLines: [...action.productLines] },
-    proposedAt: now,
+    proposedAt: action.proposedAt,
     question: action.question,
     chosen: proposedChosen(action),
     rejected: proposedRejected(action),
@@ -80,44 +79,33 @@ function proposedDecision(action: ProposeAction, now: string, relations: Readonl
 }
 
 function proposedChosen(action: ProposeAction): DecisionCreateInput["chosen"] {
-  const used = new Set<string>();
-  return action.chosen.map((choice, index) => {
-    const id = choice.id && !used.has(choice.id) ? choice.id : nextDecisionAnchorId("CH", [...used], index + 1);
-    used.add(id);
-    return {
-      id,
+  return action.chosen.map((choice) => ({
+      id: normalizedAnchorId(choice.id, "chosen"),
       text: choice.text,
       ...(choice.load_bearing === false ? { load_bearing: false } : {})
-    };
-  });
+    }));
 }
 
 function proposedRejected(action: ProposeAction): DecisionCreateInput["rejected"] {
-  const used = new Set<string>();
-  return action.rejected.map((rejected, index) => {
-    const id = rejected.id && !used.has(rejected.id) ? rejected.id : nextDecisionAnchorId("RJ", [...used], index + 1);
-    used.add(id);
-    return {
-      id,
+  return action.rejected.map((rejected) => ({
+      id: normalizedAnchorId(rejected.id, "rejected"),
       text: rejected.text,
       why_not: rejected.why_not ?? ""
-    };
-  });
+    }));
 }
 
 function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
-  const inputs = action.claims.length > 0 ? action.claims : [{ text: action.claim ?? action.chosen[0]?.text ?? "", ...(action.claimLoadBearing ? {} : { load_bearing: false }) }];
-  const used = new Set<string>();
-  return inputs.map((claim, index) => {
-    const id = claim.id && !used.has(claim.id) ? claim.id : nextDecisionAnchorId("C", [...used], index + 1);
-    used.add(id);
-    return {
-      id,
+  return action.claims.map((claim) => ({
+      id: normalizedAnchorId(claim.id, "claim"),
       text: claim.text,
       ...(claim.load_bearing === false ? { load_bearing: false } : {}),
       ...(claim.fulfillment ? { fulfillment: claim.fulfillment } : {})
-    };
-  });
+    }));
+}
+
+function normalizedAnchorId(id: string | undefined, kind: string): string {
+  if (!id) throw new Error(`decision propose ${kind} anchor was not normalized by the command parser`);
+  return id;
 }
 
 function decisionEvidenceRelations(

@@ -4,8 +4,9 @@ import {
   makeExecutionSagaService,
   type TaskHolderPrincipal
 } from "../../../../application/src/index.ts";
-import { readSessionEntityDocument } from "../../../../kernel/src/index.ts";
+import { readSessionEntityDocument, type WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
@@ -103,7 +104,9 @@ export function runExecutionSubmit(
         taskId: action.taskId,
         executionId,
         status: "in_review",
-        error: cliError(CliErrorCode.WriteRejected, submitted.error instanceof Error ? submitted.error.message : String(submitted.error))
+        error: isTaskHolderWriteError(submitted.error)
+          ? toCliError(submitted.error)
+          : cliError(CliErrorCode.WriteRejected, submitted.error instanceof Error ? submitted.error.message : String(submitted.error))
       } satisfies CliResult;
     }
     return {
@@ -115,6 +118,12 @@ export function runExecutionSubmit(
       report: { schema: "execution-submit-result/v1", executionId, leaseReleased: true }
     } satisfies CliResult;
   });
+}
+
+function isTaskHolderWriteError(error: unknown): error is WriteError {
+  return typeof error === "object" && error !== null && "_tag" in error && [
+    "WriteRejected", "WriteConflict", "GlobalWriteConflict", "JournalUnavailable"
+  ].includes(String(error._tag));
 }
 
 function executionSaga(context: CommandRunnerContext) {

@@ -17,8 +17,13 @@ export function provenanceSessionAttemptIntent(
   currentSession: CurrentSessionRef,
   operation: WriteOp
 ): CanonicalAttemptIntent {
-  const expectedEntityId = `entity/session/${currentSession.sessionId}`;
-  if (command.action.kind !== "new-task" || operation.entityId !== expectedEntityId || operation.kind !== "doc_write") {
+  const sessionAction = command.action.kind === "session-export" ? command.action : undefined;
+  const expectedSessionId = sessionAction?.sessionId ?? currentSession.sessionId;
+  const expectedEntityId = `entity/session/${expectedSessionId}`;
+  const supportsProvenanceExport = command.action.kind === "new-task"
+    || command.action.kind === "session-export"
+    || (command.action.kind === "status-set" && Boolean(command.action.executionSubmission));
+  if (!supportsProvenanceExport || operation.entityId !== expectedEntityId || operation.kind !== "doc_write") {
     throw new Error("AUTHORITY_CREATE_PROVENANCE_OPERATION_INVALID");
   }
   const payload = plainRecord(operation.payload);
@@ -37,7 +42,7 @@ export function provenanceSessionAttemptIntent(
     || rootResolver.identity.length !== 1
     || rootResolver.identity[0] !== "sessionId"
     || Object.keys(identity).length !== 1
-    || identity.sessionId !== currentSession.sessionId
+    || identity.sessionId !== expectedSessionId
     || typeof document.body !== "string") {
     throw new Error("AUTHORITY_CREATE_PROVENANCE_OPERATION_INVALID");
   }
@@ -49,19 +54,35 @@ export function provenanceSessionAttemptIntent(
   }
   const manifestRecord = plainRecord(decodedManifest);
   const manifestBodyRef = plainRecord(manifestRecord?.bodyRef);
-  if (!manifestRecord || !manifestBodyRef
-    || manifestRecord.schema !== "session-entity/v1"
-    || manifestRecord.sessionId !== currentSession.sessionId
-    || manifestRecord.runtime !== currentSession.runtime
-    || manifestRecord.source !== currentSession.source
-    || manifestRecord.detectedAt !== currentSession.detectedAt
-    || (manifestRecord.user ?? undefined) !== (currentSession.user ?? undefined)
-    || manifestBodyRef.store !== "authored-cas/v1"
-    || manifestBodyRef.ref !== blobRef.ref
-    || manifestBodyRef.sha256 !== blobRef.sha256
-    || manifestBodyRef.size !== blobRef.size
-    || manifestBodyRef.mediaType !== blobRef.mediaType) {
-    throw new Error("AUTHORITY_CREATE_PROVENANCE_MANIFEST_INVALID");
+  const expectedRuntime = sessionAction?.runtime ?? currentSession.runtime;
+  const expectedSource = sessionAction
+    ? sessionAction.sessionId ? sessionAction.source ?? "manual" : currentSession.source
+    : currentSession.source;
+  const expectedUser = sessionAction
+    ? sessionAction.sessionId ? sessionAction.user : currentSession.user
+    : currentSession.user;
+  const expectedDetectedAt = sessionAction
+    ? sessionAction.sessionId ? sessionAction.detectedAt : currentSession.detectedAt
+    : command.action.kind === "new-task" ? currentSession.detectedAt : undefined;
+  const manifestMismatches = [
+    !manifestRecord && "manifest",
+    !manifestBodyRef && "bodyRef",
+    manifestRecord?.schema !== "session-entity/v1" && "schema",
+    manifestRecord?.sessionId !== expectedSessionId && "sessionId",
+    manifestRecord?.runtime !== expectedRuntime && "runtime",
+    manifestRecord?.source !== expectedSource && "source",
+    ((expectedDetectedAt !== undefined
+      ? manifestRecord?.detectedAt !== expectedDetectedAt
+      : typeof manifestRecord?.detectedAt !== "string" || Number.isNaN(Date.parse(manifestRecord.detectedAt)))) && "detectedAt",
+    (manifestRecord?.user ?? undefined) !== (expectedUser ?? undefined) && "user",
+    manifestBodyRef?.store !== "authored-cas/v1" && "bodyRef.store",
+    manifestBodyRef?.ref !== blobRef.ref && "bodyRef.ref",
+    manifestBodyRef?.sha256 !== blobRef.sha256 && "bodyRef.sha256",
+    manifestBodyRef?.size !== blobRef.size && "bodyRef.size",
+    manifestBodyRef?.mediaType !== blobRef.mediaType && "bodyRef.mediaType"
+  ].filter((value): value is string => typeof value === "string");
+  if (manifestMismatches.length > 0) {
+    throw new Error(`AUTHORITY_CREATE_PROVENANCE_MANIFEST_INVALID:${manifestMismatches.join(",")}`);
   }
   const manifest = decodedManifest as SessionManifest;
   const descriptor = {
@@ -74,7 +95,7 @@ export function provenanceSessionAttemptIntent(
     rootDir: command.rootDir,
     ...(command.layoutOverrides ? { layoutOverrides: command.layoutOverrides } : {})
   }, descriptor);
-  const entity = sessionRef(currentSession.sessionId);
+  const entity = sessionRef(expectedSessionId);
   const semanticPayload: SessionExecutionReviewCommandPayloadV2 = {
     schema: "session.export/v1",
     manifest,
@@ -86,7 +107,7 @@ export function provenanceSessionAttemptIntent(
     mutations: [{ entity, action: "export" }],
     baseRefs: [entity],
     portablePaths: [
-      `sessions/${currentSession.sessionId}.md`,
+      `sessions/${expectedSessionId}.md`,
       `objects/sha256/${descriptor.sha256.slice(0, 2)}/${descriptor.sha256.slice(2)}`
     ],
     declaredPathCas: [],

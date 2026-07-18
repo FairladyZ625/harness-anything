@@ -1,3 +1,5 @@
+import path from "node:path";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -33,7 +35,18 @@ export function finalizeDryRunResult(action: Action, result: CliResult): CliResu
 }
 
 /** Daemon dry-runs stop before canonical ingress, so they cannot enqueue or commit. */
-export function dryRunResult(action: Action): CliResult {
+export function dryRunResult(action: Action, rootInput?: HarnessLayoutInput): CliResult {
+  if (action.kind === "decision-propose" && rootInput) {
+    const layout = resolveHarnessLayout(rootInput);
+    return finalizeDryRunResult(action, {
+      ok: true,
+      command: action.kind,
+      decisionId: action.decisionId,
+      decisionState: "proposed",
+      path: path.relative(layout.rootDir, layout.decisionDocumentPath(action.decisionId)).split(path.sep).join("/"),
+      report: { schema: "decision-write-cli-report/v1", dryRun: true }
+    });
+  }
   return finalizeDryRunResult(action, {
     ok: true,
     command: action.kind,
