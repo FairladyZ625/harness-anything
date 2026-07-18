@@ -31,7 +31,8 @@ import {
   type CanonicalCborValue,
   type DecisionPackage,
   type EntityRelationRecord,
-  type RegistryEntityRefV2
+  type RegistryEntityRefV2,
+  type WriteOp
 } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { AuthorityConnectionContext } from "../../../daemon/src/index.ts";
@@ -45,6 +46,7 @@ import { productionLifecycleAttemptIntent } from "./production-authority-lifecyc
 import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
 import { buildAuthorityPresetTaskCreateWrites, shouldUsePresetAwareNewTask } from "../commands/preset-task.ts";
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../commands/settings.ts";
+import { provenanceSessionAttemptIntent } from "./production-authority-provenance-session-intent.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 
@@ -74,9 +76,13 @@ export function createProductionCanonicalAttemptCompiler(input: {
   readonly context: AuthorityConnectionContext;
   readonly authoredRoot: string;
 }): DaemonAuthorityAttemptCompilerV2 {
-  return {
-    compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const intent = await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor);
+  const compileIntent = async (
+    command: ParsedCommand,
+    attribution: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"],
+    currentSession: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["currentSession"],
+    canonicalEntityId: WriteOp["entityId"],
+    intent: CanonicalAttemptIntent | null
+  ) => {
       if (!intent) {
         throw new Error(
           `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: production canonical ingress rejected ${command.action.kind}; ` +
@@ -185,7 +191,19 @@ export function createProductionCanonicalAttemptCompiler(input: {
         presentationToken: token,
         envelope: encodeSemanticMutationEnvelopeV2(envelope)
       };
-    }
+  };
+  return {
+    compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
+      const intent = await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor);
+      return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
+    },
+    compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => compileIntent(
+      command,
+      attribution,
+      currentSession,
+      operation.entityId,
+      provenanceSessionAttemptIntent(command, currentSession, operation)
+    )
   };
 }
 

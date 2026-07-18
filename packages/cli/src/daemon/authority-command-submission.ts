@@ -32,6 +32,12 @@ export interface DaemonAuthorityAttemptCompilerV2 {
     readonly currentSession: CurrentSessionRef;
     readonly canonicalEntityId: WriteOp["entityId"];
   }) => Promise<AuthorizedOperationAttemptV2>;
+  readonly compileProvenanceSession?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export interface DaemonAuthorityCommandSubmissionV2 {
@@ -41,6 +47,12 @@ export interface DaemonAuthorityCommandSubmissionV2 {
     readonly currentSession: CurrentSessionRef;
     readonly canonicalEntityId: WriteOp["entityId"];
   }) => Promise<AuthorityOperationReceipt>;
+  readonly submitProvenanceSession?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorityOperationReceipt>;
 }
 
 export function createDaemonAuthorityCommandSubmissionV2(options: {
@@ -48,16 +60,20 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
   readonly attemptCompiler: DaemonAuthorityAttemptCompilerV2;
 }): DaemonAuthorityCommandSubmissionV2 {
   if (!options.authorityService.submitV2) throw new Error("DAEMON_AUTHORITY_V2_NOT_NEGOTIATED");
+  const submitAttempt = async (attempt: AuthorizedOperationAttemptV2): Promise<AuthorityOperationReceipt> => {
+    const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
+    const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
+    const receipt = await options.authorityService.submitV2!(attempt);
+    assertCompleteAuthorityReceiptV2(receipt);
+    assertAuthorityReceiptOperation(receipt, expectedOpId);
+    return receipt;
+  };
   return {
-    submit: async (input) => {
-      const attempt = await options.attemptCompiler.compile(input);
-      const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
-      const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
-      const receipt = await options.authorityService.submitV2!(attempt);
-      assertCompleteAuthorityReceiptV2(receipt);
-      assertAuthorityReceiptOperation(receipt, expectedOpId);
-      return receipt;
-    }
+    submit: async (input) => submitAttempt(await options.attemptCompiler.compile(input)),
+    ...(options.attemptCompiler.compileProvenanceSession ? {
+      submitProvenanceSession: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileProvenanceSession"]>>[0]) =>
+        submitAttempt(await options.attemptCompiler.compileProvenanceSession!(input))
+    } : {})
   };
 }
 
@@ -104,30 +120,54 @@ export function makeDaemonAuthorityWriteCoordinator(
     readonly currentSession: CurrentSessionRef;
   }
 ): WriteCoordinator {
-  let accepted: WriteOp["entityId"] | undefined;
+  let pending: WriteOp | undefined;
   let settled: Promise<AuthorityOperationReceipt> | undefined;
+  let provenanceCommitted = false;
+  let mainCommitted = false;
 
   return {
-    enqueue: (operation) => accepted
+    enqueue: (operation) => pending || mainCommitted
       ? Effect.fail(authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_CANONICAL_OPERATION"))
       : Effect.sync(() => {
-        accepted = operation.entityId;
+        pending = operation;
         return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
       }),
     flush: (reason) => Effect.tryPromise({
       try: async (): Promise<FlushReport> => {
-        if (!accepted) return { reason, opCount: 0, committed: false };
-        settled ??= submission.submit({
-          ...input,
-          canonicalEntityId: commandMainEntityId(input.command) ?? accepted
-        });
+        if (!pending) return { reason, opCount: 0, committed: false };
+        const provenanceSession = isCreateProvenanceSessionOperation(input, pending);
+        if (provenanceSession && provenanceCommitted) {
+          throw authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_PROVENANCE_SESSION");
+        }
+        if (provenanceSession && !submission.submitProvenanceSession) {
+          throw authorityWriteRejected("AUTHORITY_PROVENANCE_SESSION_SUBMISSION_UNAVAILABLE");
+        }
+        settled ??= provenanceSession
+          ? submission.submitProvenanceSession!({ ...input, operation: pending })
+          : submission.submit({
+            ...input,
+            canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
+          });
         const receipt = await settled;
-        return receiptToFlushReport(receipt, reason);
+        const report = receiptToFlushReport(receipt, reason);
+        pending = undefined;
+        settled = undefined;
+        if (provenanceSession) provenanceCommitted = true;
+        else mainCommitted = true;
+        return report;
       },
       catch: authoritySubmissionWriteError
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
   };
+}
+
+function isCreateProvenanceSessionOperation(
+  input: { readonly command: ParsedCommand; readonly currentSession: CurrentSessionRef },
+  operation: WriteOp
+): boolean {
+  return input.command.action.kind === "new-task"
+    && operation.entityId === `entity/session/${input.currentSession.sessionId}`;
 }
 
 function commandMainEntityId(command: ParsedCommand): WriteOp["entityId"] | undefined {

@@ -505,7 +505,13 @@ export function bindAuthoritySubmissionForDispatch(
     submit: async (submission) => {
       dispatch.assertActive();
       return bound.submit(submission);
-    }
+    },
+    ...(bound.submitProvenanceSession ? {
+      submitProvenanceSession: async (submission: Parameters<NonNullable<typeof bound.submitProvenanceSession>>[0]) => {
+        dispatch.assertActive();
+        return bound.submitProvenanceSession!(submission);
+      }
+    } : {})
   };
 }
 

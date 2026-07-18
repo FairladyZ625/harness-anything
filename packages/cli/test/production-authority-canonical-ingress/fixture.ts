@@ -84,6 +84,30 @@ export function createFixture() {
   return { root, repoRoot, authoredRoot, auxiliaryRoot, serviceRoot, manifestPath, actor, transcriptPath, publicHead };
 }
 
+export function enablePresetAwareTaskCreate(authoredRoot: string): void {
+  writeFileSync(path.join(authoredRoot, "harness.yaml"), [
+    "schema: harness-anything/v1",
+    "project: production-ingress",
+    "settings:",
+    "  defaultVertical: software/coding",
+    "  defaultPreset: docs-task",
+    "  locale: en-US",
+    ""
+  ].join("\n"));
+  git(authoredRoot, "add", "harness.yaml");
+  git(authoredRoot, "commit", "-q", "-m", "configure preset-aware task create fixture");
+}
+
+export function writeColdCodexSessionLog(repoRoot: string, sessionId: string): void {
+  const logRoot = path.join(repoRoot, ".home", ".codex", "sessions", "2026", "07", "18");
+  mkdirSync(logRoot, { recursive: true });
+  writeFileSync(path.join(logRoot, `rollout-2026-07-18T00-00-00-${sessionId}.jsonl`), `${JSON.stringify({
+    timestamp: "2026-07-18T00:00:00.000Z",
+    type: "event_msg",
+    payload: { type: "user_message", message: `Cold production session ${sessionId}.` }
+  })}\n`);
+}
+
 export function latestAuthorityOperation(serviceRoot: string): { readonly state?: string; readonly opId?: string; readonly commitSha?: string; readonly receipt?: { readonly tag?: string } } {
   const rows = readFileSync(operationPath(serviceRoot), "utf8").trim().split("\n")
     .map((line) => JSON.parse(line) as { readonly table?: string; readonly value?: Record<string, unknown> })

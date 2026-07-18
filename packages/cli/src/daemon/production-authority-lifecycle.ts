@@ -367,6 +367,9 @@ function createRepoComponent(
       });
       const binding: AuthorityRepoConnectionBinding = {
         submit: commandSubmission.submit,
+        ...(commandSubmission.submitProvenanceSession ? {
+          submitProvenanceSession: commandSubmission.submitProvenanceSession
+        } : {}),
         serveForcedCommand: ({ input: readable, output }) => {
           const session = serveAuthorityForcedCommand({
             input: readable,

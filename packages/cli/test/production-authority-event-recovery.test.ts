@@ -277,6 +277,69 @@ test("restart recovery terminalizes only an indeterminate operation proven absen
   assert.match(durable.receipt?.tag === "REJECTED" ? durable.receipt.reason : "", /authority publication cannot mix/u);
 });
 
+test("incremental recovery advances its watermark only after an absent indeterminate op is terminal", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-terminal-watermark-"));
+  const watermarkPath = path.join(root, "recovery-watermark.json");
+  const head = "b".repeat(40);
+  let durable: AuthorityStoredOperationRecord = {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:absent-before-watermark",
+    semanticDigest: "a".repeat(64),
+    state: "INDETERMINATE",
+    receipt: {
+      tag: "INDETERMINATE",
+      workspaceId: "workspace-production",
+      opId: "namespace-production:absent-before-watermark",
+      semanticDigest: "a".repeat(64),
+      reason: "PUBLICATION_OUTCOME_UNKNOWN:test"
+    },
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "a".repeat(64), semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1, actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: { registryVersion: 1, mutations: [{
+        entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_RECOVERY" },
+        action: { registryVersion: 1, action: "append" }
+      }] }
+    },
+    recordedProtocol: { kind: "semantic-mutation-envelope/v2", schemaTuple: {
+      wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+      commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
+    } },
+    canonicalRequestEnvelope: "durable-envelope"
+  };
+  let terminalized = false;
+  try {
+    await recoverPendingProductionEvents({
+      workspaceId: durable.workspaceId,
+      operationRegistry: {
+        get: async () => durable,
+        list: async () => [durable],
+        put: async (next) => {
+          if (next.state === "REJECTED") {
+            assert.equal(existsSync(watermarkPath), false, "watermark must not precede terminalization");
+            terminalized = true;
+          }
+          durable = next;
+        }
+      },
+      replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: {
+        scanFirstParentOperationAnchors: async () => ({ headCommit: head, scannedCommitCount: 400, anchors: [] })
+      } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+      recover: async () => { throw new Error("absent operation must not recover"); },
+      watermarkPath
+    });
+
+    assert.equal(terminalized, true);
+    assert.equal(durable.state, "REJECTED");
+    assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, head);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("recovery watermark falls back on missing or corrupt state and then scans only the first-parent increment", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-watermark-"));
   const watermarkPath = path.join(root, "recovery-watermark.json");

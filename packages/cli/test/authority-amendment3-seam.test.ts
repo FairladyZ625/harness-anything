@@ -10,19 +10,17 @@ import {
   type AuthorityLifecycleRuntime
 } from "../src/daemon/authority-lifecycle.ts";
 
-test("task create binds authority submission to command intent when a session provenance op arrives first", async () => {
+test("cold task create submits provenance session and task as two ordered canonical operations", async () => {
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9";
-  let submittedEntityId: string | undefined;
+  const submittedEntityIds: string[] = [];
   const coordinator = makeDaemonAuthorityWriteCoordinator({
+    submitProvenanceSession: async (input) => {
+      submittedEntityIds.push(input.operation.entityId);
+      return committedReceipt("fixture-session-op", 1);
+    },
     submit: async (input) => {
-      submittedEntityId = input.canonicalEntityId;
-      return {
-        tag: "REJECTED",
-        workspaceId: "workspace-command-service",
-        opId: "fixture-op",
-        semanticDigest: "11".repeat(32),
-        reason: "fixture terminal receipt"
-      };
+      submittedEntityIds.push(input.canonicalEntityId);
+      return committedReceipt("fixture-task-op", 2);
     }
   }, {
     command: {
@@ -59,11 +57,26 @@ test("task create binds authority submission to command intent when a session pr
   await runEffect(coordinator.enqueue({
     opId: "session-provenance-op",
     entityId: "entity/session/session-provenance-first",
-    kind: "machine_artifact_write",
+    kind: "doc_write",
     payload: {}
   }));
-  await assert.rejects(runEffect(coordinator.flush("explicit")), /fixture terminal receipt/u);
-  assert.equal(submittedEntityId, taskEntityId(taskId));
+  const sessionFlush = await runEffect(coordinator.flush("explicit"));
+  await runEffect(coordinator.enqueue({
+    opId: "task-create-op",
+    entityId: taskEntityId(taskId),
+    kind: "package_create",
+    payload: {}
+  }));
+  const taskFlush = await runEffect(coordinator.flush("explicit"));
+
+  assert.deepEqual(submittedEntityIds, ["entity/session/session-provenance-first", taskEntityId(taskId)]);
+  assert.equal(sessionFlush.opCount, 1);
+  assert.equal(taskFlush.opCount, 1);
+  await assert.rejects(runEffect(coordinator.enqueue({
+    opId: "unexpected-third-op",
+    entityId: taskEntityId(taskId),
+    kind: "package_create"
+  })), /AUTHORITY_COMMAND_REQUIRES_SINGLE_CANONICAL_OPERATION/u);
 });
 
 test("held-lock authority flush uses one atomic publication instead of direct materialization", async () => {
@@ -156,4 +169,16 @@ function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
       onExit: (exit) => exit._tag === "Success" ? resolve(exit.value) : reject(new Error(String(exit.cause)))
     });
   });
+}
+
+function committedReceipt(opId: string, revision: number) {
+  return {
+    tag: "COMMITTED" as const,
+    workspaceId: "workspace-command-service",
+    opId,
+    semanticDigest: "11".repeat(32),
+    revision,
+    commitSha: String(revision).repeat(40),
+    previousCommit: revision === 1 ? null : "1".repeat(40)
+  };
 }
