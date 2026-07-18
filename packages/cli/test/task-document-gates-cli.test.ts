@@ -548,6 +548,11 @@ test("CLI milestone completion requires active decision derives lineage while a 
     const blocked = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blocked.error?.code, "closeout_not_ready");
     assert.match(blocked.error?.hint ?? "", new RegExp(`decision.*derives.*${milestoneTaskId}`, "u"));
+    assert.match(blocked.error?.hint ?? "", new RegExp(
+      `ha task review-execution ${milestoneTaskId} --execution-id <submitted-execution-id> --verdict changes_requested`,
+      "u"
+    ));
+    assert.match(blocked.error?.hint ?? "", /incomplete because the required decision lineage edge is missing/u);
 
     runJson(rootDir, [
       "decision", "propose", "--id", "dec_MILESTONE_LINEAGE", "--title", "Milestone lineage",
@@ -601,6 +606,36 @@ test("CLI rejects approval without consent regardless of executor and changes_re
     const claimed = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], true, testActorEnv);
     assert.notEqual(claimed.executionId, executionId);
     assert.equal(existsSync(path.join(taskRoot, "executions", `${claimed.executionId}.md`)), true);
+  });
+});
+
+test("CLI changes_requested corrects an approved submission that is missing required lineage", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, milestoneTaskId, "Approved Submission Missing Lineage", "in_review", {
+      preset: "create-milestone",
+      taskClass: "milestone"
+    });
+    seedApprovedExecution(rootDir, milestoneTaskId, milestoneExecutionId);
+
+    const requested = runJson(rootDir, [
+      "task", "review-execution", milestoneTaskId,
+      "--execution-id", milestoneExecutionId,
+      "--verdict", "changes_requested",
+      "--findings", "Missing required decision lineage edge.",
+      "--rationale", "The submitted Execution is incomplete because the required decision lineage edge is missing."
+    ], true, { HARNESS_ACTOR: "agent:reviewer" });
+
+    assert.equal(requested.ok, true);
+    const taskRoot = path.join(rootDir, "harness/tasks", milestoneTaskId);
+    assert.equal(
+      JSON.parse(readFileSync(path.join(taskRoot, "executions", `${milestoneExecutionId}.md`), "utf8")).state,
+      "changes_requested"
+    );
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: active$/mu);
+    const claimed = runJson(rootDir, [
+      "task", "claim", milestoneTaskId, "--execution"
+    ], true, { HARNESS_ACTOR: "agent:worker" });
+    assert.notEqual(claimed.executionId, milestoneExecutionId);
   });
 });
 
