@@ -45,11 +45,14 @@
       { "value": "packages/adapters/linear/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/adapters/local/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/adapters/multica/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/api-contracts/tsconfig.json", "ref": "dec_01KXV30R2EXPYB9CB221T5HHFQ", "reason": "W-D2 adds the shared API contract workspace to the governed composite TypeScript boundary." },
       { "value": "packages/application/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/cli/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/daemon/tsconfig.json", "ref": "task_01KWW57DZR16BD31BC84ETQV6E", "reason": "PLT-Daemon W2 adds the governed daemon protocol workspace." },
+      { "value": "packages/daemon-client/tsconfig.json", "ref": "dec_01KXV30R2EXPYB9CB221T5HHFQ", "reason": "W-D2 adds the persistent daemon client workspace to the governed composite TypeScript boundary." },
       { "value": "packages/gui/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
-      { "value": "packages/kernel/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." }
+      { "value": "packages/kernel/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/vscode-ext/tsconfig.json", "ref": "dec_01KXV30R2EXPYB9CB221T5HHFQ", "reason": "W-D2 adds the VS Code extension workspace to the governed composite TypeScript boundary." }
     ],
     "requiredCompilerOptions": [
       { "option": "composite", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },

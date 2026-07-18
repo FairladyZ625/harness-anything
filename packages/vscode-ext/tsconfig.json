@@ -6,22 +6,20 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2024",
+    "lib": ["ES2024", "DOM"],
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "rootDir": "./src",
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
+    "types": ["vscode"]
   },
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/test/**/*.ts"],
   "references": [
-    {
-      "path": "../application"
-    },
-    {
-      "path": "../api-contracts"
-    }
+    { "path": "../api-contracts" },
+    { "path": "../daemon-client" }
   ]
 }

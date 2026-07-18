@@ -1,0 +1,5 @@
+{
+  "repo": { "endpoint": "unix:/tmp/harness.sock", "repoId": "repo-a" },
+  "state": "live",
+  "descriptor": "host-secret-must-not-cross"
+}

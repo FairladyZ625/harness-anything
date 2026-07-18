@@ -1,0 +1,13 @@
+{
+  "name": "@harness-anything/api-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@harness-anything/application": "0.1.0"
+  }
+}

@@ -282,7 +282,7 @@ function discoverDaemonCliActions() {
 function discoverApiRoutes() {
   const out = [];
   for (const [rel, arrayName] of [
-    ["packages/gui/src/api/api-contract-registry.ts", "apiRouteContracts"],
+    ["packages/api-contracts/src/api-contract-registry.ts", "apiRouteContracts"],
     ["packages/application/src/task-write-route-policy.ts", "taskWriteApiRoutePolicies"]
   ]) {
     const sourceFile = parseSource(rel);

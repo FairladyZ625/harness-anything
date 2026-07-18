@@ -178,7 +178,7 @@ function writeFixture(root, overrides = {}) {
   ]);
   const apiRoutes = [];
   if (overrides.extraApiRoute) apiRoutes.push(overrides.extraApiRoute);
-  writeLines(root, "packages/gui/src/api/api-contract-registry.ts", [
+  writeLines(root, "packages/api-contracts/src/api-contract-registry.ts", [
     `export const apiRouteContracts = [${apiRoutes.join(", ")}] as const;`
   ]);
   writeFileSync(path.join(root, "packages/cli/src/commands/extensions/assets/software-coding/presets/fixture/preset.json"), JSON.stringify({

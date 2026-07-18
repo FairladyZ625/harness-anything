@@ -7,7 +7,7 @@ import ts from "typescript";
 import { inspectDaemonLogContract } from "./check-api-contract-daemon-log.mjs";
 
 const defaults = {
-  registryPath: "packages/gui/src/api/api-contract-registry.ts",
+  registryPath: "packages/api-contracts/src/api-contract-registry.ts",
   allowlistPath: "packages/gui/src/preload/allowlist.ts",
   bridgePath: "packages/gui/src/api/service-bridge.ts",
   applicationPath: "packages/application/src/index.ts",

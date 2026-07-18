@@ -11,17 +11,9 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "rootDir": "./src",
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo"
   },
-  "include": [
-    "src/**/*.ts"
-  ],
-  "references": [
-    {
-      "path": "../application"
-    },
-    {
-      "path": "../api-contracts"
-    }
-  ]
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../api-contracts" }, { "path": "../kernel" }]
 }

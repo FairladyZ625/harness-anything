@@ -1,0 +1,43 @@
+{
+  "name": "harness-anything-vscode",
+  "displayName": "Harness Anything",
+  "description": "VS Code host for Harness Anything repositories.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "harness-anything",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/vscode-ext"
+  },
+  "type": "module",
+  "engines": { "vscode": "^1.125.0" },
+  "main": "./dist/extension.cjs",
+  "extensionKind": ["workspace"],
+  "categories": ["Other"],
+  "activationEvents": ["onCommand:harnessAnything.refresh"],
+  "scripts": {
+    "build": "node scripts/build.mjs && node scripts/verify-artifacts.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "package:vsix": "npm run build && vsce package --no-dependencies -o harness-anything-vscode-0.1.0.vsix && node scripts/verify-artifacts.mjs harness-anything-vscode-0.1.0.vsix",
+    "test:electron": "npm run build && node scripts/test-electron.mjs"
+  },
+  "contributes": {
+    "commands": [
+      { "command": "harnessAnything.refresh", "title": "Harness Anything: Refresh" }
+    ]
+  },
+  "files": ["dist", "package.json", "README.md"],
+  "dependencies": {
+    "@harness-anything/api-contracts": "0.1.0",
+    "@harness-anything/daemon-client": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.2",
+    "@types/vscode": "1.125.0",
+    "@vscode/test-electron": "3.0.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.1"
+  }
+}

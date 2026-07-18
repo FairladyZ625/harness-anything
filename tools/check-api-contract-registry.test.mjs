@@ -13,7 +13,7 @@ test("API contract registry accepts the repository route registry", () => {
 
 test("API contract registry rejects removal of the canonical daemon status route", async () => {
   await withDaemonFixtureRepo(async (root) => {
-    replaceFixtureText(root, "packages/gui/src/api/api-contract-registry.ts", "id: \"daemon.status\"", "id: \"daemon.status.removed\"");
+    replaceFixtureText(root, "packages/api-contracts/src/api-contract-registry.ts", "id: \"daemon.status\"", "id: \"daemon.status.removed\"");
     assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("missing required daemon.status route")), true);
   });
 });
@@ -34,7 +34,7 @@ test("API contract registry rejects disconnected daemon status handlers", async 
 
 test("API contract registry rejects removal of the canonical daemon logs route", async () => {
   await withDaemonFixtureRepo(async (root) => {
-    replaceFixtureText(root, "packages/gui/src/api/api-contract-registry.ts", "id: \"daemon.logs.list\"", "id: \"daemon.logs.removed\"");
+    replaceFixtureText(root, "packages/api-contracts/src/api-contract-registry.ts", "id: \"daemon.logs.list\"", "id: \"daemon.logs.removed\"");
     assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("missing required daemon.logs.list route")), true);
   });
 });
@@ -440,6 +440,7 @@ test("API contract registry rejects required terminal route path drift", async (
 async function withFixtureRepo(fn) {
   const root = await mkdtemp(path.join(tmpdir(), "ha-api-registry-"));
   try {
+    mkdirSync(path.join(root, "packages/api-contracts/src"), { recursive: true });
     mkdirSync(path.join(root, "packages/gui/src/api"), { recursive: true });
     mkdirSync(path.join(root, "packages/gui/src/preload"), { recursive: true });
     mkdirSync(path.join(root, "packages/gui/src/terminal"), { recursive: true });
@@ -453,7 +454,7 @@ async function withFixtureRepo(fn) {
 async function withDaemonFixtureRepo(fn) {
   const root = await mkdtemp(path.join(tmpdir(), "ha-api-daemon-registry-"));
   const paths = [
-    "packages/gui/src/api/api-contract-registry.ts",
+    "packages/api-contracts/src/api-contract-registry.ts",
     "packages/gui/src/api/service-bridge.ts",
     "packages/gui/src/preload/allowlist.ts",
     "packages/gui/src/terminal/session-registry.ts",
@@ -519,7 +520,7 @@ function writeFixture(root, options) {
     "] as const;",
     ""
   ].join("\n"), "utf8");
-  writeFileSync(path.join(root, "packages/gui/src/api/api-contract-registry.ts"), [
+  writeFileSync(path.join(root, "packages/api-contracts/src/api-contract-registry.ts"), [
     ...(taskWritePolicyEntries.length > 0
       ? ["import { taskWriteApiRoutePolicies } from '../../../application/src/task-write-route-policy.ts';"]
       : []),
