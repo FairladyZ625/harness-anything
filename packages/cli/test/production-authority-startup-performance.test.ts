@@ -15,7 +15,9 @@ import {
   authorityOperationRecords,
   createFixture,
   git,
-  indeterminateWithoutPublication
+  indeterminateWithoutPublication,
+  prepareLongHistoryFixture,
+  sealLongHistoryFixture
 } from "./production-authority-canonical-ingress/fixture.ts";
 
 test("production service exposes its socket while authority recovery scans history, then uses the persisted increment", { timeout: 120_000 }, async () => {
@@ -36,9 +38,11 @@ test("production service exposes its socket while authority recovery scans histo
     "recovery-watermark.json"
   );
   try {
+    prepareLongHistoryFixture(fixture.authoredRoot);
     for (let index = 0; index < 800; index += 1) {
       git(fixture.authoredRoot, "commit", "-q", "--allow-empty", "-m", `fixture history ${index}`);
     }
+    const coldHead = sealLongHistoryFixture(fixture.authoredRoot);
     const seededState = openDurableAuthorityServiceState({ serviceStateRoot: fixture.serviceRoot, repoId: "canonical" });
     await seededState.operationRegistry.put(indeterminateWithoutPublication());
     await seededState.close();
@@ -64,7 +68,7 @@ test("production service exposes its socket while authority recovery scans histo
 
     await pollUntil(
       () => existsSync(watermarkPath) ? JSON.parse(readFileSync(watermarkPath, "utf8")) as { readonly commitSha?: string } : undefined,
-      (watermark) => watermark?.commitSha === git(fixture.authoredRoot, "rev-parse", "HEAD"),
+      (watermark) => watermark?.commitSha === coldHead,
       (watermark, error) => JSON.stringify({ watermark, error: String(error ?? "") }),
       { timeoutMs: 30_000 }
     );
@@ -79,7 +83,7 @@ test("production service exposes its socket while authority recovery scans histo
     for (let index = 0; index < 5; index += 1) {
       git(fixture.authoredRoot, "commit", "-q", "--allow-empty", "-m", `fixture increment ${index}`);
     }
-    const incrementalHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
+    const incrementalHead = sealLongHistoryFixture(fixture.authoredRoot);
     const incrementalStartedAt = Date.now();
     runDaemonCommand(fixture.repoRoot, [
       "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"

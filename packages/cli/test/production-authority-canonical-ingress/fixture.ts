@@ -127,6 +127,21 @@ export function git(rootDir: string, ...args: ReadonlyArray<string>): string {
   }).trim();
 }
 
+export function prepareLongHistoryFixture(authoredRoot: string): void {
+  git(authoredRoot, "config", "--local", "gc.auto", "0");
+  git(authoredRoot, "config", "--local", "maintenance.auto", "false");
+}
+
+export function sealLongHistoryFixture(authoredRoot: string): string {
+  git(authoredRoot, "repack", "-a", "-d");
+  git(authoredRoot, "fsck", "--full", "--strict");
+  const head = git(authoredRoot, "rev-parse", "HEAD");
+  const commits = git(authoredRoot, "rev-list", "--first-parent", head).split("\n").filter(Boolean);
+  assert.ok(commits.length > 0, "sealed fixture history must contain a readable first-parent chain");
+  assert.equal(commits[0], head, "sealed fixture history must start at the observed HEAD");
+  return head;
+}
+
 function operationPath(serviceRoot: string): string {
   return path.join(serviceRoot, "authority", Buffer.from("canonical", "utf8").toString("base64url"), "operations.jsonl");
 }
