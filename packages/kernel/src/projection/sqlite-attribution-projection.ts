@@ -436,7 +436,7 @@ function legacyTargetId(subjectRef: string, kind: CanonicalEntityKind): string |
 
 function eventAttribution(rows: ReadonlyArray<AttributionProjectionRow>): EntityAttributionProjection {
   const ordered = [...rows].sort(compareProjectionRows);
-  const origin = ordered.find((row) => row.operation === "package_create" || row.operation === "decision_propose") ?? ordered[0]!;
+  const origin = ordered.find(isOriginAttributionOperation) ?? ordered[0]!;
   const completeness = ordered.every((row) => row.completeness === "complete")
     ? "complete"
     : ordered.some((row) => row.completeness === "legacy-partial")
@@ -448,6 +448,12 @@ function eventAttribution(rows: ReadonlyArray<AttributionProjectionRow>): Entity
     trailCount: ordered.length,
     completeness
   };
+}
+
+function isOriginAttributionOperation(row: AttributionProjectionRow): boolean {
+  return row.eventSchemaVersion === 1
+    ? row.operation === "package_create" || row.operation === "decision_propose"
+    : row.operation === "create" || (row.entityKind === "decision" && row.operation === "propose");
 }
 
 function compareProjectionRows(left: AttributionProjectionRow, right: AttributionProjectionRow): number {

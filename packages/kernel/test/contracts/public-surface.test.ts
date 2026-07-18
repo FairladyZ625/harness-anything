@@ -102,6 +102,7 @@ const publicRuntimeSurface = [
   "decisionEntityId",
   "decisionFieldContracts",
   "decisionIdFromEntityId",
+  "decisionSemanticMutationActions",
   "decisionStates",
   "decodeAndVerifyAttributionEventV2",
   "decodeCanonicalCbor",

@@ -370,6 +370,9 @@ function createRepoComponent(
         ...(commandSubmission.submitProvenanceSession ? {
           submitProvenanceSession: commandSubmission.submitProvenanceSession
         } : {}),
+        ...(commandSubmission.submitDecisionTransition ? {
+          submitDecisionTransition: commandSubmission.submitDecisionTransition
+        } : {}),
         serveForcedCommand: ({ input: readable, output }) => {
           const session = serveAuthorityForcedCommand({
             input: readable,

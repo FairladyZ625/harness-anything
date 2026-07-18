@@ -38,6 +38,12 @@ export interface DaemonAuthorityAttemptCompilerV2 {
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
+  readonly compileDecisionTransition?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export interface DaemonAuthorityCommandSubmissionV2 {
@@ -48,6 +54,12 @@ export interface DaemonAuthorityCommandSubmissionV2 {
     readonly canonicalEntityId: WriteOp["entityId"];
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitProvenanceSession?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorityOperationReceipt>;
+  readonly submitDecisionTransition?: (input: {
     readonly command: ParsedCommand;
     readonly attribution: CliActorAttribution;
     readonly currentSession: CurrentSessionRef;
@@ -73,6 +85,10 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     ...(options.attemptCompiler.compileProvenanceSession ? {
       submitProvenanceSession: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileProvenanceSession"]>>[0]) =>
         submitAttempt(await options.attemptCompiler.compileProvenanceSession!(input))
+    } : {}),
+    ...(options.attemptCompiler.compileDecisionTransition ? {
+      submitDecisionTransition: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileDecisionTransition"]>>[0]) =>
+        submitAttempt(await options.attemptCompiler.compileDecisionTransition!(input))
     } : {})
   };
 }
@@ -124,17 +140,29 @@ export function makeDaemonAuthorityWriteCoordinator(
   let settled: Promise<AuthorityOperationReceipt> | undefined;
   let provenanceCommitted = false;
   let mainCommitted = false;
+  let coveredByMainSubmission = false;
+  let mainWatermark: string | undefined;
 
   return {
-    enqueue: (operation) => pending || mainCommitted
-      ? Effect.fail(authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_CANONICAL_OPERATION"))
-      : Effect.sync(() => {
+    enqueue: (operation) => isAuthorityCoveredTaskTreeStage(input.command, operation)
+      ? Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const })
+      : pending && authorityCommandCoversLocalWritePhases(input.command)
+      ? Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const })
+      : pending || (mainCommitted && !authorityCommandCoversLocalWritePhases(input.command))
+        ? Effect.fail(authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_CANONICAL_OPERATION"))
+        : Effect.sync(() => {
         pending = operation;
+        coveredByMainSubmission = mainCommitted;
         return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
       }),
     flush: (reason) => Effect.tryPromise({
       try: async (): Promise<FlushReport> => {
         if (!pending) return { reason, opCount: 0, committed: false };
+        if (coveredByMainSubmission) {
+          pending = undefined;
+          coveredByMainSubmission = false;
+          return { reason, opCount: 1, committed: true, ...(mainWatermark ? { watermark: mainWatermark } : {}) };
+        }
         const provenanceSession = isCreateProvenanceSessionOperation(input, pending);
         if (provenanceSession && provenanceCommitted) {
           throw authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_PROVENANCE_SESSION");
@@ -142,8 +170,14 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (provenanceSession && !submission.submitProvenanceSession) {
           throw authorityWriteRejected("AUTHORITY_PROVENANCE_SESSION_SUBMISSION_UNAVAILABLE");
         }
+        const decisionTransition = input.command.action.kind === "decision-transition";
+        if (decisionTransition && !submission.submitDecisionTransition) {
+          throw authorityWriteRejected("AUTHORITY_DECISION_TRANSITION_SUBMISSION_UNAVAILABLE");
+        }
         settled ??= provenanceSession
           ? submission.submitProvenanceSession!({ ...input, operation: pending })
+          : decisionTransition
+            ? submission.submitDecisionTransition!({ ...input, operation: pending })
           : submission.submit({
             ...input,
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
@@ -153,13 +187,27 @@ export function makeDaemonAuthorityWriteCoordinator(
         pending = undefined;
         settled = undefined;
         if (provenanceSession) provenanceCommitted = true;
-        else mainCommitted = true;
+        else {
+          mainCommitted = true;
+          mainWatermark = receipt.opId;
+        }
         return report;
       },
       catch: authoritySubmissionWriteError
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
   };
+}
+
+function isAuthorityCoveredTaskTreeStage(command: ParsedCommand, operation: WriteOp): boolean {
+  return command.action.kind === "task-complete" && operation.kind === "task_tree_stage";
+}
+
+function authorityCommandCoversLocalWritePhases(command: ParsedCommand): boolean {
+  const action = command.action;
+  return action.kind === "status-set"
+    || action.kind === "task-complete"
+    || (action.kind === "task-review-execution" && action.verdict === "approved");
 }
 
 function isCreateProvenanceSessionOperation(
@@ -172,9 +220,11 @@ function isCreateProvenanceSessionOperation(
 
 function commandMainEntityId(command: ParsedCommand): WriteOp["entityId"] | undefined {
   const action = command.action;
-  return action.kind === "new-task" && action.taskId
-    ? taskEntityId(action.taskId)
-    : undefined;
+  if (action.kind === "new-task" && action.taskId) return taskEntityId(action.taskId);
+  if (action.kind === "status-set" && action.executionSubmission?.executionId) {
+    return `execution/${action.executionSubmission.executionId}`;
+  }
+  return undefined;
 }
 
 export class AuthorityProtocolDamagedError extends Error {

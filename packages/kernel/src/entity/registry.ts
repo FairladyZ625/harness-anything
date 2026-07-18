@@ -57,6 +57,12 @@ export type {
 } from "./registry-contract.ts";
 export type KernelEntityKind = CanonicalEntityKind;
 export const entityRegistryVersion = 1 as const;
+export const decisionSemanticMutationActions = {
+  propose: "propose",
+  state: "state",
+  amend: "amend",
+  relation: "relation"
+} as const;
 
 export type EntityRegistryShape = {
   readonly decision: EntityRegistration<DecisionFieldKey>;
@@ -104,7 +110,7 @@ export const entityRegistry = {
         };
       }
     }),
-    mutationContract: { status: "ready", actions: ["propose", "state", "amend", "relation"] },
+    mutationContract: { status: "ready", actions: Object.values(decisionSemanticMutationActions) },
     semanticDiff: readyManagedSemanticDiff("decision"),
   },
   task: {

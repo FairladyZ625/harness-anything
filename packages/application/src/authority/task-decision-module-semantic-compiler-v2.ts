@@ -1,6 +1,7 @@
 import {
   DecisionPackageSchema,
   decisionEntityId,
+  decisionSemanticMutationActions,
   decisionFieldContracts,
   deriveRelationId,
   entityRegistry,
@@ -212,7 +213,7 @@ function compileDecisionPropose(payload: DecisionProposePayloadV2): CompiledTask
   const relationMutations = decision.relations.map(relationCreateIntent);
   return {
     mutationPlan: taskDecisionModulePlan([
-      { entityKind: "decision", identity: { decisionId: decision.decision_id }, action: "propose" },
+      { entityKind: "decision", identity: { decisionId: decision.decision_id }, action: decisionSemanticMutationActions.propose },
       ...relationMutations
     ]),
     operation: decisionOperation("decision_propose", decision, payload.body),
@@ -244,7 +245,7 @@ async function compileDecisionState(
   if (payload.transition === "accept") allowedStateFields.push("claims", "decisionClass");
   assertOnlyDecisionFieldsChanged(current, next, new Set(allowedStateFields));
   return {
-    mutationPlan: taskDecisionModulePlan([{ entityKind: "decision", identity: { decisionId: next.decision_id }, action: "state" }]),
+    mutationPlan: taskDecisionModulePlan([{ entityKind: "decision", identity: { decisionId: next.decision_id }, action: decisionSemanticMutationActions.state }]),
     operation: decisionOperation(`decision_${payload.transition}` as WriteOpKind, next, payload.body, current),
     requiredBaseRefs: [taskDecisionModuleEntityRef("decision", `decision/${next.decision_id}`)],
     requiredPathSnapshots: [{ path, snapshot }]
@@ -265,7 +266,7 @@ async function compileDecisionAmend(
     throw admission("DECISION_AMEND_FIELD_INVALID");
   }
   return {
-    mutationPlan: taskDecisionModulePlan([{ entityKind: "decision", identity: { decisionId: next.decision_id }, action: "amend" }]),
+    mutationPlan: taskDecisionModulePlan([{ entityKind: "decision", identity: { decisionId: next.decision_id }, action: decisionSemanticMutationActions.amend }]),
     operation: decisionOperation("decision_amend", next, payload.body, current),
     requiredBaseRefs: [taskDecisionModuleEntityRef("decision", `decision/${next.decision_id}`)],
     requiredPathSnapshots: [{ path, snapshot }]

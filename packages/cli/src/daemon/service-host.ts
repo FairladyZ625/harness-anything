@@ -10,7 +10,6 @@ import {
   createJsonRpcProtocolServer,
   calculateDaemonArtifactIdentity,
   type AcceptedConnectionBinding,
-  type AuthorityConnectionDispatch,
   type AuthorityWireIngressHandler,
   type DaemonActiveControlStatus,
   type DaemonControlService,
@@ -56,6 +55,9 @@ import type {
   AuthorityRepoLifecycleController
 } from "./authority-lifecycle.ts";
 import { makeLocalAgentHolderServices } from "./agent-holder-projection-host.ts";
+import { requireAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
+
+export { bindAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
 
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
@@ -490,39 +492,6 @@ function createRepoServiceBinding(
     },
     appendRuntimeEvent
   };
-}
-
-export function bindAuthoritySubmissionForDispatch(
-  component: AuthorityRepoComponent,
-  repoId: string,
-  dispatch: AuthorityConnectionDispatch | undefined
-): ReturnType<AuthorityRepoComponent["bindConnection"]> | undefined {
-  if (!dispatch?.available) return undefined;
-  if (dispatch.context.repoId !== repoId) throw new Error("AUTHORITY_CONNECTION_REPO_MISMATCH");
-  dispatch.assertActive();
-  const bound = component.bindConnection(dispatch.context);
-  return {
-    submit: async (submission) => {
-      dispatch.assertActive();
-      return bound.submit(submission);
-    },
-    ...(bound.submitProvenanceSession ? {
-      submitProvenanceSession: async (submission: Parameters<NonNullable<typeof bound.submitProvenanceSession>>[0]) => {
-        dispatch.assertActive();
-        return bound.submitProvenanceSession!(submission);
-      }
-    } : {})
-  };
-}
-
-function requireAuthoritySubmissionForDispatch(
-  component: AuthorityRepoComponent,
-  repoId: string,
-  dispatch: AuthorityConnectionDispatch | undefined
-): ReturnType<AuthorityRepoComponent["bindConnection"]> {
-  const bound = bindAuthoritySubmissionForDispatch(component, repoId, dispatch);
-  if (!bound) throw new Error("AUTHORITY_CONNECTION_REQUIRED");
-  return bound;
 }
 
 function loadRepoIdentity(

@@ -66,8 +66,9 @@ test("approved authority lifecycle seam keeps all 19 fixture and production-comp
 
   const serviceHost = read("packages/cli/src/daemon/service-host.ts");
   assert.match(serviceHost, /authorityPeerPolicy: localAuthorityPeerPolicy/u);
-  assert.match(serviceHost, /component\.bindConnection\(dispatch\.context\)/u);
-  assert.match(serviceHost, /dispatch\.assertActive\(\)/u);
+  const submissionDispatch = read("packages/cli/src/daemon/authority-submission-dispatch.ts");
+  assert.match(submissionDispatch, /component\.bindConnection\(dispatch\.context\)/u);
+  assert.match(submissionDispatch, /dispatch\.assertActive\(\)/u);
   const commandService = read("packages/cli/src/daemon/command-service.ts");
   assert.match(commandService, /resolveAuthoritySubmissionV2\?\.\(context\?\.authorityConnection\)/u);
 

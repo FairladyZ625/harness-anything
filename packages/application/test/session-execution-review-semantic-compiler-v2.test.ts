@@ -41,7 +41,8 @@ const stateDigest = Buffer.alloc(32, 0x11);
 const registry = createWritableEntityRegistry([
   entityRegistry.session,
   entityRegistry.execution,
-  entityRegistry.review
+  entityRegistry.review,
+  entityRegistry.task
 ]);
 
 test("session/execution/review register only OQ-3 actions and remain DEFER-TYPED-ONLY", () => {
@@ -140,6 +141,37 @@ test("execution claim/submit/close compile exact hosted execution document plans
     assert.deepEqual(planned.storagePlan.consistencyScopes, [`path:${path}`]);
     assert.equal(operationDocument(compiled.operation.payload).identity.executionId, executionId);
   }
+});
+
+test("execution submit atomically transitions the task index to in_review", async () => {
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const active = snapshot(JSON.stringify(executionRecord("active")));
+  const activeIndex = snapshot("---\n  status: active\n---\n");
+  const inReviewIndex = activeIndex.body.replace("status: active", "status: in_review");
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, active], [taskPath, activeIndex]])
+    )
+  }).compile(envelope({
+    schema: "execution.submit/v1",
+    taskId,
+    execution: executionRecord("submitted"),
+    taskIndexBody: inReviewIndex
+  }, [present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
+    cas(executionPath, active), cas(taskPath, activeIndex)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `execution/${taskId}/${executionId}:submit`, `task/${taskId}:transition`
+  ].sort());
+  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
+    { taskId, path: "INDEX.md", body: inReviewIndex }
+  ]);
 });
 
 test("review create/dismiss/record compile immutable hosted review documents without task-host attribution", async () => {

@@ -42,7 +42,7 @@ import {
   writeColdCodexSessionLog
 } from "./fixture.ts";
 
-test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 90_000 }, async () => {
+test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 120_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
@@ -80,6 +80,45 @@ test("production service route preserves progress dry-run and publishes canonica
     );
     assert.equal(status.repoCount, 2, JSON.stringify(status));
 
+    const decisionId = "dec_01KXQ4WTA7Q4XJ5GDDRS1YXND9";
+    const proposed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "decision", "propose", "--id", decisionId,
+      "--title", "V2 attribution vocabulary",
+      "--question", "Should V2 judgment resolve the persisted propose event?",
+      "--chosen", "Use the registry action vocabulary",
+      "--rejected", "Use the legacy WriteOp kind",
+      "--why-not", "That is not the V2 mutation action",
+      "--claim", "The V2 propose event is the immutable attribution source",
+      "--risk-tier", "medium", "--urgency", "medium", "--module", "cli"
+    ], env);
+    assert.equal(proposed.status, 0, JSON.stringify(proposed.receipt));
+    assert.equal(proposed.receipt.ok, true, JSON.stringify(proposed.receipt));
+    const proposeEvent = authorityEventBodies(fixture.authoredRoot).find((body) => body.includes(`decision/${decisionId}`));
+    assert.ok(proposeEvent, "V2 propose must persist an attribution event before restart");
+    assert.match(proposeEvent, /"action"\s*:\s*"propose"/u);
+    assert.doesNotMatch(proposeEvent, /"action"\s*:\s*"decision_propose"/u);
+
+    await stopDaemon(fixture.repoRoot, userRoot);
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    await pollUntil(
+      () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
+      (daemonStatus) => daemonStatus.reachable === true,
+      (daemonStatus, error) => JSON.stringify({ daemonStatus, error: error instanceof Error ? error.message : String(error ?? "") }),
+      { timeoutMs: 20_000 }
+    );
+    const { HARNESS_ACTOR: _agentActor, ...humanEnv } = env;
+    const accepted = runRawJsonMaybeFail(fixture.repoRoot, [
+      "--actor", "human:person_alice", "decision", "transition", "active", decisionId,
+      "--judgment-only", "A human verified the persisted V2 propose attribution after restart."
+    ], humanEnv);
+    assert.equal(accepted.status, 0, JSON.stringify(accepted.receipt));
+    assert.equal(accepted.receipt.ok, true, JSON.stringify(accepted.receipt));
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `decisions/decision-${decisionId}/decision.md`
+    ), "utf8"), /^state: active$/mu);
+
     const dryRunHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
     const dryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
@@ -116,6 +155,84 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(publication.pipelineGeneratedPaths[0], publication.physicalChanges.find((change) => change.path.startsWith("attribution-events/"))?.path);
     git(fixture.authoredRoot, "diff", "--quiet", publication.commitSha, publication.parentCommits[1]!);
     assert.equal(dryRunHeadAfter, dryRunHead, "typed service dry-run must not create a commit");
+
+    const sluggedLifecycleTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
+    const sluggedExecutionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7";
+    const sluggedSessionId = "service-slugged-lifecycle-session";
+    writeColdCodexSessionLog(fixture.repoRoot, sluggedSessionId);
+    const sluggedLifecycleEnv = { ...env, CODEX_THREAD_ID: sluggedSessionId };
+    const exportedLifecycleSession = runRawJsonMaybeFail(fixture.repoRoot, [
+      "session", "export", "--session", sluggedSessionId, "--runtime", "codex", "--source", "runtime",
+      "--detected-at", "2026-07-17T00:00:00.000Z", "--transcript-file", fixture.transcriptPath
+    ], sluggedLifecycleEnv);
+    assert.equal(exportedLifecycleSession.status, 0, JSON.stringify(exportedLifecycleSession.receipt));
+    assert.equal(exportedLifecycleSession.receipt.ok, true, JSON.stringify(exportedLifecycleSession.receipt));
+    const claimed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "claim", sluggedLifecycleTaskId, "--execution-id", sluggedExecutionId
+    ], sluggedLifecycleEnv);
+    assert.equal(claimed.status, 0, JSON.stringify(claimed.receipt));
+    assert.equal(claimed.receipt.ok, true, JSON.stringify(claimed.receipt));
+
+    const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "code-doc", "reconcile", sluggedLifecycleTaskId,
+      "--commit", fixture.publicHead, "--path", "README.md"
+    ], sluggedLifecycleEnv);
+    assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
+    assert.equal(reconciled.receipt.ok, true, JSON.stringify(reconciled.receipt));
+    assert.equal(existsSync(path.join(
+      fixture.authoredRoot,
+      `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
+    )), true);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
+
+    const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "transition", sluggedLifecycleTaskId, "in_review",
+      "--execution-id", sluggedExecutionId,
+      "--completion-claim", "Slugged production lifecycle is complete.",
+      "--deliverable", "Canonical slug-aware lifecycle intents.",
+      "--verification", "Production daemon route passed.",
+      "--output", "slugged lifecycle passed"
+    ], sluggedLifecycleEnv);
+    assert.equal(transitioned.status, 0, JSON.stringify(transitioned.receipt));
+    assert.equal(transitioned.receipt.ok, true, JSON.stringify(transitioned.receipt));
+
+    const consented = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "consent-record", sluggedLifecycleTaskId,
+      "--execution-id", sluggedExecutionId,
+      "--utterance", "Approve and complete the slugged production execution.",
+      "--consent-action", "approve_execution", "--consent-action", "complete_task"
+    ], sluggedLifecycleEnv);
+    assert.equal(consented.status, 0, JSON.stringify(consented.receipt));
+    assert.equal(consented.receipt.ok, true, JSON.stringify(consented.receipt));
+    const sluggedConsentId = String((consented.receipt.details as { readonly data?: { readonly consentId?: string } } | undefined)?.data?.consentId ?? "");
+    assert.match(sluggedConsentId, /^cns_/u, JSON.stringify(consented.receipt));
+
+    const reviewed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "review-execution", sluggedLifecycleTaskId,
+      "--execution-id", sluggedExecutionId,
+      "--verdict", "approved",
+      "--findings", "Slugged production evidence is complete.",
+      "--evidence-checked", "ev_cli_1",
+      "--rationale", "The submitted execution and closeout evidence support approval.",
+      "--acknowledge-archive-warnings", "--consent", sluggedConsentId
+    ], sluggedLifecycleEnv);
+    assert.equal(reviewed.status, 0, JSON.stringify(reviewed.receipt));
+    assert.equal(reviewed.receipt.ok, true, JSON.stringify(reviewed.receipt));
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot,
+      `tasks/${sluggedLifecycleTaskId}-production-route/executions/${sluggedExecutionId}.md`
+    ), "utf8"), /^  "state": "submitted",$/mu);
+
+    const completed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", sluggedLifecycleTaskId, "--ci", "passed", "--reviewer", "person_alice"
+    ], sluggedLifecycleEnv);
+    assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
+    assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
+    const sluggedTaskRoot = path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route`);
+    assert.match(readFileSync(path.join(sluggedTaskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+    assert.equal(existsSync(path.join(sluggedTaskRoot, `consents/${sluggedConsentId}.md`)), true);
+    assert.equal(existsSync(path.join(sluggedTaskRoot, "reviews")), true);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
 
     const bareSessionId = "service-task-create-session";
     writeColdCodexSessionLog(fixture.repoRoot, bareSessionId);

@@ -358,6 +358,34 @@ test("entity attribution is stored once in the unified summary projection", () =
   });
 });
 
+test("V2 entity origin uses semantic create vocabulary when an older append row already exists", () => {
+  withTempStore((rootDir) => {
+    const taskId = "task_T";
+    const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), [
+      "---", "schema: task-package/v2", `task_id: ${taskId}`, "title: V2 origin vocabulary",
+      "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active",
+      "  ref: ", "  titleSnapshot: V2 origin vocabulary", "  url: ",
+      "  bindingCreatedAt: 2026-07-13T00:00:00.000Z", "  bindingFingerprint: sha256:fixture",
+      "packageDisposition: active", "---", ""
+    ].join("\n"), "utf8");
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    materializeAttributionProjectionFromEvents(projectionPath, [
+      v2Event([mutation("task", `task/${taskId}`, "append")], {
+        workspaceId: "workspace-1", opId: "append-first", revision: 1, principalPersonId: "person_append"
+      }),
+      v2Event([mutation("task", `task/${taskId}`, "create")], {
+        workspaceId: "workspace-1", opId: "create-imported-later", revision: 2, principalPersonId: "person_create"
+      })
+    ]);
+    const [task] = queryTaskProjectionRows(projectionPath, {});
+    assert.equal(task?.attribution.originator?.principal.personId, "person_create");
+    assert.equal(task?.attribution.latestActor?.principal.personId, "person_create");
+  });
+});
+
 function v1Event(extra: Readonly<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     schema: "attribution-event/v1",
@@ -382,7 +410,7 @@ function v1Event(extra: Readonly<Record<string, unknown>> = {}): Record<string, 
 
 function v2Event(
   mutations: ReadonlyArray<SemanticMutationV2>,
-  identity: { readonly workspaceId: string; readonly opId: string; readonly revision: number } = {
+  identity: { readonly workspaceId: string; readonly opId: string; readonly revision: number; readonly principalPersonId?: string } = {
     workspaceId: "workspace-1", opId: "v2-op", revision: 1
   }
 ): AttributionEventV2 {
@@ -395,7 +423,7 @@ function v2Event(
   };
   const actorAxesBinding: ActorAxesBindingCoreV2 = {
     bindingId: "binding-1",
-    principalPersonId: "person_zeyu",
+    principalPersonId: identity.principalPersonId ?? "person_zeyu",
     executorAgentId: "agent-codex",
     workspaceId: identity.workspaceId,
     deviceId: "device-1",

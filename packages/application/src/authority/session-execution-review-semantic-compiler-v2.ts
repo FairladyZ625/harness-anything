@@ -139,11 +139,16 @@ async function compileExecution(
   const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
   const taskSnapshot = payload.taskIndexBody === undefined ? null : await state.readHostedDocument(taskPath);
   if (payload.taskIndexBody !== undefined) {
-    if (action !== "close" || execution.state !== "accepted" || !taskSnapshot) {
+    if (!taskSnapshot || !(
+      (action === "close" && execution.state === "accepted")
+      || (action === "submit" && execution.state === "submitted")
+    )) {
       throw admission("EXECUTION_COMPLETION_TRANSACTION_INVALID");
     }
-    const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
-    if (!/^  status:\s*in_review$/mu.test(taskSnapshot.body) || payload.taskIndexBody !== expected) {
+    const fromStatus = action === "close" ? "in_review" : "active";
+    const toStatus = action === "close" ? "done" : "in_review";
+    const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, `$1${toStatus}`);
+    if (!new RegExp(`^  status:\\s*${fromStatus}$`, "mu").test(taskSnapshot.body) || payload.taskIndexBody !== expected) {
       throw admission("EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
     }
   }

@@ -22,12 +22,14 @@ import {
 } from "../../../application/src/index.ts";
 import {
   decisionEntityId,
+  decisionSemanticMutationActions,
   deriveRelationId,
   encodeCanonicalCbor,
   moduleEntityId,
   sha256Text,
   semanticMutationWireV2,
   taskEntityId,
+  taskPackagePath,
   type CanonicalCborValue,
   type DecisionPackage,
   type EntityRelationRecord,
@@ -203,7 +205,60 @@ export function createProductionCanonicalAttemptCompiler(input: {
       currentSession,
       operation.entityId,
       provenanceSessionAttemptIntent(command, currentSession, operation)
+    ),
+    compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => compileIntent(
+      command,
+      attribution,
+      currentSession,
+      operation.entityId,
+      decisionTransitionAttemptIntent(command, operation, input.authoredRoot)
     )
+  };
+}
+
+function decisionTransitionAttemptIntent(
+  command: ParsedCommand,
+  operation: WriteOp,
+  authoredRoot: string
+): CanonicalAttemptIntent {
+  const action = command.action;
+  if (action.kind !== "decision-transition") throw new Error("AUTHORITY_DECISION_TRANSITION_COMMAND_REQUIRED");
+  const expectedKind = `decision_${action.transition}`;
+  if (operation.entityId !== decisionEntityId(action.decisionId) || operation.kind !== expectedKind) {
+    throw new Error("AUTHORITY_DECISION_TRANSITION_OPERATION_MISMATCH");
+  }
+  const raw = operation.payload;
+  if (!raw || typeof raw !== "object" || !("decision" in raw)) {
+    throw new Error("AUTHORITY_DECISION_TRANSITION_PAYLOAD_INVALID");
+  }
+  const decision = (raw as { readonly decision?: DecisionPackage }).decision;
+  if (!decision || decision.decision_id !== action.decisionId) {
+    throw new Error("AUTHORITY_DECISION_TRANSITION_ENTITY_MISMATCH");
+  }
+  const body = (raw as { readonly body?: unknown }).body;
+  if (body !== undefined && typeof body !== "string") {
+    throw new Error("AUTHORITY_DECISION_TRANSITION_BODY_INVALID");
+  }
+  const documentPath = `decisions/decision-${action.decisionId}/decision.md`;
+  const snapshot = hostedSnapshot(authoredRoot, documentPath);
+  if (!snapshot) throw new Error("AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED: decision transition requires the current Decision document");
+  const entity = ref("decision", `decision/${action.decisionId}`);
+  const payload: TaskDecisionModuleCommandPayloadV2 = {
+    schema: "decision.state/v1",
+    transition: action.transition,
+    decision,
+    ...(body === undefined ? {} : { body })
+  };
+  return {
+    ...canonicalIntent(
+      "decision.state",
+      encodeTaskDecisionModuleCommandPayloadV2(payload),
+      [{ entity, action: decisionSemanticMutationActions.state }],
+      [entity],
+      [documentPath],
+      decisionEntityId(action.decisionId)
+    ),
+    declaredPathCas: [{ path: documentPath, ...snapshot.cas }]
   };
 }
 
@@ -335,7 +390,7 @@ async function canonicalAttemptIntent(
     };
     const entity = ref("decision", `decision/${action.decisionId}`);
     const payload: TaskDecisionModuleCommandPayloadV2 = { schema: "decision.propose/v1", decision, ...(action.body === undefined ? {} : { body: action.body }) };
-    return canonicalIntent("decision.propose", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity, action: "propose" }], [entity], [`decisions/decision-${action.decisionId}/decision.md`], decisionEntityId(action.decisionId));
+    return canonicalIntent("decision.propose", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity, action: decisionSemanticMutationActions.propose }], [entity], [`decisions/decision-${action.decisionId}/decision.md`], decisionEntityId(action.decisionId));
   }
   if (action.kind === "module-register") {
     const entity = ref("module", `module/${action.moduleKey}`);
@@ -405,7 +460,7 @@ async function canonicalAttemptIntent(
     return canonicalIntent("execution.claim", encodeSessionExecutionReviewCommandPayloadV2(payload), [{ entity, action: "claim" }], [entity], [`tasks/${action.taskId}/executions/${executionId}.md`], `execution/${executionId}`);
   }
   if (action.kind === "task-review-execution" && !action.consentId && action.verdict !== "approved") {
-    const reviewId = canonicalEntityId.replace(/^review\//u, "");
+    const reviewId = canonicalEntityId.replace(/^(?:entity\/)?review\//u, "");
     const payload: SessionExecutionReviewCommandPayloadV2 = {
       schema: action.verdict === "dismissed" ? "review.dismiss/v1" : "review.create/v1",
       taskId: action.taskId,
@@ -420,10 +475,10 @@ async function canonicalAttemptIntent(
     };
     const mutationAction = action.verdict === "dismissed" ? "dismiss" : "create";
     const entity = ref("review", `review/${action.taskId}/${reviewId}`);
-    return canonicalIntent(`review.${mutationAction}`, encodeSessionExecutionReviewCommandPayloadV2(payload), [{ entity, action: mutationAction }], [entity], [`tasks/${action.taskId}/reviews/${reviewId}.md`], `review/${reviewId}`);
+    return canonicalIntent(`review.${mutationAction}`, encodeSessionExecutionReviewCommandPayloadV2(payload), [{ entity, action: mutationAction }], [entity], [`tasks/${action.taskId}/reviews/${reviewId}.md`], canonicalEntityId);
   }
   if (action.kind === "task-consent-record") {
-    const consentId = canonicalEntityId.replace(/^consent\//u, "");
+    const consentId = canonicalEntityId.replace(/^(?:entity\/)?consent\//u, "");
     const executionPath = `tasks/${action.taskId}/executions/${action.executionId}.md`;
     const snapshot = hostedSnapshot(authoredRoot, executionPath);
     if (!snapshot) throw new Error("AUTHORITY_CONSENT_EXECUTION_REQUIRED: submit the Execution before recording consent");
@@ -434,7 +489,7 @@ async function canonicalAttemptIntent(
     const execution = ref("execution", `execution/${action.taskId}/${action.executionId}`);
     const consent = ref("consent", `consent/${action.taskId}/${consentId}`);
     return {
-      ...canonicalIntent("consent.grant", encodeConsentCommandPayloadV2(payload), [{ entity: consent, action: "grant" }], [execution, consent], [`tasks/${action.taskId}/consents/${consentId}.md`, executionPath], `consent/${consentId}`),
+      ...canonicalIntent("consent.grant", encodeConsentCommandPayloadV2(payload), [{ entity: consent, action: "grant" }], [execution, consent], [`tasks/${action.taskId}/consents/${consentId}.md`, executionPath], canonicalEntityId),
       declaredPathCas: [{ path: executionPath, ...snapshot.cas }]
     };
   }
@@ -485,7 +540,14 @@ function hostedSnapshot(authoredRoot: string, portablePath: string): {
   readonly body: string;
   readonly cas: { readonly expectedEpoch: string; readonly expectedRevision: bigint; readonly expectedBlobDigest: Uint8Array };
 } | null {
-  const absolute = path.join(authoredRoot, portablePath);
+  const taskDocument = /^tasks\/([^/]+)\/(.+)$/u.exec(portablePath);
+  const rootDir = path.dirname(authoredRoot);
+  const absolute = taskDocument
+    ? path.join(taskPackagePath({
+      rootDir,
+      layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
+    }, taskDocument[1]!), taskDocument[2]!)
+    : path.join(authoredRoot, portablePath);
   if (!existsSync(absolute)) return null;
   const body = readFileSync(absolute, "utf8");
   return {

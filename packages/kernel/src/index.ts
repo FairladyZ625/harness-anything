@@ -15,6 +15,7 @@ export {
   assertManagedSemanticRegions,
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
+  decisionSemanticMutationActions,
   entityRegistry,
   entityRegistryKinds,
   entityStorageForms,

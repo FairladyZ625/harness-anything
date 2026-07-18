@@ -26,6 +26,8 @@ export function createFixture() {
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8"));
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/closeout.md"), "# Closeout\n\nSlugged production lifecycle is ready.\n");
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/review.md"), "# Review\n\nNo open findings.\n");
   const actor = {
     personId: "person_alice", displayName: "Alice", primaryEmail: "alice@example.test", providerId: "transport-derived/v1",
     resolvedCredential: { kind: "unix-socket-owner-boundary" as const, issuer: `host:${hostname()}`, subject: String(process.getuid?.() ?? 0) }
@@ -39,6 +41,34 @@ export function createFixture() {
   };
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/executions"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5.md"), executionDeclaration.documentCodec.encode(submittedExecution));
+  const sluggedExecution: ExecutionRecord = {
+    ...submittedExecution,
+    execution_id: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7",
+    task_ref: "task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8",
+    state: "active",
+    submitted_at: null,
+    session_bindings: [{
+      binding_id: "primary:service-slugged-lifecycle-session",
+      session_ref: "session/service-slugged-lifecycle-session",
+      role: "primary",
+      archive_status: "complete",
+      attached_at: "2026-07-17T00:00:00.000Z",
+      session: {
+        runtime: "codex",
+        sessionId: "service-slugged-lifecycle-session",
+        source: "runtime",
+        detectedAt: "2026-07-17T00:00:00.000Z"
+      },
+      capture_range: null
+    }],
+    outputs: [],
+    submission: null
+  };
+  mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/executions"), { recursive: true });
+  writeFileSync(
+    path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7.md"),
+    executionDeclaration.documentCodec.encode(sluggedExecution)
+  );
   const transcriptPath = path.join(root, "session-transcript.md");
   writeFileSync(transcriptPath, `${JSON.stringify({ timestamp: "2026-07-17T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Production session ingress." } })}\n`);
   writeFileSync(path.join(authoredRoot, "people.yaml"), [

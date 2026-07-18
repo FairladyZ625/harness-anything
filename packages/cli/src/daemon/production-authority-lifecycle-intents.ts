@@ -16,6 +16,7 @@ import {
   deriveRelationId,
   sha256Text,
   taskEntityId,
+  taskPackagePath,
   type ExecutionRecord,
   type RegistryEntityRefV2
 } from "../../../kernel/src/index.ts";
@@ -33,13 +34,17 @@ export function productionLifecycleAttemptIntent(input: {
 }): CanonicalAttemptIntent | null {
   const { action } = input.command;
   if (action.kind === "status-set") {
+    const taskPath = taskLifecyclePath(input.authoredRoot, action.taskId, "INDEX.md");
+    if (action.executionSubmission?.executionId) {
+      return executionSubmitIntent(input.authoredRoot, input.currentSession.detectedAt, action, taskPath);
+    }
     const payload: TaskDecisionModuleCommandPayloadV2 = {
       schema: "task.transition/v1", taskId: action.taskId, to: action.status
     };
     return lifecycleIntent("task.transition", encodeTaskDecisionModuleCommandPayloadV2(payload), [
       lifecycleMutation("task", `task/${action.taskId}`, "transition")
-    ], [lifecycleRef("task", `task/${action.taskId}`)], [`tasks/${action.taskId}/INDEX.md`], taskEntityId(action.taskId), [
-      requiredLifecycleSnapshot(input.authoredRoot, `tasks/${action.taskId}/INDEX.md`)
+    ], [lifecycleRef("task", `task/${action.taskId}`)], portableLifecyclePaths(taskPath), taskEntityId(action.taskId), [
+      requiredLifecycleSnapshot(input.authoredRoot, taskPath.logical, taskPath.physical)
     ]);
   }
   if (action.kind === "fact-invalidate") {
@@ -60,23 +65,83 @@ export function productionLifecycleAttemptIntent(input: {
       lifecycleRef("fact", `fact/${action.taskId}/${action.factId}`),
       lifecycleRef("fact", `fact/${action.taskId}/${action.invalidatedByFactId}`),
       lifecycleRef("relation", `relation/${relationId}`)
-    ], [`tasks/${action.taskId}/facts.md`], taskEntityId(action.taskId));
+    ], portableLifecyclePaths(taskLifecyclePath(input.authoredRoot, action.taskId, "facts.md")), taskEntityId(action.taskId));
   }
   if (action.kind === "task-code-doc-reconcile") return codeDocIntent(input.authoredRoot, action);
   if (action.kind === "task-review-execution" && action.verdict === "approved") {
     return approvedReviewIntent(input.authoredRoot, input.canonicalEntityId, action);
   }
   if (action.kind === "task-complete") {
-    return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId);
+    return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId, input.canonicalEntityId);
   }
   return null;
+}
+
+function executionSubmitIntent(
+  authoredRoot: string,
+  submittedAt: string,
+  action: Extract<ParsedCommand["action"], { readonly kind: "status-set" }>,
+  taskPath: ReturnType<typeof taskLifecyclePath>
+): CanonicalAttemptIntent {
+  const submission = action.executionSubmission!;
+  const executionId = submission.executionId!;
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${executionId}.md`);
+  const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
+  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
+  const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
+  const next: ExecutionRecord = {
+    ...current,
+    state: "submitted",
+    submitted_at: submittedAt,
+    outputs: [
+      ...current.outputs,
+      ...submission.outputs.map((text, index) => ({
+        evidence_id: `ev_cli_${index + 1}`,
+        execution_ref: `execution/${action.taskId}/${executionId}`,
+        locator: { substrate: "inline" as const, text }
+      }))
+    ],
+    submission: {
+      completion_claim: submission.completionClaim,
+      deliverables: submission.deliverables,
+      evidence_refs: submission.outputs.map((_, index) => `ev_cli_${index + 1}`),
+      verification_notes: submission.verificationNotes,
+      known_gaps: submission.knownGaps,
+      residual_risks: submission.residualRisks
+    }
+  };
+  const taskIndexBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1in_review");
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "execution.submit/v1",
+    taskId: action.taskId,
+    execution: next,
+    taskIndexBody
+  };
+  return lifecycleIntent(
+    "execution.submit",
+    encodeSessionExecutionReviewCommandPayloadV2(payload),
+    [
+      lifecycleMutation("execution", `execution/${action.taskId}/${executionId}`, "submit"),
+      lifecycleMutation("task", `task/${action.taskId}`, "transition")
+    ],
+    [
+      lifecycleRef("execution", `execution/${action.taskId}/${executionId}`),
+      lifecycleRef("task", `task/${action.taskId}`)
+    ],
+    [
+      ...portableLifecyclePaths(executionPath),
+      ...portableLifecyclePaths(taskPath)
+    ],
+    `execution/${executionId}`,
+    [executionSnapshot, taskSnapshot]
+  );
 }
 
 function codeDocIntent(
   authoredRoot: string,
   action: Extract<ParsedCommand["action"], { readonly kind: "task-code-doc-reconcile" }>
 ): CanonicalAttemptIntent {
-  const taskRoot = path.join(authoredRoot, "tasks", action.taskId);
+  const taskRoot = resolvedTaskRoot(authoredRoot, action.taskId);
   const documents = ["closeout.md", "review.md"]
     .filter((name) => existsSync(path.join(taskRoot, name)))
     .map((name) => ({ path: name, body: readFileSync(path.join(taskRoot, name), "utf8") }));
@@ -86,11 +151,11 @@ function codeDocIntent(
   const payload: TaskDecisionModuleCommandPayloadV2 = {
     schema: "task.document/v1", taskId: action.taskId, path: "code-doc-anchors.json", body: draft.body
   };
-  const portablePath = `tasks/${action.taskId}/code-doc-anchors.json`;
-  const existing = optionalLifecycleSnapshot(authoredRoot, portablePath);
+  const portablePath = taskLifecyclePath(authoredRoot, action.taskId, "code-doc-anchors.json");
+  const existing = optionalLifecycleSnapshot(authoredRoot, portablePath.logical, portablePath.physical);
   return lifecycleIntent("task.document", encodeTaskDecisionModuleCommandPayloadV2(payload), [
     lifecycleMutation("task", `task/${action.taskId}`, "document")
-  ], [lifecycleRef("task", `task/${action.taskId}`)], [portablePath], taskEntityId(action.taskId), existing ? [existing] : []);
+  ], [lifecycleRef("task", `task/${action.taskId}`)], portableLifecyclePaths(portablePath), taskEntityId(action.taskId), existing ? [existing] : []);
 }
 
 function approvedReviewIntent(
@@ -101,9 +166,9 @@ function approvedReviewIntent(
   if (!action.consentId) {
     throw new Error("AUTHORITY_APPROVED_REVIEW_CONSENT_ID_REQUIRED: record consent first and retry with --consent-id");
   }
-  const reviewId = canonicalEntityId.replace(/^review\//u, "");
-  const consentPath = `tasks/${action.taskId}/consents/${action.consentId}.md`;
-  const storedConsent = optionalLifecycleSnapshot(authoredRoot, consentPath);
+  const reviewId = canonicalEntityId.replace(/^(?:entity\/)?review\//u, "");
+  const consentPath = taskLifecyclePath(authoredRoot, action.taskId, `consents/${action.consentId}.md`);
+  const storedConsent = optionalLifecycleSnapshot(authoredRoot, consentPath.logical, consentPath.physical);
   const payload: ConsentCommandPayloadV2 = {
     schema: "consent.consume/v1", taskId: action.taskId, executionId: action.executionId,
     consentId: action.consentId,
@@ -114,8 +179,9 @@ function approvedReviewIntent(
       rationale: action.rationale, archiveWarningsAcknowledged: action.archiveWarningsAcknowledged
     }
   };
-  const executionPath = `tasks/${action.taskId}/executions/${action.executionId}.md`;
-  const taskPath = `tasks/${action.taskId}/INDEX.md`;
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${action.executionId}.md`);
+  const taskPath = taskLifecyclePath(authoredRoot, action.taskId, "INDEX.md");
+  const reviewPath = taskLifecyclePath(authoredRoot, action.taskId, `reviews/${reviewId}.md`);
   return lifecycleIntent("consent.consume", encodeConsentCommandPayloadV2(payload), [
     ...(storedConsent ? [] : [lifecycleMutation("consent", `consent/${action.taskId}/${action.consentId}`, "grant")]),
     lifecycleMutation("consent", `consent/${action.taskId}/${action.consentId}`, "consume"),
@@ -124,15 +190,15 @@ function approvedReviewIntent(
     lifecycleRef("execution", `execution/${action.taskId}/${action.executionId}`),
     lifecycleRef("consent", `consent/${action.taskId}/${action.consentId}`),
     lifecycleRef("review", `review/${action.taskId}/${reviewId}`)
-  ], [executionPath, taskPath, consentPath, `tasks/${action.taskId}/reviews/${reviewId}.md`], `review/${reviewId}`, [
-    requiredLifecycleSnapshot(authoredRoot, executionPath),
-    requiredLifecycleSnapshot(authoredRoot, taskPath),
+  ], portableLifecyclePaths(executionPath, taskPath, consentPath, reviewPath), canonicalEntityId, [
+    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
+    requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical),
     ...(storedConsent ? [storedConsent] : [])
   ]);
 }
 
-function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId: string): CanonicalAttemptIntent {
-  const executionRoot = path.join(authoredRoot, "tasks", taskId, "executions");
+function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId: string, canonicalEntityId: string): CanonicalAttemptIntent {
+  const executionRoot = path.join(resolvedTaskRoot(authoredRoot, taskId), "executions");
   const executions = existsSync(executionRoot)
     ? readdirSync(executionRoot).filter((name) => name.endsWith(".md")).map((name) => ({
       name,
@@ -145,21 +211,21 @@ function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId:
   }
   const current = submitted[0]!.record;
   const execution: ExecutionRecord = { ...current, state: "accepted", closed_at: completedAt };
-  const taskPath = `tasks/${taskId}/INDEX.md`;
-  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath);
+  const taskPath = taskLifecyclePath(authoredRoot, taskId, "INDEX.md");
+  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
   const taskBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
   const payload: SessionExecutionReviewCommandPayloadV2 = {
     schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody
   };
-  const executionPath = `tasks/${taskId}/executions/${execution.execution_id}.md`;
+  const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
   return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
     lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
     lifecycleMutation("task", `task/${taskId}`, "transition")
   ], [
     lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
     lifecycleRef("task", `task/${taskId}`)
-  ], [executionPath, taskPath], `execution/${execution.execution_id}`, [
-    requiredLifecycleSnapshot(authoredRoot, executionPath), taskSnapshot
+  ], portableLifecyclePaths(executionPath, taskPath), canonicalEntityId, [
+    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical), taskSnapshot
   ]);
 }
 
@@ -183,22 +249,40 @@ function lifecycleRef(entityKind: string, canonicalRef: string): RegistryEntityR
   return { registryVersion: 1, entityKind, canonicalRef };
 }
 
-function requiredLifecycleSnapshot(authoredRoot: string, portablePath: string) {
-  const snapshot = optionalLifecycleSnapshot(authoredRoot, portablePath);
-  if (!snapshot) throw new Error(`AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED:${portablePath}`);
+function requiredLifecycleSnapshot(authoredRoot: string, logicalPath: string, physicalPath = logicalPath) {
+  const snapshot = optionalLifecycleSnapshot(authoredRoot, logicalPath, physicalPath);
+  if (!snapshot) throw new Error(`AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED:${physicalPath}`);
   return snapshot;
 }
 
-function optionalLifecycleSnapshot(authoredRoot: string, portablePath: string) {
-  const absolute = path.join(authoredRoot, portablePath);
+function optionalLifecycleSnapshot(authoredRoot: string, logicalPath: string, physicalPath = logicalPath) {
+  const absolute = path.join(authoredRoot, physicalPath);
   if (!existsSync(absolute)) return null;
   const body = readFileSync(absolute, "utf8");
   const digest = sha256Text(body);
   return {
-    path: portablePath,
+    path: logicalPath,
     body,
     expectedEpoch: digest,
     expectedRevision: 0n,
     expectedBlobDigest: Buffer.from(digest, "hex")
   };
+}
+
+function resolvedTaskRoot(authoredRoot: string, taskId: string): string {
+  const rootDir = path.dirname(authoredRoot);
+  return taskPackagePath({
+    rootDir,
+    layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
+  }, taskId);
+}
+
+function taskLifecyclePath(authoredRoot: string, taskId: string, documentPath: string) {
+  const physical = path.relative(authoredRoot, path.join(resolvedTaskRoot(authoredRoot, taskId), documentPath))
+    .split(path.sep).join("/");
+  return { logical: `tasks/${taskId}/${documentPath}`, physical };
+}
+
+function portableLifecyclePaths(...paths: ReadonlyArray<ReturnType<typeof taskLifecyclePath>>): ReadonlyArray<string> {
+  return [...new Set(paths.flatMap((entry) => [entry.logical, entry.physical]))];
 }

@@ -6,6 +6,7 @@ import {
   decisionContentDigestFields,
   decisionFieldContracts,
   decisionEntityId,
+  decisionSemanticMutationActions,
   evaluateEntityDisposition,
   explainDecisionStateTransition,
   validateRelationRecordsForHost,
@@ -481,7 +482,8 @@ function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, de
     const propose = events.find((event) => event.schema === "attribution-event/v1"
       ? event.kind === "decision_propose" && (event.entityId === decisionId || event.entityId === `decision/${decisionId}`)
       : event.mutationSet.mutations.some((mutation) =>
-          mutation.action.action === "decision_propose" && mutation.entity.canonicalRef === `decision/${decisionId}`));
+          mutation.action.action === decisionSemanticMutationActions.propose
+          && mutation.entity.canonicalRef === `decision/${decisionId}`));
     // 溯源仍然 fail-closed,对谁都一样:判定前必须能验到那条不可变的 propose 事件。
     // 下面豁免的只是「判定者与提议者不得同一」,不是「提议事件必须存在」。
     if (!propose) return rejection(decisionId, "decision judgment requires an immutable decision_propose attribution event");
