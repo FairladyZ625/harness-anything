@@ -9,6 +9,7 @@ import type {
   DaemonAuthenticationContext
 } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import { authenticateSshForcedCommandFrame, type AcceptSshForcedCommand } from "./ssh-forced-command.ts";
 import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
 
@@ -19,7 +20,8 @@ export interface NamedPipeTransportOptions {
   readonly acceptedConnectionEvidenceAdapter?: AcceptedConnectionEvidenceAdapter<net.Socket>;
   readonly createProtocolServer: (
     authContext: DaemonAuthenticationContext,
-    acceptedConnection?: AcceptedConnectionBinding
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
   ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;

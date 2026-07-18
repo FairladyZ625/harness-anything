@@ -1,7 +1,9 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
 import type { Readable, Writable } from "node:stream";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface SshExecBridgeOptions {
@@ -9,7 +11,11 @@ export interface SshExecBridgeOptions {
   readonly output?: Writable;
   readonly username?: string;
   readonly host?: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
+  ) => JsonRpcProtocolServer;
 }
 
 export function serveSshExecBridge(options: SshExecBridgeOptions): DaemonTransportConnection {

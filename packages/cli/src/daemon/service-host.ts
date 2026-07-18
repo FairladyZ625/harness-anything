@@ -15,6 +15,7 @@ import {
   type DaemonControlService,
   type DaemonStatusResultV2,
   type DaemonAuthenticationContext,
+  type JsonRpcNotification,
   type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace
 } from "../../../daemon/src/index.ts";
@@ -84,7 +85,8 @@ export async function createDaemonServiceHost(
   readonly daemonId: string;
   readonly createProtocolServer: (
     authContext: DaemonAuthenticationContext,
-    acceptedConnection?: AcceptedConnectionBinding
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
   ) => ReturnType<typeof createJsonRpcProtocolServer>;
   readonly acceptsSshForcedCommand: (canonicalRoot: string) => boolean;
   readonly authorityWireIngress: AuthorityWireIngressHandler;
@@ -224,7 +226,7 @@ export async function createDaemonServiceHost(
   const serviceFallbackBinding: RepoServiceBinding = selectedFallbackBinding;
   return {
     daemonId,
-    createProtocolServer: (authContext, acceptedConnection) => createJsonRpcProtocolServer({
+    createProtocolServer: (authContext, acceptedConnection, notificationSink) => createJsonRpcProtocolServer({
       daemonId,
       repos: protocolRepos(),
       services: defaultRepoBinding().services,
@@ -239,6 +241,11 @@ export async function createDaemonServiceHost(
       authContext,
       ...(acceptedConnection ? { acceptedConnection } : {}),
       ...(authorityLifecycle ? { authorityPeerPolicy: localAuthorityPeerPolicy } : {}),
+      notificationSink,
+      subscribeProjectionChanges: (repo, listener) => {
+        const repoRuntime = runtime.getRepoRuntime(repo.repoId);
+        return repoRuntime?.subscribeProjectionChanges(listener) ?? (() => undefined);
+      },
       ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
       ...(defaultRepoBinding().identity.personRegistry ? { personRegistry: defaultRepoBinding().identity.personRegistry } : {}),
       ...(defaultRepoBinding().identity.identityAdminSnapshot ? { identityAdminSnapshot: defaultRepoBinding().identity.identityAdminSnapshot } : {}),

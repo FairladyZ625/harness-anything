@@ -10,6 +10,7 @@ import {
   type AcceptedConnectionBinding,
   type AuthorityWireIngressHandler,
   type DaemonAuthenticationContext,
+  type JsonRpcNotification,
   type DaemonTransportConnection,
   type JsonRpcProtocolServer,
   type NamedPipeTransportServer,
@@ -40,7 +41,8 @@ export interface DaemonLocalTransportOptions {
   readonly platform?: NodeJS.Platform;
   readonly createProtocolServer: (
     authContext: DaemonAuthenticationContext,
-    acceptedConnection?: AcceptedConnectionBinding
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
   ) => JsonRpcProtocolServer;
   readonly acceptSshForcedCommand: (frame: SshAuthenticatedBootstrapFrame) => boolean;
   readonly authorityWireIngress?: AuthorityWireIngressHandler;

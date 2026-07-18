@@ -25,6 +25,11 @@ import { daemonStatusValidationFailure, validateDaemonStatusRequest, validateDae
 import { validateRepoRuntime } from "./repo-runtime-validation.ts";
 import { resolveServicesForRepo } from "./repo-service-resolution.ts";
 import { appendJsonRpcCommandEvent, appendJsonRpcWriteEventIfNeeded } from "./runtime-event-dispatch.ts";
+import {
+  createProjectionNotificationSession,
+  handleProjectionNotificationSubscription,
+  type ProjectionNotificationOptions
+} from "./projection-notification-subscription.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
 import {
@@ -92,7 +97,7 @@ export interface DaemonServiceHost {
   };
 }
 
-export interface JsonRpcServerOptions {
+export interface JsonRpcServerOptions extends ProjectionNotificationOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
@@ -119,6 +124,7 @@ export interface JsonRpcProtocolServer {
   readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) =>
     Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly afterResponse?: () => void;
+  readonly close?: () => Promise<void>;
 }
 
 interface ProtocolSession {
@@ -135,18 +141,20 @@ export function createJsonRpcProtocolServer(options: JsonRpcServerOptions): Json
     ...options,
     enqueueAfterResponse: (action) => afterResponseActions.push(action)
   };
+  const notificationSession = createProjectionNotificationSession();
 
   return {
     handle: async (message) => {
       if (Array.isArray(message)) {
-        const responses = await Promise.all(message.map((request) => handleRequest(request, session, repos, requestOptions)));
+        const responses = await Promise.all(message.map((request) => handleRequest(request, session, repos, requestOptions, notificationSession.subscriptions)));
         return responses.filter((response): response is JsonRpcResponse => response !== undefined);
       }
-      return handleRequest(message, session, repos, requestOptions);
+      return handleRequest(message, session, repos, requestOptions, notificationSession.subscriptions);
     },
     afterResponse: () => {
       for (const action of afterResponseActions.splice(0, afterResponseActions.length)) action();
-    }
+    },
+    close: notificationSession.close
   };
 }
 
@@ -154,7 +162,8 @@ async function handleRequest(
   request: JsonRpcRequest,
   session: ProtocolSession,
   repos: ReadonlyMap<string, DaemonRepoNamespace>,
-  options: JsonRpcServerOptions
+  options: JsonRpcServerOptions,
+  subscriptions: Map<string, () => void>
 ): Promise<JsonRpcResponse | undefined> {
   const id = request.id ?? null;
   if (!isJsonRpcRequest(request)) return errorResponse(id, -32600, "Invalid Request");
@@ -227,10 +236,9 @@ async function handleRequest(
     peerPolicy: identityOptions.authorityPeerPolicy
   });
 
-  if (contract.mode === "notification-stub") {
-    return response(stampReceipt(successReceipt(request.method, `registered no-op notification stub for ${request.method}`, {
-      subscription: "noop"
-    }), actor));
+  if (contract.mode === "notification") {
+    if (!repo) throw new Error(`validated repo namespace missing for ${request.method}`);
+    return response(stampReceipt(handleProjectionNotificationSubscription(request.method, repo, options, subscriptions), actor));
   }
 
   if (contract.namespace === "admin") {

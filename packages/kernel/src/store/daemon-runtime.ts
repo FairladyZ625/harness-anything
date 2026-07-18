@@ -43,6 +43,9 @@ import type {
   ExecutionEvidencePage,
   ExecutionEvidencePageQuery
 } from "../projection/sqlite-execution-evidence-reader.ts";
+import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
+import { createProjectionChangePublisher } from "../projection/projection-change-publisher.ts";
+import { toDaemonRuntimeStatus } from "./daemon-runtime-status.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 const defaultLockTtlMs = 60_000;
@@ -104,6 +107,7 @@ export interface HarnessDaemonRuntime {
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
   readonly admissionBudget: DaemonAdmissionBudget;
+  readonly subscribeProjectionChanges: (listener: (event: ProjectionChangeEvent) => void) => () => void;
 }
 
 export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
@@ -160,7 +164,8 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
     createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
     assertWriteFenceHeld: () => context.assertWriteFenceHeld(),
-    admissionBudget: context.admissionBudget
+    admissionBudget: context.admissionBudget,
+    subscribeProjectionChanges: (listener) => context.subscribeProjectionChanges(listener)
   };
 }
 
@@ -257,6 +262,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private readonly queue: DaemonWriteQueue;
   readonly admissionBudget: DaemonAdmissionBudget;
   private readonly options: DaemonRepoRuntimeOptions;
+  private readonly projectionChanges = createProjectionChangePublisher();
   private projectionGeneration: DaemonProjectionGenerationManager;
   private projectionGenerationClosed = false;
   private lock: DaemonGlobalLock | undefined;
@@ -442,6 +448,10 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     assertDaemonGlobalLockHeld(lock);
   }
 
+  subscribeProjectionChanges(listener: (event: ProjectionChangeEvent) => void): () => void {
+    return this.projectionChanges.subscribe(listener);
+  }
+
   private requireAttached(): { readonly lock: DaemonGlobalLock } {
     if (!this.lock || this.state !== "attached") {
       throw { _tag: "JournalUnavailable", cause: new Error(`daemon repo "${this.repoId}" is not attached`) } satisfies WriteError;
@@ -460,6 +470,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       lockTtlMs: this.lockTtlMs,
       heldGlobalLock: started.lock,
       autoMaterialize: false,
+      onProjectionChange: this.projectionChanges.publish,
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
     };
@@ -548,17 +559,6 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     if (!this.projectionGenerationClosed) this.projectionGenerationClosed = true;
     return this.projectionGeneration.close();
   }
-}
-
-function toDaemonRuntimeStatus(status: DaemonRepoRuntimeStatus): DaemonRuntimeStatus {
-  return {
-    started: status.started,
-    rootDir: status.rootDir,
-    ...(status.lockPath ? { lockPath: status.lockPath, lockOwnerToken: status.lockOwnerToken } : {}),
-    queue: status.queue,
-    projectionGeneration: status.projectionGeneration,
-    ...(status.lastRecovery ? { lastRecovery: status.lastRecovery } : {})
-  };
 }
 
 function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDaemonRuntimeOptions): DaemonRepoRuntimeOptions {

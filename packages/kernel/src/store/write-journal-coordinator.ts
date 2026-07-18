@@ -19,8 +19,7 @@ import {
   type HarnessLayoutInput,
   resolveHarnessLayout,
 } from "../layout/index.ts";
-import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
-import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
+import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
@@ -52,6 +51,7 @@ import { semanticCommitMessage } from "./write-journal-authority-trailer.ts";
 import { recoverJournalIntegrityDomains } from "./write-journal-domain-recovery.ts";
 import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "./write-integrity-domain.ts";
 import { memoizePublicationVcs } from "./write-journal-publication-vcs.ts";
+import { rebuildProjectionHash } from "./write-journal-projection-publication.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
   GitCommitAuthor,
@@ -114,7 +114,7 @@ function makeJournaledWriteCoordinatorInternal(
         uniquePendingRecords(state.records, state.applied),
         requestedDomain
       );
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -136,7 +136,8 @@ function makeJournaledWriteCoordinatorInternal(
           sessionId,
           commitAuthor,
           versionControlSystem,
-          attributionEventStore
+          attributionEventStore,
+          options.onProjectionChange
         )
       });
     }, { heldGlobalLock }),
@@ -306,7 +307,8 @@ function flushRecords(
   sessionId?: string,
   commitAuthor?: GitCommitAuthor,
   versionControlSystem?: VersionControlSystem,
-  attributionEventStore: AttributionEventStore = makeLocalGitAttributionEventStore()
+  attributionEventStore: AttributionEventStore = makeLocalGitAttributionEventStore(),
+  onProjectionChange?: (event: ProjectionChangeEvent) => void
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -379,9 +381,10 @@ function flushRecords(
   if (mutationWillCommit && confirmedAttributionOpIds.size !== eventWrites.length) {
     throw new Error("attribution event durability confirmation failed");
   }
-  const projectionHash = committedOpIds.length > 0
-    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceFingerprint)
-    : previousWatermark?.projectionHash ?? "no-projection-change";
+  const projectionUpdate = committedOpIds.length > 0
+    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceFingerprint, plannedRecords.map(({ record }) => record.entityId))
+    : undefined;
+  const projectionHash = projectionUpdate?.hash ?? previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
   const watermark = committedOpIds.at(-1);
@@ -401,6 +404,12 @@ function flushRecords(
         lastCommittedOpIds: recentCommitted,
         updatedAt: new Date().toISOString()
       });
+    }
+    try {
+      onProjectionChange?.(projectionUpdate!.event);
+    } catch {
+      // Projection publication and its durable watermark already succeeded.
+      // Ephemeral subscribers must never turn that committed write into a retry.
     }
   }
 
@@ -475,21 +484,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
-}
-
-function rebuildProjectionHash(
-  rootDir: string,
-  rootInput: HarnessLayoutInput,
-  touchedPaths: ReadonlyArray<string>,
-  previousSourceFingerprint: string | undefined
-): string {
-  const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
-  return hashTaskProjectionRows(updateTaskProjectionIncrementally({
-    rootDir,
-    layoutOverrides,
-    touchedPaths,
-    previousSourceFingerprint
-  }).rows);
 }
 
 function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {

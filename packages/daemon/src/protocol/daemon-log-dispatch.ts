@@ -7,7 +7,7 @@ import { isJsonObject, type JsonObject, type JsonRpcRequest } from "./json-rpc-t
 export function isRepoDiagnosticMethod(contract: JsonRpcMethodContract): boolean {
   return contract.method === "repo.daemon.status"
     || contract.method === "repo.daemon.logs.list"
-    || contract.mode === "notification-stub";
+    || contract.mode === "notification";
 }
 
 export async function callDaemonLogList(
