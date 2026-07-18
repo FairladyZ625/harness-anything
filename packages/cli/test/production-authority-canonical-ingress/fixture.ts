@@ -45,6 +45,18 @@ export function createFixture() {
   };
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/executions"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5.md"), executionDeclaration.documentCodec.encode(submittedExecution));
+  writeReviewVerdictTask(
+    authoredRoot,
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH0",
+    "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH1",
+    submittedExecution
+  );
+  writeReviewVerdictTask(
+    authoredRoot,
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH2",
+    "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH3",
+    submittedExecution
+  );
   const sluggedExecution: ExecutionRecord = {
     ...submittedExecution,
     execution_id: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7",
@@ -208,6 +220,26 @@ function operationPath(serviceRoot: string): string {
 
 function taskIndexBody(taskId: string): string {
   return ["---", "schema: task-package/v2", `task_id: ${taskId}`, "title: Production ingress", "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active", "  ref: ", "  titleSnapshot: Production ingress", "  url: ", "  bindingCreatedAt: 2026-07-17T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`, "packageDisposition: active", "vertical: default", "preset: default", "provenance:", "  - {runtime: \"human\", sessionId: \"fixture\", boundAt: \"2026-07-17T00:00:00.000Z\"}", "---", "", "# Production ingress", ""].join("\n");
+}
+
+function writeReviewVerdictTask(
+  authoredRoot: string,
+  taskId: string,
+  executionId: string,
+  source: ExecutionRecord
+): void {
+  const taskRoot = path.join(authoredRoot, "tasks", taskId);
+  mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+  writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndexBody(taskId).replace("  status: active", "  status: in_review"));
+  writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), executionDeclaration.documentCodec.encode({
+    ...source,
+    execution_id: executionId,
+    task_ref: `task/${taskId}`,
+    outputs: source.outputs.map((evidence) => ({
+      ...evidence,
+      execution_ref: `execution/${taskId}/${executionId}`
+    }))
+  }));
 }
 
 function productionTuple() {

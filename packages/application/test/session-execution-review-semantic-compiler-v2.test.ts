@@ -26,6 +26,7 @@ import {
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
   entityRegistry,
+  executionDeclaration,
   sha256Text,
   type EntityRegistration,
   type ExecutionRecord,
@@ -174,24 +175,83 @@ test("execution submit atomically transitions the task index to in_review", asyn
   ]);
 });
 
-test("review create/dismiss/record compile immutable hosted review documents without task-host attribution", async () => {
+test("review dismiss/record compile immutable hosted review documents without task-host attribution", async () => {
   const cases: ReadonlyArray<{ readonly schema: ReviewActionPayloadV2["schema"]; readonly verdict: ReviewRecord["verdict"]; readonly action: string }> = [
-    { schema: "review.create/v1", verdict: "changes_requested", action: "create" },
     { schema: "review.dismiss/v1", verdict: "dismissed", action: "dismiss" },
     { schema: "review.record/v1", verdict: "changes_requested", action: "record" }
   ];
   for (const fixture of cases) {
     const review = reviewRecord(fixture.verdict);
     const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
-    const compiled = await makeSessionExecutionReviewSemanticCompilerV2({ state: authorityState() }).compile(envelope({
+    const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+    const taskRef = ref("task", `task/${taskId}`);
+    const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+    const taskPath = `tasks/${taskId}/INDEX.md`;
+    const executionSnapshot = snapshot(JSON.stringify(executionRecord("submitted")));
+    const taskSnapshot = snapshot("---\n  status: in_review\n---\n");
+    const dismissed = fixture.schema === "review.dismiss/v1";
+    const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+      state: dismissed
+        ? authorityState(
+            new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
+            new Map([[executionPath, executionSnapshot], [taskPath, taskSnapshot]])
+          )
+        : authorityState()
+    }).compile(envelope({
       schema: fixture.schema, taskId, review
-    }, [absent(reviewRef)]));
+    }, dismissed ? [
+      absent(reviewRef), present(executionRef, "execution-v1"), present(taskRef, "task-v1")
+    ] : [absent(reviewRef)], dismissed ? [
+      cas(executionPath, executionSnapshot), cas(taskPath, taskSnapshot)
+    ] : []));
     const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
     assert.deepEqual(planned.mutationSet.mutations.map(pair), [`review/${taskId}/${reviewId}:${fixture.action}`]);
     assert.equal(planned.mutationSet.mutations.some((mutation) => mutation.entity.entityKind === "task"), false);
     assert.deepEqual(planned.storagePlan.touchedPaths, [`tasks/${taskId}/reviews/${reviewId}.md`]);
     assert.equal(operationDocument(compiled.operation.payload).identity.reviewId, reviewId);
   }
+});
+
+test("changes_requested review compiles review, execution, and task companions into one operation", async () => {
+  const review = reviewRecord("changes_requested");
+  const submitted = executionRecord("submitted");
+  const changed = { ...submitted, state: "changes_requested" as const, closed_at: review.reviewed_at };
+  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const executionSnapshot = snapshot(JSON.stringify(submitted));
+  const taskSnapshot = snapshot("---\n  status: in_review\n---\n");
+  const activeIndex = taskSnapshot.body.replace("status: in_review", "status: active");
+  const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, executionSnapshot], [taskPath, taskSnapshot]])
+    )
+  }).compile(envelope({
+    schema: "review.create/v1", taskId, review, execution: changed, taskIndexBody: activeIndex
+  }, [absent(reviewRef), present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
+    cas(executionPath, executionSnapshot), cas(taskPath, taskSnapshot)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `review/${taskId}/${reviewId}:create`,
+    `execution/${taskId}/${executionId}:close`,
+    `task/${taskId}:transition`
+  ].sort());
+  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
+    { taskId, path: `executions/${executionId}.md`, body: executionDeclaration.documentCodec.encode(changed) },
+    { taskId, path: "INDEX.md", body: activeIndex }
+  ]);
+});
+
+test("changes_requested review rejects an incomplete companion transaction", async () => {
+  const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
+  await assert.rejects(makeSessionExecutionReviewSemanticCompilerV2({ state: authorityState() }).compile(envelope({
+    schema: "review.create/v1", taskId, review: reviewRecord("changes_requested")
+  }, [absent(reviewRef)])), /REVIEW_CHANGES_REQUESTED_COMPANION_REQUIRED/u);
 });
 
 test("authority review writes cannot bypass the consent-aware approved Review transaction", async () => {

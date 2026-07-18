@@ -31,6 +31,7 @@ export function productionLifecycleAttemptIntent(input: {
   readonly currentSession: CompileInput["currentSession"];
   readonly canonicalEntityId: string;
   readonly authoredRoot: string;
+  readonly actor: ExecutionRecord["primary_actor"];
 }): CanonicalAttemptIntent | null {
   const { action } = input.command;
   if (action.kind === "status-set") {
@@ -70,6 +71,26 @@ export function productionLifecycleAttemptIntent(input: {
   if (action.kind === "task-code-doc-reconcile") return codeDocIntent(input.authoredRoot, action);
   if (action.kind === "task-review-execution" && action.verdict === "approved") {
     return approvedReviewIntent(input.authoredRoot, input.canonicalEntityId, action);
+  }
+  if (action.kind === "task-review-execution" && action.verdict === "changes_requested") {
+    return changesRequestedReviewIntent(
+      input.authoredRoot,
+      input.currentSession.detectedAt,
+      input.currentSession.sessionId,
+      input.canonicalEntityId,
+      action,
+      input.actor
+    );
+  }
+  if (action.kind === "task-review-execution" && action.verdict === "dismissed") {
+    return dismissedReviewIntent(
+      input.authoredRoot,
+      input.currentSession.detectedAt,
+      input.currentSession.sessionId,
+      input.canonicalEntityId,
+      action,
+      input.actor
+    );
   }
   if (action.kind === "task-complete") {
     return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId, input.canonicalEntityId);
@@ -195,6 +216,97 @@ function approvedReviewIntent(
     requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical),
     ...(storedConsent ? [storedConsent] : [])
   ]);
+}
+
+function changesRequestedReviewIntent(
+  authoredRoot: string,
+  reviewedAt: string,
+  reviewerSessionId: string,
+  canonicalEntityId: string,
+  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>,
+  reviewerActor: ExecutionRecord["primary_actor"]
+): CanonicalAttemptIntent {
+  const reviewId = canonicalEntityId.replace(/^(?:entity\/)?review\//u, "");
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${action.executionId}.md`);
+  const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
+  const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
+  const execution: ExecutionRecord = { ...current, state: "changes_requested", closed_at: reviewedAt };
+  const taskPath = taskLifecyclePath(authoredRoot, action.taskId, "INDEX.md");
+  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
+  const taskIndexBody = hasOtherSubmittedExecution(authoredRoot, action.taskId, action.executionId)
+    ? taskSnapshot.body
+    : taskSnapshot.body.replace(/^(  status:\s*)in_review$/mu, "$1active");
+  const reviewPath = taskLifecyclePath(authoredRoot, action.taskId, `reviews/${reviewId}.md`);
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "review.create/v1",
+    taskId: action.taskId,
+    review: {
+      schema: "review/v3", review_id: reviewId, task_ref: `task/${action.taskId}`,
+      execution_ref: `execution/${action.taskId}/${action.executionId}`,
+      reviewer_actor: reviewerActor,
+      reviewer_session_ref: `session/${reviewerSessionId}`,
+      findings: action.findings, evidence_checked: action.evidenceChecked, rationale: action.rationale,
+      verdict: "changes_requested", archive_warnings_acknowledged: action.archiveWarningsAcknowledged,
+      reviewed_at: reviewedAt, approval_basis: null
+    },
+    execution,
+    taskIndexBody
+  };
+  const taskChanges = taskIndexBody !== taskSnapshot.body;
+  return lifecycleIntent("review.create", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+    lifecycleMutation("review", `review/${action.taskId}/${reviewId}`, "create"),
+    lifecycleMutation("execution", `execution/${action.taskId}/${action.executionId}`, "close"),
+    ...(taskChanges ? [lifecycleMutation("task", `task/${action.taskId}`, "transition")] : [])
+  ], [
+    lifecycleRef("review", `review/${action.taskId}/${reviewId}`),
+    lifecycleRef("execution", `execution/${action.taskId}/${action.executionId}`),
+    lifecycleRef("task", `task/${action.taskId}`)
+  ], portableLifecyclePaths(reviewPath, executionPath, taskPath), canonicalEntityId, [executionSnapshot, taskSnapshot]);
+}
+
+function hasOtherSubmittedExecution(authoredRoot: string, taskId: string, reviewedExecutionId: string): boolean {
+  const executionRoot = path.join(resolvedTaskRoot(authoredRoot, taskId), "executions");
+  if (!existsSync(executionRoot)) return false;
+  return readdirSync(executionRoot).filter((name) => name.endsWith(".md") && name !== `${reviewedExecutionId}.md`)
+    .some((name) => {
+      const record = executionDeclaration.documentCodec.decode(readFileSync(path.join(executionRoot, name), "utf8")) as ExecutionRecord;
+      return record.state === "submitted";
+    });
+}
+
+function dismissedReviewIntent(
+  authoredRoot: string,
+  reviewedAt: string,
+  reviewerSessionId: string,
+  canonicalEntityId: string,
+  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>,
+  reviewerActor: ExecutionRecord["primary_actor"]
+): CanonicalAttemptIntent {
+  const reviewId = canonicalEntityId.replace(/^(?:entity\/)?review\//u, "");
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${action.executionId}.md`);
+  const taskPath = taskLifecyclePath(authoredRoot, action.taskId, "INDEX.md");
+  const reviewPath = taskLifecyclePath(authoredRoot, action.taskId, `reviews/${reviewId}.md`);
+  const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
+  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "review.dismiss/v1",
+    taskId: action.taskId,
+    review: {
+      schema: "review/v3", review_id: reviewId, task_ref: `task/${action.taskId}`,
+      execution_ref: `execution/${action.taskId}/${action.executionId}`,
+      reviewer_actor: reviewerActor, reviewer_session_ref: `session/${reviewerSessionId}`,
+      findings: action.findings, evidence_checked: action.evidenceChecked, rationale: action.rationale,
+      verdict: "dismissed", archive_warnings_acknowledged: action.archiveWarningsAcknowledged,
+      reviewed_at: reviewedAt, approval_basis: null
+    }
+  };
+  return lifecycleIntent("review.dismiss", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+    lifecycleMutation("review", `review/${action.taskId}/${reviewId}`, "dismiss")
+  ], [
+    lifecycleRef("review", `review/${action.taskId}/${reviewId}`),
+    lifecycleRef("execution", `execution/${action.taskId}/${action.executionId}`),
+    lifecycleRef("task", `task/${action.taskId}`)
+  ], portableLifecyclePaths(reviewPath, executionPath, taskPath), canonicalEntityId, [executionSnapshot, taskSnapshot]);
 }
 
 function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId: string, canonicalEntityId: string): CanonicalAttemptIntent {
