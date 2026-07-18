@@ -86,21 +86,32 @@ test("production authority ingress covers or explicitly excludes every write-cla
   assert.doesNotThrow(() => assertProductionAuthorityIngressCompleteness(productionAuthorityCommandSpecs, commandClassForCliActionKind));
   const typedKinds = productionAuthorityTypedIngressKinds();
   assert.deepEqual(typedKinds, [
+    "decision-amend",
     "decision-propose",
     "decision-relate",
+    "decision-relation-replace",
+    "decision-relation-retire",
     "decision-transition",
     "fact-invalidate",
     "module-register",
+    "module-step",
+    "module-unregister",
     "new-task",
     "progress-append",
     "record-fact",
     "session-export",
     "status-set",
+    "task-amend",
+    "task-archive",
     "task-claim",
     "task-code-doc-reconcile",
     "task-complete",
     "task-consent-record",
-    "task-review-execution"
+    "task-delete",
+    "task-relate",
+    "task-reopen",
+    "task-review-execution",
+    "task-supersede"
   ]);
   const exclusions = productionAuthorityCommandSpecs.filter((spec) => spec.productionAuthorityIngress?.status === "excluded");
   assert.equal(exclusions.length > 0, true);

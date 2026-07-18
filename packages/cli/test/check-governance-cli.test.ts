@@ -64,7 +64,7 @@ test("CLI target-project check profile passes valid task material contracts", ()
     assert.equal(result.command, "check");
     assert.equal(result.report.summary.hardFailCount, 0);
     assert.equal(result.report.validators.some((validator: Record<string, unknown>) => validator.source === "task-plan-contract"), false);
-    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "lesson-promote"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "lesson-promote" || entry.kind === "lesson-sediment"), false);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "preset-validate" && entry.primary === "harness-anything preset validate <manifest> [--kernel-version <version>] [--json]"), true);
   });
 });
@@ -377,7 +377,7 @@ test("CLI governance rebuild supports dry-run, apply, and archive modes", () => 
   });
 });
 
-test("CLI lesson commands preserve task-local candidate routing", () => {
+test("CLI lesson promotion and sedimentation commands are retired from canonical and compatibility grammar", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
     writeTaskPackage(rootDir, "task-1", {
@@ -388,24 +388,18 @@ test("CLI lesson commands preserve task-local candidate routing", () => {
       lessons: validLessonCandidates()
     });
 
-    const dryRun = runJson(rootDir, ["lesson-promote", "task-1", "LC-001", "--dry-run"]);
-    assert.equal(dryRun.ok, true);
-    assert.equal(dryRun.mode, "dry-run");
-    assert.equal(dryRun.generated.length, 0);
-    assert.equal(dryRun.report.plannedWrite, ".harness/generated/lessons/LC-001.json");
-
-    const applied = runJson(rootDir, ["lesson-promote", "task-1", "LC-001", "--apply"]);
-    assert.equal(applied.ok, true);
-    assert.equal(existsSync(path.join(rootDir, ".harness/generated/lessons/LC-001.json")), true);
-
-    const sediment = runJson(rootDir, ["lesson-sediment", "task-1", "LC-001", "--title", "Keep Task Lessons Local"]);
-    assert.equal(sediment.ok, true);
-    assert.equal(sediment.mode, "dry-run");
-    assert.equal(sediment.report.plannedWrite, "harness/lessons/LC-001.md");
-
-    const missing = runJson(rootDir, ["lesson-promote", "task-1", "LC-404"], false);
-    assert.equal(missing.ok, false);
-    assert.equal(missing.error.code, "lesson_candidate_not_found");
+    for (const argv of [
+      ["lesson", "promote", "task-1", "LC-001"],
+      ["lesson-promote", "task-1", "LC-001"],
+      ["lesson", "sediment", "task-1", "LC-001"],
+      ["lesson-sediment", "task-1", "LC-001"]
+    ]) {
+      const result = runJson(rootDir, argv, false);
+      assert.equal(result.ok, false, argv.join(" "));
+      assert.equal(result.error.code, "unknown_command", argv.join(" "));
+    }
+    assert.equal(existsSync(path.join(rootDir, ".harness/generated/lessons/LC-001.json")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/lessons/LC-001.md")), false);
   });
 });
 

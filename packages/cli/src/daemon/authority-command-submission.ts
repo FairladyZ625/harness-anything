@@ -51,6 +51,12 @@ export interface DaemonAuthorityAttemptCompilerV2 {
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
+  readonly compileObservedWrite?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileScriptIngest?: (input: {
     readonly command: ParsedCommand;
     readonly attribution: CliActorAttribution;
@@ -79,6 +85,12 @@ export interface DaemonAuthorityCommandSubmissionV2 {
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitTaskClaim?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorityOperationReceipt>;
+  readonly submitObservedWrite?: (input: {
     readonly command: ParsedCommand;
     readonly attribution: CliActorAttribution;
     readonly currentSession: CurrentSessionRef;
@@ -129,6 +141,10 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     ...(options.attemptCompiler.compileTaskClaim ? {
       submitTaskClaim: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileTaskClaim"]>>[0]) =>
         submitAttempt(await compileAttempt(() => options.attemptCompiler.compileTaskClaim!(input)))
+    } : {}),
+    ...(options.attemptCompiler.compileObservedWrite ? {
+      submitObservedWrite: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileObservedWrite"]>>[0]) =>
+        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileObservedWrite!(input)))
     } : {}),
     ...(options.attemptCompiler.compileScriptIngest ? {
       submitScriptIngest: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileScriptIngest"]>>[0]) =>
@@ -224,6 +240,10 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (taskClaim && !submission.submitTaskClaim) {
           throw authorityWriteRejected("AUTHORITY_TASK_CLAIM_SUBMISSION_UNAVAILABLE");
         }
+        const observedWrite = ingressAdapter === "observed-write";
+        if (observedWrite && !submission.submitObservedWrite) {
+          throw authorityWriteRejected("AUTHORITY_OBSERVED_WRITE_SUBMISSION_UNAVAILABLE");
+        }
         const scriptIngest = pending.kind === "script_ingest";
         if (scriptIngest && !submission.submitScriptIngest) {
           throw authorityWriteRejected("AUTHORITY_SCRIPT_SCOPE_SUBMISSION_UNAVAILABLE");
@@ -236,6 +256,8 @@ export function makeDaemonAuthorityWriteCoordinator(
             ? submission.submitDecisionTransition!({ ...input, operation: pending })
           : taskClaim
             ? submission.submitTaskClaim!({ ...input, operation: pending })
+          : observedWrite
+            ? submission.submitObservedWrite!({ ...input, operation: pending })
           : submission.submit({
             ...input,
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId

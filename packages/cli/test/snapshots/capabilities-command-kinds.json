@@ -92,10 +92,6 @@
     "legacy-scan",
     "legacy-verify"
   ],
-  "lesson": [
-    "lesson-promote",
-    "lesson-sediment"
-  ],
   "materializer": [
     "materializer-run"
   ],

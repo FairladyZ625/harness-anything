@@ -13,16 +13,30 @@ import {
   semanticAdmissionV2,
   semanticStringValueV2
 } from "./semantic-authority-helpers-v2.ts";
+import {
+  taskDecisionModuleNonBlank,
+  taskDecisionModuleRegistryKey as registryKey,
+  taskDecisionModuleText,
+  taskDecisionModuleTextList as textList
+} from "./task-decision-module-payload-values-v2.ts";
 
 export const taskDecisionModuleTypedCommandsV2 = [
   "task.create",
   "task.transition",
   "task.append",
   "task.document",
+  "task.amend",
+  "task.archive",
+  "task.supersede",
+  "task.delete",
+  "task.reopen",
+  "task.relate",
   "decision.propose",
   "decision.state",
   "decision.amend",
   "decision.relation",
+  "decision.relation-retire",
+  "decision.relation-replace",
   "module.register",
   "module.unregister",
   "module.step"
@@ -62,6 +76,51 @@ export interface TaskDocumentPayloadV2 {
   readonly body: string;
 }
 
+export interface TaskAmendPayloadV2 {
+  readonly schema: "task.amend/v1";
+  readonly taskId: string;
+  readonly fields: ReadonlyArray<string>;
+  readonly body: string;
+}
+
+export interface TaskArchivePayloadV2 {
+  readonly schema: "task.archive/v1";
+  readonly taskId: string;
+  readonly reason: string;
+  readonly body: string;
+}
+
+export interface TaskSupersedePayloadV2 {
+  readonly schema: "task.supersede/v1";
+  readonly taskId: string;
+  readonly body?: string;
+  readonly replacementTaskId?: string;
+  readonly writes?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string; readonly packageSlug?: string }>;
+}
+
+export interface TaskDeletePayloadV2 {
+  readonly schema: "task.delete/v1";
+  readonly taskId: string;
+  readonly mode: "soft";
+  readonly reason: string;
+  readonly body: string;
+}
+
+export interface TaskReopenPayloadV2 {
+  readonly schema: "task.reopen/v1";
+  readonly taskId: string;
+  readonly reason: string;
+  readonly body: string;
+}
+
+export interface TaskRelatePayloadV2 {
+  readonly schema: "task.relate/v1";
+  readonly taskId: string;
+  readonly targetTaskId: string;
+  readonly relation: EntityRelationRecord;
+  readonly body: string;
+}
+
 export interface DecisionProposePayloadV2 {
   readonly schema: "decision.propose/v1";
   readonly decision: DecisionPackage;
@@ -88,6 +147,24 @@ export interface DecisionRelationPayloadV2 {
   readonly decisionId: string;
   readonly relation: EntityRelationRecord;
   readonly taskWrites?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
+}
+
+export interface DecisionRelationRetirePayloadV2 {
+  readonly schema: "decision.relation-retire/v1";
+  readonly decisionId: string;
+  readonly relationId: string;
+  readonly decision: DecisionPackage;
+  readonly body?: string;
+}
+
+export interface DecisionRelationReplacePayloadV2 {
+  readonly schema: "decision.relation-replace/v1";
+  readonly decisionId: string;
+  readonly relationId: string;
+  readonly replacement: EntityRelationRecord;
+  readonly decision: DecisionPackage;
+  readonly taskWrites?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
+  readonly body?: string;
 }
 
 export interface ModuleRecordV2 {
@@ -126,10 +203,18 @@ export type TaskDecisionModuleCommandPayloadV2 =
   | TaskTransitionPayloadV2
   | TaskAppendPayloadV2
   | TaskDocumentPayloadV2
+  | TaskAmendPayloadV2
+  | TaskArchivePayloadV2
+  | TaskSupersedePayloadV2
+  | TaskDeletePayloadV2
+  | TaskReopenPayloadV2
+  | TaskRelatePayloadV2
   | DecisionProposePayloadV2
   | DecisionStatePayloadV2
   | DecisionAmendPayloadV2
   | DecisionRelationPayloadV2
+  | DecisionRelationRetirePayloadV2
+  | DecisionRelationReplacePayloadV2
   | ModuleRegisterPayloadV2
   | ModuleUnregisterPayloadV2
   | ModuleStepPayloadV2;
@@ -199,6 +284,37 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body"]);
       return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), path: taskDecisionModuleText(row.path), body: semanticStringValueV2(row.body) };
     }
+    case "task.amend/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "fields", "body"]);
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), fields: textList(row.fields, "TASK_AMEND_FIELDS_INVALID"), body: semanticStringValueV2(row.body) };
+    }
+    case "task.archive/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "reason", "body"]);
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), reason: taskDecisionModuleNonBlank(row.reason), body: semanticStringValueV2(row.body) };
+    }
+    case "task.supersede/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "body", "replacementTaskId", "writes"], false, ["body", "replacementTaskId", "writes"]);
+      return {
+        schema: discriminator.schema,
+        taskId: taskDecisionModuleText(row.taskId),
+        ...(optionalString(row.body, "body")),
+        ...(row.replacementTaskId === undefined ? {} : { replacementTaskId: taskDecisionModuleText(row.replacementTaskId) }),
+        ...(row.writes === undefined ? {} : { writes: taskSupersedeWrites(row.writes) })
+      };
+    }
+    case "task.delete/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "mode", "reason", "body"]);
+      if (row.mode !== "soft") throw semanticAdmissionV2("TASK_HARD_DELETE_UNAVAILABLE");
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), mode: "soft", reason: taskDecisionModuleNonBlank(row.reason), body: semanticStringValueV2(row.body) };
+    }
+    case "task.reopen/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "reason", "body"]);
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), reason: taskDecisionModuleNonBlank(row.reason), body: semanticStringValueV2(row.body) };
+    }
+    case "task.relate/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "targetTaskId", "relation", "body"]);
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), targetTaskId: taskDecisionModuleText(row.targetTaskId), relation: decodeRelationV2(row.relation), body: semanticStringValueV2(row.body) };
+    }
     case "decision.propose/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "decision", "body"], false, ["body"]);
       return { schema: discriminator.schema, decision: decision(row.decision), ...(optionalString(row.body, "body")) };
@@ -227,6 +343,22 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
         decisionId: taskDecisionModuleText(row.decisionId),
         relation: decodeRelationV2(row.relation),
         ...(row.taskWrites === undefined ? {} : { taskWrites: decisionRelationTaskWrites(row.taskWrites) })
+      };
+    }
+    case "decision.relation-retire/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "decisionId", "relationId", "decision", "body"], false, ["body"]);
+      return { schema: discriminator.schema, decisionId: taskDecisionModuleText(row.decisionId), relationId: taskDecisionModuleText(row.relationId), decision: decision(row.decision), ...(optionalString(row.body, "body")) };
+    }
+    case "decision.relation-replace/v1": {
+      const row = exactTaskDecisionModuleObject(value, ["schema", "decisionId", "relationId", "replacement", "decision", "taskWrites", "body"], false, ["taskWrites", "body"]);
+      return {
+        schema: discriminator.schema,
+        decisionId: taskDecisionModuleText(row.decisionId),
+        relationId: taskDecisionModuleText(row.relationId),
+        replacement: decodeRelationV2(row.replacement),
+        decision: decision(row.decision),
+        ...(row.taskWrites === undefined ? {} : { taskWrites: decisionRelationTaskWrites(row.taskWrites) }),
+        ...(optionalString(row.body, "body"))
       };
     }
     case "module.register/v1": {
@@ -269,6 +401,18 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
       return { schema: payload.schema, taskId: payload.taskId, text: payload.text };
     case "task.document/v1":
       return { schema: payload.schema, taskId: payload.taskId, path: payload.path, body: payload.body };
+    case "task.amend/v1":
+      return { schema: payload.schema, taskId: payload.taskId, fields: [...payload.fields], body: payload.body };
+    case "task.archive/v1":
+      return { schema: payload.schema, taskId: payload.taskId, reason: payload.reason, body: payload.body };
+    case "task.supersede/v1":
+      return { schema: payload.schema, taskId: payload.taskId, ...(payload.body === undefined ? {} : { body: payload.body }), ...(payload.replacementTaskId === undefined ? {} : { replacementTaskId: payload.replacementTaskId }), ...(payload.writes ? { writes: payload.writes.map((write) => ({ taskId: write.taskId, path: write.path, body: write.body, ...(write.packageSlug ? { packageSlug: write.packageSlug } : {}) })) } : {}) };
+    case "task.delete/v1":
+      return { schema: payload.schema, taskId: payload.taskId, mode: payload.mode, reason: payload.reason, body: payload.body };
+    case "task.reopen/v1":
+      return { schema: payload.schema, taskId: payload.taskId, reason: payload.reason, body: payload.body };
+    case "task.relate/v1":
+      return { schema: payload.schema, taskId: payload.taskId, targetTaskId: payload.targetTaskId, relation: relationWire(payload.relation), body: payload.body };
     case "decision.propose/v1":
       return { schema: payload.schema, decision: decisionWire(payload.decision), ...(payload.body === undefined ? {} : { body: payload.body }) };
     case "decision.state/v1":
@@ -280,6 +424,10 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
         schema: payload.schema, decisionId: payload.decisionId, relation: relationWire(payload.relation),
         ...(payload.taskWrites ? { taskWrites: payload.taskWrites.map((write) => ({ taskId: write.taskId, path: write.path, body: write.body })) } : {})
       };
+    case "decision.relation-retire/v1":
+      return { schema: payload.schema, decisionId: payload.decisionId, relationId: payload.relationId, decision: decisionWire(payload.decision), ...(payload.body === undefined ? {} : { body: payload.body }) };
+    case "decision.relation-replace/v1":
+      return { schema: payload.schema, decisionId: payload.decisionId, relationId: payload.relationId, replacement: relationWire(payload.replacement), decision: decisionWire(payload.decision), ...(payload.taskWrites ? { taskWrites: payload.taskWrites.map((write) => ({ taskId: write.taskId, path: write.path, body: write.body })) } : {}), ...(payload.body === undefined ? {} : { body: payload.body }) };
     case "module.register/v1":
       return { schema: payload.schema, module: moduleWire(payload.module) };
     case "module.unregister/v1":
@@ -306,6 +454,19 @@ function taskCreateWrites(value: unknown): NonNullable<TaskCreatePayloadV2["writ
   return value.map((entry) => {
     const row = exactTaskDecisionModuleObject(entry, ["path", "body", "packageSlug"], false, ["packageSlug"]);
     return {
+      path: taskDecisionModuleText(row.path),
+      body: semanticStringValueV2(row.body),
+      ...(row.packageSlug === undefined ? {} : { packageSlug: taskDecisionModuleText(row.packageSlug) })
+    };
+  });
+}
+
+function taskSupersedeWrites(value: unknown): NonNullable<TaskSupersedePayloadV2["writes"]> {
+  if (!Array.isArray(value) || value.length < 3) throw semanticAdmissionV2("TASK_SUPERSEDE_WRITES_INVALID");
+  return value.map((entry) => {
+    const row = exactTaskDecisionModuleObject(entry, ["taskId", "path", "body", "packageSlug"], false, ["packageSlug"]);
+    return {
+      taskId: taskDecisionModuleText(row.taskId),
       path: taskDecisionModuleText(row.path),
       body: semanticStringValueV2(row.body),
       ...(row.packageSlug === undefined ? {} : { packageSlug: taskDecisionModuleText(row.packageSlug) })
@@ -426,22 +587,4 @@ function taskDecisionModuleArray(value: unknown, name: string): ReadonlyArray<un
 
 function stringArray(value: unknown, name: string): ReadonlyArray<string> {
   return taskDecisionModuleArray(value, name).map(taskDecisionModuleText);
-}
-
-function taskDecisionModuleText(value: unknown): string {
-  const result = semanticStringValueV2(value);
-  if (!result || result.trim() !== result) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
-  return result;
-}
-
-function taskDecisionModuleNonBlank(value: unknown): string {
-  const result = semanticStringValueV2(value);
-  if (!result.trim()) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
-  return result;
-}
-
-function registryKey(value: unknown): string {
-  const result = taskDecisionModuleText(value);
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(result)) throw semanticAdmissionV2("MODULE_KEY_INVALID");
-  return result;
 }

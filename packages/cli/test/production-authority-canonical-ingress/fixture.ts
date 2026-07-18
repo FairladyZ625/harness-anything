@@ -32,6 +32,18 @@ export function createFixture() {
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"));
+  for (const taskId of [
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK0", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK1",
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK2", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK3",
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK4", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK5",
+    "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK6"
+  ]) {
+    mkdirSync(path.join(authoredRoot, `tasks/${taskId}`), { recursive: true });
+    const body = taskId.endsWith("NK0")
+      ? taskIndexBody(taskId).replace("vertical: default", "vertical: software/coding")
+      : taskIndexBody(taskId);
+    writeFileSync(path.join(authoredRoot, `tasks/${taskId}/INDEX.md`), body);
+  }
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8"));
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/closeout.md"), "# Closeout\n\nSlugged production lifecycle is ready.\n");
@@ -136,6 +148,13 @@ export function createFixture() {
     "      - kind: unix-socket-owner-boundary", `        issuer: host:${hostname()}`, `        subject: ${process.getuid?.() ?? 0}`,
     "roles:", "  - roleId: owner", "    commandClasses: [admin, repo-write, repo-read, arbiter]", ""
   ].join("\n"));
+  writeFileSync(path.join(authoredRoot, "modules.json"), `${JSON.stringify({
+    schema: "module-registry/v1",
+    modules: [
+      { key: "ingress-step", title: "Ingress Step", status: "active", scopes: ["packages/cli/**"], steps: [] },
+      { key: "ingress-unregister", title: "Ingress Unregister", status: "active", scopes: ["packages/cli/**"], steps: [] }
+    ]
+  }, null, 2)}\n`);
   const keyStore = openLocalAuthorityKeyStore({ serviceStateRoot: serviceRoot, stateDirectory: keyStateDirectory, workspaceRoot: repoRoot, authorityId: "authority.production", issuer: "authority.production" });
   const now = Date.now();
   const prepublished = keyStore.createPrepublishedKey({ generation: 1, nowMs: now - 1_000 });

@@ -3,12 +3,16 @@ import type { CommandSpecDefinition } from "./types.ts";
 export const productionAuthorityIngressDecisionRef =
   "decision/dec_01KXSWKWTEXB751A30TRRCQWDG" as const;
 
-export type ProductionAuthorityIngressAdapter = "generic" | "decision-transition" | "task-claim";
+export type ProductionAuthorityIngressAdapter = "generic" | "decision-transition" | "task-claim" | "observed-write";
 
 export type ProductionAuthorityIngressDisposition =
   | {
       readonly status: "typed-v2";
       readonly adapter: ProductionAuthorityIngressAdapter;
+      readonly excludedVariants?: Readonly<Record<string, {
+        readonly decisionRef: typeof productionAuthorityIngressDecisionRef;
+        readonly reason: string;
+      }>>;
     }
   | {
       readonly status: "excluded";
@@ -20,10 +24,10 @@ export type CommandSpecWithProductionAuthorityIngress<Spec extends CommandSpecDe
   readonly productionAuthorityIngress?: ProductionAuthorityIngressDisposition;
 };
 
-const typed = (adapter: ProductionAuthorityIngressAdapter): ProductionAuthorityIngressDisposition => ({
-  status: "typed-v2",
-  adapter
-});
+const typed = (
+  adapter: ProductionAuthorityIngressAdapter,
+  excludedVariants?: Readonly<Record<string, { readonly decisionRef: typeof productionAuthorityIngressDecisionRef; readonly reason: string }>>
+): ProductionAuthorityIngressDisposition => ({ status: "typed-v2", adapter, ...(excludedVariants ? { excludedVariants } : {}) });
 
 const excluded = (reason: string): ProductionAuthorityIngressDisposition => ({
   status: "excluded",
@@ -51,19 +55,24 @@ const dispositions = {
   "init": excluded("repository bootstrap writes precede production authority attachment"),
   "task-release": excluded("lease release mutates daemon-private holder state in the operational domain"),
   "task-submit": excluded("CLI facade decomposes into separately admitted task-code-doc-reconcile and status-set commands; a raw composite daemon action is rejected"),
-  "task-amend": excluded("task extension amendment has no production typed semantic compiler"),
+  "task-amend": typed("observed-write"),
   "task-contract-migrate": excluded("task contract migration is an explicit local migration write road"),
-  "task-archive": excluded("task archival has no production typed semantic compiler"),
-  "task-supersede": excluded("task supersession has no production typed semantic compiler"),
-  "task-delete": excluded("task deletion has no production typed semantic compiler"),
-  "task-reopen": excluded("task reopen has no production typed semantic compiler"),
+  "task-archive": typed("observed-write"),
+  "task-supersede": typed("observed-write"),
+  "task-delete": typed("observed-write", {
+    hard: {
+      decisionRef: productionAuthorityIngressDecisionRef,
+      reason: "production path does not offer hard delete; use task archive or task supersede after distilling evidence"
+    }
+  }),
+  "task-reopen": typed("observed-write"),
   "task-review": excluded("legacy task review is superseded by typed execution review"),
-  "task-relate": excluded("task-hosted relation writes have no production typed semantic compiler"),
+  "task-relate": typed("observed-write"),
   "decision-repin": excluded("decision repin is restricted to the migration write road"),
-  "decision-amend": excluded("decision amendment has no production typed semantic compiler"),
+  "decision-amend": typed("observed-write"),
   "decision-reckon": excluded("decision reckoning is a local derived-write workflow"),
-  "decision-relation-retire": excluded("relation retirement has no production typed semantic compiler"),
-  "decision-relation-replace": excluded("relation replacement has no production typed semantic compiler"),
+  "decision-relation-retire": typed("observed-write"),
+  "decision-relation-replace": typed("observed-write"),
   "distill-candidate": excluded("distillation candidates use the local derived-memory write road"),
   "distill-commit": excluded("distillation commit uses the local derived-memory write road"),
   "runtime-event-append": excluded("runtime events use the operational flush domain"),
@@ -71,8 +80,6 @@ const dispositions = {
   "session-backfill": excluded("session backfill is an explicit migration workflow"),
   "session-sync": excluded("session sync has no production command adapter despite a typed semantic vocabulary"),
   "governance-rebuild": excluded("governance rebuild is an explicit local derived-write workflow"),
-  "lesson-promote": excluded("lesson promotion has no production typed semantic compiler"),
-  "lesson-sediment": excluded("lesson sedimentation has no production typed semantic compiler"),
   "adopt-multica": excluded("multi-CA adoption is an explicit migration workflow"),
   "migrate-structure": excluded("structure migration uses the migration write road"),
   "migrate-anchors": excluded("anchor migration uses the migration write road"),
@@ -92,8 +99,8 @@ const dispositions = {
   "preset-entrypoint": excluded("preset entrypoints delegate to separately admitted command write roads"),
   "script-run": excluded("script execution uses declared script scopes rather than canonical typed ingress"),
   "module-scaffold": excluded("module scaffolding writes local source and template assets"),
-  "module-unregister": excluded("module removal has no production typed semantic compiler"),
-  "module-step": excluded("module step mutation has no production typed semantic compiler"),
+  "module-unregister": typed("generic"),
+  "module-step": typed("generic"),
   "gui": excluded("GUI launch is daemon orchestration and does not author a canonical entity")
 } as const satisfies Readonly<Record<string, ProductionAuthorityIngressDisposition>>;
 
@@ -132,6 +139,13 @@ export function assertProductionAuthorityIngressCompleteness(
     }
     if (disposition?.status === "excluded" && (!disposition.reason.trim() || !/^decision\/dec_[A-Z0-9]+$/u.test(disposition.decisionRef))) {
       errors.push(`${spec.kind}: excluded ingress requires a reason and decision reference`);
+    }
+    if (disposition?.status === "typed-v2" && disposition.excludedVariants) {
+      for (const [variant, exclusion] of Object.entries(disposition.excludedVariants)) {
+        if (!variant.trim() || !exclusion.reason.trim() || !/^decision\/dec_[A-Z0-9]+$/u.test(exclusion.decisionRef)) {
+          errors.push(`${spec.kind}: excluded ingress variant requires a name, reason, and decision reference`);
+        }
+      }
     }
   }
   if (errors.length > 0) throw new Error(`PRODUCTION_AUTHORITY_INGRESS_INCOMPLETE\n${errors.join("\n")}`);

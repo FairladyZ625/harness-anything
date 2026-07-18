@@ -75,7 +75,7 @@ export function evaluateEntityDisposition(request: EntityDispositionRequest): En
       false,
       [
         `${request.entityRef} has ${cascade.anchoredFacts.length} anchored fact(s), ${cascade.incoming.length} active incoming relation(s), and ${cascade.childTasks.length} child task(s); D3/D4 disposition is blocked by the lower-bound rule.`,
-        "E79 defines delete as stage containment: distill evidence into an anchor task, reconnect facts/decisions to that anchor, then run ha task archive <id> --reason <reason>; archive/delete/supersede child tasks before hard delete; hard delete has no --cascade escape hatch."
+        "Production does not offer hard delete. E79 defines delete as stage containment: distill evidence into an anchor task, reconnect facts/decisions to that anchor, then run ha task archive <id> --reason <reason> or ha task supersede <id> --by <replacement-id> --reason <reason>; archive/delete/supersede child tasks before local compatibility hard delete; hard delete has no --cascade escape hatch."
       ].join(" "),
       matrixEntry.writeOpKinds,
       cascade

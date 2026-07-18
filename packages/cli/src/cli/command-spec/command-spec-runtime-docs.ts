@@ -259,43 +259,5 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
       "conflictMarkerPreflight": true,
       "runtimeEvent": "deferred"
     }
-  },
-  {
-    "kind": "lesson-promote",
-    "usage": "lesson promote <task-id> <candidate-id> [--dry-run|--apply] [--json]",
-    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "aliases": ["lesson-promote <task-id> <candidate-id> (deprecated, use lesson promote; retires at E77/F6 acceptance)"],
-    "aliasDisplay": {"lesson-promote <task-id> <candidate-id> (deprecated, use lesson promote; retires at E77/F6 acceptance)":"hidden"},
-    "summary": "Promote a lesson candidate from a completed task.",
-    "examples": ["harness-anything lesson promote task_01ABC candidate-1 --apply"],
-    "parse": parseStatusCheckArgs,
-    "run": runGovernanceCommand,
-    "receiptContract": {
-      "data": ["taskId", "mode", "generated", "report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "deferred"
-    }
-  },
-  {
-    "kind": "lesson-sediment",
-    "usage": "lesson sediment <task-id> <candidate-id> [--dry-run] [--title <title>] [--json]",
-    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "aliases": ["lesson-sediment <task-id> <candidate-id> (deprecated, use lesson sediment; retires at E77/F6 acceptance)"],
-    "aliasDisplay": {"lesson-sediment <task-id> <candidate-id> (deprecated, use lesson sediment; retires at E77/F6 acceptance)":"hidden"},
-    "summary": "Record a dry-run sedimentation result for a lesson candidate.",
-    "examples": ["harness-anything lesson sediment task_01ABC candidate-1 --title \"CLI help lesson\""],
-    "parse": parseStatusCheckArgs,
-    "run": runGovernanceCommand,
-    "receiptContract": {
-      "data": ["taskId", "mode", "generated", "report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "deferred"
-    }
   }
 ]);

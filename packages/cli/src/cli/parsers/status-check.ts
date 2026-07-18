@@ -58,44 +58,5 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
     };
   }
 
-  const lessonPromoteArgs = args[0] === "lesson" && args[1] === "promote" ? ["lesson-promote", ...args.slice(2)] : args;
-  if (lessonPromoteArgs[0] === "lesson-promote" && lessonPromoteArgs[1] && lessonPromoteArgs[2]) {
-    const mode = lessonPromoteArgs.includes("--apply") ? "apply" : "dry-run";
-    if (lessonPromoteArgs.includes("--apply") && lessonPromoteArgs.includes("--dry-run")) {
-      return { ok: false, error: cliError(CliErrorCode.ConflictingLessonMode, "Use either --dry-run or --apply.") };
-    }
-    return {
-      ok: true,
-      value: {
-        rootDir,
-        json,
-        action: {
-          kind: "lesson-promote",
-          taskId: lessonPromoteArgs[1],
-          candidateId: lessonPromoteArgs[2],
-          mode
-        }
-      }
-    };
-  }
-
-  const lessonSedimentArgs = args[0] === "lesson" && args[1] === "sediment" ? ["lesson-sediment", ...args.slice(2)] : args;
-  if (lessonSedimentArgs[0] === "lesson-sediment" && lessonSedimentArgs[1] && lessonSedimentArgs[2]) {
-    return {
-      ok: true,
-      value: {
-        rootDir,
-        json,
-        action: {
-          kind: "lesson-sediment",
-          taskId: lessonSedimentArgs[1],
-          candidateId: lessonSedimentArgs[2],
-          mode: "dry-run",
-          title: readOption(lessonSedimentArgs, "--title") ?? lessonSedimentArgs[2]
-        }
-      }
-    };
-  }
-
   return null;
 }

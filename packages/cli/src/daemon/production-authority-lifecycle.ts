@@ -372,6 +372,9 @@ function createRepoComponent(
         ...(commandSubmission.submitTaskClaim ? {
           submitTaskClaim: commandSubmission.submitTaskClaim
         } : {}),
+        ...(commandSubmission.submitObservedWrite ? {
+          submitObservedWrite: commandSubmission.submitObservedWrite
+        } : {}),
         ...(commandSubmission.submitScriptIngest ? {
           submitScriptIngest: commandSubmission.submitScriptIngest
         } : {}),

@@ -31,8 +31,6 @@ const expectedConflictPreflightKinds = [
   "legacy-copy-safe-docs",
   "legacy-index",
   "legacy-intake-plan",
-  "lesson-promote",
-  "lesson-sediment",
   "migrate-anchors",
   "migrate-fact-execution",
   "migrate-provenance",
@@ -116,8 +114,6 @@ const expectedDeferredRuntimeEventKinds = [
   "legacy-copy-safe-docs",
   "legacy-index",
   "legacy-intake-plan",
-  "lesson-promote",
-  "lesson-sediment",
   "migrate-anchors",
   "migrate-fact-execution",
   "migrate-provenance",
@@ -174,8 +170,7 @@ test("CLI conflict preflight blocks representative write commands before output"
       { args: ["preset", "run", "module", "check", "--task", "task-1"], missingPath: ".harness/evidence/presets/module" },
       { args: ["preset", "action", "module", "check", "--task", "task-1"], missingPath: ".harness/evidence/presets/module" },
       { args: ["script", "run", "missing-script", "--task", "task-1"], missingPath: ".harness" },
-      { args: ["migrate-run", "--plan-only", "--out-dir", "migration-session"], missingPath: "migration-session/session.json" },
-      { args: ["lesson-promote", "task-1", "candidate-1", "--apply"], missingPath: ".harness/generated/lessons" }
+      { args: ["migrate-run", "--plan-only", "--out-dir", "migration-session"], missingPath: "migration-session/session.json" }
     ];
 
     for (const entry of cases) {

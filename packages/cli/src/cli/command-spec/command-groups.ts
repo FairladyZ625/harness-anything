@@ -35,7 +35,6 @@ export const commandGroups = [
   group("help", "Show CLI discovery help."),
   group("init", "Initialize a harness workspace."),
   group("legacy", "Intake legacy harness content."),
-  group("lesson", "Promote and sediment lessons."),
   group("materializer", "Merge session ledger branches."),
   group("migrate", "Run compatibility migrations."),
   group("module", "Manage project modules."),
