@@ -338,6 +338,7 @@ function receiptStepProjection(receipt: Record<string, any>): Record<string, unk
 function normalizeDynamicText(value: string): string {
   return value
     .replace(/(?:task|exe|rev|cns|cons)_[0-9A-HJKMNP-TV-Z]+/gu, "<DYNAMIC_ID>")
+    .replace(/human-cli-\d+/gu, "<HUMAN_SESSION>")
     .replace(/distill_\d+_[0-9a-f]+/gu, "<DISTILL_ID>")
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z/gu, "<TIMESTAMP>")
     .replace(/sha256:[0-9a-f]{64}/gu, "sha256:<DIGEST>")
