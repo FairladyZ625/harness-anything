@@ -19,6 +19,7 @@ import type {
 } from "../../../kernel/src/index.ts";
 import { taskEntityId } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
+import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 
 export interface DaemonAuthorityAttemptCompilerV2 {
@@ -186,11 +187,13 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (provenanceSession && !submission.submitProvenanceSession) {
           throw authorityWriteRejected("AUTHORITY_PROVENANCE_SESSION_SUBMISSION_UNAVAILABLE");
         }
-        const decisionTransition = input.command.action.kind === "decision-transition";
+        const ingress = productionAuthorityIngressFor(input.command.action.kind);
+        const ingressAdapter = ingress?.status === "typed-v2" ? ingress.adapter : undefined;
+        const decisionTransition = ingressAdapter === "decision-transition";
         if (decisionTransition && !submission.submitDecisionTransition) {
           throw authorityWriteRejected("AUTHORITY_DECISION_TRANSITION_SUBMISSION_UNAVAILABLE");
         }
-        const taskClaim = input.command.action.kind === "task-claim";
+        const taskClaim = ingressAdapter === "task-claim";
         if (taskClaim && !submission.submitTaskClaim) {
           throw authorityWriteRejected("AUTHORITY_TASK_CLAIM_SUBMISSION_UNAVAILABLE");
         }
