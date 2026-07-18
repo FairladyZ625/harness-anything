@@ -428,26 +428,33 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   createAttributedCoordinator(input: {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
+    readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
   }): WriteCoordinator {
-    const started = this.requireAttached();
-    const coordinator = this.makeStartedCoordinator(started, input);
+    this.requireAttached();
+    const pending: InteractiveWriteRequest["ops"][number][] = [];
     const projectionWrites: Array<ReturnType<DaemonProjectionGenerationManager["beginCanonicalWrite"]>> = [];
     return {
-      enqueue: (op) => Effect.suspend(() => {
+      enqueue: (op) => Effect.sync(() => {
         const touchedPaths = writeOpTouchedPaths(this.runtimeContext, op);
         const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
         projectionWrites.push(projectionWrite);
-        return coordinator.enqueue(op);
+        pending.push(op);
+        return { opId: op.opId, entityId: op.entityId, accepted: true as const };
       }),
-      flush: (reason) => Effect.ensuring(
-        coordinator.flush(reason),
-        Effect.sync(() => {
-          for (const projectionWrite of projectionWrites.splice(0, projectionWrites.length)) {
-            projectionWrite.settle();
-          }
-        })
-      ),
-      recover: coordinator.recover
+      flush: (reason) => {
+        if (pending.length === 0) return Effect.succeed({ reason, opCount: 0, committed: false });
+        const ops = pending.splice(0, pending.length);
+        const coordinator = this.makeStartedCoordinator(this.requireAttached(), input);
+        return Effect.forEach(ops, (op) => coordinator.enqueue(op), { discard: true }).pipe(
+          Effect.flatMap(() => coordinator.flush(reason)),
+          Effect.ensuring(Effect.sync(() => {
+            for (const projectionWrite of projectionWrites.splice(0, projectionWrites.length)) {
+              projectionWrite.settle();
+            }
+          }))
+        );
+      },
+      recover: Effect.suspend(() => this.makeStartedCoordinator(this.requireAttached(), input).recover)
     };
   }
 

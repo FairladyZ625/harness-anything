@@ -51,7 +51,10 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
-import { createGitCanonicalPublicationInspector } from "./authority-publication-evidence.ts";
+import {
+  AuthorityCanonicalPublicationNotFoundError,
+  createGitCanonicalPublicationInspector
+} from "./authority-publication-evidence.ts";
 import { assertPublicationMatchesMutationSet } from "./authority-publication-evidence.ts";
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
@@ -290,6 +293,24 @@ export async function recoverPendingProductionEvents(input: {
         await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
         progressed = true;
       } catch (error) {
+        if (error instanceof AuthorityCanonicalPublicationNotFoundError
+          && error.opId === record.opId
+          && record.state === "INDETERMINATE"
+          && !record.commitSha) {
+          const originalReason = record.receipt?.tag === "INDETERMINATE"
+            ? record.receipt.reason
+            : "missing indeterminate receipt reason";
+          const receipt = {
+            tag: "REJECTED" as const,
+            workspaceId: record.workspaceId,
+            opId: record.opId,
+            semanticDigest: record.semanticDigest,
+            reason: `AUTHORITY_RECOVERY_CONFIRMED_NOT_PUBLISHED:originalReason=${originalReason}`
+          };
+          await input.operationRegistry.put({ ...record, state: "REJECTED", receipt });
+          progressed = true;
+          continue;
+        }
         // Fail closed: unverifiable historical effects remain indeterminate.
         await input.onDeferred?.(record, error);
         deferred.push(record);

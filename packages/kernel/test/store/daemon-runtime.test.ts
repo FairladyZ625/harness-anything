@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
+import { moduleEntityId } from "../../src/domain/index.ts";
 import { makeTaskHolderService, taskHolderActor } from "../../src/local/task-holder-state.ts";
 import type { ProjectionSourceFence, ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
 import { queryExecutionEvidencePage } from "../../src/projection/sqlite-execution-evidence-reader.ts";
@@ -552,6 +553,114 @@ test("authority attributed coordinator is backed by the current daemon held-lock
       && error !== null
       && "_tag" in error
       && error._tag === "JournalUnavailable");
+  });
+});
+
+test("daemon serializes authority and runtime-event flush domains before either enters the durable journal", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 20
+    });
+    await runtime.start();
+
+    const authority = runtime.createAttributedCoordinator({
+      attribution: testAttribution,
+      sessionId: "authority-domain"
+    });
+    const authorityOp = {
+      ...docWrite("op-authority-domain", "task-authority-domain", "note.md", "authority\n"),
+      authorityIntegrity: {
+        schema: "authority-operation-integrity/v2" as const,
+        semanticRequestDigest: "11".repeat(32),
+        semanticMutationSetDigest: "22".repeat(32),
+        mutationRegistryVersion: 1,
+        actorAxesBindingDigest: "33".repeat(32),
+        canonicalMutationSet: {
+          registryVersion: 1,
+          mutations: [{
+            entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task-authority-domain" },
+            action: { registryVersion: 1, action: "append" }
+          }]
+        }
+      }
+    } as const;
+    Effect.runSync(authority.enqueue(authorityOp));
+
+    const runtimeEvent = runtime.enqueueInteractiveWrite({
+      commandId: "runtime-event-domain",
+      operationalActor: { scope: "operational", kind: "system", id: "daemon-runtime" },
+      ops: [{
+        opId: "runtime-event-domain",
+        entityId: moduleEntityId("runtime-event-ledger"),
+        kind: "machine_artifact_append_jsonl",
+        payload: {
+          boundary: "runtime-event-ledger",
+          path: ".harness/generated/runtime-events/authority-domain.jsonl",
+          value: { schema: "runtime-event/v1", eventId: "evt-domain" }
+        }
+      }]
+    });
+    const runtimeEventReceipt = await runtimeEvent;
+    const authorityReceipt = await Effect.runPromise(authority.flush("explicit"));
+    assert.equal(runtimeEventReceipt.flush.opCount, 1);
+    assert.equal(authorityReceipt.opCount, 1);
+    assert.equal(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/authority-domain.jsonl"), "utf8").includes("evt-domain"), true);
+    assert.equal(git(rootDir, "show", "sessions/authority-domain:tasks/task-authority-domain/note.md"), "authority");
+
+    await runtime.stop();
+  });
+});
+
+test("daemon interactive queue keeps matching attribution in separate integrity domains", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 20
+    });
+    await runtime.start();
+    const authorityOp = {
+      ...docWrite("op-domain-authority", "task-domain-authority", "note.md", "authority domain\n"),
+      authorityIntegrity: {
+        schema: "authority-operation-integrity/v2" as const,
+        semanticRequestDigest: "44".repeat(32),
+        semanticMutationSetDigest: "55".repeat(32),
+        mutationRegistryVersion: 1,
+        actorAxesBindingDigest: "66".repeat(32),
+        canonicalMutationSet: {
+          registryVersion: 1,
+          mutations: [{
+            entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task-domain-authority" },
+            action: { registryVersion: 1, action: "append" }
+          }]
+        }
+      }
+    } as const;
+    const legacyOp = {
+      opId: "runtime-event-matching-attribution",
+      entityId: moduleEntityId("runtime-event-ledger"),
+      kind: "machine_artifact_append_jsonl" as const,
+      payload: {
+        boundary: "runtime-event-ledger",
+        path: ".harness/generated/runtime-events/matching-attribution.jsonl",
+        value: { schema: "runtime-event/v1", eventId: "evt-matching-attribution" }
+      }
+    };
+
+    const [authority, legacy] = await Promise.all([
+      runtime.enqueueInteractiveWrite({ commandId: "authority-domain", attribution: testAttribution, ops: [authorityOp] }),
+      runtime.enqueueInteractiveWrite({ commandId: "legacy-domain", attribution: testAttribution, ops: [legacyOp] })
+    ]);
+
+    assert.equal(authority.flush.opCount, 1);
+    assert.equal(legacy.flush.opCount, 1);
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-domain-authority/note.md"), "utf8"), "authority domain\n");
+    assert.match(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/matching-attribution.jsonl"), "utf8"), /evt-matching-attribution/u);
+    await runtime.stop();
   });
 });
 

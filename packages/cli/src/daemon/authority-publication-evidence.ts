@@ -29,6 +29,16 @@ export interface GitCanonicalPublicationInspector extends CanonicalPublicationIn
   readonly findPublicationForOperation: (opId: string) => Promise<CanonicalPublicationEvidence>;
 }
 
+export class AuthorityCanonicalPublicationNotFoundError extends Error {
+  readonly opId: string;
+
+  constructor(opId: string) {
+    super(`AUTHORITY_CANONICAL_PUBLICATION_NOT_FOUND:expectedOpId=${opId}`);
+    this.name = "AuthorityCanonicalPublicationNotFoundError";
+    this.opId = opId;
+  }
+}
+
 export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
   const currentHead = async (): Promise<string | null> => gitOptional(rootDir, "rev-parse", "--verify", "HEAD");
@@ -151,6 +161,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         if (!opIds.includes(opId)) continue;
         matches.push(await inspectPublication(parents[0]!, opIds, commitSha));
       }
+      if (matches.length === 0) throw new AuthorityCanonicalPublicationNotFoundError(opId);
       if (matches.length !== 1) {
         throw new Error(
           `AUTHORITY_CANONICAL_PUBLICATION_NOT_UNIQUE:expectedOpId=${opId};matches=${matches.map((entry) => entry.commitSha).join(",") || "none"}`

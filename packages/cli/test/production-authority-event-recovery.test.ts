@@ -9,6 +9,7 @@ import type {
 import type { makeLocalAuthorityAttributionEventV2Log } from "../../kernel/src/index.ts";
 import { recoverPendingProductionEvents } from "../src/daemon/production-authority-lifecycle.ts";
 import {
+  AuthorityCanonicalPublicationNotFoundError,
   assertPublicationMatchesMutationSet,
   type createGitCanonicalPublicationInspector
 } from "../src/daemon/authority-publication-evidence.ts";
@@ -205,6 +206,70 @@ test("restart recovery reports the opId and exception when fail-closed recovery 
   });
 
   assert.deepEqual(deferred, [{ opId: record.opId, error: failure }]);
+});
+
+test("restart recovery terminalizes only an indeterminate operation proven absent from publication history", async () => {
+  const record: AuthorityStoredOperationRecord = {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:not-published",
+    semanticDigest: "a".repeat(64),
+    state: "INDETERMINATE",
+    receipt: {
+      tag: "INDETERMINATE",
+      workspaceId: "workspace-production",
+      opId: "namespace-production:not-published",
+      semanticDigest: "a".repeat(64),
+      reason: "PUBLICATION_OUTCOME_UNKNOWN:authority publication cannot mix integrity-bearing and legacy operations"
+    },
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "a".repeat(64),
+      semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: {
+        registryVersion: 1,
+        mutations: [{
+          entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_RECOVERY" },
+          action: { registryVersion: 1, action: "append" }
+        }]
+      }
+    },
+    recordedProtocol: {
+      kind: "semantic-mutation-envelope/v2",
+      schemaTuple: {
+        wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+        commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
+      }
+    },
+    canonicalRequestEnvelope: "durable-envelope"
+  };
+  let durable = record;
+  let recoveryCalled = false;
+
+  await recoverPendingProductionEvents({
+    workspaceId: record.workspaceId,
+    operationRegistry: {
+      get: async () => durable,
+      list: async () => [durable],
+      put: async (next) => { durable = next; }
+    },
+    replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+    eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+    publicationInspector: {
+      findPublicationForOperation: async () => { throw new AuthorityCanonicalPublicationNotFoundError(record.opId); }
+    } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+    recover: async () => {
+      recoveryCalled = true;
+      throw new Error("recovery must not publish an operation proven absent");
+    }
+  });
+
+  assert.equal(recoveryCalled, false);
+  assert.equal(durable.state, "REJECTED");
+  assert.equal(durable.receipt?.tag, "REJECTED");
+  assert.match(durable.receipt?.tag === "REJECTED" ? durable.receipt.reason : "", /AUTHORITY_RECOVERY_CONFIRMED_NOT_PUBLISHED/u);
+  assert.match(durable.receipt?.tag === "REJECTED" ? durable.receipt.reason : "", /authority publication cannot mix/u);
 });
 
 function publicationEvidence() {
