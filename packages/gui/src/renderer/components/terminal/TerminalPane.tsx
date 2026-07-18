@@ -4,20 +4,53 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
+import type { TerminalSessionInfo } from "../../terminal-api-client.ts";
+import {
+  errorMessage,
+  safeTerminalText,
+  terminalDegradationSummary,
+  terminalBackendLabel,
+  terminalDurabilityLabel,
+  terminalStatusLabel
+} from "./terminal-display.ts";
 
 export interface TerminalPaneProps {
   readonly projectId: string;
+  /** When set, attach an existing backend session instead of creating one. */
+  readonly attachSessionId?: string;
+  readonly title?: string;
+  readonly onSessionReady?: (session: TerminalSessionInfo) => void;
+  readonly onSessionEnded?: (session: TerminalSessionInfo) => void;
 }
 
 type TerminalPaneState =
   | { readonly kind: "connecting" }
-  | { readonly kind: "active"; readonly cwd: string }
-  | { readonly kind: "exited"; readonly cwd: string; readonly exitCode: number }
+  | {
+      readonly kind: "active";
+      readonly cwd: string;
+      readonly session: TerminalSessionInfo;
+    }
+  | {
+      readonly kind: "exited";
+      readonly cwd: string;
+      readonly exitCode: number;
+      readonly session?: TerminalSessionInfo;
+    }
   | { readonly kind: "error"; readonly error: string };
 
-export function TerminalPane({ projectId }: TerminalPaneProps) {
+export function TerminalPane({
+  projectId,
+  attachSessionId,
+  title,
+  onSessionReady,
+  onSessionEnded
+}: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<TerminalPaneState>({ kind: "connecting" });
+  const onSessionReadyRef = useRef(onSessionReady);
+  const onSessionEndedRef = useRef(onSessionEnded);
+  onSessionReadyRef.current = onSessionReady;
+  onSessionEndedRef.current = onSessionEnded;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -47,6 +80,7 @@ export function TerminalPane({ projectId }: TerminalPaneProps) {
     let resizeFrame: number | undefined;
     let lastColumns = 0;
     let lastRows = 0;
+    let latestSession: TerminalSessionInfo | undefined;
 
     const fitAndResize = () => {
       if (disposed || !container.isConnected || container.clientWidth === 0 || container.clientHeight === 0) return;
@@ -80,24 +114,33 @@ export function TerminalPane({ projectId }: TerminalPaneProps) {
 
     const start = async () => {
       try {
-        const session = await harnessClient.createTerminal({
-          name: t("terminal.dock.title"),
-          backend: "direct-pty",
-          projectId
-        });
+        let session: TerminalSessionInfo;
+        if (attachSessionId) {
+          const attached = await harnessClient.attachTerminal({ sessionId: attachSessionId });
+          session = attached.session;
+        } else {
+          session = await harnessClient.createTerminal({
+            name: title ?? t("terminal.dock.title"),
+            projectId
+          });
+        }
         if (disposed) {
-          await harnessClient.exitTerminal({ sessionId: session.sessionId }).catch(() => undefined);
+          // Pane closed before connect finished — detach only, keep backend alive.
+          await harnessClient.detachTerminal({ sessionId: session.sessionId }).catch(() => undefined);
           return;
         }
         sessionId = session.sessionId;
+        latestSession = session;
         const cwd = session.cwd ?? "";
-        setState({ kind: "active", cwd });
+        setState({ kind: "active", cwd, session });
+        onSessionReadyRef.current?.(session);
         scheduleFit();
         terminal.focus();
 
         while (!disposed && sessionId) {
           const output = await harnessClient.readTerminal({ sessionId, cursor, timeoutMs: 500 });
           if (disposed) return;
+          latestSession = output.session;
           if (output.dropped) terminal.writeln(`\r\n${t("terminal.pane.outputDropped")}\r\n`);
           for (const event of output.events) {
             if (event.kind === "data") {
@@ -105,8 +148,21 @@ export function TerminalPane({ projectId }: TerminalPaneProps) {
               continue;
             }
             terminal.writeln(`\r\n${t("terminal.pane.exited", { code: event.exitCode })}`);
-            setState({ kind: "exited", cwd, exitCode: event.exitCode });
+            setState({ kind: "exited", cwd, exitCode: event.exitCode, session: output.session });
+            onSessionEndedRef.current?.(output.session);
             return;
+          }
+          // Reflect idle/active/unknown status updates without inventing liveness.
+          if (output.session.status !== "active") {
+            setState((prev) => {
+              if (prev.kind !== "active") return prev;
+              return { ...prev, session: output.session };
+            });
+          } else {
+            setState((prev) => {
+              if (prev.kind !== "active") return prev;
+              return { ...prev, session: output.session, cwd: output.session.cwd ?? prev.cwd };
+            });
           }
           cursor = output.nextCursor;
         }
@@ -125,30 +181,63 @@ export function TerminalPane({ projectId }: TerminalPaneProps) {
       inputDisposable.dispose();
       if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
       terminal.dispose();
-      if (sessionId) void harnessClient.exitTerminal({ sessionId }).catch(() => undefined);
+      // Hard constraint: pane close/unmount always detaches; never exit/terminate.
+      if (sessionId) {
+        void harnessClient.detachTerminal({ sessionId }).catch(() => undefined);
+        if (latestSession) onSessionEndedRef.current?.(latestSession);
+      }
     };
-  }, [projectId]);
+  }, [projectId, attachSessionId, title]);
+
+  const degradation =
+    state.kind === "active" || state.kind === "exited"
+      ? state.session
+        ? terminalDegradationSummary(state.session)
+        : undefined
+      : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#1d1d20]">
-      <div className="flex h-7 shrink-0 items-center border-b border-white/10 px-3 font-mono text-[11px] text-white/55">
+      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-white/10 px-3 font-mono text-[11px] text-white/55">
         {state.kind === "connecting" && t("terminal.pane.connecting")}
         {(state.kind === "active" || state.kind === "exited") && (
-          <span className="truncate" title={t("terminal.pane.cwd", { cwd: state.cwd })}>
-            {state.cwd}
-          </span>
+          <>
+            <span className="truncate" title={t("terminal.pane.cwd", { cwd: state.cwd })}>
+              {state.cwd || t("terminal.pane.noCwd")}
+            </span>
+            {state.session && (
+              <span
+                className="ml-auto shrink-0 truncate text-white/40"
+                title={[
+                  terminalBackendLabel(state.session.backend),
+                  terminalStatusLabel(state.session.status),
+                  terminalDurabilityLabel(state.session.durability),
+                  degradation
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              >
+                {terminalBackendLabel(state.session.backend)}
+                {" · "}
+                {terminalStatusLabel(state.session.status)}
+                {state.session.degraded ? ` · ${t("terminal.pane.degraded")}` : ""}
+                {state.session.durability === "none" ? ` · ${t("terminal.pane.nonDurable")}` : ""}
+              </span>
+            )}
+          </>
         )}
         {state.kind === "error" && t("terminal.pane.connectionFailed", { error: state.error })}
       </div>
-      <div ref={containerRef} className="terminal-xterm min-h-0 flex-1 px-2 py-1" aria-label={t("terminal.dock.title")} />
+      {degradation && state.kind === "active" && (
+        <div className="shrink-0 border-b border-white/10 bg-amber-950/40 px-3 py-1 text-[10px] text-amber-200/90" title={degradation}>
+          {degradation}
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="terminal-xterm min-h-0 flex-1 px-2 py-1"
+        aria-label={title ?? t("terminal.dock.title")}
+      />
     </div>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function safeTerminalText(value: string): string {
-  return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "");
 }

@@ -665,3 +665,16 @@ html[data-theme="light"] .ee-chip-archival.ee-chip-active {
     opacity: 0;
   }
 }
+
+/* Terminal dock xterm host */
+.terminal-xterm {
+  width: 100%;
+  height: 100%;
+}
+.terminal-xterm .xterm {
+  height: 100%;
+}
+.terminal-xterm .xterm-viewport {
+  overflow-y: auto !important;
+}
+

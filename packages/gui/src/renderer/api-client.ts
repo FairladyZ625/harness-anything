@@ -81,11 +81,9 @@ type HarnessBridgeMethod =
   | "reviewTask"
   | "appendTaskProgress"
   | "rebuildGovernance"
-  | "terminalCreate"
-  | "terminalWrite"
-  | "terminalRead"
-  | "terminalResize"
-  | "terminalExit";
+  | "terminalCreate" | "terminalList" | "terminalGet" | "terminalAttach"
+  | "terminalDetach" | "terminalTerminate" | "terminalWrite" | "terminalRead"
+  | "terminalResize" | "terminalExit";
 
 type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
