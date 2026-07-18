@@ -515,6 +515,7 @@ function GraphViewInner({
           />
           <Controls className="bg-surface-raised border-border" />
           <MiniMap
+            bgColor="var(--color-surface)"
             nodeColor={(n) => {
               if (n.type === "laneBackground" || n.type === "territoryZone") return "rgba(255, 255, 255, 0.04)";
               if (n.type === "ego") return MINIMAP_AXIS[(n.data as any)?.entity as string] ?? "var(--color-axis-execution)";
@@ -524,8 +525,8 @@ function GraphViewInner({
               return "var(--color-border-strong)";
             }}
             nodeStrokeColor="var(--color-border-strong)"
-            maskColor="rgba(0, 0, 0, 0.5)"
-            className="bg-surface border border-border rounded overflow-hidden"
+            maskColor={colorMode === "dark" ? "rgba(0, 0, 0, 0.5)" : "rgba(255, 255, 255, 0.6)"}
+            className="border border-border rounded overflow-hidden"
           />
           {viewMode === "territory" && (
             <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />

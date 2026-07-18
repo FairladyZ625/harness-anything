@@ -45,6 +45,8 @@
   "renderer.mutation.decisionRejected": "决策已拒绝",
   "renderer.mutation.decisionDeferred": "决策已延期",
   "renderer.mutation.decisionMutationFailed": "决策 {action} 失败：{error}",
+  "renderer.mutation.decisionProposeFailed": "决策提议失败：{error}",
+  "renderer.mutation.decisionProposed": "决策已提议：{id}",
   "renderer.mutation.agentCommandCopied": "Agent 命令已复制到剪贴板",
   "renderer.mutation.agentCommandCopyFailed": "无法复制 Agent 命令：{cmd}"
 }

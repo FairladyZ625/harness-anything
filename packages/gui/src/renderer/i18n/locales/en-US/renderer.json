@@ -45,6 +45,8 @@
   "renderer.mutation.decisionRejected": "Decision rejected",
   "renderer.mutation.decisionDeferred": "Decision deferred",
   "renderer.mutation.decisionMutationFailed": "Decision {action} failed: {error}",
+  "renderer.mutation.decisionProposeFailed": "Decision propose failed: {error}",
+  "renderer.mutation.decisionProposed": "Decision proposed: {id}",
   "renderer.mutation.agentCommandCopied": "Agent command copied to clipboard",
   "renderer.mutation.agentCommandCopyFailed": "Could not copy agent command: {cmd}"
 }

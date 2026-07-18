@@ -2,7 +2,12 @@ import type { TaskRow, Project, EventEntry, SnapshotStatus } from "../model/type
 import type { EntityHit } from "../model/entitySearch";
 import type { TaskFilters } from "../model/taskFilters.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
-import { useDecideMutation, type DecideAction, type TriadicRendererData } from "../triadic-data.ts";
+import {
+  useDecideMutation,
+  useProposeDecisionMutation,
+  type DecideAction,
+  type TriadicRendererData
+} from "../triadic-data.ts";
 import type { CatalogRendererData } from "../catalog-data.ts";
 import { VIEW_LABEL, type ViewId } from "../shell-config.tsx";
 import { HomeView } from "../views/HomeView.tsx";
@@ -10,6 +15,10 @@ import { OverviewView } from "../views/OverviewView.tsx";
 import { BoardView } from "../views/BoardView.tsx";
 import { DecisionsView } from "../views/DecisionsView.tsx";
 import { DecisionPoolView } from "../views/DecisionPoolView.tsx";
+import type {
+  DecisionProposeSubmitInput,
+  DecisionProposeSubmitResult
+} from "../views/DecisionPoolView.tsx";
 import { FactTriageView } from "../views/FactTriageView.tsx";
 import { ExecutionEvidenceView } from "../views/ExecutionEvidenceView.tsx";
 import { PresetsView } from "../views/PresetsView.tsx";
@@ -123,6 +132,40 @@ export function ViewSwitch(props: ViewSwitchProps) {
   const showToast = useToast();
   // Route decision mutations through the active project/repo selection.
   const decideMutation = useDecideMutation(project.id);
+  // Decision write consume (dec_01KXARBFDR). The form composes the payload;
+  // this hook runs it through the daemon IPC port and refreshes the triadic
+  // projection on settle so the pool/inbox/graph all see the new proposal.
+  const proposeMutation = useProposeDecisionMutation(project.id);
+
+  const handlePropose = async (input: DecisionProposeSubmitInput): Promise<DecisionProposeSubmitResult> => {
+    try {
+      const result = await proposeMutation.mutateAsync(input);
+      if (result.ok) {
+        showToast(
+          t("renderer.mutation.decisionProposed", { id: result.decisionId }),
+          "success",
+        );
+        return { ok: true, decisionId: result.decisionId, state: result.state };
+      }
+      // Unreachable: mutateAsync throws on !ok — kept for exhaustiveness.
+      return {
+        ok: false,
+        error: { code: "invalid_result", hint: t("renderer.apiClient.invalidDecisionMutationResult") }
+      };
+    } catch (error) {
+      // Form surfaces the verbatim code/hint; we still emit a toast so the
+      // user gets a redundant cue even if they scrolled past the inline banner.
+      const message = error instanceof Error ? error.message : String(error);
+      showToast(t("renderer.mutation.decisionProposeFailed", { error: message }), "error");
+      // Re-parse the `${code}: ${hint}` convention so the form's error banner
+      // can render the two fields separately. Falls back to the full message.
+      const match = /^([^:]+):\s*(.+)$/u.exec(message);
+      if (match) {
+        return { ok: false, error: { code: match[1]!, hint: match[2]! } };
+      }
+      return { ok: false, error: { code: "renderer_exception", hint: message } };
+    }
+  };
 
   const handleDecide = (id: string, action: DecideAction, rationale?: string) => {
     // Authority act: call the existing renderer API only. Principal is derived
@@ -279,6 +322,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
           onFocusGraph={onFocusEntityInGraph}
           onNavigateEntity={onNavigateEntity}
           onOpenApproval={onOpenApproval}
+          onPropose={handlePropose}
         />
       ) : view === "presets" ? (
         <PresetsView

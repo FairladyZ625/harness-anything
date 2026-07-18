@@ -8,6 +8,7 @@ import {
   Graph,
   GitBranch,
   MagnifyingGlass,
+  Plus,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
@@ -18,6 +19,7 @@ import {
 } from "../components/badges";
 import { coverageOf, sortDecisionQueue } from "../model/triadic";
 import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
+import { DecisionProposeForm } from "./DecisionProposeForm";
 import { ClaimList } from "./decisions-verdict";
 import {
   POOL_TABS,
@@ -37,6 +39,17 @@ import { t } from "../i18n/index.tsx";
 
 const selectClass =
   "rounded border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none hover:border-border-strong";
+
+/**
+ * Passthrough shape for the propose submit callback. Kept structurally equal
+ * to `DecisionProposePayload` (from the daemon DTO) so the ViewSwitch can hand
+ * the form straight to the renderer mutation without re-shaping. Splitting the
+ * type name keeps DecisionPoolView's import surface off the daemon DTO module.
+ */
+export type DecisionProposeSubmitInput = ReturnType<typeof import("../triadic-data.ts").buildDecisionProposePayload>;
+export type DecisionProposeSubmitResult =
+  | { ok: true; decisionId: string; state: string }
+  | { ok: false; error: { code: string; hint: string } };
 
 function CoverageBadge({ decision, facts }: { decision: DecisionRow; facts: FactRef[] }) {
   const coverage = coverageOf(decision, facts);
@@ -117,6 +130,7 @@ export function DecisionPoolView({
   onFocusGraph,
   onNavigateEntity,
   onOpenApproval,
+  onPropose,
 }: {
   decisions: DecisionRow[];
   facts: FactRef[];
@@ -127,6 +141,12 @@ export function DecisionPoolView({
   onNavigateEntity?: (ref: string) => void;
   /** Route a proposed decision into the approval queue (P3-2). */
   onOpenApproval?: (decisionId: string) => void;
+  /**
+   * Decision write consume (dec_01KXARBFDR). Optional — when omitted the
+   * "Propose" entry is hidden so other mounts (SSR smoke tests, future boards)
+   * keep the readonly posture without changing the surface contract.
+   */
+  onPropose?: (input: DecisionProposeSubmitInput) => Promise<DecisionProposeSubmitResult>;
 }) {
   const [tab, setTab] = useState<PoolTab>("proposed");
   const [riskFilter, setRiskFilter] = useState<NonNullable<DecisionRow["riskTier"]> | "unknown" | "all">("all");
@@ -139,6 +159,7 @@ export function DecisionPoolView({
   const [groupBy, setGroupBy] = useState<GroupBy>("milestone");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [proposeOpen, setProposeOpen] = useState(false);
   const handledFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -278,7 +299,26 @@ export function DecisionPoolView({
           <span className="font-mono text-[13px] text-text-faint">
             {t("views.decisionPoolView.browseFullSetCoverageAccessibilitySupersedeAmend")}
           </span>
+          {onPropose && (
+            <button
+              type="button"
+              onClick={() => setProposeOpen((prev) => !prev)}
+              data-testid="decision-pool-toggle-propose"
+              aria-expanded={proposeOpen}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/5 px-2.5 py-1 font-mono text-[12px] text-accent hover:bg-accent/10"
+            >
+              <Plus weight="bold" className="text-[12px]" />
+              {t("views.decisionPropose.openForm")}
+            </button>
+          )}
         </div>
+        {onPropose && (
+          <DecisionProposeForm
+            open={proposeOpen}
+            onClose={() => setProposeOpen(false)}
+            onSubmit={onPropose}
+          />
+        )}
       </header>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface/50 px-4 py-2">

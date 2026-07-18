@@ -20,6 +20,15 @@ import {
 } from "../src/renderer/views/decision-pool-helpers.ts";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
+import {
+  buildDecisionProposePayload,
+  ProposeDecisionError,
+  type DecisionProposeInput,
+} from "../src/renderer/triadic-data.ts";
+import {
+  DecisionProposeForm,
+  validateProposeForm,
+} from "../src/renderer/views/DecisionProposeForm.tsx";
 
 const emptyAttribution = {
   originator: null,
@@ -401,5 +410,209 @@ describe("server-render smoke · approval + pool", () => {
     expect(html).toContain("active");
     // no nested state <select> (dropped)
     expect(html).not.toContain("state: all");
+  });
+});
+
+describe("dec_01KXARBFDR · propose payload builder (camelCase → snake_case)", () => {
+  const validForm: DecisionProposeInput = {
+    title: "Ship propose form",
+    question: "How should the GUI author a proposed decision?",
+    chosen: [{ text: "Inline form in Decision Pool" }],
+    rejected: [{ text: "Markdown-only authoring", whyNot: "bypasses identity" }],
+    claims: [{ text: "Daemon IPC writes carry socket-derived identity" }],
+    riskTier: "medium",
+    urgency: "medium",
+  };
+
+  it("translates renderer form input to the daemon DTO verbatim", () => {
+    const payload = buildDecisionProposePayload(validForm);
+    expect(payload).toEqual({
+      title: "Ship propose form",
+      question: "How should the GUI author a proposed decision?",
+      chosen: [{ text: "Inline form in Decision Pool" }],
+      rejected: [{ text: "Markdown-only authoring", why_not: "bypasses identity" }],
+      claims: [{ text: "Daemon IPC writes carry socket-derived identity" }],
+      riskTier: "medium",
+      urgency: "medium",
+    });
+  });
+
+  it("preserves fulfillment on claims when supplied", () => {
+    const payload = buildDecisionProposePayload({
+      ...validForm,
+      claims: [{ text: "Standing policy claim", fulfillment: "standing-policy" }],
+    });
+    expect(payload.claims).toEqual([
+      { text: "Standing policy claim", fulfillment: "standing-policy" },
+    ]);
+  });
+
+  it("omits optional fields when not supplied", () => {
+    const payload = buildDecisionProposePayload(validForm);
+    expect(payload).not.toHaveProperty("decisionId");
+    expect(payload).not.toHaveProperty("body");
+    expect(payload).not.toHaveProperty("modules");
+    expect(payload).not.toHaveProperty("productLines");
+    expect(payload).not.toHaveProperty("evidenceRelations");
+  });
+
+  it("forwards optional decisionId/body/modules when provided", () => {
+    const payload = buildDecisionProposePayload({
+      ...validForm,
+      decisionId: "dec_custom",
+      body: "long-form context",
+      modules: ["gui"],
+      productLines: ["coding"],
+    });
+    expect(payload.decisionId).toBe("dec_custom");
+    expect(payload.body).toBe("long-form context");
+    expect(payload.modules).toEqual(["gui"]);
+    expect(payload.productLines).toEqual(["coding"]);
+  });
+
+  it("never injects actor / principal / HARNESS_ACTOR fields", () => {
+    const payload = buildDecisionProposePayload(validForm);
+    expect(payload).not.toHaveProperty("actor");
+    expect(payload).not.toHaveProperty("principal");
+    expect(JSON.stringify(payload)).not.toContain("HARNESS_ACTOR");
+  });
+});
+
+describe("dec_01KXARBFDR · client-side validation gate", () => {
+  const valid: DecisionProposeInput = {
+    title: "T",
+    question: "Q",
+    riskTier: "low",
+    urgency: "low",
+    chosen: [{ text: "x" }],
+    rejected: [{ text: "y", whyNot: "z" }],
+    claims: [{ text: "c" }],
+  };
+
+  it("accepts a fully populated form", () => {
+    expect(validateProposeForm(valid)).toBeNull();
+  });
+
+  it("rejects empty title", () => {
+    expect(validateProposeForm({ ...valid, title: "   " })).not.toBeNull();
+  });
+
+  it("rejects empty question", () => {
+    expect(validateProposeForm({ ...valid, question: "" })).not.toBeNull();
+  });
+
+  it("rejects when no chosen entry has text", () => {
+    expect(validateProposeForm({ ...valid, chosen: [{ text: "" }] })).not.toBeNull();
+  });
+
+  it("rejects when no rejected entry has text", () => {
+    expect(validateProposeForm({
+      ...valid,
+      rejected: [{ text: "", whyNot: "" }],
+    })).not.toBeNull();
+  });
+
+  it("rejects when a rejected entry has text but empty why-not", () => {
+    expect(validateProposeForm({
+      ...valid,
+      rejected: [{ text: "ok", whyNot: "   " }],
+    })).not.toBeNull();
+  });
+
+  it("rejects when claims list has no text", () => {
+    expect(validateProposeForm({ ...valid, claims: [{ text: "" }] })).not.toBeNull();
+  });
+});
+
+describe("dec_01KXARBFDR · ProposeDecisionError honesty", () => {
+  it("carries daemon code/hint verbatim and joins them in message", () => {
+    const err = new ProposeDecisionError("E_EVIDENCE_FLOOR", "insufficient evidence");
+    expect(err.code).toBe("E_EVIDENCE_FLOOR");
+    expect(err.hint).toBe("insufficient evidence");
+    expect(err.message).toBe("E_EVIDENCE_FLOOR: insufficient evidence");
+  });
+});
+
+/**
+ * SSR render smoke: ensures the form mounts without window/event listeners
+ * during renderToStaticMarkup (the same harness other GUI views use). The
+ * interactive submit path is exercised in the e2e tier; here we just pin the
+ * contract that opening the form surfaces all required fields.
+ */
+describe("dec_01KXARBFDR · DecisionProposeForm SSR smoke", () => {
+  it("renders all required field labels and the submit control when open", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionProposeForm, {
+        open: true,
+        onClose: () => undefined,
+        onSubmit: async () => ({ ok: true, decisionId: "dec_x", state: "proposed" }),
+      }),
+    );
+    expect(html).toContain('data-testid="decision-propose-form"');
+    expect(html).toContain('data-testid="decision-propose-title"');
+    expect(html).toContain('data-testid="decision-propose-question"');
+    expect(html).toContain('data-testid="decision-propose-risk"');
+    expect(html).toContain('data-testid="decision-propose-urgency"');
+    expect(html).toContain('data-testid="decision-propose-chosen-0"');
+    expect(html).toContain('data-testid="decision-propose-rejected-0"');
+    expect(html).toContain('data-testid="decision-propose-rejected-0-why-not"');
+    expect(html).toContain('data-testid="decision-propose-claim-0"');
+    expect(html).toContain('data-testid="decision-propose-submit"');
+  });
+
+  it("renders nothing when open=false", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionProposeForm, {
+        open: false,
+        onClose: () => undefined,
+        onSubmit: async () => ({ ok: true, decisionId: "dec_x", state: "proposed" }),
+      }),
+    );
+    expect(html).toBe("");
+  });
+});
+
+describe("dec_01KXARBFDR · DecisionPoolView propose entry wiring", () => {
+  const d = decision();
+  const tasks = [
+    task({ taskId: "task_root", rootTaskId: "task_root", rootTitle: "Milestone Root" }),
+    task(),
+  ];
+  const relations: RelationEdge[] = [
+    { from: "decision/dec_a", to: "task/task_leaf", kind: "derives", provenance: "local-document" },
+  ];
+  const facts = [fact()];
+
+  it("hides the propose entry when onPropose is not supplied (readonly mount)", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionPoolView, {
+        decisions: [d],
+        facts,
+        relations,
+        tasks,
+        onFocusGraph: () => undefined,
+        onNavigateEntity: () => undefined,
+        onOpenApproval: () => undefined,
+      }),
+    );
+    expect(html).not.toContain('data-testid="decision-pool-toggle-propose"');
+    expect(html).not.toContain('data-testid="decision-propose-form"');
+  });
+
+  it("shows the propose toggle but keeps the form closed on first mount", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionPoolView, {
+        decisions: [d],
+        facts,
+        relations,
+        tasks,
+        onFocusGraph: () => undefined,
+        onNavigateEntity: () => undefined,
+        onOpenApproval: () => undefined,
+        onPropose: async () => ({ ok: true, decisionId: "dec_new", state: "proposed" }),
+      }),
+    );
+    expect(html).toContain('data-testid="decision-pool-toggle-propose"');
+    expect(html).not.toContain('data-testid="decision-propose-form"');
   });
 });
