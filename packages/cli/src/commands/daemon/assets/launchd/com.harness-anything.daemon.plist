@@ -16,8 +16,8 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HARNESS_DAEMON_MODE</key>
-    <string>direct</string>
+    <key>HARNESS_DAEMON_SERVER_HOST</key>
+    <string>1</string>
   </dict>
   <key>WorkingDirectory</key>
   <string>{{CANONICAL_ROOT}}</string>

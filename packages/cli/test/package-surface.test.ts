@@ -489,7 +489,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     env: {
       ...process.env,
       HARNESS_ACTOR: "agent:package-surface-test",
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_GIT_AUTHOR_NAME: "Harness Test",
       HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
     }

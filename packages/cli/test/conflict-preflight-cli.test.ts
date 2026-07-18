@@ -190,7 +190,7 @@ test("CLI conflict preflight treats list-then-vanished files as transient", () =
     const preloadPath = writeVanishedReadPreload(rootDir, vanishedPath);
 
     const result = runJson(rootDir, ["task", "create", "--title", "TOCTOU Safe"], {
-      NODE_OPTIONS: `--require ${preloadPath}`
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim()
     });
 
     assert.equal(result.ok, true);
@@ -205,7 +205,7 @@ test("CLI write coordinator flush rechecks conflict markers after early prefligh
     const preloadPath = writeFirstReadCleanPreload(rootDir, markerPath);
 
     const result = runJson(rootDir, ["task", "create", "--title", "Blocked At Flush"], {
-      NODE_OPTIONS: `--require ${preloadPath}`
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim()
     });
 
     assert.equal(result.ok, false);
@@ -286,7 +286,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.Proce
       encoding: "utf8",
       env: {
         ...process.env,
-        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DAEMON_MODE: "fixture",
         HARNESS_ACTOR: "agent:conflict-preflight-test",
         HARNESS_GIT_AUTHOR_NAME: "Harness Test",
         HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",

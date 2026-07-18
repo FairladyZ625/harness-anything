@@ -66,8 +66,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
       HARNESS_ACTOR: "agent:create-milestone-guidance-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Test",
       HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_USER_HOME: path.join(rootDir, ".empty-user-home")
     }
   });

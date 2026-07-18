@@ -25,7 +25,7 @@ function runDaemonFailure(args: ReadonlyArray<string>): {
 } {
   const result = spawnSync(process.execPath, [cliEntry, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+    env: { ...process.env, HARNESS_DAEMON_MODE: "fixture" }
   });
   assert.equal(result.stderr, "");
   return {

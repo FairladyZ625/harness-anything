@@ -205,7 +205,7 @@ function validFactRecord(): string {
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
-  const daemonMode = args[0] === "doc" && args[1] === "sync" && args.includes("--submit") ? "local" : "direct";
+  const daemonMode = args[0] === "doc" && args[1] === "sync" && args.includes("--submit") ? "local" : "fixture";
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",

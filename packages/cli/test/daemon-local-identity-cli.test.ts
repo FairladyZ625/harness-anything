@@ -11,7 +11,6 @@ import {
   runDaemonCommand,
   runRawJson,
   runRawJsonMaybeFail,
-  stopDaemon,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
 import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-daemon.ts";
@@ -25,7 +24,7 @@ test("local daemon derives its owner from project identity when people roster is
     runRawJson(rootDir, ["init"], {
       ...identityEnv,
       HARNESS_ACTOR: "agent:test-bootstrap",
-      HARNESS_DAEMON_MODE: "direct"
+      HARNESS_DAEMON_MODE: "fixture"
     });
     assert.equal(existsSync(path.join(rootDir, "harness/people.yaml")), false);
 
@@ -50,9 +49,9 @@ test("linked worktree writes route to the canonical daemon with transport-derive
   await withTempRootAsync(async (rootDir) => {
     initOuterGitRepo(rootDir);
     const userRoot = defaultDaemonUserRoot(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const created = runRawJson(rootDir, ["new-task", "--title", "Worktree Daemon Routing"], {
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
     writePeopleRoster(rootDir, {
@@ -93,43 +92,6 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     });
     assert.equal(progressEvent?.principalSource.kind, "daemon-authenticated");
     assert.equal(progressEvent?.executorSource, "client-asserted");
-
-    await stopDaemon(rootDir, userRoot);
-    const directRejected = runRawJsonMaybeFail(worktreeCommandRoot, progressArgs, {
-      HARNESS_ACTOR: "",
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "",
-      HARNESS_DAEMON_USER_ROOT: userRoot,
-      NODE_TEST_CONTEXT: ""
-    });
-    assert.notEqual(directRejected.status, 0);
-    assert.match(JSON.stringify(directRejected.receipt), /Direct canonical writes are disabled/u);
-
-    const directFallback = runRawJsonMaybeFail(worktreeCommandRoot, progressArgs, {
-      HARNESS_ACTOR: "",
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "recovery",
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-    assert.notEqual(directFallback.status, 0);
-    assert.equal((directFallback.receipt.error as { readonly code?: string }).code, "task_not_found");
-    assert.equal(
-      (directFallback.receipt.warnings as ReadonlyArray<{ readonly message?: string }> | undefined)
-        ?.some((warning) => /machine identity|people\.yaml/u.test(warning.message ?? "")),
-      true
-    );
-
-    const localWrite = runRawJsonMaybeFail(worktreeCommandRoot, [
-      "--actor", "agent:worktree-worker", "new-task", "--title", "Must Not Write Locally"
-    ], {
-      HARNESS_ACTOR: "",
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "recovery",
-      HARNESS_DAEMON_USER_ROOT: userRoot
-    });
-    assert.notEqual(localWrite.status, 0);
-    assert.equal((localWrite.receipt.error as { readonly code?: string }).code, "write_rejected");
-    assert.match((localWrite.receipt.error as { readonly hint?: string }).hint ?? "", /machine identity|people\.yaml/u);
   });
 });
 

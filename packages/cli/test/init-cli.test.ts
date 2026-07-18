@@ -198,8 +198,7 @@ test("CLI init does not materialize coding scaffold for an unresolved non-coding
     ].join("\n"));
 
     const result = runJson(rootDir, ["init"], {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_ACTOR: "agent:init-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Test",
       HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
@@ -251,7 +250,6 @@ test("CLI readonly version and gui commands do not create a lifecycle engine bef
     const version = runJson(rootDir, ["version"]);
     const gui = runJson(rootDir, ["gui"], {
       HARNESS_GUI_DRY_RUN: "1",
-      HARNESS_DIRECT_WRITE_REASON: "test"
     });
 
     assert.equal(version.ok, true);

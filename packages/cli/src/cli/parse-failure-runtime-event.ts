@@ -1,16 +1,4 @@
-import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { Effect, Schema } from "effect";
-import { makeEnvironmentCurrentSessionProbe } from "../../../application/src/index.ts";
-import {
-  makeOperationalJournaledWriteCoordinator,
-  moduleEntityId,
-  resolveHarnessLayout,
-  RuntimeEventRecordSchema,
-  stablePayloadHash
-} from "../../../kernel/src/index.ts";
 import type { CommandFailureReceipt } from "./receipt.ts";
-import { stripGlobalOptions } from "./parse-options.ts";
 
 type ParseFailureError = CommandFailureReceipt["error"];
 
@@ -25,7 +13,11 @@ export async function appendParseFailureRuntimeEvent(
   dependencies: ParseFailureRuntimeEventDependencies = {}
 ): Promise<void> {
   try {
-    await (dependencies.append ?? appendOperationalParseFailureRuntimeEvent)(argv, error);
+    // Parse failures occur before a command can be routed to the daemon. Until
+    // the daemon exposes a dedicated operational diagnostic RPC, the primary
+    // failure receipt is the diagnostic; the CLI must not become a second
+    // canonical writer merely to persist best-effort telemetry.
+    await (dependencies.append ?? noCanonicalParseFailureWrite)(argv, error);
   } catch (diagnosticError) {
     try {
       const detail = diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError);
@@ -38,62 +30,10 @@ export async function appendParseFailureRuntimeEvent(
   }
 }
 
-async function appendOperationalParseFailureRuntimeEvent(
-  argv: ReadonlyArray<string>,
-  error: ParseFailureError
+function noCanonicalParseFailureWrite(
+  _argv: ReadonlyArray<string>,
+  _error: ParseFailureError
 ): Promise<void> {
-  const stripped = stripGlobalOptions(argv);
-  const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
-  const rootInput = layoutOverrides ? { rootDir: stripped.rootDir, layoutOverrides } : stripped.rootDir;
-  const layout = resolveHarnessLayout(rootInput);
-  const session = await Effect.runPromise(makeEnvironmentCurrentSessionProbe().currentSession);
-  const recordedAt = new Date().toISOString();
-  const eventId = `evt_${randomUUID()}`;
-  const event = Schema.decodeUnknownSync(RuntimeEventRecordSchema)({
-    schema: "runtime-event/v1",
-    eventId,
-    recordedAt,
-    kind: "result",
-    session: {
-      sessionId: session.sessionId,
-      runtime: session.runtime,
-      executionId: null,
-      reviewId: null
-    },
-    turn: null,
-    step: null,
-    tool: {
-      toolName: "parse",
-      ...(error?.code ? { errorCode: error.code } : {})
-    },
-    approval: null,
-    interrupt: null,
-    result: {
-      status: "failed",
-      summary: "CLI parse failed",
-      ...(error?.code ? { errorCode: error.code } : {})
-    },
-    cost: null
-  });
-  const payload = {
-    boundary: "runtime-event-ledger",
-    path: path.relative(layout.rootDir, layout.runtimeEventLedgerPath(session.sessionId)).split(path.sep).join("/"),
-    value: event
-  };
-  const coordinator = makeOperationalJournaledWriteCoordinator({
-    rootDir: stripped.rootDir,
-    ...(layoutOverrides ? { layoutOverrides } : {}),
-    operationalActor: { scope: "operational", kind: "agent", id: "runtime-event-cli" }
-  });
-  const opId = `runtime-event-${eventId}-${stablePayloadHash(payload).slice(0, 16)}`;
-
-  await Effect.runPromise(Effect.gen(function* () {
-    yield* coordinator.enqueue({
-      opId,
-      entityId: moduleEntityId("runtime-event-ledger"),
-      kind: "machine_artifact_append_jsonl",
-      payload
-    });
-    yield* coordinator.flush("explicit");
-  }));
+  // Intentionally empty. See the single-writer rationale above.
+  return Promise.resolve();
 }

@@ -17,7 +17,7 @@ test("direct preset scaffold preserves its generated artifact bytes", () => {
       "preset", "action", "production-artifact-scaffold", "scaffold",
       "--task", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", "--allow-scripts"
     ], {
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_ACTOR: "agent:harness-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Test",
       HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"

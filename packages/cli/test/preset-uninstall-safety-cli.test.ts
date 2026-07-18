@@ -116,7 +116,7 @@ function withFixture(kind: "process-action" | "template-content", fn: (fixture: 
   const sourceDir = path.join(rootDir, "source-preset");
   const env = {
     ...noAgentRuntimeEnv,
-    HARNESS_DAEMON_MODE: "direct",
+    HARNESS_DAEMON_MODE: "fixture",
     HARNESS_USER_HOME: userHome,
     HARNESS_ACTOR: "agent:preset-uninstall-test"
   };

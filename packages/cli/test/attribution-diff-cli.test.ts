@@ -133,8 +133,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       env: {
         ...process.env,
         HARNESS_ACTOR: "agent:attribution-diff-test",
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DIRECT_WRITE_REASON: "test",
+        HARNESS_DAEMON_MODE: "fixture",
         ...env
       }
     });

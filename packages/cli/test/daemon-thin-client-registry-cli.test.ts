@@ -22,7 +22,7 @@ test("daemon client fails unregistered cwd in multi-repo registry with register 
     const outsiderRoot = path.join(workspaceRoot, "outsider");
     for (const rootDir of [alphaRoot, betaRoot, outsiderRoot]) {
       mkdirSync(rootDir, { recursive: true });
-      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     }
     registerRepo(alphaRoot, userRoot, "alpha");
     registerRepo(betaRoot, userRoot, "beta");
@@ -46,7 +46,7 @@ test("daemon client --repo override targets a registered repo from a different c
     try {
       for (const rootDir of [alphaRoot, betaRoot]) {
         mkdirSync(rootDir, { recursive: true });
-        runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+        runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
       }
       registerRepo(alphaRoot, userRoot, "alpha");
       registerRepo(betaRoot, userRoot, "beta");
@@ -80,7 +80,7 @@ test("daemon service reconciles registry register and unregister changes", async
     const betaRoot = path.join(workspaceRoot, "beta");
     for (const rootDir of [alphaRoot, betaRoot]) {
       mkdirSync(rootDir, { recursive: true });
-      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     }
     registerRepo(alphaRoot, userRoot, "alpha");
 

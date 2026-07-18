@@ -77,7 +77,7 @@ export async function runRawJsonAsync(rootDir: string, args: ReadonlyArray<strin
 export function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
     encoding: "utf8",
-    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "direct", ...env })
+    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "fixture", ...env })
   });
   return JSON.parse(stdout) as Record<string, unknown>;
 }
@@ -212,7 +212,6 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     CODEX_SESSION_ID: "",
     ZCODE_SESSION_ID: "",
     ANTIGRAVITY_SESSION_ID: "",
-    ...(env.HARNESS_DAEMON_MODE === "direct" ? { HARNESS_DIRECT_WRITE_REASON: "test" } : {}),
     ...env
   };
 }

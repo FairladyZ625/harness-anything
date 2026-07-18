@@ -204,8 +204,7 @@ test("CLI script discovery fails closed before exposing coding scripts for a non
     ]);
 
     const listed = runJson(rootDir, ["script", "list", "--source", "vertical"], false, {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     });
 
     assert.equal(listed.ok, false);
@@ -215,8 +214,7 @@ test("CLI script discovery fails closed before exposing coding scripts for a non
     const directRun = runJson(rootDir, [
       "script", "run", "vertical:software-coding:architecture-init"
     ], false, {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     });
     assert.equal(directRun.ok, false);
     assert.equal(directRun.error.code, "custom_vertical_user_dev_mode_required");
@@ -238,8 +236,7 @@ test("CLI preset discovery fails closed before exposing coding presets for a non
     ]);
 
     const listed = runJson(rootDir, ["preset", "list"], false, {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     });
 
     assert.equal(listed.ok, false);
@@ -262,8 +259,7 @@ test("CLI bundled template discovery follows the active vertical", () => {
     ]);
 
     const listed = runJson(rootDir, ["template", "list"], false, {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     });
 
     assert.equal(listed.ok, false);
@@ -285,8 +281,7 @@ test("CLI preset runtime commands cannot bypass the non-coding active vertical",
       ""
     ]);
     const directTestEnv = {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     };
 
     for (const args of [
@@ -315,8 +310,7 @@ test("CLI check fails closed when the active vertical cannot be resolved", () =>
     ]);
 
     const checked = runJson(rootDir, ["check", "--profile", "source-package"], false, {
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test"
+      HARNESS_DAEMON_MODE: "fixture",
     });
 
     assert.equal(checked.ok, false);
@@ -503,8 +497,7 @@ function runJson(
         HARNESS_ACTOR: "agent:settings-test",
         HARNESS_GIT_AUTHOR_NAME: "Settings Tester",
         HARNESS_GIT_AUTHOR_EMAIL: "settings@example.test",
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DIRECT_WRITE_REASON: "test",
+        HARNESS_DAEMON_MODE: "fixture",
         ...extraEnv
       }
     });

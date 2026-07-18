@@ -9,7 +9,7 @@ import { deriveShellCompletionModel } from "../src/cli/completion/model.ts";
 import type { CommandRegistryEntry } from "../src/cli/types.ts";
 
 const cliEntry = fileURLToPath(new URL("../src/index.ts", import.meta.url));
-const directEnv = { ...process.env, HARNESS_DAEMON_MODE: "direct" };
+const directEnv = { ...process.env, HARNESS_DAEMON_MODE: "fixture" };
 
 test("completion scripts track command registry fixture changes", () => {
   const baseline = [fixtureEntry({

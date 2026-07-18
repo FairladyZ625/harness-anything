@@ -81,6 +81,7 @@
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
         "check-write-road-registry",
+        "check-cli-direct-writer",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
@@ -120,6 +121,7 @@
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
         "check-write-road-registry",
+        "check-cli-direct-writer",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
@@ -167,6 +169,7 @@
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
         "check-write-road-registry",
+        "check-cli-direct-writer",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
@@ -195,7 +198,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 42
+      "harnessLeafGateCount": 43
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2181,6 +2184,83 @@
         "status": "covered",
         "evidence": [
           "tools/check-write-road-registry.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-cli-direct-writer",
+      "command": "npm run harness:check-cli-direct-writer",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "dec_01KXV4DSQ4HXY00CP6C6M4DRN5",
+        "task_01KXV4FNJ50D7BZMN5476J0TAB",
+        "tools/check-cli-direct-writer.mjs"
+      ],
+      "consumerScope": [
+        "AST-derived coordinator construction and Node filesystem write sinks under packages/cli/src",
+        "retired CLI direct writer consumers under packages/cli/src, packages/cli/test, and tools"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No skip or allowlist is permitted; only code-derived daemon injection, init bootstrap, guarded recovery/test fixture, and registry-declared noncanonical scopes pass."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-direct-writer.mjs",
+          "tools/check-cli-direct-writer.test.mjs",
+          "package.json:scripts.harness:check-cli-direct-writer",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-direct-writer"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-direct-writer.test.mjs"
         ]
       }
     },

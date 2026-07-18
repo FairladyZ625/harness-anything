@@ -10,7 +10,7 @@ import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller session binding", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     const harnessRoot = path.join(rootDir, "harness");
     git(harnessRoot, "config", "user.name", "Harness Test");
     git(harnessRoot, "config", "user.email", "harness@example.test");
@@ -142,7 +142,7 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
 
 test("daemon-backed Execution submit materializes a newly exported Session before canonical validation", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     const harnessRoot = path.join(rootDir, "harness");
     git(harnessRoot, "config", "user.name", "Harness Test");
     git(harnessRoot, "config", "user.email", "harness@example.test");
@@ -153,13 +153,13 @@ test("daemon-backed Execution submit materializes a newly exported Session befor
       role: "owner"
     });
     const created = runRawJson(rootDir, ["task", "create", "--title", "Daemon First Submit"], {
-      HARNESS_DAEMON_MODE: "direct"
+      HARNESS_DAEMON_MODE: "fixture"
     });
     const taskId = receiptDataString(created, "taskId");
     writeSubstantiveTaskPlan(rootDir, receiptPath(created, "package"));
     git(harnessRoot, "add", "--", ".");
     git(harnessRoot, "commit", "-m", "test: prepare daemon submit fixture");
-    runRawJson(rootDir, ["task", "transition", taskId, "active"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["task", "transition", taskId, "active"], { HARNESS_DAEMON_MODE: "fixture" });
 
     const sessionId = "daemon-first-submit-session";
     const sessionDir = path.join(rootDir, ".home", ".codex", "sessions");

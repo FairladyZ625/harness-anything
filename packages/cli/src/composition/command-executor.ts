@@ -29,6 +29,7 @@ import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
 } from "./adapter-registry.ts";
+import { isDeclaredLocalMigrationWriteAction, type LocalCoordinatorScope } from "./local-write-scope.ts";
 
 export interface ParsedCommandExecutionOptions {
   readonly provider?: CliCompositionAdapterProvider;
@@ -42,6 +43,8 @@ export interface ParsedCommandExecutionOptions {
   /** Typed authority intents already carry the current-session provenance inline. */
   readonly inlineCreateProvenanceOnly?: boolean;
   readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
+  /** Explicit local composition scopes outside the daemon-owned product route. */
+  readonly localCoordinatorScope?: LocalCoordinatorScope;
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -49,6 +52,9 @@ export async function runRegisteredCommandWithCliComposition(
   options: ParsedCommandExecutionOptions = {}
 ): Promise<CliResult> {
   const provider = options.provider ?? defaultCliAdapterProvider();
+  const allowLocalCoordinator = options.localCoordinatorScope === "recovery"
+    || options.localCoordinatorScope === "test-fixture"
+    || (options.localCoordinatorScope === "migration" && isDeclaredLocalMigrationWriteAction(command.action));
   const normalizationSession = command.action.kind === "record-fact" && !command.action.source
     ? options.currentSession ?? Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
     : options.currentSession;
@@ -122,18 +128,18 @@ export async function runRegisteredCommandWithCliComposition(
     return taskHolderPrincipal;
   };
 
-  const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
+  const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor) =>
     makeAttributedWriteCoordinator(() => provider.createWriteCoordinator({
       rootDir: command.rootDir,
       layoutOverrides: command.layoutOverrides,
       attribution: getActorAttribution().writeAttribution,
       commitAuthor: getActorAttribution().commitAuthor,
       sessionId: getSessionBranchId()
-    }), getActorAttribution, options.missingActorAttributionMessage, actor));
+    }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeWriteCoordinator(actor), layoutInput)
     : rawMakeWriteCoordinator;
-  const rawMakeMigrationWriteCoordinator = options.makeMigrationWriteCoordinator ?? ((actor: OperationalActor, evidenceRef: string) =>
+  const rawMakeMigrationWriteCoordinator = options.makeMigrationWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor, evidenceRef: string) =>
     makeAttributedWriteCoordinator(() => {
       const resolved = getActorAttribution();
       return provider.createWriteCoordinator({
@@ -143,20 +149,20 @@ export async function runRegisteredCommandWithCliComposition(
         commitAuthor: resolved.commitAuthor,
         sessionId: getSessionBranchId()
       });
-    }, getActorAttribution, options.missingActorAttributionMessage, actor));
+    }, getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedMigrationWriteCoordinator);
   const makeMigrationWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor, evidenceRef: string) => withConflictMarkerFlushRecheck(
       rawMakeMigrationWriteCoordinator(actor, evidenceRef),
       layoutInput
     )
     : rawMakeMigrationWriteCoordinator;
-  const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
+  const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor) =>
     makeAttributedWriteCoordinator(() => provider.createWriteCoordinator({
       rootDir: command.rootDir,
       layoutOverrides: command.layoutOverrides,
       attribution: getActorAttribution().writeAttribution,
       commitAuthor: getActorAttribution().commitAuthor
-    }), getActorAttribution, options.missingActorAttributionMessage, actor));
+    }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeSessionWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeSessionWriteCoordinator(actor), layoutInput)
     : rawMakeSessionWriteCoordinator;
@@ -165,12 +171,12 @@ export async function runRegisteredCommandWithCliComposition(
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides
   });
-  const makeOperationalWriteCoordinator = options.makeOperationalWriteCoordinator ?? options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
+  const makeOperationalWriteCoordinator = options.makeOperationalWriteCoordinator ?? options.makeWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor) =>
     makeOperationalJournaledWriteCoordinator({
       rootDir: command.rootDir,
       ...(command.layoutOverrides ? { layoutOverrides: command.layoutOverrides } : {}),
       operationalActor: actor
-    }));
+    })) : missingInjectedWriteCoordinator);
   let runtimeEventLedgerService: ReturnType<typeof makeRuntimeEventLedgerService> | undefined;
   const getRuntimeEventLedgerService = () => {
     runtimeEventLedgerService ??= makeRuntimeEventLedgerService({
@@ -243,6 +249,26 @@ export async function runRegisteredCommandWithCliComposition(
 
 export function commandRootInput(command: ParsedCommand): ReturnType<typeof createHarnessRuntimeContext> {
   return createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
+}
+
+function missingInjectedWriteCoordinator(actor: OperationalActor): WriteCoordinator {
+  return failClosedMissingCoordinator(`${actor.kind}:${actor.id}`);
+}
+
+function missingInjectedMigrationWriteCoordinator(actor: OperationalActor, evidenceRef: string): WriteCoordinator {
+  return failClosedMissingCoordinator(`${actor.kind}:${actor.id}:migration:${evidenceRef}`);
+}
+
+function failClosedMissingCoordinator(writer: string): WriteCoordinator {
+  const fail = () => Effect.fail({
+    _tag: "JournalUnavailable" as const,
+    cause: new Error(`CLI canonical writer ${writer} requires a daemon-injected coordinator.`)
+  });
+  return {
+    enqueue: () => fail(),
+    flush: () => fail(),
+    recover: fail()
+  };
 }
 
 type LifecycleEngine = ReturnType<CliCompositionAdapterProvider["createLifecycleEngine"]>;

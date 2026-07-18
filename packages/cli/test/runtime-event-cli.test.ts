@@ -1,16 +1,17 @@
 // harness-test-tier: integration
-import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { appendCommandRuntimeEvent } from "../src/cli/command-runtime-events.ts";
 import { appendParseFailureRuntimeEvent } from "../src/cli/parse-failure-runtime-event.ts";
+import { parseArgs } from "../src/cli/parse-args.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
+import { runRegisteredCommandWithCliComposition } from "../src/composition/command-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
@@ -91,12 +92,14 @@ test("CLI authored write commands append a current-session result event", () => 
   });
 });
 
-test("CLI dry-run authored commands do not append command events", () => {
-  withTempRoot((rootDir) => {
+test("fixture-composed dry-run authored commands do not append command events", async () => {
+  await withTempRootAsync(async (rootDir) => {
     const sessionId = "codex-w2-dry-run";
-    const result = runJson(rootDir, ["task", "create", "--title", "Dry Run Task", "--dry-run"], true, {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: ""
+    const parsed = parseArgs(["--root", rootDir, "task", "create", "--title", "Dry Run Task", "--dry-run"]);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const result = await runRegisteredCommandWithCliComposition(parsed.value, {
+      currentSession: { source: "runtime", runtime: "codex", sessionId, detectedAt: new Date().toISOString() }
     });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
 
@@ -118,8 +121,8 @@ test("deprecated JSON commands preserve stdout bytes and emit one stderr warning
     assert.equal(canonical.status, 0);
     const canonicalReceipt = JSON.parse(canonical.stdout) as Record<string, any>;
     const deprecatedReceipt = JSON.parse(deprecated.stdout) as Record<string, any>;
-    delete canonicalReceipt.meta?.generatedAt;
-    delete deprecatedReceipt.meta?.generatedAt;
+    normalizeGitDiffReceipt(canonicalReceipt);
+    normalizeGitDiffReceipt(deprecatedReceipt);
     assert.deepEqual(deprecatedReceipt, canonicalReceipt);
     assert.doesNotMatch(deprecated.stdout, /Deprecation warning/u);
     assert.equal(deprecated.stderr.trimEnd().split("\n").length, 1);
@@ -203,7 +206,7 @@ test("CLI entity write fails closed before runtime event append when principal c
     const output = runJsonWithStderr(rootDir, ["new-task", "--title", "Missing Actor Event"], {
       CODEX_SESSION_ID: sessionId,
       CODEX_THREAD_ID: "",
-      HARNESS_DAEMON_MODE: "direct"
+      HARNESS_DAEMON_MODE: "fixture"
     }, 1);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
 
@@ -213,7 +216,7 @@ test("CLI entity write fails closed before runtime event append when principal c
   });
 });
 
-test("CLI parse failures append operational events without business actor attribution", () => {
+test("CLI parse failures preserve the receipt without opening a canonical diagnostic writer", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-parse-failure";
     const output = runJsonWithStderr(rootDir, [
@@ -232,20 +235,12 @@ test("CLI parse failures append operational events without business actor attrib
       GIT_AUTHOR_EMAIL: ""
     }, 2);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
-    const body = readFileSync(ledgerPath, "utf8");
-    const events = readJsonl(ledgerPath);
 
     assert.equal(output.result.ok, false);
     assert.equal(output.result.error?.code, "invalid_decision_amend_patch");
     assert.match(output.result.error?.hint ?? "", /rejected JSON requires text/u);
     assert.doesNotMatch(output.stderr, /CliActorAttributionError/u);
-    assert.equal(events.length, 1);
-    assert.equal(events[0].actor, undefined);
-    assert.equal(events[0].actorAxes, undefined);
-    assert.equal(events[0].tool.toolName, "parse");
-    assert.equal(events[0].result.status, "failed");
-    assert.equal(events[0].result.errorCode, "invalid_decision_amend_patch");
-    assert.equal(body.includes("do-not-store"), false);
+    assert.equal(existsSync(ledgerPath), false);
   });
 });
 
@@ -361,20 +356,51 @@ test("CLI event append rejects unsupported steering vocabulary", () => {
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-event-cli-"));
-  ensureTestHarnessIdentity(rootDir);
   try {
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  identity:",
-      "    personId: person_tester",
-      "    displayName: Harness Tester",
-      ""
-    ].join("\n"), "utf8");
+    bootstrapRuntimeEventRoot(rootDir);
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-event-cli-"));
+  try {
+    bootstrapRuntimeEventRoot(rootDir);
+    return await fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function bootstrapRuntimeEventRoot(rootDir: string): void {
+  execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "init"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...cleanRuntimeEnv,
+      HARNESS_ACTOR: "agent:harness-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
+      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
+    }
+  });
+  const configPath = path.join(rootDir, "harness/harness.yaml");
+  writeFileSync(configPath, readFileSync(configPath, "utf8").replace(
+    "  identity:\n    mode: local",
+    "  identity:\n    mode: local\n    personId: person_tester\n    displayName: Harness Tester"
+  ), "utf8");
+}
+
+function normalizeGitDiffReceipt(receipt: Record<string, any>): void {
+  delete receipt.meta?.generatedAt;
+  for (const report of [receipt.details?.data?.report, receipt.details?.report]) {
+    if (!report || !Array.isArray(report.files)) continue;
+    report.files = report.files.filter((file: { readonly path?: string }) => !file.path?.startsWith(".daemon-user/"));
+    report.fileCount = report.files.length;
+    report.dirty = report.files.length > 0;
   }
 }
 
@@ -461,8 +487,9 @@ function runRaw(rootDir: string, args: ReadonlyArray<string>) {
       HARNESS_ACTOR: "agent:harness-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
       HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DIRECT_WRITE_REASON: "test",
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
+      HARNESS_DAEMON_IDLE_MS: "250",
       CODEX_SESSION_ID: "codex-deprecation-warning"
     }
   });
