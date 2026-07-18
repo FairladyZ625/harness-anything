@@ -20,17 +20,27 @@ export function verifyDecisionProposeParity(
   assert.match(generatedId, /^dec_[0-9A-HJKMNP-TV-Z]{26}$/u, JSON.stringify(generated.receipt));
   assert.equal(existsSync(path.join(fixture.authoredRoot, `decisions/decision-${generatedId}/decision.md`)), true);
 
-  const fallbackId = "dec_01KXT3E1MN1VBS64DCNZ4VX81C";
   const fallback = runRawJsonMaybeFail(fixture.repoRoot, [
-    "decision", "propose", "--id", fallbackId, "--title", "Fallback ingress decision claim",
+    "decision", "propose", "--title", "Fallback ingress decision claim",
     "--question", "Does chosen text become the default claim before transport?",
     "--chosen", "Use the chosen text as claim", "--rejected", "Leave claims empty",
     "--why-not", "The authority payload requires a claim"
   ], env);
   assert.equal(fallback.status, 0, JSON.stringify(fallback.receipt));
   assert.equal(fallback.receipt.ok, true, JSON.stringify(fallback.receipt));
+  const fallbackId = decisionId(fallback.receipt);
+  assert.match(fallbackId, /^dec_[0-9A-HJKMNP-TV-Z]{26}$/u);
   assert.match(readFileSync(path.join(fixture.authoredRoot, `decisions/decision-${fallbackId}/decision.md`), "utf8"),
     /id: "C1", text: "Use the chosen text as claim"/u);
+
+  const manual = runRawJsonMaybeFail(fixture.repoRoot, [
+    "decision", "propose", "--id", "dec_01KXT3E1MN1VBS64DCNZ4VX81C",
+    "--title", "Caller-selected ingress identity", "--question", "Who allocates the id?",
+    "--chosen", "Canonical ingress", "--rejected", "The caller", "--why-not", "Identity must be generated"
+  ], env);
+  assert.equal(manual.status, 1, JSON.stringify(manual.receipt));
+  assert.equal(manual.receipt.error?.code, "authority_ingress_rejected", JSON.stringify(manual.receipt));
+  assert.match(manual.receipt.error?.hint ?? "", /omit --id/u);
 
   const unsupported = runRawJsonMaybeFail(fixture.repoRoot, [
     "decision", "amend", fallbackId, "--title", "Unsupported ingress probe"

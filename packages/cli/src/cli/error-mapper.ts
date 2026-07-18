@@ -40,7 +40,10 @@ const cliErrorMappers = {
     : error.reason.includes("authored root is not isolated from the outer code repository")
       ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
       : cliError(CliErrorCode.WriteRejected, error.reason),
-  ArtifactReadFailed: () => cliError(CliErrorCode.ArtifactReadFailed, "Artifact read failed."),
+  ArtifactReadFailed: (error) => cliError(
+    CliErrorCode.ArtifactReadFailed,
+    `Required artifact could not be read at ${error.path}. Restore or create that path, then retry the same command.`
+  ),
   ArtifactWriteRejected: (error) => cliError(CliErrorCode.ArtifactWriteRejected, error.reason),
   TaskPackageNotFound: (error) => cliError(CliErrorCode.TaskNotFound, `task not found: ${error.taskId}`),
   JournalUnavailable: (error) => {

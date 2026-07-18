@@ -43,9 +43,12 @@ import {
   writeColdCodexSessionLog
 } from "./fixture.ts";
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
+import { verifyDecisionAttributionAfterRestart } from "./decision-attribution-restart.ts";
+import { verifyDerivedFactSource } from "./fact-source-parity.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
+import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 
-test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 120_000 }, async () => {
+test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
@@ -83,11 +86,11 @@ test("production service route preserves progress dry-run and publishes canonica
     );
     assert.equal(status.repoCount, 2, JSON.stringify(status));
 
+    verifyTypedMinimalParameterMatrix(fixture, env);
     verifyProductionCommandParity(fixture, env);
 
-    const decisionId = "dec_01KXQ4WTA7Q4XJ5GDDRS1YXND9";
     const proposed = runRawJsonMaybeFail(fixture.repoRoot, [
-      "decision", "propose", "--id", decisionId,
+      "decision", "propose",
       "--title", "V2 attribution vocabulary",
       "--question", "Should V2 judgment resolve the persisted propose event?",
       "--chosen", "Use the registry action vocabulary",
@@ -98,39 +101,19 @@ test("production service route preserves progress dry-run and publishes canonica
     ], env);
     assert.equal(proposed.status, 0, JSON.stringify(proposed.receipt));
     assert.equal(proposed.receipt.ok, true, JSON.stringify(proposed.receipt));
+    const decisionId = String((proposed.receipt.details as { readonly data?: { readonly decisionId?: string } } | undefined)?.data?.decisionId ?? "");
+    assert.match(decisionId, /^dec_[0-9A-HJKMNP-TV-Z]{26}$/u, JSON.stringify(proposed.receipt));
     const proposeEvent = authorityEventBodies(fixture.authoredRoot).find((body) => body.includes(`decision/${decisionId}`));
     assert.ok(proposeEvent, "V2 propose must persist an attribution event before restart");
     assert.match(proposeEvent, /"action"\s*:\s*"propose"/u);
     assert.doesNotMatch(proposeEvent, /"action"\s*:\s*"decision_propose"/u);
 
-    await stopDaemon(fixture.repoRoot, userRoot);
-    runDaemonCommand(fixture.repoRoot, [
-      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
-    ], env);
-    await pollUntil(
-      () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
-      (daemonStatus) => daemonStatus.reachable === true,
-      (daemonStatus, error) => JSON.stringify({ daemonStatus, error: error instanceof Error ? error.message : String(error ?? "") }),
-      { timeoutMs: 20_000 }
-    );
-    const { HARNESS_ACTOR: _agentActor, ...humanEnv } = env;
-    const accepted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "--actor", "human:person_alice", "decision", "transition", "active", decisionId,
-      "--judgment-only", "A human verified the persisted V2 propose attribution after restart."
-    ], humanEnv);
-    assert.equal(accepted.status, 0, JSON.stringify(accepted.receipt));
-    assert.equal(accepted.receipt.ok, true, JSON.stringify(accepted.receipt));
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `decisions/decision-${decisionId}/decision.md`
-    ), "utf8"), /^state: active$/mu);
+    await verifyDecisionAttributionAfterRestart(fixture, userRoot, env, decisionId);
 
     const initialLeaseSessionId = "service-initial-task-leases";
     writeColdCodexSessionLog(fixture.repoRoot, initialLeaseSessionId);
     const initialLeaseEnv = { ...env, CODEX_THREAD_ID: initialLeaseSessionId };
-    const initialTaskClaim = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "claim", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"
-    ], initialLeaseEnv);
-    assert.equal(initialTaskClaim.status, 0, JSON.stringify(initialTaskClaim.receipt));
+    verifyDerivedFactSource(fixture, initialLeaseEnv);
     const explicitSubmitTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6";
     const explicitSubmitClaim = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "claim", explicitSubmitTaskId
@@ -623,11 +606,13 @@ test("production generic canonical ingress accepts and journals one write for ev
     assert.ok(explicitFact?.ok);
     if (explicitFact?.ok) {
       const receipt = await runCommand(explicitFact.value.action, "smoke-fact-explicit");
-      assert.equal(receipt.ok, true, `fact-explicit:${JSON.stringify(receipt)}`);
+      assert.equal(receipt.ok, false, `fact-explicit:${JSON.stringify(receipt)}`);
+      assert.equal(receipt.error?.code, "authority_ingress_rejected", `fact-explicit:${JSON.stringify(receipt)}`);
+      assert.match(receipt.error?.hint ?? "", /omit --id/u);
     }
     const generatedFact = parseRecordArgs([
       "fact", "record", "--task", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
-      "--statement", "Generated fact id smoke.", "--source", "production smoke"
+      "--statement", "Generated fact id smoke."
     ], fixture.repoRoot, true);
     assert.ok(generatedFact?.ok);
     if (generatedFact?.ok) {

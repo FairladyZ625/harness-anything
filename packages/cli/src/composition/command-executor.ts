@@ -48,9 +48,12 @@ export async function runRegisteredCommandWithCliComposition(
   command: ParsedCommand,
   options: ParsedCommandExecutionOptions = {}
 ): Promise<CliResult> {
+  const normalizationSession = command.action.kind === "record-fact" && !command.action.source
+    ? options.currentSession ?? Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
+    : options.currentSession;
   command = await normalizeCommandSemantics(command, makeTaskHolderService({
     rootInput: { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }
-  }));
+  }), normalizationSession);
   const provider = options.provider ?? defaultCliAdapterProvider();
   const layoutInput = {
     rootDir: command.rootDir,
@@ -71,8 +74,8 @@ export async function runRegisteredCommandWithCliComposition(
   };
   let currentSessionProbe: CurrentSessionProbePort | undefined;
   const getCurrentSessionProbe = () => {
-    currentSessionProbe ??= options.currentSession
-      ? { currentSession: Effect.succeed(options.currentSession) }
+    currentSessionProbe ??= normalizationSession
+      ? { currentSession: Effect.succeed(normalizationSession) }
       : makeEnvironmentCurrentSessionProbe();
     return currentSessionProbe;
   };

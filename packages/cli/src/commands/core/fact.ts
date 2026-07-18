@@ -5,8 +5,10 @@ import type { FactWriteRejected } from "../../../../application/src/index.ts";
 import { parseFactFlowRecords, type FactRecord, type WriteError } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { toCliError } from "../../cli/error-mapper.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { normalizedFactSource } from "../../cli/command-semantic-normalizer.ts";
 
 type FactAction = Extract<ParsedCommand["action"], { readonly kind: "fact-list" | "fact-show" | "record-fact" | "fact-invalidate" }>;
 
@@ -46,7 +48,7 @@ export const runFactCommand: CommandRunner = (context, command) => {
     ownerTaskId: action.taskId,
     factId: action.factId,
     statement: action.statement,
-    source: action.source,
+    source: normalizedFactSource(action),
     observedAt: action.observedAt,
     confidence: action.confidence,
     memoryClass: action.memoryClass,
@@ -136,6 +138,9 @@ function factReport(taskId: string, fact: FactRecord): Record<string, unknown> {
 }
 
 function factFailure(action: FactAction, error: FactWriteRejected | WriteError): CliResult {
+  if ("_tag" in error && error._tag === "WriteRejected" && error.code === CliErrorCode.AuthorityIngressRejected) {
+    return { ok: false, command: action.kind, taskId: action.taskId, error: toCliError(error) };
+  }
   const reason = "_tag" in error && error._tag === "FactWriteRejected" ? error.reason : JSON.stringify(error);
   return {
     ok: false,

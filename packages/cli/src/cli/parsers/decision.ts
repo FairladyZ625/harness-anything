@@ -101,6 +101,7 @@ export function parseDecisionArgs(
 }
 
 function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json: boolean, payload?: JsonPayload): ParseResult {
+  const suppliedDecisionId = readOption(args, "--id") ?? jsonString(payload, "decisionId");
   const title = readOption(args, "--title") ?? jsonString(payload, "title");
   const question = readOption(args, "--question") ?? jsonString(payload, "question");
   const whyNot = readOption(args, "--why-not") ?? jsonString(payload, "why_not", "whyNot");
@@ -131,7 +132,8 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   if (!body.ok) return body;
   return parsedDecision(rootDir, json, normalizeDecisionProposeAction({
     kind: "decision-propose",
-    decisionId: readOption(args, "--id") ?? jsonString(payload, "decisionId"),
+    decisionId: suppliedDecisionId,
+    ...(suppliedDecisionId ? { decisionIdProvided: true } : {}),
     title,
     question,
     chosen: chosen.value,

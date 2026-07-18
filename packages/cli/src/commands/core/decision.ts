@@ -12,7 +12,7 @@ import { runPropose } from "./decision-propose.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
 import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
-import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
+import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionReadFailureHint, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 import { verifyDecisionContentPins } from "./decision-content-pin-verifier.ts";
 
@@ -65,7 +65,7 @@ function runDecisionRepin(
       ok: false,
       command: "decision-repin",
       decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
+      error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
     } satisfies CliResult))
   );
 }
@@ -153,7 +153,7 @@ function runTransition(
       ok: false,
       command,
       decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
+      error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
     } satisfies CliResult))
   );
 }
@@ -186,7 +186,7 @@ function runAmend(
       ok: false,
       command: "decision-amend",
       decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
+      error: cliError(CliErrorCode.DecisionReadFailed, decisionReadFailureHint(action.decisionId))
     } satisfies CliResult))
   );
 }

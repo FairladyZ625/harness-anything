@@ -9,6 +9,7 @@ import {
   assertProductionAuthorityIngressCompleteness,
   commandSpecs,
   productionAuthorityCommandSpecs,
+  productionAuthorityIngressFor,
   productionAuthorityIngressDecisionRef,
   productionAuthorityTypedIngressKinds,
   productionAuthorityUnsupportedHint
@@ -109,6 +110,18 @@ test("production authority ingress covers or explicitly excludes every write-cla
   const hint = productionAuthorityUnsupportedHint("fixture-unsupported");
   assert.equal(hint,
     `production canonical ingress rejected fixture-unsupported; typed V2 command kinds from command-spec: ${typedKinds.join(", ")}`);
+});
+
+test("cutover admin controls remain outside typed ingress during staged retirement", () => {
+  for (const kind of [
+    "authority-cutover-boundary",
+    "authority-cutover-drain",
+    "authority-cutover-scan",
+    "authority-cutover-confirm"
+  ]) {
+    assert.equal(commandClassForCliActionKind(kind), "admin", kind);
+    assert.equal(productionAuthorityIngressFor(kind), undefined, kind);
+  }
 });
 
 test("production authority ingress completeness fails for a newly registered write command without a disposition", () => {

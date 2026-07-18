@@ -104,14 +104,13 @@ test("parseArgs reads task and runtime structured input from actual files", () =
 
 test("parseArgs gives fact flags and structured input the same validated action", () => {
   const fromFlags = parseArgs([
-    "fact", "record", "--task", "task_01SAME", "--id", "F-ABCDEF12", "--statement", "Equivalent fact input",
+    "fact", "record", "--task", "task_01SAME", "--statement", "Equivalent fact input",
     "--source", "json-input.test.ts", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory",
     "--observed-at", "2026-07-18T00:00:00.000Z", "--dry-run"
   ]);
   const fromJson = parseArgs([
     "fact", "record", "--json-input", JSON.stringify({
       taskId: "task_01SAME",
-      factId: "F-ABCDEF12",
       statement: "Equivalent fact input",
       source: "json-input.test.ts",
       confidence: "high",
@@ -125,7 +124,23 @@ test("parseArgs gives fact flags and structured input the same validated action"
   assert.equal(fromFlags.ok, true);
   assert.equal(fromJson.ok, true);
   if (!fromFlags.ok || !fromJson.ok) return;
-  assert.deepEqual(fromJson.value.action, fromFlags.value.action);
+  const { factId: flagsFactId, ...flagsAction } = fromFlags.value.action as Extract<typeof fromFlags.value.action, { kind: "record-fact" }>;
+  const { factId: jsonFactId, ...jsonAction } = fromJson.value.action as Extract<typeof fromJson.value.action, { kind: "record-fact" }>;
+  assert.match(flagsFactId, /^F-[0-9A-HJKMNP-TV-Z]{8}$/u);
+  assert.match(jsonFactId, /^F-[0-9A-HJKMNP-TV-Z]{8}$/u);
+  assert.deepEqual(jsonAction, flagsAction);
+});
+
+test("record-fact structured compatibility input marks caller-selected identity", () => {
+  const parsed = parseArgs([
+    "fact", "record", "--json-input", JSON.stringify({
+      taskId: "task_01SAME", factId: "F-ABCDEF12", statement: "No manual id"
+    })
+  ]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok && parsed.value.action.kind === "record-fact") {
+    assert.equal(parsed.value.action.factIdProvided, true);
+  }
 });
 
 test("parseArgs applies descriptor set and append semantics to mixed decision input", () => {
