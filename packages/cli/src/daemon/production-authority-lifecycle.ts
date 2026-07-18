@@ -55,6 +55,7 @@ import {
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
 import {
+  createGitAuthorityAttributionEvidenceCommitterV2,
   createGitCanonicalPublicationInspector
 } from "./authority-publication-evidence.ts";
 import { assertPublicationMatchesMutationSet } from "./authority-publication-evidence.ts";
@@ -144,8 +145,13 @@ export function createProductionAuthorityLifecycle(input: {
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       }).authoredRoot;
       const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
+      const evidenceCommitter = createGitAuthorityAttributionEvidenceCommitterV2({
+        rootDir: repo.canonicalRoot,
+        ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
+      });
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
         eventLog,
+        commitEvidence: evidenceCommitter.commitPending,
         observation: {
           observe: async (request) => {
             const inspect = publicationObservers.get(repo.repoId);
@@ -183,7 +189,8 @@ export function createProductionAuthorityLifecycle(input: {
         operationRegistry: state.operationRegistry,
         bindingRuntime,
         eventLog,
-        publicationInspector
+        publicationInspector,
+        commitEvidence: evidenceCommitter.commitPending
       });
       const recovery = {} as ProductionRecoveryState;
       const material: RepoProductionMaterial = {
