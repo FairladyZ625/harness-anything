@@ -29,6 +29,7 @@ import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
 } from "./adapter-registry.ts";
+import { isDeclaredLocalMigrationWriteAction, type LocalCoordinatorScope } from "./local-write-scope.ts";
 
 export interface ParsedCommandExecutionOptions {
   readonly provider?: CliCompositionAdapterProvider;
@@ -43,7 +44,7 @@ export interface ParsedCommandExecutionOptions {
   readonly inlineCreateProvenanceOnly?: boolean;
   readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   /** Explicit local composition scopes outside the daemon-owned product route. */
-  readonly localCoordinatorScope?: "recovery" | "test-fixture";
+  readonly localCoordinatorScope?: LocalCoordinatorScope;
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -51,7 +52,9 @@ export async function runRegisteredCommandWithCliComposition(
   options: ParsedCommandExecutionOptions = {}
 ): Promise<CliResult> {
   const provider = options.provider ?? defaultCliAdapterProvider();
-  const allowLocalCoordinator = options.localCoordinatorScope === "recovery" || options.localCoordinatorScope === "test-fixture";
+  const allowLocalCoordinator = options.localCoordinatorScope === "recovery"
+    || options.localCoordinatorScope === "test-fixture"
+    || (options.localCoordinatorScope === "migration" && isDeclaredLocalMigrationWriteAction(command.action));
   const normalizationSession = command.action.kind === "record-fact" && !command.action.source
     ? options.currentSession ?? Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
     : options.currentSession;

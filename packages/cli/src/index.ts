@@ -35,6 +35,7 @@ import { loadAuthorityProductionManifest } from "./daemon/authority-production-s
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
+import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -83,9 +84,11 @@ async function runParsedCommand(command: Parameters<typeof runRegisteredCommand>
     ? undefined
     : await runCommandThroughDaemon(command);
   return daemonOutput ?? toCommandReceipt(await runRegisteredCommand(command, {
-    ...(process.env.HARNESS_DAEMON_MODE === "direct" && process.env.HARNESS_DIRECT_WRITE_REASON === "recovery"
-      ? { localCoordinatorScope: "recovery" }
-      : {})
+    ...(isDeclaredLocalMigrationCommand(command.action)
+      ? { localCoordinatorScope: "migration" }
+      : process.env.HARNESS_DAEMON_MODE === "direct" && process.env.HARNESS_DIRECT_WRITE_REASON === "recovery"
+        ? { localCoordinatorScope: "recovery" }
+        : {})
   }));
 }
 

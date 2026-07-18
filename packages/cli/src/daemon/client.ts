@@ -36,6 +36,7 @@ import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "./doc-sync-service.ts";
 import { resolveCanonicalHarnessRoot } from "./canonical-harness-root.ts";
 import { readProjectHarnessSettings } from "../commands/settings.ts";
+import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 
 export {
   daemonIdForRoot,
@@ -116,6 +117,7 @@ export async function runCommandThroughDaemon(
 ): Promise<CommandReceipt | CommandFailureReceipt | undefined> {
   config ??= readDaemonClientConfig(process.env, command.rootDir, command.daemonModeOverride, command.daemonProfileOverride);
   if (config.mode !== "remote" && command.action.kind === "init" && !isInitializedHarness(command)) return undefined;
+  if (config.mode !== "remote" && isDeclaredLocalMigrationCommand(command.action)) return undefined;
   if (config.mode === "direct") {
     if (config.directWriteReason === "recovery") return undefined;
     return directModeRejection(command);

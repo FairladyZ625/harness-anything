@@ -75,9 +75,28 @@ function allowedCoordinatorConstruction(rel, node, sourceFile) {
     return enclosingFunctionName(node) === "makeDaemonReservationReconciler";
   }
   if (rel === "packages/cli/src/composition/command-executor.ts") {
-    return ancestor(node, ts.isConditionalExpression)?.condition.getText(sourceFile).includes("allowLocalCoordinator") === true;
+    return guardedByDeclaredLocalCoordinatorScope(node, sourceFile);
   }
   return rel === "packages/cli/src/commands/core/init.ts" || rel === "packages/cli/src/commands/init.ts";
+}
+
+function guardedByDeclaredLocalCoordinatorScope(node, sourceFile) {
+  const condition = ancestor(node, ts.isConditionalExpression)?.condition;
+  if (!condition || condition.getText(sourceFile) !== "allowLocalCoordinator") return false;
+  const declaration = findVariableDeclaration(sourceFile, "allowLocalCoordinator");
+  const guard = declaration?.initializer?.getText(sourceFile) ?? "";
+  return guard.includes('options.localCoordinatorScope === "recovery"')
+    && guard.includes('options.localCoordinatorScope === "test-fixture"')
+    && guard.includes('options.localCoordinatorScope === "migration"')
+    && guard.includes("isDeclaredLocalMigrationWriteAction(command.action)");
+}
+
+function findVariableDeclaration(sourceFile, name) {
+  let match;
+  visit(sourceFile, (node) => {
+    if (!match && ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) match = node;
+  });
+  return match;
 }
 
 function allowedFilesystemWrite(rel, api, registryRows) {
