@@ -195,11 +195,15 @@ export class ProposeDecisionError extends Error {
   }
 }
 
-export function useTriadicProjectionQuery(repoId?: string | null) {
+export function useTriadicProjectionQuery(
+  repoId?: string | null,
+  options: { readonly enabled?: boolean } = {},
+) {
   const snapshot = useQuery({
     queryKey: triadicQueryKeys.snapshot(repoId),
     queryFn: () => harnessClient.getTriadicProjection(repoId ?? undefined),
-    staleTime: 10_000
+    staleTime: 10_000,
+    enabled: options.enabled ?? true
   });
 
   const rendererData = buildTriadicRendererData({

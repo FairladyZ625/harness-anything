@@ -54,6 +54,8 @@ export interface ViewSwitchProps {
   catalog: CatalogRendererData | undefined;
   catalogLoading: boolean;
   catalogError: boolean;
+  /** Overview first-usable only after tasks+triadic have settled with real rows. */
+  overviewDataReady: boolean;
   projectTasks: TaskRow[];
   tasks: TaskRow[];
   triadic: Pick<TriadicRendererData, "decisions" | "facts" | "relations" | "coverageRows" | "factAnchors">;
@@ -101,6 +103,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
     catalog,
     catalogLoading,
     catalogError,
+    overviewDataReady,
     projectTasks,
     tasks,
     triadic,
@@ -239,6 +242,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
           onDrill={onDrillToBoard}
           onOpenInbox={() => goto("decisions")}
           onOpenDecisionPool={() => goto("decisionPool")}
+          dataReady={overviewDataReady}
         />
       ) : view === "board" ? (
         <BoardView
