@@ -109,13 +109,19 @@ test("GUI decision propose performs a real authenticated write through daemon IP
 async function withGuiDaemonEnv<T>(rootDir: string, run: () => Promise<T>): Promise<T> {
   const previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
   const previousIdleMs = process.env.HARNESS_DAEMON_IDLE_MS;
+  const previousAutostartTimeout = process.env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS;
   process.env.HARNESS_DAEMON_USER_ROOT = path.join(rootDir, "user-daemon");
   process.env.HARNESS_DAEMON_IDLE_MS = "250";
+  // Cold daemon spawn on a loaded CI runner regularly exceeds the 6s
+  // interactive default; the hermetic tests care about correctness, not
+  // interactive latency.
+  process.env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS ||= "30000";
   try {
     return await run();
   } finally {
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previousUserRoot);
     restoreEnv("HARNESS_DAEMON_IDLE_MS", previousIdleMs);
+    restoreEnv("HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS", previousAutostartTimeout);
   }
 }
 
