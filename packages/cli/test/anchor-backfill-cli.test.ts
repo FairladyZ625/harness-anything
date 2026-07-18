@@ -187,8 +187,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       encoding: "utf8",
       env: {
         ...process.env,
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DIRECT_WRITE_REASON: "test",
+        HARNESS_DAEMON_MODE: "fixture",
         CLAUDE_SESSION_ID: "",
         CLAUDE_CODE_SESSION_ID: "",
         CODEX_THREAD_ID: "",

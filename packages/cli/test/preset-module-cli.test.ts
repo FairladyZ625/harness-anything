@@ -493,7 +493,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_ACTOR: "agent:harness-test", HARNESS_DAEMON_MODE: "direct", ...env }
+      env: { ...process.env, HARNESS_ACTOR: "agent:harness-test", HARNESS_DAEMON_MODE: "fixture", ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

@@ -272,14 +272,24 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
   ], {
     detached: true,
     stdio: "ignore",
-    env: {
-      ...(options.env ?? process.env),
-      HARNESS_DAEMON_MODE: "direct",
-      HARNESS_DAEMON_USER_ROOT: target.userRoot,
-      HARNESS_DAEMON_ID: target.daemonId
-    }
+    env: daemonServerHostEnvironment(options.env ?? process.env, target)
   });
   child.unref();
+}
+
+function daemonServerHostEnvironment(
+  base: NodeJS.ProcessEnv,
+  target: Pick<LocalDaemonTarget, "userRoot" | "daemonId">
+): NodeJS.ProcessEnv {
+  const env = { ...base };
+  delete env.HARNESS_DAEMON_MODE;
+  delete env.HARNESS_DIRECT_WRITE_REASON;
+  return {
+    ...env,
+    HARNESS_DAEMON_SERVER_HOST: "1",
+    HARNESS_DAEMON_USER_ROOT: target.userRoot,
+    HARNESS_DAEMON_ID: target.daemonId
+  };
 }
 
 export class JsonRpcLineClient {

@@ -154,7 +154,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     env: {
       ...process.env,
       HARNESS_ACTOR: "agent:test",
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
     }
   });

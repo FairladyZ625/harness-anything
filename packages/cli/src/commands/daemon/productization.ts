@@ -155,7 +155,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
-      env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
+      env: daemonServerHostEnvironment(target.userRoot, target.daemonId)
     });
     child.unref();
     const status = daemonStatusForCli(await waitForReachableStatus(target, 6_000));
@@ -395,10 +395,22 @@ async function startBootstrapDaemon(rootDir: string, repoId: string, registryPat
     detached: true,
     stdio: "ignore",
     windowsHide: true,
-    env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
+    env: daemonServerHostEnvironment(target.userRoot, target.daemonId)
   });
   child.unref();
   return waitForReachableStatus(target, 6_000);
+}
+
+function daemonServerHostEnvironment(userRoot: string, daemonId: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.HARNESS_DAEMON_MODE;
+  delete env.HARNESS_DIRECT_WRITE_REASON;
+  return {
+    ...env,
+    HARNESS_DAEMON_SERVER_HOST: "1",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: daemonId
+  };
 }
 
 async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {

@@ -15,7 +15,7 @@ import { writePeopleRoster } from "./helpers/forced-command-daemon.ts";
 
 test("materializer recovery does not auto-start a daemon and emits a valid success receipt", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
 
     const receipt = runRawJson(rootDir, ["materializer", "run", "--dry-run"], {
       HARNESS_DAEMON_MODE: "local",
@@ -36,7 +36,7 @@ test("materializer recovery does not auto-start a daemon and emits a valid succe
 
 test("materializer run uses an already-running daemon without contending for its lock", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_materializer",
       displayName: "Materializer Operator",
@@ -55,7 +55,7 @@ test("materializer run uses an already-running daemon without contending for its
 
 test("materializer run reports merge failures as failure receipts with an executable recovery step", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     createOlderConflictedSessionBranch(rootDir);
 
     const { status, receipt } = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
@@ -79,7 +79,7 @@ test("materializer run reports merge failures as failure receipts with an execut
 test("materializer run counts repository setup failures and teaches initialization", async () => {
   await withTempRootAsync(async (rootDir) => {
     const { status, receipt } = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
-      HARNESS_DAEMON_MODE: "direct"
+      HARNESS_DAEMON_MODE: "fixture"
     });
     const warnings = receipt.warnings as ReadonlyArray<{ readonly nextCommand?: string }> | undefined;
 
@@ -92,7 +92,7 @@ test("materializer run counts repository setup failures and teaches initializati
 
 test("daemon write receipt is not successful until its session write is readable despite an older conflict", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_visibility",
       displayName: "Visibility Operator",
@@ -144,7 +144,7 @@ test("daemon write receipt is not successful until its session write is readable
 
 test("daemon success receipt declares pending materialization with a next command when its own session conflicts", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_pending",
       displayName: "Pending Operator",

@@ -17,7 +17,7 @@ export function spawnDaemonCli(rootDir: string, args: ReadonlyArray<string>) {
       ...process.env,
       HOME: path.join(rootDir, ".home"),
       GIT_CONFIG_GLOBAL: "/dev/null",
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir)
     },
     stdio: ["pipe", "pipe", "pipe"]

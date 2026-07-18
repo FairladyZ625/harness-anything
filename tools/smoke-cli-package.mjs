@@ -4,7 +4,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const cliFixturePreload = pathToFileURL(fileURLToPath(new URL("./cli-test-fixture-register.mjs", import.meta.url))).href;
 
 export function runCliPackageSmoke(root = process.cwd()) {
   buildCliPackageArtifact(root);
@@ -36,11 +38,17 @@ export function runCliPackageSmoke(root = process.cwd()) {
 
     const binPath = resolveBinCommand(consumerDir, "harness-anything");
     const aliasBinPath = resolveBinCommand(consumerDir, "ha");
+    const projectDir = path.join(consumerDir, "minimal-project");
+    mkdirSync(projectDir, { recursive: true });
+    const init = runJson(binPath, ["--json", "init"], projectDir);
+    if (init.ok !== true || init.path !== "harness/harness.yaml") {
+      throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
+    }
     const stdout = execFileSync(binPath.file, [...binPath.argsPrefix, "--json", "gui"], {
-      cwd: consumerDir,
+      cwd: projectDir,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...smokeCliWriteEnv(),
         HARNESS_GUI_DRY_RUN: "1"
       }
     });
@@ -49,19 +57,13 @@ export function runCliPackageSmoke(root = process.cwd()) {
       throw new Error(`unexpected CLI smoke output: ${stdout}`);
     }
     const aliasOutput = execFileSync(aliasBinPath.file, [...aliasBinPath.argsPrefix, "--json", "doctor"], {
-      cwd: consumerDir,
-      encoding: "utf8"
+      cwd: projectDir,
+      encoding: "utf8",
+      env: smokeCliWriteEnv()
     });
     const aliasResult = unwrapReceipt(JSON.parse(aliasOutput));
     if (aliasResult.ok !== true || aliasResult.command !== "doctor" || aliasResult.report?.schema !== "harness-doctor/v1") {
       throw new Error(`unexpected CLI alias smoke output: ${aliasOutput}`);
-    }
-
-    const projectDir = path.join(consumerDir, "minimal-project");
-    mkdirSync(projectDir, { recursive: true });
-    const init = runJson(binPath, ["--json", "init"], projectDir);
-    if (init.ok !== true || init.path !== "harness/harness.yaml") {
-      throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
     }
     const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
     if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_") || created.report?.vertical !== "software/coding" || created.report?.preset !== "standard-task") {
@@ -122,13 +124,14 @@ function runJson(command, args, cwd) {
 function smokeCliWriteEnv() {
   return {
     ...process.env,
-    // Package smoke exercises the packaged in-process boundary; daemon
-    // transport is covered by the dedicated daemon integration suite.
-    HARNESS_DAEMON_MODE: "direct",
+    // Package smoke verifies the packaged command surface while using the
+    // same test-only fixture coordinator as source integration tests.
+    HARNESS_CLI_TEST_FIXTURE_PRELOAD: "1",
+    HARNESS_DAEMON_MODE: "fixture",
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${cliFixturePreload}`].filter(Boolean).join(" "),
     // Keep package smoke identity and registry state out of the developer's
     // user-global profile while exercising the production init bootstrap.
     HARNESS_DAEMON_PROFILE: "isolated",
-    HARNESS_DIRECT_WRITE_REASON: "test",
     // Test-only actor attribution for package smoke writes; real env wins.
     HARNESS_ACTOR: process.env.HARNESS_ACTOR || "agent:harness-smoke",
     HARNESS_GIT_AUTHOR_NAME: process.env.HARNESS_GIT_AUTHOR_NAME || "Harness Smoke",

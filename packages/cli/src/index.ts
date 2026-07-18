@@ -41,6 +41,8 @@ const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
 type MultiRepoHarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createMultiRepoDaemonRuntime>;
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
+type ParsedCommandRunner = (command: Parameters<typeof runRegisteredCommand>[0]) => Promise<CommandReceipt | CommandFailureReceipt>;
+const cliTestFixtureRunnerSymbol = Symbol.for("harness-anything.cli-test-fixture-runner");
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const compoundExit = await runCompoundReceiptExitCommand(argv);
@@ -72,10 +74,19 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 }
 
 async function runParsedCommand(command: Parameters<typeof runRegisteredCommand>[0]): Promise<CommandReceipt | CommandFailureReceipt> {
+  const configuredMode = process.env.HARNESS_DAEMON_MODE;
+  const testFixtureCommandRunner = (globalThis as Record<symbol, unknown>)[cliTestFixtureRunnerSymbol] as ParsedCommandRunner | undefined;
+  if (testFixtureCommandRunner && configuredMode !== "direct" && configuredMode !== "local" && configuredMode !== "remote") {
+    return testFixtureCommandRunner(command);
+  }
   const daemonOutput = isGithubIssuesReadCommand(command)
     ? undefined
     : await runCommandThroughDaemon(command);
-  return daemonOutput ?? toCommandReceipt(await runRegisteredCommand(command));
+  return daemonOutput ?? toCommandReceipt(await runRegisteredCommand(command, {
+    ...(process.env.HARNESS_DAEMON_MODE === "direct" && process.env.HARNESS_DIRECT_WRITE_REASON === "recovery"
+      ? { localCoordinatorScope: "recovery" }
+      : {})
+  }));
 }
 
 async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {

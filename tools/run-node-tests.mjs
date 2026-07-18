@@ -40,13 +40,13 @@ const testTierManifest = discoverTestTierManifest(repoRoot);
 const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
 
-// Most CLI integration fixtures exercise the in-process application boundary
-// against disposable repositories. Keep that test boundary explicit now that
-// initialized product repositories default to the user daemon. Daemon-focused
-// tests opt back into local mode with HARNESS_DAEMON_MODE=local and isolated
-// user roots.
+// Default CLI integration subprocesses preload a test-only fixture composition.
+// Daemon-focused tests opt into HARNESS_DAEMON_MODE=local with isolated roots;
+// no test re-enables the retired direct product writer.
 if (options.tier === "integration" || options.tier === "all") {
-  process.env.HARNESS_DAEMON_MODE ||= "direct";
+  const fixturePreload = `--import=${resolve(repoRoot, "tools/cli-test-fixture-register.mjs")}`;
+  process.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD = "1";
+  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, fixturePreload].filter(Boolean).join(" ");
 }
 
 if (selection.errors.length > 0) {

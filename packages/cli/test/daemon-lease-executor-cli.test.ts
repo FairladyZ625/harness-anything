@@ -20,10 +20,10 @@ import {
 test("forced-command progress writes preserve the thin-client executor in the task lease", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_ACTOR: "agent:test", HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_ACTOR: "agent:test", HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const created = runRawJson(rootDir, ["new-task", "--title", "Lease Executor Refresh"], {
       HARNESS_ACTOR: "agent:test",
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
     enableLeaseEnforcement(rootDir);

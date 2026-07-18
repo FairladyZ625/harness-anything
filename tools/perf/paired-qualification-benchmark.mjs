@@ -93,13 +93,13 @@ async function runProductionSocketArm({ writers, arm, round }) {
     HARNESS_DAEMON_IDLE_MS: "60000"
   };
   try {
-    await cli(root, ["init"], { ...env, HARNESS_DAEMON_MODE: "direct", HARNESS_DIRECT_WRITE_REASON: "test" });
+    await cli(root, ["init"], { ...env, HARNESS_DAEMON_MODE: "local" });
     mkdirSync(path.join(root, "harness"), { recursive: true });
     writeFileSync(path.join(root, "harness", "people.yaml"), localRoster(), "utf8");
-    const started = await cli(root, ["daemon", "start", "--service", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+    const started = await cli(root, ["daemon", "start", "--service", "--json"], { ...env, HARNESS_DAEMON_MODE: "local" });
     if (!started.started) throw new Error("qualification daemon did not start");
     const queueProbeStartedAt = performance.now();
-    await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+    await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "local" });
     const queueWaitMs = performance.now() - queueProbeStartedAt;
     const startedAt = performance.now();
     const receipts = await Promise.all(Array.from({ length: writers }, (_, writer) => cli(root, [
@@ -111,7 +111,7 @@ async function runProductionSocketArm({ writers, arm, round }) {
     const visible = await cli(root, ["task", "list"], env);
     const exactCutLocalApplyMs = performance.now() - applyStartedAt;
     const acknowledgementStartedAt = performance.now();
-    const status = await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+    const status = await cli(root, ["daemon", "status", "--json"], { ...env, HARNESS_DAEMON_MODE: "local" });
     const acknowledgementMs = performance.now() - acknowledgementStartedAt;
     const recovery = await restartAndRetry(root, env, arm, round);
     const guiConvergence = await pollGuiReader(root, env);
@@ -135,13 +135,13 @@ async function runProductionSocketArm({ writers, arm, round }) {
       transport: { kind: "daemon-local-unix-socket", daemonReachable: status.reachable === true }
     };
   } finally {
-    try { await cli(root, ["daemon", "stop", "--timeout-ms", "1000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" }); } catch { /* best-effort teardown; root is removed below */ }
+    try { await cli(root, ["daemon", "stop", "--timeout-ms", "1000", "--json"], { ...env, HARNESS_DAEMON_MODE: "local" }); } catch { /* best-effort teardown; root is removed below */ }
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 async function restartAndRetry(root, env, arm, round) {
-  await cli(root, ["daemon", "stop", "--timeout-ms", "5000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" });
+  await cli(root, ["daemon", "stop", "--timeout-ms", "5000", "--json"], { ...env, HARNESS_DAEMON_MODE: "local" });
   const retried = await cli(root, ["new-task", "--title", `reconnect ${arm} r${round}`], env);
   return { disconnectRetry: retried.ok === true ? 1 : 0, restartRecovery: retried.ok === true ? 1 : 0 };
 }

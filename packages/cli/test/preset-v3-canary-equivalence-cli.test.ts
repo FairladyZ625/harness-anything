@@ -8,7 +8,7 @@ import { findTaskPackagePath, readTaskProjection, resolveHarnessLayout } from ".
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { runJson, withTempRoot } from "./helpers/preset-script-fixtures.ts";
 
-process.env.HARNESS_DAEMON_MODE = "direct";
+process.env.HARNESS_DAEMON_MODE = "fixture";
 process.env.HARNESS_DAEMON_PROFILE = "isolated";
 delete process.env.HARNESS_DAEMON_USER_ROOT;
 

@@ -627,8 +627,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       encoding: "utf8",
       env: {
         ...process.env,
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DIRECT_WRITE_REASON: "test",
+        HARNESS_DAEMON_MODE: "fixture",
         ...env
       }
     });

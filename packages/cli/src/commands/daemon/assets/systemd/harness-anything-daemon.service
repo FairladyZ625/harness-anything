@@ -7,7 +7,7 @@ After=network.target
 Type=simple
 User={{USER}}
 WorkingDirectory={{CANONICAL_ROOT}}
-Environment=HARNESS_DAEMON_MODE=direct
+Environment=HARNESS_DAEMON_SERVER_HOST=1
 ExecStart={{HA_BIN}} --root {{CANONICAL_ROOT}} daemon start --foreground
 Restart=on-failure
 RestartSec=3

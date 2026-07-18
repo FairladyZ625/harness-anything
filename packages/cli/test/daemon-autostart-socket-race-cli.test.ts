@@ -49,7 +49,7 @@ test("Windows named-pipe startup ownership waits for the current contender", asy
 
 test("daemon status cannot report started when its lock exists but the socket is unreachable", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     const lockPath = path.join(rootDir, ".harness/locks/global.lock");
     mkdirSync(path.dirname(lockPath), { recursive: true });
     writeFileSync(lockPath, JSON.stringify({
@@ -81,8 +81,8 @@ test("concurrent cold-start clients converge on one reachable daemon socket owne
     for (const [index, rootDir] of repoRoots.entries()) {
       mkdirSync(rootDir, { recursive: true });
       runRawJson(rootDir, ["init"], {
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DAEMON_USER_ROOT: userRoot
+        HARNESS_DAEMON_MODE: "fixture",
+        HARNESS_DAEMON_USER_ROOT: path.join(workspaceRoot, `init-user-${index}`)
       });
       runDaemonCommand(rootDir, [
         "daemon",

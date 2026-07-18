@@ -45,9 +45,8 @@ import {
 
 const expectedCliVersion = readCliPackageVersion();
 
-test("daemon client defaults to local while preserving an explicit direct bootstrap mode", () => {
+test("daemon client defaults to the local daemon", () => {
   assert.equal(readDaemonClientConfig({}).mode, "local");
-  assert.equal(readDaemonClientConfig({ HARNESS_DAEMON_MODE: "direct" }).mode, "direct");
 });
 
 test("daemon connect relays opaque bytes without creating repository runtime state", { skip: process.platform === "win32" }, async () => {
@@ -111,7 +110,7 @@ test("daemon logs reads the shared typed operational page through the daemon rou
 test("persistent daemon connection prevents idle exit after a command settles", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const endpoint = path.join(rootDir, "idle-connection.sock");
     const daemon = spawnDaemonCli(rootDir, ["daemon", "serve", "--socket", endpoint, "--idle-ms", "500"]);
     const socket = await connectSocketWhenReady(endpoint);
@@ -165,13 +164,13 @@ test("daemon connect fails closed with startup instructions when no persistent d
 test("forced-command relay attributes two shared-account members without collapsing principal or executor", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const aliceTask = runRawJson(rootDir, ["new-task", "--title", "Alice Forced Principal"], {
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
     const bobTask = runRawJson(rootDir, ["new-task", "--title", "Bob Forced Principal"], {
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
     writeForcedCommandTeamRoster(rootDir);
@@ -213,9 +212,9 @@ test("forced-command relay attributes two shared-account members without collaps
 test("local repo mode ignores a forced-command personId and keeps the socket-owner principal", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const task = runRawJson(rootDir, ["new-task", "--title", "Local Forced Frame Rejected"], {
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
     writeForcedCommandTeamRoster(rootDir);
@@ -253,7 +252,7 @@ test("daemon serve --stdio is rejected before runtime attachment", async () => {
 
 test("daemon client mode preserves command receipt output shape against direct mode", async () => {
   await withTempRootAsync(async (rootDir) => {
-    const direct = normalizeVolatileReceipt(runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "direct" }));
+    const direct = normalizeVolatileReceipt(runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "fixture" }));
     const daemon = normalizeVolatileReceipt(await pollUntil(
       () => runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" }),
       (receipt) => receipt.ok === true,
@@ -266,7 +265,7 @@ test("daemon client mode preserves command receipt output shape against direct m
 
 test("daemon client auto-starts, durably writes, and exits after idle", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_auto",
       displayName: "Auto User",
@@ -296,7 +295,7 @@ test("daemon client auto-starts, durably writes, and exits after idle", async ()
 
 test("daemon client applies command-level RBAC to inner CLI commands", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_maint",
       displayName: "Maintainer User",
@@ -328,7 +327,7 @@ test("daemon client applies command-level RBAC to inner CLI commands", async () 
 test("daemon client writes git commits with the resolved actor author", async () => {
   await withTempRootAsync(async (rootDir) => {
     initGitRepo(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_owner",
       displayName: "Owner User",
@@ -354,7 +353,7 @@ test("daemon client writes git commits with the resolved actor author", async ()
 
 test("concurrent daemon client startup converges on one lock owner and both clients continue", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
 
     const [left, right] = await Promise.all([
       runRawJsonAsync(rootDir, ["task", "list"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" }),
@@ -376,7 +375,7 @@ test("concurrent daemon client startup converges on one lock owner and both clie
 test("concurrent daemon client writes serialize into linear git history", async () => {
   await withTempRootAsync(async (rootDir) => {
     initGitRepo(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
       personId: "person_concurrent",
       displayName: "Concurrent User",
@@ -423,7 +422,7 @@ test("concurrent daemon client writes serialize into linear git history", async 
 
 test("daemon start service status and stop expose productized status contract", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     try {
       const start = runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
       assert.equal(start.started, true);
@@ -533,7 +532,7 @@ test("daemon client auto-registers initialized single repo on first local comman
   await withTempRootAsync(async (rootDir) => {
     const userRoot = path.join(rootDir, "user-daemon");
     try {
-      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
 
       const listed = runRawJson(rootDir, ["task", "list"], {
         HARNESS_DAEMON_MODE: "local",
@@ -569,7 +568,7 @@ test("daemon client auto-registers initialized single repo on first local comman
 test("daemon client resolves an existing single-repo registry without requiring repo input", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = path.join(rootDir, "user-daemon");
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(rootDir, {
       personId: "person_registered",
       displayName: "Registered User",

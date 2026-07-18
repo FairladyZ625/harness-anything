@@ -177,7 +177,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--actor", "agent:fixture", "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") }
+      env: { ...process.env, HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

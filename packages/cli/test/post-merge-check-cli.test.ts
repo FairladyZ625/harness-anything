@@ -174,7 +174,7 @@ test("CLI check --post-merge tolerates facts.md that vanishes after source enume
     const preloadPath = writeVanishedReadPreload(rootDir, factsPath);
 
     const result = runJson(rootDir, ["check", "--post-merge"], true, {
-      NODE_OPTIONS: `--require ${preloadPath}`
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim()
     });
 
     assert.equal(result.ok, true);

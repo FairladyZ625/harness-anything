@@ -69,7 +69,7 @@ test("isolated profile bootstraps machine identity and writes the first task in 
     mkdirSync(rootDir, { recursive: true });
     const isolatedEnv = {
       HARNESS_BOOTSTRAP_MACHINE_IDENTITY: "1",
-      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_MODE: "fixture",
       HARNESS_DAEMON_PROFILE: "isolated",
       HARNESS_DAEMON_USER_ROOT: ""
     };
@@ -105,7 +105,7 @@ test("registering a new tmp repo cannot replace the canonical daemon or break ca
     const experimentRoot = path.join(workspaceRoot, "coldstart-experiment");
     mkdirSync(canonicalRoot, { recursive: true });
     ensureTestHarnessIdentity(canonicalRoot);
-    runRawJson(canonicalRoot, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(canonicalRoot, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(canonicalRoot, "person_canonical");
     runDaemonCommand(canonicalRoot, ["daemon", "repo", "register", "--repo-id", "canonical", "--root", canonicalRoot, "--user-root", userRoot, "--no-link", "--json"], {
       HARNESS_DAEMON_USER_ROOT: userRoot
@@ -121,7 +121,7 @@ test("registering a new tmp repo cannot replace the canonical daemon or break ca
 
       mkdirSync(experimentRoot, { recursive: true });
       ensureTestHarnessIdentity(experimentRoot);
-      runRawJson(experimentRoot, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+      runRawJson(experimentRoot, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
       writePeopleRoster(experimentRoot, "person_experiment");
       runDaemonCommand(experimentRoot, ["daemon", "repo", "register", "--repo-id", "experiment", "--root", experimentRoot, "--user-root", userRoot, "--no-link", "--json"], {
         HARNESS_DAEMON_USER_ROOT: userRoot
@@ -148,7 +148,7 @@ test("daemon service releases the final repo lock and reattaches after empty and
     const alphaRoot = path.join(workspaceRoot, "alpha");
     mkdirSync(alphaRoot, { recursive: true });
     ensureTestHarnessIdentity(alphaRoot);
-    runRawJson(alphaRoot, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(alphaRoot, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(alphaRoot, "person_alpha");
     registerRepo(alphaRoot, userRoot, "alpha");
 
@@ -332,7 +332,7 @@ function setupRegisteredRepos(workspaceRoot: string): {
   for (const rootDir of [alphaRoot, betaRoot]) {
     mkdirSync(rootDir, { recursive: true });
     ensureTestHarnessIdentity(rootDir);
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(rootDir, rootDir === alphaRoot ? "person_alpha" : "person_beta");
   }
   runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
@@ -430,7 +430,7 @@ function runRawJsonMaybeFail(
 function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
     encoding: "utf8",
-    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "direct", ...env })
+    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "fixture", ...env })
   });
   return JSON.parse(stdout) as Record<string, unknown>;
 }
@@ -490,7 +490,7 @@ function taskIndexWithTitleExists(rootDir: string, title: string): boolean {
 function assertDirectCliWriteRejected(rootDir: string, title: string): void {
   const direct = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "new-task", "--title", title], {
     encoding: "utf8",
-    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "direct" })
+    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "fixture" })
   });
   assert.equal(typeof direct.stdout, "string");
   assert.notEqual(direct.status, 0);

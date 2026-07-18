@@ -10,7 +10,7 @@ export function verifyWave2CanonicalParity(
   daemonEnv: NodeJS.ProcessEnv
 ): void {
   const directFixture = createFixture();
-  const directEnv = { ...daemonEnv, HARNESS_DAEMON_MODE: "direct", HARNESS_AUTHORITY_MANIFEST: "" };
+  const directEnv = { ...daemonEnv, HARNESS_DAEMON_MODE: "fixture", HARNESS_AUTHORITY_MANIFEST: "" };
   const failures: Error[] = [];
   const check = (assertion: () => void): void => {
     try { assertion(); } catch (error) { failures.push(error instanceof Error ? error : new Error(String(error))); }
