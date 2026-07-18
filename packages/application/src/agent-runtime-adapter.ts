@@ -3,6 +3,7 @@ import type {
   RuntimeInstallation,
   RuntimeSession
 } from "../../kernel/src/index.ts";
+import { runtimeCapabilityNames } from "../../kernel/src/index.ts";
 
 export type RuntimeCapabilityMatrix = Readonly<Record<RuntimeCapabilityName, boolean>>;
 
@@ -69,6 +70,11 @@ export function makeRuntimeAdapter(options: {
   readonly capabilities: RuntimeCapabilityMatrix;
   readonly transport: RuntimeAdapterTransport;
 }): RuntimeAdapter {
+  for (const capability of runtimeCapabilityNames) {
+    if (typeof options.capabilities[capability] !== "boolean") {
+      throw new TypeError(`Runtime capability matrix is missing boolean capability: ${capability}`);
+    }
+  }
   const requireCapability = <T>(name: RuntimeCapabilityName, operation: () => Promise<T>): Promise<T> => {
     if (!options.capabilities[name]) return Promise.reject(new RuntimeAdapterUnsupportedError(options.kindId, name));
     return operation();

@@ -294,6 +294,12 @@ export type {
   RuntimeInstallationAssessment
 } from "./agent-runtime-service.ts";
 export { makeRuntimeAdapter, RuntimeAdapterUnsupportedError } from "./agent-runtime-adapter.ts";
+export {
+  attachChannelProbeEvidence,
+  authenticationProbeEvidence,
+  executableProbeEvidence,
+  processProbeEvidence
+} from "./agent-runtime-evidence.ts";
 export { combineRuntimeLeaseObservation, runtimeLeaseObservationMatrix } from "./agent-runtime-liveness.ts";
 export type {
   RuntimeAdapter,

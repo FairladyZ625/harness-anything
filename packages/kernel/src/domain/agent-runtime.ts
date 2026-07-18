@@ -35,20 +35,68 @@ export interface RuntimeKind {
   readonly authenticationProfiles: ReadonlyArray<RuntimeAuthenticationProfile>;
 }
 
-export interface RuntimeStateEvidence {
+export type RuntimeDiscoverySource = "environment-override" | "path" | "login-shell" | "app-bundle";
+
+interface RuntimeEvidenceBase {
   readonly state: RuntimeEvidenceState;
   readonly reason: string;
   readonly observedAt?: string;
 }
 
-export interface RuntimeInstallationStates {
-  readonly installed: RuntimeStateEvidence;
-  readonly authenticated: RuntimeStateEvidence;
-  readonly running: RuntimeStateEvidence;
-  readonly attachable: RuntimeStateEvidence;
+export interface RuntimeInstalledEvidence extends RuntimeEvidenceBase {
+  readonly criterion: "executable-probe";
+  readonly reason: "executable-verified" | "executable-not-verified" | "discovery-not-run" | "discovery-probe-failed";
+  readonly observation?: {
+    readonly kind: "executable-probe";
+    readonly source: RuntimeDiscoverySource;
+    readonly executablePath: string;
+    readonly outcome: "executable" | "not-executable";
+  };
 }
 
-export type RuntimeDiscoverySource = "environment-override" | "path" | "login-shell" | "app-bundle";
+export interface RuntimeAuthenticatedEvidence extends RuntimeEvidenceBase {
+  readonly criterion: "authentication-probe";
+  readonly reason: "profile-authenticated" | "profile-not-authenticated" | "profile-invalid" | "authentication-not-probed" | "authentication-unverified" | "authentication-probe-failed";
+  readonly observation?: {
+    readonly kind: "authentication-probe";
+    readonly profileKind?: string;
+    readonly outcome: "authenticated" | "not-authenticated" | "invalid";
+  };
+}
+
+export interface RuntimeRunningEvidence extends RuntimeEvidenceBase {
+  readonly criterion: "process-probe";
+  readonly reason: "process-alive" | "process-exited" | "process-not-found" | "process-witness-unavailable";
+  readonly observation?: {
+    readonly kind: "process-probe";
+    readonly outcome: "alive" | "exited" | "not-found";
+    readonly runtimeSessionId?: string;
+    readonly pid?: number;
+  };
+}
+
+export interface RuntimeAttachableEvidence extends RuntimeEvidenceBase {
+  readonly criterion: "attach-channel-probe";
+  readonly reason: "attach-channel-available" | "attach-channel-unavailable" | "attach-channel-not-probed" | "attach-channel-probe-failed";
+  readonly observation?: {
+    readonly kind: "attach-channel-probe";
+    readonly outcome: "available" | "unavailable";
+    readonly runtimeSessionId?: string;
+  };
+}
+
+export type RuntimeStateEvidence =
+  | RuntimeInstalledEvidence
+  | RuntimeAuthenticatedEvidence
+  | RuntimeRunningEvidence
+  | RuntimeAttachableEvidence;
+
+export interface RuntimeInstallationStates {
+  readonly installed: RuntimeInstalledEvidence;
+  readonly authenticated: RuntimeAuthenticatedEvidence;
+  readonly running: RuntimeRunningEvidence;
+  readonly attachable: RuntimeAttachableEvidence;
+}
 
 export interface RuntimeInstallation {
   readonly installationId: string;
@@ -60,14 +108,24 @@ export interface RuntimeInstallation {
   readonly states: RuntimeInstallationStates;
 }
 
-export interface RuntimeProcessWitness {
-  readonly state: "alive" | "exited" | "unknown";
-  readonly pid?: number;
-  readonly startedAt?: string;
-  readonly heartbeatAt?: string;
-  readonly exitedAt?: string;
-  readonly exitCode?: number | null;
-}
+export type RuntimeProcessWitness =
+  | {
+    readonly state: "alive";
+    readonly pid: number;
+    readonly startedAt: string;
+    readonly heartbeatAt?: string;
+  }
+  | {
+    readonly state: "exited";
+    readonly pid?: number;
+    readonly startedAt?: string;
+    readonly heartbeatAt?: string;
+    readonly exitedAt: string;
+    readonly exitCode?: number | null;
+  }
+  | {
+    readonly state: "unknown";
+  };
 
 export interface RuntimeSession {
   readonly runtimeSessionId: string;
@@ -76,7 +134,7 @@ export interface RuntimeSession {
   readonly providerSessionId?: string;
   readonly workdir?: string;
   readonly processWitness: RuntimeProcessWitness;
-  readonly attachable: RuntimeStateEvidence;
+  readonly attachable: RuntimeAttachableEvidence;
   readonly clientBinding?: {
     readonly assertion: "client-asserted";
     readonly taskId?: string;

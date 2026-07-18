@@ -157,7 +157,7 @@ export function createAgentRuntimeSessionService(
         result: {
           runtimeSessionId,
           state: session.resultState,
-          ...(session.process.exitCode !== undefined ? { exitCode: session.process.exitCode } : {})
+          ...(session.process.state === "exited" && session.process.exitCode !== undefined ? { exitCode: session.process.exitCode } : {})
         }
       };
     }
@@ -182,7 +182,7 @@ async function applyProcessEvent(
   };
   let next: StoredRuntimeSession = { ...session, events: [...session.events, projection] };
   if (event.kind === "provider-session") next = { ...next, providerSessionId: event.providerSessionId };
-  if (event.kind === "heartbeat") next = { ...next, process: { ...next.process, state: "alive", heartbeatAt: observedAt } };
+  if (event.kind === "heartbeat" && next.process.state === "alive") next = { ...next, process: { ...next.process, heartbeatAt: observedAt } };
   if (event.kind === "completed") next = { ...next, resultState: "completed" };
   if (event.kind === "failed") next = { ...next, resultState: "failed" };
   if (event.kind === "exit") {
@@ -200,7 +200,7 @@ async function applyProcessEvent(
 
 function restartProjection(session: StoredRuntimeSession): StoredRuntimeSession {
   return session.process.state === "alive"
-    ? { ...session, attachable: false, process: { ...session.process, state: "unknown" }, resultState: "unknown" }
+    ? { ...session, attachable: false, process: { state: "unknown" }, resultState: "unknown" }
     : { ...session, attachable: false };
 }
 

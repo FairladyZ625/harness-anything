@@ -141,6 +141,12 @@ export {
 export type { AttributionEventV2, PhysicalChangeV2 } from "./schemas/attribution-event-union.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
+  parseAgentRuntimeInventory,
+  parseRuntimeInstallation,
+  parseRuntimeKind,
+  parseRuntimeSession
+} from "./schemas/agent-runtime.ts";
+export {
   makeJournaledWriteCoordinator,
   makeLocalAuthorityAttributionEventV2Log,
   makeOperationalJournaledWriteCoordinator,

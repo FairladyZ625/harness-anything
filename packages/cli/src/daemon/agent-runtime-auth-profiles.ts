@@ -23,24 +23,28 @@ export async function probeRuntimeAuthenticationProfiles(
       kindId: "claude-code",
       profileKind: "subscription-account",
       state: claudeAccountState(claudeStatus),
+      assurance: "authenticated-status",
       guidance: "Run `claude auth login` to configure a Claude account."
     },
     {
       kindId: "claude-code",
       profileKind: "api-key",
       state: configuredEnvironmentValue(env.ANTHROPIC_API_KEY),
+      assurance: "configuration-presence",
       guidance: "Configure ANTHROPIC_API_KEY in the daemon environment."
     },
     {
       kindId: "codex",
       profileKind: "chatgpt-account",
       state: codexAccountState(codexStatus),
+      assurance: "authenticated-status",
       guidance: "Run `codex login` to configure a ChatGPT account."
     },
     {
       kindId: "codex",
       profileKind: "api-key",
       state: configuredEnvironmentValue(env.OPENAI_API_KEY),
+      assurance: "configuration-presence",
       guidance: "Configure OPENAI_API_KEY in the daemon environment."
     }
   ];

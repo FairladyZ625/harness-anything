@@ -1,9 +1,16 @@
 import {
+  parseAgentRuntimeInventory,
+  parseRuntimeInstallation,
+  parseRuntimeKind,
+  parseRuntimeSession,
   runtimeKindRegistry,
   type AgentRuntimeInventory,
   type RuntimeDiscoverySource,
+  type RuntimeCapability,
   type RuntimeInstallation,
+  type RuntimeInstallationStates,
   type RuntimeKind,
+  type RuntimeRunningEvidence,
   type RuntimeSession,
   type RuntimeStateEvidence
 } from "../../kernel/src/index.ts";
@@ -11,6 +18,7 @@ import type {
   AgentRuntimeInventoryProjection,
   AgentRuntimeStateProjection
 } from "./index.ts";
+import { executableProbeEvidence } from "./agent-runtime-evidence.ts";
 
 export interface RuntimeExecutableCandidate {
   readonly kindId: string;
@@ -31,11 +39,7 @@ export interface AgentRuntimeDiscoveryProbe {
   readonly verify: (candidate: RuntimeExecutableCandidate) => Promise<RuntimeExecutableVerification>;
 }
 
-export interface RuntimeInstallationAssessment {
-  readonly authenticated: RuntimeStateEvidence;
-  readonly running: RuntimeStateEvidence;
-  readonly attachable: RuntimeStateEvidence;
-}
+export type RuntimeInstallationAssessment = Pick<RuntimeInstallationStates, "authenticated" | "running" | "attachable">;
 
 export interface AgentRuntimeServiceOptions {
   readonly discovery: AgentRuntimeDiscoveryProbe;
@@ -54,11 +58,18 @@ export interface AgentRuntimeService {
 const safeReasonCodes = new Set([
   "attach-channel-available",
   "attach-channel-unavailable",
+  "attach-channel-not-probed",
+  "attach-channel-probe-failed",
   "authentication-not-probed",
-  "evidence-unavailable",
+  "authentication-probe-failed",
+  "authentication-unverified",
+  "discovery-not-run",
+  "discovery-probe-failed",
+  "executable-not-verified",
   "executable-verified",
   "process-alive",
   "process-exited",
+  "process-not-found",
   "process-witness-unavailable",
   "profile-authenticated",
   "profile-invalid",
@@ -66,23 +77,23 @@ const safeReasonCodes = new Set([
 ]);
 
 export function makeAgentRuntimeService(options: AgentRuntimeServiceOptions): AgentRuntimeService {
-  const kinds = options.kinds ?? runtimeKindRegistry;
+  const kinds = (options.kinds ?? runtimeKindRegistry).map(parseRuntimeKind);
   const now = options.now ?? (() => new Date().toISOString());
   const inventory = async (): Promise<AgentRuntimeInventory> => {
     const generatedAt = now();
     const discovered = await discoverRuntimeInstallations(kinds, options.discovery, options.loginShellTimeoutMs ?? 1_500);
     const installations = await Promise.all(discovered.map(async (entry) => {
-      const base = installationFromCandidate(entry.candidate, entry.verification, generatedAt);
+      const base = parseRuntimeInstallation(installationFromCandidate(entry.candidate, entry.verification, generatedAt));
       const assessment = await options.assessInstallation?.(base) ?? unknownAssessment();
       return { ...base, states: { ...base.states, ...assessment } };
     }));
-    return {
+    return parseAgentRuntimeInventory({
       schema: "agent-runtime-inventory/v1",
       generatedAt,
       kinds,
       installations,
-      sessions: await options.listSessions?.() ?? []
-    };
+      sessions: (await options.listSessions?.() ?? []).map(parseRuntimeSession)
+    });
   };
 
   return {
@@ -103,7 +114,7 @@ export async function discoverRuntimeInstallations(
   const unresolvedBeforeShell = unresolvedRuntimeKinds(kinds, found);
   if (unresolvedBeforeShell.length > 0) {
     const candidates = await withTimeout(probe.loginShell(unresolvedBeforeShell), loginShellTimeoutMs, []);
-    await acceptCandidates(candidates, probe, found);
+    await acceptCandidates(candidates, probe, found, new Set(unresolvedBeforeShell.map(({ kindId }) => kindId)));
   }
 
   await discoverStage(unresolvedRuntimeKinds(kinds, found), probe.appBundle, probe, found);
@@ -123,7 +134,7 @@ export function projectAgentRuntimeInventory(inventory: AgentRuntimeInventory): 
       kindId: kind.kindId,
       displayName: kind.displayName,
       protocolFamily: kind.protocolFamily,
-      capabilities: kind.capabilities.map(({ name, state }) => ({ name, state })),
+      capabilities: kind.capabilities.map(projectCapability),
       authenticationProfileKinds: kind.authenticationProfiles.map(({ profileKind }) => profileKind)
     })),
     installations: inventory.installations.map((installation) => ({
@@ -142,14 +153,15 @@ export function projectAgentRuntimeInventory(inventory: AgentRuntimeInventory): 
       runtimeSessionId: session.runtimeSessionId,
       kindId: session.kindId,
       installationId: session.installationId,
-      ...(session.processWitness.startedAt ? { startedAt: session.processWitness.startedAt } : {}),
-      ...(session.processWitness.heartbeatAt ? { lastHeartbeatAt: session.processWitness.heartbeatAt } : {}),
-      ...(session.processWitness.exitedAt ? { exitedAt: session.processWitness.exitedAt } : {}),
-      ...(session.processWitness.exitCode !== undefined ? { exitCode: session.processWitness.exitCode } : {}),
+      ...projectProcessWitnessFields(session),
       running: safeState(processState(session)),
       attachable: safeState(session.attachable)
     }))
   };
+}
+
+function projectCapability({ name, state }: RuntimeCapability): AgentRuntimeInventoryProjection["kinds"][number]["capabilities"][number] {
+  return { name, state };
 }
 
 async function discoverStage(
@@ -158,16 +170,21 @@ async function discoverStage(
   probe: AgentRuntimeDiscoveryProbe,
   found: Map<string, { readonly candidate: RuntimeExecutableCandidate; readonly verification: RuntimeExecutableVerification }>
 ): Promise<void> {
-  const candidates = await Promise.all(kinds.map(discover));
+  const candidates = await Promise.all(kinds.map(async (kind) => {
+    const candidate = await discover(kind);
+    return candidate?.kindId === kind.kindId ? candidate : undefined;
+  }));
   await acceptCandidates(candidates.filter((candidate): candidate is RuntimeExecutableCandidate => candidate !== undefined), probe, found);
 }
 
 async function acceptCandidates(
   candidates: ReadonlyArray<RuntimeExecutableCandidate>,
   probe: AgentRuntimeDiscoveryProbe,
-  found: Map<string, { readonly candidate: RuntimeExecutableCandidate; readonly verification: RuntimeExecutableVerification }>
+  found: Map<string, { readonly candidate: RuntimeExecutableCandidate; readonly verification: RuntimeExecutableVerification }>,
+  allowedKindIds?: ReadonlySet<string>
 ): Promise<void> {
   for (const candidate of candidates) {
+    if (allowedKindIds && !allowedKindIds.has(candidate.kindId)) continue;
     if (found.has(candidate.kindId)) continue;
     const verification = await probe.verify(candidate);
     if (verification.executable) found.set(candidate.kindId, { candidate, verification });
@@ -191,7 +208,9 @@ function installationFromCandidate(
     ...(verification.version ? { version: verification.version } : {}),
     discoveredBy: candidate.source,
     states: {
-      installed: { state: true, reason: "executable-verified", observedAt },
+      installed: {
+        ...executableProbeEvidence({ source: candidate.source, executablePath: candidate.executablePath, executable: true, observedAt })
+      },
       ...unknownAssessment()
     }
   };
@@ -199,20 +218,43 @@ function installationFromCandidate(
 
 function unknownAssessment(): RuntimeInstallationAssessment {
   return {
-    authenticated: { state: "unknown", reason: "authentication-not-probed" },
-    running: { state: "unknown", reason: "process-witness-unavailable" },
-    attachable: { state: "unknown", reason: "evidence-unavailable" }
+    authenticated: { criterion: "authentication-probe", state: "unknown", reason: "authentication-not-probed" },
+    running: { criterion: "process-probe", state: "unknown", reason: "process-witness-unavailable" },
+    attachable: { criterion: "attach-channel-probe", state: "unknown", reason: "attach-channel-not-probed" }
   };
 }
 
-function processState(session: RuntimeSession): RuntimeStateEvidence {
-  if (session.processWitness.state === "alive") return { state: true, reason: "process-alive", observedAt: session.processWitness.heartbeatAt };
-  if (session.processWitness.state === "exited") return { state: false, reason: "process-exited", observedAt: session.processWitness.exitedAt };
-  return { state: "unknown", reason: "process-witness-unavailable" };
+function processState(session: RuntimeSession): RuntimeRunningEvidence {
+  if (session.processWitness.state === "alive") return {
+    criterion: "process-probe",
+    state: true,
+    reason: "process-alive",
+    observedAt: session.processWitness.heartbeatAt ?? session.processWitness.startedAt,
+    observation: { kind: "process-probe", outcome: "alive", runtimeSessionId: session.runtimeSessionId, pid: session.processWitness.pid }
+  };
+  if (session.processWitness.state === "exited") return {
+    criterion: "process-probe",
+    state: false,
+    reason: "process-exited",
+    observedAt: session.processWitness.exitedAt,
+    observation: { kind: "process-probe", outcome: "exited", runtimeSessionId: session.runtimeSessionId, ...(session.processWitness.pid ? { pid: session.processWitness.pid } : {}) }
+  };
+  return { criterion: "process-probe", state: "unknown", reason: "process-witness-unavailable" };
+}
+
+function projectProcessWitnessFields(session: RuntimeSession): Pick<AgentRuntimeInventoryProjection["sessions"][number], "startedAt" | "lastHeartbeatAt" | "exitedAt" | "exitCode"> {
+  const witness = session.processWitness;
+  if (witness.state === "unknown") return {};
+  return {
+    ...(witness.startedAt ? { startedAt: witness.startedAt } : {}),
+    ...(witness.heartbeatAt ? { lastHeartbeatAt: witness.heartbeatAt } : {}),
+    ...(witness.state === "exited" ? { exitedAt: witness.exitedAt, ...(witness.exitCode !== undefined ? { exitCode: witness.exitCode } : {}) } : {})
+  };
 }
 
 function safeState(evidence: RuntimeStateEvidence): AgentRuntimeStateProjection {
   return {
+    criterion: evidence.criterion,
     state: evidence.state,
     reason: safeReasonCodes.has(evidence.reason) ? evidence.reason : "evidence-unavailable",
     ...(evidence.observedAt ? { observedAt: evidence.observedAt } : {})

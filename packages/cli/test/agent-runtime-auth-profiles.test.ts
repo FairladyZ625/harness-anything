@@ -11,11 +11,11 @@ test("runtime auth profiles detect account and API-key configuration without pro
       : { exitCode: 0, stdout: "", stderr: "Logged in using ChatGPT" }
   });
 
-  assert.deepEqual(profiles.map(({ kindId, profileKind, state }) => ({ kindId, profileKind, state })), [
-    { kindId: "claude-code", profileKind: "subscription-account", state: "configured" },
-    { kindId: "claude-code", profileKind: "api-key", state: "configured" },
-    { kindId: "codex", profileKind: "chatgpt-account", state: "configured" },
-    { kindId: "codex", profileKind: "api-key", state: "configured" }
+  assert.deepEqual(profiles.map(({ kindId, profileKind, state, assurance }) => ({ kindId, profileKind, state, assurance })), [
+    { kindId: "claude-code", profileKind: "subscription-account", state: "configured", assurance: "authenticated-status" },
+    { kindId: "claude-code", profileKind: "api-key", state: "configured", assurance: "configuration-presence" },
+    { kindId: "codex", profileKind: "chatgpt-account", state: "configured", assurance: "authenticated-status" },
+    { kindId: "codex", profileKind: "api-key", state: "configured", assurance: "configuration-presence" }
   ]);
   const serialized = JSON.stringify(profiles);
   assert.equal(serialized.includes("secret-a"), false);
