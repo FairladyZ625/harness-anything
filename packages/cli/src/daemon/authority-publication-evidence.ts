@@ -1,15 +1,25 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { CanonicalPublicationInspector } from "../../../application/src/index.ts";
 import {
   encodeCanonicalCbor,
   entityRegistry,
+  makeLocalAuthorityAttributionEventV2Log,
+  makeLocalVersionControlSystem,
+  resolveHarnessLayout,
   sha256Text,
+  type HarnessLayoutInput,
   type PhysicalChangeV2,
   type SemanticMutationSetV2
 } from "../../../kernel/src/index.ts";
+
+const materializerCommitter = {
+  name: "Harness Anything Materializer",
+  email: "materializer@harness-anything.local"
+} as const;
 
 export interface CanonicalPublicationEvidence {
   readonly commitSha: string;
@@ -61,6 +71,67 @@ export class AuthorityRecoveryWatermarkInvalidError extends Error {
     super(`AUTHORITY_RECOVERY_WATERMARK_INVALID:commitSha=${commitSha}`);
     this.name = "AuthorityRecoveryWatermarkInvalidError";
   }
+}
+
+export interface GitAuthorityAttributionEvidenceCommitterV2 {
+  readonly commitPending: (canonicalCommitSha: string) => Promise<void>;
+}
+
+export function createGitAuthorityAttributionEvidenceCommitterV2(
+  rootInput: HarnessLayoutInput
+): GitAuthorityAttributionEvidenceCommitterV2 {
+  const layout = resolveHarnessLayout(rootInput);
+  const vcs = makeLocalVersionControlSystem();
+  return {
+    commitPending: async (canonicalCommitSha) => {
+      const repoRoot = vcs.topLevel(layout.authoredRoot);
+      if (!repoRoot) throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_REPOSITORY_REQUIRED");
+      if (!vcs.commitExists(repoRoot, canonicalCommitSha)) {
+        throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_CANONICAL_COMMIT_MISSING:${canonicalCommitSha}`);
+      }
+      // Fail closed before staging: every shard in the durable V2 log must still
+      // satisfy its canonical bytes, key and digest contracts.
+      makeLocalAuthorityAttributionEventV2Log(rootInput).scanIntegrity();
+      const head = vcs.currentHead(repoRoot);
+      const pendingPaths = readdirSync(layout.authorityAttributionEventsV2Root, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+        .map((entry) => repoRelativePath(
+          vcs.normalizePath(repoRoot),
+          vcs.normalizePath(path.join(layout.authorityAttributionEventsV2Root, entry.name))
+        ))
+        .filter((relativePath) => !vcs.pathExistsAtCommit(repoRoot, head, relativePath))
+        .sort();
+      if (pendingPaths.length === 0) return;
+
+      const pending = new Set(pendingPaths);
+      assertEvidenceOnlyStaged(vcs.stagedFiles(repoRoot, ["."]), pending);
+      vcs.add(repoRoot, { paths: pendingPaths });
+      const staged = vcs.stagedFiles(repoRoot, ["."]);
+      assertEvidenceOnlyStaged(staged, pending);
+      if (staged.trim().length === 0) return;
+      vcs.commit(
+        repoRoot,
+        `authority: V2 attribution evidence for ${canonicalCommitSha.slice(0, 12)}`,
+        materializerCommitter
+      );
+    }
+  };
+}
+
+function assertEvidenceOnlyStaged(stagedText: string, pendingPaths: ReadonlySet<string>): void {
+  const stagedPaths = stagedText.split(/\r?\n/u).filter(Boolean);
+  const unrelated = stagedPaths.filter((stagedPath) => !pendingPaths.has(stagedPath));
+  if (unrelated.length > 0) {
+    throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_UNRELATED_STAGED_PATHS:${unrelated.join(",")}`);
+  }
+}
+
+function repoRelativePath(repoRoot: string, filePath: string): string {
+  const relativePath = path.relative(repoRoot, filePath);
+  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_PATH_OUTSIDE_REPOSITORY");
+  }
+  return relativePath.split(path.sep).join("/");
 }
 
 export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {

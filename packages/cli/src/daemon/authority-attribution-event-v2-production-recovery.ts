@@ -25,6 +25,7 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
   readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
   readonly publisher: AuthorityCommittedEventPublisherV2;
   readonly publicationInspector: GitCanonicalPublicationInspector;
+  readonly commitEvidence: (canonicalCommitSha: string) => Promise<void>;
 }): Promise<AuthorityCommittedReceipt> {
   const { record } = input;
   let change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
@@ -90,6 +91,10 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
         occurredAt: change.changedAt
       })
   });
+  // If a previous process died after the durable append, recoverFromOperationRecord
+  // reuses those exact bytes. Commit all still-pending shards before making the
+  // completed receipt visible again.
+  await input.commitEvidence(recovered.event.commitSha);
   return completeAuthorityCommittedReceiptV2({
     // recoverFromOperationRecord already performed the one durable publish.
     // Complete the receipt from those exact bytes instead of observing again.
@@ -111,6 +116,7 @@ export function withProductionRecoveryV2(input: {
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
   readonly publicationInspector: GitCanonicalPublicationInspector;
+  readonly commitEvidence: (canonicalCommitSha: string) => Promise<void>;
 }): AuthorityCommittedEventPublisherV2 & {
   recoverCommittedReceipt: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
 } {
@@ -123,7 +129,8 @@ export function withProductionRecoveryV2(input: {
       bindingRuntime: input.bindingRuntime,
       eventLog: input.eventLog,
       publisher: input.publisher,
-      publicationInspector: input.publicationInspector
+      publicationInspector: input.publicationInspector,
+      commitEvidence: input.commitEvidence
     })
   };
 }

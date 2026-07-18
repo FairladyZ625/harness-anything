@@ -73,6 +73,16 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
     const eventBody = readFileSync(eventFiles[0]!, "utf8");
     assert.match(eventBody, /attribution-event\/v2/u);
     assert.doesNotMatch(eventBody, /PRIVATE KEY/u);
+    assert.equal(git(fixture.authoredRoot, "status", "--porcelain", "--untracked-files=all", "--", "authority-attribution-events/v2"), "");
+    assert.notEqual(git(fixture.authoredRoot, "rev-parse", "HEAD"), receipt.tag === "COMMITTED" ? receipt.commitSha : "");
+    assert.equal(
+      git(fixture.authoredRoot, "show", "-s", "--format=%s", "HEAD"),
+      `authority: V2 attribution evidence for ${receipt.tag === "COMMITTED" ? receipt.commitSha.slice(0, 12) : ""}`
+    );
+    assert.equal(
+      git(fixture.authoredRoot, "show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", "HEAD"),
+      "Harness Anything Materializer\0materializer@harness-anything.local\0Harness Anything Materializer\0materializer@harness-anything.local"
+    );
     assert.equal(readFileSync(path.join(fixture.serviceRoot, "authority/Y2Fub25pY2Fs/bindings.jsonl"), "utf8").includes("token:"), true);
     await lifecycle.stopAll("daemon-shutdown");
   } finally {

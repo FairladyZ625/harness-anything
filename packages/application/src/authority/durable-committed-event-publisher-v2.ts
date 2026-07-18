@@ -27,6 +27,7 @@ export interface AuthorityCommittedPhysicalObservationPortV2 {
 export function createDurableAuthorityCommittedEventPublisherV2(options: {
   readonly eventLog: AuthorityAttributionEventV2Log;
   readonly observation: AuthorityCommittedPhysicalObservationPortV2;
+  readonly commitEvidence?: (canonicalCommitSha: string) => Promise<void>;
 }): AuthorityCommittedEventPublisherV2 {
   return {
     publish: async (input) => {
@@ -55,6 +56,7 @@ export function createDurableAuthorityCommittedEventPublisherV2(options: {
         || !canonicalCborBytesEqual(storedBytes, ensured.bytes)) {
         throw new Error("AUTHORITY_EVENT_V2_DURABLE_REPLAY_MISMATCH");
       }
+      await options.commitEvidence?.(stored.commitSha);
       return stored;
     }
   };
