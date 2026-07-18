@@ -76,7 +76,7 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       ) as ExecutionRecord;
       assertExecutionHost(current, request.taskId, request.executionId);
       if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
-      const finalizedBindings = finalizeSessionBindings(input.rootInput, current.session_bindings, request.submittedAt);
+      const finalizedBindings = finalizeExecutionSessionBindings(input.rootInput, current.session_bindings, request.submittedAt);
       assertPrimarySession(finalizedBindings);
       assertBindingsFinal(finalizedBindings);
       const allEvidence = [...current.outputs, ...request.submission.evidence];
@@ -182,7 +182,7 @@ function submittedExecution(
   };
 }
 
-function finalizeSessionBindings(
+export function finalizeExecutionSessionBindings(
   rootInput: HarnessLayoutInput,
   bindings: ExecutionRecord["session_bindings"],
   endedAt: string

@@ -46,6 +46,7 @@ export interface TaskTransitionPayloadV2 {
   readonly schema: "task.transition/v1";
   readonly taskId: string;
   readonly to: string;
+  readonly auditText?: string;
 }
 
 export interface TaskAppendPayloadV2 {
@@ -86,6 +87,7 @@ export interface DecisionRelationPayloadV2 {
   readonly schema: "decision.relation/v1";
   readonly decisionId: string;
   readonly relation: EntityRelationRecord;
+  readonly taskWrites?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
 }
 
 export interface ModuleRecordV2 {
@@ -183,8 +185,11 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       };
     }
     case "task.transition/v1": {
-      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "to"]);
-      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), to: taskDecisionModuleText(row.to) };
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "to", "auditText"], false, ["auditText"]);
+      return {
+        schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), to: taskDecisionModuleText(row.to),
+        ...(row.auditText === undefined ? {} : { auditText: taskDecisionModuleNonBlank(row.auditText) })
+      };
     }
     case "task.append/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "text"]);
@@ -216,8 +221,13 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       return { schema: discriminator.schema, decision: decision(row.decision), ...(optionalString(row.body, "body")) };
     }
     case "decision.relation/v1": {
-      const row = exactTaskDecisionModuleObject(value, ["schema", "decisionId", "relation"]);
-      return { schema: discriminator.schema, decisionId: taskDecisionModuleText(row.decisionId), relation: decodeRelationV2(row.relation) };
+      const row = exactTaskDecisionModuleObject(value, ["schema", "decisionId", "relation", "taskWrites"], false, ["taskWrites"]);
+      return {
+        schema: discriminator.schema,
+        decisionId: taskDecisionModuleText(row.decisionId),
+        relation: decodeRelationV2(row.relation),
+        ...(row.taskWrites === undefined ? {} : { taskWrites: decisionRelationTaskWrites(row.taskWrites) })
+      };
     }
     case "module.register/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "module"]);
@@ -254,7 +264,7 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
         ...(payload.writes ? { writes: payload.writes.map((write) => ({ path: write.path, body: write.body, ...(write.packageSlug ? { packageSlug: write.packageSlug } : {}) })) } : {})
       };
     case "task.transition/v1":
-      return { schema: payload.schema, taskId: payload.taskId, to: payload.to };
+      return { schema: payload.schema, taskId: payload.taskId, to: payload.to, ...(payload.auditText === undefined ? {} : { auditText: payload.auditText }) };
     case "task.append/v1":
       return { schema: payload.schema, taskId: payload.taskId, text: payload.text };
     case "task.document/v1":
@@ -266,7 +276,10 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
     case "decision.amend/v1":
       return { schema: payload.schema, decision: decisionWire(payload.decision), ...(payload.body === undefined ? {} : { body: payload.body }) };
     case "decision.relation/v1":
-      return { schema: payload.schema, decisionId: payload.decisionId, relation: relationWire(payload.relation) };
+      return {
+        schema: payload.schema, decisionId: payload.decisionId, relation: relationWire(payload.relation),
+        ...(payload.taskWrites ? { taskWrites: payload.taskWrites.map((write) => ({ taskId: write.taskId, path: write.path, body: write.body })) } : {})
+      };
     case "module.register/v1":
       return { schema: payload.schema, module: moduleWire(payload.module) };
     case "module.unregister/v1":
@@ -274,6 +287,18 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
     case "module.step/v1":
       return { schema: payload.schema, moduleKey: payload.moduleKey, stepId: payload.stepId, state: payload.state };
   }
+}
+
+function decisionRelationTaskWrites(value: unknown): NonNullable<DecisionRelationPayloadV2["taskWrites"]> {
+  if (!Array.isArray(value) || value.length !== 1) throw semanticAdmissionV2("DECISION_RELATION_TASK_WRITES_INVALID");
+  return value.map((entry) => {
+    const row = exactTaskDecisionModuleObject(entry, ["taskId", "path", "body"]);
+    return {
+      taskId: taskDecisionModuleText(row.taskId),
+      path: taskDecisionModuleText(row.path),
+      body: semanticStringValueV2(row.body)
+    };
+  });
 }
 
 function taskCreateWrites(value: unknown): NonNullable<TaskCreatePayloadV2["writes"]> {

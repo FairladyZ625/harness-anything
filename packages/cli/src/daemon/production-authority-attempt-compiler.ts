@@ -25,6 +25,7 @@ import {
   decisionSemanticMutationActions,
   encodeCanonicalCbor,
   moduleEntityId,
+  parseDecisionDocument,
   sha256Text,
   semanticMutationWireV2,
   taskEntityId,
@@ -56,6 +57,8 @@ import { buildAuthorityPresetTaskCreateWrites, shouldUsePresetAwareNewTask } fro
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../commands/settings.ts";
 import { provenanceSessionAttemptIntent } from "./production-authority-provenance-session-intent.ts";
 import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent.ts";
+import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
+import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 
@@ -388,27 +391,20 @@ async function canonicalAttemptIntent(
     if (action.rejected.some((entry) => !entry.why_not)) {
       throw new Error("AUTHORITY_DECISION_REJECTED_RATIONALE_REQUIRED: add why_not to every rejected alternative and retry decision propose");
     }
+    const materialized = materializeProposedDecision(action);
+    if (!materialized.ok) throw new Error(`AUTHORITY_DECISION_PROPOSE_ENRICHMENT_INVALID:${materialized.reason}`);
     const decision: DecisionPackage = {
-      schema: "decision-package/v1",
-      decision_id: action.decisionId,
-      title: action.title,
-      state: "proposed",
-      riskTier: action.riskTier,
-      urgency: action.urgency,
-      vertical: "software/coding",
-      preset: "architecture-decision",
-      applies_to: { modules: action.modules, productLines: action.productLines },
-      proposedAt: action.proposedAt,
-      provenance: [{ runtime: currentSession.runtime, sessionId: currentSession.sessionId, boundAt: currentSession.detectedAt }],
-      question: action.question,
-      chosen: action.chosen.map((entry, index) => ({ id: entry.id ?? `CH${index + 1}`, text: entry.text, ...(entry.load_bearing === undefined ? {} : { load_bearing: entry.load_bearing }) })),
-      rejected: action.rejected.map((entry, index) => ({ id: entry.id ?? `RJ${index + 1}`, text: entry.text, why_not: entry.why_not! })),
-      claims: action.claims.map((entry, index) => ({ id: entry.id ?? `C${index + 1}`, text: entry.text, ...(entry.load_bearing === undefined ? {} : { load_bearing: entry.load_bearing }), ...(entry.fulfillment === undefined ? {} : { fulfillment: entry.fulfillment }) })),
-      relations: []
+      ...materialized.decision,
+      provenance: [{ runtime: currentSession.runtime, sessionId: currentSession.sessionId, boundAt: currentSession.detectedAt }]
     };
     const entity = ref("decision", `decision/${action.decisionId}`);
     const payload: TaskDecisionModuleCommandPayloadV2 = { schema: "decision.propose/v1", decision, ...(action.body === undefined ? {} : { body: action.body }) };
-    return canonicalIntent("decision.propose", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity, action: decisionSemanticMutationActions.propose }], [entity], [`decisions/decision-${action.decisionId}/decision.md`], decisionEntityId(action.decisionId));
+    const relationEntities = decision.relations.map((relation) => ref("relation", `relation/${relation.relation_id}`));
+    return canonicalIntent(
+      "decision.propose", encodeTaskDecisionModuleCommandPayloadV2(payload),
+      [{ entity, action: decisionSemanticMutationActions.propose }, ...relationEntities.map((relationEntity) => ({ entity: relationEntity, action: "create" }))],
+      [entity, ...relationEntities], [`decisions/decision-${action.decisionId}/decision.md`], decisionEntityId(action.decisionId)
+    );
   }
   if (action.kind === "module-register") {
     const entity = ref("module", `module/${action.moduleKey}`);
@@ -438,10 +434,33 @@ async function canonicalAttemptIntent(
     const documentPath = `decisions/decision-${action.decisionId}/decision.md`;
     const snapshot = hostedSnapshot(authoredRoot, documentPath);
     if (!snapshot) throw new Error("AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED: run decision show and repair the source Decision before decision relate");
-    const payload: TaskDecisionModuleCommandPayloadV2 = { schema: "decision.relation/v1", decisionId: action.decisionId, relation };
+    const current = parseDecisionDocument(snapshot.body).decision;
+    const materialized = materializedTaskPriorityWrites(
+      { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }, current, relation
+    );
+    if (!materialized.ok) throw new Error(`AUTHORITY_DECISION_RELATION_PRIORITY_INVALID:${materialized.error.hint}`);
+    const taskWrites = materialized.writes;
+    const taskSnapshots = taskWrites.map((write) => {
+      const taskPath = `tasks/${write.taskId}/${write.path}`;
+      const taskSnapshot = hostedSnapshot(authoredRoot, taskPath);
+      if (!taskSnapshot) throw new Error(`AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED:${taskPath}`);
+      return { write, taskPath, taskSnapshot };
+    });
+    const payload: TaskDecisionModuleCommandPayloadV2 = {
+      schema: "decision.relation/v1", decisionId: action.decisionId, relation,
+      ...(taskWrites.length === 0 ? {} : { taskWrites })
+    };
     return {
-      ...canonicalIntent("decision.relation", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity: host, action: "relation" }, { entity, action: "create" }], [host, entity], [documentPath], decisionEntityId(action.decisionId)),
-      declaredPathCas: [{ path: documentPath, ...snapshot.cas }]
+      ...canonicalIntent(
+        "decision.relation", encodeTaskDecisionModuleCommandPayloadV2(payload),
+        [{ entity: host, action: "relation" }, { entity, action: "create" }, ...taskSnapshots.map(({ write }) => ({ entity: ref("task", `task/${write.taskId}`), action: "document" }))],
+        [host, entity, ...taskSnapshots.map(({ write }) => ref("task", `task/${write.taskId}`))],
+        [documentPath, ...taskSnapshots.map(({ taskPath }) => taskPath)], decisionEntityId(action.decisionId)
+      ),
+      declaredPathCas: [
+        { path: documentPath, ...snapshot.cas },
+        ...taskSnapshots.map(({ taskPath, taskSnapshot }) => ({ path: taskPath, ...taskSnapshot.cas }))
+      ]
     };
   }
   if (action.kind === "session-export" && action.sessionId && action.runtime && action.transcriptFile) {

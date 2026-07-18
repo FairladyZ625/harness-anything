@@ -138,7 +138,7 @@ function readDecisionForCommand(
   );
 }
 
-function materializedTaskPriorityWrites(
+export function materializedTaskPriorityWrites(
   rootInput: HarnessLayoutInput,
   decision: DecisionPackage,
   relation: EntityRelationRecord

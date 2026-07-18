@@ -71,7 +71,7 @@ export function createFixture() {
       binding_id: "primary:service-slugged-lifecycle-session",
       session_ref: "session/service-slugged-lifecycle-session",
       role: "primary",
-      archive_status: "complete",
+      archive_status: "pending",
       attached_at: "2026-07-17T00:00:00.000Z",
       session: {
         runtime: "codex",
@@ -79,7 +79,13 @@ export function createFixture() {
         source: "runtime",
         detectedAt: "2026-07-17T00:00:00.000Z"
       },
-      capture_range: null
+      capture_range: {
+        range_id: "primary:service-slugged-lifecycle-session:2026-07-17T00:00:00.000Z",
+        coordinate: "timestamp",
+        start_at: "2026-07-17T00:00:00.000Z",
+        end_at: null,
+        bounds: "inclusive"
+      }
     }],
     outputs: [],
     submission: null
@@ -88,6 +94,39 @@ export function createFixture() {
   writeFileSync(
     path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/executions/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7.md"),
     executionDeclaration.documentCodec.encode(sluggedExecution)
+  );
+  const paritySubmitTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNJ0";
+  const paritySubmitExecutionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNJ1";
+  const paritySubmitSessionId = "service-wave2-submit-session";
+  mkdirSync(path.join(authoredRoot, `tasks/${paritySubmitTaskId}/executions`), { recursive: true });
+  writeFileSync(path.join(authoredRoot, `tasks/${paritySubmitTaskId}/INDEX.md`), taskIndexBody(paritySubmitTaskId));
+  writeFileSync(
+    path.join(authoredRoot, `tasks/${paritySubmitTaskId}/executions/${paritySubmitExecutionId}.md`),
+    executionDeclaration.documentCodec.encode({
+      ...sluggedExecution,
+      execution_id: paritySubmitExecutionId,
+      task_ref: `task/${paritySubmitTaskId}`,
+      session_bindings: [{
+        binding_id: `primary:${paritySubmitSessionId}`,
+        session_ref: `session/${paritySubmitSessionId}`,
+        role: "primary",
+        archive_status: "pending",
+        attached_at: "2026-07-17T00:00:00.000Z",
+        session: {
+          runtime: "codex",
+          sessionId: paritySubmitSessionId,
+          source: "runtime",
+          detectedAt: "2026-07-17T00:00:00.000Z"
+        },
+        capture_range: {
+          range_id: `primary:${paritySubmitSessionId}:2026-07-17T00:00:00.000Z`,
+          coordinate: "timestamp",
+          start_at: "2026-07-17T00:00:00.000Z",
+          end_at: null,
+          bounds: "inclusive"
+        }
+      }]
+    })
   );
   const transcriptPath = path.join(root, "session-transcript.md");
   writeFileSync(transcriptPath, `${JSON.stringify({ timestamp: "2026-07-17T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Production session ingress." } })}\n`);

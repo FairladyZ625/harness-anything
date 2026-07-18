@@ -194,7 +194,7 @@ test("all decision actions compile exact decision mutations; relation also creat
   const proposedSnapshot = snapshot(decisionDocument(proposed));
   const activeSnapshot = snapshot(decisionDocument(active));
   const decisionRef = ref("decision", "decision/dec_W3");
-  const relation = relationRecord("decision/dec_W3/C1", "task/task_T", "derives");
+  const relation = relationRecord("decision/dec_W3/C1", "task/task_T", "relates");
   const relationRef = ref("relation", `relation/${relation.relation_id}`);
 
   const cases = [

@@ -78,6 +78,23 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       validate: (rootInput) => validateRetiredAttributionFieldCleanup(rootInput, op)
     };
   }
+  if (op.kind === "transition_local" && transitionAuditText(op.payload) !== null) {
+    const indexWrite = toDocumentWrite(op);
+    const auditText = transitionAuditText(op.payload)!;
+    return {
+      touchedPaths: (rootInput) => [
+        documentTargetPath(rootInput, indexWrite),
+        documentTargetPath(rootInput, { taskId: indexWrite.taskId, path: "progress.md", body: "", packageSlug: indexWrite.packageSlug })
+      ],
+      documentWrites: () => [indexWrite],
+      apply: (rootInput) => {
+        const progressWrite = forceAuditProgressWrite(rootInput, indexWrite, auditText);
+        writeDocumentsAtomically(rootInput, [indexWrite, progressWrite]);
+        return indexWrite;
+      },
+      validate: () => { toDocumentWrite(op); }
+    };
+  }
   if (op.kind === "doc_sync_submit" || op.kind === "script_ingest") {
     return {
       touchedPaths: (rootInput) => canonicalAuthoredBatchPaths(rootInput, op),
@@ -327,6 +344,20 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       toDocumentWrite(op);
     }
   };
+}
+
+function transitionAuditText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const value = (payload as { readonly auditText?: unknown }).auditText;
+  return typeof value === "string" && value.startsWith("FORCE_STATUS_SET_AUDIT:") ? value : null;
+}
+
+function forceAuditProgressWrite(rootInput: HarnessLayoutInput, indexWrite: DocumentWrite, auditText: string): DocumentWrite {
+  const probe = { taskId: indexWrite.taskId, path: "progress.md", body: "", packageSlug: indexWrite.packageSlug };
+  const targetPath = documentTargetPath(rootInput, probe);
+  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "# Progress\n\n## Entries\n\n";
+  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  return { ...probe, body: `${existing}${separator}${auditText}\n` };
 }
 
 function hasDeclaredEntityDocument(payload: unknown): payload is DeclaredEntityDocumentWritePayload {

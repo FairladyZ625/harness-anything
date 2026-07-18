@@ -6,6 +6,7 @@ import {
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
+  finalizeExecutionSessionBindings,
   renderCodeDocReconciliationDraft,
   type ConsentCommandPayloadV2,
   type FactRelationCommandPayloadV2,
@@ -24,6 +25,7 @@ import {
 import type { ParsedCommand } from "../cli/types.ts";
 import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
+import { renderForceStatusAudit } from "../commands/core/task-lifecycle.ts";
 
 type CompileInput = Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
 
@@ -38,14 +40,27 @@ export function productionLifecycleAttemptIntent(input: {
   if (action.kind === "status-set") {
     const taskPath = taskLifecyclePath(input.authoredRoot, action.taskId, "INDEX.md");
     if (action.executionSubmission?.executionId) {
-      return executionSubmitIntent(input.authoredRoot, input.currentSession.detectedAt, action, taskPath);
+      return executionSubmitIntent(
+        input.authoredRoot,
+        { rootDir: input.command.rootDir, layoutOverrides: input.command.layoutOverrides },
+        input.currentSession.detectedAt,
+        action,
+        taskPath
+      );
     }
+    const auditText = action.force
+      ? renderForceStatusAudit(action.status, action.reason ?? "unspecified", input.currentSession.detectedAt)
+      : undefined;
     const payload: TaskDecisionModuleCommandPayloadV2 = {
-      schema: "task.transition/v1", taskId: action.taskId, to: action.status
+      schema: "task.transition/v1", taskId: action.taskId, to: action.status,
+      ...(auditText === undefined ? {} : { auditText })
     };
     return lifecycleIntent("task.transition", encodeTaskDecisionModuleCommandPayloadV2(payload), [
       lifecycleMutation("task", `task/${action.taskId}`, "transition")
-    ], [lifecycleRef("task", `task/${action.taskId}`)], portableLifecyclePaths(taskPath), taskEntityId(action.taskId), [
+    ], [lifecycleRef("task", `task/${action.taskId}`)], [
+      ...portableLifecyclePaths(taskPath),
+      ...(auditText === undefined ? [] : portableLifecyclePaths(taskLifecyclePath(input.authoredRoot, action.taskId, "progress.md")))
+    ], taskEntityId(action.taskId), [
       requiredLifecycleSnapshot(input.authoredRoot, taskPath.logical, taskPath.physical)
     ]);
   }
@@ -101,6 +116,7 @@ export function productionLifecycleAttemptIntent(input: {
 
 function executionSubmitIntent(
   authoredRoot: string,
+  rootInput: { readonly rootDir: string; readonly layoutOverrides?: { readonly authoredRoot?: string } },
   submittedAt: string,
   action: Extract<ParsedCommand["action"], { readonly kind: "status-set" }>,
   taskPath: ReturnType<typeof taskLifecyclePath>
@@ -111,10 +127,16 @@ function executionSubmitIntent(
   const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
   const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
   const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
+  const sessionBindings = finalizeExecutionSessionBindings(
+    rootInput,
+    current.session_bindings,
+    submittedAt
+  );
   const next: ExecutionRecord = {
     ...current,
     state: "submitted",
     submitted_at: submittedAt,
+    session_bindings: sessionBindings,
     outputs: [
       ...current.outputs,
       ...submission.outputs.map((text, index) => ({
