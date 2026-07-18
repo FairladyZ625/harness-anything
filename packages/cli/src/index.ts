@@ -151,6 +151,7 @@ async function runDaemonServe(
         ? createProductionAuthorityLifecycle({
           manifestPath: authorityManifest,
           daemonLogService,
+          backgroundRecovery: true,
           ...(layoutOverrides ? { layoutOverrides } : {})
         })
         : undefined);

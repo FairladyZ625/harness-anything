@@ -3,6 +3,7 @@ import {
   decodeSemanticMutationEnvelopeV2,
   isCompleteAuthorityCommittedReceiptV2,
   operationIdDiagnosticV2,
+  semanticRequestDigestV2,
   type AuthorityOperationReceipt,
   type AuthoritySubmissionService,
   type AuthorizedOperationAttemptV2
@@ -49,12 +50,48 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
   return {
     submit: async (input) => {
       const attempt = await options.attemptCompiler.compile(input);
-      const expectedOpId = operationIdDiagnosticV2(decodeSemanticMutationEnvelopeV2(attempt.envelope).operationId);
+      const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
+      const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
       const receipt = await options.authorityService.submitV2!(attempt);
       assertCompleteAuthorityReceiptV2(receipt);
       assertAuthorityReceiptOperation(receipt, expectedOpId);
       return receipt;
     }
+  };
+}
+
+export function gateAuthoritySubmissionForRecovery(
+  service: AuthoritySubmissionService,
+  unavailableReason: () => string | undefined
+): AuthoritySubmissionService {
+  return {
+    getOperation: service.getOperation,
+    submit: async (envelope) => {
+      const reason = unavailableReason();
+      return reason
+        ? {
+          tag: "RETRYABLE_NOT_COMMITTED",
+          workspaceId: envelope.workspaceId,
+          opId: envelope.opId,
+          semanticDigest: envelope.claimedDigest,
+          reason
+        }
+        : service.submit(envelope);
+    },
+    ...(service.submitV2 ? {
+      submitV2: async (attempt) => {
+        const reason = unavailableReason();
+        if (!reason) return service.submitV2!(attempt);
+        const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
+        return {
+          tag: "RETRYABLE_NOT_COMMITTED",
+          workspaceId: envelope.workspaceId,
+          opId: operationIdDiagnosticV2(envelope.operationId),
+          semanticDigest: Buffer.from(semanticRequestDigestV2(envelope)).toString("hex"),
+          reason
+        };
+      }
+    } : {})
   };
 }
 

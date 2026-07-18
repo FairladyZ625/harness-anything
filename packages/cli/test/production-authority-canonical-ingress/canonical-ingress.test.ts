@@ -30,10 +30,12 @@ import { createCliCommandService } from "../../src/daemon/command-service.ts";
 import { authorityNamespaceProofBytes } from "../../src/daemon/authority-production-state.ts";
 import { createGitCanonicalPublicationInspector } from "../../src/daemon/authority-publication-evidence.ts";
 import { createProductionAuthorityLifecycle } from "../../src/daemon/production-authority-lifecycle.ts";
+import { openDurableAuthorityServiceState } from "../../src/daemon/authority-service-state.ts";
 import {
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
+  runRawJsonAsync,
   runRawJsonMaybeFail,
   stopDaemon
 } from "../helpers/daemon-cli.ts";
@@ -149,9 +151,111 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(presetOperation.state, "COMMITTED", JSON.stringify(presetOperation));
     assert.equal(presetOperation.receipt?.tag, "COMMITTED", JSON.stringify(presetOperation));
     assert.equal(authorityEventBodies(fixture.authoredRoot).filter((body) => body.includes(presetOperation.opId!)).length, 1);
+
+    const interleaved = await Promise.all(Array.from({ length: 4 }, (_, index) => runRawJsonAsync(fixture.repoRoot, [
+      "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
+      "--text", `interleaved authority and runtime event ${index}`
+    ], { ...env, CODEX_THREAD_ID: `service-interleaved-${index}` })));
+    assert.equal(interleaved.every((receipt) => receipt.ok === true), true, JSON.stringify(interleaved));
+    const settledOperations = authorityOperationRecords(fixture.serviceRoot);
+    assert.equal(settledOperations.every((record) => record.state === "COMMITTED"), true, JSON.stringify(settledOperations));
+    const eventBodies = authorityEventBodies(fixture.authoredRoot);
+    for (const record of settledOperations) {
+      assert.equal(eventBodies.filter((body) => body.includes(record.opId ?? "missing-op")).length, 1, JSON.stringify(record));
+    }
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     if (process.env.KEEP_AUTHORITY_SERVICE_FIXTURE !== "1") rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("production service exposes its socket while authority recovery scans history, then uses the persisted increment", { timeout: 120_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const env = {
+    HARNESS_ACTOR: "agent:codex",
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    CODEX_THREAD_ID: "service-recovery-session"
+  };
+  const watermarkPath = path.join(
+    fixture.serviceRoot,
+    "authority",
+    Buffer.from("canonical", "utf8").toString("base64url"),
+    "recovery-watermark.json"
+  );
+  try {
+    for (let index = 0; index < 800; index += 1) {
+      git(fixture.authoredRoot, "commit", "-q", "--allow-empty", "-m", `fixture history ${index}`);
+    }
+    const seededState = openDurableAuthorityServiceState({ serviceStateRoot: fixture.serviceRoot, repoId: "canonical" });
+    await seededState.operationRegistry.put(indeterminateWithoutPublication());
+    await seededState.close();
+    const registered = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical", "--canonical-root", fixture.repoRoot,
+      "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+
+    const coldStartedAt = Date.now();
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    const coldSocketMs = Date.now() - coldStartedAt;
+    const statusDuringRecovery = runDaemonCommand(
+      fixture.repoRoot,
+      ["daemon", "status", "--user-root", userRoot, "--json"],
+      env
+    );
+    assert.equal(statusDuringRecovery.reachable, true, JSON.stringify(statusDuringRecovery));
+    assert.equal(existsSync(watermarkPath), false, "cold full scan must still be in progress when the socket is first reachable");
+
+    const gated = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", "--text", "must wait for recovery"
+    ], env);
+    assert.notEqual(gated.status, 0, JSON.stringify(gated.receipt));
+    assert.match(JSON.stringify(gated.receipt), /AUTHORITY_RECOVERY_IN_PROGRESS/u);
+
+    await pollUntil(
+      () => existsSync(watermarkPath) ? JSON.parse(readFileSync(watermarkPath, "utf8")) as { readonly commitSha?: string } : undefined,
+      (watermark) => watermark?.commitSha === git(fixture.authoredRoot, "rev-parse", "HEAD"),
+      (watermark, error) => JSON.stringify({ watermark, error: String(error ?? "") }),
+      { timeoutMs: 30_000 }
+    );
+    const coldRecoveryMs = Date.now() - coldStartedAt;
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).find((record) => record.opId === "namespace-production:unpublished-startup")?.state, "REJECTED");
+    const committed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", "--text", "recovery completed"
+    ], env);
+    assert.equal(committed.status, 0, JSON.stringify(committed.receipt));
+    assert.equal(committed.receipt.ok, true, JSON.stringify(committed.receipt));
+
+    await stopDaemon(fixture.repoRoot, userRoot);
+    for (let index = 0; index < 5; index += 1) {
+      git(fixture.authoredRoot, "commit", "-q", "--allow-empty", "-m", `fixture increment ${index}`);
+    }
+    const incrementalHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
+    const incrementalStartedAt = Date.now();
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    const incrementalSocketMs = Date.now() - incrementalStartedAt;
+    await pollUntil(
+      () => JSON.parse(readFileSync(watermarkPath, "utf8")) as { readonly commitSha?: string },
+      (watermark) => watermark.commitSha === incrementalHead,
+      (watermark, error) => JSON.stringify({ watermark, error: String(error ?? "") }),
+      { timeoutMs: 10_000 }
+    );
+    const incrementalRecoveryMs = Date.now() - incrementalStartedAt;
+
+    assert.ok(coldSocketMs < coldRecoveryMs, JSON.stringify({ coldSocketMs, coldRecoveryMs }));
+    assert.ok(incrementalRecoveryMs < coldRecoveryMs, JSON.stringify({ incrementalRecoveryMs, coldRecoveryMs }));
+    console.log(JSON.stringify({ coldSocketMs, coldRecoveryMs, incrementalSocketMs, incrementalRecoveryMs }));
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
@@ -587,6 +691,24 @@ function latestAuthorityOperation(serviceRoot: string): {
   };
 }
 
+function authorityOperationRecords(serviceRoot: string): ReadonlyArray<{
+  readonly state?: string;
+  readonly opId?: string;
+}> {
+  const operationPath = path.join(
+    serviceRoot,
+    "authority",
+    Buffer.from("canonical", "utf8").toString("base64url"),
+    "operations.jsonl"
+  );
+  const latest = new Map<string, { readonly state?: string; readonly opId?: string }>();
+  for (const line of readFileSync(operationPath, "utf8").trim().split("\n").filter(Boolean)) {
+    const row = JSON.parse(line) as { readonly table?: string; readonly key?: string; readonly value?: { readonly state?: string; readonly opId?: string } };
+    if (row.table === "operation" && row.key && row.value) latest.set(row.key, row.value);
+  }
+  return [...latest.values()];
+}
+
 function authorityEventBodies(authoredRoot: string): ReadonlyArray<string> {
   const eventRoot = path.join(authoredRoot, "authority-attribution-events/v2");
   if (!existsSync(eventRoot)) return [];
@@ -605,6 +727,41 @@ function taskIndexBody(taskId: string): string {
     "provenance:", "  - {runtime: \"human\", sessionId: \"fixture\", boundAt: \"2026-07-17T00:00:00.000Z\"}",
     "---", "", "# Production ingress", ""
   ].join("\n");
+}
+
+function indeterminateWithoutPublication() {
+  return {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:unpublished-startup",
+    semanticDigest: "a".repeat(64),
+    state: "INDETERMINATE" as const,
+    receipt: {
+      tag: "INDETERMINATE" as const,
+      workspaceId: "workspace-production",
+      opId: "namespace-production:unpublished-startup",
+      semanticDigest: "a".repeat(64),
+      reason: "PUBLICATION_OUTCOME_UNKNOWN:startup performance fixture"
+    },
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2" as const,
+      semanticRequestDigest: "a".repeat(64),
+      semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: {
+        registryVersion: 1,
+        mutations: [{
+          entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4" },
+          action: { registryVersion: 1, action: "append" }
+        }]
+      }
+    },
+    recordedProtocol: {
+      kind: "semantic-mutation-envelope/v2" as const,
+      schemaTuple: productionTuple()
+    },
+    canonicalRequestEnvelope: "startup-performance-envelope"
+  };
 }
 
 function productionTuple() {

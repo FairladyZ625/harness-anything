@@ -1,5 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type {
   AuthorityCommittedReceipt,
@@ -10,8 +14,9 @@ import type { makeLocalAuthorityAttributionEventV2Log } from "../../kernel/src/i
 import { recoverPendingProductionEvents } from "../src/daemon/production-authority-lifecycle.ts";
 import {
   AuthorityCanonicalPublicationNotFoundError,
+  AuthorityRecoveryWatermarkInvalidError,
   assertPublicationMatchesMutationSet,
-  type createGitCanonicalPublicationInspector
+  createGitCanonicalPublicationInspector
 } from "../src/daemon/authority-publication-evidence.ts";
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {
@@ -270,6 +275,125 @@ test("restart recovery terminalizes only an indeterminate operation proven absen
   assert.equal(durable.receipt?.tag, "REJECTED");
   assert.match(durable.receipt?.tag === "REJECTED" ? durable.receipt.reason : "", /AUTHORITY_RECOVERY_CONFIRMED_NOT_PUBLISHED/u);
   assert.match(durable.receipt?.tag === "REJECTED" ? durable.receipt.reason : "", /authority publication cannot mix/u);
+});
+
+test("recovery watermark falls back on missing or corrupt state and then scans only the first-parent increment", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-watermark-"));
+  const watermarkPath = path.join(root, "recovery-watermark.json");
+  const head = "b".repeat(40);
+  const scanInputs: Array<string | undefined> = [];
+  try {
+    const input = {
+      workspaceId: "workspace-production",
+      operationRegistry: {
+        get: async () => undefined,
+        list: async () => [],
+        put: async () => undefined
+      },
+      replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: {
+        scanFirstParentOperationAnchors: async ({ exclusiveCommit }: { readonly exclusiveCommit?: string }) => {
+          scanInputs.push(exclusiveCommit);
+          return { headCommit: head, scannedCommitCount: exclusiveCommit ? 0 : 400, anchors: [] };
+        }
+      } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+      recover: async () => { throw new Error("no pending operation should recover"); },
+      watermarkPath
+    };
+
+    await recoverPendingProductionEvents(input);
+    assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, head);
+    await recoverPendingProductionEvents(input);
+    writeFileSync(watermarkPath, "{malformed\n");
+    await recoverPendingProductionEvents(input);
+
+    assert.deepEqual(scanInputs, [undefined, head, undefined]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery watermark never advances past an unresolved indexed operation", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-unsettled-"));
+  const watermarkPath = path.join(root, "recovery-watermark.json");
+  const record: AuthorityStoredOperationRecord = {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:unsettled",
+    semanticDigest: "a".repeat(64),
+    state: "INDEXED",
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "a".repeat(64), semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1, actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: { registryVersion: 1, mutations: [{
+        entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_RECOVERY" },
+        action: { registryVersion: 1, action: "append" }
+      }] }
+    },
+    recordedProtocol: { kind: "semantic-mutation-envelope/v2", schemaTuple: {
+      wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+      commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
+    } },
+    canonicalRequestEnvelope: "durable-envelope"
+  };
+  try {
+    await recoverPendingProductionEvents({
+      workspaceId: record.workspaceId,
+      operationRegistry: { get: async () => record, list: async () => [record], put: async () => undefined },
+      replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: {
+        scanFirstParentOperationAnchors: async () => ({ headCommit: "b".repeat(40), scannedCommitCount: 400, anchors: [] })
+      } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+      recover: async () => { throw new Error("unanchored operation must not recover"); },
+      watermarkPath
+    });
+    assert.equal(existsSync(watermarkPath), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("first-parent scanner rejects a watermark that exists only on a side branch", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-first-parent-"));
+  const git = (...args: ReadonlyArray<string>) => execFileSync("git", ["-C", root, ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Harness Test",
+      GIT_AUTHOR_EMAIL: "harness@example.test",
+      GIT_COMMITTER_NAME: "Harness Test",
+      GIT_COMMITTER_EMAIL: "harness@example.test"
+    }
+  }).trim();
+  try {
+    git("init", "-q");
+    writeFileSync(path.join(root, "seed.txt"), "seed\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "seed");
+    const base = git("rev-parse", "HEAD");
+    const trunk = git("branch", "--show-current");
+    git("checkout", "-q", "-b", "side");
+    git("commit", "-q", "--allow-empty", "-m", "side");
+    const side = git("rev-parse", "HEAD");
+    git("checkout", "-q", trunk);
+    git("commit", "-q", "--allow-empty", "-m", "trunk");
+    const inspector = createGitCanonicalPublicationInspector(root);
+
+    await assert.rejects(
+      inspector.scanFirstParentOperationAnchors({ exclusiveCommit: side, interestedOpIds: new Set() }),
+      (error: unknown) => error instanceof AuthorityRecoveryWatermarkInvalidError
+    );
+    await assert.rejects(
+      inspector.scanFirstParentOperationAnchors({ exclusiveCommit: "f".repeat(40), interestedOpIds: new Set() }),
+      (error: unknown) => error instanceof AuthorityRecoveryWatermarkInvalidError
+    );
+    const valid = await inspector.scanFirstParentOperationAnchors({ exclusiveCommit: base, interestedOpIds: new Set() });
+    assert.equal(valid.scannedCommitCount, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function publicationEvidence() {

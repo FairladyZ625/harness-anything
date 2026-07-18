@@ -35,7 +35,10 @@ import {
   type EntityRegistration
 } from "../../../kernel/src/index.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
-import { createDaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
+import {
+  createDaemonAuthorityCommandSubmissionV2,
+  gateAuthoritySubmissionForRecovery
+} from "./authority-command-submission.ts";
 import {
   createAuthorityRepoLifecycleController,
   type AuthorityRepoComponent,
@@ -52,7 +55,6 @@ import {
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
 import {
-  AuthorityCanonicalPublicationNotFoundError,
   createGitCanonicalPublicationInspector
 } from "./authority-publication-evidence.ts";
 import { assertPublicationMatchesMutationSet } from "./authority-publication-evidence.ts";
@@ -64,6 +66,13 @@ import {
   createProductionCanonicalSemanticState
 } from "./production-authority-attempt-compiler.ts";
 import { gateCutoverAdmission } from "./authority-cutover-admission.ts";
+import {
+  recoverPendingProductionEvents,
+  recoveryErrorCode,
+  recoveryErrorSummary
+} from "./production-authority-recovery.ts";
+
+export { recoverPendingProductionEvents } from "./production-authority-recovery.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;
@@ -73,6 +82,13 @@ interface RepoProductionMaterial {
   readonly authoredRoot: string;
   readonly configurationDigest: string;
   readonly serviceStateRoot: string;
+  readonly recovery: ProductionRecoveryState;
+}
+
+interface ProductionRecoveryState {
+  status: "recovering" | "complete" | "failed";
+  error?: string;
+  promise: Promise<void>;
 }
 
 const productionAuthorityV2EntityKinds = [
@@ -83,6 +99,7 @@ export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
   readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly daemonLogService?: DaemonLogService;
+  readonly backgroundRecovery?: true;
 }): AuthorityRepoLifecycleController {
   const manifest = loadAuthorityProductionManifest(input.manifestPath);
   const materials = new Map<string, RepoProductionMaterial>();
@@ -168,7 +185,8 @@ export function createProductionAuthorityLifecycle(input: {
         eventLog,
         publicationInspector
       });
-      materials.set(repo.repoId, {
+      const recovery = {} as ProductionRecoveryState;
+      const material: RepoProductionMaterial = {
         config,
         keyStore: keyMaterial.keyStore,
         keyRegistry: keyMaterial.registry,
@@ -178,19 +196,22 @@ export function createProductionAuthorityLifecycle(input: {
           ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
         }).authoredRoot,
         configurationDigest: authorityManifestSourceDigest(input.manifestPath),
-        serviceStateRoot: manifest.serviceStateRoot
-      });
+        serviceStateRoot: manifest.serviceStateRoot,
+        recovery
+      };
+      materials.set(repo.repoId, material);
       publicationObservers.set(repo.repoId, async (previousCommit, expectedOpIds, expectedCommitSha) => {
         const inspector = publicationInspector;
         return inspector.inspectPublication(previousCommit, expectedOpIds, expectedCommitSha);
       });
-      await recoverPendingProductionEvents({
+      const runRecovery = async () => recoverPendingProductionEvents({
         workspaceId: config.workspaceId,
         operationRegistry: state.operationRegistry,
         replicaChangeLog: state.replicaChangeLog,
         eventLog,
         publicationInspector,
         recover: committedEventPublisher.recoverCommittedReceipt,
+        watermarkPath: `${state.stateDirectory}/recovery-watermark.json`,
         ...(input.daemonLogService ? {
           onDeferred: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord, error: unknown) =>
             input.daemonLogService!.append({
@@ -204,6 +225,15 @@ export function createProductionAuthorityLifecycle(input: {
             }, { repo: { repoId: config.repoId, canonicalRoot: config.canonicalRoot } }).then(() => undefined)
         } : {})
       });
+      recovery.status = "recovering";
+      recovery.promise = input.backgroundRecovery
+        ? new Promise<void>((resolve) => {
+          setImmediate(() => {
+            void settleProductionRecovery(recovery, runRecovery).finally(resolve);
+          });
+        })
+        : settleProductionRecovery(recovery, runRecovery);
+      if (!input.backgroundRecovery) await recovery.promise;
       return {
         authenticatedPersonRegistry: identity.personRegistry,
         deriveExecutorFromParsedPreset: (presetId) => `preset:${presetId}`,
@@ -239,8 +269,10 @@ export function createProductionAuthorityLifecycle(input: {
         (component as ProductionAuthorityRepoComponent).setServing(true);
       },
       stop: async ({ repo, component, reason }) => {
+        const material = options.materials.get(repo.repoId);
         try {
           await component.stop(reason);
+          await material?.recovery.promise;
         } finally {
           materials.delete(repo.repoId);
           publicationObservers.delete(repo.repoId);
@@ -248,87 +280,6 @@ export function createProductionAuthorityLifecycle(input: {
       }
     };
   }
-}
-
-export async function recoverPendingProductionEvents(input: {
-  readonly workspaceId: string;
-  readonly operationRegistry: import("../../../application/src/index.ts").AuthorityOperationRegistry;
-  readonly replicaChangeLog: import("../../../application/src/index.ts").ReplicaChangeLog;
-  readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
-  readonly publicationInspector: ReturnType<typeof createGitCanonicalPublicationInspector>;
-  readonly recover: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord) => Promise<import("../../../application/src/index.ts").AuthorityCommittedReceipt>;
-  readonly onDeferred?: (
-    record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord,
-    error: unknown
-  ) => Promise<void>;
-}): Promise<void> {
-  const records = await input.operationRegistry.list(input.workspaceId);
-  const pending = records.filter((record) => {
-    if ((record.state !== "INDEXED" && record.state !== "INDETERMINATE")
-      || record.recordedProtocol?.kind !== "semantic-mutation-envelope/v2"
-      || !record.authorityIntegrity || !record.canonicalRequestEnvelope) return false;
-    return true;
-  });
-  let remaining = [...pending];
-  while (remaining.length > 0) {
-    let progressed = false;
-    const deferred: typeof remaining = [];
-    for (const record of remaining) {
-      try {
-        const evidence = await input.publicationInspector.findPublicationForOperation(record.opId);
-        if (record.commitSha && record.commitSha !== evidence.commitSha) {
-          throw new Error("AUTHORITY_V2_RECOVERY_COMMIT_MISMATCH");
-        }
-        assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity!.canonicalMutationSet);
-        const change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
-        if (change && (change.commitSha !== evidence.commitSha
-          || change.previousCommit !== evidence.previousCommit
-          || change.semanticDigest !== record.semanticDigest
-          || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
-          throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
-        }
-        const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
-        await input.operationRegistry.put(indexed);
-        const receipt = await input.recover(indexed);
-        await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
-        progressed = true;
-      } catch (error) {
-        if (error instanceof AuthorityCanonicalPublicationNotFoundError
-          && error.opId === record.opId
-          && record.state === "INDETERMINATE"
-          && !record.commitSha) {
-          const originalReason = record.receipt?.tag === "INDETERMINATE"
-            ? record.receipt.reason
-            : "missing indeterminate receipt reason";
-          const receipt = {
-            tag: "REJECTED" as const,
-            workspaceId: record.workspaceId,
-            opId: record.opId,
-            semanticDigest: record.semanticDigest,
-            reason: `AUTHORITY_RECOVERY_CONFIRMED_NOT_PUBLISHED:originalReason=${originalReason}`
-          };
-          await input.operationRegistry.put({ ...record, state: "REJECTED", receipt });
-          progressed = true;
-          continue;
-        }
-        // Fail closed: unverifiable historical effects remain indeterminate.
-        await input.onDeferred?.(record, error);
-        deferred.push(record);
-      }
-    }
-    if (!progressed) return;
-    remaining = deferred;
-  }
-}
-
-function recoveryErrorSummary(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-}
-
-function recoveryErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) return "AUTHORITY_RECOVERY_UNKNOWN_ERROR";
-  const messageCode = /^([A-Z][A-Z0-9_]+)/u.exec(error.message)?.[1];
-  return messageCode ?? error.name;
 }
 
 interface ProductionAuthorityRepoComponent extends AuthorityRepoComponent {
@@ -396,9 +347,12 @@ function createRepoComponent(
     bindConnection: (context) => {
       if (!serving || stopped) throw new Error("AUTHORITY_REPO_COMPONENT_NOT_SERVING");
       assertConnectionContext(input, material.config, context);
-      const authorityService = gateCutoverAdmission(
-        attestSubmissionService(createConnectionAuthorityService(input, material, context, publicationExecutor), context),
-        cutoverControl
+      const authorityService = gateAuthoritySubmissionForRecovery(
+        gateCutoverAdmission(
+          attestSubmissionService(createConnectionAuthorityService(input, material, context, publicationExecutor), context),
+          cutoverControl
+        ),
+        () => recoveryUnavailableReason(material)
       );
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
         authorityService,
@@ -438,6 +392,28 @@ function createRepoComponent(
       sessions.clear();
     }
   };
+}
+
+async function settleProductionRecovery(
+  recovery: ProductionRecoveryState,
+  run: () => Promise<void>
+): Promise<void> {
+  try {
+    await run();
+    recovery.status = "complete";
+    recovery.error = undefined;
+  } catch (error) {
+    recovery.status = "failed";
+    recovery.error = recoveryErrorSummary(error);
+  }
+}
+
+function recoveryUnavailableReason(material: RepoProductionMaterial): string | undefined {
+  if (material.recovery.status === "complete") return undefined;
+  if (material.recovery.status === "recovering") {
+    return `AUTHORITY_RECOVERY_IN_PROGRESS:repoId=${material.config.repoId}; retry after daemon recovery completes`;
+  }
+  return `AUTHORITY_RECOVERY_FAILED:repoId=${material.config.repoId};error=${material.recovery.error ?? "unknown"}`;
 }
 
 function createConnectionAuthorityService(
