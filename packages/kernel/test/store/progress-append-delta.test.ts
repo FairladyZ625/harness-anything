@@ -27,7 +27,7 @@ test("progress_append delta accumulates appends with correct separators", () => 
 
     assert.equal(
       readFileSync(progressPath(rootDir, "task-1"), "utf8"),
-      "line one\nline two\nline three\n"
+      "# Progress\n\n## Entries\n\nline one\nline two\nline three\n"
     );
   });
 });
@@ -90,7 +90,22 @@ test("progress_append delta appends text verbatim without formatting or normaliz
     Effect.runSync(coordinator.flush("explicit"));
 
     // Only a single trailing newline is added; every other byte is preserved as-is.
-    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), `${raw}\n`);
+    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), `# Progress\n\n## Entries\n\n${raw}\n`);
+  });
+});
+
+test("progress_append delta preserves an existing progress@1 document byte-for-byte before the appended delta", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+    const filePath = progressPath(rootDir, "task-1");
+    const legacyBody = "# Progress\n\n## Log\n\n- Historical entry.\n\n## Evidence\n\n| Type | Path | Summary | Command |\n| --- | --- | --- | --- |\n";
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, legacyBody, "utf8");
+
+    Effect.runSync(coordinator.enqueue(progressAppendDelta("op-legacy-compatible", "task-1", "new entry")));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(readFileSync(filePath, "utf8"), `${legacyBody}new entry\n`);
   });
 });
 
@@ -107,7 +122,7 @@ test("recovery applies multiple pending deltas from separate writers in journal 
     const report = Effect.runSync(recovered.recover);
 
     assert.equal(report.replayedOps, 2);
-    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), "first\nsecond\n");
+    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), "# Progress\n\n## Entries\n\nfirst\nsecond\n");
   });
 });
 
@@ -122,7 +137,7 @@ test("recover after successful flush does not re-append a committed delta", () =
     const report = Effect.runSync(recovered.recover);
 
     assert.equal(report.replayedOps, 0);
-    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), "once only\n");
+    assert.equal(readFileSync(progressPath(rootDir, "task-1"), "utf8"), "# Progress\n\n## Entries\n\nonce only\n");
   });
 });
 

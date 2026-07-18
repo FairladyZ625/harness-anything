@@ -214,10 +214,24 @@ test("CLI appends progress through the write journal", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.path, "progress.md");
-    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), "Implemented local CLI\n");
+    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), "# Progress\n\n## Entries\n\nImplemented local CLI\n");
     const payloadBodies = readdirSync(path.join(rootDir, ".harness/write-journal/payloads"))
       .map((entry) => readFileSync(path.join(rootDir, ".harness/write-journal/payloads", entry), "utf8"));
     assert.equal(payloadBodies.some((body) => body.includes("\"path\":\"progress.md\"")), true);
+  });
+});
+
+test("CLI appends progress to an existing progress@1 document without rewriting its legacy structure", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const progressPath = path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`);
+    const legacyBody = "# Progress\n\n## Log\n\n- Historical entry.\n\n## Evidence\n\n| Type | Path | Summary | Command |\n| --- | --- | --- | --- |\n";
+    writeFileSync(progressPath, legacyBody, "utf8");
+
+    runJson(rootDir, ["task", "progress", "append", taskId, "--text", "Compatible append"]);
+
+    assert.equal(readFileSync(progressPath, "utf8"), `${legacyBody}Compatible append\n`);
   });
 });
 

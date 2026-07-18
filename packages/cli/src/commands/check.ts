@@ -283,8 +283,6 @@ function validateTaskPackageContracts(
     for (const issue of parsed.issues) {
       issues.push(profileIssue("review-schema", "review_schema_invalid", "hard-fail", `${relativeTaskDir}/review.md failed review schema validation.`, `${JSON.stringify(issue)} Valid severity values: P0, P1, P2, P3.`));
     }
-  } else if (profile !== "source-package") {
-    issues.push(profileIssue("review-schema", "review_missing", strictSeverity(strict), `${relativeTaskDir}/review.md is missing.`, "Add review.md before strict private-harness/target-project validation."));
   }
 
   const visualPath = path.join(taskDir, "visual_map.md");

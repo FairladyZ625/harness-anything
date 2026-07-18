@@ -182,7 +182,7 @@ function documentAppendRecordWrite(op: WriteOp, payload: DocumentAppendRecordPay
 
 function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
   const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
-  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "# Progress\n\n## Entries\n\n";
   const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
   const write: DocumentWrite = {
     taskId: taskIdForWriteOp(op),

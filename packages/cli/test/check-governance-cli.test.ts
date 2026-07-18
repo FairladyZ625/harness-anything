@@ -120,9 +120,11 @@ test("CLI task supersede preserves selected preset profile metadata", () => {
     assert.match(index, /vertical: software\/coding/);
     assert.match(index, /preset: profiled-task/);
     assert.match(index, /profile: extra/);
-    for (const documentPath of ["task_plan.md", "progress.md", "facts.md", "review.md", "closeout.md", "artifacts/.gitkeep", "extra.md"]) {
+    for (const documentPath of ["task_plan.md", "facts.md", "closeout.md", "artifacts/.gitkeep", "extra.md"]) {
       assert.equal(existsSync(path.join(rootDir, superseded.packagePath, documentPath)), true, documentPath);
     }
+    assert.equal(existsSync(path.join(rootDir, superseded.packagePath, "progress.md")), false);
+    assert.equal(existsSync(path.join(rootDir, superseded.packagePath, "review.md")), false);
 
     const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
     assert.equal(checked.ok, true);
@@ -137,7 +139,7 @@ test("CLI metadata check fails closed on missing preset-selected document and an
     runJson(rootDir, ["init"]);
     const created = runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
-    rmSync(path.join(rootDir, created.packagePath, "progress.md"));
+    rmSync(path.join(rootDir, created.packagePath, "facts.md"));
 
     const missingDocument = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
 
@@ -160,7 +162,13 @@ test("CLI metadata check fails closed on missing preset-selected document and an
 test("CLI metadata check applies live section policy to frozen task contract documents", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    const created = runJson(rootDir, ["new-task", "--title", "Frozen Policy Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writePreset(rootDir, ".harness/presets/legacy-review-task/preset.json", {
+      id: "legacy-review-task",
+      title: "Legacy Review Compatibility Task",
+      version: "1.0.0",
+      templateSelections: [legacyReviewSelection()]
+    });
+    const created = runJson(rootDir, ["new-task", "--title", "Frozen Policy Task", "--vertical", "software/coding", "--preset", "legacy-review-task"]);
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "task-contract.json")), true);
 
@@ -545,6 +553,18 @@ function invalidPathSelection(): Record<string, unknown> {
   };
 }
 
+function legacyReviewSelection(): Record<string, unknown> {
+  return {
+    slot: "task.review",
+    templateRef: "template://planning/review@1",
+    materializeAs: "review.md",
+    localePolicy: {
+      prefer: "project",
+      fallback: "en-US"
+    }
+  };
+}
+
 function makeMultiProfilePreset(): Record<string, unknown> {
   return {
     schema: "preset-manifest/v1",
@@ -642,7 +662,8 @@ function validLessonCandidates(): string {
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, HARNESS_ACTOR: "agent:check-governance-test" }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

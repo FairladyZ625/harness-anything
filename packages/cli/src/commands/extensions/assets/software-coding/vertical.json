@@ -57,27 +57,9 @@
           }
         },
         {
-          "slot": "task.progress",
-          "templateRef": "template://planning/progress@1",
-          "materializeAs": "progress.md",
-          "localePolicy": {
-            "prefer": "project",
-            "fallback": "en-US"
-          }
-        },
-        {
           "slot": "task.facts",
           "templateRef": "template://planning/facts@1",
           "materializeAs": "facts.md",
-          "localePolicy": {
-            "prefer": "project",
-            "fallback": "en-US"
-          }
-        },
-        {
-          "slot": "task.review",
-          "templateRef": "template://planning/review@1",
-          "materializeAs": "review.md",
           "localePolicy": {
             "prefer": "project",
             "fallback": "en-US"

@@ -40,6 +40,12 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     assert.equal(result.report.profile, "baseline");
     assert.equal(result.generated.includes("task_plan.md"), true);
     assert.equal(result.generated.includes("task-contract.json"), true);
+    assert.equal(result.generated.includes("progress.md"), false);
+    assert.equal(result.generated.includes("review.md"), false);
+    assert.equal(existsSync(path.join(rootDir, result.packagePath, "progress.md")), false);
+    assert.equal(existsSync(path.join(rootDir, result.packagePath, "review.md")), false);
+    assert.equal(contract.documents.some((document: { materializeAs: string }) => document.materializeAs === "progress.md"), false);
+    assert.equal(contract.documents.some((document: { materializeAs: string }) => document.materializeAs === "review.md"), false);
     assert.equal(result.generated.includes("read_set.md"), false);
     assert.equal(result.generated.some((entry: string) => entry.startsWith("references/")), false);
     assert.equal(existsSync(path.join(rootDir, result.packagePath, "read_set.md")), false);

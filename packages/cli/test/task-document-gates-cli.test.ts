@@ -106,6 +106,21 @@ test("CLI check and active transition agree on scaffold and substantive task pla
   });
 });
 
+test("CLI strict checker accepts a new-contract task without root review.md", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Typed Review Contract", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    rmSync(path.join(rootDir, created.packagePath, "review.md"), { force: true });
+    writeFileSync(path.join(rootDir, "AGENTS.md"), "# Agent instructions\n", "utf8");
+    writeFileSync(path.join(rootDir, "CLAUDE.md"), "# Claude instructions\n", "utf8");
+
+    const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+
+    assert.equal(checked.report.summary.hardFailCount, 0);
+    assert.equal(checked.warnings.some((warning: Record<string, unknown>) => warning.code === "review_missing"), false);
+  });
+});
+
 test("CLI task-complete without Execution fails closed and leaves INDEX byte-exact", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
@@ -468,6 +483,8 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
 test("CLI default claim carries one person's task through submit, review, and complete", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Single Person Closeout", "--vertical", "software/coding", "--preset", "standard-task"]);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "progress.md")), false);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "review.md")), false);
     writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const sessionId = "codex-single-person-closeout";
     const homeDir = path.join(rootDir, "home");
@@ -485,6 +502,13 @@ test("CLI default claim carries one person's task through submit, review, and co
       "task", "transition", created.taskId, "active"
     ], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
     assert.equal(activated.status, "active");
+    runJson(rootDir, [
+      "task", "progress", "append", created.taskId, "--text", "Implementation and verification are ready for review."
+    ], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
+    assert.equal(
+      readFileSync(path.join(rootDir, created.packagePath, "progress.md"), "utf8"),
+      "# Progress\n\n## Entries\n\nImplementation and verification are ready for review.\n"
+    );
     writeCloseout(rootDir, path.basename(created.packagePath), [
       "## Summary", "", "Implemented the single-person closeout flow.", "",
       "## Verification", "", "node --test passed.", "",
@@ -510,6 +534,7 @@ test("CLI default claim carries one person's task through submit, review, and co
     ], true, { HARNESS_ACTOR: "agent:commander" });
     assert.equal(completed.status, "done");
     assert.equal(completed.executionId, claimed.executionId);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "review.md")), false);
   });
 });
 

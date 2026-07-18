@@ -114,6 +114,10 @@ test("bundled software coding assets have consistent template and process-preset
 
   assert.equal(vertical.templateSelections.length, 0, "vertical top-level templateSelections stay deduplicated");
   const taskScaffoldSelections = vertical.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections ?? [];
+  assert.equal(taskScaffoldSelections.some((selection) => selection.templateRef === "template://planning/progress@1"), false, "new tasks lazily create progress.md on first append");
+  assert.equal(taskScaffoldSelections.some((selection) => selection.templateRef === "template://planning/review@1"), false, "new tasks use typed reviews instead of root review.md");
+  assert.equal(catalogIds.has("planning/progress"), true, "frozen progress@1 remains cataloged for historical task contracts");
+  assert.equal(catalogIds.has("planning/review"), true, "legacy review@1 remains cataloged for historical task contracts");
 
   for (const selection of taskScaffoldSelections) {
     assertKnownTemplateRef(catalogIds, selection.templateRef);

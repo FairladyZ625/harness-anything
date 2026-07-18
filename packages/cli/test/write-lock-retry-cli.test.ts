@@ -37,7 +37,7 @@ test("CLI waits through transient global write lock conflicts", async () => {
     if (!settled.ok) throw settled.error;
     assert.equal(settled.value.ok, true);
     assert.equal(settled.value.path, "progress.md");
-    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), "after transient lock\n");
+    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), "# Progress\n\n## Entries\n\nafter transient lock\n");
   });
 });
 
