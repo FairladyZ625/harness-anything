@@ -231,7 +231,7 @@ test("six admission controls reject omission, addition, relabel, digest, scope, 
   const wrongBase = baseCas.map((entry, index) => index === 0
     ? { ...entry, expectedStateDigest: Buffer.alloc(32, 0xee) }
     : entry);
-  await assert.rejects(compiler.compile(envelope(factInvalidatePayload(), wrongBase)), /BASE_CAS_CONFLICT/u);
+  await assert.rejects(compiler.compile(envelope(factInvalidatePayload(), wrongBase)), /ENTITY_BASE_CAS_CONFLICT/u);
 
   const digestEnvelope = envelope(factInvalidatePayload(), baseCas);
   if (digestEnvelope.intent.kind !== "typed") throw new Error("fixture must be typed");

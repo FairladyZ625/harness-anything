@@ -121,7 +121,7 @@ test("six W4 negative controls reject before PREPARED, enqueue, or token consump
     { name: "relabel", envelope: requestEnvelope(4, correctBase, relabel), reason: "SEMANTIC_MUTATION_MISMATCH" },
     { name: "digest", envelope: requestEnvelope(5, correctBase, exact, Buffer.alloc(32, 0xdd)), reason: "SEMANTIC_MUTATION_DIGEST_MISMATCH" },
     { name: "scope", envelope: requestEnvelope(6, correctBase, exact), reason: "TOKEN_ENTITY_KIND_SCOPE_DENIED" },
-    { name: "base-CAS", envelope: requestEnvelope(7, wrongBase, exact), reason: "BASE_CAS_CONFLICT" }
+    { name: "base-CAS", envelope: requestEnvelope(7, wrongBase, exact), reason: "ENTITY_BASE_CAS_CONFLICT" }
   ];
   for (const fixture of cases) {
     const envelope = bindEnvelope(fixture.envelope, claims, tokenDigest);
@@ -131,7 +131,9 @@ test("six W4 negative controls reject before PREPARED, enqueue, or token consump
       envelope: encodeSemanticMutationEnvelopeV2(envelope)
     });
     assert.equal(receipt.tag, "REJECTED", fixture.name);
-    assert.equal(receipt.tag === "REJECTED" ? receipt.reason : "", fixture.reason, fixture.name);
+    const reason = receipt.tag === "REJECTED" ? receipt.reason : "";
+    if (fixture.name === "base-CAS") assert.match(reason, /^ENTITY_BASE_CAS_CONFLICT:/u, fixture.name);
+    else assert.equal(reason, fixture.reason, fixture.name);
     assert.equal((await operationRegistry.get(claims.workspaceId, receipt.opId))?.state, "REJECTED");
   }
   assert.equal(enqueued, 0);

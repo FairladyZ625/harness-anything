@@ -149,7 +149,7 @@ test("six W2 negative controls are REJECTED before PREPARED, enqueue, or token c
       reason: "SEMANTIC_MUTATION_DIGEST_MISMATCH"
     },
     { name: "scope", envelope: requestEnvelope(6, correctBase, exact), reason: "TOKEN_ENTITY_KIND_SCOPE_DENIED" },
-    { name: "base-CAS", envelope: requestEnvelope(7, wrongBase, exact), reason: "BASE_CAS_CONFLICT" }
+    { name: "base-CAS", envelope: requestEnvelope(7, wrongBase, exact), reason: "ENTITY_BASE_CAS_CONFLICT" }
   ];
 
   for (const fixture of cases) {
@@ -160,7 +160,9 @@ test("six W2 negative controls are REJECTED before PREPARED, enqueue, or token c
       envelope: encodeSemanticMutationEnvelopeV2(envelope)
     });
     assert.equal(receipt.tag, "REJECTED", fixture.name);
-    assert.equal(receipt.tag === "REJECTED" ? receipt.reason : "", fixture.reason, fixture.name);
+    const reason = receipt.tag === "REJECTED" ? receipt.reason : "";
+    if (fixture.name === "base-CAS") assert.match(reason, /^ENTITY_BASE_CAS_CONFLICT:/u, fixture.name);
+    else assert.equal(reason, fixture.reason, fixture.name);
     const stored = await operationRegistry.get(claims.workspaceId, receipt.opId);
     assert.equal(stored?.state, "REJECTED", `${fixture.name} must never reach PREPARED`);
   }

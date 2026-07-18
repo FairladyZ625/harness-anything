@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import {
   encodeTaskDecisionModuleCommandPayloadV2,
   type TaskDecisionModuleCommandPayloadV2
@@ -8,7 +6,6 @@ import {
   decisionEntityId,
   decisionSemanticMutationActions,
   deriveRelationId,
-  sha256Text,
   taskEntityId,
   type DecisionPackage,
   type EntityRelationRecord,
@@ -17,6 +14,7 @@ import {
 } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
+import { resolveHostedDocument } from "./production-authority-semantic-state.ts";
 
 export function productionObservedWriteAttemptIntent(
   command: ParsedCommand,
@@ -32,6 +30,7 @@ export function productionObservedWriteAttemptIntent(
       mutations: [{ entity: observedWriteRef("decision", `decision/${action.decisionId}`), action: decisionSemanticMutationActions.amend }],
       baseRefs: [observedWriteRef("decision", `decision/${action.decisionId}`)],
       portablePaths: [`decisions/decision-${action.decisionId}/decision.md`],
+      requiredPathCasPaths: [`decisions/decision-${action.decisionId}/decision.md`],
       physicalEntityId: decisionEntityId(action.decisionId),
       authoredRoot
     });
@@ -47,6 +46,7 @@ export function productionObservedWriteAttemptIntent(
       ],
       baseRefs: [observedWriteRef("decision", `decision/${action.decisionId}`), observedWriteRef("relation", `relation/${action.relationId}`)],
       portablePaths: [`decisions/decision-${action.decisionId}/decision.md`],
+      requiredPathCasPaths: [`decisions/decision-${action.decisionId}/decision.md`],
       physicalEntityId: decisionEntityId(action.decisionId),
       authoredRoot
     });
@@ -77,6 +77,7 @@ export function productionObservedWriteAttemptIntent(
         observedWriteRef("relation", `relation/${replacement.relation_id}`), ...taskWrites.map((write) => observedWriteRef("task", `task/${write.taskId}`))
       ],
       portablePaths: [`decisions/decision-${action.decisionId}/decision.md`, ...taskWrites.map((write) => `tasks/${write.taskId}/${write.path}`)],
+      requiredPathCasPaths: [`decisions/decision-${action.decisionId}/decision.md`, ...taskWrites.map((write) => `tasks/${write.taskId}/${write.path}`)],
       physicalEntityId: decisionEntityId(action.decisionId),
       authoredRoot
     });
@@ -133,6 +134,7 @@ export function productionObservedWriteAttemptIntent(
       ],
       baseRefs: [observedWriteRef("task", `task/${action.oldTaskId}`), observedWriteRef("task", `task/${replacement}`)],
       portablePaths: writes.map((write) => `tasks/${write.taskId}/${write.path}`),
+      requiredPathCasPaths: [`tasks/${action.oldTaskId}/INDEX.md`],
       physicalEntityId: taskEntityId(action.oldTaskId),
       authoredRoot
     });
@@ -155,6 +157,7 @@ function taskIntent(
     mutations: [{ entity: observedWriteRef("task", `task/${taskId}`), action }, ...extraMutations],
     baseRefs: [...taskIds.map((id) => observedWriteRef("task", `task/${id}`)), ...extraMutations.map((mutation) => mutation.entity)],
     portablePaths: taskIds.map((id) => `tasks/${id}/INDEX.md`),
+    requiredPathCasPaths: taskIds.map((id) => `tasks/${id}/INDEX.md`),
     physicalEntityId: taskEntityId(taskId),
     authoredRoot
   });
@@ -166,15 +169,16 @@ function observedIntent(input: {
   readonly mutations: CanonicalAttemptIntent["mutations"];
   readonly baseRefs: CanonicalAttemptIntent["baseRefs"];
   readonly portablePaths: CanonicalAttemptIntent["portablePaths"];
+  readonly requiredPathCasPaths: ReadonlyArray<string>;
   readonly physicalEntityId: string;
   readonly authoredRoot: string;
 }): CanonicalAttemptIntent {
-  const snapshots = input.portablePaths.flatMap((portablePath) => {
-    const absolute = path.join(input.authoredRoot, portablePath);
-    if (!existsSync(absolute)) return [];
-    const body = readFileSync(absolute, "utf8");
-    const digest = sha256Text(body);
-    return [{ path: portablePath, expectedEpoch: digest, expectedRevision: 0n, expectedBlobDigest: Buffer.from(digest, "hex") }];
+  const snapshots = input.requiredPathCasPaths.map((portablePath) => {
+    const resolved = resolveHostedDocument(input.authoredRoot, portablePath);
+    if (!resolved) {
+      throw new Error(`AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED:path=${portablePath}`);
+    }
+    return { path: resolved.portablePath, ...resolved.snapshot.cas };
   });
   return {
     commandName: input.commandName,

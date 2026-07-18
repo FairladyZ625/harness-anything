@@ -340,7 +340,7 @@ test("unknown command, transparent fallback, base-CAS, and mutation claim mismat
     ...draft,
     intent: { kind: "transparent-file", interpretation: "full-semantic", files: [] }
   })), /TYPED_COMMAND_REQUIRED/u);
-  await assert.rejects(compiler.compile(envelope(payload, [present(moduleRef, "wrong-version")])), /BASE_CAS_CONFLICT/u);
+  await assert.rejects(compiler.compile(envelope(payload, [present(moduleRef, "wrong-version")])), /ENTITY_BASE_CAS_CONFLICT/u);
 });
 
 test("module journal mutation appears in registry-derived attribution read surface with cross-layer digests", () => {
