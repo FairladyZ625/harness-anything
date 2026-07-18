@@ -354,6 +354,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     command: "script-run",
     field: "data.rows",
     reason: "Only emitted when a script writes a numeric rows value in its script-result/v1 payload."
+  }, {
+    command: "script-run",
+    field: "data.capabilityReceipt",
+    reason: "Only emitted by v3 semantic execution with its exact provider bindings."
   }].toSorted(byCommandAndField));
   assert.equal(optionalEntries.every((entry) => entry.reason.trim().length > 0), true);
 });

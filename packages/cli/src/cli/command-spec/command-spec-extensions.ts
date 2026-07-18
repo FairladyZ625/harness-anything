@@ -213,7 +213,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["script", "runId", "evidenceBundle", "generated", "report"],
       "optionalData": {
-        "rows": "Only emitted when a script writes a numeric rows value in its script-result/v1 payload."
+        "rows": "Only emitted when a script writes a numeric rows value in its script-result/v1 payload.",
+        "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },
       "paths": []
     },

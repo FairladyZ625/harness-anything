@@ -189,6 +189,48 @@ export function enablePresetAwareTaskCreate(authoredRoot: string): void {
   git(authoredRoot, "commit", "-q", "-m", "configure preset-aware task create fixture");
 }
 
+export function installProductionArtifactPreset(repoRoot: string): void {
+  const presetRoot = path.join(repoRoot, ".harness/presets/production-artifact-scaffold");
+  mkdirSync(path.join(presetRoot, "scripts"), { recursive: true });
+  writeFileSync(path.join(presetRoot, "preset.json"), `${JSON.stringify({
+    schema: "preset-manifest/v3",
+    id: "production-artifact-scaffold",
+    title: "Production Artifact Scaffold",
+    vertical: "software/coding",
+    version: "1.0.0",
+    kind: "process-action",
+    kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+    capabilityImports: [],
+    entrypoints: {
+      scaffold: {
+        type: "script",
+        command: "scripts/scaffold.mjs",
+        intent: { verb: "scaffold", subject: "production-artifact" },
+        inputs: { taskId: { type: "task-ref", required: true, defaultFrom: "current-task" } },
+        requires: [{ capability: "tasks", version: "1", select: { taskFrom: "taskId", view: "intent-summary" } }],
+        produces: [{
+          capability: "task-artifacts",
+          version: "1",
+          target: { taskFrom: "current-task" },
+          artifacts: [{ id: "production-scaffold", schema: "production-scaffold/v1", mediaTypes: ["text/markdown"], cardinality: "one", required: true }]
+        }],
+        sideEffects: []
+      }
+    },
+    defaultProfile: "baseline",
+    profiles: [{ id: "baseline", title: "Baseline", checkerProfile: "standard", completionGates: [], templateSelections: [] }]
+  }, null, 2)}\n`);
+  writeFileSync(path.join(presetRoot, "scripts/scaffold.mjs"), [
+    'import { readFileSync, writeFileSync } from "node:fs";',
+    'const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, "utf8"));',
+    'const writer = context.capabilities.writes["task-artifacts"][0];',
+    'const output = writer.artifacts["production-scaffold"].representations[0].path;',
+    'writeFileSync(output, `# Production scaffold\\n\\nTask: ${context.run.taskId}\\n`, "utf8");',
+    'writeFileSync(context.result.path, JSON.stringify({ schema: "script-result/v1", ok: true, produced: ["production-scaffold"] }), "utf8");',
+    ''
+  ].join("\n"));
+}
+
 export function writeColdCodexSessionLog(repoRoot: string, sessionId: string): void {
   const logRoot = path.join(repoRoot, ".home", ".codex", "sessions", "2026", "07", "18");
   mkdirSync(logRoot, { recursive: true });
@@ -208,6 +250,7 @@ export function latestAuthorityOperation(serviceRoot: string): AuthorityStoredOp
 }
 
 export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<{ readonly state?: string; readonly opId?: string }> {
+  if (!existsSync(operationPath(serviceRoot))) return [];
   const latest = new Map<string, { readonly state?: string; readonly opId?: string }>();
   for (const line of readFileSync(operationPath(serviceRoot), "utf8").trim().split("\n").filter(Boolean)) {
     const row = JSON.parse(line) as { readonly table?: string; readonly key?: string; readonly value?: { readonly state?: string; readonly opId?: string } };

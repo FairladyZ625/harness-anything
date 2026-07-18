@@ -39,6 +39,7 @@ import {
   createFixture,
   enablePresetAwareTaskCreate,
   git,
+  installProductionArtifactPreset,
   latestAuthorityOperation,
   writeColdCodexSessionLog
 } from "./fixture.ts";
@@ -48,6 +49,7 @@ import { verifyDerivedFactSource } from "./fact-source-parity.ts";
 import { authorityOperationShape } from "./operation-shape.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
+import { verifyProductionPresetIngress } from "./preset-ingress.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -61,6 +63,7 @@ test("production service route preserves progress dry-run and publishes canonica
   };
   try {
     enablePresetAwareTaskCreate(fixture.authoredRoot);
+    installProductionArtifactPreset(fixture.repoRoot);
     for (const [repoId, canonicalRoot] of [
       ["canonical", fixture.repoRoot],
       ["auxiliary", fixture.auxiliaryRoot]
@@ -86,6 +89,8 @@ test("production service route preserves progress dry-run and publishes canonica
       { timeoutMs: 20_000 }
     );
     assert.equal(status.repoCount, 2, JSON.stringify(status));
+
+    verifyProductionPresetIngress(fixture, env);
 
     verifyTypedMinimalParameterMatrix(fixture, env);
     verifyProductionCommandParity(fixture, env);

@@ -57,6 +57,7 @@ import { buildAuthorityPresetTaskCreateWrites, shouldUsePresetAwareNewTask } fro
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../commands/settings.ts";
 import { provenanceSessionAttemptIntent } from "./production-authority-provenance-session-intent.ts";
 import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent.ts";
+import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
 import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
 import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
 
@@ -107,7 +108,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
       }
       const executorAgentId = attribution.executor?.id ?? null;
       if (executorAgentId && !input.config.allowedExecutorAgentIds.includes(executorAgentId)
-        && !executorDerivedFromPreset(command, executorAgentId)) {
+        && !executorDerivedFromPresetScript(command, executorAgentId)) {
         throw new Error("AUTHORITY_EXECUTOR_NOT_SERVER_APPROVED");
       }
       const now = Date.now();
@@ -220,6 +221,10 @@ export function createProductionCanonicalAttemptCompiler(input: {
       assertTypedIngressAdapter(command.action.kind, "task-claim");
       return compileIntent(command, attribution, currentSession, operation.entityId,
         taskClaimAttemptIntent(command, attribution, currentSession, operation));
+    },
+    compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        productionScriptIngestAttemptIntent(command, operation, input.authoredRoot));
     }
   };
 }
@@ -584,10 +589,4 @@ export function createProductionCanonicalSemanticState(authoredRoot: string) {
       } : null;
     }
   };
-}
-
-function executorDerivedFromPreset(command: ParsedCommand, executorAgentId: string): boolean {
-  const action = command.action;
-  return action.kind === "preset-entrypoint"
-    && executorAgentId === `preset:${action.presetId}`;
 }

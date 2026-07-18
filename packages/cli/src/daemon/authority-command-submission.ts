@@ -51,6 +51,12 @@ export interface DaemonAuthorityAttemptCompilerV2 {
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
+  readonly compileScriptIngest?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export interface DaemonAuthorityCommandSubmissionV2 {
@@ -73,6 +79,12 @@ export interface DaemonAuthorityCommandSubmissionV2 {
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitTaskClaim?: (input: {
+    readonly command: ParsedCommand;
+    readonly attribution: CliActorAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly operation: WriteOp;
+  }) => Promise<AuthorityOperationReceipt>;
+  readonly submitScriptIngest?: (input: {
     readonly command: ParsedCommand;
     readonly attribution: CliActorAttribution;
     readonly currentSession: CurrentSessionRef;
@@ -117,6 +129,10 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     ...(options.attemptCompiler.compileTaskClaim ? {
       submitTaskClaim: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileTaskClaim"]>>[0]) =>
         submitAttempt(await compileAttempt(() => options.attemptCompiler.compileTaskClaim!(input)))
+    } : {}),
+    ...(options.attemptCompiler.compileScriptIngest ? {
+      submitScriptIngest: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileScriptIngest"]>>[0]) =>
+        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileScriptIngest!(input)))
     } : {})
   };
 }
@@ -208,7 +224,13 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (taskClaim && !submission.submitTaskClaim) {
           throw authorityWriteRejected("AUTHORITY_TASK_CLAIM_SUBMISSION_UNAVAILABLE");
         }
-        settled ??= provenanceSession
+        const scriptIngest = pending.kind === "script_ingest";
+        if (scriptIngest && !submission.submitScriptIngest) {
+          throw authorityWriteRejected("AUTHORITY_SCRIPT_SCOPE_SUBMISSION_UNAVAILABLE");
+        }
+        settled ??= scriptIngest
+          ? submission.submitScriptIngest!({ ...input, operation: pending })
+          : provenanceSession
           ? submission.submitProvenanceSession!({ ...input, operation: pending })
           : decisionTransition
             ? submission.submitDecisionTransition!({ ...input, operation: pending })
