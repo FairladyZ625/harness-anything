@@ -22,6 +22,7 @@ import {
   type InteractiveWriteRequest
 } from "./daemon-runtime-queue.ts";
 import { waitForDaemonQueueIdle } from "./daemon-drain.ts";
+import { makeDeferredAuthorityCoordinator } from "./daemon-runtime-authority-coordinator.ts";
 import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
 import type { OperationalActor } from "./write-journal-types.ts";
@@ -431,31 +432,13 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
   }): WriteCoordinator {
     this.requireAttached();
-    const pending: InteractiveWriteRequest["ops"][number][] = [];
-    const projectionWrites: Array<ReturnType<DaemonProjectionGenerationManager["beginCanonicalWrite"]>> = [];
-    return {
-      enqueue: (op) => Effect.sync(() => {
+    return makeDeferredAuthorityCoordinator({
+      beginProjectionWrite: (op) => {
         const touchedPaths = writeOpTouchedPaths(this.runtimeContext, op);
-        const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
-        projectionWrites.push(projectionWrite);
-        pending.push(op);
-        return { opId: op.opId, entityId: op.entityId, accepted: true as const };
-      }),
-      flush: (reason) => {
-        if (pending.length === 0) return Effect.succeed({ reason, opCount: 0, committed: false });
-        const ops = pending.splice(0, pending.length);
-        const coordinator = this.makeStartedCoordinator(this.requireAttached(), input);
-        return Effect.forEach(ops, (op) => coordinator.enqueue(op), { discard: true }).pipe(
-          Effect.flatMap(() => coordinator.flush(reason)),
-          Effect.ensuring(Effect.sync(() => {
-            for (const projectionWrite of projectionWrites.splice(0, projectionWrites.length)) {
-              projectionWrite.settle();
-            }
-          }))
-        );
+        return this.projectionGeneration.beginCanonicalWrite(touchedPaths);
       },
-      recover: Effect.suspend(() => this.makeStartedCoordinator(this.requireAttached(), input).recover)
-    };
+      makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireAttached(), input)
+    });
   }
 
   async assertWriteFenceHeld(): Promise<void> {
