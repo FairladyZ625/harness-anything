@@ -36,11 +36,13 @@ import {
   authorityEventBodies,
   authorityOperationRecords,
   createFixture,
+  enablePresetAwareTaskCreate,
   git,
-  latestAuthorityOperation
+  latestAuthorityOperation,
+  writeColdCodexSessionLog
 } from "./fixture.ts";
 
-test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 60_000 }, async () => {
+test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 90_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
@@ -51,6 +53,7 @@ test("production service route preserves progress dry-run and publishes canonica
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
   };
   try {
+    enablePresetAwareTaskCreate(fixture.authoredRoot);
     for (const [repoId, canonicalRoot] of [
       ["canonical", fixture.repoRoot],
       ["auxiliary", fixture.auxiliaryRoot]
@@ -114,9 +117,13 @@ test("production service route preserves progress dry-run and publishes canonica
     git(fixture.authoredRoot, "diff", "--quiet", publication.commitSha, publication.parentCommits[1]!);
     assert.equal(dryRunHeadAfter, dryRunHead, "typed service dry-run must not create a commit");
 
+    const bareSessionId = "service-task-create-session";
+    writeColdCodexSessionLog(fixture.repoRoot, bareSessionId);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `sessions/${bareSessionId}.md`)), false);
+    const beforeColdBare = authorityOperationRecords(fixture.serviceRoot).length;
     const created = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "create", "--title", "Service route task create"
-    ], { ...env, CODEX_THREAD_ID: "service-task-create-session" });
+    ], { ...env, CODEX_THREAD_ID: bareSessionId });
     assert.equal(created.status, 0, JSON.stringify(created.receipt));
     assert.equal(created.receipt.ok, true, JSON.stringify(created.receipt));
     const createDetails = (created.receipt.details as { readonly data?: Record<string, unknown> } | undefined)?.data ?? {};
@@ -134,10 +141,24 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(createPublication.commitSha, createOperation.commitSha);
     assert.equal(createPublication.physicalChanges.filter((change) => change.path.startsWith("attribution-events/")).length, 1);
     assert.equal(authorityEventBodies(fixture.authoredRoot).filter((body) => body.includes(createOperation.opId!)).length, 1);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `sessions/${bareSessionId}.md`)), true);
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeColdBare + 2, "cold bare create must commit session.export then task.create");
 
+    const beforeHotBare = authorityOperationRecords(fixture.serviceRoot).length;
+    const hotCreated = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "create", "--title", "Service route hot-session task create"
+    ], { ...env, CODEX_THREAD_ID: bareSessionId });
+    assert.equal(hotCreated.status, 0, JSON.stringify(hotCreated.receipt));
+    assert.equal(hotCreated.receipt.ok, true, JSON.stringify(hotCreated.receipt));
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeHotBare + 1, "hot bare create must commit only task.create");
+
+    const presetSessionId = "service-preset-task-create-session";
+    writeColdCodexSessionLog(fixture.repoRoot, presetSessionId);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `sessions/${presetSessionId}.md`)), false);
+    const beforeColdPreset = authorityOperationRecords(fixture.serviceRoot).length;
     const presetCreated = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "create", "--title", "Service route preset task", "--preset", "docs-task", "--locale", "en-US"
-    ], { ...env, CODEX_THREAD_ID: "service-preset-task-create-session" });
+    ], { ...env, CODEX_THREAD_ID: presetSessionId });
     assert.equal(presetCreated.status, 0, JSON.stringify(presetCreated.receipt));
     assert.equal(presetCreated.receipt.ok, true, JSON.stringify(presetCreated.receipt));
     const presetDetails = (presetCreated.receipt.details as { readonly data?: Record<string, unknown> } | undefined)?.data ?? {};
@@ -151,6 +172,16 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(presetOperation.state, "COMMITTED", JSON.stringify(presetOperation));
     assert.equal(presetOperation.receipt?.tag, "COMMITTED", JSON.stringify(presetOperation));
     assert.equal(authorityEventBodies(fixture.authoredRoot).filter((body) => body.includes(presetOperation.opId!)).length, 1);
+    assert.equal(existsSync(path.join(fixture.authoredRoot, `sessions/${presetSessionId}.md`)), true);
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeColdPreset + 2, "cold preset create must commit session.export then task.create");
+
+    const beforeHotPreset = authorityOperationRecords(fixture.serviceRoot).length;
+    const hotPresetCreated = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "create", "--title", "Service route hot-session preset task", "--preset", "docs-task", "--locale", "en-US"
+    ], { ...env, CODEX_THREAD_ID: presetSessionId });
+    assert.equal(hotPresetCreated.status, 0, JSON.stringify(hotPresetCreated.receipt));
+    assert.equal(hotPresetCreated.receipt.ok, true, JSON.stringify(hotPresetCreated.receipt));
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeHotPreset + 1, "hot preset create must commit only task.create");
 
     const concurrentSessionId = "service-interleaved-shared-session";
     const interleaved = await Promise.all(Array.from({ length: 6 }, (_, index) => runRawJsonAsync(fixture.repoRoot, [
