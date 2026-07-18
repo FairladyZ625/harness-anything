@@ -16,7 +16,7 @@ import {
   runDaemonCommand,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
-import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
+import { createFixture, git } from "./production-authority-canonical-ingress/fixture.ts";
 
 test("production service upgrades a pre-domain mixed journal before canonical attach", { timeout: 60_000 }, async () => {
   const fixture = createFixture();
@@ -29,6 +29,8 @@ test("production service upgrades a pre-domain mixed journal before canonical at
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
   };
   try {
+    git(fixture.authoredRoot, "config", "user.name", "Harness Upgrade Test");
+    git(fixture.authoredRoot, "config", "user.email", "harness-upgrade@example.test");
     seedPreDomainJournal(fixture.repoRoot);
     const registered = runDaemonCommand(fixture.repoRoot, [
       "daemon", "repo", "register", "--repo-id", "canonical", "--canonical-root", fixture.repoRoot,
@@ -53,6 +55,7 @@ test("production service upgrades a pre-domain mixed journal before canonical at
     assert.equal(status.reachable, true, JSON.stringify(status));
     assert.equal(readFileSync(path.join(fixture.authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/upgrade.md"), "utf8"), "authority upgraded\n");
     assert.match(readFileSync(path.join(fixture.repoRoot, ".harness/generated/runtime-events/upgrade.jsonl"), "utf8"), /evt-upgrade/u);
+    assert.match(git(fixture.authoredRoot, "log", "-2", "--format=%B"), /Harness-Authority-Batch:/u);
     assert.equal(readFileSync(path.join(fixture.repoRoot, ".harness/write-journal/writes.jsonl"), "utf8"), "");
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
