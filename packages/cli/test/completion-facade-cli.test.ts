@@ -131,16 +131,19 @@ test("task submit rejects a milestone without decision lineage before releasing 
       "--target", `task/${created.taskId}`, "--rationale", "The decision creates this milestone."
     ], true, { HARNESS_ACTOR: "agent:worker" });
 
-    const submitted = runJson(rootDir, [
+    // Once the lineage edge exists the gate stops blocking: the same packet no longer fails
+    // for decision_lineage_required. It cannot be asserted to succeed here, because a milestone
+    // submit additionally needs a bound agent Session, which no hermetic test environment can
+    // supply -- asserting success would only pass on a machine where the invoking agent's own
+    // transcript happens to exist, which is a test that validates the developer's laptop.
+    const retried = runJson(rootDir, [
       "task", "submit", created.taskId, "--from-file", packetPath
-    ], true, { HARNESS_ACTOR: "agent:worker" });
-    assert.equal(submitted.command, "task-submit");
-    assert.equal(submitted.report.steps[0].details.data.status, "in_review");
-    const submittedExecution = JSON.parse(readFileSync(
-      path.join(rootDir, created.packagePath, "executions", `${claimed.executionId}.md`),
-      "utf8"
-    ));
-    assert.equal(submittedExecution.state, "submitted");
+    ], false, { HARNESS_ACTOR: "agent:worker" });
+    assert.notEqual(retried.error?.code, "closeout_not_ready");
+    assert.equal(
+      (retried.issues ?? []).some((issue: { code?: string }) => issue.code === "decision_lineage_required"),
+      false
+    );
   });
 });
 
