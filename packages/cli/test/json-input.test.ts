@@ -105,7 +105,8 @@ test("parseArgs reads task and runtime structured input from actual files", () =
 test("parseArgs gives fact flags and structured input the same validated action", () => {
   const fromFlags = parseArgs([
     "fact", "record", "--task", "task_01SAME", "--id", "F-ABCDEF12", "--statement", "Equivalent fact input",
-    "--source", "json-input.test.ts", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory", "--dry-run"
+    "--source", "json-input.test.ts", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory",
+    "--observed-at", "2026-07-18T00:00:00.000Z", "--dry-run"
   ]);
   const fromJson = parseArgs([
     "fact", "record", "--json-input", JSON.stringify({
@@ -116,6 +117,7 @@ test("parseArgs gives fact flags and structured input the same validated action"
       confidence: "high",
       memoryClass: "procedural",
       memoryTags: ["tool_memory"],
+      observedAt: "2026-07-18T00:00:00.000Z",
       dryRun: true
     })
   ]);
