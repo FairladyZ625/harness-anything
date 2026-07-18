@@ -17,6 +17,7 @@ import {
   resolveHarnessLayout,
   stableStringify,
   type DaemonAdmissionBudget,
+  type FlushReport,
   type WriteAttribution,
   type WriteCoordinator
 } from "../../../kernel/src/index.ts";
@@ -113,6 +114,13 @@ export interface AuthorityLifecycleRuntime {
       readonly status: "merged" | "would_merge" | "skipped" | "conflict";
       readonly warning?: string;
     }>;
+  }>;
+  readonly enqueueAuthorityPublication: (options: {
+    readonly sessionId: string;
+    readonly publish: () => Promise<FlushReport>;
+  }) => Promise<{
+    readonly flush: FlushReport;
+    readonly materialization?: Awaited<ReturnType<AuthorityLifecycleRuntime["enqueueMaterializerBatch"]>>;
   }>;
   readonly admissionBudget: DaemonAdmissionBudget;
 }
@@ -298,11 +306,15 @@ export function makeHeldLockAttributedCoordinatorFactory(
       const shared: WriteCoordinator = {
         enqueue: coordinator.enqueue,
         flush: (reason) => Effect.ensuring(
-          coordinator.flush(reason).pipe(Effect.flatMap((report) => Effect.tryPromise({
+          Effect.tryPromise({
             try: async () => {
+              const publication = await runtime.enqueueAuthorityPublication({
+                sessionId,
+                publish: () => Effect.runPromise(coordinator.flush(reason))
+              });
+              const { flush: report, materialization: materialized } = publication;
               if (!report.committed || report.opCount === 0) return report;
-              const materialized = await runtime.enqueueMaterializerBatch({ sessionId });
-              const branch = materialized.branches.find((entry) => entry.branch === `sessions/${sessionId}`);
+              const branch = materialized?.branches.find((entry) => entry.branch === `sessions/${sessionId}`);
               if (!branch || branch.commitCount === 0 || branch.status !== "merged") {
                 throw new Error(
                   `AUTHORITY_SESSION_MATERIALIZATION_FAILED:sessionId=${sessionId};status=${branch?.status ?? "missing"};commitCount=${branch?.commitCount ?? 0};warning=${branch?.warning ?? "none"}`
@@ -311,7 +323,7 @@ export function makeHeldLockAttributedCoordinatorFactory(
               return report;
             },
             catch: (cause) => ({ _tag: "JournalUnavailable" as const, cause: diagnosticCause(cause) })
-          }))),
+          }),
           Effect.sync(() => {
             if (active.get(key) === shared) active.delete(key);
           })

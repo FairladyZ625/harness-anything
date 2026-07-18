@@ -56,6 +56,41 @@ test("daemon materializer producer runs bounded batches under the lifetime globa
   });
 });
 
+test("authority publication materializes its session before a queued timer batch can observe it", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({ rootDir, materializerPollMs: false });
+    await runtime.start();
+    const coordinator = runtime.createAttributedCoordinator({
+      attribution: testAttribution,
+      sessionId: "authority-atomic-materialization"
+    });
+    let competingMaterializer: ReturnType<typeof runtime.enqueueMaterializerBatch> | undefined;
+
+    const publication = await runtime.enqueueAuthorityPublication({
+      sessionId: "authority-atomic-materialization",
+      publish: async () => {
+        Effect.runSync(coordinator.enqueue(docWrite(
+          "op-authority-atomic",
+          "task-authority-atomic",
+          "note.md",
+          "authority\n"
+        )));
+        const flush = Effect.runSync(coordinator.flush("explicit"));
+        competingMaterializer = runtime.enqueueMaterializerBatch();
+        return flush;
+      }
+    });
+    const competing = await competingMaterializer!;
+
+    assert.equal(publication.materialization?.branches[0]?.status, "merged");
+    assert.equal(publication.materialization?.branches[0]?.commitCount, 1);
+    assert.equal(competing.merged, 0);
+    assert.equal(readGitFile(rootDir, "tasks/task-authority-atomic/note.md"), "authority\n");
+    await runtime.stop();
+  });
+});
+
 test("daemon status exposes materializer merge conflicts", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);

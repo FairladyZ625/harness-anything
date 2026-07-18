@@ -23,6 +23,13 @@ import {
 } from "./daemon-runtime-queue.ts";
 import { waitForDaemonQueueIdle } from "./daemon-drain.ts";
 import { makeDeferredAuthorityCoordinator } from "./daemon-runtime-authority-coordinator.ts";
+import {
+  enqueueDaemonAuthorityPublication,
+  type DaemonAuthorityPublicationOptions,
+  type DaemonAuthorityPublicationReport
+} from "./daemon-runtime-authority-publication.ts";
+import type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
+export type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
 import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
 import type { OperationalActor } from "./write-journal-types.ts";
@@ -87,6 +94,7 @@ export interface HarnessDaemonRuntime {
   readonly enqueueInteractiveWrite: (request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
   readonly enqueueBackgroundBatch: <Result>(request: BackgroundBatchRequest<Result>) => Promise<Result>;
   readonly enqueueMaterializerBatch: (options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
+  readonly enqueueAuthorityPublication: (options: DaemonAuthorityPublicationOptions) => Promise<DaemonAuthorityPublicationReport>;
   readonly queryExecutionEvidencePage: (query: ExecutionEvidencePageQuery) => Promise<ExecutionEvidencePage>;
   /** Authority/application port backed by this runtime's current held global lock. */
   readonly createAttributedCoordinator: (input: {
@@ -98,13 +106,6 @@ export interface HarnessDaemonRuntime {
   readonly admissionBudget: DaemonAdmissionBudget;
 }
 
-export interface DaemonMaterializerBatchOptions {
-  readonly dryRun?: boolean;
-  readonly sessionId?: string;
-}
-export interface DaemonDrainOptions {
-  readonly drainTimeoutMs?: number;
-}
 export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
 
 export interface DaemonRepoRuntimeOptions extends DaemonRuntimeOptions {
@@ -155,6 +156,7 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     enqueueInteractiveWrite: (request) => context.enqueueInteractiveWrite(request),
     enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
     enqueueMaterializerBatch: (batchOptions) => context.enqueueMaterializerBatch(batchOptions),
+    enqueueAuthorityPublication: (publication) => context.enqueueAuthorityPublication(publication),
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
     createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
     assertWriteFenceHeld: () => context.assertWriteFenceHeld(),
@@ -395,28 +397,22 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     return this.enqueueBackgroundBatch({
       source: "ledger-materializer",
       priority: "background",
-      run: () => {
-        const started = this.requireAttached();
-        const report = runLedgerMaterializer(this.runtimeContext, {
-          heldGlobalLock: started.lock,
-          ...(batchOptions.dryRun ? { dryRun: true } : {}),
-          ...(batchOptions.sessionId
-            ? { sessionId: batchOptions.sessionId }
-            : { maxBranches: this.materializerMaxBranchesPerBatch })
-        });
-        if (report.projectionRebuilt) {
-          this.projectionGeneration.invalidate();
-        }
-        if (report.warnings.length > 0) {
-          this.lastMaterializerError = report.warnings.join("; ");
-        } else if (!batchOptions.sessionId) {
-          this.lastMaterializerError = undefined;
-        }
-        return report;
-      }
+      run: () => this.runMaterializerBatch(batchOptions)
     }).catch((error: unknown) => {
       this.lastMaterializerError = describeError(error);
       this.projectionGeneration.invalidate();
+      throw error;
+    });
+  }
+
+  enqueueAuthorityPublication(options: DaemonAuthorityPublicationOptions): Promise<DaemonAuthorityPublicationReport> {
+    this.requireAttached();
+    return enqueueDaemonAuthorityPublication(
+      this.queue,
+      options,
+      (sessionId) => this.runMaterializerBatch({ sessionId })
+    ).catch((error: unknown) => {
+      this.lastError = describeError(error);
       throw error;
     });
   }
@@ -482,6 +478,24 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       void this.enqueueMaterializerBatch().catch(() => undefined);
     }, this.options.materializerPollMs);
     this.materializerTimer.unref();
+  }
+
+  private runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): LedgerMaterializerReport {
+    const started = this.requireAttached();
+    const report = runLedgerMaterializer(this.runtimeContext, {
+      heldGlobalLock: started.lock,
+      ...(batchOptions.dryRun ? { dryRun: true } : {}),
+      ...(batchOptions.sessionId
+        ? { sessionId: batchOptions.sessionId }
+        : { maxBranches: this.materializerMaxBranchesPerBatch })
+    });
+    if (report.projectionRebuilt) this.projectionGeneration.invalidate();
+    if (report.warnings.length > 0) {
+      this.lastMaterializerError = report.warnings.join("; ");
+    } else if (!batchOptions.sessionId) {
+      this.lastMaterializerError = undefined;
+    }
+    return report;
   }
 
   private enqueueReservationReconciler(): Promise<void> {

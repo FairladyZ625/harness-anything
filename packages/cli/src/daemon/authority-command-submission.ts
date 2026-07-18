@@ -17,6 +17,7 @@ import type {
   WriteError,
   WriteOp
 } from "../../../kernel/src/index.ts";
+import { taskEntityId } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 
@@ -116,7 +117,10 @@ export function makeDaemonAuthorityWriteCoordinator(
     flush: (reason) => Effect.tryPromise({
       try: async (): Promise<FlushReport> => {
         if (!accepted) return { reason, opCount: 0, committed: false };
-        settled ??= submission.submit({ ...input, canonicalEntityId: accepted });
+        settled ??= submission.submit({
+          ...input,
+          canonicalEntityId: commandMainEntityId(input.command) ?? accepted
+        });
         const receipt = await settled;
         return receiptToFlushReport(receipt, reason);
       },
@@ -124,6 +128,13 @@ export function makeDaemonAuthorityWriteCoordinator(
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
   };
+}
+
+function commandMainEntityId(command: ParsedCommand): WriteOp["entityId"] | undefined {
+  const action = command.action;
+  return action.kind === "new-task" && action.taskId
+    ? taskEntityId(action.taskId)
+    : undefined;
 }
 
 export class AuthorityProtocolDamagedError extends Error {

@@ -152,10 +152,11 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(presetOperation.receipt?.tag, "COMMITTED", JSON.stringify(presetOperation));
     assert.equal(authorityEventBodies(fixture.authoredRoot).filter((body) => body.includes(presetOperation.opId!)).length, 1);
 
-    const interleaved = await Promise.all(Array.from({ length: 4 }, (_, index) => runRawJsonAsync(fixture.repoRoot, [
+    const concurrentSessionId = "service-interleaved-shared-session";
+    const interleaved = await Promise.all(Array.from({ length: 6 }, (_, index) => runRawJsonAsync(fixture.repoRoot, [
       "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
       "--text", `interleaved authority and runtime event ${index}`
-    ], { ...env, CODEX_THREAD_ID: `service-interleaved-${index}` })));
+    ], { ...env, CODEX_THREAD_ID: concurrentSessionId })));
     assert.equal(interleaved.every((receipt) => receipt.ok === true), true, JSON.stringify(interleaved));
     const settledOperations = authorityOperationRecords(fixture.serviceRoot);
     assert.equal(settledOperations.every((record) => record.state === "COMMITTED"), true, JSON.stringify(settledOperations));

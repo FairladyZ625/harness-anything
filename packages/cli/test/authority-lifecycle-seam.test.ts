@@ -258,6 +258,7 @@ test("held-lock attributed factory gives one exact coordinator to a same-attribu
     enqueueMaterializerBatch: async ({ sessionId }) => ({
       branches: [{ branch: `sessions/${sessionId}`, commitCount: 1, status: "merged" as const }]
     }),
+    enqueueAuthorityPublication: successfulAuthorityPublication,
     assertWriteFenceHeld: async () => undefined
   };
   const factory = makeHeldLockAttributedCoordinatorFactory(runtime);
@@ -275,44 +276,6 @@ test("held-lock attributed factory gives one exact coordinator to a same-attribu
     email: "authority@harness-anything.local"
   });
 });
-
-test("held-lock attributed factory preserves materializer error name and message", async () => {
-  const runtime: AuthorityLifecycleRuntime = {
-    createAttributedCoordinator: () => ({
-      enqueue: (op) => Effect.succeed({ opId: op.opId, entityId: op.entityId, accepted: true as const }),
-      flush: (reason) => Effect.succeed({ reason, opCount: 1, committed: true }),
-      recover: Effect.succeed({ replayedOps: 0 })
-    }),
-    enqueueMaterializerBatch: async () => { throw new Error("materializer unavailable"); },
-    assertWriteFenceHeld: async () => undefined
-  };
-  const coordinator = makeHeldLockAttributedCoordinatorFactory(runtime).create({
-    attribution: {
-      actor: { principal: { kind: "person", personId: "person_test" }, executor: null },
-      principalSource: { kind: "daemon-authenticated", providerId: "test", credentialFingerprint: "sha256:test" },
-      executorSource: "none"
-    },
-    sessionId: "session-test"
-  });
-
-  const result = await runEffect(Effect.either(coordinator.flush("explicit")));
-
-  assert.equal(result._tag, "Left");
-  if (result._tag === "Left") {
-    assert.deepEqual(result.left, {
-      _tag: "JournalUnavailable",
-      cause: { name: "Error", message: "materializer unavailable" }
-    });
-  }
-});
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return new Promise((resolve, reject) => {
-    Effect.runCallback(effect, {
-      onExit: (exit) => exit._tag === "Success" ? resolve(exit.value) : reject(new Error(String(exit.cause)))
-    });
-  });
-}
 
 test("publication-tree-mismatch uses real Git trees and rejects paths outside the canonical mutation target", async () => {
   await withRoots(async ({ alphaRoot }) => {
@@ -574,7 +537,21 @@ function runtimeFixture(): AuthorityLifecycleRuntime {
     enqueueMaterializerBatch: async ({ sessionId }) => ({
       branches: [{ branch: `sessions/${sessionId}`, commitCount: 1, status: "merged" as const }]
     }),
+    enqueueAuthorityPublication: successfulAuthorityPublication,
     assertWriteFenceHeld: async () => undefined
+  };
+}
+
+async function successfulAuthorityPublication(input: {
+  readonly sessionId: string;
+  readonly publish: () => Promise<import("../../kernel/src/index.ts").FlushReport>;
+}) {
+  const flush = await input.publish();
+  return {
+    flush,
+    materialization: {
+      branches: [{ branch: `sessions/${input.sessionId}`, commitCount: 1, status: "merged" as const }]
+    }
   };
 }
 

@@ -133,11 +133,19 @@ export function productionTuple() {
 
 export function productionWriterRuntime(authoredRoot: string) {
   const repoRoot = path.dirname(authoredRoot);
+  const materialize = ({ sessionId }: { readonly sessionId: string }) =>
+    defaultCliAdapterProvider().runLedgerMaterializer(repoRoot, { sessionId });
   return {
     createAttributedCoordinator: (input: Omit<Parameters<typeof makeJournaledWriteCoordinator>[0], "rootDir">) =>
       makeJournaledWriteCoordinator({ ...input, rootDir: repoRoot, autoMaterialize: false }),
-    enqueueMaterializerBatch: async ({ sessionId }: { readonly sessionId: string }) =>
-      defaultCliAdapterProvider().runLedgerMaterializer(repoRoot, { sessionId }),
+    enqueueMaterializerBatch: materialize,
+    enqueueAuthorityPublication: async (input: {
+      readonly sessionId: string;
+      readonly publish: () => Promise<import("../../../kernel/src/index.ts").FlushReport>;
+    }) => {
+      const flush = await input.publish();
+      return { flush, ...(flush.committed && flush.opCount > 0 ? { materialization: materialize(input) } : {}) };
+    },
     assertWriteFenceHeld: async () => undefined
   };
 }
