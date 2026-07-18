@@ -202,22 +202,155 @@ async function compileReview(
   const path = storagePath("review", { taskId: payload.taskId, reviewId: review.review_id });
   const snapshot = await state.readHostedDocument(path);
   if (snapshot) throw admission("REVIEW_ALREADY_EXISTS");
+  const companion = await reviewCompanionTransaction(state, payload);
   return {
     mutationPlan: plan([{
       entityKind: "review",
       identity: { taskId: payload.taskId, reviewId: review.review_id },
       action
-    }]),
+    }, ...companion.mutations]),
     operation: declaredDocumentOperation(
       "review",
       review.review_id,
       reviewDeclaration,
       { taskId: payload.taskId, reviewId: review.review_id },
-      reviewDeclaration.documentCodec.encode(review)
+      reviewDeclaration.documentCodec.encode(review),
+      undefined,
+      companion.transaction
     ),
-    requiredBaseRefs: [ref("review", `review/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(review.review_id)}`)],
-    requiredPathSnapshots: []
+    requiredBaseRefs: [
+      ref("review", `review/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(review.review_id)}`),
+      ...companion.baseRefs
+    ],
+    requiredPathSnapshots: companion.pathSnapshots
   };
+}
+
+async function reviewCompanionTransaction(
+  state: SessionExecutionReviewAuthorityStateV2,
+  payload: ReviewActionPayloadV2
+): Promise<{
+  readonly mutations: RegistryMutationPlanInput["mutations"];
+  readonly baseRefs: ReadonlyArray<RegistryEntityRefV2>;
+  readonly pathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
+  readonly transaction?: {
+    readonly companionWrites: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
+    readonly preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string | null }>;
+  };
+}> {
+  const lifecycleChangesRequested = payload.schema === "review.create/v1"
+    && payload.review.verdict === "changes_requested";
+  if (!lifecycleChangesRequested) {
+    if (payload.execution !== undefined || payload.taskIndexBody !== undefined) {
+      throw admission("REVIEW_COMPANION_VERDICT_INVALID");
+    }
+    if (payload.schema === "review.dismiss/v1" && payload.review.verdict === "dismissed") {
+      return dismissedReviewCompanion(state, payload);
+    }
+    return { mutations: [], baseRefs: [], pathSnapshots: [] };
+  }
+  if (!payload.execution || payload.taskIndexBody === undefined) {
+    throw admission("REVIEW_CHANGES_REQUESTED_COMPANION_REQUIRED");
+  }
+  const executionId = payload.review.execution_ref.slice(`execution/${payload.taskId}/`.length);
+  if (!executionId || payload.execution.execution_id !== executionId) throw admission("REVIEW_EXECUTION_REF_MISMATCH");
+  const executionPath = storagePath("execution", { taskId: payload.taskId, executionId });
+  const executionSnapshot = await state.readHostedDocument(executionPath);
+  if (!executionSnapshot) throw admission("EXECUTION_DOCUMENT_NOT_FOUND");
+  const current = decodeExecutionDocument(executionSnapshot.body);
+  assertChangesRequestedExecution(current, payload.execution, payload.review.reviewed_at);
+  const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
+  const taskSnapshot = await state.readHostedDocument(taskPath);
+  if (!taskSnapshot) throw admission("REVIEW_TASK_DOCUMENT_NOT_FOUND");
+  const activeBody = taskSnapshot.body.replace(/^(  status:\s*)in_review$/mu, "$1active");
+  if (!/^  status:\s*in_review$/mu.test(taskSnapshot.body)
+    || (payload.taskIndexBody !== activeBody && payload.taskIndexBody !== taskSnapshot.body)) {
+    throw admission("REVIEW_CHANGES_REQUESTED_TASK_TRANSITION_INVALID");
+  }
+  const taskChanges = payload.taskIndexBody !== taskSnapshot.body;
+  return {
+    mutations: [{
+      entityKind: "execution", identity: { taskId: payload.taskId, executionId }, action: "close"
+    }, ...(taskChanges ? [{
+      entityKind: "task", identity: { taskId: payload.taskId }, action: "transition",
+      storageContext: { documentPath: "INDEX.md" }
+    }] : [])],
+    baseRefs: [
+      ref("execution", `execution/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(executionId)}`),
+      ref("task", `task/${payload.taskId}`)
+    ],
+    pathSnapshots: [
+      { path: executionPath, snapshot: executionSnapshot },
+      { path: taskPath, snapshot: taskSnapshot }
+    ],
+    transaction: {
+      companionWrites: [
+        { taskId: payload.taskId, path: `executions/${executionId}.md`, body: executionDeclaration.documentCodec.encode(payload.execution) },
+        { taskId: payload.taskId, path: "INDEX.md", body: payload.taskIndexBody }
+      ],
+      preconditions: [
+        { taskId: payload.taskId, path: executionPath.slice(`tasks/${encodeURIComponent(payload.taskId)}/`.length), bodySha256: sha256Text(executionSnapshot.body) },
+        { taskId: payload.taskId, path: `reviews/${payload.review.review_id}.md`, bodySha256: null },
+        { taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) }
+      ]
+    }
+  };
+}
+
+async function dismissedReviewCompanion(
+  state: SessionExecutionReviewAuthorityStateV2,
+  payload: ReviewActionPayloadV2
+): Promise<{
+  readonly mutations: RegistryMutationPlanInput["mutations"];
+  readonly baseRefs: ReadonlyArray<RegistryEntityRefV2>;
+  readonly pathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
+  readonly transaction: {
+    readonly companionWrites: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
+    readonly preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string | null }>;
+  };
+}> {
+  const executionId = payload.review.execution_ref.slice(`execution/${payload.taskId}/`.length);
+  if (!executionId) throw admission("REVIEW_EXECUTION_REF_MISMATCH");
+  const executionPath = storagePath("execution", { taskId: payload.taskId, executionId });
+  const executionSnapshot = await state.readHostedDocument(executionPath);
+  if (!executionSnapshot) throw admission("EXECUTION_DOCUMENT_NOT_FOUND");
+  const execution = decodeExecutionDocument(executionSnapshot.body);
+  if (execution.execution_id !== executionId || execution.state !== "submitted") {
+    throw admission("REVIEW_EXECUTION_NOT_SUBMITTED");
+  }
+  const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
+  const taskSnapshot = await state.readHostedDocument(taskPath);
+  if (!taskSnapshot || !/^  status:\s*in_review$/mu.test(taskSnapshot.body)) {
+    throw admission("REVIEW_TASK_NOT_IN_REVIEW");
+  }
+  return {
+    mutations: [],
+    baseRefs: [
+      ref("execution", `execution/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(executionId)}`),
+      ref("task", `task/${payload.taskId}`)
+    ],
+    pathSnapshots: [
+      { path: executionPath, snapshot: executionSnapshot },
+      { path: taskPath, snapshot: taskSnapshot }
+    ],
+    transaction: {
+      companionWrites: [{ taskId: payload.taskId, path: "INDEX.md", body: taskSnapshot.body }],
+      preconditions: [
+        { taskId: payload.taskId, path: `executions/${executionId}.md`, bodySha256: sha256Text(executionSnapshot.body) },
+        { taskId: payload.taskId, path: `reviews/${payload.review.review_id}.md`, bodySha256: null },
+        { taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) }
+      ]
+    }
+  };
+}
+
+function assertChangesRequestedExecution(current: ExecutionRecord, next: ExecutionRecord, reviewedAt: string): void {
+  assertSameExecution(current, next);
+  if (current.state !== "submitted" || next.state !== "changes_requested" || next.closed_at !== reviewedAt
+    || next.submitted_at !== current.submitted_at || !same(current.session_bindings, next.session_bindings)
+    || !same(current.outputs, next.outputs) || !same(current.submission, next.submission)) {
+    throw admission("REVIEW_CHANGES_REQUESTED_EXECUTION_INVALID");
+  }
 }
 
 function assertSessionBody(manifest: SessionManifest, body: string): void {

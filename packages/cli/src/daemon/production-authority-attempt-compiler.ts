@@ -462,24 +462,6 @@ async function canonicalAttemptIntent(
     const entity = ref("session", `session/${action.sessionId}`);
     return canonicalIntent("session.export", encodeSessionExecutionReviewCommandPayloadV2(payload), [{ entity, action: "export" }], [entity], [`sessions/${action.sessionId}.md`, `objects/sha256/${digest.slice(0, 2)}/${digest.slice(2)}`], `entity/session/${action.sessionId}`);
   }
-  if (action.kind === "task-review-execution" && !action.consentId && action.verdict !== "approved") {
-    const reviewId = canonicalEntityId.replace(/^(?:entity\/)?review\//u, "");
-    const payload: SessionExecutionReviewCommandPayloadV2 = {
-      schema: action.verdict === "dismissed" ? "review.dismiss/v1" : "review.create/v1",
-      taskId: action.taskId,
-      review: {
-        schema: "review/v3", review_id: reviewId, task_ref: `task/${action.taskId}`,
-        execution_ref: `execution/${action.taskId}/${action.executionId}`, reviewer_actor: executionActor,
-        reviewer_session_ref: `session/${currentSession.sessionId}`, findings: action.findings,
-        evidence_checked: action.evidenceChecked, rationale: action.rationale, verdict: action.verdict,
-        archive_warnings_acknowledged: action.archiveWarningsAcknowledged,
-        reviewed_at: currentSession.detectedAt, approval_basis: null
-      }
-    };
-    const mutationAction = action.verdict === "dismissed" ? "dismiss" : "create";
-    const entity = ref("review", `review/${action.taskId}/${reviewId}`);
-    return canonicalIntent(`review.${mutationAction}`, encodeSessionExecutionReviewCommandPayloadV2(payload), [{ entity, action: mutationAction }], [entity], [`tasks/${action.taskId}/reviews/${reviewId}.md`], canonicalEntityId);
-  }
   if (action.kind === "task-consent-record") {
     const consentId = canonicalEntityId.replace(/^(?:entity\/)?consent\//u, "");
     const executionPath = `tasks/${action.taskId}/executions/${action.executionId}.md`;
@@ -496,7 +478,7 @@ async function canonicalAttemptIntent(
       declaredPathCas: [{ path: executionPath, ...snapshot.cas }]
     };
   }
-  return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot });
+  return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot, actor: executionActor });
 }
 
 function canonicalIntent(

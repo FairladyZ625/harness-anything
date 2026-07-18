@@ -43,7 +43,7 @@ import {
   writeColdCodexSessionLog
 } from "./fixture.ts";
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
-import { verifyDecisionProposeParity } from "./propose-parity.ts";
+import { verifyProductionCommandParity } from "./production-parity.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 120_000 }, async () => {
   const fixture = createFixture();
@@ -83,7 +83,7 @@ test("production service route preserves progress dry-run and publishes canonica
     );
     assert.equal(status.repoCount, 2, JSON.stringify(status));
 
-    verifyDecisionProposeParity(fixture, env);
+    verifyProductionCommandParity(fixture, env);
 
     const decisionId = "dec_01KXQ4WTA7Q4XJ5GDDRS1YXND9";
     const proposed = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -495,12 +495,12 @@ test("production generic canonical ingress accepts and journals one write for ev
     }, {
       kind: "review",
       action: {
-        kind: "task-review-execution", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
-        verdict: "changes_requested", findings: "Ingress review coverage.", evidenceChecked: ["journal"],
-        rationale: "A non-approved review exercises the standalone review compiler.", archiveWarningsAcknowledged: true
+        kind: "task-review-execution", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH2", executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH3",
+        verdict: "dismissed", findings: "Ingress review coverage.", evidenceChecked: ["journal"],
+        rationale: "A dismissed review exercises the standalone review compiler.", archiveWarningsAcknowledged: true
       },
       canonicalEntityId: "review/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2" as EntityId,
-      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/reviews/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2.md",
+      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNH2/reviews/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2.md",
       authoredMarker: /rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2/u
     }, {
       kind: "consent",
