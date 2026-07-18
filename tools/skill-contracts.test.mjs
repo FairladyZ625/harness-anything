@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,25 +16,33 @@ test("repository skills are discoverable with agent metadata", () => {
     .sort();
 
   assert.deepEqual(skillNames, [
-    "decision",
-    "decisions",
     "graph-panorama",
     "harness-install",
     "preset-creator",
     "preset-trigger",
     "vertical-creator",
   ]);
-  for (const skillName of ["decision", "decisions", "graph-panorama", "harness-install", "preset-trigger"]) {
+  for (const skillName of ["graph-panorama", "harness-install", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }
 });
 
-test("runtime skill sync links every repository skill into project runtime dirs", () => {
+test("runtime skill sync links current skills and prunes retired managed links", () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-runtime-skills-"));
   try {
     const sourceSkills = path.join(repoRoot, "skills");
     symlinkSync(sourceSkills, path.join(tempRoot, "skills"), "dir");
+    const retiredSkillNames = ["decision", "decisions"];
+
+    for (const targetDir of runtimeSkillTargetDirs) {
+      const targetRoot = path.join(tempRoot, targetDir);
+      mkdirSync(targetRoot, { recursive: true });
+      for (const skillName of retiredSkillNames) {
+        const source = path.join(tempRoot, "skills", skillName);
+        symlinkSync(path.relative(targetRoot, source), path.join(targetRoot, skillName), "dir");
+      }
+    }
 
     const result = syncRuntimeSkills({ repoRoot: tempRoot });
     const skillNames = readdirSync(sourceSkills, { withFileTypes: true })
@@ -44,6 +52,10 @@ test("runtime skill sync links every repository skill into project runtime dirs"
 
     assert.deepEqual(result.skillNames, skillNames);
     assert.deepEqual(result.targetDirs, runtimeSkillTargetDirs);
+    assert.deepEqual(
+      result.pruned,
+      runtimeSkillTargetDirs.flatMap((targetDir) => retiredSkillNames.map((skillName) => `${targetDir}/${skillName}`)),
+    );
 
     for (const targetDir of runtimeSkillTargetDirs) {
       for (const skillName of skillNames) {
@@ -51,22 +63,12 @@ test("runtime skill sync links every repository skill into project runtime dirs"
         assert.equal(lstatSync(link).isSymbolicLink(), true, `${targetDir}/${skillName}`);
         assert.equal(path.resolve(path.dirname(link), readlinkSync(link)), path.join(tempRoot, "skills", skillName));
       }
+      for (const skillName of retiredSkillNames) {
+        assert.throws(() => lstatSync(path.join(tempRoot, targetDir, skillName)), { code: "ENOENT" });
+      }
     }
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test("decision skills are thin CLI triggers and do not instruct direct markdown writes", () => {
-  for (const skillName of ["decision", "decisions"]) {
-    const body = readFileSync(path.join(skillsRoot, skillName, "SKILL.md"), "utf8");
-
-    assert.match(body, new RegExp(`name: ${skillName}`, "u"), skillName);
-    assert.match(body, /npx ha decision propose/u, skillName);
-    assert.match(body, /npx ha decision transition active/u, skillName);
-    assert.match(body, /WriteCoordinator/u, skillName);
-    assert.match(body, /Do not edit, create, patch, append, or rewrite/u, skillName);
-    assert.doesNotMatch(body, /\bwriteFileSync\b|\bfs\.write|\bapply_patch\b|cat\s*>\s*.+decision\.md|tee\s+.+decision\.md/u, skillName);
   }
 });
 

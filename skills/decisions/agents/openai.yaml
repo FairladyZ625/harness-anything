@@ -1,4 +1,0 @@
-interface:
-  display_name: "Decisions"
-  short_description: "Review a conversational decision queue through the CLI"
-  default_prompt: "Walk through decision candidates one at a time by using the Harness Anything decision CLI. Do not edit markdown directly."
