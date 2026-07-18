@@ -119,6 +119,11 @@ export function createProductionAuthorityLifecycle(input: {
           rootDir: repo.canonicalRoot,
           ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
         });
+      const authoredRoot = resolveHarnessLayout({
+        rootDir: repo.canonicalRoot,
+        ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
+      }).authoredRoot;
+      const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
         eventLog,
         observation: {
@@ -157,7 +162,8 @@ export function createProductionAuthorityLifecycle(input: {
         replicaChangeLog: state.replicaChangeLog,
         operationRegistry: state.operationRegistry,
         bindingRuntime,
-        eventLog
+        eventLog,
+        publicationInspector
       });
       materials.set(repo.repoId, {
         config,
@@ -171,11 +177,6 @@ export function createProductionAuthorityLifecycle(input: {
         configurationDigest: authorityManifestSourceDigest(input.manifestPath),
         serviceStateRoot: manifest.serviceStateRoot
       });
-      const authoredRoot = resolveHarnessLayout({
-        rootDir: repo.canonicalRoot,
-        ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
-      }).authoredRoot;
-      const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
       publicationObservers.set(repo.repoId, async (previousCommit, expectedOpIds, expectedCommitSha) => {
         const inspector = publicationInspector;
         return inspector.inspectPublication(previousCommit, expectedOpIds, expectedCommitSha);
@@ -276,31 +277,11 @@ export async function recoverPendingProductionEvents(input: {
           throw new Error("AUTHORITY_V2_RECOVERY_COMMIT_MISMATCH");
         }
         assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity!.canonicalMutationSet);
-        let change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
-        if (!change) {
-          const latest = await input.replicaChangeLog.latest(record.workspaceId);
-          if ((latest?.commitSha ?? null) !== evidence.previousCommit) {
-            throw new Error(
-              `AUTHORITY_V2_RECOVERY_PREDECESSOR_PENDING:expected=${evidence.previousCommit ?? "null"};actual=${latest?.commitSha ?? "null"}`
-            );
-          }
-          change = {
-            schema: "replica-change/v1",
-            workspaceId: record.workspaceId,
-            revision: (latest?.revision ?? 0) + 1,
-            opId: record.opId,
-            semanticDigest: record.semanticDigest,
-            commitSha: evidence.commitSha,
-            previousCommit: evidence.previousCommit,
-            changedAt: new Date().toISOString(),
-            authorityIntegrity: record.authorityIntegrity
-          };
-          await input.replicaChangeLog.append(change);
-        }
-        if (change.commitSha !== evidence.commitSha
+        const change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
+        if (change && (change.commitSha !== evidence.commitSha
           || change.previousCommit !== evidence.previousCommit
           || change.semanticDigest !== record.semanticDigest
-          || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest) {
+          || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
           throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
         }
         const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
@@ -338,6 +319,7 @@ function createRepoComponent(
   material: RepoProductionMaterial
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
+  const publicationExecutor = createSerialPublicationExecutor();
   const cutoverControl = createAuthorityCutoverControlService({
     repoId: material.config.repoId,
     workspaceId: material.config.workspaceId,
@@ -394,7 +376,7 @@ function createRepoComponent(
       if (!serving || stopped) throw new Error("AUTHORITY_REPO_COMPONENT_NOT_SERVING");
       assertConnectionContext(input, material.config, context);
       const authorityService = gateCutoverAdmission(
-        attestSubmissionService(createConnectionAuthorityService(input, material, context), context),
+        attestSubmissionService(createConnectionAuthorityService(input, material, context, publicationExecutor), context),
         cutoverControl
       );
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
@@ -440,7 +422,10 @@ function createRepoComponent(
 function createConnectionAuthorityService(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
-  context: AuthorityConnectionContext
+  context: AuthorityConnectionContext,
+  publicationExecutor: {
+    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+  }
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
   const semanticState = createProductionCanonicalSemanticState(material.authoredRoot);
@@ -451,6 +436,7 @@ function createConnectionAuthorityService(
     operationRegistry: input.operationRegistry,
     replicaChangeLog: input.replicaChangeLog,
     publicationInspector,
+    publicationExecutor,
     fenceWitness: input.fenceWitness,
     admissionBudget: input.admissionBudget,
     v2: {
@@ -489,6 +475,19 @@ function createConnectionAuthorityService(
       }).recoverCommittedReceipt
     }
   });
+}
+
+function createSerialPublicationExecutor(): {
+  readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+} {
+  let tail = Promise.resolve();
+  return {
+    run: <Result>(publication: () => Promise<Result>): Promise<Result> => {
+      const result = tail.then(publication, publication);
+      tail = result.then(() => undefined, () => undefined);
+      return result;
+    }
+  };
 }
 
 function connectionBoundRuntime(

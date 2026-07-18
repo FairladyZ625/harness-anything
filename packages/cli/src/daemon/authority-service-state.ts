@@ -103,7 +103,7 @@ export function openDurableAuthorityServiceState(input: {
       }
       const latest = latestReplica(replicaLog.values, record.workspaceId);
       const expectedRevision = (latest?.revision ?? 0) + 1;
-      if (record.revision !== expectedRevision || (latest && record.previousCommit !== latest.commitSha)) {
+      if (record.revision !== expectedRevision) {
         throw new Error(`AUTHORITY_REPLICA_CHANGE_GAP:${record.workspaceId}:${record.revision}`);
       }
       replicaLog.append(compoundKey(record.workspaceId, String(record.revision)), record);

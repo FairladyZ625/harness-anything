@@ -12,6 +12,10 @@ import {
 } from "../../../kernel/src/index.ts";
 import type { DurableAuthorityBindingRuntimeV2 } from "./authority-production-state.ts";
 import type { DurableAuthorityServiceState } from "./authority-service-state.ts";
+import {
+  assertPublicationMatchesMutationSet,
+  type GitCanonicalPublicationInspector
+} from "./authority-publication-evidence.ts";
 
 export async function recoverProductionAuthorityCommittedReceiptV2(input: {
   readonly record: AuthorityStoredOperationRecord;
@@ -20,9 +24,28 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
   readonly publisher: AuthorityCommittedEventPublisherV2;
+  readonly publicationInspector: GitCanonicalPublicationInspector;
 }): Promise<AuthorityCommittedReceipt> {
   const { record } = input;
-  const change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
+  let change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
+  if (!change && record.authorityIntegrity && record.commitSha) {
+    const evidence = await input.publicationInspector.findPublicationForOperation(record.opId);
+    if (evidence.commitSha !== record.commitSha) throw new Error("AUTHORITY_V2_RECOVERY_COMMIT_MISMATCH");
+    assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity.canonicalMutationSet);
+    const latest = await input.replicaChangeLog.latest(record.workspaceId);
+    change = {
+      schema: "replica-change/v1",
+      workspaceId: record.workspaceId,
+      revision: (latest?.revision ?? 0) + 1,
+      opId: record.opId,
+      semanticDigest: record.semanticDigest,
+      commitSha: record.commitSha,
+      previousCommit: evidence.previousCommit,
+      changedAt: new Date().toISOString(),
+      authorityIntegrity: record.authorityIntegrity
+    };
+    await input.replicaChangeLog.append(change);
+  }
   if (!change || !record.authorityIntegrity || !record.commitSha
     || change.commitSha !== record.commitSha
     || change.semanticDigest !== record.semanticDigest
@@ -87,6 +110,7 @@ export function withProductionRecoveryV2(input: {
   readonly operationRegistry: DurableAuthorityServiceState["operationRegistry"];
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly eventLog: ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>;
+  readonly publicationInspector: GitCanonicalPublicationInspector;
 }): AuthorityCommittedEventPublisherV2 & {
   recoverCommittedReceipt: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
 } {
@@ -98,7 +122,8 @@ export function withProductionRecoveryV2(input: {
       operationRegistry: input.operationRegistry,
       bindingRuntime: input.bindingRuntime,
       eventLog: input.eventLog,
-      publisher: input.publisher
+      publisher: input.publisher,
+      publicationInspector: input.publicationInspector
     })
   };
 }

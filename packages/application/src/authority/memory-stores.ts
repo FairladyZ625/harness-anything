@@ -35,12 +35,6 @@ export function createInMemoryReplicaChangeLog(): ReplicaChangeLog {
       if (record.revision !== (latest?.revision ?? 0) + 1) {
         throw new Error(`ReplicaChangeLog revision gap: expected ${(latest?.revision ?? 0) + 1}, received ${record.revision}`);
       }
-      const expectedPreviousCommit = latest?.commitSha === record.commitSha
-        ? latest.previousCommit
-        : latest?.commitSha;
-      if (latest && record.previousCommit !== expectedPreviousCommit) {
-        throw new Error(`ReplicaChangeLog parent mismatch at revision ${record.revision}`);
-      }
       records.push(structuredClone(record));
     },
     latest: async (workspaceId) => cloneOptional(records.filter((record) => record.workspaceId === workspaceId).at(-1)),

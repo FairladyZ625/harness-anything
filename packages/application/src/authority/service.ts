@@ -76,6 +76,9 @@ export interface AuthoritySubmissionServiceOptions {
   readonly operationRegistry: AuthorityOperationRegistry;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly publicationInspector: CanonicalPublicationInspector;
+  readonly publicationExecutor?: {
+    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
+  };
   readonly fenceWitness: AuthorityFenceWitness;
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
@@ -103,7 +106,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
   const now = options.now ?? (() => new Date().toISOString());
   const { put, persistTerminal } = createAuthorityOperationRecordPersistence(options.operationRegistry);
   const publications = new BoundedAuthorityBatcher<AuthorityAdmission, AuthorityOperationReceipt>(
-    publishBatch,
+    (admissions) => options.publicationExecutor
+      ? options.publicationExecutor.run(() => publishBatch(admissions))
+      : publishBatch(admissions),
     authorityPublicationBatchSize,
     authorityPublicationMaxWaitMs
   );
@@ -414,11 +419,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const latest = await options.replicaChangeLog.latest(candidates[0]!.workspaceId);
-    if (latest && latest.commitSha !== previousHead) {
-      await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry, entry.semanticDigest, "REPLICA_CHANGE_LOG_DIVERGED", commitSha));
-      return batchReceipts(admissions, receipts);
-    }
     const changes = candidates.map((entry, index) => ({
       schema: "replica-change/v1" as const,
       workspaceId: entry.workspaceId,

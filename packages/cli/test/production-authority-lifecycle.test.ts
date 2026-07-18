@@ -1,26 +1,19 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createAuthorityKeyRegistryV1,
-  firstPinAuthorityKeyV1,
   isCompleteAuthorityCommittedReceiptV2
 } from "../../application/src/index.ts";
 import { protocolSchemaTupleDigest } from "../../application/src/authority/cutover-control.ts";
 import {
-  openLocalAuthorityKeyStore
-} from "../../daemon/src/index.ts";
-import {
   entityRegistry,
   entityRegistryKinds,
-  makeJournaledWriteCoordinator,
   makeLocalAuthorityAttributionEventV2Log,
   taskEntityId
 } from "../../kernel/src/index.ts";
@@ -28,10 +21,14 @@ import {
   productionAuthorityActor,
   productionAuthorityConnection
 } from "./helpers/production-authority-connection.ts";
-import { defaultCliAdapterProvider } from "../src/composition/adapter-registry.ts";
+import {
+  createProductionAuthorityLifecycleFixture as createFixture,
+  fixtureGit as git,
+  productionTuple,
+  productionWriterRuntime as writerRuntime
+} from "./helpers/production-authority-lifecycle-fixture.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import {
-  authorityNamespaceProofBytes,
   loadAuthorityProductionManifest,
   openAuthorityProductionKeyMaterial
 } from "../src/daemon/authority-production-state.ts";
@@ -78,6 +75,150 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
     assert.doesNotMatch(eventBody, /PRIVATE KEY/u);
     assert.equal(readFileSync(path.join(fixture.serviceRoot, "authority/Y2Fub25pY2Fs/bindings.jsonl"), "utf8").includes("token:"), true);
     await lifecycle.stopAll("daemon-shutdown");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("authority publication records an out-of-band first-parent gap and commits directly", async () => {
+  const fixture = createFixture();
+  try {
+    const actor = productionAuthorityActor();
+    const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
+    const started = await lifecycle.startRepo(
+      { repoId: "canonical", canonicalRoot: fixture.repoRoot },
+      writerRuntime(fixture.authoredRoot)
+    );
+    assert.equal(started.ok, true, started.ok ? "" : started.error);
+    if (!started.ok) return;
+    const submission = started.component.bindConnection(productionAuthorityConnection(actor));
+    const first = await submission.submit({
+      command: {
+        rootDir: fixture.repoRoot,
+        json: true,
+        action: { kind: "progress-append", taskId: "task_A", text: "before divergence\n", dryRun: false }
+      },
+      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-production",
+        source: "manual",
+        detectedAt: new Date().toISOString()
+      },
+      canonicalEntityId: taskEntityId("task_A")
+    });
+    assert.equal(first.tag, "COMMITTED", JSON.stringify(first));
+    if (first.tag !== "COMMITTED") return;
+
+    mkdirSync(path.join(fixture.authoredRoot, "docs"), { recursive: true });
+    writeFileSync(path.join(fixture.authoredRoot, "docs/operator-note.md"), "# Operator note\n");
+    git(fixture.authoredRoot, "add", "docs/operator-note.md");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "docs: record operator note");
+    const outOfBandCommit = git(fixture.authoredRoot, "rev-parse", "HEAD");
+
+    const acrossGap = await submission.submit({
+      command: {
+        rootDir: fixture.repoRoot,
+        json: true,
+        action: { kind: "progress-append", taskId: "task_A", text: "durable across divergence\n", dryRun: false }
+      },
+      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-production",
+        source: "manual",
+        detectedAt: new Date().toISOString()
+      },
+      canonicalEntityId: taskEntityId("task_A")
+    });
+    assert.equal(acrossGap.tag, "COMMITTED", JSON.stringify(acrossGap));
+    if (acrossGap.tag !== "COMMITTED") return;
+    assert.equal(git(fixture.authoredRoot, "rev-parse", `${acrossGap.commitSha}^1`), outOfBandCommit);
+    const state = openDurableAuthorityServiceState({
+      serviceStateRoot: fixture.serviceRoot,
+      repoId: "canonical"
+    });
+    const change = await state.replicaChangeLog.getByOperation(acrossGap.workspaceId, acrossGap.opId);
+    assert.equal(change?.commitSha, acrossGap.commitSha);
+    assert.equal(change?.previousCommit, outOfBandCommit);
+    await state.close();
+    await lifecycle.stopAll("daemon-shutdown");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("restart reconciles a durable published operation whose replica-change row is missing", async () => {
+  const fixture = createFixture();
+  try {
+    const actor = productionAuthorityActor();
+    const lifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
+    const started = await lifecycle.startRepo(
+      { repoId: "canonical", canonicalRoot: fixture.repoRoot },
+      writerRuntime(fixture.authoredRoot)
+    );
+    assert.equal(started.ok, true, started.ok ? "" : started.error);
+    if (!started.ok) return;
+    const committed = await started.component.bindConnection(productionAuthorityConnection(actor)).submit({
+      command: {
+        rootDir: fixture.repoRoot,
+        json: true,
+        action: { kind: "progress-append", taskId: "task_A", text: "durable legacy publication\n", dryRun: false }
+      },
+      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-production",
+        source: "manual",
+        detectedAt: new Date().toISOString()
+      },
+      canonicalEntityId: taskEntityId("task_A")
+    });
+    assert.equal(committed.tag, "COMMITTED", JSON.stringify(committed));
+    if (committed.tag !== "COMMITTED") return;
+    await lifecycle.stopAll("daemon-shutdown");
+
+    const stateDirectory = path.join(fixture.serviceRoot, "authority", Buffer.from("canonical", "utf8").toString("base64url"));
+    writeFileSync(path.join(stateDirectory, "replica-changes.jsonl"), "");
+    rmSync(path.join(fixture.authoredRoot, "authority-attribution-events/v2"), { recursive: true, force: true });
+    const seeded = openDurableAuthorityServiceState({
+      serviceStateRoot: fixture.serviceRoot,
+      repoId: "canonical"
+    });
+    const record = await seeded.operationRegistry.get(committed.workspaceId, committed.opId);
+    assert.ok(record);
+    await seeded.operationRegistry.put({
+      ...record,
+      state: "INDETERMINATE",
+      receipt: {
+        tag: "INDETERMINATE",
+        workspaceId: committed.workspaceId,
+        opId: committed.opId,
+        semanticDigest: committed.semanticDigest,
+        reason: "REPLICA_CHANGE_LOG_DIVERGED",
+        commitSha: committed.commitSha
+      }
+    });
+    await seeded.close();
+
+    const recoveredLifecycle = createProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
+    const recovered = await recoveredLifecycle.startRepo(
+      { repoId: "canonical", canonicalRoot: fixture.repoRoot },
+      writerRuntime(fixture.authoredRoot)
+    );
+    assert.equal(recovered.ok, true, recovered.ok ? "" : recovered.error);
+    if (!recovered.ok) return;
+    const recoveredState = openDurableAuthorityServiceState({
+      serviceStateRoot: fixture.serviceRoot,
+      repoId: "canonical"
+    });
+    const recoveredRecord = await recoveredState.operationRegistry.get(committed.workspaceId, committed.opId);
+    const reconciled = await recoveredState.replicaChangeLog.getByOperation(committed.workspaceId, committed.opId);
+    assert.equal(recoveredRecord?.state, "COMMITTED", JSON.stringify(recoveredRecord));
+    assert.equal(reconciled?.commitSha, committed.commitSha);
+    assert.equal(reconciled?.previousCommit, git(fixture.authoredRoot, "rev-parse", `${committed.commitSha}^1`));
+    await recoveredState.close();
+    await recoveredLifecycle.stopAll("daemon-shutdown");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -526,146 +667,4 @@ function qualifiedCutoverControl(fixture: {
     }),
     close: state.close
   };
-}
-
-function createFixture(): {
-  readonly root: string;
-  readonly repoRoot: string;
-  readonly authoredRoot: string;
-  readonly serviceRoot: string;
-  readonly manifestPath: string;
-  readonly registryPath: string;
-} {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-production-authority-"));
-  const repoRoot = path.join(root, "repo");
-  const authoredRoot = path.join(repoRoot, "harness");
-  const serviceRoot = path.join(root, "service-state");
-  const keyStateDirectory = path.join(serviceRoot, "keys/canonical");
-  mkdirSync(path.join(authoredRoot, "tasks/task_A"), { recursive: true });
-  mkdirSync(serviceRoot, { recursive: true, mode: 0o700 });
-  writeFileSync(path.join(authoredRoot, "tasks/task_A/INDEX.md"), "---\ntask_id: task_A\nstatus: active\n---\n");
-  writeFileSync(path.join(authoredRoot, "people.yaml"), [
-    "schema: harness-people/v1",
-    "people:",
-    "  - personId: person_alice",
-    "    displayName: Alice",
-    "    primaryEmail: alice@example.test",
-    "    roles: [owner]",
-    "    credentials:",
-    "      - kind: unix-socket-owner-boundary",
-    `        issuer: host:${hostname()}`,
-    `        subject: ${process.getuid?.() ?? 0}`,
-    "roles:",
-    "  - roleId: owner",
-    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
-    ""
-  ].join("\n"));
-  const keyStore = openLocalAuthorityKeyStore({
-    serviceStateRoot: serviceRoot,
-    stateDirectory: keyStateDirectory,
-    workspaceRoot: repoRoot,
-    authorityId: "authority.production",
-    issuer: "authority.production"
-  });
-  const now = Date.now();
-  const prepublished = keyStore.createPrepublishedKey({ generation: 1, nowMs: now - 1_000 });
-  const prepublishedRegistry = createAuthorityKeyRegistryV1({
-    authorityId: "authority.production",
-    generation: 1,
-    globalRevocationEpoch: 1,
-    revision: 1,
-    entries: [prepublished]
-  });
-  const registry = firstPinAuthorityKeyV1({
-    registry: prepublishedRegistry,
-    keyId: prepublished.keyId,
-    expectedPinnedKeyId: prepublished.keyId,
-    pinEvidence: "fixture-out-of-band-pin",
-    verifierAcknowledgement: "fixture-verifier-ack",
-    activatedAtMs: now - 999
-  });
-  const registryPath = path.join(authoredRoot, "authority-key-registry.json");
-  writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
-  const unsignedNamespace = {
-    schema: "operation-namespace/v1" as const,
-    workspaceId: "workspace-production",
-    deviceId: "device-production",
-    authorityGeneration: 1n,
-    namespaceId: "namespace-production",
-    expiresAt: BigInt(now + 60 * 60_000),
-    issuer: "authority.production",
-    keyId: prepublished.keyId
-  };
-  const proof = sign(
-    null,
-    authorityNamespaceProofBytes(unsignedNamespace),
-    keyStore.signingProfile(registry, now).privateKey
-  );
-  const manifestPath = path.join(serviceRoot, "authority-production.json");
-  writeFileSync(manifestPath, `${JSON.stringify({
-    schema: "authority-production-composition/v1",
-    serviceStateRoot: serviceRoot,
-    repos: [{
-      repoId: "canonical",
-      canonicalRoot: repoRoot,
-      workspaceId: "workspace-production",
-      deviceId: "device-production",
-      viewId: "view-production",
-      sessionId: "session-production",
-      authorityId: "authority.production",
-      issuer: "authority.production",
-      keyRegistryPath: registryPath,
-      keyStateDirectory,
-      schemaTuple: productionTuple(),
-      authorityGeneration: 1,
-      revocationEpochs: {
-        global: "1", workspace: "1", device: "1", view: "1", principal: "1", executor: "1"
-      },
-      admissionTokenRef: "admission-production",
-      allowedExecutorAgentIds: ["codex"],
-      operationNamespace: {
-        ...unsignedNamespace,
-        authorityGeneration: unsignedNamespace.authorityGeneration.toString(),
-        expiresAt: unsignedNamespace.expiresAt.toString(),
-        proof: proof.toString("base64url")
-      }
-    }]
-  }, null, 2)}\n`);
-  git(authoredRoot, "init", "-q");
-  git(authoredRoot, "add", ".");
-  git(authoredRoot, "commit", "-q", "-m", "seed authority fixture");
-  return { root, repoRoot, authoredRoot, serviceRoot, manifestPath, registryPath };
-}
-
-function productionTuple() {
-  return {
-    wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
-    commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1,
-    localState: 1, applyJournal: 1
-  } as const;
-}
-
-function writerRuntime(authoredRoot: string) {
-  const repoRoot = path.dirname(authoredRoot);
-  return {
-    createAttributedCoordinator: (input: Omit<Parameters<typeof makeJournaledWriteCoordinator>[0], "rootDir">) =>
-      makeJournaledWriteCoordinator({ ...input, rootDir: repoRoot, autoMaterialize: false }),
-    enqueueMaterializerBatch: async ({ sessionId }: { readonly sessionId: string }) =>
-      defaultCliAdapterProvider().runLedgerMaterializer(repoRoot, { sessionId }),
-    assertWriteFenceHeld: async () => undefined
-  };
-}
-
-function git(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", rootDir, ...args], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "ZeyuLi",
-      GIT_AUTHOR_EMAIL: "33339424+FairladyZ625@users.noreply.github.com",
-      GIT_COMMITTER_NAME: "ZeyuLi",
-      GIT_COMMITTER_EMAIL: "33339424+FairladyZ625@users.noreply.github.com"
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  }).trim();
 }
