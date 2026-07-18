@@ -42,6 +42,17 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
     };
   }
 
+  if (!hasElectronRuntime(workspaceRoot)) {
+    return {
+      ok: false,
+      command: "gui",
+      error: cliError(
+        CliErrorCode.GuiLauncherUnavailable,
+        `Electron runtime is missing from the trusted harness-anything workspace at ${workspaceRoot}. Run \`node node_modules/electron/install.js\` from that workspace, then retry \`ha gui\`.`
+      )
+    };
+  }
+
   const detached = process.env.HARNESS_GUI_NPM_MARKER === undefined;
   const launchEnvironment = guiLaunchEnvironment(rootDir, authoredRoot);
   const child = process.platform === "win32" ? spawn(windowsShellCommand(command), {
@@ -71,6 +82,20 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
       pid: child.pid
     }
   };
+}
+
+function hasElectronRuntime(workspaceRoot: string): boolean {
+  const electronDistRoot = path.join(workspaceRoot, "node_modules/electron/dist");
+  const electronPathFile = path.join(workspaceRoot, "node_modules/electron/path.txt");
+  if (!existsSync(electronPathFile)) return false;
+  try {
+    const relativeRuntimePath = readFileSync(electronPathFile, "utf8").trim();
+    if (!relativeRuntimePath) return false;
+    const runtimePath = path.resolve(electronDistRoot, relativeRuntimePath);
+    return isPathInside(electronDistRoot, runtimePath) && existsSync(runtimePath);
+  } catch {
+    return false;
+  }
 }
 
 function guiLaunchEnvironment(rootDir: string, authoredRoot?: string): NodeJS.ProcessEnv {

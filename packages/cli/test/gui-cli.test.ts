@@ -60,11 +60,11 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     }
     chmodSync(path.join(binDir, npmBin), 0o755);
 
-    const result = runJson(rootDir, ["gui"], true, {
+    const result = withElectronRuntimeReady(() => runJson(rootDir, ["gui"], true, {
       [pathEnvName()]: `${binDir}${path.delimiter}${process.env[pathEnvName()] ?? ""}`,
       HARNESS_GUI_NPM_MARKER: npmMarkerPath,
       ELECTRON_RUN_AS_NODE: "1"
-    }, callerDir);
+    }, callerDir));
 
     assert.equal(result.ok, true);
     assert.notEqual(result.launchPlan.pid, undefined);
@@ -73,6 +73,38 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     assert.deepEqual(marker.argv, ["--workspace", "@harness-anything/gui", "run", "dev:electron"]);
     assert.equal(marker.electronRunAsNode, null);
     assert.equal(existsSync(evilMarkerPath), false);
+  });
+});
+
+test("repeated CLI gui commands fail before delegation when the Electron runtime is missing", () => {
+  withTempRoot((rootDir) => {
+    const binDir = path.join(rootDir, "bin");
+    const npmMarkerPath = path.join(rootDir, "npm-marker.json");
+    mkdirSync(binDir);
+    const fakeNpmJs = [
+      "#!/usr/bin/env node",
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(npmMarkerPath)}, 'launched');`
+    ].join("\n");
+    if (process.platform === "win32") {
+      writeFileSync(path.join(binDir, "fake-npm.js"), fakeNpmJs);
+      writeFileSync(path.join(binDir, npmBin), "@echo off\r\nnode \"%~dp0fake-npm.js\" %*\r\n");
+    } else {
+      writeFileSync(path.join(binDir, npmBin), fakeNpmJs);
+    }
+    chmodSync(path.join(binDir, npmBin), 0o755);
+
+    withElectronRuntimeMissing(() => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = runJson(rootDir, ["gui"], false, {
+          [pathEnvName()]: `${binDir}${path.delimiter}${process.env[pathEnvName()] ?? ""}`
+        });
+        assert.equal(result.ok, false);
+        assert.equal(result.error.code, "gui_launcher_unavailable");
+        assert.match(result.error.hint, /node node_modules\/electron\/install\.js/u);
+      }
+      assert.equal(existsSync(npmMarkerPath), false);
+    });
   });
 });
 
@@ -153,4 +185,33 @@ function waitForJsonMarker(markerPath: string): Record<string, any> {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
   assert.fail(`Timed out waiting for ${markerPath}`);
+}
+
+function withElectronRuntimeMissing<T>(fn: () => T): T {
+  const electronPathFile = path.resolve("node_modules/electron/path.txt");
+  const original = existsSync(electronPathFile) ? readFileSync(electronPathFile) : undefined;
+  rmSync(electronPathFile, { force: true });
+  try {
+    return fn();
+  } finally {
+    if (original !== undefined) writeFileSync(electronPathFile, original);
+  }
+}
+
+function withElectronRuntimeReady<T>(fn: () => T): T {
+  const electronRoot = path.resolve("node_modules/electron");
+  const electronPathFile = path.join(electronRoot, "path.txt");
+  const fakeRuntimeRelativePath = "ha-test-electron-runtime";
+  const fakeRuntimePath = path.join(electronRoot, "dist", fakeRuntimeRelativePath);
+  const original = existsSync(electronPathFile) ? readFileSync(electronPathFile) : undefined;
+  mkdirSync(path.dirname(fakeRuntimePath), { recursive: true });
+  writeFileSync(fakeRuntimePath, "");
+  writeFileSync(electronPathFile, fakeRuntimeRelativePath);
+  try {
+    return fn();
+  } finally {
+    rmSync(fakeRuntimePath, { force: true });
+    if (original === undefined) rmSync(electronPathFile, { force: true });
+    else writeFileSync(electronPathFile, original);
+  }
 }
