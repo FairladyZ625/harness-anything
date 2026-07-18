@@ -81,6 +81,72 @@ test("task submit facade sends the exact six-field packet through execution subm
   });
 });
 
+test("task submit rejects a milestone without decision lineage before releasing its lease", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, [
+      "task", "create", "--title", "Lineage Before Submit",
+      "--vertical", "software/coding", "--preset", "create-milestone"
+    ]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    runJson(rootDir, ["task", "transition", created.taskId, "active"]);
+    const claimed = runJson(rootDir, [
+      "task", "claim", created.taskId, "--execution"
+    ], true, { HARNESS_ACTOR: "agent:worker" });
+    const packetPath = path.join(rootDir, "submission-missing-lineage.json");
+    writeFileSync(packetPath, JSON.stringify({
+      completionClaim: "The milestone implementation is ready for review.",
+      deliverables: ["milestone implementation"],
+      outputs: ["integration tests passed"],
+      verificationNotes: ["node --test completion-facade-cli.test.ts"],
+      knownGaps: [],
+      residualRisks: []
+    }), "utf8");
+
+    const rejected = runJson(rootDir, [
+      "task", "submit", created.taskId, "--from-file", packetPath
+    ], false, { HARNESS_ACTOR: "agent:worker" });
+
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, "closeout_not_ready");
+    assert.equal(rejected.issues[0].code, "decision_lineage_required");
+    assert.match(rejected.error.hint, new RegExp(
+      `ha decision relate <decision-id> --anchor <anchor> --type derives --target task/${created.taskId}`,
+      "u"
+    ));
+    const execution = JSON.parse(readFileSync(
+      path.join(rootDir, created.packagePath, "executions", `${claimed.executionId}.md`),
+      "utf8"
+    ));
+    assert.equal(execution.state, "active");
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
+
+    runJson(rootDir, [
+      "decision", "propose", "--id", "dec_SUBMIT_LINEAGE", "--title", "Submit lineage",
+      "--question", "Should this milestone be created?", "--chosen", "Create the milestone",
+      "--rejected", "Do not create it", "--why-not", "The work requires coordination",
+      "--claim", "This decision derives the milestone."
+    ], true, { HARNESS_ACTOR: "agent:worker" });
+    runJson(rootDir, [
+      "decision", "relate", "dec_SUBMIT_LINEAGE", "--anchor", "CH1", "--type", "derives",
+      "--target", `task/${created.taskId}`, "--rationale", "The decision creates this milestone."
+    ], true, { HARNESS_ACTOR: "agent:worker" });
+
+    // Once the lineage edge exists the gate stops blocking: the same packet no longer fails
+    // for decision_lineage_required. It cannot be asserted to succeed here, because a milestone
+    // submit additionally needs a bound agent Session, which no hermetic test environment can
+    // supply -- asserting success would only pass on a machine where the invoking agent's own
+    // transcript happens to exist, which is a test that validates the developer's laptop.
+    const retried = runJson(rootDir, [
+      "task", "submit", created.taskId, "--from-file", packetPath
+    ], false, { HARNESS_ACTOR: "agent:worker" });
+    assert.notEqual(retried.error?.code, "closeout_not_ready");
+    assert.equal(
+      (retried.issues ?? []).some((issue: { code?: string }) => issue.code === "decision_lineage_required"),
+      false
+    );
+  });
+});
+
 test("task submit dry-run lists exact steps and a code-doc rejection stops before execution submission", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Submit Stop Point", "--vertical", "software/coding", "--preset", "standard-task"]);

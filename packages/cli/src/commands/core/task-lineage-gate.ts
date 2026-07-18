@@ -12,7 +12,8 @@ interface TaskLineageMetadata {
 
 export function milestoneDecisionLineageFailure(
   context: Parameters<CommandRunner>[0],
-  taskId: string
+  taskId: string,
+  command: "task-complete" | "status-set" = "task-complete"
 ): CliResult | null {
   const current = readTaskLineageMetadata(context, taskId);
   if (!current || !requiresDecisionLineage(current)) return null;
@@ -39,7 +40,7 @@ export function milestoneDecisionLineageFailure(
   if (hasLineage) return null;
   return {
     ok: false,
-    command: "task-complete",
+    command,
     taskId,
     issues: [{
       code: "decision_lineage_required",
@@ -47,9 +48,21 @@ export function milestoneDecisionLineageFailure(
     }],
     error: cliError(
       CliErrorCode.CloseoutNotReady,
-      `Milestone or long-running task ${taskId} requires at least one active decision --derives--> task/${taskId} lineage edge before completion.`
+      decisionLineageNextStep(taskId, command)
     )
   };
+}
+
+function decisionLineageNextStep(taskId: string, command: "task-complete" | "status-set"): string {
+  const relate = `ha decision relate <decision-id> --anchor <anchor> --type derives --target task/${taskId} --rationale "<why this decision derives the task>"`;
+  if (command === "status-set") {
+    return `Milestone or long-running task ${taskId} requires at least one active decision --derives--> task/${taskId} lineage edge before submission. Run \`${relate}\`, then retry submission while the task lease is active.`;
+  }
+  return [
+    `Milestone or long-running task ${taskId} requires at least one active decision --derives--> task/${taskId} lineage edge before completion.`,
+    `The submitted Execution is incomplete because the required decision lineage edge is missing. Run \`ha task review-execution ${taskId} --execution-id <submitted-execution-id> --verdict changes_requested --findings "Missing required decision lineage edge." --rationale "The submitted Execution is incomplete because the required decision lineage edge is missing."\`.`,
+    `When no other submitted round remains and the task returns to active, run \`ha task claim ${taskId}\`, run \`${relate}\` while that lease is active, then submit and review the corrected Execution. If other submitted rounds remain, review each non-authoritative round with changes_requested until the task can return to active.`
+  ].join(" ");
 }
 
 function readTaskLineageMetadata(

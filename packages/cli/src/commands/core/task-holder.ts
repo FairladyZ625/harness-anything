@@ -9,6 +9,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
@@ -73,6 +74,8 @@ export function runExecutionSubmit(
         error: cliError(CliErrorCode.WriteRejected, `Execution submit requires an active Holder V2 execution. Next: run \`ha task claim ${action.taskId}\`, then retry the same submit packet; use an explicit executionId only to select an existing active round.`)
       } satisfies CliResult;
     }
+    const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId, "status-set");
+    if (lineageFailure) return { ...lineageFailure, executionId, status: "active" } satisfies CliResult;
     const submitted = yield* Effect.tryPromise({
       try: () => saga.submitForReview({
         taskId: action.taskId,
