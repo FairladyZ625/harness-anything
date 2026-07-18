@@ -9,8 +9,10 @@ import { parseExecutionSubmissionOptions, parseTaskClaim } from "./core-task-exe
 import { parseTaskList } from "./core-task-list.ts";
 import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 import { parseTaskConsentRecord } from "./core-task-consent.ts";
+import { parseTaskSubmit } from "./task-submit.ts";
+import type { CommandJsonInput } from "../json-input.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
-export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
+export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean, _commandSpecs?: ReadonlyArray<unknown>, input?: CommandJsonInput): ParseResult | null {
   if (args[0] === "init") {
     const projectName = readRequiredValueOption(args, "--name");
     if (!projectName.ok) return projectName;
@@ -23,6 +25,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "claim" && args[2]) return parseTaskClaim(args, rootDir, json);
   if (args[0] === "task" && args[1] === "holder" && args[2]) return ok(rootDir, json, { kind: "task-holder", taskId: args[2] });
   if (args[0] === "task" && args[1] === "release" && args[2]) return ok(rootDir, json, { kind: "task-release", taskId: args[2] });
+  if (args[0] === "task" && args[1] === "submit" && args[2]) return parseTaskSubmit(args, rootDir, json, input);
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
@@ -35,7 +38,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "code-doc" && args[2] === "reconcile" && args[3]) return parseTaskCodeDocReconcile(args, rootDir, json);
   if (args[0] === "task" && args[1] === "review" && args[2]) return parseTaskReview(["task-review", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "consent-record" && args[2]) return parseTaskConsentRecord(args, rootDir, json);
-  if (args[0] === "task" && args[1] === "review-execution" && args[2]) return parseTaskReviewExecution(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "review-execution" && args[2]) return parseTaskReviewExecution(args, rootDir, json, input);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
   if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);

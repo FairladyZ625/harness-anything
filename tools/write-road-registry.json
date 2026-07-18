@@ -78,6 +78,7 @@
         "task-delete",
         "task-reopen",
         "task-supersede",
+        "task-submit",
         "task-complete",
         "task-review",
         "task-review-execution"
@@ -96,7 +97,8 @@
       "evidence": [
         "packages/adapters/local/src/index.ts:182",
         "packages/adapters/local/src/index.ts:310",
-        "packages/application/src/local-controller-service.ts:95"
+        "packages/application/src/local-controller-service.ts:95",
+        "packages/cli/src/commands/core/task-submit-facade.ts:15"
       ],
       "freshness": "coordinator-conditional-task-state"
     },

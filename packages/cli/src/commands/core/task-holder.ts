@@ -70,7 +70,7 @@ export function runExecutionSubmit(
         ok: false,
         command: "status-set",
         taskId: action.taskId,
-        error: cliError(CliErrorCode.WriteRejected, "Execution submit requires an active Holder V2 execution or an explicit --execution-id.")
+        error: cliError(CliErrorCode.WriteRejected, `Execution submit requires an active Holder V2 execution. Next: run \`ha task claim ${action.taskId}\`, then retry the same submit packet; use an explicit executionId only to select an existing active round.`)
       } satisfies CliResult;
     }
     const submitted = yield* Effect.tryPromise({

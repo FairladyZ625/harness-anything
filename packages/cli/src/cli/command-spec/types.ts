@@ -33,6 +33,17 @@ export interface CommandEventPolicySpec {
   readonly runtimeEvent: RuntimeEventPolicy;
 }
 
+export interface CommandAdmissionMetadata {
+  readonly nounOwnership: string;
+  readonly lifecycle: "permanent" | "one-shot";
+  readonly decisionRef: `decision/dec_${string}`;
+  readonly chain?: {
+    readonly stepCount: number;
+    readonly submissionFieldCount: number;
+    readonly structuredInput: boolean;
+  };
+}
+
 export interface CommandOptionDefinition {
   readonly flag: string;
   readonly description: string;
@@ -53,6 +64,7 @@ export interface CommandSpecDefinition {
   readonly run: CommandRunner;
   readonly receiptContract: CommandReceiptContract;
   readonly eventPolicy: CommandEventPolicySpec;
+  readonly admission?: CommandAdmissionMetadata;
 }
 
 export type ParsedCommandKind = ParsedCommand["action"]["kind"];

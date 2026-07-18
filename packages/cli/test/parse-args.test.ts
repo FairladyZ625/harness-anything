@@ -65,6 +65,12 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task holder", argv: ["task", "holder", "task_1"], kind: "task-holder", fields: { taskId: "task_1" } },
   { name: "task release", argv: ["task", "release", "task_1"], kind: "task-release", fields: { taskId: "task_1" } },
   {
+    name: "task submit structured packet",
+    argv: ["task", "submit", "task_1", "--json-input", JSON.stringify({ completionClaim: "ready", deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], residualRisks: [] })],
+    kind: "task-submit",
+    fields: { taskId: "task_1", submission: { completionClaim: "ready", deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], residualRisks: [] }, dryRun: false }
+  },
+  {
     name: "status set forced",
     argv: ["task", "transition", "task_1", "done", "--force", "--reason", "verified"],
     kind: "status-set",
