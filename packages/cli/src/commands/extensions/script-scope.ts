@@ -300,8 +300,10 @@ export function resolvedScopeSetIsSafe(
 }
 
 export function scopeRootIsRecursive(scope: ResolvedScopeSet, root: string): boolean {
+  const recursiveSuffix = `${path.sep}**`;
   return scope.permissions.some((permission) => (
-    permission.endsWith("/**") && path.resolve(permission.slice(0, -3)) === path.resolve(root)
+    (permission.endsWith("/**") || permission.endsWith(recursiveSuffix)) &&
+    path.resolve(permission.slice(0, -3)) === path.resolve(root)
   ));
 }
 
