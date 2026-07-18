@@ -24,26 +24,16 @@ export function runPropose(
   action: ProposeAction
 ): Effect.Effect<CliResult, WriteError> {
   action = normalizeDecisionProposeAction(action);
-  const baseDecision = proposedDecision(action, []);
-  const fulfilled = applyClaimFulfillments(baseDecision, action.fulfillments);
-  if (!fulfilled.ok) {
+  const materialized = materializeProposedDecision(action);
+  if (!materialized.ok) {
     return Effect.succeed({
       ok: false,
       command: "decision-propose",
-      decisionId: baseDecision.decision_id,
-      error: cliError(CliErrorCode.InvalidDecisionAmendPatch, fulfilled.reason)
+      decisionId: action.decisionId,
+      error: cliError(materialized.code, materialized.reason)
     } satisfies CliResult);
   }
-  const relations = decisionEvidenceRelations(fulfilled.decision, action.evidenceRelations);
-  if (!relations.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-propose",
-      decisionId: baseDecision.decision_id,
-      error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relations.reason)
-    } satisfies CliResult);
-  }
-  const decision = { ...fulfilled.decision, relations: relations.records };
+  const decision = materialized.decision;
   if (action.dryRun) return Effect.succeed(withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true)));
   return service.propose({ decision, body: action.body }).pipe(
     Effect.match({
@@ -51,6 +41,17 @@ export function runPropose(
       onSuccess: (result): CliResult => withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false))
     })
   );
+}
+
+export function materializeProposedDecision(action: ProposeAction):
+  | { readonly ok: true; readonly decision: DecisionCreateInput }
+  | { readonly ok: false; readonly code: CliErrorCode; readonly reason: string } {
+  const baseDecision = proposedDecision(action, []);
+  const fulfilled = applyClaimFulfillments(baseDecision, action.fulfillments);
+  if (!fulfilled.ok) return { ok: false, code: CliErrorCode.InvalidDecisionAmendPatch, reason: fulfilled.reason };
+  const relations = decisionEvidenceRelations(fulfilled.decision, action.evidenceRelations);
+  if (!relations.ok) return { ok: false, code: CliErrorCode.InvalidDecisionEvidenceRelation, reason: relations.reason };
+  return { ok: true, decision: { ...fulfilled.decision, relations: relations.records } };
 }
 
 function withDocSyncWarning(rootInput: HarnessLayoutInput, action: ProposeAction, result: CliResult): CliResult {
@@ -82,7 +83,7 @@ function proposedChosen(action: ProposeAction): DecisionCreateInput["chosen"] {
   return action.chosen.map((choice) => ({
       id: normalizedAnchorId(choice.id, "chosen"),
       text: choice.text,
-      ...(choice.load_bearing === false ? { load_bearing: false } : {})
+      ...(choice.load_bearing === undefined ? {} : { load_bearing: choice.load_bearing })
     }));
 }
 
@@ -98,7 +99,7 @@ function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
   return action.claims.map((claim) => ({
       id: normalizedAnchorId(claim.id, "claim"),
       text: claim.text,
-      ...(claim.load_bearing === false ? { load_bearing: false } : {}),
+      ...(claim.load_bearing === undefined ? {} : { load_bearing: claim.load_bearing }),
       ...(claim.fulfillment ? { fulfillment: claim.fulfillment } : {})
     }));
 }

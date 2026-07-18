@@ -158,10 +158,14 @@ async function compileTaskTransition(
   if (current.taskId !== payload.taskId) throw admission("TASK_ID_MISMATCH");
   if (!explainStatusTransition(current.status as DomainStatus, to).allowed) throw admission("TASK_TRANSITION_INVALID");
   const body = replaceTaskStatus(snapshot.body, to);
+  if (payload.auditText !== undefined && (to !== "cancelled" || !payload.auditText.startsWith("FORCE_STATUS_SET_AUDIT:"))) {
+    throw admission("TASK_TRANSITION_FORCE_AUDIT_INVALID");
+  }
   return taskCompilation(payload.taskId, "transition", "transition_local", {
     path: "INDEX.md",
     body,
-    to
+    to,
+    ...(payload.auditText === undefined ? {} : { auditText: payload.auditText })
   }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], [{ path, snapshot }]);
 }
 
@@ -286,24 +290,74 @@ async function compileDecisionRelation(
   if (current.decision_id !== payload.decisionId) throw admission("DECISION_ID_MISMATCH");
   if (current.relations.some((entry) => entry.relation_id === relation.relation_id)) throw admission("RELATION_ALREADY_EXISTS");
   const next = { ...current, relations: [...current.relations, relation] };
+  const companion = await decisionRelationPriorityCompanion(state, current, relation, payload.taskWrites ?? []);
   return {
     mutationPlan: taskDecisionModulePlan([
       { entityKind: "decision", identity: { decisionId: payload.decisionId }, action: "relation" },
-      relationCreateIntent(relation)
+      relationCreateIntent(relation),
+      ...companion.mutations
     ]),
     operation: {
       ...decisionOperation("decision_relate", next, undefined, current),
       payload: {
         decision: next,
-        writeMode: { kind: "append_relation", relation }
+        writeMode: { kind: "append_relation", relation },
+        ...(payload.taskWrites?.length ? { taskWrites: payload.taskWrites } : {})
       }
     },
     requiredBaseRefs: [
       taskDecisionModuleEntityRef("decision", `decision/${payload.decisionId}`),
-      taskDecisionModuleEntityRef("relation", `relation/${relation.relation_id}`)
+      taskDecisionModuleEntityRef("relation", `relation/${relation.relation_id}`),
+      ...companion.baseRefs
     ],
-    requiredPathSnapshots: [{ path, snapshot }]
+    requiredPathSnapshots: [{ path, snapshot }, ...companion.pathSnapshots]
   };
+}
+
+async function decisionRelationPriorityCompanion(
+  state: TaskDecisionModuleAuthorityStateV2,
+  decision: DecisionPackage,
+  relation: EntityRelationRecord,
+  taskWrites: NonNullable<DecisionRelationPayloadV2["taskWrites"]>
+): Promise<{
+  readonly mutations: RegistryMutationPlanInput["mutations"];
+  readonly baseRefs: ReadonlyArray<RegistryEntityRefV2>;
+  readonly pathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
+}> {
+  const match = relation.state === "active" && relation.type === "derives" ? /^task\/([^/]+)$/u.exec(relation.target) : null;
+  if (!match) {
+    if (taskWrites.length > 0) throw admission("DECISION_RELATION_TASK_WRITES_FORBIDDEN");
+    return { mutations: [], baseRefs: [], pathSnapshots: [] };
+  }
+  const taskId = match[1]!;
+  const path = taskPath(taskId, "INDEX.md");
+  const snapshot = await requiredTaskDecisionModuleDocument(state, path, "DECISION_RELATION_TASK_NOT_FOUND");
+  const expectedBody = seedTaskPriority(snapshot.body, decision);
+  if (expectedBody === null) {
+    if (taskWrites.length > 0) throw admission("DECISION_RELATION_TASK_WRITES_REDUNDANT");
+    return { mutations: [], baseRefs: [], pathSnapshots: [] };
+  }
+  if (taskWrites.length !== 1 || taskWrites[0]!.taskId !== taskId || taskWrites[0]!.path !== "INDEX.md" || taskWrites[0]!.body !== expectedBody) {
+    throw admission("DECISION_RELATION_TASK_WRITE_MISMATCH");
+  }
+  return {
+    mutations: [{ entityKind: "task", identity: { taskId }, action: "document", storageContext: { documentPath: "INDEX.md" } }],
+    baseRefs: [taskDecisionModuleEntityRef("task", `task/${taskId}`)],
+    pathSnapshots: [{ path, snapshot }]
+  };
+}
+
+function seedTaskPriority(body: string, decision: DecisionPackage): string | null {
+  const frontmatter = readFrontmatter(body);
+  if (!frontmatter) throw admission("DECISION_RELATION_TASK_FRONTMATTER_INVALID");
+  const additions = [
+    ...(readScalar(frontmatter, "riskTier") ? [] : [`riskTier: ${decision.riskTier}`]),
+    ...(readScalar(frontmatter, "urgency") ? [] : [`urgency: ${decision.urgency}`])
+  ];
+  if (additions.length === 0) return null;
+  const nextFrontmatter = frontmatter.replace(/^packageDisposition:[^\n]*(?:\n|$)/mu, (line) => `${line.endsWith("\n") ? line : `${line}\n`}${additions.join("\n")}\n`);
+  if (nextFrontmatter === frontmatter) throw admission("DECISION_RELATION_TASK_FRONTMATTER_INVALID");
+  return body.replace(`---\n${frontmatter}\n---`, `---\n${nextFrontmatter}\n---`);
 }
 
 function decisionOperation(

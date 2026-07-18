@@ -238,6 +238,6 @@ function runTaskDelete(
   })));
 }
 
-function renderForceStatusAudit(status: string, reason: string): string {
-  return `${FORCE_STATUS_AUDIT_MARKER}: forced terminal status=${status}; reason=${reason}; recordedAt=${new Date().toISOString()}`;
+export function renderForceStatusAudit(status: string, reason: string, recordedAt = new Date().toISOString()): string {
+  return `${FORCE_STATUS_AUDIT_MARKER}: forced terminal status=${status}; reason=${reason}; recordedAt=${recordedAt}`;
 }
