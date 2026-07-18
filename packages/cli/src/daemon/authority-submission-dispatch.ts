@@ -32,6 +32,12 @@ export function bindAuthoritySubmissionForDispatch(
         dispatch.assertActive();
         return bound.submitTaskClaim!(submission);
       }
+    } : {}),
+    ...(bound.submitScriptIngest ? {
+      submitScriptIngest: async (submission: Parameters<NonNullable<typeof bound.submitScriptIngest>>[0]) => {
+        dispatch.assertActive();
+        return bound.submitScriptIngest!(submission);
+      }
     } : {})
   };
 }

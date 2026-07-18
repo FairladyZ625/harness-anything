@@ -1208,6 +1208,8 @@
       },
       "entry": [
         "cli",
+        "daemon-rpc",
+        "production-authority",
         "preset-runner"
       ],
       "cliActions": [
@@ -1428,6 +1430,8 @@
       },
       "entry": [
         "cli",
+        "daemon-rpc",
+        "production-authority",
         "preset-runner"
       ],
       "writeKinds": [
@@ -1448,7 +1452,9 @@
       ],
       "evidence": [
         "packages/cli/src/commands/extensions/script-staging.ts:32",
-        "packages/cli/src/commands/core/extension.ts:10"
+        "packages/cli/src/commands/core/extension.ts:10",
+        "packages/cli/src/daemon/production-authority-script-ingest.ts:35",
+        "packages/cli/src/daemon/authority-command-submission.ts:227"
       ],
       "freshness": "staging-mirror-ingest"
     },

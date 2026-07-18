@@ -96,13 +96,18 @@ export function daemonActorAttributionForParsedCommand(
   reportedExecutor: TaskHolderExecutor | null = null
 ): CliActorAttribution {
   const action = command.action;
-  if (action.kind !== "preset-entrypoint") {
+  const presetId = action.kind === "preset-entrypoint"
+    ? action.presetId
+    : action.kind === "script-run"
+      ? /^preset:([^:]+):/u.exec(action.scriptId)?.[1]
+      : undefined;
+  if (!presetId) {
     return daemonActorAttribution(actor, reportedExecutor);
   }
-  if (typeof action.presetId !== "string" || action.presetId.trim() === "") {
+  if (presetId.trim() === "") {
     throw new CliActorAttributionError(`Daemon ${action.kind} requires a non-empty parsed preset id.`);
   }
-  return daemonActorAttribution(actor, { kind: "agent", id: `preset:${action.presetId}` });
+  return daemonActorAttribution(actor, { kind: "agent", id: `preset:${presetId}` });
 }
 
 export function readCliJournalActorFromEnv(env: NodeJS.ProcessEnv): CliJournalActor | undefined {

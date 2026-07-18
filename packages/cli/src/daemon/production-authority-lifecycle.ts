@@ -1,18 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import {
-  consentTypedCommandsV2,
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
-  factRelationTypedCommandsV2,
-  makeCompositeAuthoritySemanticCompilerV2,
-  makeConsentSemanticCompilerV2,
-  makeFactRelationSemanticCompilerV2,
-  makeSessionExecutionReviewSemanticCompilerV2,
-  makeTaskDecisionModuleSemanticCompilerV2,
-  sessionExecutionReviewTypedCommandsV2,
-  taskDecisionModuleTypedCommandsV2,
   type ActorAxesBindingRuntimeV2,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
@@ -62,10 +53,8 @@ import { assertPublicationMatchesMutationSet } from "./authority-publication-evi
 import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
-import {
-  createProductionCanonicalAttemptCompiler,
-  createProductionCanonicalSemanticState
-} from "./production-authority-attempt-compiler.ts";
+import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
+import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
 import { gateCutoverAdmission } from "./authority-cutover-admission.ts";
 import {
   recoverPendingProductionEvents,
@@ -383,6 +372,9 @@ function createRepoComponent(
         ...(commandSubmission.submitTaskClaim ? {
           submitTaskClaim: commandSubmission.submitTaskClaim
         } : {}),
+        ...(commandSubmission.submitScriptIngest ? {
+          submitScriptIngest: commandSubmission.submitScriptIngest
+        } : {}),
         serveForcedCommand: ({ input: readable, output }) => {
           const session = serveAuthorityForcedCommand({
             input: readable,
@@ -441,7 +433,6 @@ function createConnectionAuthorityService(
   }
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
-  const semanticState = createProductionCanonicalSemanticState(material.authoredRoot);
   return createAuthoritySubmissionService({
     workspaceId: material.config.workspaceId,
     coordinatorFactory: input.attributedCoordinatorFactory,
@@ -459,28 +450,7 @@ function createConnectionAuthorityService(
       entityRegistrations: productionAuthorityV2EntityKinds.map((kind) =>
         entityRegistry[kind] as unknown as EntityRegistration<string, typeof kind>
       ),
-      semanticCompiler: makeCompositeAuthoritySemanticCompilerV2([{
-        commandNames: taskDecisionModuleTypedCommandsV2,
-        compiler: makeTaskDecisionModuleSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("fact.")),
-        compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("relation.")),
-        compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("session.")),
-        compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("execution.")),
-        compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("review.")),
-        compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
-      }, {
-        commandNames: consentTypedCommandsV2,
-        compiler: makeConsentSemanticCompilerV2({ state: semanticState })
-      }]),
+      semanticCompiler: createProductionAuthoritySemanticCompiler(material.authoredRoot),
       operationNamespaceVerifier: input.namespaceVerifier,
       committedEventPublisher: input.committedEventPublisher,
       recoverCommittedReceipt: (input.committedEventPublisher as typeof input.committedEventPublisher & {
