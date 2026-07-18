@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { readDecisionDocument, type DecisionWriteService, type DecisionWriteRejected } from "../../../../application/src/index.ts";
-import { deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteError } from "../../../../kernel/src/index.ts";
+import { type DecisionPackage, type EntityRelationRecord, type WriteError } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, taskDocumentPath, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { decisionRelationRecord } from "./decision-relation-record.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { activeTaskLeaseFailure } from "./task-lease-guard.ts";
@@ -193,22 +194,15 @@ function decisionRelation(
   if (!anchorIds.has(action.anchor)) {
     return { ok: false, reason: `decision relation source anchor does not exist: ${action.anchor}` };
   }
-  const base = {
-    source: `decision/${decision.decision_id}/${action.anchor}`,
-    target: action.target,
-    type: action.relationType,
-    strength: "strong",
-    direction: "directed",
-    origin: "declared",
-    rationale: action.rationale,
-    state: "active"
-  } satisfies Omit<EntityRelationRecord, "relation_id">;
   return {
     ok: true,
-    record: {
-      relation_id: deriveRelationId(base),
-      ...base
-    }
+    record: decisionRelationRecord({
+      decisionId: decision.decision_id,
+      anchor: action.anchor,
+      target: action.target,
+      relationType: action.relationType,
+      rationale: action.rationale
+    })
   };
 }
 
