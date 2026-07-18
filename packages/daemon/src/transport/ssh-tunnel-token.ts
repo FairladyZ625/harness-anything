@@ -1,8 +1,10 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { AttachTokenSubject, DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection, type TransportAuthenticationResult } from "./json-rpc-stream.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface AttachTokenMetadata {
@@ -71,7 +73,11 @@ export interface SshTunnelTokenStreamOptions {
   readonly output: Writable;
   readonly endpoint?: string;
   readonly tokenStore: AttachTokenStore;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
+  ) => JsonRpcProtocolServer;
 }
 
 export function createInMemoryAttachTokenStore(options: {

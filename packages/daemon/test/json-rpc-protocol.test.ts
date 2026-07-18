@@ -442,7 +442,7 @@ test("repo.command.run rejects payload rootDir that does not match the repo name
   assert.deepEqual(calls, []);
 });
 
-test("notification subscribe is a no-op socket and respects JSON-RPC notification semantics", async () => {
+test("notification subscribe without an id respects JSON-RPC notification semantics", async () => {
   const server = makeServer();
   await server.handle(readFixture("hello-compatible.json"));
 

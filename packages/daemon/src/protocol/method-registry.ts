@@ -4,7 +4,7 @@ import type { DaemonCommandClass } from "../identity/types.ts";
 
 export const currentDaemonProtocolVersion = 1 as const;
 
-export type JsonRpcMethodMode = "active" | "notification-stub" | "reserved";
+export type JsonRpcMethodMode = "active" | "notification" | "reserved";
 export type { DaemonCommandClass };
 
 export interface JsonRpcMethodContract {
@@ -101,10 +101,10 @@ const taskHolderContracts = [
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
-const notificationStubContracts = [
+const notificationContracts = [
   {
     method: "repo.notifications.subscribe",
-    mode: "notification-stub",
+    mode: "notification",
     namespace: "repo",
     inputSchemaId: "daemon.notification-subscription/v1",
     outputSchemaId: "daemon.notification-subscription-result/v1",
@@ -115,7 +115,7 @@ const notificationStubContracts = [
   },
   {
     method: "repo.notifications.unsubscribe",
-    mode: "notification-stub",
+    mode: "notification",
     namespace: "repo",
     inputSchemaId: "daemon.notification-subscription/v1",
     outputSchemaId: "daemon.notification-subscription-result/v1",
@@ -365,6 +365,6 @@ export const jsonRpcMethodContracts = [
   ...docSyncContracts,
   ...taskHolderContracts,
   ...jsonRpcServiceMethodContracts,
-  ...notificationStubContracts,
+  ...notificationContracts,
   ...adminReservedContracts
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;

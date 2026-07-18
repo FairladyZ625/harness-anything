@@ -171,6 +171,7 @@ export type {
   JsonRpcId,
   JsonObject,
   JsonValue,
+  JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
   JsonRpcSuccessResponse
