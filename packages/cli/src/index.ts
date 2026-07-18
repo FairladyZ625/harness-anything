@@ -34,6 +34,7 @@ import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
+import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -61,13 +62,20 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   if (parsed.value.deprecatedInvocation) console.error(deprecationWarning(parsed.value.deprecatedInvocation));
 
-  const daemonOutput = isGithubIssuesReadCommand(parsed.value)
-    ? undefined
-    : await runCommandThroughDaemon(parsed.value);
-  const output = daemonOutput ?? toCommandReceipt(await runRegisteredCommand(parsed.value));
+  const output = parsed.value.action.kind === "task-submit"
+    ? await runTaskSubmitFacade(parsed.value, runParsedCommand)
+    : await runParsedCommand(parsed.value);
 
-  emit(output, parsed.value.json);
-  return output.ok ? 0 : 1;
+  const receipt = "schema" in output ? output : toCommandReceipt(output);
+  emit(receipt, parsed.value.json);
+  return receipt.ok ? 0 : 1;
+}
+
+async function runParsedCommand(command: Parameters<typeof runRegisteredCommand>[0]): Promise<CommandReceipt | CommandFailureReceipt> {
+  const daemonOutput = isGithubIssuesReadCommand(command)
+    ? undefined
+    : await runCommandThroughDaemon(command);
+  return daemonOutput ?? toCommandReceipt(await runRegisteredCommand(command));
 }
 
 async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {

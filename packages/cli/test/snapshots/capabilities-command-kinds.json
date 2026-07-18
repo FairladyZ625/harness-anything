@@ -170,6 +170,7 @@
     "task-review",
     "task-review-execution",
     "task-show",
+    "task-submit",
     "task-supersede"
   ],
   "template": [

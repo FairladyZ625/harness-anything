@@ -110,16 +110,13 @@ export function createProductionCanonicalAttemptCompiler(input: {
       const now = Date.now();
       const allowedEntityKinds = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.entity.entityKind));
       const allowedActions = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.action));
-      const resourceScopes = [...intent.mutations.map((mutation) => ({
+      const resourceScopes = canonicalBindingResourceScopes([...intent.mutations.map((mutation) => ({
         kind: "entity-ref" as const,
         entityRef: mutation.entity
       })), ...intent.portablePaths.map((portablePath) => ({
         kind: "portable-path" as const,
         path: portablePath
-      }))].sort((left, right) => Buffer.compare(
-        Buffer.from(encodeCanonicalCbor(resourceScopeWire(left))),
-        Buffer.from(encodeCanonicalCbor(resourceScopeWire(right)))
-      ));
+      }))]);
       const claims = {
         tokenId: `${input.config.admissionTokenRef}:${randomUUID()}`,
         bindingId: `binding:${randomUUID()}`,
@@ -514,6 +511,18 @@ function resourceScopeWire(scope: {
       canonicalRef: scope.entityRef.canonicalRef
     }
   };
+}
+
+function canonicalBindingResourceScopes(
+  scopes: ReadonlyArray<Parameters<typeof resourceScopeWire>[0]>
+): ReadonlyArray<Parameters<typeof resourceScopeWire>[0]> {
+  const keyed = new Map<string, Parameters<typeof resourceScopeWire>[0]>();
+  for (const scope of scopes) {
+    keyed.set(Buffer.from(encodeCanonicalCbor(resourceScopeWire(scope))).toString("hex"), scope);
+  }
+  return [...keyed.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, scope]) => scope);
 }
 
 function canonicalBindingTextSet(values: ReadonlyArray<string>): ReadonlyArray<string> {

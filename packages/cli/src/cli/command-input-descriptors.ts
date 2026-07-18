@@ -126,6 +126,46 @@ const explicitInputDescriptors = {
       shortcut("--dry-run", "$.dryRun", "set")
     ]
   },
+  "task-submit": {
+    required: ["completionClaim", "deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"],
+    properties: {
+      completionClaim: { type: "string", description: "Required completion claim." },
+      deliverables: { type: "array", description: "Submission deliverables.", items: { type: "string" } },
+      outputs: { type: "array", description: "Inline OutputEvidence text.", items: { type: "string" } },
+      verificationNotes: { type: "array", description: "Verification notes.", items: { type: "string" } },
+      knownGaps: { type: "array", description: "Known gaps.", items: { type: "string" } },
+      residualRisks: { type: "array", description: "Residual risks.", items: { type: "string" } },
+      executionId: { type: "string", description: "Optional active Execution id; inferred from Holder V2 when omitted." },
+      leaseToken: { type: "string", description: "Optional lease token; the active local actor may omit it." },
+      codeDoc: { type: "object", description: "Optional code-doc reconciliation input." }
+    },
+    shortcuts: []
+  },
+  "task-review-execution": {
+    required: ["verdict", "findings", "rationale"],
+    properties: {
+      executionId: { type: "string", description: "Submitted Execution id; inferred only when exactly one submitted round exists." },
+      verdict: { type: "string", description: "Review verdict: approved, changes_requested, or dismissed." },
+      findings: { type: "string", description: "Reviewer findings." },
+      rationale: { type: "string", description: "Reviewer semantic rationale." },
+      evidenceChecked: { type: "array", description: "Inspected OutputEvidence ids.", items: { type: "string" } },
+      archiveWarningsAcknowledged: { type: "boolean", description: "Explicit acknowledgement of archive warnings." },
+      consentId: { type: "string", description: "Existing content-pinned human consent id." },
+      consentUtterance: { type: "string", description: "Human's exact approval words; never defaulted." },
+      consentActions: { type: "array", description: "Explicit human consent actions.", items: { type: "string" } }
+    },
+    shortcuts: [
+      shortcut("--execution-id", "$.executionId", "set"),
+      shortcut("--verdict", "$.verdict", "set"),
+      shortcut("--findings", "$.findings", "set"),
+      shortcut("--rationale", "$.rationale", "set"),
+      shortcut("--evidence-checked", "$.evidenceChecked", "append"),
+      shortcut("--acknowledge-archive-warnings", "$.archiveWarningsAcknowledged", "set"),
+      shortcut("--consent", "$.consentId", "set"),
+      shortcut("--consent-utterance", "$.consentUtterance", "set"),
+      shortcut("--consent-action", "$.consentActions", "append")
+    ]
+  },
   "runtime-event-append": {
     required: ["sessionId", "eventKind"],
     properties: {

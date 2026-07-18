@@ -1,12 +1,14 @@
-import type { CurrentSessionRef, TaskHolderService } from "../../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionRef, TaskHolderService } from "../../../kernel/src/index.ts";
 import { normalizeDecisionProposeAction } from "./decision-propose-normalizer.ts";
 import { normalizeExecutionSubmissionCommand } from "./execution-submission-normalizer.ts";
 import type { ParsedCommand } from "./types.ts";
+import { normalizeReviewConsentIdentity, normalizeReviewExecutionSelection } from "./review-execution-normalizer.ts";
 
 export async function normalizeCommandSemantics(
   command: ParsedCommand,
   taskHolderService: Pick<TaskHolderService, "holder">,
-  currentSession?: CurrentSessionRef
+  currentSession?: CurrentSessionRef,
+  artifactStore?: Pick<ArtifactStore, "readTaskPackage">
 ): Promise<ParsedCommand> {
   let parsed = command.action.kind === "decision-propose"
     ? { ...command, action: normalizeDecisionProposeAction(command.action) }
@@ -24,6 +26,8 @@ export async function normalizeCommandSemantics(
       }
     };
   }
+  parsed = await normalizeReviewExecutionSelection(parsed, artifactStore);
+  parsed = normalizeReviewConsentIdentity(parsed);
   return normalizeExecutionSubmissionCommand(parsed, taskHolderService);
 }
 

@@ -14,6 +14,7 @@ import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
 import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
+import { rejectDaemonTaskSubmitFacade } from "../../commands/core/task-submit-facade.ts";
 
 export const coreCommandSpecs = defineCommandSpecs([
   {
@@ -178,6 +179,29 @@ export const coreCommandSpecs = defineCommandSpecs([
     "eventPolicy": {
       "conflictMarkerPreflight": false,
       "runtimeEvent": "auto"
+    }
+  },
+  {
+    "kind": "task-submit",
+    "usage": "task submit <id> --from-file <submission.json> [--dry-run]",
+    "options": [{"flag":"--from-file","description":"Read the six-field Execution Submission packet and optional code-doc reconciliation input."},{"flag":"--dry-run","description":"List the underlying canonical commands without writing."}],
+    "summary": "Submit the active Execution through the existing code-doc and execution-submit commands without weakening either gate.",
+    "examples": ["harness-anything task submit task_01ABC --from-file submission.json"],
+    "parse": parseCoreTaskArgs,
+    "run": rejectDaemonTaskSubmitFacade,
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    },
+    "admission": {
+      "nounOwnership": "Task lifecycle facade; it does not introduce a new top-level noun.",
+      "lifecycle": "permanent",
+      "decisionRef": "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
+      "chain": { "stepCount": 7, "submissionFieldCount": 6, "structuredInput": true }
     }
   },
   {
@@ -404,8 +428,8 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-review-execution",
-    "usage": "task review-execution <id> --execution-id <execution-id> --verdict approved|changes_requested|dismissed --findings <text> --rationale <text> [--consent <consent-id>|--consent-utterance <text>] [--consent-action approve_execution] [--consent-action complete_task] [--evidence-checked <id>]... [--acknowledge-archive-warnings]",
-    "options": [{"flag":"--execution-id","description":"Review the exact submitted Execution."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--consent","description":"Consume an existing open consent for approved verdicts."},{"flag":"--consent-utterance","description":"Record and consume the human's exact words in the same approved Review transaction."},{"flag":"--consent-action","description":"When using --consent-utterance, grant approve_execution and optionally complete_task; defaults to both."},{"flag":"--evidence-checked","description":"Record an inspected OutputEvidence id; repeat as needed."},{"flag":"--rationale","description":"Record the Reviewer's semantic rationale."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
+    "usage": "task review-execution <id> [--from-file <review.json>] [--execution-id <execution-id>] --verdict approved|changes_requested|dismissed --findings <text> --rationale <text> [--consent <consent-id>|--consent-utterance <text>] [--consent-action approve_execution] [--consent-action complete_task] [--evidence-checked <id>]... [--acknowledge-archive-warnings]",
+    "options": [{"flag":"--from-file","description":"Read Review fields; executionId may be omitted only when exactly one submitted Execution exists."},{"flag":"--execution-id","description":"Review the exact submitted Execution."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--consent","description":"Consume an existing open consent for approved verdicts."},{"flag":"--consent-utterance","description":"Record and consume the human's exact words in the same approved Review transaction."},{"flag":"--consent-action","description":"When using --consent-utterance, grant approve_execution and optionally complete_task; defaults to both."},{"flag":"--evidence-checked","description":"Record an inspected OutputEvidence id; repeat as needed."},{"flag":"--rationale","description":"Record the Reviewer's semantic rationale."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
     "summary": "Create an immutable Review round; approved verdicts require content-pinned human consent, while executor identity never substitutes for consent.",
     "examples": ["harness-anything task review-execution task_01ABC --execution-id exe_01ABC --verdict approved --findings \"Acceptance checks passed\" --rationale \"Evidence satisfies the Task intent\" --consent-utterance \"Approved\""],
     "parse": parseCoreTaskArgs,

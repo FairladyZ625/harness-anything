@@ -4,7 +4,11 @@ import { sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { createAuthorityKeyRegistryV1, firstPinAuthorityKeyV1 } from "../../../application/src/index.ts";
+import {
+  createAuthorityKeyRegistryV1,
+  firstPinAuthorityKeyV1,
+  type AuthorityStoredOperationRecord
+} from "../../../application/src/index.ts";
 import { openLocalAuthorityKeyStore } from "../../../daemon/src/index.ts";
 import { executionDeclaration, type ExecutionRecord } from "../../../kernel/src/index.ts";
 import { authorityNamespaceProofBytes } from "../../src/daemon/authority-production-state.ts";
@@ -156,12 +160,12 @@ export function writeColdCodexSessionLog(repoRoot: string, sessionId: string): v
   })}\n`);
 }
 
-export function latestAuthorityOperation(serviceRoot: string): { readonly state?: string; readonly opId?: string; readonly commitSha?: string; readonly receipt?: { readonly tag?: string } } {
+export function latestAuthorityOperation(serviceRoot: string): AuthorityStoredOperationRecord {
   const rows = readFileSync(operationPath(serviceRoot), "utf8").trim().split("\n")
     .map((line) => JSON.parse(line) as { readonly table?: string; readonly value?: Record<string, unknown> })
     .filter((row) => row.table === "operation" && row.value);
   assert.ok(rows.length > 0, "service route must persist an authority operation");
-  return rows.at(-1)!.value as ReturnType<typeof latestAuthorityOperation>;
+  return rows.at(-1)!.value as unknown as AuthorityStoredOperationRecord;
 }
 
 export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<{ readonly state?: string; readonly opId?: string }> {

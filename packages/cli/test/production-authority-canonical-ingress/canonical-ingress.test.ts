@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -45,6 +45,7 @@ import {
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
 import { verifyDecisionAttributionAfterRestart } from "./decision-attribution-restart.ts";
 import { verifyDerivedFactSource } from "./fact-source-parity.ts";
+import { authorityOperationShape } from "./operation-shape.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 
@@ -180,6 +181,7 @@ test("production service route preserves progress dry-run and publishes canonica
     ], initialLeaseEnv);
     assert.equal(explicitExecutionSubmit.status, 0, JSON.stringify(explicitExecutionSubmit.receipt));
     assert.equal(explicitExecutionSubmit.receipt.ok, true, JSON.stringify(explicitExecutionSubmit.receipt));
+    const manualSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
     assert.match(readFileSync(path.join(
       fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/executions/${explicitExecutionId}.md`
     ), "utf8"), /^  "state": "submitted",$/mu);
@@ -214,34 +216,42 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(claimed.status, 0, JSON.stringify(claimed.receipt));
     assert.equal(claimed.receipt.ok, true, JSON.stringify(claimed.receipt));
 
-    const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "code-doc", "reconcile", sluggedLifecycleTaskId,
-      "--commit", fixture.publicHead, "--path", "README.md"
+    const submitPacketPath = path.join(fixture.root, "slugged-submission.json");
+    writeFileSync(submitPacketPath, JSON.stringify({
+      completionClaim: "Slugged production lifecycle is complete.",
+      deliverables: ["Canonical slug-aware lifecycle intents."],
+      outputs: ["slugged lifecycle passed"],
+      verificationNotes: ["Production daemon route passed."],
+      knownGaps: [], residualRisks: [],
+      codeDoc: { commit: fixture.publicHead, paths: ["README.md"] }
+    }));
+    const beforeFacadeSubmit = authorityOperationRecords(fixture.serviceRoot).length;
+    const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "submit", sluggedLifecycleTaskId, "--from-file", submitPacketPath
     ], sluggedLifecycleEnv);
-    assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
-    assert.equal(reconciled.receipt.ok, true, JSON.stringify(reconciled.receipt));
+    assert.equal(transitioned.status, 0, JSON.stringify(transitioned.receipt));
+    assert.equal(transitioned.receipt.ok, true, JSON.stringify(transitioned.receipt));
+    const facadeSteps = (transitioned.receipt.details as {
+      readonly report?: { readonly steps?: ReadonlyArray<{ readonly details?: { readonly data?: Record<string, unknown> } }> };
+    } | undefined)?.report?.steps ?? [];
+    assert.equal(facadeSteps.length, 2, JSON.stringify(transitioned.receipt));
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeFacadeSubmit + 2,
+      "task submit must publish one code-doc operation and one execution-submit operation");
+    const facadeSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
+    assert.deepEqual(
+      authorityOperationShape(facadeSubmitOperation),
+      authorityOperationShape(manualSubmitOperation),
+      "facade execution-submit registry operation must preserve every stored field and proof category"
+    );
     assert.equal(existsSync(path.join(
       fixture.authoredRoot,
       `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
     )), true);
     assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
 
-    const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "transition", sluggedLifecycleTaskId, "in_review",
-      "--completion-claim", "Slugged production lifecycle is complete.",
-      "--deliverable", "Canonical slug-aware lifecycle intents.",
-      "--verification", "Production daemon route passed.",
-      "--output", "slugged lifecycle passed"
-    ], sluggedLifecycleEnv);
-    assert.equal(transitioned.status, 0, JSON.stringify(transitioned.receipt));
-    assert.equal(transitioned.receipt.ok, true, JSON.stringify(transitioned.receipt));
-    assert.equal((transitioned.receipt.details as {
-      readonly data?: { readonly executionId?: string };
-      readonly report?: { readonly leaseReleased?: boolean };
-    } | undefined)?.data?.executionId, sluggedExecutionId, JSON.stringify(transitioned.receipt));
-    assert.equal((transitioned.receipt.details as {
-      readonly report?: { readonly leaseReleased?: boolean };
-    } | undefined)?.report?.leaseReleased, true, JSON.stringify(transitioned.receipt));
+    const submitStepData = facadeSteps.at(-1)?.details?.data ?? {};
+    assert.equal(submitStepData.executionId, sluggedExecutionId, JSON.stringify(transitioned.receipt));
+    assert.equal((submitStepData.report as { readonly leaseReleased?: boolean } | undefined)?.leaseReleased, true, JSON.stringify(transitioned.receipt));
     assert.match(readFileSync(path.join(
       fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route/executions/${sluggedExecutionId}.md`
     ), "utf8"), /^  "state": "submitted",$/mu);
@@ -259,25 +269,16 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(inferredTaskProjection.status, 0, JSON.stringify(inferredTaskProjection.receipt));
     assert.match(JSON.stringify(inferredTaskProjection.receipt), /in_review/u);
 
-    const consented = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "consent-record", sluggedLifecycleTaskId,
-      "--execution-id", sluggedExecutionId,
-      "--utterance", "Approve and complete the slugged production execution.",
-      "--consent-action", "approve_execution", "--consent-action", "complete_task"
-    ], sluggedLifecycleEnv);
-    assert.equal(consented.status, 0, JSON.stringify(consented.receipt));
-    assert.equal(consented.receipt.ok, true, JSON.stringify(consented.receipt));
-    const sluggedConsentId = String((consented.receipt.details as { readonly data?: { readonly consentId?: string } } | undefined)?.data?.consentId ?? "");
-    assert.match(sluggedConsentId, /^cns_/u, JSON.stringify(consented.receipt));
-
+    const reviewPacketPath = path.join(fixture.root, "slugged-review.json");
+    writeFileSync(reviewPacketPath, JSON.stringify({
+      verdict: "approved", findings: "Slugged production evidence is complete.",
+      evidenceChecked: ["ev_cli_1"], rationale: "The submitted execution and closeout evidence support approval.",
+      archiveWarningsAcknowledged: true,
+      consentUtterance: "Approve and complete the slugged production execution.",
+      consentActions: ["approve_execution", "complete_task"]
+    }));
     const reviewed = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "review-execution", sluggedLifecycleTaskId,
-      "--execution-id", sluggedExecutionId,
-      "--verdict", "approved",
-      "--findings", "Slugged production evidence is complete.",
-      "--evidence-checked", "ev_cli_1",
-      "--rationale", "The submitted execution and closeout evidence support approval.",
-      "--acknowledge-archive-warnings", "--consent", sluggedConsentId
+      "task", "review-execution", sluggedLifecycleTaskId, "--from-file", reviewPacketPath
     ], sluggedLifecycleEnv);
     assert.equal(reviewed.status, 0, JSON.stringify(reviewed.receipt));
     assert.equal(reviewed.receipt.ok, true, JSON.stringify(reviewed.receipt));
@@ -293,7 +294,10 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
     const sluggedTaskRoot = path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route`);
     assert.match(readFileSync(path.join(sluggedTaskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
-    assert.equal(existsSync(path.join(sluggedTaskRoot, `consents/${sluggedConsentId}.md`)), true);
+    const consentFiles = execFileSync("find", [path.join(sluggedTaskRoot, "consents"), "-type", "f"], { encoding: "utf8" })
+      .trim().split("\n").filter(Boolean);
+    assert.equal(consentFiles.length, 1);
+    assert.match(path.basename(consentFiles[0]!), /^cns_[0-9A-HJKMNP-TV-Z]{26}\.md$/u);
     assert.equal(existsSync(path.join(sluggedTaskRoot, "reviews")), true);
     assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
 

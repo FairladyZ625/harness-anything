@@ -7,16 +7,27 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 type Action = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-review-execution" }>;
 
 export function runExecutionReview(context: Parameters<CommandRunner>[0], action: Action): ReturnType<CommandRunner> {
+  if (!action.executionId) {
+    return Effect.succeed({
+      ok: false,
+      command: action.kind,
+      taskId: action.taskId,
+      error: cliError(CliErrorCode.WriteRejected, action.executionSelectionError ?? "task review-execution requires --execution-id or exactly one submitted Execution.")
+    } satisfies CliResult);
+  }
+  const executionId = action.executionId;
+  const generatedConsentId = action.generatedConsentId;
   const service = makeReviewExecutionService({
     rootInput: context.layoutInput,
     coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-review" }),
-    artifactStore: context.artifactStore
+    artifactStore: context.artifactStore,
+    ...(generatedConsentId ? { generateConsentId: () => generatedConsentId } : {})
   });
   return context.currentSessionProbe.currentSession.pipe(
     Effect.flatMap((reviewerSession) => Effect.tryPromise({
       try: () => service.reviewExecution({
         taskId: action.taskId,
-        executionId: action.executionId,
+        executionId,
         reviewer: context.taskHolderPrincipal(),
         reviewerSession,
         findings: action.findings,
@@ -35,18 +46,18 @@ export function runExecutionReview(context: Parameters<CommandRunner>[0], action
         ok: false,
         command: action.kind,
         taskId: action.taskId,
-        executionId: action.executionId,
+        executionId,
         error: cliError(CliErrorCode.WriteRejected, error instanceof Error ? error.message : String(error))
       }),
       onSuccess: ({ review }): CliResult => ({
         ok: true,
         command: action.kind,
         taskId: action.taskId,
-        executionId: action.executionId,
+        executionId,
         reviewId: review.review_id,
         report: {
           schema: "execution-review-result/v1",
-          executionId: action.executionId,
+          executionId,
           reviewId: review.review_id,
           verdict: review.verdict
         }

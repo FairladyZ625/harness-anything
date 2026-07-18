@@ -15,6 +15,7 @@ import { dryRunResult, isDryRunAction } from "../cli/dry-run-preview.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { CliActorAttributionError, daemonActorAttributionForParsedCommand, migrationWriteAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
+import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
 import { makeDaemonAuthorityWriteCoordinator, type DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
@@ -47,7 +48,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
         const parsedCommand = await normalizeCommandSemantics(wireCommand, makeTaskHolderService({
           rootInput: { rootDir: wireCommand.rootDir, layoutOverrides: wireCommand.layoutOverrides }
-        }), currentSession);
+        }), currentSession, defaultCliAdapterProvider().createArtifactStore({
+          rootDir: wireCommand.rootDir,
+          layoutOverrides: wireCommand.layoutOverrides
+        }));
         command = parsedCommand;
         const daemonActor = context?.actor;
         if (isAuthorityCutoverAction(parsedCommand.action)) {

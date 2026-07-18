@@ -50,6 +50,7 @@ const dispositions = {
 
   "init": excluded("repository bootstrap writes precede production authority attachment"),
   "task-release": excluded("lease release mutates daemon-private holder state in the operational domain"),
+  "task-submit": excluded("CLI facade decomposes into separately admitted task-code-doc-reconcile and status-set commands; a raw composite daemon action is rejected"),
   "task-amend": excluded("task extension amendment has no production typed semantic compiler"),
   "task-contract-migrate": excluded("task contract migration is an explicit local migration write road"),
   "task-archive": excluded("task archival has no production typed semantic compiler"),
