@@ -146,6 +146,57 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
   });
 });
 
+test("supply-chain check accepts reviewed CycloneDX license expressions", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      lockMutator: (lock) => {
+        lock.packages["node_modules/jszip"] = {
+          version: "3.10.1",
+          resolved: "https://registry.npmjs.org/jszip/-/jszip-3.10.1.tgz",
+          integrity: "sha512-test",
+          license: "(MIT OR GPL-3.0-or-later)"
+        };
+      },
+      sbomMutator: (sbom) => {
+        sbom.components.push({
+          name: "jszip",
+          purl: "pkg:npm/jszip@3.10.1",
+          hashes: [{ alg: "SHA-512", content: "test" }],
+          licenses: [{ expression: "(MIT OR GPL-3.0-or-later)" }]
+        });
+      }
+    });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("supply-chain check recognizes the unscoped VS Code workspace link", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      lockMutator: (lock) => {
+        lock.packages["node_modules/harness-anything-vscode"] = {
+          resolved: "packages/vscode-ext",
+          link: true
+        };
+      },
+      sbomMutator: (sbom) => {
+        sbom.components.push({
+          name: "vscode-ext",
+          purl: "pkg:npm/harness-anything-vscode@0.1.0",
+          licenses: [{ license: { id: "AGPL-3.0-or-later" } }]
+        });
+      }
+    });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
 test("supply-chain check rejects CI drift", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
@@ -250,7 +301,10 @@ function writeValidSupplyChainFixture(root, options = {}) {
     "packages/adapters/local/package.json",
     "packages/adapters/multica/package.json",
     "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/linear/package.json",
+    "packages/api-contracts/package.json",
+    "packages/daemon-client/package.json",
+    "packages/vscode-ext/package.json"
   ]) {
     workspacePackages[packagePath] = { name: packagePath, version: "0.1.0", private: true, license: "AGPL-3.0-or-later" };
   }

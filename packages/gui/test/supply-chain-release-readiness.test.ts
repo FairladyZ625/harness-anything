@@ -16,11 +16,22 @@ test("supply-chain release readiness covers audit SBOM OSV license and release b
   assert.equal(harnessSupplyChainReleaseReadiness.osv.releaseEvidenceRequiredBeforePublication, true);
   assert.equal(harnessSupplyChainReleaseReadiness.osv.releaseEvidencePath, "release-evidence/osv/scan-result.json");
   assert.equal(harnessSupplyChainReleaseReadiness.workspacePackagePaths.includes("packages/daemon/package.json"), true);
+  assert.equal(harnessSupplyChainReleaseReadiness.workspacePackagePaths.includes("packages/api-contracts/package.json"), true);
+  assert.equal(harnessSupplyChainReleaseReadiness.workspacePackagePaths.includes("packages/daemon-client/package.json"), true);
+  assert.equal(harnessSupplyChainReleaseReadiness.workspacePackagePaths.includes("packages/vscode-ext/package.json"), true);
   assert.equal(harnessSupplyChainReleaseReadiness.npmPublishDryRun.command, "npm publish --dry-run --workspace @harness-anything/cli --access public");
   assert.deepEqual(harnessSupplyChainReleaseReadiness.npmPublishDryRun.publishablePackages, ["@harness-anything/cli"]);
   assert.equal(harnessSupplyChainReleaseReadiness.npmPublishDryRun.actualPublishPermitted, false);
   assert.equal(harnessSupplyChainReleaseReadiness.sbom.releaseArtifactSbomRequiredBeforePublication, true);
   assert.equal(harnessSupplyChainReleaseReadiness.licensePolicy.projectLicense, "AGPL-3.0-or-later");
+  assert.deepEqual(harnessSupplyChainReleaseReadiness.licensePolicy.allowedDependencyLicenses, [
+    "0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"
+  ]);
+  const jszipReview = harnessSupplyChainReleaseReadiness.licensePolicy.reviewedDependencyLicenseChoices
+    .find((choice) => choice.packageName === "jszip");
+  assert.equal(jszipReview?.declaredLicenseExpression, "(MIT OR GPL-3.0-or-later)");
+  assert.equal(jszipReview?.electedLicense, "MIT");
+  assert.match(jszipReview?.rationale ?? "", /Build-only/u);
   assert.equal(harnessSupplyChainReleaseReadiness.licensePolicy.networkServiceReleaseChecklist.length, 5);
   assert.equal(harnessSupplyChainReleaseReadiness.releaseBoundary.releaseArtifactsPublished, false);
 });

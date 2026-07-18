@@ -155,7 +155,7 @@ function validatePackageLock() {
 
   for (const [packagePath, metadata] of Object.entries(lock.packages)) {
     if (!packagePath.startsWith("node_modules/")) continue;
-    if (isWorkspaceLink(packagePath)) continue;
+    if (isWorkspaceLink(metadata)) continue;
     if (!metadata.resolved || !metadata.integrity) {
       record(`package-lock.json entry ${packagePath} must include resolved URL and integrity for release SBOM traceability`);
     }
@@ -348,11 +348,11 @@ function validateSbom(output) {
     if (!isWorkspace && policy.sbom.requiresComponentHash && (!Array.isArray(component.hashes) || component.hashes.length === 0)) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include at least one hash`);
     }
-    const licenseId = component.licenses?.[0]?.license?.id;
-    if (policy.sbom.requiresComponentLicense && !licenseId && !hasReviewedDependencyLicenseChoice(component.name)) {
+    const declaredLicense = component.licenses?.[0]?.license?.id ?? component.licenses?.[0]?.expression;
+    if (policy.sbom.requiresComponentLicense && !declaredLicense && !hasReviewedDependencyLicenseChoice(component.name)) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include license`);
-    } else if (licenseId && !isWorkspace && !isAllowedDependencyLicense(component.name, licenseId)) {
-      record(`SBOM component ${component.name ?? "<unknown>"} has unreviewed license ${licenseId}`);
+    } else if (declaredLicense && !isWorkspace && !isAllowedDependencyLicense(component.name, declaredLicense)) {
+      record(`SBOM component ${component.name ?? "<unknown>"} has unreviewed license ${declaredLicense}`);
     }
   }
 }
@@ -376,8 +376,8 @@ function hasReviewedDependencyLicenseChoice(packageName) {
   );
 }
 
-function isWorkspaceLink(packagePath) {
-  return packageNameFromNodeModules(packagePath).startsWith("@harness-anything/");
+function isWorkspaceLink(metadata) {
+  return metadata?.link === true;
 }
 
 function packageNameFromNodeModules(packagePath) {
@@ -389,7 +389,10 @@ function packageNameFromNodeModules(packagePath) {
 }
 
 function isHarnessWorkspaceComponent(component) {
-  return typeof component.purl === "string" && component.purl.includes("%40harness-anything/");
+  return typeof component.purl === "string" && (
+    component.purl.includes("%40harness-anything/") ||
+    component.purl.startsWith("pkg:npm/harness-anything-vscode@")
+  );
 }
 
 function parseDependabotEntries(body) {

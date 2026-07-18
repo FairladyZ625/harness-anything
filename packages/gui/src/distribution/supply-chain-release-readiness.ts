@@ -93,7 +93,10 @@ export interface SupplyChainReleaseReadinessPolicy {
     "packages/adapters/local/package.json",
     "packages/adapters/multica/package.json",
     "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/linear/package.json",
+    "packages/api-contracts/package.json",
+    "packages/daemon-client/package.json",
+    "packages/vscode-ext/package.json"
   ];
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
   readonly sbom: SbomContract;
@@ -139,7 +142,10 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     "packages/adapters/local/package.json",
     "packages/adapters/multica/package.json",
     "packages/adapters/github-issues/package.json",
-    "packages/adapters/linear/package.json"
+    "packages/adapters/linear/package.json",
+    "packages/api-contracts/package.json",
+    "packages/daemon-client/package.json",
+    "packages/vscode-ext/package.json"
   ],
   auditCommands: [
     {
@@ -239,6 +245,153 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
         electedLicense: "MIT",
         reviewedAt: "2026-07-08",
         rationale: "DevDependency-only transitive dependency introduced by electron-builder packaging tooling through truncate-utf8-bytes. The SPDX OR expression includes MIT; project elects the permissive MIT branch and the package is not part of the Harness runtime distribution."
+      },
+      {
+        packageName: "@azu/style-format",
+        declaredLicenseExpression: "WTFPL",
+        electedLicense: "WTFPL",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. WTFPL permits the build-time use; this package is not included in the VSIX or any Harness runtime distribution."
+      },
+      {
+        packageName: "binaryextensions",
+        declaredLicenseExpression: "Artistic-2.0",
+        electedLicense: "Artistic-2.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. Artistic-2.0 obligations do not reach the product because this unmodified package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "editions",
+        declaredLicenseExpression: "Artistic-2.0",
+        electedLicense: "Artistic-2.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. Artistic-2.0 obligations do not reach the product because this unmodified package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "istextorbinary",
+        declaredLicenseExpression: "Artistic-2.0",
+        electedLicense: "Artistic-2.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. Artistic-2.0 obligations do not reach the product because this unmodified package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "textextensions",
+        declaredLicenseExpression: "Artistic-2.0",
+        electedLicense: "Artistic-2.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. Artistic-2.0 obligations do not reach the product because this unmodified package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "version-range",
+        declaredLicenseExpression: "Artistic-2.0",
+        electedLicense: "Artistic-2.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. Artistic-2.0 obligations do not reach the product because this unmodified package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "spdx-exceptions",
+        declaredLicenseExpression: "CC-BY-3.0",
+        electedLicense: "CC-BY-3.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only SPDX data used by private @vscode/vsce packaging tooling. Attribution is retained upstream and the data package is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "spdx-license-ids",
+        declaredLicenseExpression: "CC0-1.0",
+        electedLicense: "CC0-1.0",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only SPDX identifier data used by private @vscode/vsce packaging tooling. CC0-1.0 is accepted for this build-time data set, which is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "jszip",
+        declaredLicenseExpression: "(MIT OR GPL-3.0-or-later)",
+        electedLicense: "MIT",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only transitive dependency of private @vscode/vsce packaging tooling. The project explicitly elects the MIT branch documented in jszip LICENSE.markdown; jszip is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "pako",
+        declaredLicenseExpression: "(MIT AND Zlib)",
+        electedLicense: "MIT AND Zlib",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only jszip compression dependency of private @vscode/vsce packaging tooling. Both permissive MIT and Zlib terms in the upstream pako LICENSE are accepted; pako is not included in the VSIX or runtime distribution."
+      },
+      {
+        packageName: "vscode-ext",
+        declaredLicenseExpression: "AGPL-3.0-or-later",
+        electedLicense: "AGPL-3.0-or-later",
+        reviewedAt: "2026-07-19",
+        rationale: "CycloneDX names the private first-party packages/vscode-ext workspace as vscode-ext. It is project-owned AGPL-3.0-or-later source, not a third-party runtime dependency; the packaged VSIX carries the project license."
+      },
+      {
+        packageName: "@vscode/vsce-sign",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only signing helper pulled by private @vscode/vsce. Manually verified against the package LICENSE.txt (SHA-256 80780388a077c74609a5fc7ee1cc3d382740a5e48d87f7aac5a20cbddef3e91c); accepted only for build/sign execution and not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-alpine-arm64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-alpine-x64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-darwin-arm64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. Manually verified against its package LICENSE.txt (SHA-256 80780388a077c74609a5fc7ee1cc3d382740a5e48d87f7aac5a20cbddef3e91c); used only during build/sign and not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-darwin-x64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-linux-arm",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-linux-arm64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-linux-x64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-win32-arm64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
+      },
+      {
+        packageName: "@vscode/vsce-sign-win32-x64",
+        declaredLicenseExpression: "SEE LICENSE IN LICENSE.txt",
+        electedLicense: "Microsoft VSCE-SIGN Software License Terms",
+        reviewedAt: "2026-07-19",
+        rationale: "Build-only optional VSCE Sign platform binary. The @vscode/vsce-sign family LICENSE.txt is the manually reviewed source; this non-host optional package remains lockfile evidence and is not redistributed in the VSIX or runtime."
       }
     ],
     networkServiceReleaseNotesRequired: true,
