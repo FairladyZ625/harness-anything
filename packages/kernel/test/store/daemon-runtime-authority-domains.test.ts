@@ -129,6 +129,14 @@ test("daemon upgrade attach defers an unsafe domain without discarding a recover
     const retained = readFileSync(journalPath, "utf8");
     assert.doesNotMatch(retained, /runtime-event-safe-domain/u);
     assert.match(retained, /op-unsafe-authority-domain/u);
+    const liveLegacy = await runtime.enqueueInteractiveWrite({
+      commandId: "legacy-after-deferred-authority",
+      operationalActor: { scope: "operational", kind: "system", id: "daemon-runtime" },
+      ops: [runtimeEventOp("runtime-event-after-deferred", "after-deferred.jsonl", "evt-after-deferred")]
+    });
+    assert.equal(liveLegacy.flush.opCount, 1);
+    assert.match(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/after-deferred.jsonl"), "utf8"), /evt-after-deferred/u);
+    assert.match(readFileSync(journalPath, "utf8"), /op-unsafe-authority-domain/u);
     await runtime.stop();
   });
 });
