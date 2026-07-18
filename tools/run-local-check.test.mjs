@@ -37,6 +37,7 @@ test("affected test prefixes derive package, nested adapter, and tools scopes", 
 test("light steps contain incremental typecheck, changed lint, and affected tests only", () => {
   const steps = buildSteps(false, ["tools/run-local-check.mjs", "docs-release/readme.md"]);
   assert.deepEqual(steps.map(([label]) => label), [
+    "ghost task packages",
     "incremental typecheck",
     "manifest local stop gates",
     "changed-file lint",
@@ -53,6 +54,7 @@ test("manual full tier appends integration, GUI E2E, and manifest gates", () => 
   assert.ok(labels.includes("integration tests"));
   assert.ok(labels.includes("GUI E2E"));
   assert.ok(labels.includes("manifest local stop gates"));
+  assert.ok(labels.includes("ghost task packages"));
 });
 
 test("local steps apply the shared QoS prefix", () => {
