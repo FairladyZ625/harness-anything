@@ -465,10 +465,10 @@ test("production generic canonical ingress accepts and journals one write for ev
       authoredMarker: /F-A11CE001/u
     }, {
       kind: "relation",
-      action: { kind: "decision-relate", decisionId: "dec_INGRESS", anchor: "decision/dec_INGRESS", relationType: "derives", target: "task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", rationale: "Ingress relation coverage.", dryRun: false },
+      action: { kind: "decision-relate", decisionId: "dec_INGRESS", anchor: "C1", relationType: "derives", target: "task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", rationale: "Ingress relation coverage.", dryRun: false },
       canonicalEntityId: decisionEntityId("dec_INGRESS"),
       authoredPath: "decisions/decision-dec_INGRESS/decision.md",
-      authoredMarker: /derives/u
+      authoredMarker: /decision\/dec_INGRESS\/C1/u
     }, {
       kind: "session",
       action: { kind: "session-export", sessionId: "session-ingress", runtime: "codex", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z", transcriptFile: fixture.transcriptPath },

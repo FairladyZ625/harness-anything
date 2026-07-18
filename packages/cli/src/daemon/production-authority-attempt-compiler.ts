@@ -23,7 +23,6 @@ import {
 import {
   decisionEntityId,
   decisionSemanticMutationActions,
-  deriveRelationId,
   encodeCanonicalCbor,
   moduleEntityId,
   sha256Text,
@@ -50,6 +49,7 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
+import { decisionRelationRecord } from "../commands/core/decision-relation-record.ts";
 import { productionLifecycleAttemptIntent } from "./production-authority-lifecycle-intents.ts";
 import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
 import { buildAuthorityPresetTaskCreateWrites, shouldUsePresetAwareNewTask } from "../commands/preset-task.ts";
@@ -429,16 +429,13 @@ async function canonicalAttemptIntent(
     return canonicalIntent("module.register", encodeTaskDecisionModuleCommandPayloadV2(payload), [{ entity, action: "register" }], [entity], ["modules.json"], moduleEntityId(action.moduleKey));
   }
   if (action.kind === "decision-relate") {
-    const identity = {
-      source: action.anchor,
+    const relation: EntityRelationRecord = decisionRelationRecord({
+      decisionId: action.decisionId,
+      anchor: action.anchor,
       target: action.target,
-      type: action.relationType,
-      direction: "directed" as const
-    };
-    const relation: EntityRelationRecord = {
-      relation_id: deriveRelationId(identity), ...identity, strength: "strong", origin: "declared",
-      rationale: action.rationale, state: "active"
-    };
+      relationType: action.relationType,
+      rationale: action.rationale
+    });
     const entity = ref("relation", `relation/${relation.relation_id}`);
     const host = ref("decision", `decision/${action.decisionId}`);
     const documentPath = `decisions/decision-${action.decisionId}/decision.md`;
