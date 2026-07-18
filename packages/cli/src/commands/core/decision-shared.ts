@@ -57,6 +57,10 @@ export function decisionFailure(command: string, decisionId: string, error: Deci
   };
 }
 
+export function decisionReadFailureHint(decisionId: string): string {
+  return `Decision ${decisionId} could not be read. Run 'ha decision list --json' to select an existing Decision, or create one with 'ha decision propose'.`;
+}
+
 export function decisionHasAcceptEvidenceFloor(decision: DecisionPackage): boolean {
   const claimRefs = new Set(decision.claims.map((claim) => `decision/${decision.decision_id}/${claim.id}`));
   return decision.relations.some((relation) =>

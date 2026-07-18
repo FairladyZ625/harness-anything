@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
+  DEFAULT_HUMAN_CONSENT_ACTIONS,
   encodeConsentCommandPayloadV2,
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
@@ -194,7 +195,7 @@ function approvedReviewIntent(
     schema: "consent.consume/v1", taskId: action.taskId, executionId: action.executionId,
     consentId: action.consentId,
     utterance: storedConsent ? null : action.consentUtterance ?? null,
-    actions: storedConsent ? [] : action.consentActions ?? ["approve_execution", "complete_task"],
+    actions: storedConsent ? [] : action.consentActions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
     review: {
       reviewId, findings: action.findings, evidenceChecked: action.evidenceChecked,
       rationale: action.rationale, archiveWarningsAcknowledged: action.archiveWarningsAcknowledged

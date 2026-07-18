@@ -90,7 +90,6 @@ function parseFactRecord(args: ReadonlyArray<string>, rootDir: string, json: boo
   const memoryTags = readMemoryTags(normalizedArgs, payload);
   if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use fact record --task <task-id>.") };
   if (!statement) return { ok: false, error: cliError(CliErrorCode.MissingFactStatement, "Use fact record --statement <text>.") };
-  if (!source) return { ok: false, error: cliError(CliErrorCode.MissingFactSource, "Use fact record --source <text>.") };
   if (!confidenceLevels.has(confidence)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactConfidence, "Use low, medium, or high for --confidence.") };
   }
@@ -100,10 +99,11 @@ function parseFactRecord(args: ReadonlyArray<string>, rootDir: string, json: boo
   if (memoryTags === null) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactMemoryTag, "Use known fact memory tags with --memory-tag.") };
   }
-  const factId = readOption(normalizedArgs, "--id") ?? jsonString(payload, "factId") ?? generateFactIdV1();
-  if (factId && !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId)) {
+  const suppliedFactId = readOption(normalizedArgs, "--id") ?? jsonString(payload, "factId");
+  if (suppliedFactId && !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(suppliedFactId)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactId, "Use fact ids as F-<8 Crockford base32 chars>.") };
   }
+  const factId = suppliedFactId ?? generateFactIdV1();
   return {
     ok: true,
     value: {
@@ -113,6 +113,7 @@ function parseFactRecord(args: ReadonlyArray<string>, rootDir: string, json: boo
         kind: "record-fact",
         taskId,
         factId,
+        ...(suppliedFactId ? { factIdProvided: true } : {}),
         statement,
         source,
         observedAt: readOption(normalizedArgs, "--observed-at") ?? jsonString(payload, "observedAt") ?? new Date().toISOString(),

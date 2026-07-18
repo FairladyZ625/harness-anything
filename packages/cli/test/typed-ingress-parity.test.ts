@@ -2,8 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseArgs } from "../src/cli/parse-args.ts";
+import { normalizeCommandSemantics } from "../src/cli/command-semantic-normalizer.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { commandRunPayload } from "../src/daemon/client.ts";
+import { commandSpecs } from "../src/cli/command-spec/index.ts";
 
 test("decision propose parser completes one transport-stable id and fallback claim", () => {
   const parsed = parseArgs([
@@ -40,6 +42,61 @@ test("typed parser defaults for fact record and consent are transport-stable", (
     assert.deepEqual(consent.value.action.consentActions, ["approve_execution", "complete_task"]);
     assert.deepEqual(transportedAction(consent.value), consent.value.action);
   }
+});
+
+test("generated ingress identities mark compatibility input and fact source derives from the current session", async () => {
+  const manualDecision = parseArgs([
+    "decision", "propose", "--id", "dec_01KXTEST000000000000000000",
+    "--title", "Generated identity", "--question", "Who allocates identity?",
+    "--chosen", "The submission layer", "--rejected", "The caller", "--why-not", "That splits identity"
+  ]);
+  assert.equal(manualDecision.ok, true);
+  if (manualDecision.ok && manualDecision.value.action.kind === "decision-propose") {
+    assert.equal(manualDecision.value.action.decisionIdProvided, true);
+  }
+
+  const manualFact = parseArgs([
+    "fact", "record", "--task", "task_PARITY", "--id", "F-DEADBEEF",
+    "--statement", "Generated identity"
+  ]);
+  assert.equal(manualFact.ok, true);
+  if (manualFact.ok && manualFact.value.action.kind === "record-fact") {
+    assert.equal(manualFact.value.action.factIdProvided, true);
+  }
+
+  const parsed = parseArgs([
+    "fact", "record", "--task", "task_PARITY", "--statement", "Derived source"
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok || parsed.value.action.kind !== "record-fact") return;
+  assert.equal(parsed.value.action.source, undefined);
+
+  const normalized = await normalizeCommandSemantics(
+    parsed.value,
+    { holder: async () => ({ ok: false, reason: "not-needed" }) } as never,
+    { runtime: "codex", sessionId: "session-parity", source: "runtime", detectedAt: "2026-07-18T00:00:00.000Z" }
+  );
+  assert.equal(normalized.action.kind, "record-fact");
+  if (normalized.action.kind === "record-fact") {
+    assert.equal(normalized.action.source, "session/session-parity");
+    assert.deepEqual(transportedAction(normalized), normalized.action);
+  }
+
+  const twice = await normalizeCommandSemantics(
+    normalized,
+    { holder: async () => { throw new Error("normalized source must not re-read Holder state"); } } as never,
+    { runtime: "codex", sessionId: "different-session", source: "runtime", detectedAt: "2026-07-18T00:01:00.000Z" }
+  );
+  assert.deepEqual(twice, normalized);
+});
+
+test("command-spec exposes generated identities and optional fact source", () => {
+  const propose = commandSpecs.find((spec) => spec.kind === "decision-propose")!;
+  const fact = commandSpecs.find((spec) => spec.kind === "record-fact")!;
+  assert.equal(propose.options.some((option) => option.flag === "--id"), false);
+  assert.equal(fact.options.some((option) => option.flag === "--id"), false);
+  assert.match(fact.usage, /\[--source <text>\]/u);
+  assert.match(fact.options.find((option) => option.flag === "--source")?.description ?? "", /active execution or current session/u);
 });
 
 function transportedAction(command: ParsedCommand): ParsedCommand["action"] {

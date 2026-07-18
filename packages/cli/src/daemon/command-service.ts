@@ -44,12 +44,12 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       let command: ParsedCommand | undefined;
       try {
         const wireCommand = readParsedCommandPayload(payload);
+        const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
         const parsedCommand = await normalizeCommandSemantics(wireCommand, makeTaskHolderService({
           rootInput: { rootDir: wireCommand.rootDir, layoutOverrides: wireCommand.layoutOverrides }
-        }));
+        }), currentSession);
         command = parsedCommand;
         const daemonActor = context?.actor;
-        const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
         if (isAuthorityCutoverAction(parsedCommand.action)) {
           return toCommandReceipt(await runAuthorityCutoverControlCommand({
             action: parsedCommand.action,

@@ -1,8 +1,9 @@
 import type { ParsedCommand } from "./types.ts";
 
 export const compatibilitySunsetDecision = "dec_01KXQKTCKDDZF16QSMP5E5HFG1";
+export const authorityCutoverSunsetDecision = "dec_01KXSN6AVD6PSEB4CFCW8P2RQP";
 
-export type CommandDeprecationKind = "alias-grammar" | "migration-command";
+export type CommandDeprecationKind = "alias-grammar" | "migration-command" | "cutover-command";
 
 export interface DeprecatedCommandInvocation {
   readonly kind: CommandDeprecationKind;
@@ -10,7 +11,7 @@ export interface DeprecatedCommandInvocation {
   readonly syntax: string;
   readonly replacement: string;
   readonly sunsetStage: "warning";
-  readonly decisionId: typeof compatibilitySunsetDecision;
+  readonly decisionId: typeof compatibilitySunsetDecision | typeof authorityCutoverSunsetDecision;
 }
 
 interface DeprecatedCommandDefinition extends DeprecatedCommandInvocation {
@@ -52,9 +53,21 @@ const migrationCommandDeprecations = [
   migration("migrate-verify", "migrate verify <session.json>", "verify")
 ] as const satisfies ReadonlyArray<DeprecatedCommandDefinition>;
 
+const cutoverCommandDeprecations = [
+  deprecation(
+    "cutover-command",
+    "authority-cutover-boundary",
+    "authority cutover boundary",
+    "ha authority cutover status (the one-shot boundary is already active)",
+    ["authority", "cutover", "boundary"],
+    authorityCutoverSunsetDecision
+  )
+] as const satisfies ReadonlyArray<DeprecatedCommandDefinition>;
+
 export const deprecatedCommandDefinitions = [
   ...aliasGrammarDeprecations,
-  ...migrationCommandDeprecations
+  ...migrationCommandDeprecations,
+  ...cutoverCommandDeprecations
 ] as const;
 
 export function deprecatedInvocationForArgs(args: ReadonlyArray<string>, commandKind?: string): DeprecatedCommandInvocation | undefined {
@@ -95,9 +108,10 @@ function deprecation(
   commandKind: string,
   syntax: string,
   replacement: string,
-  tokens: ReadonlyArray<string>
+  tokens: ReadonlyArray<string>,
+  decisionId: DeprecatedCommandInvocation["decisionId"] = compatibilitySunsetDecision
 ): DeprecatedCommandDefinition {
-  return { kind, commandKind, syntax, replacement, tokens, sunsetStage: "warning", decisionId: compatibilitySunsetDecision };
+  return { kind, commandKind, syntax, replacement, tokens, sunsetStage: "warning", decisionId };
 }
 
 function startsWithTokens(args: ReadonlyArray<string>, prefix: ReadonlyArray<string>): boolean {

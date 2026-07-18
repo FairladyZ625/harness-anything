@@ -84,7 +84,6 @@ const explicitInputDescriptors = {
       dryRun: { type: "boolean", description: "Preview the decision write without writing files." }
     },
     shortcuts: [
-      shortcut("--id", "$.decisionId", "set"),
       shortcut("--title", "$.title", "set"),
       shortcut("--question", "$.question", "set"),
       shortcut("--chosen", "$.chosen", "set"),
@@ -105,10 +104,9 @@ const explicitInputDescriptors = {
     ]
   },
   "record-fact": {
-    required: ["taskId", "statement", "source"],
+    required: ["taskId", "statement"],
     properties: {
       taskId: { type: "string", description: "Task id that owns the fact." },
-      factId: { type: "string", description: "Optional stable F-id." },
       statement: { type: "string", description: "Fact statement text." },
       source: { type: "string", description: "Evidence source path or command." },
       observedAt: { type: "string", description: "Observation timestamp." },
@@ -119,7 +117,6 @@ const explicitInputDescriptors = {
     },
     shortcuts: [
       shortcut("--task", "$.taskId", "set"),
-      shortcut("--id", "$.factId", "set"),
       shortcut("--statement", "$.statement", "set"),
       shortcut("--source", "$.source", "set"),
       shortcut("--observed-at", "$.observedAt", "set"),

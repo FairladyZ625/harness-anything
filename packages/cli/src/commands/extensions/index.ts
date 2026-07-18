@@ -1,7 +1,7 @@
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { createHarnessRuntimeContext } from "../../../../kernel/src/index.ts";
-import type { WriteCoordinator, WriteOp } from "../../../../kernel/src/index.ts";
+import type { WriteOp } from "../../../../kernel/src/index.ts";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
 import { runScriptCommand } from "./script.ts";
@@ -45,7 +45,7 @@ export function isExtensionAction(action: ParsedCommand["action"]): action is Ex
   return extensionActionKindSet.has(action.kind);
 }
 
-export function runExtensionCommand(command: ParsedCommand, coordinator: WriteCoordinator | undefined, pendingOps: WriteOp[]): CliResult {
+export function runExtensionCommand(command: ParsedCommand, pendingOps: WriteOp[]): CliResult {
   try {
     const action = command.action;
     const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
@@ -65,7 +65,7 @@ export function runExtensionCommand(command: ParsedCommand, coordinator: WriteCo
       case "script":
         return runScriptCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "script-list" | "script-inspect" | "script-run" }>, pendingOps);
       case "module":
-        return runModuleCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "module-list" | "module-inspect" | "module-register" | "module-scaffold" | "module-unregister" | "module-step" }>, coordinator);
+        return runModuleCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "module-list" | "module-inspect" | "module-register" | "module-scaffold" | "module-unregister" | "module-step" }>, pendingOps);
       case "vertical":
         return runVerticalCommand(action as Extract<ExtensionAction, { readonly kind: "vertical-validate" }>);
     }

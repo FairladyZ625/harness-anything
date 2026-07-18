@@ -1,16 +1,14 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { Effect } from "effect";
 import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { moduleEntityId } from "../../../../kernel/src/index.ts";
-import type { WriteCoordinator } from "../../../../kernel/src/index.ts";
-import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
+import type { WriteOp } from "../../../../kernel/src/index.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
   moduleNotFound,
-  readModules,
-  writeModulesCoordinated
+  readModules
 } from "./state.ts";
 
 type ModuleAction = Extract<ParsedCommand["action"], {
@@ -23,7 +21,7 @@ type ModuleAction = Extract<ParsedCommand["action"], {
     | "module-step"
 }>;
 
-export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAction, coordinator?: WriteCoordinator): CliResult {
+export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAction, pendingOps: WriteOp[]): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   if (action.kind === "module-list") {
@@ -59,12 +57,7 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const modules = existing
       ? registry.modules.map((candidate) => candidate.key === action.moduleKey ? module : candidate)
       : [...registry.modules, module];
-    if (!coordinator) throw new Error("module register requires write coordinator");
-    Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
-      registry: { modules },
-      moduleKey: action.moduleKey,
-      operation: "register"
-    }));
+    pendingOps.push(moduleRegistryWrite(action.moduleKey, "register", { modules }));
     return { ok: true, command: "module-register", module };
   }
 
@@ -73,17 +66,17 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-scaffold", action.moduleKey);
     const moduleRoot = path.join(layout.authoredRoot, "modules", module.key);
-    if (!coordinator) throw new Error("module scaffold requires write coordinator");
     const writes = [
       { path: "brief.md", body: `# ${module.title}\n\nModule key: ${module.key}\n` },
       { path: "module_plan.md", body: `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n` }
     ].filter((write) => !existsSync(path.join(moduleRoot, write.path)));
     if (writes.length > 0) {
-      Effect.runSync(writeCoordinatedPayload(coordinator, stablePayloadHash, {
+      pendingOps.push({
+        opId: moduleOpId("scaffold"),
         entityId: moduleEntityId(module.key),
         kind: "module_scaffold_write",
         payload: { writes }
-      }));
+      });
     }
     return {
       ok: true,
@@ -98,13 +91,8 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-unregister", action.moduleKey);
     const next = { ...module, status: "unregistered" };
-    if (!coordinator) throw new Error("module unregister requires write coordinator");
-    Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
-      moduleKey: module.key,
-      operation: "unregister",
-      registry: {
+    pendingOps.push(moduleRegistryWrite(module.key, "unregister", {
       modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
-      }
     }));
     return { ok: true, command: "module-unregister", module: next };
   }
@@ -117,13 +105,25 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     ? module.steps.map((candidate) => candidate.id === step.id ? step : candidate)
     : [...module.steps, step];
   const next = { ...module, steps };
-  if (!coordinator) throw new Error("module step requires write coordinator");
-  Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
-    moduleKey: module.key,
-    operation: "step",
-    registry: {
+  pendingOps.push(moduleRegistryWrite(module.key, "step", {
       modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
-    }
   }));
   return { ok: true, command: "module-step", module: next };
+}
+
+function moduleRegistryWrite(
+  moduleKey: string,
+  operation: "register" | "unregister" | "step",
+  registry: { readonly modules: ReadonlyArray<unknown> }
+): WriteOp {
+  return {
+    opId: moduleOpId(operation),
+    entityId: moduleEntityId(moduleKey),
+    kind: "module_registry_write",
+    payload: { operation, registry: { schema: "module-registry/v1", modules: registry.modules } }
+  };
+}
+
+function moduleOpId(operation: string): string {
+  return `module-${operation}-${Date.now()}-${randomBytes(4).toString("hex")}`;
 }
