@@ -91,6 +91,7 @@
     "harness:check-bypass-write-boundary": "node tools/check-bypass-write-boundary.mjs",
     "harness:check-write-road-registry": "node tools/check-write-road-registry.mjs",
     "harness:check-cli-direct-writer": "node tools/check-cli-direct-writer.mjs",
+    "harness:check-cli-daemon-parity": "node tools/check-cli-daemon-parity.mjs",
     "harness:check-kernel-dead-exports": "node tools/check-kernel-dead-exports.mjs",
     "harness:check-relation-cycle-substrate": "node tools/check-relation-cycle-substrate.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",

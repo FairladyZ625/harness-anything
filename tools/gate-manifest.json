@@ -122,6 +122,7 @@
         "check-bypass-write-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
+        "check-cli-daemon-parity",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
@@ -170,6 +171,7 @@
         "check-bypass-write-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
+        "check-cli-daemon-parity",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
@@ -198,7 +200,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 43
+      "harnessLeafGateCount": 44
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2261,6 +2263,84 @@
         "status": "covered",
         "evidence": [
           "tools/check-cli-direct-writer.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-cli-daemon-parity",
+      "command": "npm run harness:check-cli-daemon-parity",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/cli/src/cli/command-spec/production-authority-ingress.ts",
+        "packages/kernel/src/entity/field-contracts.ts",
+        "tools/check-cli-daemon-parity.mjs"
+      ],
+      "consumerScope": [
+        "Executable dual-arm receipt parity for every live production typed write command, including all 25 interface-snapshot rows",
+        "CLI decision amendment flags against the DecisionPackage field contract",
+        "Dry-run negative receipts against the corresponding non-dry-run error code"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The executable parity matrix is fail-closed; no command, error code, or field mismatch may be skipped or allowlisted."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-daemon-parity.mjs",
+          "tools/check-cli-daemon-parity.test.mjs",
+          "package.json:scripts.harness:check-cli-daemon-parity",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-daemon-parity"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-daemon-parity.test.mjs"
         ]
       }
     },

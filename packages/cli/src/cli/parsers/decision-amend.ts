@@ -6,6 +6,19 @@ import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionAmendPatchInput } from "../types.ts";
 
+export function rejectDecisionAmendBodyInput(args: ReadonlyArray<string>):
+  | { readonly ok: false; readonly error: CliResult["error"] }
+  | null {
+  if (!args.includes("--body") && !args.includes("--body-file")) return null;
+  return {
+    ok: false,
+    error: cliError(
+      CliErrorCode.InvalidDecisionAmendPatch,
+      "Decision body is not an amendable DecisionPackage field; use --set or --append with a schema-declared amendable field."
+    )
+  };
+}
+
 export function parseDecisionAmendPatches(args: ReadonlyArray<string>):
   | { readonly ok: true; readonly value: ReadonlyArray<DecisionAmendPatchInput> }
   | { readonly ok: false; readonly error: CliResult["error"] } {

@@ -11,7 +11,6 @@ import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
-import { dryRunResult, isDryRunAction } from "../cli/dry-run-preview.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { CliActorAttributionError, daemonActorAttributionForParsedCommand, migrationWriteAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
@@ -64,12 +63,6 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         if (parsedCommand.action.kind === "materializer-run") {
           const report = await runtime.enqueueMaterializerBatch({ dryRun: parsedCommand.action.dryRun });
           return toCommandReceipt(materializerCommandResult(report));
-        }
-        if (isDryRunAction(parsedCommand.action)) {
-          return toCommandReceipt(dryRunResult(parsedCommand.action, {
-            rootDir: parsedCommand.rootDir,
-            layoutOverrides: parsedCommand.layoutOverrides
-          }));
         }
         const attribution = daemonActor
           ? daemonActorAttributionForParsedCommand(daemonActor, parsedCommand, context?.executor)
