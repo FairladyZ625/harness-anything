@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
 import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import type { JsonRpcErrorResponse, JsonRpcId, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type { JsonRpcErrorResponse, JsonRpcId, JsonRpcNotification, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
 import type {
   AcceptedConnectionEvidence,
   DaemonAuthenticationContext,
@@ -41,7 +41,8 @@ export interface JsonRpcStreamOptions {
   readonly acceptedConnectionEvidence?: AcceptedConnectionEvidence;
   readonly createProtocolServer: (
     authContext: DaemonAuthenticationContext,
-    acceptedConnection?: AcceptedConnectionBinding
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
   ) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
@@ -62,9 +63,10 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   let authContext = options.authContext;
   let server = options.authenticateFirstFrame
     ? undefined
-    : options.createProtocolServer(authContext, acceptedConnection);
+    : options.createProtocolServer(authContext, acceptedConnection, writeFrame);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
+  let serverClosed = false;
 
   options.input.on("data", (chunk: Buffer | string) => {
     const batch = reader.push(chunk);
@@ -75,6 +77,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     const batch = reader.flush();
     enqueueFrames(batch.frames);
     if (batch.error) failConnection(parseError(batch.error));
+    queue = queue.then(closeProtocolServer);
   });
   options.input.on("error", (error: Error) => failConnection(error));
   options.input.once("close", invalidateGeneration);
@@ -94,6 +97,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     close: async () => {
       await queue;
       invalidateGeneration();
+      await closeProtocolServer();
       options.input.destroy();
       options.output.end();
     }
@@ -116,7 +120,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         return;
       }
       authContext = result.authContext ?? authContext;
-      server = options.createProtocolServer(authContext, acceptedConnection);
+      server = options.createProtocolServer(authContext, acceptedConnection, writeFrame);
       waitingForAuthentication = false;
       if (!result.forwardFrame) return;
     }
@@ -143,6 +147,13 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.onError?.(error);
     writeFrame(streamErrorResponse(null, -32700, error.message));
     options.output.end();
+    void closeProtocolServer();
+  }
+
+  async function closeProtocolServer(): Promise<void> {
+    if (serverClosed) return;
+    serverClosed = true;
+    await server?.close?.();
   }
 
   function writeFrame(frame: unknown): void {

@@ -47,7 +47,6 @@ test("daemon runtime coalesces concurrent evidence reads into one ready repo gen
       projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
     });
     await runtime.start();
-
     const pages = await Promise.all(Array.from({ length: 100 }, () =>
       runtime.queryExecutionEvidencePage({ limit: 1 })));
 
@@ -76,6 +75,8 @@ test("daemon runtime invalidates only its repo generation after a canonical writ
       projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
     });
     await runtime.start();
+    const projectionChanges: Array<{ readonly entities: ReadonlyArray<{ readonly kind: string; readonly id: string }> }> = [];
+    const unsubscribe = runtime.subscribeProjectionChanges((event) => projectionChanges.push(event));
 
     await runtime.queryExecutionEvidencePage({ limit: 1 });
     assert.equal(runtime.status().projectionGeneration.validationRuns, 1);
@@ -89,6 +90,10 @@ test("daemon runtime invalidates only its repo generation after a canonical writ
     assert.equal(runtime.status().projectionGeneration.invalidations, 1);
     assert.equal(runtime.status().projectionGeneration.state, "unknown");
     await pendingWrite;
+    assert.deepEqual(projectionChanges.flatMap((event) => event.entities), [
+      { kind: "task", id: "task-generation" }
+    ]);
+    unsubscribe();
 
     await runtime.queryExecutionEvidencePage({ limit: 1 });
     assert.equal(runtime.status().projectionGeneration.validationRuns, 2);

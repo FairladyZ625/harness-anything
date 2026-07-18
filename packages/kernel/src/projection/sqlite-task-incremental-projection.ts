@@ -42,7 +42,12 @@ import {
   hashProjectionLegacyPersonIds,
   readDeclaredProjectionSnapshots
 } from "./projection-source-snapshot.ts";
-import type { DecisionProjectionRow, ProjectionReadResult, TaskProjectionOptions, TaskProjectionRow } from "./types.ts";
+import type { DecisionProjectionRow, TaskProjectionOptions, TaskProjectionRow } from "./types.ts";
+import {
+  declaredProjectionEntityChanges,
+  projectionChange,
+  type IncrementalTaskProjectionResult
+} from "./projection-change-event.ts";
 
 export interface IncrementalProjectionPhase {
   readonly phase: "load-current" | "capture-source" | "derive-affected" | "declared-delta" | "hash-next" | "verify-source" | "source-delta" | "publish";
@@ -53,7 +58,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   readonly touchedPaths: ReadonlyArray<string>;
   readonly previousSourceFingerprint?: string;
   readonly onPhase?: (phase: IncrementalProjectionPhase) => void;
-}): ProjectionReadResult & { readonly mode: "incremental" | "rebuild" | "unchanged" } {
+}): IncrementalTaskProjectionResult {
   let phaseStarted = performance.now();
   const recordPhase = (phase: IncrementalProjectionPhase["phase"]): void => {
     const now = performance.now();
@@ -186,7 +191,9 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     return {
       rows: [...existing.rows].sort(compareRows),
       warnings: source.warnings,
-      mode: "unchanged"
+      mode: "unchanged",
+      sourceHash,
+      change: projectionChange(sourceHash, [])
     };
   }
 
@@ -312,7 +319,13 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   return {
     rows: taskChange.rows,
     warnings: source.warnings,
-    mode: "incremental"
+    mode: "incremental",
+    sourceHash,
+    change: projectionChange(sourceHash, [
+      ...[...affected.taskIds].map((id) => ({ kind: "task", id })),
+      ...[...affected.decisionIds].map((id) => ({ kind: "decision", id })),
+      ...declaredProjectionEntityChanges(declaredManifest, declaredDelta)
+    ])
   };
 }
 

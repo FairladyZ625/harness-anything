@@ -37,6 +37,11 @@ test("first task edit after a full rebuild stays incremental", () => {
     });
 
     assert.equal(result.mode, "incremental");
+    assert.deepEqual(result.change, {
+      schema: "projection-change/v1",
+      sourceHash: result.sourceHash,
+      entities: [{ kind: "task", id: "task-a" }]
+    });
     const fresh = readTaskProjection({ rootDir });
     assert.equal(fresh.warnings.some((warning) => warning.code === "projection_stale"), false);
     assert.equal(fresh.rows.find((row) => row.taskId === "task-a")?.canonicalStatus, "done");
@@ -166,6 +171,10 @@ test("single execution changes update a persisted source manifest without rebuil
     });
 
     assert.equal(result.mode, "incremental");
+    assert.deepEqual(result.change?.entities, [{
+      kind: "execution",
+      id: "exe_00000000000000000000000001"
+    }]);
     const updated = new DatabaseSync(projectionPath, { readOnly: true });
     try {
       assert.equal(updated.prepare("SELECT state FROM execution_projection WHERE execution_id = ?")
