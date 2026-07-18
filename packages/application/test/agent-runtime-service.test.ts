@@ -79,6 +79,17 @@ test("login-shell timeout falls through to app bundle and re-verifies its candid
   assert.deepEqual(calls, ["app-bundle"]);
 });
 
+test("discovery rejects a probe result attributed to a different runtime kind", async () => {
+  const probe = fakeProbe({
+    environmentOverride: async () => found("other-kind", "environment-override"),
+    path: async (kind) => found(kind.kindId, "path")
+  });
+
+  const result = await discoverRuntimeInstallations([{ ...baseKind, kindId: "codex" }], probe, 50);
+
+  assert.deepEqual(result.map(({ candidate }) => [candidate.kindId, candidate.source]), [["codex", "path"]]);
+});
+
 test("binary discovery does not promote authentication, running, or attachability", async () => {
   const service = makeAgentRuntimeService({
     kinds: [{ ...baseKind, kindId: "codex" }],
@@ -89,10 +100,13 @@ test("binary discovery does not promote authentication, running, or attachabilit
   const inventory = await service.inventory();
 
   assert.deepEqual(inventory.installations[0]?.states, {
-    installed: { state: true, reason: "executable-verified", observedAt: "2026-07-17T12:00:00.000Z" },
-    authenticated: { state: "unknown", reason: "authentication-not-probed" },
-    running: { state: "unknown", reason: "process-witness-unavailable" },
-    attachable: { state: "unknown", reason: "evidence-unavailable" }
+    installed: {
+      criterion: "executable-probe", state: true, reason: "executable-verified", observedAt: "2026-07-17T12:00:00.000Z",
+      observation: { kind: "executable-probe", source: "path", executablePath: "/verified/codex", outcome: "executable" }
+    },
+    authenticated: { criterion: "authentication-probe", state: "unknown", reason: "authentication-not-probed" },
+    running: { criterion: "process-probe", state: "unknown", reason: "process-witness-unavailable" },
+    attachable: { criterion: "attach-channel-probe", state: "unknown", reason: "attach-channel-not-probed" }
   });
 });
 
@@ -101,9 +115,15 @@ test("independent evidence can represent mixed true, false, and unknown states",
     kinds: [{ ...baseKind, kindId: "codex" }],
     discovery: fakeProbe({ path: async (kind) => found(kind.kindId, "path") }),
     assessInstallation: async () => ({
-      authenticated: { state: false, reason: "profile-not-authenticated" },
-      running: { state: true, reason: "process-alive" },
-      attachable: { state: "unknown", reason: "evidence-unavailable" }
+      authenticated: {
+        criterion: "authentication-probe", state: false, reason: "profile-not-authenticated", observedAt: "2026-07-17T12:00:00.000Z",
+        observation: { kind: "authentication-probe", outcome: "not-authenticated" }
+      },
+      running: {
+        criterion: "process-probe", state: true, reason: "process-alive", observedAt: "2026-07-17T12:00:00.000Z",
+        observation: { kind: "process-probe", outcome: "alive", runtimeSessionId: "runtime-session-1", pid: 4242 }
+      },
+      attachable: { criterion: "attach-channel-probe", state: "unknown", reason: "attach-channel-not-probed" }
     })
   });
 
@@ -122,8 +142,11 @@ test("safe projection is rebuilt and strips raw paths, process ids, provider ids
     installationId: "local:codex:path",
     providerSessionId: "provider-private-1",
     workdir: "/Users/alice/private-project",
-    processWitness: { state: "alive", pid: 4242, heartbeatAt: "2026-07-17T12:00:00.000Z" },
-    attachable: { state: true, reason: "attach-channel-available" },
+    processWitness: { state: "alive", pid: 4242, startedAt: "2026-07-17T11:59:00.000Z", heartbeatAt: "2026-07-17T12:00:00.000Z" },
+    attachable: {
+      criterion: "attach-channel-probe", state: true, reason: "attach-channel-available", observedAt: "2026-07-17T12:00:00.000Z",
+      observation: { kind: "attach-channel-probe", outcome: "available", runtimeSessionId: "runtime-session-1" }
+    },
     clientBinding: { assertion: "client-asserted", taskId: "task-private", executionId: "exe-private" }
   };
   const service = makeAgentRuntimeService({

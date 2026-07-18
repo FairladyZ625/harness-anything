@@ -1,4 +1,9 @@
-import { makeAgentRuntimeService } from "../../../application/src/index.ts";
+import {
+  attachChannelProbeEvidence,
+  authenticationProbeEvidence,
+  makeAgentRuntimeService,
+  processProbeEvidence
+} from "../../../application/src/index.ts";
 import type { AgentRuntimeSessionStatus } from "../../../application/src/agent-runtime-control.ts";
 import {
   createAgentRuntimeSessionService,
@@ -6,7 +11,7 @@ import {
   createCodexRuntimeAdapter,
   type AgentRuntimeControlService
 } from "../../../daemon/src/index.ts";
-import type { RuntimeInstallation, RuntimeSession, RuntimeStateEvidence } from "../../../kernel/src/index.ts";
+import type { RuntimeInstallation, RuntimeSession } from "../../../kernel/src/index.ts";
 import { probeRuntimeAuthenticationProfiles } from "./agent-runtime-auth-profiles.ts";
 import { createLocalAgentRuntimeDiscoveryProbe } from "./agent-runtime-host-discovery.ts";
 import { createFileRuntimeSessionStore } from "./agent-runtime-session-store.ts";
@@ -49,12 +54,14 @@ async function assessInstallation(
   control: AgentRuntimeControlService
 ) {
   const profileResult = await control.profiles();
-  const profiles = profileResult.ok ? profileResult.profiles.filter((profile) => profile.kindId === installation.kindId) : [];
-  const statuses = (await readStatuses(control)).filter((session) => session.kindId === installation.kindId);
+  const statusResult = await control.status();
+  const observedAt = new Date().toISOString();
+  const profiles = profileResult.ok ? profileResult.profiles.filter((profile) => profile.kindId === installation.kindId) : undefined;
+  const statuses = statusResult.ok ? statusResult.sessions.filter((session) => session.kindId === installation.kindId) : undefined;
   return {
-    authenticated: profileEvidence(profiles.map((profile) => profile.state)),
-    running: booleanEvidence(statuses.some((session) => session.process.state === "alive"), "process-alive", "process-witness-unavailable"),
-    attachable: booleanEvidence(statuses.some((session) => session.attachable), "attach-channel-available", "attach-channel-unavailable")
+    authenticated: authenticationProbeEvidence(profiles, observedAt),
+    running: processProbeEvidence(statuses, observedAt),
+    attachable: attachChannelProbeEvidence(statuses, observedAt)
   };
 }
 
@@ -77,20 +84,17 @@ function runtimeSessions(
       ...(status.providerSessionId ? { providerSessionId: status.providerSessionId } : {}),
       processWitness: status.process,
       attachable: {
+        criterion: "attach-channel-probe",
         state: status.attachable,
-        reason: status.attachable ? "attach-channel-available" : "attach-channel-unavailable"
+        reason: status.attachable ? "attach-channel-available" : "attach-channel-unavailable",
+        observedAt: status.process.state === "alive" ? status.process.heartbeatAt ?? status.process.startedAt : status.process.state === "exited" ? status.process.exitedAt : new Date().toISOString(),
+        observation: {
+          kind: "attach-channel-probe",
+          outcome: status.attachable ? "available" : "unavailable",
+          runtimeSessionId: status.runtimeSessionId
+        }
       },
       ...(status.clientBinding ? { clientBinding: status.clientBinding } : {})
     }];
   });
-}
-
-function profileEvidence(states: ReadonlyArray<string>): RuntimeStateEvidence {
-  if (states.includes("configured")) return { state: true, reason: "profile-authenticated" };
-  if (states.includes("invalid")) return { state: false, reason: "profile-invalid" };
-  return { state: false, reason: "profile-not-authenticated" };
-}
-
-function booleanEvidence(state: boolean, whenTrue: string, whenFalse: string): RuntimeStateEvidence {
-  return { state, reason: state ? whenTrue : whenFalse };
 }

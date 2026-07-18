@@ -492,6 +492,7 @@ export interface AppendTaskProgressPayload extends TaskIdPayload {
 }
 
 export interface AgentRuntimeStateProjection {
+  readonly criterion: "executable-probe" | "authentication-probe" | "process-probe" | "attach-channel-probe";
   readonly state: boolean | "unknown";
   readonly reason: string;
   readonly observedAt?: string;

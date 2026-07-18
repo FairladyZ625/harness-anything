@@ -6,6 +6,8 @@ export interface RuntimeAuthenticationProfileProjection {
   readonly kindId: string;
   readonly profileKind: string;
   readonly state: RuntimeAuthenticationConfigurationState;
+  /** What the probe actually established; configuration presence is not proof of authentication. */
+  readonly assurance?: "authenticated-status" | "configuration-presence";
   readonly guidance: string;
 }
 

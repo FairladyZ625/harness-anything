@@ -88,14 +88,20 @@ export type {
   RuntimeEventResultStatus
 } from "./runtime-event.ts";
 
-export { runtimeKindRegistry } from "./agent-runtime.ts";
+export { runtimeCapabilityNames, runtimeKindRegistry } from "./agent-runtime.ts";
 export type {
   AgentRuntimeInventory,
+  RuntimeAttachableEvidence,
+  RuntimeAuthenticatedEvidence,
+  RuntimeCapability,
   RuntimeCapabilityName,
   RuntimeDiscoverySource,
+  RuntimeInstalledEvidence,
   RuntimeInstallation,
+  RuntimeInstallationStates,
   RuntimeKind,
   RuntimeProcessWitness,
+  RuntimeRunningEvidence,
   RuntimeSession,
   RuntimeStateEvidence
 } from "./agent-runtime.ts";
