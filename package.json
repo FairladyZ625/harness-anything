@@ -103,7 +103,7 @@
     "typescript-eslint": "8.63.0"
   },
   "dependencies": {
-    "effect": "3.21.4"
+    "effect": "3.22.0"
   },
   "overrides": {
     "esbuild": "0.28.1"
