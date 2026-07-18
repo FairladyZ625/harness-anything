@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,14 +7,13 @@ import { parseArgs } from "../packages/cli/src/cli/parse-args.ts";
 import { productionAuthorityTypedIngressKinds } from "../packages/cli/src/cli/command-spec/index.ts";
 import { commandRunPayload } from "../packages/cli/src/daemon/client.ts";
 import { createCliCommandService } from "../packages/cli/src/daemon/command-service.ts";
+import { productionObservedWriteAttemptIntent } from "../packages/cli/src/daemon/production-authority-observed-write-intents.ts";
+import { resolveHostedDocument } from "../packages/cli/src/daemon/production-authority-semantic-state.ts";
+import { taskEntityId } from "../packages/kernel/src/index.ts";
 
 const missingTask = "task_01KXT3E1MN1VBS64DCNZ4VX81B";
 const missingExecution = "exe_01KXT3E1MN1VBS64DCNZ4VX81C";
 const missingDecision = "dec_01KXT3E1MN1VBS64DCNZ4VX81D";
-
-export const parityCoverageNotices = [
-  "S4 task-relate slugged portable-path CAS is not covered by this gate; deferred follow-up: harness/tasks/task_01KXVE678398194FA9YYKX95YJ-cli-daemon-parity-gate-b/artifacts/FOLLOWUP-S4-portable-path-cas.md"
-];
 
 const cases = {
   "session-export": ["session", "export"],
@@ -110,10 +109,45 @@ export async function checkCliDaemonParity() {
     }
 
     await checkDryRunWriteBarrier(findings);
+    checkSluggedTaskRelatePathCas(findings);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
   return findings;
+}
+
+function checkSluggedTaskRelatePathCas(findings) {
+  const rootDir = makeRoot();
+  try {
+    const authoredRoot = path.join(rootDir, "harness");
+    const sourceTaskId = "task_01KXT3E1MN1VBS64DCNZ4VX82B";
+    const targetTaskId = "task_01KXT3E1MN1VBS64DCNZ4VX82C";
+    seedTask(rootDir, sourceTaskId, "source-slug");
+    seedTask(rootDir, targetTaskId, "target-slug");
+    const sourcePath = `tasks/${sourceTaskId}/INDEX.md`;
+    const targetPath = `tasks/${targetTaskId}/INDEX.md`;
+    const intent = productionObservedWriteAttemptIntent({
+      action: {
+        kind: "task-relate", sourceTaskId, targetTaskId, relationType: "depends-on",
+        rationale: "slugged portable-path CAS parity", dryRun: false
+      }
+    }, {
+      opId: "parity-gate", entityId: taskEntityId(sourceTaskId), kind: "doc_write",
+      payload: { path: "INDEX.md", body: readFileSync(resolveHostedDocument(authoredRoot, sourcePath).physicalPath, "utf8") }
+    }, authoredRoot);
+    const declared = intent.declaredPathCas.map((entry) => entry.path);
+    if (JSON.stringify(declared) !== JSON.stringify([sourcePath, targetPath])) {
+      findings.push(`task-relate slugged path CAS: declared/required paths differ; declared=${JSON.stringify(declared)} required=${JSON.stringify([sourcePath, targetPath])}`);
+    }
+    for (const portablePath of [sourcePath, targetPath]) {
+      const resolved = resolveHostedDocument(authoredRoot, portablePath);
+      if (!resolved || path.basename(path.dirname(resolved.physicalPath)) === portablePath.split("/")[1]) {
+        findings.push(`task-relate slugged path CAS: shared resolver did not resolve ${portablePath} to a slugged physical task package`);
+      }
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 }
 
 async function checkDryRunWriteBarrier(findings) {
@@ -152,8 +186,8 @@ async function checkDryRunWriteBarrier(findings) {
   }
 }
 
-function seedTask(rootDir, taskId) {
-  const taskDir = path.join(rootDir, "harness", "tasks", taskId);
+function seedTask(rootDir, taskId, slug = "") {
+  const taskDir = path.join(rootDir, "harness", "tasks", `${taskId}${slug ? `-${slug}` : ""}`);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, "INDEX.md"), [
     "---",
@@ -271,7 +305,6 @@ async function main() {
     return;
   }
   console.log(`CLI-daemon executable parity check passed (${Object.keys(cases).length} live typed write commands, dual-arm; includes all 25 interface-snapshot rows).`);
-  for (const notice of parityCoverageNotices) console.warn(`CLI-daemon parity coverage notice: ${notice}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

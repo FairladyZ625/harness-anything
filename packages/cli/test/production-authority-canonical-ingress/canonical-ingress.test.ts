@@ -51,6 +51,7 @@ import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
 import { verifyOmittedIngressRegressions } from "./omitted-ingress-regressions.ts";
+import { verifySluggedTaskRelatePathCas } from "./slugged-path-cas.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -138,6 +139,7 @@ test("production service route preserves progress dry-run and publishes canonica
       "task", "claim", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8", "--execution-id", "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7"
     ], initialLeaseEnv);
     assert.equal(initialSluggedClaim.status, 0, JSON.stringify(initialSluggedClaim.receipt));
+    verifySluggedTaskRelatePathCas(fixture, initialLeaseEnv);
 
     const dryRunHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
     const dryRun = runRawJsonMaybeFail(fixture.repoRoot, [

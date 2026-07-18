@@ -71,20 +71,24 @@ export async function verifySemanticBaseCasV2(
   requiredRefs: ReadonlyArray<RegistryEntityRefV2>
 ): Promise<void> {
   const required = uniqueRegistryEntityRefsV2(requiredRefs);
-  if (claimed.length !== required.length) throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+  if (claimed.length !== required.length) {
+    throw semanticAdmissionV2(`ENTITY_BASE_CAS_CONFLICT:claimed=${claimed.length};required=${required.length}`);
+  }
   const byRef = new Map(claimed.map((entry) => [registryEntityRefKeyV2(entry.entityRef), entry]));
-  if (byRef.size !== claimed.length) throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+  if (byRef.size !== claimed.length) throw semanticAdmissionV2("ENTITY_BASE_CAS_CONFLICT:duplicate-claimed-ref");
   for (const entityRef of required) {
-    const row = byRef.get(registryEntityRefKeyV2(entityRef));
-    if (!row) throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+    const refKey = registryEntityRefKeyV2(entityRef);
+    const refLabel = `${entityRef.entityKind}:${entityRef.canonicalRef}`;
+    const row = byRef.get(refKey);
+    if (!row) throw semanticAdmissionV2(`ENTITY_BASE_CAS_CONFLICT:missing=${refLabel}`);
     const actual = await state.readEntityBase(entityRef);
     if (!actual) {
       if (row.expectedSemanticVersion !== null || row.expectedStateDigest !== null) {
-        throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+        throw semanticAdmissionV2(`ENTITY_BASE_CAS_CONFLICT:expected-absent=${refLabel}`);
       }
     } else if (row.expectedSemanticVersion !== actual.semanticVersion
       || !nullableSemanticBytesEqualV2(row.expectedStateDigest, actual.stateDigest)) {
-      throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+      throw semanticAdmissionV2(`ENTITY_BASE_CAS_CONFLICT:snapshot-mismatch=${refLabel}`);
     }
   }
 }
@@ -93,14 +97,16 @@ export function verifySemanticPathCasV2(
   claimed: ReadonlyArray<PathCasV2>,
   required: ReadonlyArray<{ readonly path: string; readonly snapshot: SemanticHostedDocumentSnapshotV2 }>
 ): void {
-  if (claimed.length !== required.length) throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+  if (claimed.length !== required.length) {
+    throw semanticAdmissionV2(`PATH_CAS_CONFLICT:claimed=${claimed.length};required=${required.length}`);
+  }
   const byPath = new Map(claimed.map((entry) => [entry.path, entry]));
-  if (byPath.size !== claimed.length) throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+  if (byPath.size !== claimed.length) throw semanticAdmissionV2("PATH_CAS_CONFLICT:duplicate-claimed-path");
   for (const { path, snapshot } of required) {
     const row = byPath.get(path);
     if (!row || row.expectedEpoch !== snapshot.epoch || row.expectedRevision !== snapshot.revision
       || !bytesEqual(row.expectedBlobDigest, snapshot.blobDigest)) {
-      throw semanticAdmissionV2("BASE_CAS_CONFLICT");
+      throw semanticAdmissionV2(`PATH_CAS_CONFLICT:${row ? "snapshot-mismatch" : "missing"}=${path}`);
     }
   }
 }
