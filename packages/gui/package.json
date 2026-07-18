@@ -44,7 +44,7 @@
     "electron-builder": "^26.15.3",
     "playwright-core": "1.61.1",
     "tailwindcss": "^4.3.2",
-    "vite": "8.1.4",
+    "vite": "8.1.5",
     "vitest": "4.1.10"
   }
 }
