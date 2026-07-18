@@ -5,13 +5,21 @@ import test from "node:test";
 import type { RuntimeEventAppendInput } from "../../application/src/index.ts";
 import { apiRouteContracts } from "../../gui/src/api/api-contract-registry.ts";
 import { createInMemoryTerminalSessionService } from "../src/terminal/session-registry.ts";
-import { commandSpecs } from "../../cli/src/cli/command-spec/index.ts";
+import {
+  assertProductionAuthorityIngressCompleteness,
+  commandSpecs,
+  productionAuthorityCommandSpecs,
+  productionAuthorityIngressDecisionRef,
+  productionAuthorityTypedIngressKinds,
+  productionAuthorityUnsupportedHint
+} from "../../cli/src/cli/command-spec/index.ts";
 import {
   composeIdentityProvider,
   currentDaemonProtocolVersion,
   jsonRpcServiceMethodContracts,
   jsonRpcMethodContracts,
   repoCommandRunClassifiedActionKinds,
+  commandClassForCliActionKind,
   makePeopleRosterAuthorizationProvider,
   makeTransportDerivedIdentityProvider,
   type IdentityProvider,
@@ -70,6 +78,48 @@ test("repo.command.run classification covers every parsed CLI action kind", () =
       .map((spec) => spec.kind)
       .filter((kind) => kind !== "doc-sync-submit") // Uses the dedicated repo.doc.sync.submit method.
       .sort()
+  );
+});
+
+test("production authority ingress covers or explicitly excludes every write-class command spec", () => {
+  assert.doesNotThrow(() => assertProductionAuthorityIngressCompleteness(productionAuthorityCommandSpecs, commandClassForCliActionKind));
+  const typedKinds = productionAuthorityTypedIngressKinds();
+  assert.deepEqual(typedKinds, [
+    "decision-propose",
+    "decision-relate",
+    "decision-transition",
+    "fact-invalidate",
+    "module-register",
+    "new-task",
+    "progress-append",
+    "record-fact",
+    "session-export",
+    "status-set",
+    "task-claim",
+    "task-code-doc-reconcile",
+    "task-complete",
+    "task-consent-record",
+    "task-review-execution"
+  ]);
+  const exclusions = productionAuthorityCommandSpecs.filter((spec) => spec.productionAuthorityIngress?.status === "excluded");
+  assert.equal(exclusions.length > 0, true);
+  assert.equal(exclusions.every((spec) => spec.productionAuthorityIngress?.status === "excluded"
+    && spec.productionAuthorityIngress.decisionRef === productionAuthorityIngressDecisionRef
+    && spec.productionAuthorityIngress.reason.trim().length > 0), true);
+  const hint = productionAuthorityUnsupportedHint("fixture-unsupported");
+  assert.equal(hint,
+    `production canonical ingress rejected fixture-unsupported; typed V2 command kinds from command-spec: ${typedKinds.join(", ")}`);
+});
+
+test("production authority ingress completeness fails for a newly registered write command without a disposition", () => {
+  const fixture = productionAuthorityCommandSpecs.find((spec) => spec.kind === "help")!;
+  const fakeRepoWriteSpec = { ...fixture, kind: "fixture-repo-write", productionAuthorityIngress: undefined };
+  assert.throws(
+    () => assertProductionAuthorityIngressCompleteness(
+      [...productionAuthorityCommandSpecs, fakeRepoWriteSpec],
+      (kind) => kind === fakeRepoWriteSpec.kind ? "repo-write" : commandClassForCliActionKind(kind)
+    ),
+    /PRODUCTION_AUTHORITY_INGRESS_INCOMPLETE[\s\S]*fixture-repo-write: repo-write command lacks productionAuthorityIngress/u
   );
 });
 

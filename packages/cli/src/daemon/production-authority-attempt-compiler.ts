@@ -37,6 +37,10 @@ import {
   type WriteOp
 } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
+import {
+  productionAuthorityIngressFor,
+  productionAuthorityUnsupportedHint
+} from "../cli/command-spec/index.ts";
 import type { AuthorityConnectionContext } from "../../../daemon/src/index.ts";
 import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import {
@@ -88,10 +92,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
   ) => {
       if (!intent) {
         throw new Error(
-          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: production canonical ingress rejected ${command.action.kind}; ` +
-          "use progress-append, decision-propose, module-register, record-fact, decision-relate, " +
-          "session-export with an explicit transcript, task-claim with an execution id, " +
-          "task lifecycle closeout commands, task-consent-record, or fact-invalidate"
+          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint(command.action.kind)}`
         );
       }
       if (canonicalEntityId !== intent.physicalEntityId) {
@@ -197,31 +198,35 @@ export function createProductionCanonicalAttemptCompiler(input: {
   };
   return {
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const intent = await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor);
+      const disposition = productionAuthorityIngressFor(command.action.kind);
+      const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
+        ? await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor)
+        : null;
       return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
     },
-    compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => compileIntent(
-      command,
-      attribution,
-      currentSession,
-      operation.entityId,
-      provenanceSessionAttemptIntent(command, currentSession, operation)
-    ),
-    compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => compileIntent(
-      command,
-      attribution,
-      currentSession,
-      operation.entityId,
-      decisionTransitionAttemptIntent(command, operation, input.authoredRoot)
-    ),
-    compileTaskClaim: async ({ command, attribution, currentSession, operation }) => compileIntent(
-      command,
-      attribution,
-      currentSession,
-      operation.entityId,
-      taskClaimAttemptIntent(command, attribution, currentSession, operation)
-    )
+    compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => {
+      assertTypedIngressAdapter(command.action.kind, "generic");
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        provenanceSessionAttemptIntent(command, currentSession, operation));
+    },
+    compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => {
+      assertTypedIngressAdapter(command.action.kind, "decision-transition");
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        decisionTransitionAttemptIntent(command, operation, input.authoredRoot));
+    },
+    compileTaskClaim: async ({ command, attribution, currentSession, operation }) => {
+      assertTypedIngressAdapter(command.action.kind, "task-claim");
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        taskClaimAttemptIntent(command, attribution, currentSession, operation));
+    }
   };
+}
+
+function assertTypedIngressAdapter(kind: string, expected: "generic" | "decision-transition" | "task-claim"): void {
+  const disposition = productionAuthorityIngressFor(kind);
+  if (disposition?.status !== "typed-v2" || disposition.adapter !== expected) {
+    throw new Error(`AUTHORITY_TYPED_INGRESS_REGISTRY_MISMATCH:${kind}:${expected}`);
+  }
 }
 
 function decisionTransitionAttemptIntent(

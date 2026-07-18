@@ -18,6 +18,7 @@ import {
 import { defaultCliAdapterProvider } from "../../src/composition/adapter-registry.ts";
 import type { EntityId } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../../src/cli/types.ts";
+import { productionAuthorityUnsupportedHint } from "../../src/cli/command-spec/index.ts";
 import { daemonActorAttribution } from "../../src/composition/actor-attribution.ts";
 import { parseRecordArgs } from "../../src/cli/parsers/record.ts";
 import { parseNewTaskArgs } from "../../src/cli/parsers/new-task.ts";
@@ -603,7 +604,8 @@ test("production generic canonical ingress accepts and journals one write for ev
       attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
       currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
       canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0")
-    }), /AUTHORITY_TYPED_COMMAND_UNSUPPORTED.*task lifecycle closeout/u);
+    }), (error: unknown) => error instanceof Error
+      && error.message === `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint("help")}`);
     await assert.rejects(submission.submit({
       command: {
         rootDir: fixture.repoRoot,
