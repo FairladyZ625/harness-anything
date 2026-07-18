@@ -12,6 +12,10 @@ const missingTask = "task_01KXT3E1MN1VBS64DCNZ4VX81B";
 const missingExecution = "exe_01KXT3E1MN1VBS64DCNZ4VX81C";
 const missingDecision = "dec_01KXT3E1MN1VBS64DCNZ4VX81D";
 
+export const parityCoverageNotices = [
+  "S4 task-relate slugged portable-path CAS is not covered by this gate; deferred follow-up: harness/tasks/task_01KXVE678398194FA9YYKX95YJ-cli-daemon-parity-gate-b/artifacts/FOLLOWUP-S4-portable-path-cas.md"
+];
+
 const cases = {
   "session-export": ["session", "export"],
   "new-task": ["task", "create", "--title", "Parity task", "--dry-run"],
@@ -104,10 +108,77 @@ export async function checkCliDaemonParity() {
         `decision-amend --dry-run: negative receipt must preserve the non-dry-run error code; actual=${dryRunCode ?? "success"} expected=${ordinaryCode ?? "decision_read_failed"}`
       );
     }
+
+    await checkDryRunWriteBarrier(findings);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
   return findings;
+}
+
+async function checkDryRunWriteBarrier(findings) {
+  const rootDir = makeRoot();
+  const observed = { interactiveWrites: 0, materializerRuns: 0 };
+  try {
+    const service = createCliCommandService(fixtureRuntime(observed));
+    const dryRun = await runParsed(service, rootDir, ["task", "create", "--title", "Dry-run barrier probe", "--dry-run"]);
+    if (!dryRun.ok) findings.push(`dry-run write barrier: dry-run control failed: ${JSON.stringify(parityOutcome(dryRun))}`);
+    if (observed.interactiveWrites !== 0 || observed.materializerRuns !== 0) {
+      findings.push(`dry-run write barrier: observed persistent activity; interactiveWrites=${observed.interactiveWrites} materializerRuns=${observed.materializerRuns}`);
+    }
+
+    const ordinary = await runParsed(service, rootDir, ["task", "create", "--title", "Positive write control"]);
+    if (!ordinary.ok) findings.push(`dry-run write barrier: positive control failed: ${JSON.stringify(parityOutcome(ordinary))}`);
+    if (observed.interactiveWrites === 0) {
+      findings.push("dry-run write barrier: positive control did not reach enqueueInteractiveWrite; probe is blind");
+    }
+
+    observed.interactiveWrites = 0;
+    observed.materializerRuns = 0;
+    const taskId = "task_01KXT3E1MN1VBS64DCNZ4VX82A";
+    seedTask(rootDir, taskId);
+    const progressDryRun = await runParsed(service, rootDir, ["task", "progress", "append", taskId, "--text", "Dry-run progress probe", "--dry-run"]);
+    if (!progressDryRun.ok) findings.push(`progress-append dry-run barrier: dry-run control failed: ${JSON.stringify(parityOutcome(progressDryRun))}`);
+    if (observed.interactiveWrites !== 0 || observed.materializerRuns !== 0) {
+      findings.push(`progress-append dry-run barrier: observed persistent activity; interactiveWrites=${observed.interactiveWrites} materializerRuns=${observed.materializerRuns}`);
+    }
+    const progressOrdinary = await runParsed(service, rootDir, ["task", "progress", "append", taskId, "--text", "Positive progress control"]);
+    if (!progressOrdinary.ok) findings.push(`progress-append dry-run barrier: positive control failed: ${JSON.stringify(parityOutcome(progressOrdinary))}`);
+    if (observed.interactiveWrites === 0) {
+      findings.push("progress-append dry-run barrier: positive control did not reach enqueueInteractiveWrite; probe is blind");
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function seedTask(rootDir, taskId) {
+  const taskDir = path.join(rootDir, "harness", "tasks", taskId);
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(path.join(taskDir, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    "title: Parity dry-run probe",
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    "  status: active",
+    "  ref:",
+    "  titleSnapshot: Parity dry-run probe",
+    "  url:",
+    "  bindingCreatedAt: 2026-07-19T00:00:00.000Z",
+    `  bindingFingerprint: sha256:${"b".repeat(64)}`,
+    "packageDisposition: active",
+    "vertical: default",
+    "preset: default",
+    "provenance:",
+    "  - {runtime: codex, sessionId: cli-daemon-parity-gate, boundAt: 2026-07-19T00:00:00.000Z}",
+    "---",
+    "",
+    "# Parity dry-run probe",
+    ""
+  ].join("\n"));
 }
 
 export function parityOutcome(receipt) {
@@ -157,13 +228,19 @@ function wireClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function fixtureRuntime() {
+function fixtureRuntime(observed) {
   return {
-    enqueueInteractiveWrite: async (request) => ({
-      flush: { reason: "cli-daemon-parity-gate", opCount: request.ops.length, committed: request.ops.length > 0 }
-    }),
+    enqueueInteractiveWrite: async (request) => {
+      if (observed) observed.interactiveWrites += 1;
+      return {
+        flush: { reason: "cli-daemon-parity-gate", opCount: request.ops.length, committed: request.ops.length > 0 }
+      };
+    },
     status: () => ({}),
-    enqueueMaterializerBatch: async () => ({ branches: [] })
+    enqueueMaterializerBatch: async () => {
+      if (observed) observed.materializerRuns += 1;
+      return { branches: [] };
+    }
   };
 }
 
@@ -194,6 +271,7 @@ async function main() {
     return;
   }
   console.log(`CLI-daemon executable parity check passed (${Object.keys(cases).length} live typed write commands, dual-arm; includes all 25 interface-snapshot rows).`);
+  for (const notice of parityCoverageNotices) console.warn(`CLI-daemon parity coverage notice: ${notice}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

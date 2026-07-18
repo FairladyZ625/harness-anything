@@ -8,6 +8,7 @@ import {
 import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { isDryRunAction } from "../cli/dry-run-preview.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
@@ -79,6 +80,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             currentSession
           })
           : undefined;
+        const dryRun = isDryRunAction(parsedCommand.action);
+        const dryRunCoordinator = dryRun
+          ? dryRunWriteBarrier()
+          : undefined;
         const result = await runRegisteredCommandWithCliComposition(parsedCommand, {
           requireProvidedActorAttribution: true,
           ...(attribution ? { actorAttribution: attribution } : {
@@ -86,8 +91,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
           }),
           ...(currentSession ? { currentSession } : {}),
           ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
-          syncExportedSession: (exported) => materializeExportedSessionEffect(runtime, exported),
-          makeWriteCoordinator: (actor) => attribution
+          syncExportedSession: dryRun
+            ? () => Effect.void
+            : (exported) => materializeExportedSessionEffect(runtime, exported),
+          makeWriteCoordinator: (actor) => dryRunCoordinator ?? (attribution
             ? authorityCoordinator
               ? authorityCoordinator
               : makeDaemonQueuedWriteCoordinator(
@@ -99,8 +106,8 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
                   ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
                 }
               )
-            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor),
-          makeMigrationWriteCoordinator: (actor, evidenceRef) => attribution
+            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
+          makeMigrationWriteCoordinator: (actor, evidenceRef) => dryRunCoordinator ?? (attribution
             ? makeDaemonQueuedWriteCoordinator(
               runtime,
               `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:migration`,
@@ -110,12 +117,12 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
                 ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
               }
             )
-            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor),
-          makeOperationalWriteCoordinator: (actor) => makeDaemonQueuedOperationalWriteCoordinator(
-            runtime,
-            `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:operational`,
-            actor
-          )
+            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
+          makeOperationalWriteCoordinator: (actor) => dryRunCoordinator ?? makeDaemonQueuedOperationalWriteCoordinator(
+              runtime,
+              `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:operational`,
+              actor
+            )
         });
         return toCommandReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime));
       } catch (error) {
@@ -190,7 +197,7 @@ async function withSessionMaterialization(
   currentSession: CurrentSessionRef,
   runtime: CliDaemonRuntime
 ): Promise<Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>> {
-  if (!result.ok || currentSession.source !== "runtime") return result;
+  if (!result.ok || isDryRunAction(command.action) || currentSession.source !== "runtime") return result;
   const commandClass = commandClassForCliActionKind(command.action.kind);
   if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
 
@@ -226,6 +233,22 @@ function appendPendingMaterializationWarning(
         nextCommand
       }
     ]
+  };
+}
+
+function dryRunWriteBarrier(): WriteCoordinator {
+  let opCount = 0;
+  return {
+    enqueue: (operation) => Effect.sync(() => {
+      opCount += 1;
+      return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
+    }),
+    flush: (reason) => Effect.sync(() => {
+      const report = { reason, opCount, committed: false as const };
+      opCount = 0;
+      return report;
+    }),
+    recover: Effect.succeed({ replayedOps: 0 })
   };
 }
 
