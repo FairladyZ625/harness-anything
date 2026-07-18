@@ -1,5 +1,3 @@
-import path from "node:path";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -32,31 +30,6 @@ export function finalizeDryRunResult(action: Action, result: CliResult): CliResu
     command: result.command,
     error: cliError(CliErrorCode.CommandReceiptContractMismatch, violation)
   } : candidate;
-}
-
-/** Daemon dry-runs stop before canonical ingress, so they cannot enqueue or commit. */
-export function dryRunResult(action: Action, rootInput?: HarnessLayoutInput): CliResult {
-  if (action.kind === "decision-propose" && rootInput) {
-    const layout = resolveHarnessLayout(rootInput);
-    return finalizeDryRunResult(action, {
-      ok: true,
-      command: action.kind,
-      decisionId: action.decisionId,
-      decisionState: "proposed",
-      path: path.relative(layout.rootDir, layout.decisionDocumentPath(action.decisionId)).split(path.sep).join("/"),
-      report: { schema: "decision-write-cli-report/v1", dryRun: true }
-    });
-  }
-  return finalizeDryRunResult(action, {
-    ok: true,
-    command: action.kind,
-    ...(dryRunTaskId(action) ? { taskId: dryRunTaskId(action) } : {}),
-    ...(action.kind === "progress-append" ? { path: "progress.md" } : {})
-  });
-}
-
-function dryRunTaskId(action: Action): string | undefined {
-  return "taskId" in action && typeof action.taskId === "string" ? action.taskId : undefined;
 }
 
 export function dryRunPreviewContractViolation(action: Action, result: CliResult): string | undefined {

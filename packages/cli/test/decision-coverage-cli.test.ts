@@ -221,7 +221,7 @@ test("CLI decision amend append leaves the existing body byte-for-byte unchanged
   });
 });
 
-test("CLI decision amend explicit body still replaces the existing body", () => {
+test("CLI decision amend rejects body replacement outside the field contract", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, [
       "decision", "propose",
@@ -237,12 +237,13 @@ test("CLI decision amend explicit body still replaces the existing body", () => 
     const result = runJson(rootDir, [
       "decision", "amend", "dec_EXPLICIT_BODY_REPLACE",
       "--body", "New body supplied explicitly."
-    ]);
+    ], false);
 
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "invalid_decision_amend_patch");
     const body = decisionBody(readFileSync(path.join(rootDir, "harness/decisions/decision-dec_EXPLICIT_BODY_REPLACE/decision.md"), "utf8"));
-    assert.match(body, /New body supplied explicitly\./u);
-    assert.doesNotMatch(body, /Old body that should be replaced\./u);
+    assert.match(body, /Old body that should be replaced\./u);
+    assert.doesNotMatch(body, /New body supplied explicitly\./u);
   });
 });
 

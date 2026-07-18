@@ -10,7 +10,7 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
-test("CLI decision propose and amend load authored markdown from --body-file", () => {
+test("CLI decision propose loads authored markdown from --body-file and amend refuses it", () => {
   withTempRoot((rootDir) => {
     const proposedBodyPath = path.join(rootDir, "proposed-body.md");
     const amendedBodyPath = path.join(rootDir, "amended-body.md");
@@ -31,8 +31,13 @@ test("CLI decision propose and amend load authored markdown from --body-file", (
     const proposedPath = path.join(rootDir, "harness/decisions/decision-dec_BODY_FILE/decision.md");
     assert.match(decisionBody(readFileSync(proposedPath, "utf8")), /The proposal needs prose\./u);
 
-    runJson(rootDir, ["decision", "amend", "dec_BODY_FILE", "--body-file", amendedBodyPath]);
-    assert.match(decisionBody(readFileSync(proposedPath, "utf8")), /The amended decision is clearer\./u);
+    // body is not an amendable DecisionPackage field (dec_01KXVFNKCS75CB3YDM0QNMYZ00):
+    // the declaration surface converges to the field contract instead of widening it.
+    const amended = runJson(rootDir, ["decision", "amend", "dec_BODY_FILE", "--body-file", amendedBodyPath], false);
+    assert.equal(amended.ok, false);
+    const body = decisionBody(readFileSync(proposedPath, "utf8"));
+    assert.match(body, /The proposal needs prose\./u);
+    assert.doesNotMatch(body, /The amended decision is clearer\./u);
   });
 });
 
@@ -61,7 +66,16 @@ test("CLI decision body inputs reject --body and --body-file together", () => {
 test("CLI decision body input reports a missing --body-file clearly", () => {
   withTempRoot((rootDir) => {
     const missingPath = path.join(rootDir, "missing-body.md");
-    const result = runJson(rootDir, ["decision", "amend", "dec_MISSING_BODY_FILE", "--body-file", missingPath], false);
+    const result = runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_MISSING_BODY_FILE",
+      "--title", "Missing body file input",
+      "--question", "Does a missing body file report clearly?",
+      "--chosen", "Report the unreadable path",
+      "--rejected", "Fail with an opaque message",
+      "--why-not", "An opaque message points the caller at the wrong thing",
+      "--body-file", missingPath
+    ], false);
 
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "decision_body_file_read_failed");

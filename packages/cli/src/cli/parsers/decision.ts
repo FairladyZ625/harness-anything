@@ -9,7 +9,7 @@ import type { CommandJsonInput } from "../json-input.ts";
 import { normalizeDecisionProposeAction } from "../decision-propose-normalizer.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
-import { parseDecisionAmendPatches } from "./decision-amend.ts";
+import { parseDecisionAmendPatches, rejectDecisionAmendBodyInput } from "./decision-amend.ts";
 import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 import { readDecisionBody } from "./decision-body.ts";
 import { parseDecisionPinCommand } from "./decision-pin.ts";
@@ -78,10 +78,10 @@ export function parseDecisionArgs(
     return parsedDecision(rootDir, json, transition.value);
   }
   if (op === "amend" && args[2]) {
+    const bodyRejection = rejectDecisionAmendBodyInput(args);
+    if (bodyRejection) return bodyRejection;
     const patches = parseDecisionAmendPatches(args);
     if (!patches.ok) return { ok: false, error: patches.error };
-    const body = readDecisionBody(args, readOption(args, "--body"));
-    if (!body.ok) return body;
     const fulfillments = parseClaimFulfillments(args);
     if (!fulfillments.ok) return fulfillments;
     return parsedDecision(rootDir, json, {
@@ -90,7 +90,6 @@ export function parseDecisionArgs(
       title: readOption(args, "--title"),
       ...(args.includes("--standing-policy") ? { standingPolicy: true } : {}),
       fulfillments: fulfillments.value,
-      body: body.value,
       patches: patches.value,
       dryRun: args.includes("--dry-run")
     });

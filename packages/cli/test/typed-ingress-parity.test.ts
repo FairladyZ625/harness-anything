@@ -99,6 +99,29 @@ test("command-spec exposes generated identities and optional fact source", () =>
   assert.match(fact.options.find((option) => option.flag === "--source")?.description ?? "", /active execution or current session/u);
 });
 
+test("decision propose daemon normalization treats omitted collection defaults as empty", async () => {
+  const parsed = parseArgs([
+    "decision", "propose", "--id", "dec_01KXTEST000000000000000001",
+    "--title", "Omitted collection parity", "--question", "Do omitted defaults converge?",
+    "--chosen", "Yes", "--rejected", "No", "--why-not", "Explicit empties are equivalent"
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok || parsed.value.action.kind !== "decision-propose") return;
+  const wireAction = JSON.parse(JSON.stringify(parsed.value.action)) as Record<string, unknown>;
+  for (const key of ["fulfillments", "modules", "productLines", "evidenceRelations"]) delete wireAction[key];
+
+  const normalized = await normalizeCommandSemantics(
+    { ...parsed.value, action: wireAction as never },
+    { holder: async () => ({ ok: false, reason: "not-needed" }) } as never
+  );
+  assert.equal(normalized.action.kind, "decision-propose");
+  if (normalized.action.kind !== "decision-propose") return;
+  assert.deepEqual(normalized.action.fulfillments, []);
+  assert.deepEqual(normalized.action.modules, []);
+  assert.deepEqual(normalized.action.productLines, []);
+  assert.deepEqual(normalized.action.evidenceRelations, []);
+});
+
 function transportedAction(command: ParsedCommand): ParsedCommand["action"] {
   return (commandRunPayload(command).command as unknown as ParsedCommand).action;
 }

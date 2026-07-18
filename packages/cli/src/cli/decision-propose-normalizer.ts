@@ -9,10 +9,11 @@ export function normalizeDecisionProposeAction(
     readonly proposedAt?: string;
   }
 ): ProposeAction {
-  const chosen = normalizeAnchors("CH", action.chosen);
-  const rejected = normalizeAnchors("RJ", action.rejected);
-  const claimInputs = action.claims.length > 0
-    ? action.claims
+  const chosen = normalizeAnchors("CH", action.chosen ?? []);
+  const rejected = normalizeAnchors("RJ", action.rejected ?? []);
+  const claims = action.claims ?? [];
+  const claimInputs = claims.length > 0
+    ? claims
     : [{
         text: action.claim ?? chosen[0]?.text ?? "",
         ...(action.claimLoadBearing ? {} : { load_bearing: false as const })
@@ -23,7 +24,11 @@ export function normalizeDecisionProposeAction(
     proposedAt: action.proposedAt ?? new Date().toISOString(),
     chosen,
     rejected,
-    claims: normalizeAnchors("C", claimInputs)
+    claims: normalizeAnchors("C", claimInputs),
+    fulfillments: action.fulfillments ?? [],
+    modules: action.modules ?? [],
+    productLines: action.productLines ?? [],
+    evidenceRelations: action.evidenceRelations ?? []
   };
 }
 
