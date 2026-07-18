@@ -21,7 +21,7 @@
       "path": "../application"
     },
     {
-      "path": "../gui"
+      "path": "../api-contracts"
     }
   ]
 }

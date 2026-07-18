@@ -1815,7 +1815,7 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/gui/src/api/api-contract-registry.ts:287",
+        "packages/api-contracts/src/api-contract-registry.ts:287",
         "packages/gui/src/api/service-bridge.ts:119",
         "packages/application/src/local-controller-service.ts:116"
       ],
@@ -1856,7 +1856,7 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/gui/src/api/api-contract-registry.ts:300",
+        "packages/api-contracts/src/api-contract-registry.ts:300",
         "packages/gui/src/api/service-bridge.ts:123",
         "packages/application/src/local-controller-service.ts:117"
       ],
@@ -1887,7 +1887,7 @@
         "restartDaemon"
       ],
       "evidence": [
-        "packages/gui/src/api/api-contract-registry.ts:145",
+        "packages/api-contracts/src/api-contract-registry.ts:145",
         "packages/gui/src/main/local-composition-root.ts:275",
         "packages/daemon/src/protocol/json-rpc-server.ts:480",
         "packages/cli/src/commands/daemon/control.ts:48"
@@ -1923,7 +1923,7 @@
         "attachAgentRuntime"
       ],
       "evidence": [
-        "packages/gui/src/api/api-contract-registry.ts:80",
+        "packages/api-contracts/src/api-contract-registry.ts:80",
         "packages/gui/src/api/service-bridge.ts:87",
         "packages/daemon/src/agent-runtime/session-service.ts:72"
       ],
@@ -1981,7 +1981,7 @@
         "terminal.sessions.terminate"
       ],
       "evidence": [
-        "packages/gui/src/api/api-contract-registry.ts:562",
+        "packages/api-contracts/src/api-contract-registry.ts:562",
         "packages/gui/src/api/service-bridge.ts:73",
         "packages/daemon/src/terminal/pty-host.ts:190"
       ],

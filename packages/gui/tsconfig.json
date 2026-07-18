@@ -33,6 +33,9 @@
   ],
   "references": [
     {
+      "path": "../api-contracts"
+    },
+    {
       "path": "../application"
     },
     {

@@ -1,6 +1,9 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/api-contracts" },
+    { "path": "./packages/daemon-client" },
+    { "path": "./packages/vscode-ext" },
     { "path": "./packages/kernel" },
     { "path": "./packages/application" },
     { "path": "./packages/daemon" },

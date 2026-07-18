@@ -967,7 +967,7 @@
         "tools/run-node-tests.mjs",
         "package.json:scripts.test:contract",
         "packages/gui/test/ipc-handler-registration.test.ts",
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/api-contracts/src/api-contract-registry.ts",
         "packages/gui/src/preload/allowlist.ts",
         "packages/gui/src/main/ipc-handlers.ts"
       ],
@@ -4073,7 +4073,7 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/api-contracts/src/api-contract-registry.ts",
         "packages/gui/src/preload/allowlist.ts",
         "packages/gui/src/api/service-bridge.ts",
         "packages/application/src/index.ts"
@@ -4105,7 +4105,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-api-contract-registry.mjs",
-          "packages/gui/src/api/api-contract-registry.ts",
+          "packages/api-contracts/src/api-contract-registry.ts",
           "packages/gui/src/preload/allowlist.ts",
           "package.json:scripts.harness:check-api-contract-registry",
           "tools/gate-manifest.json"
@@ -4154,7 +4154,7 @@
       "tierReason": null,
       "authoritySource": [
         "packages/kernel/src/schemas",
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/api-contracts/src/api-contract-registry.ts",
         "tools/check-schema-contracts.mjs"
       ],
       "consumerScope": [
@@ -4597,6 +4597,132 @@
           "tools/smoke-cli-package.test.mjs"
         ]
       }
+    },
+    {
+      "id": "vscode-contracts",
+      "command": "npm run test:vscode-contracts",
+      "category": "boundary",
+      "tier": "manual-only",
+      "tierReason": "W-D2 registers the focused contract lane before CI topology is changed by a separately governed workflow task; the same tests are already discovered by the existing contract tier.",
+      "authoritySource": [
+        "packages/api-contracts/src",
+        "packages/api-contracts/test/three-consumer-contract.test.ts",
+        "packages/daemon-client/test/persistent-daemon-client.test.ts",
+        "packages/vscode-ext/test/workspace-router.test.ts",
+        "packages/vscode-ext/test/lifecycle.test.ts",
+        "dec_01KXV30R2EXPYB9CB221T5HHFQ"
+      ],
+      "consumerScope": [
+        "shared daemon API contracts, persistent client state machine, connection pool, and workspace routing"
+      ],
+      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
+      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "No skip or fixture allowlist is accepted." },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "packages/api-contracts/src/**",
+          "packages/daemon-client/src/**",
+          "packages/vscode-ext/src/routing/**",
+          "package.json:scripts.test:vscode-contracts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "test:vscode-contracts" },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "manual"]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/daemon-client/test/persistent-daemon-client.test.ts",
+          "packages/api-contracts/test/three-consumer-contract.test.ts",
+          "packages/vscode-ext/test/workspace-router.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "vscode-dual-target-build",
+      "command": "npm run build:vscode",
+      "category": "smoke",
+      "tier": "manual-only",
+      "tierReason": "The focused W-D2 build is registered without changing the protected CI workflow topology.",
+      "authoritySource": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/scripts/verify-artifacts.mjs", "packages/vscode-ext/package.json:scripts.build"],
+      "consumerScope": ["VS Code extension host CJS and browser IIFE artifacts"],
+      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
+      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "Build smoke has no allowlist." },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/scripts/verify-artifacts.mjs", "packages/vscode-ext/package.json:scripts.build", "package.json:scripts.build:vscode", "tools/gate-manifest.json"]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "build:vscode" },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "manual"]
+      },
+      "deterministic": false,
+      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/verify-artifacts.mjs rejects bundled vscode, Node builtins, and remote webview URLs."] }
+    },
+    {
+      "id": "vscode-vsix-smoke",
+      "command": "npm run package:vscode",
+      "category": "smoke",
+      "tier": "manual-only",
+      "tierReason": "VSIX packaging is a focused W-D2 smoke and does not alter existing workflow jobs.",
+      "authoritySource": ["packages/vscode-ext/package.json:scripts.package:vsix", "packages/vscode-ext/scripts/verify-artifacts.mjs"],
+      "consumerScope": ["Harness Anything VSIX package"],
+      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
+      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "VSIX smoke has no allowlist." },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": ["packages/vscode-ext/package.json:scripts.package:vsix", "package.json:scripts.package:vscode", "tools/gate-manifest.json"]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "package:vscode" },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "manual"]
+      },
+      "deterministic": false,
+      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/verify-artifacts.mjs rejects VSIX archives missing required entries."] }
+    },
+    {
+      "id": "vscode-test-electron-1-125",
+      "command": "npm run test:vscode-electron",
+      "category": "smoke",
+      "tier": "manual-only",
+      "tierReason": "The fixed runtime downloads a platform artifact and remains an explicit affected smoke until CI cache/workflow governance is scheduled.",
+      "authoritySource": [
+        "packages/vscode-ext/package.json:engines.vscode",
+        "packages/vscode-ext/package.json:devDependencies.@types/vscode",
+        "packages/vscode-ext/scripts/test-electron.mjs"
+      ],
+      "consumerScope": ["VS Code 1.125 extension-host activation"],
+      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
+      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "The runtime version is fixed and cannot fall forward." },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": ["packages/vscode-ext/package.json:engines.vscode", "packages/vscode-ext/scripts/test-electron.mjs", "package.json:scripts.test:vscode-electron", "tools/gate-manifest.json"]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "test:vscode-electron" },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "manual"]
+      },
+      "deterministic": false,
+      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/test-electron.mjs fixes runtime 1.125.0 without fall-forward; the real Extension Host smoke exits 0."] }
     }
   ]
 }

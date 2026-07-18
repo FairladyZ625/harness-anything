@@ -1,0 +1,12 @@
+{
+  "name": "@harness-anything/daemon-client",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@harness-anything/api-contracts": "0.1.0",
+    "@harness-anything/kernel": "0.1.0"
+  }
+}
