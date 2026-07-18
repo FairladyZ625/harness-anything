@@ -9,6 +9,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { makeDaemonLogService } from "../../application/src/index.ts";
 import { parseArgs } from "./cli/parse-args.ts";
+import { deprecationWarning } from "./cli/command-deprecations.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "../../daemon/src/index.ts";
@@ -57,6 +58,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     emit(toCommandReceipt({ ok: false, command: "parse", error: parsed.error }), true);
     return 2;
   }
+
+  if (parsed.value.deprecatedInvocation) console.error(deprecationWarning(parsed.value.deprecatedInvocation));
 
   const daemonOutput = isGithubIssuesReadCommand(parsed.value)
     ? undefined

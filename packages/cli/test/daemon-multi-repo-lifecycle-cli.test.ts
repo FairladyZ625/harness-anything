@@ -9,7 +9,7 @@ import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { writeJsonAtomically } from "./helpers/atomic-fixtures.ts";
 import { pollUntil } from "./helpers/poll-until.ts";
-import { stopDaemon } from "./helpers/daemon-cli.ts";
+import { stderrWithoutDeprecationWarnings, stopDaemon } from "./helpers/daemon-cli.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -420,7 +420,7 @@ function runRawJsonMaybeFail(
     encoding: "utf8",
     env: daemonTestEnv(rootDir, env)
   });
-  assert.equal(result.stderr, "");
+  assert.equal(stderrWithoutDeprecationWarnings(result.stderr), "");
   return {
     status: result.status,
     receipt: JSON.parse(result.stdout) as Record<string, unknown>

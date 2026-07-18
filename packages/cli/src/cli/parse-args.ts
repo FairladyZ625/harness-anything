@@ -5,6 +5,7 @@ import { parseRegisteredCommand } from "./parser-registry.ts";
 import { stripGlobalOptions } from "./parse-options.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
+import { withDeprecatedInvocation } from "./command-deprecations.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
   const { rootDir, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args: rawArgs } = stripGlobalOptions(argv);
@@ -14,14 +15,21 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
   const layoutOverrides = authoredRoot ? { authoredRoot } : undefined;
 
   const help = parseHelpRequest(args, rootDir, json, layoutOverrides);
-  if (help) return attachDaemonOverrides(attachActor(attachDaemonRepoId(help, daemonRepoId), actor), daemonMode, daemonProfile);
+  if (help) return attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(help, daemonRepoId), actor), daemonMode, daemonProfile), args);
 
   const parsed = parseRegisteredCommand(args, rootDir, json, jsonInput.input);
-  if (parsed) return attachDaemonOverrides(attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor), daemonMode, daemonProfile);
+  if (parsed) return attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor), daemonMode, daemonProfile), args);
   return {
     ok: false,
     error: cliError(CliErrorCode.UnknownCommand, unknownCommandHint(args))
   };
+}
+
+function attachDeprecation(
+  parsed: { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] },
+  args: ReadonlyArray<string>
+): typeof parsed {
+  return parsed.ok ? { ok: true, value: withDeprecatedInvocation(parsed.value, args) } : parsed;
 }
 
 function attachDaemonOverrides(

@@ -2,6 +2,7 @@ import type { CliResult, CommandRegistryEntry, ParsedCommand } from "../cli/type
 import { commandGroups } from "../cli/command-spec/command-groups.ts";
 import { commandSpecs } from "../cli/command-spec/index.ts";
 import type { CommandDisplayTier, CommandSpecDefinition } from "../cli/command-spec/types.ts";
+import { migrationCommandDeprecation } from "../cli/command-deprecations.ts";
 
 type HelpAction = Extract<ParsedCommand["action"], { readonly kind: "help" }>;
 
@@ -42,6 +43,9 @@ function helpCommands(action: HelpAction, commandRegistry: ReadonlyArray<Command
 function helpEntry(entry: CommandRegistryEntry): CommandRegistryEntry {
   return {
     ...entry,
+    summary: migrationCommandDeprecation(entry.kind)
+      ? `${entry.summary} Deprecated — sunset stage 1/3; use the Legacy Intake flow.`
+      : entry.summary,
     primary: withoutGlobalJson(entry.primary),
     aliases: entry.aliases
       .filter((alias) => aliasDisplayForKind(entry.kind, alias) !== "hidden")
