@@ -16,7 +16,8 @@ test("diagnostics command-usage reports failed commands and unused evented surfa
     writeFileSync(path.join(ledgerDir, "codex-session.jsonl"), [
       JSON.stringify(runtimeEvent("evt_diag0001", "new-task", "succeeded")),
       JSON.stringify(runtimeEvent("evt_diag0002", "status-set", "failed", "task_not_found")),
-      JSON.stringify(runtimeEvent("evt_diag0003", "status-set", "failed", "invalid_transition"))
+      JSON.stringify(runtimeEvent("evt_diag0003", "status-set", "failed", "invalid_transition")),
+      JSON.stringify(deprecatedRuntimeEvent("evt_diag0004", "status-set"))
     ].join("\n") + "\n", "utf8");
 
     const result = runJson(rootDir, ["diagnostics", "command-usage"]);
@@ -24,16 +25,19 @@ test("diagnostics command-usage reports failed commands and unused evented surfa
     assert.equal(result.ok, true);
     assert.equal(result.command, "diagnostics-command-usage");
     assert.equal(result.report.schema, "command-usage-diagnostics/v1");
-    assert.equal(result.report.totalEvents, 3);
-    assert.equal(result.report.resultEvents, 3);
+    assert.equal(result.report.totalEvents, 4);
+    assert.equal(result.report.resultEvents, 4);
     assert.equal(result.report.sessions, 1);
     const statusSet = result.report.rows.find((row: Record<string, unknown>) => row.commandKind === "status-set");
+    assert.equal(statusSet.succeeded, 1);
     assert.equal(statusSet.failed, 2);
-    assert.equal(statusSet.failureRate, 1);
+    assert.equal(statusSet.deprecated, 1);
+    assert.equal(statusSet.failureRate, 2 / 3);
     assert.deepEqual(statusSet.errorCodes, [
       { errorCode: "invalid_transition", count: 1 },
       { errorCode: "task_not_found", count: 1 }
     ]);
+    assert.deepEqual(result.report.deprecatedUsage, [{ commandKind: "status-set", count: 1 }]);
     assert.equal(result.report.unusedEventedCommands.some((entry: Record<string, unknown>) => entry.commandKind === "progress-append"), true);
   });
 });
@@ -54,6 +58,26 @@ function runtimeEvent(eventId: string, commandKind: string, status: "succeeded" 
       status,
       summary: `CLI command ${status === "succeeded" ? "succeeded" : "failed"}: ${commandKind}`,
       ...(errorCode ? { errorCode } : {})
+    },
+    cost: null
+  };
+}
+
+function deprecatedRuntimeEvent(eventId: string, commandKind: string): Record<string, unknown> {
+  return {
+    schema: "runtime-event/v1",
+    eventId,
+    recordedAt: "2026-07-07T00:00:00.000Z",
+    kind: "result",
+    session: { sessionId: "codex-session", runtime: "codex" },
+    turn: null,
+    step: null,
+    tool: { toolName: commandKind, deprecated: true },
+    approval: null,
+    interrupt: null,
+    result: {
+      status: "succeeded",
+      summary: `CLI command succeeded: ${commandKind}`
     },
     cost: null
   };

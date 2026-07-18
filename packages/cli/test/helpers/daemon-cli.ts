@@ -49,11 +49,21 @@ export function runRawJsonMaybeFail(
     encoding: "utf8",
     env: daemonTestEnv(rootDir, env)
   });
-  assert.equal(result.stderr, "");
+  assert.equal(stderrWithoutDeprecationWarnings(result.stderr), "");
   return {
     status: result.status,
     receipt: JSON.parse(result.stdout) as Record<string, unknown>
   };
+}
+
+// Sunset stage-1 compatibility commands emit a designed one-time warning on
+// stderr; only unexpected stderr output should fail callers of this helper.
+export function stderrWithoutDeprecationWarnings(stderr: string): string {
+  return stderr
+    .split("\n")
+    .filter((line) => !line.startsWith("Deprecation warning: "))
+    .join("\n")
+    .trim();
 }
 
 export async function runRawJsonAsync(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Promise<Record<string, unknown>> {

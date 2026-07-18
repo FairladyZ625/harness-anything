@@ -83,7 +83,8 @@ const RuntimeEventFields = {
   tool: Schema.NullOr(Schema.Struct({
     toolName: Schema.String,
     callId: OptionalString,
-    errorCode: OptionalString
+    errorCode: OptionalString,
+    deprecated: Schema.optional(Schema.Boolean)
   })),
   approval: Schema.NullOr(Schema.Struct({
     approvalId: Schema.String,

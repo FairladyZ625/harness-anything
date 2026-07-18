@@ -174,6 +174,16 @@ test("command-level help exits without creating task state", () => {
   });
 });
 
+test("migration help marks only the accepted sunset commands deprecated", () => {
+  withTempRoot((rootDir) => {
+    const migration = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "migrate", "--help"], { encoding: "utf8" });
+
+    assert.match(migration, /migrate plan.*Deprecated — sunset stage 1\/3/u);
+    assert.match(migration, /migrate retired-attribution-fields.*Deprecated — sunset stage 1\/3/u);
+    assert.doesNotMatch(migration, /migrate fact-execution.*Deprecated/u);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-"));
   try {

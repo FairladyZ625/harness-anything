@@ -16,6 +16,7 @@ import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { deprecatedCommandDefinitions } from "../src/cli/command-deprecations.ts";
 
 type ParsedAction = ParsedCommand["action"];
 
@@ -506,6 +507,7 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
     { argv: ["lesson-sediment", "task_1", "candidate-1"], kind: "lesson-sediment" },
     { argv: ["migrate-plan"], kind: "migrate-plan" },
     { argv: ["migrate-structure", "--plan"], kind: "migrate-structure" },
+    { argv: ["migrate-anchors", "--dry-run"], kind: "migrate-anchors" },
     { argv: ["migrate-provenance"], kind: "migrate-provenance" },
     { argv: ["migrate-run", "--plan-only"], kind: "migrate-run" },
     { argv: ["migrate-verify", "session.json"], kind: "migrate-verify" },
@@ -520,6 +522,59 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
     assert.equal(parsed.ok, true, candidate.argv.join(" "));
     if (!parsed.ok) continue;
     assert.equal(parsed.value.action.kind, candidate.kind, candidate.argv.join(" "));
+    assert.equal(parsed.value.deprecatedInvocation?.kind, "alias-grammar", candidate.argv.join(" "));
+  }
+});
+
+test("parseArgs marks all 20 alias grammars and seven migration commands for sunset telemetry", () => {
+  const aliasDefinitions = deprecatedCommandDefinitions.filter((entry) => entry.kind === "alias-grammar");
+  assert.equal(aliasDefinitions.length, 20);
+  assert.equal(deprecatedCommandDefinitions.filter((entry) => entry.kind === "migration-command").length, 7);
+  const specifiedAliases = commandSpecs.flatMap((spec) => (spec.aliases ?? [])
+    .filter((alias) => alias.includes("retires at E77/F6 acceptance"))
+    .map((alias) => ({ commandKind: spec.kind, alias })));
+  assert.equal(specifiedAliases.length, 20);
+  for (const specified of specifiedAliases) {
+    const match = /^(.*?) \(deprecated, use (.*?); retires at E77\/F6 acceptance\)$/u.exec(specified.alias);
+    assert.notEqual(match, null, specified.alias);
+    const definition = aliasDefinitions.find((candidate) => candidate.commandKind === specified.commandKind && candidate.syntax === match?.[1]);
+    assert.notEqual(definition, undefined, specified.alias);
+    assert.equal(definition?.replacement.startsWith(`ha ${match?.[2]}`), true, specified.alias);
+  }
+
+  const migrations = [
+    ["migrate", "plan"],
+    ["migrate", "structure", "--plan"],
+    ["migrate", "anchors", "--dry-run"],
+    ["migrate", "retired-attribution-fields", "--dry-run"],
+    ["migrate", "provenance", "--dry-run"],
+    ["migrate", "run", "--plan-only"],
+    ["migrate", "verify", "session.json"]
+  ] as const;
+  for (const argv of migrations) {
+    const parsed = parseArgs(argv);
+    assert.equal(parsed.ok, true, argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.deprecatedInvocation?.kind, "migration-command", argv.join(" "));
+    assert.match(parsed.value.deprecatedInvocation?.replacement ?? "", /ha legacy scan <path>/u);
+  }
+});
+
+test("parseArgs leaves the explicit sunset exclusions unmarked", () => {
+  const exclusions = [
+    ["legacy", "scan", "old"],
+    ["legacy", "plan", "old"],
+    ["legacy", "copy-docs", "old"],
+    ["legacy", "index", "old"],
+    ["legacy", "verify"],
+    ["task", "contract", "migrate", "--dry-run"],
+    ["migrate", "fact-execution", "--dry-run"]
+  ] as const;
+  for (const argv of exclusions) {
+    const parsed = parseArgs(argv);
+    assert.equal(parsed.ok, true, argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.deprecatedInvocation, undefined, argv.join(" "));
   }
 });
 

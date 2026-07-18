@@ -24,6 +24,7 @@ interface CommandUsageRow {
   readonly cancelled: number;
   readonly unknown: number;
   readonly total: number;
+  readonly deprecated: number;
   readonly failureRate: number;
   readonly errorCodes: ReadonlyArray<{ readonly errorCode: string; readonly count: number }>;
 }
@@ -35,6 +36,7 @@ function runCommandUsageDiagnostics(rootDir: string, commandSpecs: Parameters<Co
   const ledgerRoot = layout.runtimeEventLedgerRoot;
   const warnings: string[] = [];
   const stats = new Map<string, { succeeded: number; failed: number; cancelled: number; unknown: number; errorCodes: Map<string, number> }>();
+  const deprecatedStats = new Map<string, number>();
   let totalEvents = 0;
   let resultEvents = 0;
   const sessions = new Set<string>();
@@ -51,6 +53,9 @@ function runCommandUsageDiagnostics(rootDir: string, commandSpecs: Parameters<Co
           if (event.kind !== "result" || !event.result) continue;
           resultEvents += 1;
           const commandKind = eventCommandKind(event);
+          if (event.tool?.deprecated === true) {
+            deprecatedStats.set(commandKind, (deprecatedStats.get(commandKind) ?? 0) + 1);
+          }
           const status: CountedStatus = event.result.status === "succeeded" || event.result.status === "failed" || event.result.status === "cancelled"
             ? event.result.status
             : "unknown";
@@ -76,12 +81,13 @@ function runCommandUsageDiagnostics(rootDir: string, commandSpecs: Parameters<Co
       cancelled: row.cancelled,
       unknown: row.unknown,
       total,
+      deprecated: deprecatedStats.get(commandKind) ?? 0,
       failureRate: total === 0 ? 0 : row.failed / total,
       errorCodes: [...row.errorCodes.entries()]
         .map(([errorCode, count]) => ({ errorCode, count }))
         .sort((left, right) => right.count - left.count || left.errorCode.localeCompare(right.errorCode))
     };
-  }).sort((left, right) => right.total - left.total || left.commandKind.localeCompare(right.commandKind));
+  }).sort((left, right) => right.total - left.total || right.deprecated - left.deprecated || left.commandKind.localeCompare(right.commandKind));
   const used = new Set(rows.map((row) => row.commandKind));
   const unusedEventedCommands = commandSpecs
     .filter((entry) => entry.kind !== "diagnostics-command-usage" && ["auto", "deferred"].includes(entry.eventPolicy.runtimeEvent) && !used.has(entry.kind))
@@ -94,6 +100,7 @@ function runCommandUsageDiagnostics(rootDir: string, commandSpecs: Parameters<Co
     rows,
     topUsed: rows.slice(0, 10),
     topFailed: rows.filter((row) => row.failed > 0).sort((left, right) => right.failed - left.failed || left.commandKind.localeCompare(right.commandKind)).slice(0, 10),
+    deprecatedUsage: rows.filter((row) => row.deprecated > 0).map((row) => ({ commandKind: row.commandKind, count: row.deprecated })),
     unusedEventedCommands,
     warnings
   };

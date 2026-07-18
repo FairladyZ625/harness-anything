@@ -68,7 +68,7 @@ test("automatic runtime event failure warns without reversing a successful comma
 test("CLI authored write commands append a current-session result event", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-command-event";
-    const created = runJson(rootDir, ["new-task", "--title", "Evented Task"], true, {
+    const created = runJson(rootDir, ["task", "create", "--title", "Evented Task"], true, {
       CODEX_SESSION_ID: sessionId,
       CODEX_THREAD_ID: ""
     });
@@ -94,7 +94,7 @@ test("CLI authored write commands append a current-session result event", () => 
 test("CLI dry-run authored commands do not append command events", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-dry-run";
-    const result = runJson(rootDir, ["new-task", "--title", "Dry Run Task", "--dry-run"], true, {
+    const result = runJson(rootDir, ["task", "create", "--title", "Dry Run Task", "--dry-run"], true, {
       CODEX_SESSION_ID: sessionId,
       CODEX_THREAD_ID: ""
     });
@@ -102,6 +102,51 @@ test("CLI dry-run authored commands do not append command events", () => {
 
     assert.equal(result.ok, true);
     assert.equal(existsSync(ledgerPath), false);
+  });
+});
+
+test("deprecated JSON commands preserve stdout bytes and emit one stderr warning", () => {
+  withTempRoot((rootDir) => {
+    initGitRoot(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: rootDir, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "seed"], { cwd: rootDir, stdio: "ignore" });
+    const canonical = runRaw(rootDir, ["git", "diff"]);
+    const deprecated = runRaw(rootDir, ["git-diff"]);
+
+    assert.equal(deprecated.status, 0);
+    assert.equal(canonical.status, 0);
+    const canonicalReceipt = JSON.parse(canonical.stdout) as Record<string, any>;
+    const deprecatedReceipt = JSON.parse(deprecated.stdout) as Record<string, any>;
+    delete canonicalReceipt.meta?.generatedAt;
+    delete deprecatedReceipt.meta?.generatedAt;
+    assert.deepEqual(deprecatedReceipt, canonicalReceipt);
+    assert.doesNotMatch(deprecated.stdout, /Deprecation warning/u);
+    assert.equal(deprecated.stderr.trimEnd().split("\n").length, 1);
+    assert.match(deprecated.stderr, /Use 'ha git diff' instead/u);
+    assert.match(deprecated.stderr, /Sunset stage 1\/3 \(30-day telemetry warning\)/u);
+    // git-diff has runtimeEvent policy "none"; a deprecated invocation must not
+    // start emitting events the canonical grammar never emitted.
+    assert.equal(existsSync(path.join(rootDir, ".harness/generated/runtime-events/codex-deprecation-warning.jsonl")), false);
+  });
+});
+
+test("deprecated grammar tags the existing auto command event instead of adding one", () => {
+  withTempRoot((rootDir) => {
+    initGitRoot(rootDir);
+    const sessionId = "codex-deprecated-grammar-tag";
+    const taskId = "task_01KWY3Z4VEVP6FNT28ZFA809GW";
+    const result = runJson(rootDir, ["task", "status", "set", taskId, "done"], false, {
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
+    });
+    const events = readJsonl(path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`));
+
+    assert.equal(result.ok, false);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "result");
+    assert.equal(events[0].tool.toolName, "status-set");
+    assert.equal(events[0].tool.deprecated, true);
   });
 });
 
@@ -405,4 +450,20 @@ function runJsonWithStderr(
     result: unwrapCommandReceipt(JSON.parse(child.stdout) as Record<string, any>),
     stderr: child.stderr
   };
+}
+
+function runRaw(rootDir: string, args: ReadonlyArray<string>) {
+  return spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...cleanRuntimeEnv,
+      HARNESS_ACTOR: "agent:harness-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
+      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test",
+      CODEX_SESSION_ID: "codex-deprecation-warning"
+    }
+  });
 }

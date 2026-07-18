@@ -32,7 +32,8 @@ export function appendCommandRuntimeEvent(
       },
       tool: {
         toolName: command.action.kind,
-        ...(errorCode ? { errorCode } : {})
+        ...(errorCode ? { errorCode } : {}),
+        ...(command.deprecatedInvocation ? { deprecated: true } : {})
       },
       result: {
         status: result.ok ? "succeeded" : "failed",
