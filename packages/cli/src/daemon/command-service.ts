@@ -5,9 +5,10 @@ import {
   type AuthorityConnectionDispatch,
   type JsonObject
 } from "../../../daemon/src/index.ts";
-import { makeHumanFallbackSessionProbe, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
+import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { dryRunResult, isDryRunAction } from "../cli/dry-run-preview.ts";
@@ -42,7 +43,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       options.onCommandStart?.();
       let command: ParsedCommand | undefined;
       try {
-        const parsedCommand = readParsedCommandPayload(payload);
+        const wireCommand = readParsedCommandPayload(payload);
+        const parsedCommand = await normalizeCommandSemantics(wireCommand, makeTaskHolderService({
+          rootInput: { rootDir: wireCommand.rootDir, layoutOverrides: wireCommand.layoutOverrides }
+        }));
         command = parsedCommand;
         const daemonActor = context?.actor;
         const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
@@ -58,7 +62,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
           return toCommandReceipt(materializerCommandResult(report));
         }
         if (isDryRunAction(parsedCommand.action)) {
-          return toCommandReceipt(dryRunResult(parsedCommand.action));
+          return toCommandReceipt(dryRunResult(parsedCommand.action, {
+            rootDir: parsedCommand.rootDir,
+            layoutOverrides: parsedCommand.layoutOverrides
+          }));
         }
         const attribution = daemonActor
           ? daemonActorAttributionForParsedCommand(daemonActor, parsedCommand, context?.executor)

@@ -43,6 +43,7 @@ import {
   writeColdCodexSessionLog
 } from "./fixture.ts";
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
+import { verifyDecisionProposeParity } from "./propose-parity.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 120_000 }, async () => {
   const fixture = createFixture();
@@ -81,6 +82,8 @@ test("production service route preserves progress dry-run and publishes canonica
       { timeoutMs: 20_000 }
     );
     assert.equal(status.repoCount, 2, JSON.stringify(status));
+
+    verifyDecisionProposeParity(fixture, env);
 
     const decisionId = "dec_01KXQ4WTA7Q4XJ5GDDRS1YXND9";
     const proposed = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -128,6 +131,19 @@ test("production service route preserves progress dry-run and publishes canonica
       "task", "claim", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"
     ], initialLeaseEnv);
     assert.equal(initialTaskClaim.status, 0, JSON.stringify(initialTaskClaim.receipt));
+    const explicitSubmitTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6";
+    const explicitSubmitClaim = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "claim", explicitSubmitTaskId
+    ], initialLeaseEnv);
+    assert.equal(explicitSubmitClaim.status, 0, JSON.stringify(explicitSubmitClaim.receipt));
+    const explicitClaimData = (explicitSubmitClaim.receipt.details as {
+      readonly data?: { readonly executionId?: string };
+      readonly report?: { readonly leaseToken?: string };
+    } | undefined);
+    const explicitExecutionId = String(explicitClaimData?.data?.executionId ?? "");
+    const explicitLeaseToken = String(explicitClaimData?.report?.leaseToken ?? "");
+    assert.match(explicitExecutionId, /^exe_[0-9A-HJKMNP-TV-Z]{26}$/u, JSON.stringify(explicitSubmitClaim.receipt));
+    assert.notEqual(explicitLeaseToken, "", JSON.stringify(explicitSubmitClaim.receipt));
     const initialSluggedClaim = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "claim", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8", "--execution-id", "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7"
     ], initialLeaseEnv);
@@ -169,6 +185,34 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(publication.pipelineGeneratedPaths[0], publication.physicalChanges.find((change) => change.path.startsWith("attribution-events/"))?.path);
     git(fixture.authoredRoot, "diff", "--quiet", publication.commitSha, publication.parentCommits[1]!);
     assert.equal(dryRunHeadAfter, dryRunHead, "typed service dry-run must not create a commit");
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/executions/${explicitExecutionId}.md`
+    ), "utf8"), /^  "state": "active",$/mu);
+
+    const explicitExecutionSubmit = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "transition", explicitSubmitTaskId, "in_review",
+      "--execution-id", explicitExecutionId, "--lease-token", explicitLeaseToken,
+      "--completion-claim", "Explicit execution submit is atomic.",
+      "--verification", "Production daemon explicit route passed."
+    ], initialLeaseEnv);
+    assert.equal(explicitExecutionSubmit.status, 0, JSON.stringify(explicitExecutionSubmit.receipt));
+    assert.equal(explicitExecutionSubmit.receipt.ok, true, JSON.stringify(explicitExecutionSubmit.receipt));
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/executions/${explicitExecutionId}.md`
+    ), "utf8"), /^  "state": "submitted",$/mu);
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/INDEX.md`
+    ), "utf8"), /^  status: in_review$/mu);
+    const explicitExecutionProjection = runRawJsonMaybeFail(fixture.repoRoot, [
+      "execution", "show", explicitExecutionId
+    ], initialLeaseEnv);
+    assert.equal(explicitExecutionProjection.status, 0, JSON.stringify(explicitExecutionProjection.receipt));
+    assert.match(JSON.stringify(explicitExecutionProjection.receipt), /"state":"submitted"/u);
+    const explicitTaskProjection = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "show", explicitSubmitTaskId
+    ], initialLeaseEnv);
+    assert.equal(explicitTaskProjection.status, 0, JSON.stringify(explicitTaskProjection.receipt));
+    assert.match(JSON.stringify(explicitTaskProjection.receipt), /in_review/u);
 
     const sluggedLifecycleTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
     const sluggedExecutionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7";
@@ -201,7 +245,6 @@ test("production service route preserves progress dry-run and publishes canonica
 
     const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "transition", sluggedLifecycleTaskId, "in_review",
-      "--execution-id", sluggedExecutionId,
       "--completion-claim", "Slugged production lifecycle is complete.",
       "--deliverable", "Canonical slug-aware lifecycle intents.",
       "--verification", "Production daemon route passed.",
@@ -209,6 +252,29 @@ test("production service route preserves progress dry-run and publishes canonica
     ], sluggedLifecycleEnv);
     assert.equal(transitioned.status, 0, JSON.stringify(transitioned.receipt));
     assert.equal(transitioned.receipt.ok, true, JSON.stringify(transitioned.receipt));
+    assert.equal((transitioned.receipt.details as {
+      readonly data?: { readonly executionId?: string };
+      readonly report?: { readonly leaseReleased?: boolean };
+    } | undefined)?.data?.executionId, sluggedExecutionId, JSON.stringify(transitioned.receipt));
+    assert.equal((transitioned.receipt.details as {
+      readonly report?: { readonly leaseReleased?: boolean };
+    } | undefined)?.report?.leaseReleased, true, JSON.stringify(transitioned.receipt));
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route/executions/${sluggedExecutionId}.md`
+    ), "utf8"), /^  "state": "submitted",$/mu);
+    assert.match(readFileSync(path.join(
+      fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route/INDEX.md`
+    ), "utf8"), /^  status: in_review$/mu);
+    const inferredExecutionProjection = runRawJsonMaybeFail(fixture.repoRoot, [
+      "execution", "show", sluggedExecutionId
+    ], sluggedLifecycleEnv);
+    assert.equal(inferredExecutionProjection.status, 0, JSON.stringify(inferredExecutionProjection.receipt));
+    assert.match(JSON.stringify(inferredExecutionProjection.receipt), /"state":"submitted"/u);
+    const inferredTaskProjection = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "show", sluggedLifecycleTaskId
+    ], sluggedLifecycleEnv);
+    assert.equal(inferredTaskProjection.status, 0, JSON.stringify(inferredTaskProjection.receipt));
+    assert.match(JSON.stringify(inferredTaskProjection.receipt), /in_review/u);
 
     const consented = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "consent-record", sluggedLifecycleTaskId,
@@ -604,8 +670,12 @@ test("production generic canonical ingress accepts and journals one write for ev
       attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
       currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
       canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0")
-    }), (error: unknown) => error instanceof Error
-      && error.message === `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint("help")}`);
+    }), (error: unknown) => {
+      const rejected = error as { readonly _tag?: unknown; readonly code?: unknown; readonly reason?: unknown };
+      return rejected?._tag === "WriteRejected"
+        && rejected.code === "authority_ingress_rejected"
+        && rejected.reason === `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint("help")}`;
+    });
     await assert.rejects(submission.submit({
       command: {
         rootDir: fixture.repoRoot,
@@ -615,7 +685,12 @@ test("production generic canonical ingress accepts and journals one write for ev
       attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
       currentSession: { runtime: "codex", sessionId: "session-mismatch", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
       canonicalEntityId: moduleEntityId("wrong-entity")
-    }), /AUTHORITY_CANONICAL_ENTITY_MISMATCH:submittedEntityId=module\/wrong-entity;intentEntityId=task\/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/u);
+    }), (error: unknown) => {
+      const rejected = error as { readonly _tag?: unknown; readonly code?: unknown; readonly reason?: unknown };
+      return rejected?._tag === "WriteRejected"
+        && rejected.code === "authority_ingress_rejected"
+        && rejected.reason === "AUTHORITY_CANONICAL_ENTITY_MISMATCH:submittedEntityId=module/wrong-entity;intentEntityId=task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0";
+    });
     await lifecycle.stopAll("daemon-shutdown");
   } finally {
     await daemon.stop().catch(() => undefined);

@@ -122,7 +122,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     name: "decision propose",
     argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--non-load-bearing", "--dry-run"],
     kind: "decision-propose",
-    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: [{ text: "Chosen" }], rejected: [{ text: "Rejected", why_not: "Because" }], riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], claimLoadBearing: false, dryRun: true }
+    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: [{ id: "CH1", text: "Chosen" }], rejected: [{ id: "RJ1", text: "Rejected", why_not: "Because" }], claims: [{ id: "C1", text: "Chosen", load_bearing: false }], riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], claimLoadBearing: false, dryRun: true }
   },
   { name: "decision list", argv: ["decision", "list", "--search", "self-host", "--legacy-id", "E72", "--legacy-range", "E1-E72", "--state", "active", "--module", "m5-circulation", "--product-line", "kernel", "--compact"], kind: "decision-list", fields: { search: "self-host", legacyId: "E72", legacyRange: "E1-E72", state: "active", moduleKey: "m5-circulation", productLine: "kernel", compact: true } },
   { name: "decision show", argv: ["decision", "show", "E72"], kind: "decision-show", fields: { selector: "E72" } },

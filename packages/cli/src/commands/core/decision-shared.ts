@@ -8,6 +8,7 @@ import {
 } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 
 export function decisionResult(rootInput: HarnessLayoutInput, command: string, decisionId: string, state: string, dryRun: boolean): CliResult {
@@ -44,6 +45,9 @@ function isDecisionBodyEmpty(body: string | undefined, title: string): boolean {
 }
 
 export function decisionFailure(command: string, decisionId: string, error: DecisionWriteRejected | WriteError, current?: DecisionPackage): CliResult {
+  if ("_tag" in error && error._tag === "WriteRejected" && error.code === CliErrorCode.AuthorityIngressRejected) {
+    return { ok: false, command, decisionId, error: toCliError(error) };
+  }
   const reason = "_tag" in error && error._tag === "DecisionWriteRejected" ? error.reason : JSON.stringify(error);
   return {
     ok: false,

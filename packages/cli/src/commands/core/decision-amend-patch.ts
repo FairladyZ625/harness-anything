@@ -1,7 +1,7 @@
 import type { DecisionPackage } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, DecisionAmendPatchInput } from "../../cli/types.ts";
-import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
+import { nextDecisionAnchorId } from "../../cli/decision-propose-normalizer.ts";
 
 export function applyDecisionAmendPatches(
   current: DecisionPackage,

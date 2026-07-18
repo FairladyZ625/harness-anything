@@ -1,3 +1,4 @@
+import { DEFAULT_HUMAN_CONSENT_ACTIONS } from "../../../../application/src/index.ts";
 import { consentActions, type ConsentAction } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
@@ -23,7 +24,7 @@ export function parseTaskConsentRecord(args: ReadonlyArray<string>, rootDir: str
         taskId: args[2],
         executionId,
         utterance,
-        ...(actions.value ? { consentActions: actions.value } : {})
+        consentActions: actions.value ?? DEFAULT_HUMAN_CONSENT_ACTIONS
       }
     }
   };

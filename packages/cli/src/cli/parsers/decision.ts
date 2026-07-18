@@ -6,6 +6,7 @@ import {
 import type { CommandDescriptorIdentity } from "../command-spec/types.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import type { CommandJsonInput } from "../json-input.ts";
+import { normalizeDecisionProposeAction } from "../decision-propose-normalizer.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 import { parseDecisionAmendPatches } from "./decision-amend.ts";
@@ -128,7 +129,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     jsonString(payload, "bodyFile")
   );
   if (!body.ok) return body;
-  return parsedDecision(rootDir, json, {
+  return parsedDecision(rootDir, json, normalizeDecisionProposeAction({
     kind: "decision-propose",
     decisionId: readOption(args, "--id") ?? jsonString(payload, "decisionId"),
     title,
@@ -146,7 +147,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     evidenceRelations: evidenceRelations.value,
     body: body.value,
     dryRun: args.includes("--dry-run") || jsonBoolean(payload, "dryRun")
-  });
+  }));
 }
 
 function parseDecisionRelate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {

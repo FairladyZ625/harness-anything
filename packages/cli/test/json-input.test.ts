@@ -42,10 +42,10 @@ test("parseArgs passes inline JSON input to command parsers and keeps flags as o
   if (!parsed.ok || parsed.value.action.kind !== "decision-propose") return;
   assert.equal(parsed.value.action.title, "Flag Title");
   assert.equal(parsed.value.action.question, "Use global JSON input?");
-  assert.deepEqual(parsed.value.action.chosen, [{ text: "Use injected input" }]);
-  assert.deepEqual(parsed.value.action.rejected, [{ text: "Per-parser payloads", why_not: "They duplicate schema translation." }]);
+  assert.deepEqual(parsed.value.action.chosen, [{ id: "CH1", text: "Use injected input" }]);
+  assert.deepEqual(parsed.value.action.rejected, [{ id: "RJ1", text: "Per-parser payloads", why_not: "They duplicate schema translation." }]);
   assert.deepEqual(parsed.value.action.modules, ["cli", "m5-circulation"]);
-  assert.deepEqual(parsed.value.action.claims, [{ text: "JSON claim one" }, { id: "C9", text: "JSON claim two", load_bearing: false }]);
+  assert.deepEqual(parsed.value.action.claims, [{ id: "C1", text: "JSON claim one" }, { id: "C9", text: "JSON claim two", load_bearing: false }]);
   assert.equal(parsed.value.action.dryRun, true);
 });
 
@@ -146,11 +146,11 @@ test("parseArgs applies descriptor set and append semantics to mixed decision in
 
   assert.equal(parsed.ok, true);
   if (!parsed.ok || parsed.value.action.kind !== "decision-propose") return;
-  assert.deepEqual(parsed.value.action.chosen, [{ text: "Flag chosen" }]);
-  assert.deepEqual(parsed.value.action.rejected, [{ text: "Flag rejected", why_not: "Flag reason" }]);
+  assert.deepEqual(parsed.value.action.chosen, [{ id: "CH1", text: "Flag chosen" }]);
+  assert.deepEqual(parsed.value.action.rejected, [{ id: "RJ1", text: "Flag rejected", why_not: "Flag reason" }]);
   assert.deepEqual(parsed.value.action.modules, ["json-module", "flag-module"]);
   assert.deepEqual(parsed.value.action.productLines, ["json-product", "flag-product"]);
-  assert.deepEqual(parsed.value.action.claims, [{ text: "JSON appended claim" }, { text: "Flag claim" }]);
+  assert.deepEqual(parsed.value.action.claims, [{ id: "C1", text: "JSON appended claim" }, { id: "C2", text: "Flag claim" }]);
   assert.deepEqual(parsed.value.action.evidenceRelations, [
     { anchor: "C1", type: "relates", target: "task/task_1", rationale: "JSON relation" },
     { anchor: "C1", type: "relates", target: "task/task_2", rationale: "Flag relation" }

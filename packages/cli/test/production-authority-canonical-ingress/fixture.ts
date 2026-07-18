@@ -26,6 +26,8 @@ export function createFixture() {
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/closeout.md"), "# Closeout\n\nProduction fixture qualified.\n");
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
+  mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"), { recursive: true });
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8"));
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/closeout.md"), "# Closeout\n\nSlugged production lifecycle is ready.\n");

@@ -16,6 +16,7 @@ import {
 import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
 import { toCliError } from "../cli/error-mapper.ts";
+import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
@@ -47,6 +48,9 @@ export async function runRegisteredCommandWithCliComposition(
   command: ParsedCommand,
   options: ParsedCommandExecutionOptions = {}
 ): Promise<CliResult> {
+  command = await normalizeCommandSemantics(command, makeTaskHolderService({
+    rootInput: { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }
+  }));
   const provider = options.provider ?? defaultCliAdapterProvider();
   const layoutInput = {
     rootDir: command.rootDir,
