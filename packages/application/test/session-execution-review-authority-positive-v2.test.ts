@@ -33,8 +33,10 @@ import {
 } from "../src/index.ts";
 import {
   entityRegistry,
+  encodeCanonicalCbor,
   makeJournaledWriteCoordinator,
   readUnionAttributionEvents,
+  semanticMutationWireV2,
   sha256Text,
   type ExecutionRecord,
   type ReviewRecord,
@@ -66,36 +68,64 @@ test("all W4 actions publish exact refs through one composite/hosted op with cro
     const syncedSessionBody = `${sessionBody}\nSynced snapshot.\n`;
     const active = executionRecord("active");
     const submitted = executionRecord("submitted");
+    const changesRequestedReview = reviewRecord(reviewId(1), "changes_requested");
+    const changesRequested: ExecutionRecord = {
+      ...submitted,
+      state: "changes_requested",
+      closed_at: changesRequestedReview.reviewed_at
+    };
     const accepted = executionRecord("accepted");
+    const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+    const taskRef = ref("task", `task/${taskId}`);
+    const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+    const taskPath = `tasks/${taskId}/INDEX.md`;
+    const activeIndex = "---\n  status: active\n---\n";
     const fixtures: ReadonlyArray<{
       readonly payload: SessionExecutionReviewCommandPayloadV2;
       readonly ref: RegistryEntityRefV2;
       readonly action: string;
       readonly path: string;
+      readonly baseRefs?: ReadonlyArray<RegistryEntityRefV2>;
+      readonly casPaths?: ReadonlyArray<string>;
+      readonly mutationSet?: SemanticMutationSetV2;
+      readonly projectedAction?: string;
     }> = [
       { payload: { schema: "session.export/v1", manifest: sessionManifest(sessionBody, "sealed"), body: sessionBody }, ref: ref("session", `session/${sessionId}`), action: "export", path: `sessions/${sessionId}.md` },
       { payload: { schema: "session.sync/v1", manifest: sessionManifest(syncedSessionBody, "sealed"), body: syncedSessionBody }, ref: ref("session", `session/${sessionId}`), action: "sync", path: `sessions/${sessionId}.md` },
       { payload: { schema: "session.archive/v1", manifest: sessionManifest(syncedSessionBody, "archived"), body: syncedSessionBody }, ref: ref("session", `session/${sessionId}`), action: "archive", path: `sessions/${sessionId}.md` },
-      { payload: { schema: "execution.claim/v1", taskId, execution: active }, ref: ref("execution", `execution/${taskId}/${executionId}`), action: "claim", path: `tasks/${taskId}/executions/${executionId}.md` },
-      { payload: { schema: "execution.submit/v1", taskId, execution: submitted }, ref: ref("execution", `execution/${taskId}/${executionId}`), action: "submit", path: `tasks/${taskId}/executions/${executionId}.md` },
-      { payload: { schema: "execution.close/v1", taskId, execution: accepted }, ref: ref("execution", `execution/${taskId}/${executionId}`), action: "close", path: `tasks/${taskId}/executions/${executionId}.md` },
-      ...(["create", "dismiss", "record"] as const).map((action, index) => {
-        const id = reviewId(index);
-        const verdict = action === "dismiss" ? "dismissed" : "changes_requested";
-        return {
-          payload: { schema: `review.${action}/v1`, taskId, review: reviewRecord(id, verdict) } as SessionExecutionReviewCommandPayloadV2,
-          ref: ref("review", `review/${taskId}/${id}`), action,
-          path: `tasks/${taskId}/reviews/${id}.md`
-        };
-      })
+      { payload: { schema: "execution.claim/v1", taskId, execution: active }, ref: executionRef, action: "claim", path: executionPath },
+      { payload: { schema: "execution.submit/v1", taskId, execution: submitted }, ref: executionRef, action: "submit", path: executionPath },
+      reviewFixture("dismiss", reviewId(0), "dismissed", [
+        ref("review", `review/${taskId}/${reviewId(0)}`), executionRef, taskRef
+      ], [executionPath, taskPath]),
+      {
+        ...reviewFixture("create", reviewId(1), "changes_requested", [
+          ref("review", `review/${taskId}/${reviewId(1)}`), executionRef, taskRef
+        ], [executionPath, taskPath]),
+        payload: {
+          schema: "review.create/v1", taskId, review: changesRequestedReview,
+          execution: changesRequested, taskIndexBody: activeIndex
+        },
+        mutationSet: setMany([
+          [ref("review", `review/${taskId}/${reviewId(1)}`), "create"],
+          [executionRef, "close"],
+          [taskRef, "transition"]
+        ]),
+        projectedAction: "close"
+      },
+      { payload: { schema: "execution.close/v1", taskId, execution: accepted }, ref: executionRef, action: "close", path: executionPath },
+      reviewFixture("record", reviewId(2), "changes_requested")
     ];
 
     const receipts = [];
     for (const [index, fixture] of fixtures.entries()) {
-      const snapshot = documentSnapshot(harnessRoot, fixture.path);
-      const baseCas = [baseCasFor(fixture.ref, bases.get(key(fixture.ref)) ?? null)];
-      const pathCas = snapshot ? [pathCasFor(fixture.path, snapshot)] : [];
-      const mutationSet = set(fixture.ref, fixture.action);
+      const baseRefs = fixture.baseRefs ?? [fixture.ref];
+      const baseCas = baseRefs.map((entityRef) => baseCasFor(entityRef, bases.get(key(entityRef)) ?? null));
+      const pathCas = (fixture.casPaths ?? [fixture.path]).flatMap((documentPath) => {
+        const snapshot = documentSnapshot(harnessRoot, documentPath);
+        return snapshot ? [pathCasFor(documentPath, snapshot)] : [];
+      });
+      const mutationSet = fixture.mutationSet ?? set(fixture.ref, fixture.action);
       const envelope = bindEnvelope(requestEnvelope(index + 1, fixture.payload, baseCas, pathCas, mutationSet), claims, tokenDigest);
       const receipt = await service.submitV2!({
         requestId: `w4-positive-${index}`,
@@ -106,8 +136,18 @@ test("all W4 actions publish exact refs through one composite/hosted op with cro
       if (receipt.tag !== "COMMITTED") continue;
       assert.equal(existsSync(path.join(harnessRoot, fixture.path)), true, fixture.path);
       const body = readFileSync(path.join(harnessRoot, fixture.path), "utf8");
-      bases.set(key(fixture.ref), { semanticVersion: `w4-v${index + 1}`, stateDigest: Buffer.from(sha256Text(body), "hex") });
-      receipts.push({ receipt, mutationSet, action: fixture.action, path: fixture.path });
+      for (const mutation of mutationSet.mutations) {
+        bases.set(key(mutation.entity), {
+          semanticVersion: `w4-v${index + 1}`,
+          stateDigest: Buffer.from(sha256Text(body), "hex")
+        });
+      }
+      receipts.push({
+        receipt,
+        mutationSet,
+        action: fixture.projectedAction ?? fixture.action,
+        path: fixture.path
+      });
     }
     assert.equal(receipts.length, 9);
 
@@ -209,7 +249,7 @@ function authority(
         consumeOperation: async () => true,
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId && bytesEqual(input.tokenDigest, tokenDigest)
       },
-      entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review],
+      entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review, entityRegistry.task],
       semanticCompiler,
       operationNamespaceVerifier: { verify: async () => undefined },
       committedEventPublisher: {
@@ -282,8 +322,8 @@ function actorClaims(): ActorAxesBindingClaimsV2 {
   return {
     tokenId: "token-w4", bindingId: "binding-w4", principalPersonId: "person_zeyu", executorAgentId: "agent_w4",
     workspaceId: "workspace-w4-positive", deviceId: "device-w4", viewId: "view-w4", sessionId: "session-w4",
-    allowedEntityKinds: ["review", "session", "execution"],
-    allowedActions: ["sync", "claim", "close", "create", "export", "record", "submit", "archive", "dismiss"],
+    allowedEntityKinds: ["task", "review", "session", "execution"],
+    allowedActions: ["sync", "claim", "close", "create", "export", "record", "submit", "archive", "dismiss", "transition"],
     resourceScopes: [{ kind: "workspace" }], pathFootprint: null,
     maxBytes: 256n * 1024n, maxMutations: 16, maxOperations: 16,
     authorityGeneration: 1n, channelNonceDigest, schemaTuple,
@@ -308,7 +348,7 @@ async function withHermeticGit(body: (input: {
     execFileSync("git", ["-C", rootDir, "init", "-q"], { env });
     writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
     mkdirSync(path.join(harnessRoot, "tasks", taskId), { recursive: true });
-    writeFileSync(path.join(harnessRoot, "tasks", taskId, "INDEX.md"), "# W4 host task\n", "utf8");
+    writeFileSync(path.join(harnessRoot, "tasks", taskId, "INDEX.md"), "---\n  status: in_review\n---\n", "utf8");
     execFileSync("git", ["-C", harnessRoot, "init", "-q"], { env });
     execFileSync("git", ["-C", harnessRoot, "add", "."], { env });
     execFileSync("git", ["-C", harnessRoot, "commit", "-m", "test: initialize W4 positive control"], { env });
@@ -337,6 +377,36 @@ function pathCasFor(documentPath: string, value: HostedDocumentSnapshotV2) {
 
 function set(entityRef: RegistryEntityRefV2, action: string): SemanticMutationSetV2 {
   return { registryVersion: 1, mutations: [{ entity: entityRef, action: { registryVersion: 1, action } }] };
+}
+
+function setMany(entries: ReadonlyArray<readonly [RegistryEntityRefV2, string]>): SemanticMutationSetV2 {
+  return {
+    registryVersion: 1,
+    mutations: entries.map(([entity, action]) => ({
+      entity,
+      action: { registryVersion: 1, action }
+    })).sort((left, right) => Buffer.compare(
+      Buffer.from(encodeCanonicalCbor(semanticMutationWireV2(left))),
+      Buffer.from(encodeCanonicalCbor(semanticMutationWireV2(right)))
+    ))
+  };
+}
+
+function reviewFixture(
+  action: "create" | "dismiss" | "record",
+  id: string,
+  verdict: ReviewRecord["verdict"],
+  baseRefs?: ReadonlyArray<RegistryEntityRefV2>,
+  casPaths?: ReadonlyArray<string>
+) {
+  return {
+    payload: { schema: `review.${action}/v1`, taskId, review: reviewRecord(id, verdict) } as SessionExecutionReviewCommandPayloadV2,
+    ref: ref("review", `review/${taskId}/${id}`),
+    action,
+    path: `tasks/${taskId}/reviews/${id}.md`,
+    ...(baseRefs ? { baseRefs } : {}),
+    ...(casPaths ? { casPaths } : {})
+  };
 }
 
 function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
