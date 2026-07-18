@@ -78,7 +78,8 @@ test("entity disposition lower-bound blocks D3 and D4 when task owns child tasks
     assert.equal(childHardDelete.allowed, true);
     assert.equal(hardDelete.lowerBound.childTaskCount, 1);
     assert.match(hardDelete.reason, /0 anchored fact\(s\), 0 active incoming relation\(s\), and 1 child task\(s\)/u);
-    assert.match(hardDelete.reason, /archive\/delete\/supersede child tasks before hard delete/u);
+    assert.match(hardDelete.reason, /archive\/delete\/supersede child tasks before (?:local compatibility )?hard delete/u);
+    assert.match(hardDelete.reason, /Production does not offer hard delete/u);
     assert.deepEqual(impact.childTasks.map((child) => child.taskId), ["task-child"]);
     assert.deepEqual(impact.impactedRefs, ["task/task-child"]);
   });

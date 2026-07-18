@@ -98,7 +98,8 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     assert.equal(parentFailure.ok, false);
     assert.equal(parentFailure.error?.code, "related_task_hard_delete_forbidden");
     assert.match(parentFailure.error?.hint ?? "", /0 anchored fact\(s\), 0 active incoming relation\(s\), and 1 child task\(s\)/u);
-    assert.match(parentFailure.error?.hint ?? "", /archive\/delete\/supersede child tasks before hard delete/u);
+    assert.match(parentFailure.error?.hint ?? "", /archive\/delete\/supersede child tasks before (?:local compatibility )?hard delete/u);
+    assert.match(parentFailure.error?.hint ?? "", /ha task supersede <id> --by <replacement-id>/u);
     assert.equal(existsSync(parentPackagePath), true);
 
     const childResult = runJson(rootDir, ["task", "delete", "--hard", childTaskId, "--reason", "remove child", "--confirm", childTaskId]);
