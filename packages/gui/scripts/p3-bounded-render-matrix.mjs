@@ -28,7 +28,7 @@ import { needsForView } from "../src/renderer/perf/perspective-load.ts";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultOutDir = path.resolve(
   __dirname,
-  "../../../../../harness/tasks/task_01KXCSC2Z01PA2N8YSGJZ7M8AS-plt-performance-p3-gui/artifacts",
+  "../../../../../harness/tasks/task_01KXVFC7QDNHKTMS9S5XWXQYSD-revive-gui-bounded/artifacts",
 );
 const outDir = process.argv.includes("--out")
   ? process.argv[process.argv.indexOf("--out") + 1]
