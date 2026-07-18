@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "LnYo-Cly",
+      "id": 47201396,
+      "comment_id": 5010409520,
+      "created_at": "2026-07-18T07:27:23Z",
+      "repoId": 1265862156,
+      "pullRequestNo": 906
+    }
+  ]
 }
