@@ -68,7 +68,13 @@ test("observed-write path CAS matches the authority read set for slugged task pa
     const resolved = resolveHostedDocument(fixture.authoredRoot, one);
     assert.ok(resolved);
     assert.equal(resolved.portablePath, one);
-    assert.match(resolved.physicalPath, new RegExp(`${fixture.sourceTaskId}-source/INDEX\\.md$`, "u"));
+    // portablePath stays logical (forward slashes, asserted above); physicalPath is a native
+    // path, so build the expected suffix with path.join rather than hard-coding a separator.
+    const sluggedSuffix = path.join(`${fixture.sourceTaskId}-source`, "INDEX.md");
+    assert.ok(
+      resolved.physicalPath.endsWith(sluggedSuffix),
+      `physicalPath should resolve into the slugged package (expected suffix ${sluggedSuffix}): ${resolved.physicalPath}`
+    );
   } finally {
     rmSync(fixture.rootDir, { recursive: true, force: true });
   }
