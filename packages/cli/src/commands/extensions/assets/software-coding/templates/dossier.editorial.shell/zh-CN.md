@@ -66,7 +66,8 @@ body {
 }
 .serif { font-family: var(--serif); }
 .mono { font-family: var(--mono); }
-.wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
+/* 为架构图和证据表提供宽版空间，同时避免正文无限拉长。 */
+.wrap { width: min(1440px, 96vw); margin: 0 auto; padding: 0 clamp(16px, 2vw, 32px); }
 
 /* ===== topbar ===== */
 .topbar {
@@ -168,7 +169,7 @@ footer .src { font-family: var(--mono); font-size: 11px; color: var(--ink-faint)
 
 /* ===== responsive ===== */
 @media (max-width: 760px) {
-  .wrap { padding: 0 22px; }
+  .wrap { width: 100%; padding: 0 16px; }
   .hero { padding: 48px 0 36px; }
   nav { justify-content: flex-start; }
   .grid-2 { grid-template-columns: 1fr; }
