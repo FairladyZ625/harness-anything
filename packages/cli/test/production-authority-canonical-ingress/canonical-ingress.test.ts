@@ -282,7 +282,7 @@ test("production service route preserves progress dry-run and publishes canonica
       verdict: "approved", findings: "Slugged production evidence is complete.",
       evidenceChecked: ["ev_cli_1"], rationale: "The submitted execution and closeout evidence support approval.",
       archiveWarningsAcknowledged: true,
-      consentUtterance: "Approve and complete the slugged production execution.",
+      consentAssertedRationale: "Approval was received through an external channel.",
       consentActions: ["approve_execution", "complete_task"]
     }));
     const reviewed = runRawJsonMaybeFail(fixture.repoRoot, [

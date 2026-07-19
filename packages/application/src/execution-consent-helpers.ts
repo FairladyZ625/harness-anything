@@ -6,8 +6,9 @@ import {
   generateTaskId,
   type ConsentAction,
   type ConsentRecord,
+  type ConsentResponse,
   type ConsentSnapshot,
-  type CurrentSessionRef,
+  type ConsentSource,
   type ExecutionRecord,
   type TaskHolderPrincipal
 } from "../../kernel/src/index.ts";
@@ -58,8 +59,10 @@ export function createConsentRecord(input: {
   readonly taskId: string;
   readonly execution: ExecutionRecord;
   readonly actor: TaskHolderPrincipal;
-  readonly session: CurrentSessionRef;
-  readonly utterance: string;
+  readonly authorization: {
+    readonly source: Exclude<ConsentSource, { readonly strength: "legacy-unrecorded" }>;
+    readonly response: ConsentResponse;
+  };
   readonly actions: ReadonlyArray<ConsentAction>;
   readonly grantedAt: string;
   readonly ttlMs?: number;
@@ -74,7 +77,7 @@ export function createConsentRecord(input: {
   if (!Number.isInteger(ttlMs) || ttlMs <= 0) throw new Error("consent TTL must be a positive integer");
   const state = input.state ?? "open";
   return {
-    schema: "consent/v1",
+    schema: "consent/v2",
     consent_id: input.consentId,
     task_ref: `task/${input.taskId}`,
     execution_ref: `execution/${input.taskId}/${input.execution.execution_id}`,
@@ -94,11 +97,8 @@ export function createConsentRecord(input: {
     channel: input.actor.executor === null
       ? { kind: "human-cli", assurance: "principal-bound-command" }
       : { kind: "agent-relayed", assurance: "relayed-assertion" },
-    response: {
-      kind: "utterance",
-      text: input.utterance,
-      session_ref: `session/${input.session.sessionId}`
-    },
+    response: input.authorization.response,
+    source: input.authorization.source,
     recorded_by: input.actor,
     granted_at: input.grantedAt,
     expires_at: new Date(grantedMs + ttlMs).toISOString(),
@@ -115,6 +115,7 @@ export function consentSnapshot(consent: ConsentRecord): ConsentSnapshot {
     disclosure: consent.disclosure,
     channel: consent.channel,
     response: consent.response,
+    source: consent.source,
     recorded_by: consent.recorded_by,
     granted_at: consent.granted_at,
     expires_at: consent.expires_at

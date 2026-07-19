@@ -30,6 +30,8 @@ import {
   decodeExecutionForConsent,
   generateConsentId
 } from "./execution-consent-helpers.ts";
+import { consentSourceRequest, resolveConsentAuthorization } from "./consent-source-resolution.ts";
+import type { RuntimeLogOptions } from "./runtime-session-logs.ts";
 
 export interface ReviewExecutionService {
   readonly reviewExecution: (input: {
@@ -44,6 +46,8 @@ export interface ReviewExecutionService {
     readonly archiveWarningsAcknowledged: boolean;
     readonly consentId?: string;
     readonly consentUtterance?: string;
+    readonly consentStandingPolicyDecisionId?: string;
+    readonly consentAssertedRationale?: string;
     readonly consentActions?: ReadonlyArray<ConsentAction>;
   }) => Promise<{ readonly review: ReviewRecord }>;
 }
@@ -56,6 +60,7 @@ export function makeReviewExecutionService(options: {
   readonly generateConsentId?: () => string;
   readonly now?: () => string;
   readonly consentTtlMs?: number;
+  readonly runtimeLogOptions?: RuntimeLogOptions;
 }): ReviewExecutionService {
   const generateReviewId = options.generateReviewId ?? (() => `rev_${generateTaskId().slice("task_".length)}`);
   const nextConsentId = options.generateConsentId ?? generateConsentId;
@@ -84,6 +89,7 @@ export function makeReviewExecutionService(options: {
       const reviewedAt = now();
       const consent = input.verdict === "approved"
         ? await resolveApprovalConsent({
+            rootInput: options.rootInput,
             taskId: input.taskId,
             execution,
             executionDocument,
@@ -94,10 +100,13 @@ export function makeReviewExecutionService(options: {
             reviewedAt,
             consentId: input.consentId,
             consentUtterance: input.consentUtterance,
+            consentStandingPolicyDecisionId: input.consentStandingPolicyDecisionId,
+            consentAssertedRationale: input.consentAssertedRationale,
             consentActions: input.consentActions,
             consentTtlMs,
             nextConsentId,
-            coordinator: options.coordinator
+            coordinator: options.coordinator,
+            runtimeLogOptions: options.runtimeLogOptions
           })
         : rejectUnexpectedConsent(input);
       const review: ReviewRecord = {
@@ -169,19 +178,23 @@ function assertConsentInputShape(input: {
   readonly verdict: ReviewVerdict;
   readonly consentId?: string;
   readonly consentUtterance?: string;
+  readonly consentStandingPolicyDecisionId?: string;
+  readonly consentAssertedRationale?: string;
   readonly consentActions?: ReadonlyArray<ConsentAction>;
 }, execution: ExecutionRecord): void {
   if (input.verdict !== "approved") {
     rejectUnexpectedConsent(input);
     return;
   }
-  if (input.consentId && input.consentUtterance) {
-    throw new Error("approved review accepts either --consent or --consent-utterance, not both");
+  const createSourceCount = [input.consentUtterance, input.consentStandingPolicyDecisionId, input.consentAssertedRationale]
+    .filter(Boolean).length;
+  if ((input.consentId ? 1 : 0) + createSourceCount > 1) {
+    throw new Error("approved review accepts either --consent or exactly one consent source declaration");
   }
-  if (!input.consentId && !input.consentUtterance) {
+  if (!input.consentId && createSourceCount === 0) {
     throw new Error([
       approvalCard(execution),
-      `After the human replies, rerun with --consent-utterance "<their exact words>" or first record consent and pass --consent <consent-id>.`,
+      `After the human replies, rerun with --consent-utterance "<their exact words>", --consent-standing-policy <active-decision-id>, or --consent-asserted "<why the external approval is being asserted>"; an existing consent id may also be passed with --consent.`,
       "Do not invent a second reviewer identity. No Review was written."
     ].join("\n"));
   }
@@ -193,6 +206,7 @@ interface ResolvedApprovalConsent {
 }
 
 async function resolveApprovalConsent(input: {
+  readonly rootInput: HarnessLayoutInput;
   readonly taskId: string;
   readonly execution: ExecutionRecord;
   readonly executionDocument: { readonly path: string; readonly body: string };
@@ -203,23 +217,35 @@ async function resolveApprovalConsent(input: {
   readonly reviewedAt: string;
   readonly consentId?: string;
   readonly consentUtterance?: string;
+  readonly consentStandingPolicyDecisionId?: string;
+  readonly consentAssertedRationale?: string;
   readonly consentActions?: ReadonlyArray<ConsentAction>;
   readonly consentTtlMs: number;
   readonly nextConsentId: () => string;
   readonly coordinator: WriteCoordinator;
+  readonly runtimeLogOptions?: RuntimeLogOptions;
 }): Promise<ResolvedApprovalConsent> {
-  if (input.consentUtterance) {
+  if (input.consentUtterance || input.consentStandingPolicyDecisionId || input.consentAssertedRationale) {
     const consentId = input.nextConsentId();
     if (input.documents.some((document) => document.path === `consents/${consentId}.md`)) {
       throw new Error(`consent already exists: ${consentId}`);
     }
+    const authorization = await resolveConsentAuthorization({
+      rootInput: input.rootInput,
+      execution: input.execution,
+      request: consentSourceRequest({
+        utterance: input.consentUtterance,
+        standingPolicyDecisionId: input.consentStandingPolicyDecisionId,
+        assertedRationale: input.consentAssertedRationale
+      }),
+      runtimeLogOptions: input.runtimeLogOptions
+    });
     const consumed = createConsentRecord({
       consentId,
       taskId: input.taskId,
       execution: input.execution,
       actor: input.reviewer,
-      session: input.reviewerSession,
-      utterance: input.consentUtterance,
+      authorization,
       actions: input.consentActions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
       grantedAt: input.reviewedAt,
       ttlMs: input.consentTtlMs,
@@ -234,7 +260,7 @@ async function resolveApprovalConsent(input: {
   }
 
   if (input.consentActions !== undefined) {
-    throw new Error("--consent-action is only valid when creating consent with --consent-utterance");
+    throw new Error("--consent-action is only valid when creating consent with an explicit source declaration");
   }
   const consentId = input.consentId;
   if (!consentId) throw new Error("approved review requires consent");
@@ -292,9 +318,11 @@ function rejectUnexpectedConsent(input: {
   readonly verdict: ReviewVerdict;
   readonly consentId?: string;
   readonly consentUtterance?: string;
+  readonly consentStandingPolicyDecisionId?: string;
+  readonly consentAssertedRationale?: string;
   readonly consentActions?: ReadonlyArray<ConsentAction>;
 }): null {
-  if (input.consentId || input.consentUtterance || input.consentActions !== undefined) {
+  if (input.consentId || input.consentUtterance || input.consentStandingPolicyDecisionId || input.consentAssertedRationale || input.consentActions !== undefined) {
     throw new Error(`${input.verdict} review does not accept or consume human consent`);
   }
   return null;

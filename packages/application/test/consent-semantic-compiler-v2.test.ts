@@ -1,5 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
@@ -55,20 +58,22 @@ const registry = createWritableEntityRegistry([
   entityRegistry.review
 ]);
 
-test("consent grant derives principal session and time only from authenticated authority context", async () => {
+test("consent grant derives principal and time only from authenticated authority context", async () => {
   const execution = submittedExecution();
   const executionSnapshot = snapshot(executionDeclaration.documentCodec.encode(execution));
   const state = authorityState(
     new Map([[key(executionRef()), base("execution-v1")]]),
     new Map([[executionPath, executionSnapshot]])
   );
-  const compiler = makeConsentSemanticCompilerV2({ state, ttlMs: 60_000 });
+  const compiler = makeConsentSemanticCompilerV2({ state, rootInput: ".", ttlMs: 60_000 });
   const payload: ConsentCommandPayloadV2 = {
     schema: "consent.grant/v1",
     taskId,
     executionId,
     consentId,
-    utterance: "Approved for this exact submission.",
+    utterance: null,
+    standingPolicyDecisionId: null,
+    assertedRationale: "Approval was received through an external channel.",
     actions: ["approve_execution", "complete_task"]
   };
   const compiled = await compiler.compile(envelope(payload, [
@@ -81,7 +86,7 @@ test("consent grant derives principal session and time only from authenticated a
   const consent = decodePrimaryConsent(compiled.operation.payload);
   assert.deepEqual(consent.principal, { personId: "person_zeyu" });
   assert.deepEqual(consent.recorded_by, context(1_721_000_000_000n).actor);
-  assert.equal(consent.response.session_ref, "session/session-w6-consent");
+  assert.equal(consent.source.strength, "asserted");
   assert.equal(consent.granted_at, new Date(1_721_000_000_000).toISOString());
 
   const clientAttributed = Buffer.from(JSON.stringify({
@@ -96,6 +101,48 @@ test("consent grant derives principal session and time only from authenticated a
   );
 });
 
+test("authority independently verifies transcript utterances against bound user turns", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-consent-authority-transcript-"));
+  try {
+    const logRoot = path.join(rootDir, "logs");
+    mkdirSync(logRoot, { recursive: true });
+    writeFileSync(path.join(logRoot, "rollout-2024-07-15T00-00-00-session-w6-consent.jsonl"), [
+      JSON.stringify({ timestamp: "2024-07-15T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Approved in the bound user turn." } }),
+      JSON.stringify({ timestamp: "2024-07-15T00:00:01.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Assistant approval is not evidence." }] } })
+    ].join("\n"));
+    const execution = {
+      ...submittedExecution(),
+      session_bindings: [{
+        binding_id: "binding-primary",
+        session_ref: "session/session-w6-consent",
+        role: "primary" as const,
+        archive_status: "complete" as const,
+        attached_at: "2024-07-15T00:00:00.000Z",
+        session: { runtime: "codex", sessionId: "session-w6-consent", source: "runtime", detectedAt: "2024-07-15T00:00:00.000Z" },
+        capture_range: null
+      }]
+    };
+    const executionSnapshot = snapshot(executionDeclaration.documentCodec.encode(execution));
+    const state = authorityState(new Map([[key(executionRef()), base("execution-v1")]]), new Map([[executionPath, executionSnapshot]]));
+    const compiler = makeConsentSemanticCompilerV2({
+      state,
+      rootInput: rootDir,
+      runtimeLogOptions: { runtimeLogRoots: { codex: [logRoot] } }
+    });
+    const compile = (utterance: string) => compiler.compile(envelope({
+      schema: "consent.grant/v1", taskId, executionId, consentId,
+      utterance, standingPolicyDecisionId: null, assertedRationale: null,
+      actions: ["approve_execution", "complete_task"]
+    }, [present(executionRef(), "execution-v1"), absent(consentRef())], [cas(executionPath, executionSnapshot)]), context(1_721_000_000_000n));
+
+    const verified = decodePrimaryConsent((await compile("Approved in the bound user turn.")).operation.payload);
+    assert.equal(verified.source.strength, "transcript-verified");
+    await assert.rejects(compile("Assistant approval is not evidence."), /not found in any bound session transcript user turn/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("consent consume atomically records the review and terminal consent for the same principal", async () => {
   const fixture = await openConsentFixture();
   const payload: ConsentCommandPayloadV2 = {
@@ -104,6 +151,8 @@ test("consent consume atomically records the review and terminal consent for the
     executionId,
     consentId,
     utterance: null,
+    standingPolicyDecisionId: null,
+    assertedRationale: null,
     actions: [],
     review: {
       reviewId,
@@ -113,7 +162,7 @@ test("consent consume atomically records the review and terminal consent for the
       archiveWarningsAcknowledged: true
     }
   };
-  const compiler = makeConsentSemanticCompilerV2({ state: fixture.state });
+  const compiler = makeConsentSemanticCompilerV2({ state: fixture.state, rootInput: "." });
   const compiled = await compiler.compile(envelope(payload, [
     present(executionRef(), "execution-v1"),
     present(consentRef(), "consent-v1"),
@@ -158,6 +207,8 @@ test("consent consume preserves review task evidence and archive-warning invaria
     executionId,
     consentId,
     utterance: null,
+    standingPolicyDecisionId: null,
+    assertedRationale: null,
     actions: [],
     review: {
       reviewId,
@@ -170,7 +221,7 @@ test("consent consume preserves review task evidence and archive-warning invaria
   const attempt = async (
     fixture: Awaited<ReturnType<typeof openConsentFixture>>,
     command: ConsentCommandPayloadV2
-  ) => makeConsentSemanticCompilerV2({ state: fixture.state }).compile(envelope(command, [
+  ) => makeConsentSemanticCompilerV2({ state: fixture.state, rootInput: "." }).compile(envelope(command, [
     present(executionRef(), "execution-v1"), present(consentRef(), "consent-v1"), absent(reviewRef())
   ], [
     cas(executionPath, fixture.executionSnapshot),
@@ -203,7 +254,7 @@ test("consent consume preserves review task evidence and archive-warning invaria
 test("consent expire compiles only after the server clock crosses the recorded expiry", async () => {
   const fixture = await openConsentFixture(1_000);
   const payload: ConsentCommandPayloadV2 = { schema: "consent.expire/v1", taskId, consentId };
-  const compiler = makeConsentSemanticCompilerV2({ state: fixture.state });
+  const compiler = makeConsentSemanticCompilerV2({ state: fixture.state, rootInput: "." });
   const before = envelope(payload, [present(consentRef(), "consent-v1")], [cas(consentPath, fixture.consentSnapshot)]);
   await assert.rejects(compiler.compile(before, context(1_721_000_000_999n)), /CONSENT_NOT_EXPIRED/u);
   const compiled = await compiler.compile(before, context(1_721_000_001_000n));
@@ -222,10 +273,11 @@ test("an exact consent grant attempt replays one committed receipt after authore
     new Map([[key(executionRef()), base("execution-v1")]]),
     documents
   );
-  const semanticCompiler = makeConsentSemanticCompilerV2({ state, ttlMs: 60_000 });
+  const semanticCompiler = makeConsentSemanticCompilerV2({ state, rootInput: ".", ttlMs: 60_000 });
   const payload: ConsentCommandPayloadV2 = {
     schema: "consent.grant/v1", taskId, executionId, consentId,
-    utterance: "Approved for this exact submission.", actions: ["approve_execution", "complete_task"]
+    utterance: null, standingPolicyDecisionId: null,
+    assertedRationale: "Approval was received through an external channel.", actions: ["approve_execution", "complete_task"]
   };
   const claims = authorityClaims();
   const secret = Buffer.alloc(32, 0x5a);
@@ -349,9 +401,10 @@ async function openConsentFixture(ttlMs = 60_000, input?: {
   );
   const grantPayload: ConsentCommandPayloadV2 = {
     schema: "consent.grant/v1", taskId, executionId, consentId,
-    utterance: "Approved for this exact submission.", actions: ["approve_execution", "complete_task"]
+    utterance: null, standingPolicyDecisionId: null,
+    assertedRationale: "Approval was received through an external channel.", actions: ["approve_execution", "complete_task"]
   };
-  const grant = await makeConsentSemanticCompilerV2({ state: grantState, ttlMs }).compile(envelope(grantPayload, [
+  const grant = await makeConsentSemanticCompilerV2({ state: grantState, rootInput: ".", ttlMs }).compile(envelope(grantPayload, [
     present(executionRef(), "execution-v1"), absent(consentRef())
   ], [cas(executionPath, executionSnapshot)]), context(1_721_000_000_000n));
   const consentBody = operationTransaction(grant.operation.payload).body;

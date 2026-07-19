@@ -108,7 +108,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task code-doc reconcile", argv: ["task", "code-doc", "reconcile", "task_1", "--commit", "0123456789abcdef0123456789abcdef01234567", "--path", "packages/cli/src/index.ts", "--path", "packages/application/src/index.ts", "--pr", "https://github.com/example/repo/pull/1", "--force"], kind: "task-code-doc-reconcile", fields: { taskId: "task_1", sha: "0123456789abcdef0123456789abcdef01234567", paths: ["packages/cli/src/index.ts", "packages/application/src/index.ts"], prRef: "https://github.com/example/repo/pull/1", force: true } },
   { name: "task review", argv: ["task", "review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
   { name: "task consent record", argv: ["task", "consent-record", "task_1", "--execution-id", "exe_1", "--utterance", "Approved", "--consent-action", "approve_execution"], kind: "task-consent-record", fields: { taskId: "task_1", executionId: "exe_1", utterance: "Approved", consentActions: ["approve_execution"] } },
+  { name: "task consent record standing policy", argv: ["task", "consent-record", "task_1", "--execution-id", "exe_1", "--standing-policy", "dec_ACTIVE"], kind: "task-consent-record", fields: { taskId: "task_1", executionId: "exe_1", standingPolicyDecisionId: "dec_ACTIVE", consentActions: ["approve_execution", "complete_task"] } },
+  { name: "task consent record asserted", argv: ["task", "consent-record", "task_1", "--execution-id", "exe_1", "--asserted", "Approved in a private meeting"], kind: "task-consent-record", fields: { taskId: "task_1", executionId: "exe_1", assertedRationale: "Approved in a private meeting", consentActions: ["approve_execution", "complete_task"] } },
   { name: "task review execution", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--consent-utterance", "Approved", "--acknowledge-archive-warnings"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", verdict: "approved", findings: "ship it", evidenceChecked: ["ev_1"], rationale: "Evidence supports approval", archiveWarningsAcknowledged: true, consentUtterance: "Approved" } },
+  { name: "task review execution standing policy", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--consent-standing-policy", "dec_ACTIVE"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", verdict: "approved", findings: "ship it", evidenceChecked: ["ev_1"], rationale: "Evidence supports approval", consentStandingPolicyDecisionId: "dec_ACTIVE" } },
+  { name: "task review execution asserted", argv: ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--consent-asserted", "Approved in a private meeting"], kind: "task-review-execution", fields: { taskId: "task_1", executionId: "exe_1", verdict: "approved", findings: "ship it", evidenceChecked: ["ev_1"], rationale: "Evidence supports approval", consentAssertedRationale: "Approved in a private meeting" } },
   { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
   { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1", view: "summary" } },
   { name: "task show trace view", argv: ["task", "show", "task_1", "--view", "trace"], kind: "task-show", fields: { taskId: "task_1", view: "trace" } },
@@ -593,6 +597,18 @@ test("parseArgs rejects flag-like tokens for required value options", () => {
   assert.equal(parsed.ok, false);
   if (parsed.ok) return;
   assert.equal(parsed.error.code, "missing_vertical");
+});
+
+test("parseArgs requires exactly one consent source declaration", () => {
+  for (const argv of [
+    ["task", "consent-record", "task_1", "--execution-id", "exe_1"],
+    ["task", "consent-record", "task_1", "--execution-id", "exe_1", "--utterance", "Approved", "--asserted", "Approved elsewhere"],
+    ["task", "review-execution", "task_1", "--execution-id", "exe_1", "--verdict", "approved", "--findings", "ship it", "--evidence-checked", "ev_1", "--rationale", "Evidence supports approval", "--consent-standing-policy", "dec_ACTIVE", "--consent-asserted", "Approved elsewhere"]
+  ]) {
+    const parsed = parseArgs(argv);
+    assert.equal(parsed.ok, false, argv.join(" "));
+    if (!parsed.ok) assert.match(parsed.error.hint, /exactly one/u);
+  }
 });
 
 test("parseArgs treats empty argv and help flags as help", () => {

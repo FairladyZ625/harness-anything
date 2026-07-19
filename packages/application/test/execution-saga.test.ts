@@ -535,7 +535,7 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       rationale: "Acceptance criteria are satisfied.",
       verdict: "approved",
       archiveWarningsAcknowledged: true,
-      consentUtterance: "Approved"
+      consentAssertedRationale: "Approval was received through an external channel."
     });
 
     assert.equal(dismissed.review.review_id, firstReviewId);
@@ -591,7 +591,7 @@ test("Execution completion requires a consent-backed approved Review and accepts
       rationale: "The execution is complete.",
       verdict: "approved",
       archiveWarningsAcknowledged: false,
-      consentUtterance: "Approved"
+      consentAssertedRationale: "Approval was received through an external channel."
     });
 
     const firstReviewPath = path.join(taskRoot, "reviews", `${firstReviewId}.md`);
@@ -623,7 +623,7 @@ test("Execution completion requires a consent-backed approved Review and accepts
       rationale: "The latest execution is complete.",
       verdict: "approved",
       archiveWarningsAcknowledged: false,
-      consentUtterance: "Approved"
+      consentAssertedRationale: "Approval was received through an external channel."
     });
 
     writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({

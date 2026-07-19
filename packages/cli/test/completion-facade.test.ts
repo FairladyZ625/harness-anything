@@ -121,7 +121,7 @@ test("review-execution from-file maps explicit review and consent fields without
     rationale: "The evidence satisfies the Task intent.",
     evidenceChecked: ["ev_cli_1"],
     archiveWarningsAcknowledged: true,
-    consentUtterance: "Approved after reviewing the evidence.",
+    consentAssertedRationale: "Approval was received through an external channel.",
     consentActions: ["approve_execution", "complete_task"]
   }), "utf8");
 
@@ -138,7 +138,7 @@ test("review-execution from-file maps explicit review and consent fields without
       rationale: "The evidence satisfies the Task intent.",
       evidenceChecked: ["ev_cli_1"],
       archiveWarningsAcknowledged: true,
-      consentUtterance: "Approved after reviewing the evidence.",
+      consentAssertedRationale: "Approval was received through an external channel.",
       consentActions: ["approve_execution", "complete_task"]
     });
     const normalized = normalizeReviewConsentIdentity(parsed.value);

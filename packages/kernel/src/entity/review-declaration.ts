@@ -73,8 +73,8 @@ const ReviewV1Schema = Schema.Struct({
 
 const reviewDocumentCodec = {
   decode: (body: string): unknown => {
-    const raw = jsonEntityDocumentCodec.decode(body) as { readonly schema?: unknown };
-    if (raw.schema === "review/v3") return raw;
+    const raw = jsonEntityDocumentCodec.decode(body) as { readonly schema?: unknown; readonly approval_basis?: unknown };
+    if (raw.schema === "review/v3") return upgradeLegacyConsentSnapshot(raw);
     const legacy = raw.schema === "review/v2"
       ? Schema.decodeUnknownSync(ReviewV2Schema)(raw)
       : Schema.decodeUnknownSync(ReviewV1Schema)(raw);
@@ -87,6 +87,20 @@ const reviewDocumentCodec = {
   },
   encode: jsonEntityDocumentCodec.encode
 };
+
+function upgradeLegacyConsentSnapshot<T extends { readonly approval_basis?: unknown }>(review: T): T | (T & { readonly approval_basis: unknown }) {
+  const basis = review.approval_basis;
+  if (!basis || typeof basis !== "object" || (basis as { readonly kind?: unknown }).kind !== "human-consent") return review;
+  const snapshot = (basis as { readonly consent_snapshot?: unknown }).consent_snapshot;
+  if (!snapshot || typeof snapshot !== "object" || "source" in snapshot) return review;
+  return {
+    ...review,
+    approval_basis: {
+      ...basis,
+      consent_snapshot: { ...snapshot, source: { strength: "legacy-unrecorded" } }
+    }
+  };
+}
 
 export const reviewDeclaration = decodeEntityDeclaration({
   kind: "review",

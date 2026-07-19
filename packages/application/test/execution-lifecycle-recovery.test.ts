@@ -112,7 +112,7 @@ test("changes_requested keeps another submitted round reviewable and the remaini
       rationale: "The submitted claim is complete.",
       verdict: "approved",
       archiveWarningsAcknowledged: false,
-      consentUtterance: "Approved"
+      consentAssertedRationale: "Approval was received through an external channel."
     });
     const completion = makeExecutionCompletionService({
       rootInput: rootDir,
@@ -153,7 +153,7 @@ test("X5-shaped five-round state completes from an active Task projection and ab
       rationale: "The delivery satisfies the task intent.",
       verdict: "approved",
       archiveWarningsAcknowledged: false,
-      consentUtterance: "Approved"
+      consentAssertedRationale: "Approval was received through an external channel."
     });
 
     writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "active"));
