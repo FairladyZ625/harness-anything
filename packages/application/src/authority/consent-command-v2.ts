@@ -26,7 +26,9 @@ export type ConsentGrantPayloadV2 = {
   readonly taskId: string;
   readonly executionId: string;
   readonly consentId: string;
-  readonly utterance: string;
+  readonly utterance: string | null;
+  readonly standingPolicyDecisionId: string | null;
+  readonly assertedRationale: string | null;
   readonly actions: ReadonlyArray<ConsentAction>;
 };
 
@@ -36,6 +38,8 @@ export type ConsentConsumePayloadV2 = {
   readonly executionId: string;
   readonly consentId: string;
   readonly utterance: string | null;
+  readonly standingPolicyDecisionId: string | null;
+  readonly assertedRationale: string | null;
   readonly actions: ReadonlyArray<ConsentAction>;
   readonly review: ConsentReviewInputV2;
 };
@@ -88,24 +92,28 @@ export function encodeConsentCommandPayloadV2(payload: ConsentCommandPayloadV2):
 function decodeStrictConsentPayloadV2(value: unknown): ConsentCommandPayloadV2 {
   const discriminator = exactSemanticObjectV2(value, ["schema"], { allowAdditional: true });
   if (discriminator.schema === "consent.grant/v1") {
-    const row = exactSemanticObjectV2(value, ["schema", "taskId", "executionId", "consentId", "utterance", "actions"]);
+    const row = exactSemanticObjectV2(value, ["schema", "taskId", "executionId", "consentId", "utterance", "standingPolicyDecisionId", "assertedRationale", "actions"]);
     return {
       schema: discriminator.schema,
       taskId: consentCommandTextV2(row.taskId),
       executionId: consentCommandTextV2(row.executionId),
       consentId: consentCommandTextV2(row.consentId),
-      utterance: consentCommandTextV2(row.utterance),
+      utterance: nullableConsentTextV2(row.utterance),
+      standingPolicyDecisionId: nullableConsentTextV2(row.standingPolicyDecisionId),
+      assertedRationale: nullableConsentTextV2(row.assertedRationale),
       actions: consentCommandActionsV2(row.actions)
     };
   }
   if (discriminator.schema === "consent.consume/v1") {
-    const row = exactSemanticObjectV2(value, ["schema", "taskId", "executionId", "consentId", "utterance", "actions", "review"]);
+    const row = exactSemanticObjectV2(value, ["schema", "taskId", "executionId", "consentId", "utterance", "standingPolicyDecisionId", "assertedRationale", "actions", "review"]);
     return {
       schema: discriminator.schema,
       taskId: consentCommandTextV2(row.taskId),
       executionId: consentCommandTextV2(row.executionId),
       consentId: consentCommandTextV2(row.consentId),
       utterance: row.utterance === null ? null : consentCommandTextV2(row.utterance),
+      standingPolicyDecisionId: nullableConsentTextV2(row.standingPolicyDecisionId),
+      assertedRationale: nullableConsentTextV2(row.assertedRationale),
       actions: consentCommandActionsV2(row.actions),
       review: consentReviewInputV2(row.review)
     };
@@ -119,6 +127,10 @@ function decodeStrictConsentPayloadV2(value: unknown): ConsentCommandPayloadV2 {
     };
   }
   throw semanticAdmissionV2("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
+}
+
+function nullableConsentTextV2(value: unknown): string | null {
+  return value === null ? null : consentCommandTextV2(value);
 }
 
 function consentReviewInputV2(value: unknown): ConsentReviewInputV2 {

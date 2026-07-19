@@ -5,7 +5,7 @@ import {
   type FactWriteService,
   readDecisionDocument
 } from "../../../../application/src/index.ts";
-import { readDecisionFactCoverage, type WriteError } from "../../../../kernel/src/index.ts";
+import { queryConsentsBySourceStrength, readDecisionFactCoverage, type WriteError } from "../../../../kernel/src/index.ts";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -14,6 +14,10 @@ type ReckonAction = Extract<ParsedCommand["action"], { readonly kind: "decision-
 type ReckonReport = ReturnType<typeof evaluateDecisionReckonGate> & {
   readonly schema: "decision-reckon-report/v1";
   readonly coverageRows: unknown;
+  readonly consentSourceHealth: {
+    readonly assertedCount: number;
+    readonly status: "verified-only" | "contains-asserted";
+  };
 };
 
 export function runReckon(
@@ -36,10 +40,24 @@ export function runReckon(
         coverageRows: coverage.rows,
         reckonedAt
       });
-      const statement = gate.ok
+      const assertedCount = queryConsentsBySourceStrength({
+        rootDir: harnessRuntimeRoot(rootInput),
+        layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
+        sourceStrength: "asserted"
+      }).filter((consent) => consent.taskId === action.taskId).length;
+      const claimCoverageStatement = gate.ok
         ? `Decision ${decision.decision_id} reckon passed: load-bearing claims all covered @${reckonedAt}.`
         : `Decision ${decision.decision_id} reckon failed: uncovered load-bearing claims ${gate.uncoveredClaimRefs.join(", ")} @${reckonedAt}.`;
-      const report = { schema: "decision-reckon-report/v1" as const, ...gate, coverageRows: coverage.rows };
+      const statement = `${claimCoverageStatement} Consent source weakness: ${assertedCount} asserted consent record(s).`;
+      const report = {
+        schema: "decision-reckon-report/v1" as const,
+        ...gate,
+        coverageRows: coverage.rows,
+        consentSourceHealth: {
+          assertedCount,
+          status: assertedCount === 0 ? "verified-only" as const : "contains-asserted" as const
+        }
+      };
       if (action.dryRun) return Effect.succeed(reckonResult(action, report, undefined, undefined, undefined));
       return factService.record({
         ownerTaskId: action.taskId,

@@ -52,7 +52,9 @@ test("a V2-compiled consent grant recovers exactly once after the WAL-enqueue ki
       taskId,
       executionId,
       consentId,
-      utterance: "Approved for this exact submission.",
+      utterance: null,
+      standingPolicyDecisionId: null,
+      assertedRationale: "Approval was received through an external channel.",
       actions: ["approve_execution", "complete_task"] as const
     };
     const bytes = encodeConsentCommandPayloadV2(payload);
@@ -116,7 +118,8 @@ test("a V2-compiled consent grant recovers exactly once after the WAL-enqueue ki
       state: {
         readEntityBase: async (entityRef) => bases.get(refKey(entityRef)) ?? null,
         readHostedDocument: async (portablePath) => documents.get(portablePath) ?? null
-      }
+      },
+      rootInput: rootDir
     }).compile(envelope, {
       actor: {
         principal: { personId: "person_zeyu" },

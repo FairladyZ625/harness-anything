@@ -20,6 +20,8 @@ import {
   decodeExecutionForConsent,
   generateConsentId
 } from "./execution-consent-helpers.ts";
+import { consentSourceRequest, resolveConsentAuthorization } from "./consent-source-resolution.ts";
+import type { RuntimeLogOptions } from "./runtime-session-logs.ts";
 
 export interface RecordExecutionConsentService {
   readonly recordConsent: (input: {
@@ -27,7 +29,9 @@ export interface RecordExecutionConsentService {
     readonly executionId: string;
     readonly actor: TaskHolderPrincipal;
     readonly session: CurrentSessionRef;
-    readonly utterance: string;
+    readonly utterance?: string;
+    readonly standingPolicyDecisionId?: string;
+    readonly assertedRationale?: string;
     readonly actions?: ReadonlyArray<ConsentAction>;
   }) => Promise<{ readonly consent: ConsentRecord }>;
 }
@@ -39,6 +43,7 @@ export function makeRecordExecutionConsentService(options: {
   readonly generateConsentId?: () => string;
   readonly now?: () => string;
   readonly ttlMs?: number;
+  readonly runtimeLogOptions?: RuntimeLogOptions;
 }): RecordExecutionConsentService {
   const nextConsentId = options.generateConsentId ?? generateConsentId;
   const now = options.now ?? (() => new Date().toISOString());
@@ -57,13 +62,22 @@ export function makeRecordExecutionConsentService(options: {
       if (task.documents.some((document) => document.path === `consents/${consentId}.md`)) {
         throw new Error(`consent already exists: ${consentId}`);
       }
+      const authorization = await resolveConsentAuthorization({
+        rootInput: options.rootInput,
+        execution,
+        request: consentSourceRequest({
+          utterance: input.utterance,
+          standingPolicyDecisionId: input.standingPolicyDecisionId,
+          assertedRationale: input.assertedRationale
+        }),
+        runtimeLogOptions: options.runtimeLogOptions
+      });
       const consent = createConsentRecord({
         consentId,
         taskId: input.taskId,
         execution,
         actor: input.actor,
-        session: input.session,
-        utterance: input.utterance,
+        authorization,
         actions: input.actions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
         grantedAt: now(),
         ttlMs

@@ -381,11 +381,13 @@ test("CLI decision reckon passes covered load-bearing claims and records a fact"
     assert.equal(result.ok, true);
     assert.equal(result.command, "decision-reckon");
     assert.equal(result.report.status, "passed");
+    assert.deepEqual(result.report.consentSourceHealth, { assertedCount: 0, status: "verified-only" });
     const taskPackage = readdirSync(path.join(rootDir, "harness/tasks")).find((entry) => entry.startsWith(task.taskId));
     assert.ok(taskPackage);
     const facts = readFileSync(path.join(rootDir, "harness/tasks", taskPackage, "facts.md"), "utf8");
     assert.match(facts, /Decision dec_RECKON_PASS reckon passed/u);
     assert.match(facts, /load-bearing claims all covered/u);
+    assert.match(facts, /Consent source weakness: 0 asserted consent record/u);
   });
 });
 

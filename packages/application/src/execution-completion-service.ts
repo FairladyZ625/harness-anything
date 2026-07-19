@@ -240,6 +240,7 @@ function reviewHasCompletionConsent(
       disclosure: consent.disclosure,
       channel: consent.channel,
       response: consent.response,
+      source: consent.source,
       recorded_by: consent.recorded_by,
       granted_at: consent.granted_at,
       expires_at: consent.expires_at

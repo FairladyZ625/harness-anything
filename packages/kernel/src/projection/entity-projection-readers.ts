@@ -65,6 +65,8 @@ export interface ConsentProjectionRow {
   readonly disclosure: ProjectionJsonValue;
   readonly channel: ProjectionJsonValue;
   readonly response: ProjectionJsonValue;
+  readonly sourceStrength: string;
+  readonly source: ProjectionJsonValue;
   readonly recordedBy: ProjectionJsonValue;
   readonly grantedAt: string;
   readonly expiresAt: string;
@@ -169,6 +171,18 @@ export function queryConsentProjection(options: ProjectionReaderOptions & { read
   try {
     const row = db.prepare(`${consentProjectionSelect} WHERE consent_projection.consent_id = ?`).get(options.consentId) as Record<string, unknown> | undefined;
     return row ? toConsent(row) : undefined;
+  } finally {
+    db.close();
+  }
+}
+
+export function queryConsentsBySourceStrength(
+  options: ProjectionReaderOptions & { readonly sourceStrength: string }
+): ReadonlyArray<ConsentProjectionRow> {
+  const db = openFreshProjection(options);
+  try {
+    return (db.prepare(`${consentProjectionSelect} WHERE consent_projection.source_strength = ? ORDER BY consent_projection.granted_at, consent_projection.consent_id`)
+      .all(options.sourceStrength) as Record<string, unknown>[]).map(toConsent);
   } finally {
     db.close();
   }
@@ -394,6 +408,8 @@ function toConsent(row: Record<string, unknown>): ConsentProjectionRow {
     disclosure: parseJson(row.disclosure_json),
     channel: parseJson(row.channel_json),
     response: parseJson(row.response_json),
+    sourceStrength: String(row.source_strength),
+    source: parseJson(row.source_json),
     recordedBy: parseJson(row.recorded_by_json),
     grantedAt: String(row.granted_at),
     expiresAt: String(row.expires_at),

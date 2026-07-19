@@ -458,7 +458,7 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
       "--verdict", "approved",
       "--findings", "All acceptance checks passed.",
       "--rationale", "The submission satisfies the Task intent.",
-      "--consent-utterance", "Approved"
+      "--consent-asserted", "Approval was received through an external channel."
     ], true, testActorEnv);
     assert.equal(reviewed.ok, true);
     assert.equal(reviewed.executionId, executionId);
@@ -527,7 +527,7 @@ test("CLI default claim carries one person's task through submit, review, and co
       "task", "review-execution", created.taskId, "--execution-id", String(claimed.executionId),
       "--verdict", "approved", "--findings", "Acceptance checks passed",
       "--rationale", "The submitted work satisfies the task intent",
-      "--consent-utterance", "Approved"
+      "--consent-asserted", "Approval was received through an external channel."
     ], true, { HARNESS_ACTOR: "agent:reviewer" });
     const completed = runJson(rootDir, [
       "task", "complete", created.taskId, "--reviewer", "reviewer", "--ci", "passed"

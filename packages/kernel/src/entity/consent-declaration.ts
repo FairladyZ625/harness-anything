@@ -34,14 +34,39 @@ export const ConsentResponseSchema = Schema.Union(
     session_ref: Schema.String.pipe(Schema.pattern(/^session\/.+$/u))
   }),
   Schema.Struct({
+    kind: Schema.Literal("authorization-declaration"),
+    source: Schema.Literal("standing-policy", "asserted")
+  }),
+  Schema.Struct({
     kind: Schema.Literal("interaction"),
     interaction_ref: Schema.String.pipe(Schema.minLength(1)),
     label: Schema.String.pipe(Schema.minLength(1))
   })
 );
 
-const ConsentBaseSchema = {
-  schema: Schema.Literal("consent/v1"),
+export const ConsentSourceSchema = Schema.Union(
+  Schema.Struct({
+    strength: Schema.Literal("transcript-verified"),
+    transcript_anchor: Schema.Struct({
+      session_ref: Schema.String.pipe(Schema.pattern(/^session\/.+$/u)),
+      message_index: Schema.Int.pipe(Schema.nonNegative()),
+      role: Schema.Literal("user"),
+      message_sha256: Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u)),
+      timestamp: Schema.optional(Schema.String)
+    })
+  }),
+  Schema.Struct({
+    strength: Schema.Literal("standing-policy"),
+    decision_ref: Schema.String.pipe(Schema.pattern(/^decision\/dec_.+$/u))
+  }),
+  Schema.Struct({
+    strength: Schema.Literal("asserted"),
+    rationale: Schema.String.pipe(Schema.minLength(1))
+  }),
+  Schema.Struct({ strength: Schema.Literal("legacy-unrecorded") })
+);
+
+const ConsentSharedSchema = {
   consent_id: Schema.String.pipe(Schema.pattern(/^cns_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u)),
   task_ref: Schema.String.pipe(Schema.pattern(/^task\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u)),
   execution_ref: Schema.String.pipe(Schema.pattern(/^execution\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u)),
@@ -60,26 +85,29 @@ const ConsentBaseSchema = {
   }),
   channel: ConsentChannelSchema,
   response: ConsentResponseSchema,
+  source: ConsentSourceSchema,
   recorded_by: ActorSchema,
   granted_at: Schema.String,
   expires_at: Schema.String
 };
 
 export const ConsentSnapshotSchema = Schema.Struct({
-  principal: ConsentBaseSchema.principal,
-  scope: ConsentBaseSchema.scope,
-  disclosure: ConsentBaseSchema.disclosure,
-  channel: ConsentBaseSchema.channel,
-  response: ConsentBaseSchema.response,
-  recorded_by: ConsentBaseSchema.recorded_by,
-  granted_at: ConsentBaseSchema.granted_at,
-  expires_at: ConsentBaseSchema.expires_at
+  principal: ConsentSharedSchema.principal,
+  scope: ConsentSharedSchema.scope,
+  disclosure: ConsentSharedSchema.disclosure,
+  channel: ConsentSharedSchema.channel,
+  response: ConsentSharedSchema.response,
+  source: Schema.optional(ConsentSourceSchema),
+  recorded_by: ConsentSharedSchema.recorded_by,
+  granted_at: ConsentSharedSchema.granted_at,
+  expires_at: ConsentSharedSchema.expires_at
 });
 
 export const ConsentSchema = Schema.Union(
-  Schema.Struct({ ...ConsentBaseSchema, state: Schema.Literal("open", "expired"), consumed_by: Schema.Null, consumed_at: Schema.Null }),
+  Schema.Struct({ schema: Schema.Literal("consent/v2"), ...ConsentSharedSchema, state: Schema.Literal("open", "expired"), consumed_by: Schema.Null, consumed_at: Schema.Null }),
   Schema.Struct({
-    ...ConsentBaseSchema,
+    schema: Schema.Literal("consent/v2"),
+    ...ConsentSharedSchema,
     state: Schema.Literal("consumed"),
     consumed_by: Schema.String.pipe(Schema.pattern(/^review\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/rev_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u)),
     consumed_at: Schema.String
@@ -89,21 +117,55 @@ export const ConsentSchema = Schema.Union(
   if (!actions.includes("approve_execution") || new Set(actions).size !== actions.length) return false;
   if (consent.recorded_by.principal.personId !== consent.principal.personId) return false;
   if (consent.channel.kind === "agent-relayed") {
-    return consent.recorded_by.executor !== null && consent.response.kind === "utterance";
+    if (consent.recorded_by.executor === null) return false;
+    if (consent.source.strength === "transcript-verified") return consent.response.kind === "utterance";
+    if (consent.source.strength === "standing-policy" || consent.source.strength === "asserted") {
+      return consent.response.kind === "authorization-declaration" && consent.response.source === consent.source.strength;
+    }
+    return consent.response.kind === "utterance";
   }
   if (consent.recorded_by.executor !== null) return false;
-  return consent.channel.kind === "gui-click"
-    ? consent.response.kind === "interaction"
-    : consent.response.kind === "utterance";
+  if (consent.channel.kind === "gui-click") return consent.response.kind === "interaction";
+  if (consent.source.strength === "standing-policy" || consent.source.strength === "asserted") {
+    return consent.response.kind === "authorization-declaration" && consent.response.source === consent.source.strength;
+  }
+  return consent.response.kind === "utterance";
 }));
+
+const ConsentV1Schema = Schema.Union(
+  Schema.Struct({ schema: Schema.Literal("consent/v1"), ...withoutSource(ConsentSharedSchema), state: Schema.Literal("open", "expired"), consumed_by: Schema.Null, consumed_at: Schema.Null }),
+  Schema.Struct({
+    schema: Schema.Literal("consent/v1"),
+    ...withoutSource(ConsentSharedSchema),
+    state: Schema.Literal("consumed"),
+    consumed_by: Schema.String,
+    consumed_at: Schema.String
+  })
+);
+
+const consentDocumentCodec = {
+  decode: (body: string): unknown => {
+    const raw = jsonEntityDocumentCodec.decode(body) as { readonly schema?: unknown };
+    if (raw.schema === "consent/v2") return raw;
+    const legacy = Schema.decodeUnknownSync(ConsentV1Schema)(raw);
+    return { ...legacy, schema: "consent/v2", source: { strength: "legacy-unrecorded" } };
+  },
+  encode: jsonEntityDocumentCodec.encode
+};
+
+function withoutSource<T extends Record<string, unknown>>(fields: T): Omit<T, "source"> {
+  const { source: _source, ...legacy } = fields;
+  return legacy;
+}
 
 export const consentDeclaration = decodeEntityDeclaration({
   kind: "consent",
   schema: ConsentSchema,
-  documentCodec: jsonEntityDocumentCodec,
+  documentCodec: consentDocumentCodec,
   mutabilityContract: {
     identity: { mutability: "immutable", read: [{ kind: "show", path: "consent.identity" }], write: [], reason: "consent identity and scope are immutable" },
     scope: { mutability: "immutable", read: [{ kind: "show", path: "consent.scope" }], write: [], reason: "consent remains bound to one execution content pin" },
+    source: { mutability: "immutable", read: [{ kind: "projection", path: "source_strength", queryable: true }], write: [], reason: "consent source strength is fixed when the consent is recorded" },
     state: { mutability: "lifecycle", read: [{ kind: "projection", path: "state", queryable: true }], write: [{ kind: "lifecycle", operation: "consume" }, { kind: "lifecycle", operation: "expire" }], reason: "open consent has terminal consumed or expired outcomes" }
   },
   anchors: { entityRef: "consent/{taskId}/{consentId}", anchors: [] },
@@ -148,6 +210,8 @@ export const consentDeclaration = decodeEntityDeclaration({
       { name: "disclosure_json", field: "disclosure", type: "json" },
       { name: "channel_json", field: "channel", type: "json" },
       { name: "response_json", field: "response", type: "json" },
+      { name: "source_strength", field: "source.strength", type: "text" },
+      { name: "source_json", field: "source", type: "json" },
       { name: "recorded_by_json", field: "recorded_by", type: "json" },
       { name: "granted_at", field: "granted_at", type: "text" },
       { name: "expires_at", field: "expires_at", type: "text" },

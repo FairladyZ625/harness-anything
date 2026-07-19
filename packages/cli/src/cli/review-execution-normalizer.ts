@@ -47,7 +47,7 @@ export function normalizeReviewConsentIdentity(command: ParsedCommand): ParsedCo
   const action = command.action;
   if (action.kind !== "task-review-execution"
       || action.verdict !== "approved"
-      || !action.consentUtterance
+      || (!action.consentUtterance && !action.consentStandingPolicyDecisionId && !action.consentAssertedRationale)
       || action.consentId
       || action.generatedConsentId) return command;
   return {

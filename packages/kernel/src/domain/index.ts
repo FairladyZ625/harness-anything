@@ -8,6 +8,8 @@ export { consentActions } from "./consent.ts";
 export type {
   ConsentAction,
   ConsentRecord,
+  ConsentResponse,
+  ConsentSource,
   ConsentSnapshot
 } from "./consent.ts";
 

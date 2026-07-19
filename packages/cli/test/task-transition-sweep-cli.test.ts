@@ -205,7 +205,7 @@ function approveExecution(rootDir: string, taskId: string, executionId: string):
     "--verdict", "approved",
     "--findings", "The sweep behavior is verified.",
     "--rationale", "The submitted Execution satisfies this fixture.",
-    "--consent-utterance", "Approved"
+    "--consent-asserted", "Approval was received through an external channel."
   ], true, actorEnv("reviewer"));
   assert.equal(reviewed.executionId, executionId);
 }
