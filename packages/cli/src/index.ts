@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -27,7 +28,10 @@ import { createDaemonLocalTransport, withDaemonSocketOwnership } from "./command
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
-import { createDaemonServiceHost } from "./daemon/service-host.ts";
+import {
+  createDaemonServiceHost,
+  type DaemonLaunchConfiguration
+} from "./daemon/service-host.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
@@ -118,6 +122,10 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
       console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");
       return 2;
     }
+    if (daemonArgs.includes("--check")) {
+      checkDaemonServeConfiguration(stripped.rootDir, layoutOverrides, daemonArgs.filter((arg) => arg !== "--check"));
+      return 0;
+    }
     await runDaemonServe(stripped.rootDir, layoutOverrides, daemonArgs);
     return 0;
   }
@@ -136,10 +144,19 @@ async function runDaemonServe(
   args: ReadonlyArray<string>,
   hooks: DaemonServeHooks = {}
 ): Promise<void> {
-  const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
-  const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
-  const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
   const entrypoint = fileURLToPath(import.meta.url);
+  const launchConfiguration: DaemonLaunchConfiguration = {
+    execPath: process.execPath,
+    execArgv: [...process.execArgv],
+    entrypoint,
+    args: [
+      "--root", rootDir,
+      ...(layoutOverrides?.authoredRoot ? ["--authored-root", layoutOverrides.authoredRoot] : []),
+      ...args
+    ]
+  };
+  const configuration = resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, true);
+  const { userRoot, endpoint, serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = configuration;
   const loadedBuild = calculateDaemonArtifactIdentity(entrypoint);
   const startedAt = new Date().toISOString();
   return withDaemonSocketOwnership(endpoint, async () => {
@@ -151,16 +168,7 @@ async function runDaemonServe(
     let terminalMessage: string | undefined;
     let failure: unknown;
     const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
-    let lifecycleRepo: DaemonServeRepo | undefined;
     try {
-      const requestedAuthorityManifest = readOption(args, "--authority-manifest")
-        ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
-      if (requestedAuthorityManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
-      const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
-      const authorityManifest = requestedAuthorityManifest ?? authorityManifestFromRegistry(serveRepos);
-      const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
-      lifecycleRepo = serveRepos.find((repo) => repo.repoId === defaultRepoId) ?? serveRepos[0];
-      if (!lifecycleRepo) throw new Error("daemon lifecycle requires at least one registered repository");
       runtime = createMultiRepoDaemonRuntime({
         materializerPollMs: 5_000,
         reservationReconciler: async (rootInput) => {
@@ -192,7 +200,9 @@ async function runDaemonServe(
       serviceHost = await createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot, {
         entrypoint,
         loadedIdentity: loadedBuild.identity,
-        startedAt
+        startedAt,
+        launchConfiguration,
+        preflightReplacement: preflightDaemonReplacement
       }, authorityLifecycle, daemonLogService);
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
@@ -275,6 +285,76 @@ async function runDaemonServe(
     }
     if (failure !== undefined) throw failure;
   });
+}
+
+function checkDaemonServeConfiguration(
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  args: ReadonlyArray<string>
+): void {
+  resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, false);
+}
+
+function resolveDaemonServeConfiguration(
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  args: ReadonlyArray<string>,
+  persistExplicitManifest: boolean
+): {
+  readonly userRoot: string;
+  readonly endpoint: string;
+  readonly serveRepos: ReadonlyArray<DaemonServeRepo>;
+  readonly authorityManifest?: string;
+  readonly defaultRepoId: string;
+  readonly lifecycleRepo: DaemonServeRepo;
+} {
+  const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
+  const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
+  const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
+  const requestedAuthorityManifest = readOption(args, "--authority-manifest")
+    ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
+  if (requestedAuthorityManifest) {
+    loadAuthorityProductionManifest(requestedAuthorityManifest);
+    if (persistExplicitManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
+  }
+  const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
+  const authorityManifest = requestedAuthorityManifest ?? authorityManifestFromRegistry(serveRepos);
+  if (authorityManifest) loadAuthorityProductionManifest(authorityManifest);
+  const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
+  const lifecycleRepo = serveRepos.find((repo) => repo.repoId === defaultRepoId) ?? serveRepos[0];
+  if (!lifecycleRepo) throw new Error("daemon lifecycle requires at least one registered repository");
+  return {
+    userRoot,
+    endpoint,
+    serveRepos,
+    ...(authorityManifest ? { authorityManifest } : {}),
+    defaultRepoId,
+    lifecycleRepo
+  };
+}
+
+async function preflightDaemonReplacement(configuration: DaemonLaunchConfiguration): Promise<void> {
+  const child = spawn(configuration.execPath, [
+    ...configuration.execArgv,
+    configuration.entrypoint,
+    ...configuration.args,
+    "--check"
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    env: { ...process.env }
+  });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  const result = await new Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  if (result.code === 0) return;
+  const diagnostic = Buffer.concat([...stderr, ...stdout]).toString("utf8").trim();
+  throw new Error(diagnostic || `replacement preflight exited with ${result.signal ? `signal ${result.signal}` : `code ${String(result.code)}`}`);
 }
 
 function daemonServeRepos(

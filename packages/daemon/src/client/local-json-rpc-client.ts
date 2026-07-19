@@ -54,6 +54,7 @@ export interface LocalDaemonAutostartOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly execPath?: string;
   readonly execArgv?: ReadonlyArray<string>;
+  readonly launchArguments?: ReadonlyArray<string>;
 }
 
 export interface LocalDaemonJsonRpcOptions {
@@ -253,22 +254,19 @@ export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): (
 }
 
 function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): void {
+  const argumentsAfterEntrypoint = options.launchArguments ?? [
+    "--root", target.canonicalRoot,
+    ...(options.layoutOverrides?.authoredRoot ? ["--authored-root", options.layoutOverrides.authoredRoot] : []),
+    "daemon", "serve",
+    "--repo", target.repoId,
+    "--socket", target.socketPath,
+    "--user-root", target.userRoot,
+    "--idle-ms", String(options.idleExitMs ?? defaultDaemonIdleExitMs)
+  ];
   const child = spawn(options.execPath ?? process.execPath, [
     ...(options.execArgv ?? process.execArgv),
     options.entryPath,
-    "--root",
-    target.canonicalRoot,
-    ...(options.layoutOverrides?.authoredRoot ? ["--authored-root", options.layoutOverrides.authoredRoot] : []),
-    "daemon",
-    "serve",
-    "--repo",
-    target.repoId,
-    "--socket",
-    target.socketPath,
-    "--user-root",
-    target.userRoot,
-    "--idle-ms",
-    String(options.idleExitMs ?? defaultDaemonIdleExitMs)
+    ...argumentsAfterEntrypoint
   ], {
     detached: true,
     stdio: "ignore",

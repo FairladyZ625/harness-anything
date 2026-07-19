@@ -1,7 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { authorityManifestFromRegistry, type DaemonServeRepo } from "../src/index.ts";
+import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
+import { registerDaemonRepo } from "../../kernel/src/index.ts";
+import { authorityManifestFromRegistry, main, type DaemonServeRepo } from "../src/index.ts";
+import { initializeHarness } from "../src/commands/init.ts";
 import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
 
 const protectedRepo: DaemonServeRepo = {
@@ -30,4 +36,36 @@ test("daemon restart fails closed for mixed or conflicting authority registry po
     () => createProductionAuthorityLifecycle({ manifestPath: "/fixture/service/missing-authority.json" }),
     /ENOENT/u
   );
+});
+
+test("daemon serve check reuses mixed-registry startup validation without taking endpoint ownership", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-preflight-"));
+  try {
+    const userRoot = path.join(fixtureRoot, "user-root");
+    const protectedRoot = path.join(fixtureRoot, "protected");
+    const classicRoot = path.join(fixtureRoot, "classic");
+    mkdirSync(protectedRoot, { recursive: true });
+    mkdirSync(classicRoot, { recursive: true });
+    initializeHarness({ rootDir: protectedRoot }, false, "Protected");
+    initializeHarness({ rootDir: classicRoot }, false, "Classic");
+    const manifestPath = path.join(fixtureRoot, "authority-production.json");
+    writeFileSync(manifestPath, "{}\n", "utf8");
+    registerDaemonRepo({
+      userRoot,
+      repoId: "protected",
+      canonicalRoot: protectedRoot,
+      authorityManifestPath: manifestPath
+    });
+    registerDaemonRepo({ userRoot, repoId: "classic", canonicalRoot: classicRoot });
+    const endpoint = localUserDaemonEndpoint(userRoot);
+
+    await assert.rejects(
+      main(["--root", protectedRoot, "daemon", "serve", "--repo", "protected", "--user-root", userRoot, "--check"]),
+      /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u
+    );
+    assert.equal(existsSync(endpoint), false);
+    assert.equal(existsSync(`${endpoint}.owner`), false);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });

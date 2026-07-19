@@ -121,6 +121,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
+    userRoot: readOption(input.args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT,
     autoRegisterSingleRepo: true
   });
   const socketPath = readOption(input.args, "--socket") ?? target.socketPath;

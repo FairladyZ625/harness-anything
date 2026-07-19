@@ -1,10 +1,8 @@
 import {
-  daemonControlInProgressError,
   makeDaemonLogService,
   makeLocalControllerService
 } from "../../../application/src/index.ts";
 import type { DaemonLogService } from "../../../application/src/index.ts";
-import { randomUUID } from "node:crypto";
 import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
@@ -57,12 +55,18 @@ import type {
 } from "./authority-lifecycle.ts";
 import { makeLocalAgentHolderServices } from "./agent-holder-projection-host.ts";
 import { requireAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
+import {
+  createDaemonControlService,
+  type DaemonLaunchConfiguration
+} from "./daemon-control-service.ts";
 
 export { bindAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
   | { readonly reason: "control"; readonly kind: "restart" | "refresh"; readonly operationId: string };
+
+export type { DaemonLaunchConfiguration } from "./daemon-control-service.ts";
 
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
@@ -82,6 +86,8 @@ export async function createDaemonServiceHost(
     readonly entrypoint: string;
     readonly loadedIdentity: string;
     readonly startedAt: string;
+    readonly launchConfiguration: DaemonLaunchConfiguration;
+    readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   },
   authorityLifecycle?: AuthorityRepoLifecycleController,
   providedDaemonLogService?: DaemonLogService
@@ -95,6 +101,7 @@ export async function createDaemonServiceHost(
   readonly acceptsSshForcedCommand: (canonicalRoot: string) => boolean;
   readonly authorityWireIngress: AuthorityWireIngressHandler;
   readonly status: () => DaemonStatusResultV2;
+  readonly requestControl: DaemonControlService["requestControl"];
   readonly onConnectionStart: () => void;
   readonly onConnectionSettled: () => void;
   readonly scheduleIdleExit: () => void;
@@ -166,43 +173,15 @@ export async function createDaemonServiceHost(
     onCommandSettled: scheduleIdleExit
   };
   const reconcileState = createDaemonReconcileState();
-  const controlService: DaemonControlService = {
-    requestControl: (kind, request) => {
-      if (activeControl) {
-        return {
-          ok: false,
-          error: daemonControlInProgressError(activeControl)
-        };
-      }
-      const before = serviceStatus(defaultRepoId);
-      const operationId = `control_${randomUUID()}`;
-      const requestedAt = new Date().toISOString();
-      activeControl = { operationId, kind, phase: "accepted", requestedAt };
-      return {
-        ok: true,
-        accepted: {
-          schema: "daemon-control-accepted/v1",
-          accepted: true,
-          operationId,
-          kind,
-          scope: "service",
-          requestedAt,
-          before: {
-            pid: before.service.pid,
-            loadedIdentity: before.service.build.loadedIdentity,
-            repoCount: before.service.repoCount,
-            queueDepth: before.service.queue.depth
-          }
-        },
-        afterResponse: () => {
-          if (activeControl?.operationId !== operationId) return;
-          activeControl = { ...activeControl, phase: "draining" };
-          drainTimeoutMs = request.drainTimeoutMs;
-          requestStop?.({ reason: "control", kind, operationId });
-        }
-      };
-    }
-  };
+  const controlService = createDaemonControlService({
+    launchConfiguration: build.launchConfiguration,
+    preflightReplacement: build.preflightReplacement,
+    status: () => serviceStatus(defaultRepoId),
+    activeControl: () => activeControl,
+    setActiveControl: (active) => { activeControl = active; },
+    setDrainTimeout: (timeoutMs) => { drainTimeoutMs = timeoutMs; },
+    requestStop: (request) => requestStop?.(request)
+  });
   const repoBindings = new Map<string, RepoServiceBinding>();
   for (const repo of repos) {
     const repoRuntime = runtime.getRepoRuntime(repo.repoId);
@@ -266,6 +245,7 @@ export async function createDaemonServiceHost(
       repoBindings: () => repoBindings.values()
     }),
     status: () => serviceStatus(defaultRepoBinding().repo.repoId),
+    requestControl: controlService.requestControl,
     onConnectionStart: () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = undefined;
@@ -401,6 +381,7 @@ function createRepoServiceBinding(
       readonly entrypoint: string;
       readonly loadedIdentity: string;
       readonly startedAt: string;
+      readonly launchConfiguration?: DaemonLaunchConfiguration;
     };
     readonly controlService?: DaemonControlService;
     readonly daemonLogService?: DaemonLogService;
@@ -481,6 +462,16 @@ function createRepoServiceBinding(
         }
       },
       ...(statusOptions?.controlService ? { DaemonControlService: statusOptions.controlService } : {}),
+      ...(statusOptions?.build?.launchConfiguration ? {
+        DaemonLaunchSpecService: {
+          getLaunchSpec: () => ({
+            execPath: statusOptions.build!.launchConfiguration!.execPath,
+            execArgv: [...statusOptions.build!.launchConfiguration!.execArgv],
+            entrypoint: statusOptions.build!.launchConfiguration!.entrypoint,
+            args: [...statusOptions.build!.launchConfiguration!.args]
+          })
+        }
+      } : {}),
       CliCommandService: cliCommandService,
       DocSyncService: {
         submit: (request, context) => {

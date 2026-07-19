@@ -128,6 +128,17 @@ const notificationContracts = [
 
 const adminReservedContracts = [
   {
+    method: "admin.daemon.launch-spec",
+    mode: "active",
+    namespace: "admin",
+    inputSchemaId: "daemon.admin-empty/v1",
+    outputSchemaId: "daemon.launch-spec/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: false,
+    commandClass: "admin"
+  },
+  {
     method: "admin.daemon.restart",
     mode: "active",
     namespace: "admin",
