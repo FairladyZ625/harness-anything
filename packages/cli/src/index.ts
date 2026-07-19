@@ -225,7 +225,7 @@ async function runDaemonServe(
         }
       });
       await transport.start();
-      persistDaemonLaunchSpec(userRoot, launchConfiguration);
+      persistDaemonLaunchSpec(userRoot, daemonIdFromEnv(), launchConfiguration);
       serviceHost.onStop(async () => {
         await transport.stop();
       });

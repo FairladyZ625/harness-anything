@@ -9,7 +9,6 @@ import {
   writeFileSync
 } from "node:fs";
 import path from "node:path";
-import { readOption } from "../cli/parse-options.ts";
 
 export const daemonLaunchSpecSchema = "daemon-launch-spec/v1";
 
@@ -38,12 +37,24 @@ interface PersistedDaemonLaunchSpec {
   readonly launchConfiguration: DaemonLaunchConfiguration;
 }
 
-export function daemonLaunchSpecPath(userRoot: string): string {
-  return path.join(path.resolve(userRoot), "daemon-launch-spec.json");
+/**
+ * Launch specs are keyed by `(userRoot, daemonId)` — the same pair the daemon endpoint is keyed by
+ * (`localUserDaemonEndpoint(userRoot, daemonIdFromEnv(env))`). Multiple daemons can share one user
+ * root while differing only in `HARNESS_DAEMON_ID`; keying by user root alone would let one daemon's
+ * cold start restore another daemon's authority manifest. `daemonId` is the stable endpoint id
+ * (`HARNESS_DAEMON_ID ?? "default"`), never the ephemeral per-process `ha-<pid>` service id.
+ */
+export function daemonLaunchSpecPath(userRoot: string, daemonId: string): string {
+  const safeDaemonId = daemonId.replace(/[^A-Za-z0-9_.-]/gu, "_") || "default";
+  return path.join(path.resolve(userRoot), `daemon-launch-spec.${safeDaemonId}.json`);
 }
 
-export function persistDaemonLaunchSpec(userRoot: string, launchConfiguration: DaemonLaunchConfiguration): void {
-  const target = daemonLaunchSpecPath(userRoot);
+export function persistDaemonLaunchSpec(
+  userRoot: string,
+  daemonId: string,
+  launchConfiguration: DaemonLaunchConfiguration
+): void {
+  const target = daemonLaunchSpecPath(userRoot, daemonId);
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   mkdirSync(path.dirname(target), { recursive: true });
   try {
@@ -62,8 +73,11 @@ export function persistDaemonLaunchSpec(userRoot: string, launchConfiguration: D
   }
 }
 
-export function readPersistedDaemonLaunchSpec(userRoot: string): DaemonLaunchConfiguration | undefined {
-  const source = daemonLaunchSpecPath(userRoot);
+export function readPersistedDaemonLaunchSpec(
+  userRoot: string,
+  daemonId: string
+): DaemonLaunchConfiguration | undefined {
+  const source = daemonLaunchSpecPath(userRoot, daemonId);
   if (!existsSync(source)) return undefined;
   let decoded: unknown;
   try {
@@ -100,10 +114,23 @@ export function resolveRestoredLaunchOptions(
 ): { readonly authorityManifest: string | undefined; readonly authoredRoot: string | undefined } {
   return {
     authorityManifest: explicit.authorityManifest
-      ?? (persisted ? readOption(persisted.args, "--authority-manifest") : undefined),
+      ?? (persisted ? readBoundedOption(persisted.args, "--authority-manifest") : undefined),
     authoredRoot: explicit.authoredRoot
-      ?? (persisted ? readOption(persisted.args, "--authored-root") : undefined)
+      ?? (persisted ? readBoundedOption(persisted.args, "--authored-root") : undefined)
   };
+}
+
+/**
+ * Read `--name <value>` from a persisted argv, rejecting a value that is itself a flag. The persisted
+ * spec is written by `currentDaemonServiceLaunchConfiguration`, which always emits a real value, so
+ * this only matters for a hand-edited or corrupted spec — there it fails closed (returns `undefined`,
+ * which surfaces the missing-manifest remediation) instead of adopting the next flag as the value.
+ */
+function readBoundedOption(argv: ReadonlyArray<string>, name: string): string | undefined {
+  const index = argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  return value === undefined || value.startsWith("--") ? undefined : value;
 }
 
 export async function preflightDaemonLaunch(configuration: DaemonLaunchConfiguration): Promise<void> {

@@ -28,11 +28,11 @@ const persisted: DaemonLaunchConfiguration = {
 test("persisted daemon launch spec round-trips the RPC launch configuration structure privately", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
   try {
-    persistDaemonLaunchSpec(userRoot, persisted);
-    assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot), persisted);
-    const document = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot), "utf8")) as Record<string, unknown>;
+    persistDaemonLaunchSpec(userRoot, "default", persisted);
+    assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, "default"), persisted);
+    const document = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, "default"), "utf8")) as Record<string, unknown>;
     assert.equal(document.schema, "daemon-launch-spec/v1");
-    if (process.platform !== "win32") assert.equal(statSync(daemonLaunchSpecPath(userRoot)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(statSync(daemonLaunchSpecPath(userRoot, "default")).mode & 0o777, 0o600);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -68,12 +68,34 @@ test("no persisted spec and no explicit values leaves restored options undefined
 test("incompatible persisted launch specs fail closed with a rebuild command", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
   try {
-    writeFileSync(daemonLaunchSpecPath(userRoot), JSON.stringify({ schema: "daemon-launch-spec/v0" }), "utf8");
+    writeFileSync(daemonLaunchSpecPath(userRoot, "default"), JSON.stringify({ schema: "daemon-launch-spec/v0" }), "utf8");
     assert.throws(
-      () => readPersistedDaemonLaunchSpec(userRoot),
+      () => readPersistedDaemonLaunchSpec(userRoot, "default"),
       /DAEMON_LAUNCH_SPEC_INCOMPATIBLE.*ha daemon start --service --user-root <user-root> --authority-manifest <path>/u
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
+});
+
+test("launch specs are isolated per daemon id so one daemon's cold start cannot adopt another's manifest", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
+  try {
+    persistDaemonLaunchSpec(userRoot, "alpha", persisted);
+    assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, "alpha"), persisted);
+    assert.equal(readPersistedDaemonLaunchSpec(userRoot, "beta"), undefined);
+    assert.notEqual(daemonLaunchSpecPath(userRoot, "alpha"), daemonLaunchSpecPath(userRoot, "beta"));
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a persisted manifest flag with no value is not filled from the following flag (fail closed)", () => {
+  const corrupted: DaemonLaunchConfiguration = {
+    ...persisted,
+    args: ["--root", "/repo", "daemon", "serve", "--authority-manifest", "--authored-root", "/x"]
+  };
+  const restored = resolveRestoredLaunchOptions(corrupted, {});
+  assert.equal(restored.authorityManifest, undefined);
+  assert.equal(restored.authoredRoot, "/x");
 });

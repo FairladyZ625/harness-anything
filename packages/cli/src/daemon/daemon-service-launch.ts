@@ -24,7 +24,7 @@ export async function prepareDaemonServiceLaunch(input: {
   readonly authorityManifest?: string;
   readonly entrypoint: string;
 }): Promise<DaemonLaunchConfiguration> {
-  const persisted = readPersistedDaemonLaunchSpec(input.target.userRoot);
+  const persisted = readPersistedDaemonLaunchSpec(input.target.userRoot, input.target.daemonId);
   const restored = resolveRestoredLaunchOptions(persisted, {
     authorityManifest: input.authorityManifest,
     authoredRoot: input.layoutOverrides?.authoredRoot

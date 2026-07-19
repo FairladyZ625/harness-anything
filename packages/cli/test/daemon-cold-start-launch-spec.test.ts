@@ -37,7 +37,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     ], env);
     assert.equal(first.started, true, JSON.stringify(first));
     assert.equal(typeof first.pid, "number", JSON.stringify(first));
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, "default"), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
 
     mkdirSync(classicRoot, { recursive: true });
     initializeHarness({ rootDir: classicRoot }, false, "Classic");
@@ -66,7 +66,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     assert.equal(overridden.started, true, JSON.stringify(overridden));
     const overriddenSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
     assert.equal(optionValue(overriddenSpec.args, "--authority-manifest"), replacementManifest);
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, "default"), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
@@ -102,7 +102,7 @@ test("service cold start without a required manifest reports the preflight cause
       readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "canonical")?.authorityManifestPath,
       fixture.manifestPath
     );
-    assert.equal(existsSync(daemonLaunchSpecPath(userRoot)), false);
+    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, "default")), false);
     await assert.rejects(preflightDaemonLaunch({
       execPath: process.execPath,
       execArgv: [...process.execArgv],
@@ -112,7 +112,7 @@ test("service cold start without a required manifest reports the preflight cause
         "--socket", path.join(userRoot, "preflight.sock"), "--user-root", userRoot, "--idle-ms", "0"
       ]
     }), /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u);
-    assert.equal(existsSync(daemonLaunchSpecPath(userRoot)), false);
+    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, "default")), false);
 
     const missing = runRawJsonMaybeFail(fixture.repoRoot, ["daemon", "start", "--service"], env);
     assert.notEqual(missing.status, 0, JSON.stringify(missing.receipt));
