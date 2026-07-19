@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -29,9 +28,13 @@ import { runRegisteredCommandWithCliComposition } from "./composition/command-ex
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
 import {
-  createDaemonServiceHost,
-  type DaemonLaunchConfiguration
+  createDaemonServiceHost
 } from "./daemon/service-host.ts";
+import {
+  persistDaemonLaunchSpec,
+  preflightDaemonLaunch,
+  type DaemonLaunchConfiguration
+} from "./daemon/daemon-launch-spec.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
@@ -202,7 +205,7 @@ async function runDaemonServe(
         loadedIdentity: loadedBuild.identity,
         startedAt,
         launchConfiguration,
-        preflightReplacement: preflightDaemonReplacement
+        preflightReplacement: preflightDaemonLaunch
       }, authorityLifecycle, daemonLogService);
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
@@ -222,6 +225,7 @@ async function runDaemonServe(
         }
       });
       await transport.start();
+      persistDaemonLaunchSpec(userRoot, launchConfiguration);
       serviceHost.onStop(async () => {
         await transport.stop();
       });
@@ -312,7 +316,7 @@ function resolveDaemonServeConfiguration(
   const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
   const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
   const requestedAuthorityManifest = readOption(args, "--authority-manifest")
-    ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
+    ?? nonEmptyEnvironmentValue("HARNESS_AUTHORITY_MANIFEST");
   if (requestedAuthorityManifest) {
     loadAuthorityProductionManifest(requestedAuthorityManifest);
     if (persistExplicitManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
@@ -333,28 +337,9 @@ function resolveDaemonServeConfiguration(
   };
 }
 
-async function preflightDaemonReplacement(configuration: DaemonLaunchConfiguration): Promise<void> {
-  const child = spawn(configuration.execPath, [
-    ...configuration.execArgv,
-    configuration.entrypoint,
-    ...configuration.args,
-    "--check"
-  ], {
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-    env: { ...process.env }
-  });
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  const result = await new Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ code, signal }));
-  });
-  if (result.code === 0) return;
-  const diagnostic = Buffer.concat([...stderr, ...stdout]).toString("utf8").trim();
-  throw new Error(diagnostic || `replacement preflight exited with ${result.signal ? `signal ${result.signal}` : `code ${String(result.code)}`}`);
+function nonEmptyEnvironmentValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 function daemonServeRepos(

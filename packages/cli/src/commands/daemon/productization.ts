@@ -29,6 +29,10 @@ import type { AuthorityRepoLifecycleController } from "../../daemon/authority-li
 import { observeDaemonLifecycle } from "../../daemon/daemon-lifecycle.ts";
 import { makeDaemonLogFileStore } from "../../daemon/daemon-log-file-store.ts";
 import { makeDaemonLogService } from "../../../../application/src/index.ts";
+import {
+  prepareDaemonServiceLaunch,
+  resolveAuthorityManifestOption
+} from "../../daemon/daemon-service-launch.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 
@@ -125,8 +129,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
     autoRegisterSingleRepo: true
   });
   const socketPath = readOption(input.args, "--socket") ?? target.socketPath;
-  const authorityManifest = readOption(input.args, "--authority-manifest")
-    ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
+  const authorityManifest = resolveAuthorityManifestOption(input.args);
   if (foreground) {
     await input.runServe(target.canonicalRoot, input.layoutOverrides, [
       "daemon", "serve", "--repo", target.repoId, "--socket", socketPath,
@@ -138,23 +141,18 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
     return 0;
   }
   if (service) {
-    const child = spawn(process.execPath, [
-      ...process.execArgv,
-      productizationCliEntrypointPath(),
-      "--root",
-      target.canonicalRoot,
-      ...(input.layoutOverrides?.authoredRoot ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
-      "daemon",
-      "serve",
-      "--repo",
-      target.repoId,
-      "--socket",
+    const launchConfiguration = await prepareDaemonServiceLaunch({
+      ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {}),
+      args: input.args,
+      target,
       socketPath,
-      "--user-root",
-      target.userRoot,
-      "--idle-ms",
-      "0",
-      ...(authorityManifest ? ["--authority-manifest", authorityManifest] : [])
+      ...(authorityManifest ? { authorityManifest } : {}),
+      entrypoint: productizationCliEntrypointPath()
+    });
+    const child = spawn(launchConfiguration.execPath, [
+      ...launchConfiguration.execArgv,
+      launchConfiguration.entrypoint,
+      ...launchConfiguration.args
     ], {
       detached: true,
       stdio: "ignore",
@@ -162,8 +160,12 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       env: daemonServerHostEnvironment(target.userRoot, target.daemonId)
     });
     child.unref();
-    const status = daemonStatusForCli(await waitForReachableStatus(target, 6_000));
-    emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath }, input.json);
+    const launchTarget = {
+      ...target,
+      socketPath: readOption(launchConfiguration.args, "--socket") ?? target.socketPath
+    };
+    const status = daemonStatusForCli(await waitForReachableStatus(launchTarget, 6_000));
+    emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath: launchTarget.socketPath }, input.json);
     return 0;
   }
   return 0;
