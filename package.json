@@ -58,6 +58,7 @@
     "harness:check-error-classification": "node tools/check-error-classification.mjs",
     "harness:check-capabilities-kind-source": "node tools/check-capabilities-kind-source.mjs",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
+    "harness:check-package-boundaries": "node tools/check-package-boundary-contract.mjs && node tools/run-package-boundary-eslint.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-duplicate-definitions": "node tools/check-duplicate-definitions.mjs",
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",
