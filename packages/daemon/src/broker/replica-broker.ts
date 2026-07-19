@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ReplicaChangeRecord } from "../../../application/src/index.ts";
+import type { ReplicaChangeRecord } from "@harness-anything/application";
 import {
   assertNoPortablePathCollisions,
   normalizeRelativeDocumentPath
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { BrokerCasStore } from "./cas-store.ts";
 import { LocalConflictStore, type ConflictReason } from "./conflict-store.ts";
 import { BrokerDurableStateStore } from "./durable-state-store.ts";

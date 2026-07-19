@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { TerminalSessionInfo } from "../../../application/src/terminal-session-contract.ts";
+import type { TerminalSessionInfo } from "@harness-anything/application/terminal-session-contract";
 
 const schema = "terminal-session-registry/v1" as const;
 

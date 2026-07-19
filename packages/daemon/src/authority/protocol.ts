@@ -5,7 +5,7 @@ import type {
   AuthorityProtocolTuple,
   ProtocolSchemaTupleV2,
   ReplicaChangeRecord
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export const authorityWireFrameType = "harness-authority-wire/v1" as const;
 

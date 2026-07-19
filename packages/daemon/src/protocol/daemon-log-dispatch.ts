@@ -1,4 +1,4 @@
-import { isDaemonLogContractError, type DaemonLogService } from "../../../application/src/index.ts";
+import { isDaemonLogContractError, type DaemonLogService } from "@harness-anything/application";
 import type { DaemonRepoNamespace } from "./json-rpc-server.ts";
 import type { JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, successReceipt } from "./receipt-envelope.ts";

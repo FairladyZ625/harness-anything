@@ -1,6 +1,6 @@
 import { mkdir, open, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AuthorityFenceWitness } from "../../../application/src/index.ts";
+import type { AuthorityFenceWitness } from "@harness-anything/application";
 
 export const singleAuthorityBoundedRpoProfile = "SINGLE_AUTHORITY_BOUNDED_RPO" as const;
 

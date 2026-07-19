@@ -12,7 +12,7 @@ import {
   resolveDaemonRepoByRoot,
   type DaemonRegistry,
   type DaemonRegistryRepo
-} from "../../../kernel/src/daemon/registry.ts";
+} from "@harness-anything/kernel/daemon/registry";
 import { currentDaemonProtocolVersion } from "../protocol/method-registry.ts";
 import { type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { encodeJsonLineFrame } from "../transport/frame-codec.ts";

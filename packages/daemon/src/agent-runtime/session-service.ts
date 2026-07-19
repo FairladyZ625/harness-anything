@@ -5,8 +5,8 @@ import type {
   AgentRuntimeSessionStatus,
   AgentRuntimeSpawnPayload,
   RuntimeAuthenticationProfileProjection
-} from "../../../application/src/agent-runtime-control.ts";
-import type { RuntimeCapabilityMatrix } from "../../../application/src/agent-runtime-adapter.ts";
+} from "@harness-anything/application/agent-runtime-control";
+import type { RuntimeCapabilityMatrix } from "@harness-anything/application/agent-runtime-adapter";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 

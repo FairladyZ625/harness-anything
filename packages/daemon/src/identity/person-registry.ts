@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import type { PeopleRoster, PersonRecord, PersonRegistry } from "./types.ts";
 
 export function personRegistryPath(rootInput: HarnessLayoutInput): string {

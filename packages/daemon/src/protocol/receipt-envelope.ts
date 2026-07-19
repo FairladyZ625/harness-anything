@@ -4,7 +4,7 @@ import {
   type CommandFailureReceipt,
   type CommandReceipt,
   type CommandReceiptEnvelope
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 

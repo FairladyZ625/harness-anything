@@ -2,8 +2,8 @@ import type {
   TerminalBackend,
   TerminalBackendWarning,
   TerminalSessionInfo
-} from "../../../application/src/terminal-session-contract.ts";
-export type { TerminalBackendWarning } from "../../../application/src/terminal-session-contract.ts";
+} from "@harness-anything/application/terminal-session-contract";
+export type { TerminalBackendWarning } from "@harness-anything/application/terminal-session-contract";
 
 export type TerminalBackendDurability = "none" | "daemon-restart" | "remote-owned";
 export type TerminalBackendEvidence = "always-available" | "probe" | "not-installed" | "remote-owned" | "disabled";

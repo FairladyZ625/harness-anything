@@ -3,7 +3,7 @@ import {
   decodeActorAxesBindingV2,
   type AuthoritySubmissionService,
   type ReplicaChangeLog
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   authorityWireFrameType,
   isAuthorityRequestFrame,

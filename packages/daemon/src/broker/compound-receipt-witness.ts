@@ -1,7 +1,7 @@
 import {
   createHistoricalExcludedSetWitnessV1,
   type AppliedExactAtCutV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import type { MaterializationWitness } from "./types.ts";
 import { fingerprintDigest } from "./fingerprint.ts";
 

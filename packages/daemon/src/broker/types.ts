@@ -4,7 +4,7 @@ import type {
   AuthorityOperationReceipt,
   ReplicaChangeLog,
   ReplicaChangeRecord
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export type BrokerPathStatus =
   | "CLEAN"

@@ -7,7 +7,7 @@ import type {
   AuthorityOperationReceipt,
   AuthorizedOperationAttemptV2,
   ReplicaChangeRecord
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   authorityWireFrameType,
   isAuthorityServerFrame,

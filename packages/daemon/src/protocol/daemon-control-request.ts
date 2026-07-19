@@ -1,4 +1,4 @@
-import type { DaemonControlRequestV1 } from "../../../application/src/index.ts";
+import type { DaemonControlRequestV1 } from "@harness-anything/application";
 import type { JsonObject } from "./json-rpc-types.ts";
 
 export function daemonControlRequest(
