@@ -89,6 +89,35 @@ export function defaultDaemonUserRoot(rootDir: string): string {
 
 export { delay, pollUntil } from "./poll-until.ts";
 
+export function daemonConnectionCount(receipt: Record<string, unknown>): number | undefined {
+  const details = receipt.details as Record<string, unknown> | undefined;
+  const data = details?.data as Record<string, unknown> | undefined;
+  const connections = data?.connections as Record<string, unknown> | undefined;
+  return typeof connections?.active === "number" ? connections.active : undefined;
+}
+
+/**
+ * Wait for the daemon to report an expected active-connection count.
+ *
+ * The count is eventually consistent with the connecting process's state: a
+ * child announcing readiness has not necessarily been accepted yet, and a
+ * killed child's socket is torn down by the kernel, reaching the daemon as an
+ * event it processes on its own loop. Sampling the count once races that
+ * delivery, so poll and let the diagnostic report the last status observed.
+ */
+export async function pollDaemonConnectionCount(
+  readStatus: () => Promise<Record<string, unknown>>,
+  expected: number,
+  timeoutMs = 5_000
+): Promise<Record<string, unknown>> {
+  return pollUntil(
+    readStatus,
+    (status) => daemonConnectionCount(status) === expected,
+    (candidate, error) => JSON.stringify({ expected, candidate, error: String(error ?? "") }),
+    { timeoutMs }
+  );
+}
+
 export async function stopDaemon(rootDir: string, userRoot = defaultDaemonUserRoot(rootDir)): Promise<void> {
   const endpoint = localUserDaemonEndpoint(userRoot);
   const ownerPath = daemonOwnerPath(endpoint);
