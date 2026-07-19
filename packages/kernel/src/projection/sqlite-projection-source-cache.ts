@@ -125,7 +125,7 @@ export function captureProjectionSourceCacheSnapshot(
   const previousMetadata = new Map(previousSnapshot?.metadata.map((row) => [row.cacheKind, row]) ?? []);
   return projectionSourceCacheSnapshot({
     files: [
-      ...attributionFiles,
+      ...attributionFiles.sort(compareCachePaths),
       ...taskFiles.sort(compareCachePaths)
     ],
     watches: [
