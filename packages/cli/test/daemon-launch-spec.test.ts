@@ -15,10 +15,11 @@ import {
   type DaemonLaunchOptions
 } from "../src/daemon/daemon-launch-spec.ts";
 
-const endpoint = "/old.sock";
+const fixtureRoot = path.resolve(tmpdir(), "ha-daemon-launch-spec-fixture");
+const endpoint = path.join(fixtureRoot, "old.sock");
 const persisted: DaemonLaunchOptions = {
-  authorityManifest: "/old/manifest.json",
-  authoredRoot: "/old/authored"
+  authorityManifest: path.join(fixtureRoot, "old", "manifest.json"),
+  authoredRoot: path.join(fixtureRoot, "old", "authored")
 };
 
 test("persisted daemon launch options round-trip as structured owner-private state", () => {
@@ -43,18 +44,21 @@ test("cold start restores the omitted authority manifest and authored root from 
 });
 
 test("explicit launch values take precedence independently over the persisted spec", () => {
+  const newManifest = path.join(fixtureRoot, "new", "manifest.json");
+  const newAuthoredRoot = path.join(fixtureRoot, "new", "authored");
+  const environmentManifest = path.join(fixtureRoot, "env", "manifest.json");
   assert.deepEqual(resolveRestoredLaunchOptions(persisted, {
-    authorityManifest: "/new/manifest.json",
-    authoredRoot: "/new/authored"
+    authorityManifest: newManifest,
+    authoredRoot: newAuthoredRoot
   }), {
-    authorityManifest: "/new/manifest.json",
-    authoredRoot: "/new/authored"
+    authorityManifest: newManifest,
+    authoredRoot: newAuthoredRoot
   });
   assert.deepEqual(resolveRestoredLaunchOptions(persisted, {
-    authorityManifest: "/env/manifest.json"
+    authorityManifest: environmentManifest
   }), {
-    authorityManifest: "/env/manifest.json",
-    authoredRoot: "/old/authored"
+    authorityManifest: environmentManifest,
+    authoredRoot: persisted.authoredRoot
   });
 });
 
@@ -100,13 +104,14 @@ test("different explicit sockets cannot read or replace each other's launch opti
   try {
     const firstEndpoint = path.join(userRoot, "a.sock");
     const secondEndpoint = path.join(userRoot, "b.sock");
+    const otherManifest = path.join(userRoot, "other", "manifest.json");
     resolveDaemonLaunchSpec(userRoot, firstEndpoint, persisted).persist(userRoot);
     resolveDaemonLaunchSpec(userRoot, secondEndpoint, {
-      authorityManifest: "/other/manifest.json"
+      authorityManifest: otherManifest
     }).persist(userRoot);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, firstEndpoint), persisted);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, secondEndpoint), {
-      authorityManifest: "/other/manifest.json"
+      authorityManifest: otherManifest
     });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -181,7 +186,9 @@ test("an opaque immutable resolution persists its captured snapshot without rere
   try {
     resolveCompleteDaemonLaunchSpec(endpoint, persisted).persist(userRoot);
     const captured = resolveDaemonLaunchSpec(userRoot, endpoint, {});
-    resolveCompleteDaemonLaunchSpec(endpoint, { authorityManifest: "/other/manifest.json" }).persist(userRoot);
+    resolveCompleteDaemonLaunchSpec(endpoint, {
+      authorityManifest: path.join(fixtureRoot, "other", "manifest.json")
+    }).persist(userRoot);
     captured.persist(userRoot);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, endpoint), persisted);
     assert.equal(Object.isFrozen(captured.options), true);
