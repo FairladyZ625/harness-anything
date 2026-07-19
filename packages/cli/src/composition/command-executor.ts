@@ -211,7 +211,7 @@ export async function runRegisteredCommandWithCliComposition(
         syncExportedSession
       })
     }, boundAt)
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
     const attribution = getActorAttribution().writeAttribution;
     const repin = command.action.kind === "decision-repin" ? command.action : undefined;
     return makeDecisionWriteService({

@@ -95,6 +95,31 @@ test("observed-write attempt compilation fails explicitly when required path CAS
   }
 });
 
+test("task archive observed-write intent requires the selected task entity", () => {
+  const fixture = createPathCasFixture();
+  try {
+    const command = {
+      action: { kind: "task-archive", taskId: fixture.sourceTaskId, reason: "archive regression" }
+    } as unknown as ParsedCommand;
+    const matchingOperation = {
+      opId: "archive-entity-match",
+      entityId: taskEntityId(fixture.sourceTaskId),
+      kind: "package_archive",
+      payload: { path: "INDEX.md", body: fixture.body }
+    } satisfies WriteOp;
+
+    const intent = productionObservedWriteAttemptIntent(command, matchingOperation, fixture.authoredRoot);
+    assert.equal(intent.physicalEntityId, taskEntityId(fixture.sourceTaskId));
+
+    assert.throws(() => productionObservedWriteAttemptIntent(command, {
+      ...matchingOperation,
+      entityId: "module/distill-candidate"
+    }, fixture.authoredRoot), /AUTHORITY_TASK_ARCHIVE_OPERATION_MISMATCH/u);
+  } finally {
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
 function createPathCasFixture() {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observed-path-cas-"));
   const authoredRoot = path.join(rootDir, "harness");

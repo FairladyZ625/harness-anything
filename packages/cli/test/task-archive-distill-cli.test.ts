@@ -5,7 +5,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/index.ts";
+import { Effect } from "effect";
+import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
+import { writeDistillCandidate } from "../src/commands/core/distill.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
@@ -87,6 +90,33 @@ test("CLI task archive writes runtime distill artifacts through the canonical re
   });
 });
 
+test("task archive distill candidate uses the operational coordinator", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-archive-distill-routing-"));
+  try {
+    const inputPath = "archive-source.md";
+    writeFileSync(path.join(rootDir, inputPath), "Archive evidence.\n", "utf8");
+    const repoOperations: WriteOp[] = [];
+    const operationalOperations: WriteOp[] = [];
+    const context = {
+      layoutInput: { rootDir },
+      makeWriteCoordinator: () => captureCoordinator(repoOperations),
+      makeOperationalWriteCoordinator: () => captureCoordinator(operationalOperations)
+    } as unknown as CommandRunnerContext;
+
+    const result = Effect.runSync(writeDistillCandidate(context, {
+      taskId: "task_01KXWBD37ZY6NGYD1W45XG5TMG",
+      inputPath
+    }, "ha task archive"));
+
+    assert.equal(result.ok, true);
+    assert.equal(repoOperations.length, 0);
+    assert.equal(operationalOperations.length, 1);
+    assert.equal(operationalOperations[0]?.entityId, "module/distill-candidate");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("CLI task archive fails closed when a task-owned relation endpoint is unresolved", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Unresolved Fact Archive"]);
@@ -158,6 +188,17 @@ function relationRecord(source: string, target: string): EntityRelationRecord {
     origin: "declared",
     rationale: "Archive reference guard fixture",
     state: "active"
+  };
+}
+
+function captureCoordinator(operations: WriteOp[]): WriteCoordinator {
+  return {
+    enqueue: (operation) => Effect.sync(() => {
+      operations.push(operation);
+      return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
+    }),
+    flush: (reason) => Effect.succeed({ reason, opCount: operations.length, committed: false }),
+    recover: Effect.succeed({ replayedOps: 0 })
   };
 }
 
