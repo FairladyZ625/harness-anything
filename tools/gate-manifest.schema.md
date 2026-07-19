@@ -17,6 +17,8 @@ policy. Changing it is a governance change under ADR-0023 D2/D5.
   `local-consistency` are intentionally machine-readable for architecture
   review.
 - `tierDefinitions`: tier vocabulary.
+- `nonDeterminismDefinitions`: closed taxonomy for every
+  `deterministic: false` declaration.
 - `enforcementConstants`: declarations that name an enforcement parameter,
   locate its external authority, and enumerate every source consumer audited for
   naked derived literals.
@@ -63,13 +65,22 @@ Each gate entry must declare:
   wrappers, external-API checks, live-registry checks, wall-clock enforcement,
   and headed-environment checks are `false` even when they contain deterministic
   subchecks.
+- `nonDeterminism`: required exactly when `deterministic` is `false`. The object
+  contains one taxonomy `kind`, a non-empty human-readable `reason`, and a
+  non-empty `evidence` array naming the declaration or runtime source that
+  justifies the classification. The closed kinds are `aggregate`,
+  `external-state`, `host-environment`, `local-authority`, and `temporal`.
 - `positiveControl`: object with `status` (`covered`, `documented-gap`, or
   `not-applicable`) and a non-empty `evidence` array. Evidence contains a fixture
   or test path when one exists; gaps and non-applicable aggregate/control-flow
   gates use an explicit explanation instead of inventing coverage.
 - `category`: one of `boundary`, `local-consistency`, `smoke`,
   `release-policy`, or `meta-governance`.
-- `tier`: one of `pr-required`, `main-only`, `nightly-only`, or `manual-only`.
+- `tier`: one of `pr-required`, `main-only`, `nightly-only`, `local-only`, or
+  `manual-only`. `local-only` is reserved for automatic local-stop gates whose
+  applicable verdict needs a declared private self-hosted layout. Public CI may
+  execute the same local runner and must emit an explicit `not applicable`
+  result when that layout declaration is structurally absent.
 - `tierReason`: required for every non-`pr-required` gate.
 - `authoritySource`: non-empty array of authority files or declarations.
   Boundary gates must not use only their checker file as authority.
@@ -98,8 +109,9 @@ Each gate entry must declare:
    gate, or includes a non-deterministic/non-PR/aggregate gate.
 
 The checker also requires the v2 classification and positive-control fields on
-every gate. Its positive-control test deliberately declares a deterministic gate
-without `pr` and asserts a red result.
+every gate. Its positive controls deliberately declare a deterministic gate
+without `pr` and a non-deterministic gate without `nonDeterminism`, and assert
+red results.
 
 ## Sample Entries
 
@@ -194,12 +206,15 @@ Release-policy gate sample:
 
 The registry records:
 
-- 55 gates: 45 deterministic and 10 non-deterministic/composite.
-- 41 `harness:*` scripts in `package.json`, of which 40 are registered leaf
-  gates; 38 are in `check`, 36 are in `check:pr`, and 39 execute in pull-request
+- 64 gates: 49 deterministic and 15 non-deterministic/composite/local-authority.
+- 46 `harness:*` scripts in `package.json`, of which 45 are registered leaf
+  gates; 42 are in `check`, 40 are in `check:pr`, and 43 execute in pull-request
   workflow jobs. `harness:sync-runtime-skills` is an operational command, not a
   gate. The only registered `harness:*` gate outside the PR workflow is the
-  non-deterministic, schedule-only `check-enforcement-debt-sunset`.
+  non-deterministic, schedule-only `check-enforcement-debt-sunset`, plus
+  local-only `check-ghost-task-packages`; public CI executes `check:local` but
+  explicitly reports this gate not applicable because no self-hosted layout is
+  declared there.
 - 11 formerly main-only deterministic gates added to the existing `boundaries`
   required context: `check-cli-help-contract`, `check-cli-error-codes`,
   `check-error-classification`, `check-duplicate-definitions`,
@@ -212,6 +227,23 @@ The registry records:
 - `check-staged-activation` executes locally, in `boundaries`, and in non-PR
   `full-check`; its wall-clock expiry semantics make it non-deterministic even
   though each production import-graph probe is repository-local and read-only.
+- `check-ghost-task-packages` first looks for a regular
+  `harness/harness.yaml`, parses its root-relative `tasks.root`, and requires
+  that declared path to be a directory. A worktree without that declaration
+  follows `.git` gitdir plus `commondir` to the canonical checkout and repeats
+  the same configured-layout validation; the mere existence of a local
+  `harness/tasks` directory is never authority.
+- If neither checkout declares `harness/harness.yaml`, the environment is
+  structurally not self-hosted: the checker prints an explicit
+  `not applicable` category and exits zero. If the declaration exists but is
+  malformed, `tasks.root` is absent/outside the checkout/not a directory, or a
+  ledger read encounters a wrong path type, the checker reports a normalized
+  `self-hosted task ledger unavailable` error and exits non-zero.
+- For an applicable ledger, every visible immediate child directory under the
+  configured `tasks.root` must be a `task_*` package whose regular `INDEX.md`
+  frontmatter declares matching `schema: task-package/v2` and `task_id` values.
+  Single- and double-quoted YAML scalars are accepted. Hidden directories are
+  excluded as tool noise; visible non-task directories remain fail-closed.
 - `check-retired-keys` executes locally, in `boundaries`, and in non-PR
   `full-check`; it parses authored frontmatter and rejects only retired top-level
   attribution keys, while preserving active nested `contentPins[].arbiter`.

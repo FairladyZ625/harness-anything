@@ -43,10 +43,18 @@
     "release-policy": "Guards release, package, supply-chain, runtime readiness, or publication policy.",
     "meta-governance": "Guards governance surfaces such as PR body format, aggregate check composition, or CI gate topology."
   },
+  "nonDeterminismDefinitions": {
+    "aggregate": "Composite or control-flow wrapper whose result inherits multiple leaf gates or execution branches rather than one reproducible repository-local judgment.",
+    "external-state": "Reads a live service, registry, remote artifact, or orchestration state that repository source alone cannot reproduce.",
+    "host-environment": "Depends on host OS, headed runtime, installed toolchain, downloaded platform artifact, or another machine-specific execution condition.",
+    "local-authority": "Reads an intentionally private, gitignored authority that is present only in the canonical local checkout.",
+    "temporal": "Uses wall-clock time or an expiry/sunset boundary as a judgment input."
+  },
   "tierDefinitions": {
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
     "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
     "nightly-only": "Runs only on scheduled full-check.",
+    "local-only": "Produces an applicable verdict only for a declared self-hosted layout. Public CI may execute the local runner but receives an explicit not-applicable result because no private layout is declared.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
   },
   "enforcementConstants": [
@@ -203,7 +211,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 45
+      "harnessLeafGateCount": 46
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -249,6 +257,7 @@
   "gates": [
     {
       "id": "aggregate-full-check",
+      "nonDeterminism": { "kind": "aggregate", "reason": "The full-check wrapper inherits test, build, registry, wall-clock, and host-environment behavior from its leaf gates.", "evidence": ["package.json:scripts.check", "tools/run-manifest-gates.mjs"] },
       "aggregate": true,
       "command": "npm run check",
       "category": "meta-governance",
@@ -319,6 +328,7 @@
     },
     {
       "id": "aggregate-check-pr",
+      "nonDeterminism": { "kind": "aggregate", "reason": "The local PR approximation composes test, build, and external-state leaves and has no independent reproducibility guarantee.", "evidence": ["package.json:scripts.check:pr", "tools/run-manifest-gates.mjs"] },
       "aggregate": true,
       "command": "npm run check:pr",
       "category": "meta-governance",
@@ -535,6 +545,7 @@
     },
     {
       "id": "mergify-queue-metadata-edit-noop",
+      "nonDeterminism": { "kind": "external-state", "reason": "This control-flow marker is eligible only when GitHub reports same-head-SHA source-validation proof for Mergify queue orchestration.", "evidence": [".github/workflows/rewrite-ci.yml:jobs.metadata-source-proof", ".github/workflows/rewrite-ci.yml:jobs.source-validation-proof"] },
       "command": "echo \"Reusing successful source validation for the same head SHA.\"",
       "category": "meta-governance",
       "tier": "pr-required",
@@ -822,6 +833,7 @@
     },
     {
       "id": "test-node-all",
+      "nonDeterminism": { "kind": "aggregate", "reason": "The all-tests runner aggregates fast, contract, and integration suites, including filesystem, process, daemon, and Git environment behavior.", "evidence": ["tools/run-node-tests.mjs", "tools/test-tier-manifest.mjs"] },
       "command": "npm test",
       "category": "local-consistency",
       "tier": "main-only",
@@ -1282,6 +1294,7 @@
     },
     {
       "id": "test-gui-e2e",
+      "nonDeterminism": { "kind": "host-environment", "reason": "The Electron smoke requires a headed GUI session and host display/runtime support that headless CI does not reproduce reliably.", "evidence": ["tools/run-gui-e2e-tests.mjs", "decision/dec_mrat10bn"] },
       "command": "npm run test:gui:e2e",
       "category": "smoke",
       "tier": "manual-only",
@@ -1350,6 +1363,7 @@
     },
     {
       "id": "node26-compatibility",
+      "nonDeterminism": { "kind": "aggregate", "reason": "The Node 26 compatibility job is a composite lane over typecheck plus fast and contract suites rather than a leaf judgment.", "evidence": [".github/workflows/rewrite-ci.yml:jobs.node26-compatibility", "package.json:scripts.test:fast", "package.json:scripts.test:contract"] },
       "aggregate": true,
       "command": "npm run typecheck && npm run test:fast && npm run test:contract",
       "category": "local-consistency",
@@ -2582,6 +2596,7 @@
     },
     {
       "id": "check-enforcement-debt-sunset",
+      "nonDeterminism": { "kind": "temporal", "reason": "The verdict compares authored decision/task dates with the current wall clock and changes when the sunset age crosses its limit.", "evidence": ["tools/check-enforcement-debt-sunset.mjs:parseNow", "tools/check-enforcement-debt-sunset.mjs:sunsetDays"] },
       "command": "npm run harness:check-enforcement-debt-sunset",
       "category": "meta-governance",
       "tier": "nightly-only",
@@ -3112,6 +3127,7 @@
     },
     {
       "id": "check-github-required-contexts",
+      "nonDeterminism": { "kind": "external-state", "reason": "The checker reads live GitHub branch rules whose authentication, rate-limit, and service state can change independently of repository source.", "evidence": ["GET /repos/{owner}/{repo}/rules/branches/main", "tools/check-github-required-contexts.mjs:fetchGitHubBranchRules"] },
       "command": "npm run harness:check-github-required-contexts",
       "category": "meta-governance",
       "tier": "pr-required",
@@ -3427,6 +3443,79 @@
       }
     },
     {
+      "id": "check-ghost-task-packages",
+      "command": "npm run harness:check-ghost-task-packages",
+      "category": "meta-governance",
+      "tier": "local-only",
+      "tierReason": "The authored task ledger is private and gitignored. The gate runs through check:local everywhere, but only declared self-hosted layouts produce a ledger verdict; public CI reports explicit not-applicable.",
+      "authoritySource": [
+        "harness/harness.yaml:tasks.root",
+        "harness/tasks/*/INDEX.md:task_id",
+        "task/task_01KXXJSNMCH6BQNGK7BKYVSDK2"
+      ],
+      "consumerScope": [
+        "configured tasks.root immediate visible child directories; hidden tool-noise directories are excluded",
+        "task-package/v2 INDEX.md schema and task_id registration"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No declared self-hosted layout is explicitly not applicable. Once harness/harness.yaml declares tasks.root, unavailable authority, malformed visible directories, missing records, mismatched IDs, and duplicates fail closed with no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-ghost-task-packages.mjs",
+          "tools/gate-manifest.json",
+          "tools/run-local-check.mjs",
+          "package.json:scripts.harness:check-ghost-task-packages"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-ghost-task-packages"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local"
+        ]
+      },
+      "deterministic": false,
+      "nonDeterminism": {
+        "kind": "local-authority",
+        "reason": "The applicable verdict depends on tasks.root from a private harness/harness.yaml layout, resolved directly or through Git worktree commondir; a checkout with no self-host declaration is explicitly not applicable.",
+        "evidence": [
+          "harness/harness.yaml:tasks.root",
+          "tools/check-ghost-task-packages.mjs:resolveLedgerRoot",
+          "tools/check-ghost-task-packages.mjs:inspectSelfHostedLayout",
+          "tools/check-ghost-task-packages.mjs:resolveCommonCheckoutRoot"
+        ]
+      },
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-ghost-task-packages.test.mjs"
+        ]
+      }
+    },
+    {
       "id": "check-local-load-governance",
       "deterministic": true,
       "positiveControl": {
@@ -3694,6 +3783,7 @@
     },
     {
       "id": "check-staged-activation",
+      "nonDeterminism": { "kind": "temporal", "reason": "The staged-contract verdict includes explicit expiry dates evaluated against the current wall clock.", "evidence": ["tools/staged-activation.json", "tools/run-staged-activation.mjs"] },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
@@ -4616,6 +4706,7 @@
     },
     {
       "id": "check-supply-chain",
+      "nonDeterminism": { "kind": "external-state", "reason": "Supply-chain verification invokes live npm audit and package preflight commands whose registry responses are outside repository control.", "evidence": ["packages/gui/src/distribution/supply-chain-release-readiness.ts:auditCommands", "tools/check-supply-chain.mjs"] },
       "command": "npm run harness:check-supply-chain",
       "category": "release-policy",
       "tier": "pr-required",
@@ -4842,6 +4933,7 @@
     },
     {
       "id": "vscode-contracts",
+      "nonDeterminism": { "kind": "host-environment", "reason": "The focused manual lane runs outside the governed PR topology and depends on the caller's local Node and workspace toolchain state.", "evidence": ["package.json:scripts.test:vscode-contracts", "packages/vscode-ext/package.json"] },
       "command": "npm run test:vscode-contracts",
       "category": "boundary",
       "tier": "manual-only",
@@ -4889,6 +4981,7 @@
     },
     {
       "id": "vscode-dual-target-build",
+      "nonDeterminism": { "kind": "host-environment", "reason": "The manual dual-target build depends on the local build toolchain and host filesystem and is not covered by a governed CI execution surface.", "evidence": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/package.json:scripts.build"] },
       "command": "npm run build:vscode",
       "category": "smoke",
       "tier": "manual-only",
@@ -4914,6 +5007,7 @@
     },
     {
       "id": "vscode-vsix-smoke",
+      "nonDeterminism": { "kind": "host-environment", "reason": "VSIX packaging is a manual artifact-producing smoke whose output depends on the local packaging toolchain and host filesystem.", "evidence": ["packages/vscode-ext/package.json:scripts.package:vsix", "packages/vscode-ext/scripts/verify-artifacts.mjs"] },
       "command": "npm run package:vscode",
       "category": "smoke",
       "tier": "manual-only",
@@ -4939,6 +5033,7 @@
     },
     {
       "id": "vscode-test-electron-1-125",
+      "nonDeterminism": { "kind": "host-environment", "reason": "The smoke downloads and launches a platform-specific VS Code/Electron runtime and depends on host extension-runtime support.", "evidence": ["packages/vscode-ext/scripts/test-electron.mjs", "packages/vscode-ext/package.json:engines.vscode"] },
       "command": "npm run test:vscode-electron",
       "category": "smoke",
       "tier": "manual-only",

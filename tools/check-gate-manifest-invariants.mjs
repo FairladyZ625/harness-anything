@@ -6,6 +6,13 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_ROOT = process.cwd();
 const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"]);
 const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-applicable"]);
+const NON_DETERMINISM_KINDS = new Set([
+  "aggregate",
+  "external-state",
+  "host-environment",
+  "local-authority",
+  "temporal"
+]);
 const INFRASTRUCTURE_COMMANDS = new Set([
   "npm ci",
   "git diff --check",
@@ -24,6 +31,7 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   if (manifest.schema !== "harness-anything/gate-manifest/v2") {
     findings.push(`manifest schema must be harness-anything/gate-manifest/v2, got ${JSON.stringify(manifest.schema)}`);
   }
+  checkNonDeterminismTaxonomy(manifest, findings);
   checkLocalStopSurface(manifest, gates, findings);
   checkExecutableCheckerWiring(root, manifestSource, localRunnerSource, findings);
   checkWorkflowInventory(manifest, workflow, findings);
@@ -242,6 +250,26 @@ function checkClassificationFields(gate, findings) {
     findings.push(`${gate.id} must declare deterministic as a boolean`);
   }
 
+  const nonDeterminism = gate.nonDeterminism;
+  if (gate.deterministic === false) {
+    if (!nonDeterminism || typeof nonDeterminism !== "object" || Array.isArray(nonDeterminism)) {
+      findings.push(`${gate.id} is non-deterministic but omits nonDeterminism classification`);
+    } else {
+      if (!NON_DETERMINISM_KINDS.has(nonDeterminism.kind)) {
+        findings.push(`${gate.id} declares unknown nonDeterminism.kind ${JSON.stringify(nonDeterminism.kind)}`);
+      }
+      if (typeof nonDeterminism.reason !== "string" || nonDeterminism.reason.trim() === "") {
+        findings.push(`${gate.id} must declare a non-empty nonDeterminism.reason`);
+      }
+      if (!Array.isArray(nonDeterminism.evidence) || nonDeterminism.evidence.length === 0
+        || nonDeterminism.evidence.some((entry) => typeof entry !== "string" || entry.trim() === "")) {
+        findings.push(`${gate.id} must declare non-empty nonDeterminism.evidence`);
+      }
+    }
+  } else if (nonDeterminism !== undefined) {
+    findings.push(`${gate.id} is deterministic and must not declare nonDeterminism`);
+  }
+
   const classes = gate.executionSurfaces?.classes;
   if (!Array.isArray(classes) || classes.length === 0) {
     findings.push(`${gate.id} must declare a non-empty executionSurfaces.classes array`);
@@ -266,6 +294,24 @@ function checkClassificationFields(gate, findings) {
   if (!Array.isArray(positiveControl?.evidence) || positiveControl.evidence.length === 0
     || positiveControl.evidence.some((entry) => typeof entry !== "string" || entry.trim() === "")) {
     findings.push(`${gate.id} must declare non-empty positiveControl.evidence`);
+  }
+}
+
+function checkNonDeterminismTaxonomy(manifest, findings) {
+  const definitions = manifest.nonDeterminismDefinitions;
+  if (!definitions || typeof definitions !== "object" || Array.isArray(definitions)) {
+    findings.push("manifest must declare nonDeterminismDefinitions");
+    return;
+  }
+  for (const kind of NON_DETERMINISM_KINDS) {
+    if (typeof definitions[kind] !== "string" || definitions[kind].trim() === "") {
+      findings.push(`manifest nonDeterminismDefinitions must define ${kind}`);
+    }
+  }
+  for (const kind of Object.keys(definitions)) {
+    if (!NON_DETERMINISM_KINDS.has(kind)) {
+      findings.push(`manifest declares unknown non-determinism taxonomy kind ${JSON.stringify(kind)}`);
+    }
   }
 }
 

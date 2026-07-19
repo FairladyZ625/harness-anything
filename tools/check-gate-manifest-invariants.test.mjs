@@ -44,6 +44,24 @@ test("positive control rejects a deterministic gate without the PR execution sur
   }
 });
 
+test("positive control rejects a non-deterministic gate without structured classification", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      deterministic: false,
+      surfaceClasses: ["local", "main-full"],
+      pullRequestJobs: [],
+      includeNonDeterminism: false
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /example-gate is non-deterministic but omits nonDeterminism classification/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects manifest workflow execution surfaces that drift from the actual job steps", () => {
   const root = makeFixtureRoot();
   try {
@@ -171,10 +189,18 @@ function writeFixture(root, {
   pullRequestJobs,
   workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
   workflowExtra = [],
-  fullCheckRun = "npm run check"
+  fullCheckRun = "npm run check",
+  includeNonDeterminism = true
 }) {
   const manifest = {
     schema: "harness-anything/gate-manifest/v2",
+    nonDeterminismDefinitions: {
+      aggregate: "Composite runner.",
+      "external-state": "Live external state.",
+      "host-environment": "Host-dependent execution.",
+      "local-authority": "Private local authority.",
+      temporal: "Wall-clock input."
+    },
     surfaces: {
       localStop: { gateIds: ["example-gate"] },
       rewriteCi: {
@@ -189,6 +215,11 @@ function writeFixture(root, {
         aggregate: true,
         command: "npm run check",
         deterministic: false,
+        nonDeterminism: {
+          kind: "aggregate",
+          reason: "The wrapper inherits the reproducibility of every leaf gate.",
+          evidence: ["package.json:scripts.check"]
+        },
         positiveControl: {
           status: "not-applicable",
           evidence: ["Composite runner; leaf gates own positive controls."]
@@ -206,6 +237,13 @@ function writeFixture(root, {
         category: "boundary",
         tier: "pr-required",
         deterministic,
+        ...(deterministic || !includeNonDeterminism ? {} : {
+          nonDeterminism: {
+            kind: "external-state",
+            reason: "Fixture gate reads live state.",
+            evidence: ["tools/example-gate.test.mjs"]
+          }
+        }),
         positiveControl: {
           status: "covered",
           evidence: ["tools/example-gate.test.mjs"]
