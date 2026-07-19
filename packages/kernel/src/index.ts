@@ -23,7 +23,6 @@ export {
   isEntityStorageForm
 } from "./entity/registry.ts";
 export { ManagedSemanticDiffError } from "./entity/registry.ts";
-export type { ManagedSemanticDiffErrorCode } from "./entity/registry.ts";
 export type {
   CompositeManifestBlobDeclaration,
   DispositionAction,
