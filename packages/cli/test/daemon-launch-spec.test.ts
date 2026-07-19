@@ -7,8 +7,9 @@ import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import {
   daemonLaunchSpecPath,
-  persistDaemonLaunchSpec,
+  parseDaemonLaunchArgv,
   readPersistedDaemonLaunchSpec,
+  resolveCompleteDaemonLaunchSpec,
   resolveDaemonLaunchSpec,
   resolveRestoredLaunchOptions,
   type DaemonLaunchOptions
@@ -23,7 +24,7 @@ const persisted: DaemonLaunchOptions = {
 test("persisted daemon launch options round-trip as structured owner-private state", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
   try {
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, endpoint, persisted));
+    resolveDaemonLaunchSpec(userRoot, endpoint, persisted).persist(userRoot);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, endpoint), persisted);
     const specPath = daemonLaunchSpecPath(userRoot, endpoint);
     const document = JSON.parse(readFileSync(specPath, "utf8")) as Record<string, unknown>;
@@ -69,6 +70,12 @@ test("unpublished or malformed persisted formats are ignored and fail closed as 
       launchConfiguration: { args: ["--authority-manifest", "/old/manifest.json"] }
     }), "utf8");
     assert.equal(readPersistedDaemonLaunchSpec(userRoot, endpoint), undefined);
+    writeFileSync(daemonLaunchSpecPath(userRoot, endpoint), JSON.stringify({
+      schema: "daemon-launch-spec/v2",
+      endpoint,
+      options: { authorityManifest: "relative/authority.json" }
+    }), "utf8");
+    assert.equal(readPersistedDaemonLaunchSpec(userRoot, endpoint), undefined);
     assert.deepEqual(resolveDaemonLaunchSpec(userRoot, endpoint, {}).options, {});
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -93,10 +100,10 @@ test("different explicit sockets cannot read or replace each other's launch opti
   try {
     const firstEndpoint = path.join(userRoot, "a.sock");
     const secondEndpoint = path.join(userRoot, "b.sock");
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, firstEndpoint, persisted));
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, secondEndpoint, {
+    resolveDaemonLaunchSpec(userRoot, firstEndpoint, persisted).persist(userRoot);
+    resolveDaemonLaunchSpec(userRoot, secondEndpoint, {
       authorityManifest: "/other/manifest.json"
-    }));
+    }).persist(userRoot);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, firstEndpoint), persisted);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, secondEndpoint), {
       authorityManifest: "/other/manifest.json"
@@ -126,9 +133,9 @@ test("structured restore ignores malformed positional and single-dash tokens in 
 test("foreground and autostart omission resolve before persistence and cannot overwrite a complete spec", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
   try {
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, endpoint, persisted));
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, endpoint, {}));
-    persistDaemonLaunchSpec(userRoot, resolveDaemonLaunchSpec(userRoot, endpoint, {}));
+    resolveDaemonLaunchSpec(userRoot, endpoint, persisted).persist(userRoot);
+    resolveDaemonLaunchSpec(userRoot, endpoint, {}).persist(userRoot);
+    resolveDaemonLaunchSpec(userRoot, endpoint, {}).persist(userRoot);
     assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, endpoint), persisted);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -144,4 +151,38 @@ test("explicit empty launch options are invalid instead of restoring persisted v
     () => resolveRestoredLaunchOptions(persisted, { authoredRoot: "" }),
     /--authored-root/u
   );
+});
+
+test("launch argv parsing canonicalizes recoverable paths and validates known option boundaries", () => {
+  const cwd = path.join(tmpdir(), "daemon-launch-cwd");
+  const parsed = parseDaemonLaunchArgv([
+    "daemon", "start", "--authority-manifest", "config/authority.json",
+    "--authored-root", "--relative-authored", "--socket", "daemon.sock", "--user-root", "state"
+  ], cwd, {});
+  assert.equal(parsed.authorityManifest, path.join(cwd, "config/authority.json"));
+  assert.equal(parsed.authoredRoot, path.join(cwd, "--relative-authored"));
+  assert.equal(parsed.socketPath, path.join(cwd, "daemon.sock"));
+  assert.equal(parsed.userRoot, path.join(cwd, "state"));
+  for (const argv of [
+    ["daemon", "serve", "--socket"],
+    ["daemon", "serve", "--user-root", ""],
+    ["daemon", "serve", "--socket", "--root", "/repo"],
+    ["daemon", "start", "--user-root", "-relative-root"],
+    ["daemon", "start", "--authored-root", "--json"]
+  ]) assert.throws(() => parseDaemonLaunchArgv(argv, cwd, {}), /requires a non-empty/u);
+});
+
+test("an opaque immutable resolution persists its captured snapshot without rereading durable state", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
+  try {
+    resolveCompleteDaemonLaunchSpec(endpoint, persisted).persist(userRoot);
+    const captured = resolveDaemonLaunchSpec(userRoot, endpoint, {});
+    resolveCompleteDaemonLaunchSpec(endpoint, { authorityManifest: "/other/manifest.json" }).persist(userRoot);
+    captured.persist(userRoot);
+    assert.deepEqual(readPersistedDaemonLaunchSpec(userRoot, endpoint), persisted);
+    assert.equal(Object.isFrozen(captured.options), true);
+    assert.equal("persist" in { ...captured }, false);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });

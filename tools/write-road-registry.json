@@ -1742,7 +1742,7 @@
       "bearing": "daemon-service-launch",
       "leaseRequired": false,
       "owner": "daemon endpoint owner",
-      "purpose": "Persist endpoint-isolated structured authority manifest and authored-root launch options after common-path restoration for safe service, foreground, and autostart cold starts.",
+      "purpose": "Persist one opaque endpoint-isolated resolution of canonical authority-manifest and authored-root options after common-path restoration for safe service, foreground, and autostart cold starts.",
       "channel": {
         "pathClass": "runtime-local-durable",
         "zoneClass": "non-sot-service-state"
@@ -1756,8 +1756,8 @@
         }
       ],
       "evidence": [
-        "packages/cli/src/daemon/daemon-launch-spec.ts:60",
-        "packages/cli/src/daemon/daemon-launch-spec.ts:86"
+        "packages/cli/src/daemon/daemon-launch-spec.ts:87",
+        "packages/cli/src/daemon/daemon-launch-spec.ts:134"
       ],
       "freshness": "endpoint-sha256-keyed-structured-options-atomic-temp-rename-owner-only-0600-rewrite"
     },

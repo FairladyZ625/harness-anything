@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 
 export const daemonLaunchSpecSchema = "daemon-launch-spec/v2";
+export const daemonLaunchOptionsResolvedFlag = "--launch-options-resolved";
 
 export class DaemonLaunchPreflightError extends Error {
   readonly code: "authority-manifest-registry-incomplete" | "launch-check-failed";
@@ -38,18 +39,54 @@ export interface DaemonLaunchOptions {
   readonly authoredRoot?: string;
 }
 
+export interface ParsedDaemonLaunchArgv extends DaemonLaunchOptions {
+  readonly socketPath?: string;
+  readonly userRoot?: string;
+  readonly optionsResolved: boolean;
+}
+
 interface PersistedDaemonLaunchSpec {
   readonly schema: typeof daemonLaunchSpecSchema;
   readonly endpoint: string;
   readonly options: DaemonLaunchOptions;
 }
 
-const resolvedDaemonLaunchSpecMarker: unique symbol = Symbol("resolved-daemon-launch-spec");
+export class DaemonLaunchResolution {
+  readonly #endpoint: string;
+  readonly #options: DaemonLaunchOptions;
 
-export interface ResolvedDaemonLaunchSpec {
-  readonly endpoint: string;
-  readonly options: DaemonLaunchOptions;
-  readonly [resolvedDaemonLaunchSpecMarker]: true;
+  private constructor(endpoint: string, options: DaemonLaunchOptions) {
+    this.#endpoint = daemonLaunchEndpointIdentity(endpoint);
+    assertValidDaemonLaunchOptions(options);
+    this.#options = Object.freeze(cloneDaemonLaunchOptions(options));
+    Object.freeze(this);
+  }
+
+  static restore(userRoot: string, endpoint: string, explicit: DaemonLaunchOptions): DaemonLaunchResolution {
+    const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
+    const persisted = readPersistedDaemonLaunchSpec(userRoot, endpointIdentity);
+    return new DaemonLaunchResolution(endpointIdentity, resolveRestoredLaunchOptions(persisted, explicit));
+  }
+
+  static complete(endpoint: string, options: DaemonLaunchOptions): DaemonLaunchResolution {
+    return new DaemonLaunchResolution(endpoint, options);
+  }
+
+  get endpoint(): string {
+    return this.#endpoint;
+  }
+
+  get options(): DaemonLaunchOptions {
+    return this.#options;
+  }
+
+  withEffectiveOptions(options: DaemonLaunchOptions): DaemonLaunchResolution {
+    return new DaemonLaunchResolution(this.#endpoint, options);
+  }
+
+  persist(userRoot: string): void {
+    writeDaemonLaunchResolution(userRoot, this.#endpoint, this.#options);
+  }
 }
 
 /**
@@ -65,33 +102,33 @@ export function daemonLaunchSpecPath(userRoot: string, endpoint: string): string
 
 /**
  * Resolve current structured values against the spec owned by this exact endpoint. Every path that
- * may persist a spec obtains a branded resolution here first, so an omitted foreground/autostart
+ * may persist a spec obtains an opaque resolution here first, so an omitted foreground/autostart
  * option is restored before it can replace durable state.
  */
 export function resolveDaemonLaunchSpec(
   userRoot: string,
   endpoint: string,
   explicit: DaemonLaunchOptions
-): ResolvedDaemonLaunchSpec {
-  assertValidDaemonLaunchOptions(explicit);
-  const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
-  const persisted = readPersistedDaemonLaunchSpec(userRoot, endpointIdentity);
-  return {
-    endpoint: endpointIdentity,
-    options: resolveRestoredLaunchOptions(persisted, explicit),
-    [resolvedDaemonLaunchSpecMarker]: true
-  };
+): DaemonLaunchResolution {
+  return DaemonLaunchResolution.restore(userRoot, endpoint, explicit);
 }
 
-export function persistDaemonLaunchSpec(userRoot: string, resolution: ResolvedDaemonLaunchSpec): void {
-  const target = daemonLaunchSpecPath(userRoot, resolution.endpoint);
+export function resolveCompleteDaemonLaunchSpec(
+  endpoint: string,
+  options: DaemonLaunchOptions
+): DaemonLaunchResolution {
+  return DaemonLaunchResolution.complete(endpoint, options);
+}
+
+function writeDaemonLaunchResolution(userRoot: string, endpoint: string, options: DaemonLaunchOptions): void {
+  const target = daemonLaunchSpecPath(userRoot, endpoint);
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   mkdirSync(path.dirname(target), { recursive: true });
   try {
     const document: PersistedDaemonLaunchSpec = {
       schema: daemonLaunchSpecSchema,
-      endpoint: resolution.endpoint,
-      options: cloneDaemonLaunchOptions(resolution.options)
+      endpoint,
+      options: cloneDaemonLaunchOptions(options)
     };
     // Owner-only mode. The spec contains paths, never credentials or key material.
     writeFileSync(temporary, `${JSON.stringify(document, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -100,6 +137,33 @@ export function persistDaemonLaunchSpec(userRoot: string, resolution: ResolvedDa
   } finally {
     rmSync(temporary, { force: true });
   }
+}
+
+const daemonLaunchKnownOptions = new Set([
+  "--actor", "--authored-root", "--authority-manifest", "--check", "--daemon-mode",
+  "--daemon-profile", "--foreground", "--help", "--idle-ms", "--json", "--repo",
+  "--root", "--service", "--socket", "--stdio", "--user-root", daemonLaunchOptionsResolvedFlag, "-h"
+]);
+
+export function parseDaemonLaunchArgv(
+  argv: ReadonlyArray<string>,
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env
+): ParsedDaemonLaunchArgv {
+  const authorityManifest = validatedDaemonPathOption(argv, "--authority-manifest", false)
+    ?? nonEmptyDaemonEnvironmentPath(env.HARNESS_AUTHORITY_MANIFEST);
+  const authoredRoot = validatedDaemonPathOption(argv, "--authored-root", false)
+    ?? nonEmptyDaemonEnvironmentPath(env.HARNESS_AUTHORED_ROOT);
+  const socketPath = validatedDaemonPathOption(argv, "--socket", true);
+  const userRoot = validatedDaemonPathOption(argv, "--user-root", true)
+    ?? nonEmptyDaemonEnvironmentPath(env.HARNESS_DAEMON_USER_ROOT);
+  return Object.freeze({
+    ...(authorityManifest !== undefined ? { authorityManifest: path.resolve(cwd, authorityManifest) } : {}),
+    ...(authoredRoot !== undefined ? { authoredRoot: path.resolve(cwd, authoredRoot) } : {}),
+    ...(socketPath !== undefined ? { socketPath: daemonLaunchEndpointIdentity(socketPath, cwd) } : {}),
+    ...(userRoot !== undefined ? { userRoot: path.resolve(cwd, userRoot) } : {}),
+    optionsResolved: argv.includes(daemonLaunchOptionsResolvedFlag)
+  });
 }
 
 export function readPersistedDaemonLaunchSpec(
@@ -143,19 +207,6 @@ export function resolveRestoredLaunchOptions(
   };
 }
 
-/** Reject present-but-empty launch path flags before omission can trigger restoration. */
-export function assertValidDaemonLaunchArgv(argv: ReadonlyArray<string>): void {
-  for (const name of ["--authority-manifest", "--authored-root"] as const) {
-    for (let index = 0; index < argv.length; index += 1) {
-      if (argv[index] !== name) continue;
-      const value = argv[index + 1];
-      if (value === undefined || value.trim().length === 0 || value.startsWith("--")) {
-        throw new Error(`${name} requires a non-empty path value.`);
-      }
-    }
-  }
-}
-
 export async function preflightDaemonLaunch(configuration: DaemonLaunchConfiguration): Promise<void> {
   const child = spawn(configuration.execPath, [
     ...configuration.execArgv,
@@ -186,12 +237,12 @@ export async function preflightDaemonLaunch(configuration: DaemonLaunchConfigura
   );
 }
 
-function daemonLaunchEndpointIdentity(endpoint: string): string {
+function daemonLaunchEndpointIdentity(endpoint: string, cwd = process.cwd()): string {
   if (endpoint.length === 0) throw new Error("daemon launch endpoint must be non-empty");
   if (process.platform === "win32" && endpoint.startsWith("\\\\.\\pipe\\")) {
     return path.win32.normalize(endpoint).toLowerCase();
   }
-  return path.resolve(endpoint);
+  return path.resolve(cwd, endpoint);
 }
 
 function assertValidDaemonLaunchOptions(options: DaemonLaunchOptions): void {
@@ -201,14 +252,40 @@ function assertValidDaemonLaunchOptions(options: DaemonLaunchOptions): void {
   if (options.authoredRoot !== undefined && options.authoredRoot.trim().length === 0) {
     throw new Error("--authored-root requires a non-empty path value.");
   }
+  if (options.authorityManifest !== undefined && !path.isAbsolute(options.authorityManifest)) {
+    throw new Error("--authority-manifest must resolve to an absolute path.");
+  }
+  if (options.authoredRoot !== undefined && !path.isAbsolute(options.authoredRoot)) {
+    throw new Error("--authored-root must resolve to an absolute path.");
+  }
 }
 
 function isDaemonLaunchOptions(value: unknown): value is DaemonLaunchOptions {
   if (!isRecordValue(value)) return false;
   const authorityManifest = value.authorityManifest;
   const authoredRoot = value.authoredRoot;
-  return (authorityManifest === undefined || (typeof authorityManifest === "string" && authorityManifest.trim().length > 0))
-    && (authoredRoot === undefined || (typeof authoredRoot === "string" && authoredRoot.trim().length > 0));
+  return (authorityManifest === undefined || (typeof authorityManifest === "string" && path.isAbsolute(authorityManifest)))
+    && (authoredRoot === undefined || (typeof authoredRoot === "string" && path.isAbsolute(authoredRoot)));
+}
+
+function validatedDaemonPathOption(argv: ReadonlyArray<string>, name: string, rejectFlagPrefix: boolean): string | undefined {
+  let selected: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== name) continue;
+    const value = argv[index + 1];
+    if (value === undefined || value.trim().length === 0
+      || daemonLaunchKnownOptions.has(value) || (rejectFlagPrefix && value.startsWith("-"))) {
+      const qualifier = rejectFlagPrefix ? ", non-flag" : "";
+      throw new Error(`${name} requires a non-empty${qualifier} path value.`);
+    }
+    selected ??= value;
+  }
+  return selected;
+}
+
+function nonEmptyDaemonEnvironmentPath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function cloneDaemonLaunchOptions(options: DaemonLaunchOptions): DaemonLaunchOptions {

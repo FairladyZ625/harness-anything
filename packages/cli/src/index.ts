@@ -31,13 +31,14 @@ import {
   createDaemonServiceHost
 } from "./daemon/service-host.ts";
 import {
-  assertValidDaemonLaunchArgv,
-  persistDaemonLaunchSpec,
+  parseDaemonLaunchArgv,
   preflightDaemonLaunch,
+  resolveCompleteDaemonLaunchSpec,
   resolveDaemonLaunchSpec,
-  type DaemonLaunchConfiguration
+  type DaemonLaunchConfiguration,
+  type ParsedDaemonLaunchArgv
 } from "./daemon/daemon-launch-spec.ts";
-import { resolveAuthorityManifestOption } from "./daemon/daemon-service-launch.ts";
+import { daemonRuntimeLayoutOverrides, daemonServeArgsWithResolvedOptions } from "./daemon/daemon-serve-launch-options.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
@@ -126,21 +127,23 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     ...(readOption(argv, "--root") ? { rootDir: stripped.rootDir } : {})
   });
   if (action === "serve") {
+    let launchOptions: ParsedDaemonLaunchArgv;
     try {
-      assertValidDaemonLaunchArgv(argv);
+      launchOptions = parseDaemonLaunchArgv(argv);
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       return 2;
     }
+    const serveLayoutOverrides = daemonRuntimeLayoutOverrides(stripped.rootDir, launchOptions.authoredRoot);
     if (daemonArgs.includes("--stdio")) {
       console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");
       return 2;
     }
     if (daemonArgs.includes("--check")) {
-      checkDaemonServeConfiguration(stripped.rootDir, layoutOverrides, daemonArgs.filter((arg) => arg !== "--check"));
+      checkDaemonServeConfiguration(stripped.rootDir, serveLayoutOverrides, daemonArgs.filter((arg) => arg !== "--check"), launchOptions);
       return 0;
     }
-    await runDaemonServe(stripped.rootDir, layoutOverrides, daemonArgs);
+    await runDaemonServe(stripped.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
     return 0;
   }
   return runDaemonProductCommand({
@@ -148,6 +151,7 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     layoutOverrides,
     json: stripped.json,
     args: daemonArgs,
+    rawArgs: argv,
     runServe: runDaemonServe
   });
 }
@@ -156,34 +160,45 @@ async function runDaemonServe(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   args: ReadonlyArray<string>,
-  hooks: DaemonServeHooks = {}
+  hooks: DaemonServeHooks = {},
+  parsedLaunchOptions = parseDaemonLaunchArgv(args)
 ): Promise<void> {
   const entrypoint = fileURLToPath(import.meta.url);
-  const requestedUserRoot = readOption(args, "--user-root") ?? daemonUserRoot();
-  const requestedEndpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(requestedUserRoot, daemonIdFromEnv());
-  const restoredSpec = resolveDaemonLaunchSpec(requestedUserRoot, requestedEndpoint, {
-    authorityManifest: resolveAuthorityManifestOption(args),
-    authoredRoot: layoutOverrides?.authoredRoot
+  const requestedUserRoot = parsedLaunchOptions.userRoot ?? daemonUserRoot();
+  const requestedEndpoint = parsedLaunchOptions.socketPath ?? localUserDaemonEndpoint(requestedUserRoot, daemonIdFromEnv());
+  const explicit = {
+    ...(parsedLaunchOptions.authorityManifest ? { authorityManifest: parsedLaunchOptions.authorityManifest } : {}),
+    ...(parsedLaunchOptions.authoredRoot ? { authoredRoot: parsedLaunchOptions.authoredRoot } : {})
+  };
+  const restoredSpec = parsedLaunchOptions.optionsResolved
+    ? resolveCompleteDaemonLaunchSpec(requestedEndpoint, explicit)
+    : resolveDaemonLaunchSpec(requestedUserRoot, requestedEndpoint, explicit);
+  const restoredAuthoredRoot = restoredSpec.options.authoredRoot;
+  const restoredLayoutOverrides = daemonRuntimeLayoutOverrides(rootDir, restoredAuthoredRoot);
+  const restoredLaunchOptions = Object.freeze({
+    ...parsedLaunchOptions,
+    ...restoredSpec.options,
+    socketPath: restoredSpec.endpoint,
+    userRoot: requestedUserRoot
   });
-  const restoredLayoutOverrides = restoredSpec.options.authoredRoot === undefined
-    ? undefined
-    : { authoredRoot: restoredSpec.options.authoredRoot };
-  const restoredArgs = daemonServeArgsWithAuthorityManifest(args, restoredSpec.options.authorityManifest);
-  const configuration = resolveDaemonServeConfiguration(rootDir, restoredLayoutOverrides, restoredArgs, true);
+  const configuration = resolveDaemonServeConfiguration(rootDir, restoredLayoutOverrides, args, true, restoredLaunchOptions);
   const { userRoot, endpoint, serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = configuration;
-  const completeSpec = resolveDaemonLaunchSpec(userRoot, endpoint, {
-    authorityManifest,
-    authoredRoot: restoredLayoutOverrides?.authoredRoot
+  const completeSpec = restoredSpec.withEffectiveOptions({
+    ...(authorityManifest ? { authorityManifest } : {}),
+    ...(restoredAuthoredRoot ? { authoredRoot: restoredAuthoredRoot } : {})
   });
-  const launchArgs = daemonServeArgsWithAuthorityManifest(restoredArgs, authorityManifest);
+  const launchArgs = daemonServeArgsWithResolvedOptions(args, {
+    ...restoredLaunchOptions,
+    ...(authorityManifest ? { authorityManifest } : {})
+  });
   const launchConfiguration: DaemonLaunchConfiguration = {
     execPath: process.execPath,
     execArgv: [...process.execArgv],
     entrypoint,
     args: [
       "--root", rootDir,
-      ...(restoredLayoutOverrides?.authoredRoot !== undefined
-        ? ["--authored-root", restoredLayoutOverrides.authoredRoot]
+      ...(restoredAuthoredRoot !== undefined
+        ? ["--authored-root", restoredAuthoredRoot]
         : []),
       ...launchArgs
     ]
@@ -253,7 +268,7 @@ async function runDaemonServe(
         }
       });
       await transport.start();
-      persistDaemonLaunchSpec(userRoot, completeSpec);
+      completeSpec.persist(userRoot);
       serviceHost.onStop(async () => {
         await transport.stop();
       });
@@ -322,24 +337,18 @@ async function runDaemonServe(
 function checkDaemonServeConfiguration(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
-  args: ReadonlyArray<string>
-): void {
-  resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, false);
-}
-
-function daemonServeArgsWithAuthorityManifest(
   args: ReadonlyArray<string>,
-  authorityManifest: string | undefined
-): ReadonlyArray<string> {
-  if (authorityManifest === undefined || args.includes("--authority-manifest")) return [...args];
-  return [...args, "--authority-manifest", authorityManifest];
+  launchOptions: ParsedDaemonLaunchArgv
+): void {
+  resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, false, launchOptions);
 }
 
 function resolveDaemonServeConfiguration(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   args: ReadonlyArray<string>,
-  persistExplicitManifest: boolean
+  persistExplicitManifest: boolean,
+  launchOptions: ParsedDaemonLaunchArgv
 ): {
   readonly userRoot: string;
   readonly endpoint: string;
@@ -349,10 +358,9 @@ function resolveDaemonServeConfiguration(
   readonly lifecycleRepo: DaemonServeRepo;
 } {
   const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
-  const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
-  const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
-  const requestedAuthorityManifest = readOption(args, "--authority-manifest")
-    ?? nonEmptyEnvironmentValue("HARNESS_AUTHORITY_MANIFEST");
+  const userRoot = launchOptions.userRoot ?? daemonUserRoot();
+  const endpoint = launchOptions.socketPath ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
+  const requestedAuthorityManifest = launchOptions.authorityManifest;
   if (requestedAuthorityManifest) {
     loadAuthorityProductionManifest(requestedAuthorityManifest);
     if (persistExplicitManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
@@ -371,11 +379,6 @@ function resolveDaemonServeConfiguration(
     defaultRepoId,
     lifecycleRepo
   };
-}
-
-function nonEmptyEnvironmentValue(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
 }
 
 function daemonServeRepos(

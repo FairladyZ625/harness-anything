@@ -1,13 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
 import { readDaemonRegistry, registerDaemonRepo } from "../../kernel/src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
-import { daemonLaunchSpecPath, preflightDaemonLaunch } from "../src/daemon/daemon-launch-spec.ts";
+import {
+  daemonLaunchOptionsResolvedFlag,
+  daemonLaunchSpecPath,
+  preflightDaemonLaunch
+} from "../src/daemon/daemon-launch-spec.ts";
 import {
   defaultDaemonUserRoot,
   pollUntil,
@@ -41,6 +45,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     assert.equal(first.started, true, JSON.stringify(first));
     assert.equal(typeof first.pid, "number", JSON.stringify(first));
     assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
+    assert.equal((await readRunningLaunchSpec(fixture.repoRoot, userRoot)).args.includes(daemonLaunchOptionsResolvedFlag), true);
 
     mkdirSync(classicRoot, { recursive: true });
     initializeHarness({ rootDir: classicRoot }, false, "Classic");
@@ -197,6 +202,78 @@ test("daemon start rejects explicit empty or valueless launch options before per
   }
 });
 
+test("relative launch paths retain their original cwd meaning across a service cold start", { timeout: 45_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const cwdA = path.join(fixture.root, "cwd-a");
+  const cwdB = path.join(fixture.root, "cwd-b");
+  const endpoint = localUserDaemonEndpoint(userRoot);
+  const env = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot };
+  mkdirSync(cwdA);
+  mkdirSync(cwdB);
+  try {
+    const first = runDaemonJsonFromCwd(cwdA, fixture.repoRoot, [
+      "daemon", "start", "--service",
+      "--authority-manifest", path.relative(cwdA, fixture.manifestPath),
+      "--authored-root", path.relative(cwdA, fixture.authoredRoot)
+    ], env);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    await stopDaemon(fixture.repoRoot, userRoot);
+
+    const persisted = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
+      readonly options: { readonly authorityManifest?: string; readonly authoredRoot?: string };
+    };
+    assert.equal(persisted.options.authorityManifest, fixture.manifestPath);
+    assert.equal(persisted.options.authoredRoot, fixture.authoredRoot);
+
+    const restored = runDaemonJsonFromCwd(cwdB, fixture.repoRoot, ["daemon", "start", "--service"], env);
+    assert.equal(restored.ok, true, JSON.stringify(restored));
+    const running = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
+    assert.equal(optionValue(running.args, "--authority-manifest"), fixture.manifestPath);
+    assert.equal(optionValue(running.args, "--authored-root"), fixture.authoredRoot);
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("daemon serve and start reject malformed launch path boundaries without persisting a spec", async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const env = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot };
+  const malformed = [
+    ["--socket"],
+    ["--user-root"],
+    ["--socket", "--root", fixture.repoRoot],
+    ["--user-root", "-relative-root"]
+  ];
+  try {
+    for (const optionArgs of malformed) {
+      const serve = spawnSync(process.execPath, [
+        path.resolve("packages/cli/src/index.ts"), "--root", fixture.repoRoot,
+        "daemon", "serve", ...optionArgs
+      ], { encoding: "utf8", env: cliTestEnv(env) });
+      assert.notEqual(serve.status, 0, JSON.stringify({ optionArgs, stdout: serve.stdout, stderr: serve.stderr }));
+      assert.match(serve.stderr, /requires a non-empty, non-flag path value/u);
+
+      const start = runRawJsonMaybeFail(fixture.repoRoot, ["daemon", "start", "--service", ...optionArgs], env);
+      assert.notEqual(start.status, 0, JSON.stringify({ optionArgs, receipt: start.receipt }));
+      assert.match(JSON.stringify(start.receipt), /requires a non-empty, non-flag path value/u);
+    }
+    for (const mode of ["--service", "--foreground"]) {
+      const authored = runRawJsonMaybeFail(fixture.repoRoot, [
+        "daemon", "start", mode, "--authored-root", "--json"
+      ], env);
+      assert.notEqual(authored.status, 0, JSON.stringify(authored.receipt));
+      assert.match(JSON.stringify(authored.receipt), /--authored-root requires a non-empty path value/u);
+    }
+    assert.deepEqual(daemonLaunchSpecFiles(fixture.root), []);
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 async function readRunningLaunchSpec(
   rootDir: string,
   userRoot: string
@@ -227,6 +304,25 @@ function launchSpecArgs(receipt: Record<string, unknown>): ReadonlyArray<string>
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function runDaemonJsonFromCwd(
+  cwd: string,
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>>
+): Record<string, unknown> {
+  const result = spawnSync(process.execPath, [
+    path.resolve("packages/cli/src/index.ts"), "--root", rootDir, "--json", ...args
+  ], { cwd, encoding: "utf8", env: cliTestEnv(env) });
+  assert.equal(result.stderr, "", result.stderr);
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+function daemonLaunchSpecFiles(rootDir: string): ReadonlyArray<string> {
+  if (!existsSync(rootDir)) return [];
+  return readdirSync(rootDir, { recursive: true })
+    .filter((entry) => path.basename(entry).startsWith("daemon-launch-spec."));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

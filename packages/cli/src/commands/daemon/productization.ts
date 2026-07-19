@@ -21,47 +21,23 @@ import { runDaemonLogsCommand } from "./logs.ts";
 import { runDaemonRepoCommand } from "./repo-registry.ts";
 import {
   runDaemonControl,
-  type DaemonControlKind,
-  type DaemonControlLifecycle,
-  type DaemonControlRequest
+  type DaemonControlKind
 } from "./control.ts";
-import type { AuthorityRepoLifecycleController } from "../../daemon/authority-lifecycle.ts";
 import { observeDaemonLifecycle } from "../../daemon/daemon-lifecycle.ts";
 import { makeDaemonLogFileStore } from "../../daemon/daemon-log-file-store.ts";
 import { makeDaemonLogService } from "../../../../application/src/index.ts";
-import {
-  prepareDaemonServiceLaunch,
-  resolveAuthorityManifestOption
-} from "../../daemon/daemon-service-launch.ts";
+import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.ts";
+import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
+import type { DaemonCommandInput } from "./command-types.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
+export type { DaemonCommandInput, DaemonServeHooks } from "./command-types.ts";
 
 export {
   daemonStatusPayload,
   type DaemonConnectionStats,
   type DaemonStatusRuntimeRepo
 } from "./status-payload.ts";
-
-export interface DaemonCommandInput {
-  readonly rootDir: string;
-  readonly layoutOverrides?: { readonly authoredRoot?: string };
-  readonly json: boolean;
-  readonly args: ReadonlyArray<string>;
-  readonly runServe: (
-    rootDir: string,
-    layoutOverrides: { readonly authoredRoot?: string } | undefined,
-    args: ReadonlyArray<string>,
-    hooks?: DaemonServeHooks
-  ) => Promise<void>;
-  readonly requestDaemonControl?: (request: DaemonControlRequest) => Promise<Record<string, unknown>>;
-  readonly daemonControlLifecycle?: DaemonControlLifecycle;
-}
-
-export interface DaemonServeHooks {
-  readonly onStarted?: (status: Record<string, unknown>) => void;
-  /** Production/test composition point; absent until S supplies all authority inputs. */
-  readonly authorityLifecycle?: AuthorityRepoLifecycleController;
-}
 
 export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly authoredRoot?: string } | undefined, endpoint?: string, userRoot?: string) {
   const runtimeContext = createHarnessRuntimeContext(rootDir, layoutOverrides);
@@ -120,33 +96,34 @@ async function controlDaemon(input: DaemonCommandInput, kind: DaemonControlKind)
 }
 
 async function startDaemon(input: DaemonCommandInput): Promise<number> {
+  const launchOptions = input.launchOptions ?? parseDaemonLaunchArgv(input.rawArgs ?? input.args);
+  const layoutOverrides = launchOptions.authoredRoot ? { authoredRoot: launchOptions.authoredRoot } : undefined;
   const foreground = input.args.includes("--foreground");
   const service = input.args.includes("--service") || !foreground;
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
-    userRoot: readOption(input.args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT,
+    userRoot: launchOptions.userRoot,
     autoRegisterSingleRepo: true
   });
-  const socketPath = readOption(input.args, "--socket") ?? target.socketPath;
-  const authorityManifest = resolveAuthorityManifestOption(input.args);
+  const socketPath = launchOptions.socketPath ?? target.socketPath;
+  const authorityManifest = launchOptions.authorityManifest;
   if (foreground) {
-    await input.runServe(target.canonicalRoot, input.layoutOverrides, [
+    await input.runServe(target.canonicalRoot, layoutOverrides, [
       "daemon", "serve", "--repo", target.repoId, "--socket", socketPath,
       "--user-root", target.userRoot, "--idle-ms", "0",
       ...(authorityManifest ? ["--authority-manifest", authorityManifest] : [])
     ], {
       onStarted: (status) => emitDaemonResult("daemon-start", { ...status, mode: "foreground" }, input.json)
-    });
+    }, { ...launchOptions, socketPath, userRoot: target.userRoot, optionsResolved: false });
     return 0;
   }
   if (service) {
     const launchConfiguration = await prepareDaemonServiceLaunch({
-      ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {}),
-      args: input.args,
+      ...(layoutOverrides ? { layoutOverrides } : {}),
       target,
       socketPath,
-      ...(authorityManifest ? { authorityManifest } : {}),
+      launchOptions: { ...launchOptions, socketPath, userRoot: target.userRoot, optionsResolved: false },
       entrypoint: productizationCliEntrypointPath()
     });
     const child = spawn(launchConfiguration.execPath, [

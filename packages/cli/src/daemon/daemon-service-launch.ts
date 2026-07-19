@@ -1,35 +1,26 @@
 import type { LocalDaemonTarget } from "./client.ts";
-import { readOption } from "../cli/parse-options.ts";
 import {
-  assertValidDaemonLaunchArgv,
+  daemonLaunchOptionsResolvedFlag,
   DaemonLaunchPreflightError,
   preflightDaemonLaunch,
   resolveDaemonLaunchSpec,
-  type DaemonLaunchConfiguration
+  type DaemonLaunchConfiguration,
+  type ParsedDaemonLaunchArgv
 } from "./daemon-launch-spec.ts";
-
-export function resolveAuthorityManifestOption(
-  args: ReadonlyArray<string>,
-  env: NodeJS.ProcessEnv = process.env
-): string | undefined {
-  assertValidDaemonLaunchArgv(args);
-  const environmentValue = env.HARNESS_AUTHORITY_MANIFEST?.trim();
-  return readOption(args, "--authority-manifest") ?? (environmentValue ? environmentValue : undefined);
-}
 
 export async function prepareDaemonServiceLaunch(input: {
   readonly layoutOverrides?: { readonly authoredRoot?: string };
-  readonly args: ReadonlyArray<string>;
   readonly target: LocalDaemonTarget;
   readonly socketPath: string;
-  readonly authorityManifest?: string;
+  readonly launchOptions: ParsedDaemonLaunchArgv;
   readonly entrypoint: string;
 }): Promise<DaemonLaunchConfiguration> {
-  assertValidDaemonLaunchArgv(input.args);
-  const restored = resolveDaemonLaunchSpec(input.target.userRoot, input.socketPath, {
-    authorityManifest: input.authorityManifest,
-    authoredRoot: input.layoutOverrides?.authoredRoot
-  }).options;
+  const explicit = {
+    ...(input.launchOptions.authorityManifest ? { authorityManifest: input.launchOptions.authorityManifest } : {}),
+    ...(input.launchOptions.authoredRoot ? { authoredRoot: input.launchOptions.authoredRoot } : {})
+  };
+  const resolution = resolveDaemonLaunchSpec(input.target.userRoot, input.socketPath, explicit);
+  const restored = resolution.options;
   const launchConfiguration = currentDaemonServiceLaunchConfiguration({
     ...input,
     authorityManifest: restored.authorityManifest,
@@ -79,7 +70,8 @@ function currentDaemonServiceLaunchConfiguration(input: {
       input.target.userRoot,
       "--idle-ms",
       "0",
-      ...(input.authorityManifest !== undefined ? ["--authority-manifest", input.authorityManifest] : [])
+      ...(input.authorityManifest !== undefined ? ["--authority-manifest", input.authorityManifest] : []),
+      daemonLaunchOptionsResolvedFlag
     ]
   };
 }
