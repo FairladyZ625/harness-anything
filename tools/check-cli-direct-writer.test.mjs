@@ -29,3 +29,25 @@ test("CLI direct-writer gate reports a newly introduced coordinator sink at file
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("CLI direct-writer gate reports closeSync through the shared fs write API criterion", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-cli-direct-writer-close-"));
+  try {
+    const sourceDir = path.join(root, "packages/cli/src");
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(path.join(sourceDir, "close-writer.ts"), [
+      'import { closeSync } from "node:fs";',
+      "export function closeNow(fd: number) {",
+      "  closeSync(fd);",
+      "}",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = spawnSync(process.execPath, [checkerPath, "--root", root], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/cli\/src\/close-writer\.ts:3:\d+ \[canonical-fs\] closeSync/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

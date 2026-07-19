@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { fsWriteApis } from "./fs-write-apis.mjs";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const targetRoots = [
@@ -10,13 +11,6 @@ const targetRoots = [
   "packages/adapters/local/src",
   "packages/cli/src/commands"
 ];
-
-const fsWriteApis = new Set([
-  "appendFile", "appendFileSync", "closeSync", "copyFile", "copyFileSync", "cp", "cpSync",
-  "fsyncSync", "mkdir", "mkdirSync", "open", "openSync", "rename", "renameSync", "rm",
-  "rmSync", "rmdir", "rmdirSync", "symlink", "symlinkSync", "truncate", "truncateSync",
-  "unlink", "unlinkSync", "write", "writeFile", "writeFileSync", "writeSync"
-]);
 
 export function scanBypassWriteCalls(root = process.cwd()) {
   return targetRoots.flatMap((relRoot) => walkTypeScriptFiles(root, relRoot)).flatMap((rel) => inspectFile(root, rel));

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { fsWriteApis } from "./fs-write-apis.mjs";
 
 const sourceRoots = ["packages/cli/src"];
 const directConsumerRoots = ["packages/cli/src", "packages/cli/test", "tools"];
@@ -10,11 +11,6 @@ const coordinatorFactories = new Set([
   "makeJournaledWriteCoordinator",
   "makeLocalWriteCoordinator",
   "makeOperationalJournaledWriteCoordinator"
-]);
-const fsWriteApis = new Set([
-  "appendFile", "appendFileSync", "copyFile", "copyFileSync", "cp", "cpSync", "mkdir", "mkdirSync",
-  "open", "openSync", "rename", "renameSync", "rm", "rmSync", "rmdir", "rmdirSync", "symlink",
-  "symlinkSync", "truncate", "truncateSync", "unlink", "unlinkSync", "write", "writeFile", "writeFileSync"
 ]);
 const declaredNoncanonicalPathClasses = new Set([
   "admin-bootstrap",
