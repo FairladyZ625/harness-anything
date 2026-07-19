@@ -104,7 +104,7 @@ export function resolveLedgerRoot(repoRoot) {
 function inspectSelfHostedLayout(repoRoot) {
   const configPath = path.join(repoRoot, "harness", "harness.yaml");
   if (!existsSync(configPath)) {
-    return { status: "not-self-hosted", reason: `checkout does not declare ${path.join("harness", "harness.yaml")}` };
+    return { status: "not-self-hosted", reason: "checkout does not declare harness/harness.yaml" };
   }
   try {
     if (!statSync(configPath).isFile()) {
