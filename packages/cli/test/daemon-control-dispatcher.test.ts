@@ -261,6 +261,7 @@ test("refresh rejects and cleans up a replacement that loaded an old identity", 
   assert.equal(exitCode, 1);
   assert.deepEqual(stoppedPids, [84]);
   assert.match(controlErrorHint(receipt), /loaded identity did not converge on the installed identity/u);
+  assert.match(controlErrorHint(receipt), /stopped and endpoint remained unowned$/u);
 });
 
 test("refresh rejects and cleans up a replacement that retains the accepted operation", async () => {
@@ -274,7 +275,7 @@ test("refresh rejects and cleans up a replacement that retains the accepted oper
   };
   const lifecycle = {
     target: controlTarget,
-    probeStatus: async () => undefined,
+    probeStatus: async () => status,
     ownerIsAlive: () => false,
     startReplacement: async () => status,
     stopReplacement: async (_target: typeof controlTarget, pid: number) => {
@@ -288,6 +289,50 @@ test("refresh rejects and cleans up a replacement that retains the accepted oper
   assert.equal(exitCode, 1);
   assert.deepEqual(stoppedPids, [84]);
   assert.match(controlErrorHint(receipt), /did not clear the accepted control operation/u);
+});
+
+test("refresh reports cleanup unavailable separately from a replacement that was stopped", async () => {
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => undefined,
+    ownerIsAlive: () => false,
+    startReplacement: async () => v2DaemonStatus(
+      84,
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ),
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh");
+
+  assert.equal(exitCode, 1);
+  assert.match(controlErrorHint(receipt), /cleanup unavailable; replacement may still be serving$/u);
+  assert.doesNotMatch(controlErrorHint(receipt), /was stopped/u);
+});
+
+test("refresh reports a SIGTERM timeout cleanup failure as possibly still serving", async () => {
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => undefined,
+    ownerIsAlive: () => false,
+    startReplacement: async () => v2DaemonStatus(
+      84,
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ),
+    stopReplacement: async () => {
+      throw new Error("SIGTERM timed out; SIGKILL failed");
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh");
+
+  assert.equal(exitCode, 1);
+  assert.match(controlErrorHint(receipt), /cleanup failed and replacement may still be serving: SIGTERM timed out; SIGKILL failed$/u);
+  assert.doesNotMatch(controlErrorHint(receipt), /cleanup unavailable/u);
+  assert.doesNotMatch(controlErrorHint(receipt), /was stopped/u);
 });
 
 test("daemon control rejects and cleans up v1 supervisor status that cannot prove replacement convergence", async () => {
@@ -485,17 +530,22 @@ test("refresh rejects a pre-launch-spec daemon before sending control and leaves
 });
 
 test("daemon control fails when the replacement PID does not change", async () => {
+  const stoppedPids: number[] = [];
   const lifecycle = {
     target: controlTarget,
     probeStatus: async () => undefined,
     ownerIsAlive: () => false,
     startReplacement: async () => v2DaemonStatus(42),
+    stopReplacement: async (_target: typeof controlTarget, pid: number) => {
+      stoppedPids.push(pid);
+    },
     wait: async () => undefined
   } satisfies DaemonControlLifecycle;
 
   const { exitCode, receipt } = await runCapturedControl(lifecycle);
 
   assert.equal(exitCode, 1);
+  assert.deepEqual(stoppedPids, []);
   assert.match(controlErrorHint(receipt), /replacement PID did not change/u);
 });
 
@@ -596,7 +646,8 @@ function controlErrorHint(receipt: Record<string, unknown>): string {
 function v2DaemonStatus(
   pid: number,
   loadedIdentity = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  installedIdentity = loadedIdentity
+  installedIdentity = loadedIdentity,
+  activeOperationId?: string
 ): Record<string, unknown> {
   return {
     schema: "daemon-status/v2",
@@ -604,7 +655,12 @@ function v2DaemonStatus(
       started: true,
       pid,
       build: { loadedIdentity, installedIdentity },
-      activeControl: null
+      activeControl: activeOperationId ? {
+        operationId: activeOperationId,
+        kind: "refresh",
+        phase: "replacing",
+        requestedAt: "2026-07-20T12:00:00.000Z"
+      } : null
     }
   };
 }
