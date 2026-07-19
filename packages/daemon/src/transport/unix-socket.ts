@@ -57,6 +57,13 @@ export interface UnixSocketTransportServer {
   readonly stop: () => Promise<void>;
 }
 
+class UnsafeUnixSocketDirectoryError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "UnsafeUnixSocketDirectoryError";
+  }
+}
+
 export function defaultUnixSocketPath(
   daemonId: string,
   options: UnixSocketPathOptions | number = {}
@@ -109,7 +116,7 @@ export function ensurePrivateUnixSocketDirectory(directory: string, uid = proces
       throw privateDirectoryError(directory, uid, ownerUid, mode, undefined, "not a real directory");
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Unsafe daemon socket directory")) throw error;
+    if (error instanceof UnsafeUnixSocketDirectoryError) throw error;
     throw privateDirectoryError(directory, uid, undefined, undefined, error);
   }
 
@@ -390,5 +397,5 @@ function privateDirectoryError(
     `Unsafe daemon socket directory ${JSON.stringify(directory)} (${observed}); expected a real directory owned by uid ${expectedUid} with mode 0700.`,
     "Set XDG_RUNTIME_DIR or TMPDIR to a private per-user runtime directory."
   ].join(" ");
-  return new Error(message, cause === undefined ? undefined : { cause });
+  return new UnsafeUnixSocketDirectoryError(message, cause);
 }
