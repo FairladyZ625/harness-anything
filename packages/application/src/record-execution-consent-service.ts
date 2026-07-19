@@ -11,7 +11,7 @@ import {
   type HarnessLayoutInput,
   type TaskHolderPrincipal,
   type WriteCoordinator
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { assertExecutionTaskInReview } from "./execution-review-helpers.ts";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,

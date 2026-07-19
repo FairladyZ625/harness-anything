@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { EngineError, ExternalRef, TaskSnapshot } from "../../../kernel/src/index.ts";
+import type { EngineError, ExternalRef, TaskSnapshot } from "@harness-anything/kernel";
 import { makeGithubCredentialResolver } from "./auth.ts";
 import { decodeGithubIssue, decodeGithubIssueList } from "./codec.ts";
 import { mapGithubIssue } from "./mapper.ts";

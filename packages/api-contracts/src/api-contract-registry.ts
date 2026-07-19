@@ -1,4 +1,4 @@
-import { taskWriteApiRoutePolicies } from "../../application/src/index.ts";
+import { taskWriteApiRoutePolicies } from "@harness-anything/application";
 import type { ApiRouteContract, ApiSchemaContract, DeferredGuiBridgeContract, TerminalGuiBridgeContract } from "./api-contract-types.ts";
 export type { ApiRouteAuth, ApiRouteContract, ApiRouteMethod, ApiSchemaContract, ApiServiceMethod, ApiServiceName, DeferredGuiBridgeContract, TerminalGuiBridgeContract } from "./api-contract-types.ts";
 

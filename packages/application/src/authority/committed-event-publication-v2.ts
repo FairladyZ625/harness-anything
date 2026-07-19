@@ -1,7 +1,7 @@
 import {
   decodeAndVerifyAttributionEventV2,
   type ActorAxesBindingCoreV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { VerifiedActorAxesBindingV2 } from "./actor-axes-binding-v2.ts";
 import type {
   AuthorityCommittedEventPublisherV2,

@@ -21,11 +21,11 @@ import {
   type WriteAttribution,
   type WriteError,
   type WriteOpKind
-} from "../../kernel/src/index.ts";
-import type { DocumentWrite } from "../../kernel/src/index.ts";
-import { readUnionAttributionEvents } from "../../kernel/src/index.ts";
-import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/index.ts";
-import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
+} from "@harness-anything/kernel";
+import type { DocumentWrite } from "@harness-anything/kernel";
+import { readUnionAttributionEvents } from "@harness-anything/kernel";
+import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
+import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "@harness-anything/kernel/write-coordination/write-helpers";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 import type { ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";
 

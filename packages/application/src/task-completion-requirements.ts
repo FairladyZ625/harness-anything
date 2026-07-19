@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { ArtifactStore, TaskId } from "../../kernel/src/index.ts";
+import type { ArtifactStore, TaskId } from "@harness-anything/kernel";
 import type { ExecutionCompletionReadiness } from "./execution-completion-service.ts";
 import { isCloseoutPlaceholderMarkdown } from "./task-lifecycle-gates.ts";
 import type { evaluateCompletionGate, TaskDocumentPlaceholderPolicy } from "./task-lifecycle-gates.ts";

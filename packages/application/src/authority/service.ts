@@ -5,7 +5,7 @@ import {
   daemonAdmissionBytes,
   type AuthorityOperationIntegrity,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   AuthorityIndeterminateReceipt,
   AuthorityCommittedEventPublisherV2,

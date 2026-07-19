@@ -16,7 +16,7 @@ export type {
   PresetUninstallTarget,
   PresetUninstallTaskReference
 } from "./preset-uninstall-impact.ts";
-export { readModuleAttributionProjection } from "../../kernel/src/index.ts";
+export { readModuleAttributionProjection } from "@harness-anything/kernel";
 export {
   authorityProtocolTuple,
   canonicalAuthorityRequestDigest,
@@ -192,7 +192,7 @@ export {
   taskHolderActor,
   taskHolderExecutorFromJournalActor,
   taskHolderPrincipalFromActor
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { readSessionEntity } from "./session-entity-reader.ts";
 export type { SessionEntityReadResult } from "./session-entity-reader.ts";
@@ -240,10 +240,10 @@ export type {
   TaskHolderService,
   TaskHolderServiceOptions,
   TaskHolderSnapshot
-} from "../../kernel/src/index.ts";
-export { executionDeclaration, executionStates, resolveEntityDocumentPath } from "../../kernel/src/index.ts";
-export { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
-export type { ExecutionRecord, ExecutionState } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+export { executionDeclaration, executionStates, resolveEntityDocumentPath } from "@harness-anything/kernel";
+export { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "@harness-anything/kernel";
+export type { ExecutionRecord, ExecutionState } from "@harness-anything/kernel";
 export type {
   ProvenanceSessionBackfillOptions,
   ProvenanceSessionBackfillResult,

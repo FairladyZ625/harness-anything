@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { EngineError, LifecycleEngine, TaskListFilter } from "../../../kernel/src/index.ts";
+import type { EngineError, LifecycleEngine, TaskListFilter } from "@harness-anything/kernel";
 
 export interface GithubRepositoryRef {
   readonly owner: string;

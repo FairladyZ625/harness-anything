@@ -13,7 +13,7 @@ import {
   type RegistryMutationPlanInput,
   type ReviewRecord,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   assertConsentActions,
   consentSnapshot,

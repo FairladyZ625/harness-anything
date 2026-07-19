@@ -19,9 +19,10 @@ export function loadPackageBoundaryContract(root) {
     }
   }
   for (const entry of contract.deepSubpaths ?? []) {
-    if (!entry.package || !entry.subpath || !entry.owner || !entry.sunset) {
-      throw new Error("every deep subpath registration requires package, subpath, owner, and sunset");
+    if (!entry.package || !entry.subpath || !entry.target || !entry.owner || !entry.sunset) {
+      throw new Error("every deep subpath registration requires package, subpath, target, owner, and sunset");
     }
+    if (!ids.has(entry.package)) throw new Error(`deep subpath references unknown package id: ${entry.package}`);
   }
   return contract;
 }

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { Effect } from "effect";
-import type { EngineError } from "../../../kernel/src/index.ts";
+import type { EngineError } from "@harness-anything/kernel";
 import type {
   GithubCredentialResolver,
   GithubSubprocessError,

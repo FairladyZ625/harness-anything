@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { CurrentSessionProbePort, ProvenancePayload } from "../../kernel/src/index.ts";
+import type { CurrentSessionProbePort, ProvenancePayload } from "@harness-anything/kernel";
 import { currentSessionToProvenancePayload } from "./current-session-probe.ts";
 import type { ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult } from "./provenance-session-exporter.ts";
 

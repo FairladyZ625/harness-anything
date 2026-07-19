@@ -37,7 +37,7 @@ test("package boundary contract requires owner and sunset for every deep subpath
       packages: { a: { name: "@fixture/a", root: "packages/a", allowedDependencies: [] } },
       deepSubpaths: [{ package: "a", subpath: "./internal" }]
     });
-    assert.throws(() => checkPackageBoundaryContract(root), /requires package, subpath, owner, and sunset/);
+    assert.throws(() => checkPackageBoundaryContract(root), /requires package, subpath, target, owner, and sunset/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

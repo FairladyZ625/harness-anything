@@ -1,4 +1,4 @@
-import type { Subscription } from "../../api-contracts/src/daemon-protocol.ts";
+import type { Subscription } from "@harness-anything/api-contracts/daemon-protocol";
 import { PersistentDaemonClient, type PersistentDaemonClientOptions } from "./persistent-daemon-client.ts";
 
 export interface PooledRepoConnection {

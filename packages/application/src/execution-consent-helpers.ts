@@ -11,7 +11,7 @@ import {
   type ConsentSource,
   type ExecutionRecord,
   type TaskHolderPrincipal
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 // The content pin is the primary invalidator: any Execution change breaks consent immediately.
 // This TTL is only the independent upper bound on how fresh an otherwise matching consent may be.

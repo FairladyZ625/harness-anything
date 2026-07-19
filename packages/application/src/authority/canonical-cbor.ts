@@ -3,5 +3,5 @@ export {
   decodeCanonicalCbor,
   domainHash,
   encodeCanonicalCbor
-} from "../../../kernel/src/index.ts";
-export type { CanonicalCborValue } from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+export type { CanonicalCborValue } from "@harness-anything/kernel";

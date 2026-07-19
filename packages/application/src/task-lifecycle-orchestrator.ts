@@ -1,8 +1,8 @@
 import { Effect } from "effect";
-import type { ArtifactStore, DomainStatus, EngineError, TaskHolderPrincipal, TaskId, VersionControlSystem, WriteError } from "../../kernel/src/index.ts";
-import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout } from "../../kernel/src/index.ts";
-import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
-import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
+import type { ArtifactStore, DomainStatus, EngineError, TaskHolderPrincipal, TaskId, VersionControlSystem, WriteError } from "@harness-anything/kernel";
+import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout } from "@harness-anything/kernel";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
+import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";

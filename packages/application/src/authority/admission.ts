@@ -1,4 +1,4 @@
-import { stablePayloadHash, type DaemonAdmissionBudget } from "../../../kernel/src/index.ts";
+import { stablePayloadHash, type DaemonAdmissionBudget } from "@harness-anything/kernel";
 import type { AuthorityOperationEnvelope, AuthorityOperationReceipt } from "./types.ts";
 
 export function canonicalAuthorityRequestDigest(envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId" | "command" | "operation" | "protocol">): string {

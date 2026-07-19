@@ -18,7 +18,7 @@ import {
   type ReviewVerdict,
   type TaskHolderPrincipal,
   type WriteCoordinator
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { assertExecutionTaskReviewable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,

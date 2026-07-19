@@ -7,7 +7,7 @@ import {
   type AttributionProjectionRow,
   type AttributionEventV2,
   type PhysicalChangeV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AuthorityCommittedReceipt } from "./types.ts";
 
 export interface CommittedAttributionEventV2Input {

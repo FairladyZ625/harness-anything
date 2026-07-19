@@ -5,7 +5,7 @@ import type {
   WriteAttribution,
   WriteCoordinator,
   WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AuthorizedOperationAttemptV2 } from "./semantic-mutation-envelope-v2.ts";
 import type { ProtocolSchemaTupleV2 } from "./actor-axes-binding-v2.ts";
 

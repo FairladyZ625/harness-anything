@@ -13,8 +13,8 @@ import {
   type RuntimeEventRecordV2,
   type RuntimeEventRuntime,
   type RuntimeEventResultStatus
-} from "../../kernel/src/index.ts";
-import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, type EntityId, type HarnessLayoutInput, type WriteCoordinator, type WriteError, type WriteOpKind } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, type EntityId, type HarnessLayoutInput, type WriteCoordinator, type WriteError, type WriteOpKind } from "@harness-anything/kernel";
 import { isNodeErrorCode } from "./node-errors.ts";
 import { isRecord } from "./record.ts";
 

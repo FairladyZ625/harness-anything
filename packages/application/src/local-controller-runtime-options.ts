@@ -4,7 +4,7 @@ import type {
   EngineError,
   HarnessLayoutOverrides,
   WriteError
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AgentRuntimeControlService } from "./agent-runtime-control.ts";
 import type { AgentHolderProjectionService } from "./agent-holder-projection.ts";
 import type {

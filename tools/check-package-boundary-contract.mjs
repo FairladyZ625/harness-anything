@@ -23,6 +23,17 @@ export function checkPackageBoundaryContract(root) {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     if (manifest.name !== pkg.name) findings.push(`${pkg.root}/package.json name must be ${pkg.name}`);
     if (!hasRootExport(manifest.exports)) findings.push(`${pkg.root}/package.json must export package root "."`);
+    const registeredSubpaths = new Map((contract.deepSubpaths ?? [])
+      .filter((entry) => entry.package === pkg.id)
+      .map((entry) => [entry.subpath, entry.target]));
+    for (const [subpath, target] of registeredSubpaths) {
+      if (manifest.exports?.[subpath] !== target) {
+        findings.push(`${pkg.root}/package.json must export registered subpath ${subpath} as ${target}`);
+      }
+    }
+    for (const subpath of Object.keys(manifest.exports ?? {}).filter((key) => key !== ".")) {
+      if (!registeredSubpaths.has(subpath)) findings.push(`${pkg.root}/package.json exports unregistered deep subpath ${subpath}`);
+    }
   }
 
   for (const file of productionSourceFiles(root, contract)) {

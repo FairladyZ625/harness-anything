@@ -1,5 +1,5 @@
 import type { CanonicalCborValue } from "./canonical-cbor.ts";
-import { entityRegistry, entityRegistryKinds } from "../../../kernel/src/index.ts";
+import { entityRegistry, entityRegistryKinds } from "@harness-anything/kernel";
 import {
   cutoverContractCborDigest,
   type AuthorityCutoverEntityKind,

@@ -1,5 +1,5 @@
-import type { DomainStatus } from "../../kernel/src/index.ts";
-import { isDomainStatus, normalizeRelativeDocumentPath, validateTaskIdSyntax } from "../../kernel/src/index.ts";
+import type { DomainStatus } from "@harness-anything/kernel";
+import { isDomainStatus, normalizeRelativeDocumentPath, validateTaskIdSyntax } from "@harness-anything/kernel";
 import type { LocalControllerFailure } from "./index.ts";
 import { isRecord } from "./record.ts";
 

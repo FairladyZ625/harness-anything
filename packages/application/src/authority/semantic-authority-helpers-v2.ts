@@ -5,7 +5,7 @@ import {
   type SemanticDiffCandidateTree,
   type SemanticDiffDocumentPolicy,
   type SemanticDiffMutationIntent
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   SemanticAdmissionErrorV2,
   bytesEqual,

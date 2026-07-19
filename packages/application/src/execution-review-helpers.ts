@@ -1,4 +1,4 @@
-import type { ExecutionRecord } from "../../kernel/src/index.ts";
+import type { ExecutionRecord } from "@harness-anything/kernel";
 
 export function assertExecutionTaskInReview(
   documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,

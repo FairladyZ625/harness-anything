@@ -3,7 +3,7 @@ import {
   DecisionPackageSchema,
   type DecisionPackage,
   type EntityRelationRecord
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalPayloadDigestV2, decodeRelationV2 } from "./fact-relation-command-v2.ts";
 import {
   bytesEqual,

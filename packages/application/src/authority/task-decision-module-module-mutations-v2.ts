@@ -1,4 +1,4 @@
-import { moduleEntityId } from "../../../kernel/src/index.ts";
+import { moduleEntityId } from "@harness-anything/kernel";
 import type { ModuleRecordV2, ModuleRegisterPayloadV2, ModuleStepPayloadV2, ModuleUnregisterPayloadV2 } from "./task-decision-module-command-v2.ts";
 import type { CompiledTaskDecisionModuleCommandV2, TaskDecisionModuleAuthorityStateV2 } from "./task-decision-module-semantic-compiler-v2.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";

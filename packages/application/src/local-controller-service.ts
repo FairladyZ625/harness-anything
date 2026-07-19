@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, HarnessLayout, WriteError } from "@harness-anything/kernel";
 import {
   queryExecutionEvidencePage,
   queryDecisionProjection,
@@ -13,7 +13,7 @@ import {
   readTaskProjection,
   readTriadicProjectionSnapshot,
   resolveHarnessLayout
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   readPeripheralDocumentPayload,
   readTaskDocumentPayload,

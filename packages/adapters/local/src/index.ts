@@ -2,19 +2,19 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, ProvenancePayload, TaskContractSnapshot, WriteError } from "../../../kernel/src/index.ts";
-import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/index.ts";
-import { evaluateEntityDisposition } from "../../../kernel/src/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "../../../kernel/src/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { EngineError, ProvenancePayload, TaskContractSnapshot, WriteError } from "@harness-anything/kernel";
+import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
+import { evaluateEntityDisposition } from "@harness-anything/kernel";
+import { stablePayloadHash } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "@harness-anything/kernel";
+import type { WriteCoordinator } from "@harness-anything/kernel";
 import {
   createDaemonRuntime as createKernelDaemonRuntime,
   createMultiRepoDaemonRuntime as createKernelMultiRepoDaemonRuntime,
   makeJournaledWriteCoordinator,
   runLedgerMaterializer
-} from "../../../kernel/src/store/index.ts";
+} from "@harness-anything/kernel/store/index";
 import { makeLocalProjectionSourceFenceReader } from "./projection-source-fence.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";

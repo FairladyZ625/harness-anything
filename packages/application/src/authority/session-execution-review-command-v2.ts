@@ -6,7 +6,7 @@ import {
   type ExecutionRecord,
   type ReviewRecord,
   type SessionManifest
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalPayloadDigestV2 } from "./fact-relation-command-v2.ts";
 import {
   bytesEqual,

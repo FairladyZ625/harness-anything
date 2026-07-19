@@ -2,7 +2,7 @@ import {
   canonicalCborBytesEqual,
   type makeLocalAuthorityAttributionEventV2Log,
   type PhysicalChangeV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { materializeCommittedAttributionEventV2 } from "./committed-attribution-event-v2.ts";
 import type { AuthorityCommittedEventPublisherV2 } from "./types.ts";
 

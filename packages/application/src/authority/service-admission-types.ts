@@ -3,7 +3,7 @@ import type {
   AuthorityOperationIntegrity,
   WriteCoordinator,
   WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AuthorityOperationReceipt, RecordedAuthorityProtocol } from "./types.ts";
 
 export const authorityPublicationBatchSize = 8;

@@ -23,7 +23,7 @@ import {
   type RegistryMutationPlanInput,
   type WriteOp,
   type WriteOpKind
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { Schema } from "effect";
 import {
   decodeTaskDecisionModuleCommandPayloadV2,

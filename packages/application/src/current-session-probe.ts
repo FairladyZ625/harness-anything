@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, ProvenancePayload } from "../../kernel/src/index.ts";
+import type { CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, ProvenancePayload } from "@harness-anything/kernel";
 
 export interface HumanFallbackSessionProbeOptions {
   readonly now?: () => string;

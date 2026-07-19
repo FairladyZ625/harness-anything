@@ -1,4 +1,4 @@
-import type { RuntimeCapabilityName, RuntimeProcessWitness } from "../../kernel/src/index.ts";
+import type { RuntimeCapabilityName, RuntimeProcessWitness } from "@harness-anything/kernel";
 
 export type RuntimeAuthenticationConfigurationState = "configured" | "not-configured" | "invalid";
 

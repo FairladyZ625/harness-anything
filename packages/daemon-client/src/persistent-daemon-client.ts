@@ -8,7 +8,7 @@ import type {
   Output,
   ProjectionChangeNotification,
   Subscription
-} from "../../api-contracts/src/daemon-protocol.ts";
+} from "@harness-anything/api-contracts/daemon-protocol";
 import { JsonRpcWriter } from "./json-rpc-writer.ts";
 import type { JsonRpcConnection, PersistentTransport } from "./transport.ts";
 

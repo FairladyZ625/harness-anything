@@ -10,7 +10,7 @@ import {
   actorAxesBindingCoreV2Domain,
   type WriteAttribution,
   type ProtocolSchemaTupleV2Core
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   canonicalCborBytesEqual,
   decodeCanonicalCbor,
