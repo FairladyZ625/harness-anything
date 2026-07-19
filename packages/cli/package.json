@@ -36,6 +36,12 @@
     "package.json"
   ],
   "dependencies": {
+    "@harness-anything/adapter-github-issues": "0.1.0",
+    "@harness-anything/adapter-local": "0.1.0",
+    "@harness-anything/adapter-multica": "0.1.0",
+    "@harness-anything/application": "0.1.0",
+    "@harness-anything/daemon": "0.1.0",
+    "@harness-anything/kernel": "0.1.0",
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
     "@effect/sql": "0.51.1",

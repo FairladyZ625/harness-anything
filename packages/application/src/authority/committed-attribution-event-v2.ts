@@ -4,6 +4,7 @@ import {
   materializeAttributionProjectionFromEvents,
   physicalChangeSetDigestV2,
   type ActorAxesBindingCoreV2,
+  type AttributionProjectionRow,
   type AttributionEventV2,
   type PhysicalChangeV2
 } from "../../../kernel/src/index.ts";
@@ -54,7 +55,7 @@ export function materializeCommittedAttributionEventV2(
 export function materializeCommittedAttributionProjectionV2(
   projectionPath: string,
   events: ReadonlyArray<AttributionEventV2>
-) {
+): ReadonlyArray<AttributionProjectionRow> {
   return materializeAttributionProjectionFromEvents(projectionPath, events);
 }
 

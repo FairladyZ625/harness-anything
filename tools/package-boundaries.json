@@ -1,0 +1,22 @@
+{
+  "schema": "harness-anything/package-boundaries/v1",
+  "packages": {
+    "kernel": { "name": "@harness-anything/kernel", "root": "packages/kernel", "allowedDependencies": [] },
+    "application": { "name": "@harness-anything/application", "root": "packages/application", "allowedDependencies": ["kernel"] },
+    "api-contracts": { "name": "@harness-anything/api-contracts", "root": "packages/api-contracts", "allowedDependencies": ["application"] },
+    "daemon-client": { "name": "@harness-anything/daemon-client", "root": "packages/daemon-client", "allowedDependencies": ["api-contracts"] },
+    "adapter-local": { "name": "@harness-anything/adapter-local", "root": "packages/adapters/local", "allowedDependencies": ["kernel"] },
+    "adapter-github-issues": { "name": "@harness-anything/adapter-github-issues", "root": "packages/adapters/github-issues", "allowedDependencies": ["kernel"] },
+    "adapter-multica": { "name": "@harness-anything/adapter-multica", "root": "packages/adapters/multica", "allowedDependencies": ["kernel"] },
+    "adapter-linear": { "name": "@harness-anything/adapter-linear", "root": "packages/adapters/linear", "allowedDependencies": ["kernel"] },
+    "daemon": { "name": "@harness-anything/daemon", "root": "packages/daemon", "allowedDependencies": ["api-contracts", "application", "kernel", "adapter-local"] },
+    "cli": {
+      "name": "@harness-anything/cli",
+      "root": "packages/cli",
+      "allowedDependencies": ["daemon", "daemon-client", "application", "kernel", "adapter-local", "adapter-github-issues", "adapter-multica"]
+    },
+    "gui": { "name": "@harness-anything/gui", "root": "packages/gui", "allowedDependencies": ["api-contracts", "daemon-client"] },
+    "vscode-ext": { "name": "harness-anything-vscode", "root": "packages/vscode-ext", "allowedDependencies": ["api-contracts", "daemon-client"] }
+  },
+  "deepSubpaths": []
+}
