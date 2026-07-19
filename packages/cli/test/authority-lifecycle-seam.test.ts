@@ -157,9 +157,34 @@ test("lifecycle-daemon-shutdown stops accept, drains every repo component, then 
       path.join(serviceRoot, "daemon.sock"),
       { active: 2, total: 2 },
       serviceRoot,
-      { entrypoint: path.resolve("packages/cli/src/index.ts"), loadedIdentity: `sha256:${"0".repeat(64)}`, startedAt: "2026-07-16T00:00:00.000Z" },
+      {
+        entrypoint: path.resolve("packages/cli/src/index.ts"),
+        loadedIdentity: `sha256:${"0".repeat(64)}`,
+        startedAt: "2026-07-16T00:00:00.000Z",
+        launchConfiguration: {
+          execPath: process.execPath,
+          execArgv: [],
+          entrypoint: path.resolve("packages/cli/src/index.ts"),
+          args: ["--root", alphaRoot, "daemon", "serve"]
+        },
+        preflightReplacement: async (configuration) => {
+          assert.deepEqual(configuration.args, ["--root", alphaRoot, "daemon", "serve"]);
+          throw new Error("AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE");
+        }
+      },
       lifecycle
     );
+    const rejectedRefresh = await host.requestControl("refresh", {
+      reason: "fault-injected refresh",
+      drainTimeoutMs: 5_000,
+      trigger: "explicit"
+    });
+    assert.equal(rejectedRefresh.ok, false);
+    if (rejectedRefresh.ok) assert.fail("refresh preflight failure must reject control");
+    assert.equal(rejectedRefresh.error.code, "daemon_refresh_build_failed");
+    assert.match(rejectedRefresh.error.hint, /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u);
+    assert.equal(host.status().service.activeControl, null);
+    assert.deepEqual(events.slice(4), []);
     host.onStop(async () => {
       events.push("transport:stop-accept");
     });

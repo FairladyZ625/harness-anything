@@ -22,6 +22,22 @@ const controlTarget = {
   registered: true
 } as const;
 
+const runningLaunchConfiguration = {
+  execPath: "/usr/bin/node",
+  execArgv: ["--import", "tsx"],
+  entrypoint: "/repo/packages/cli/src/index.ts",
+  args: [
+    "--root", "/repo",
+    "daemon", "serve",
+    "--repo", "canonical",
+    "--socket", "/user-root/daemon.sock",
+    "--user-root", "/user-root",
+    "--idle-ms", "0",
+    "--authority-manifest", "/authority/production.json",
+    "--future-daemon-flag", "future-value"
+  ]
+} as const;
+
 test("daemon dispatcher routes restart and every refresh trigger through canonical admin RPC", async () => {
   const scenarios = [
     { action: "restart", args: ["restart"], method: "admin.daemon.restart", trigger: undefined },
@@ -60,7 +76,8 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
                   pid: 42,
                   loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   repoCount: 2,
-                  queueDepth: 0
+                  queueDepth: 0,
+                  launchConfiguration: runningLaunchConfiguration
                 }
               }
             }
@@ -73,9 +90,10 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
             return undefined;
           },
           ownerIsAlive: () => false,
-          startReplacement: async (target) => {
+          startReplacement: async (target, _timeoutMs, launchConfiguration) => {
             assert.equal(released, true);
             assert.equal(target.userRoot, controlTarget.userRoot);
+            assert.deepEqual(launchConfiguration, runningLaunchConfiguration);
             replacementStarts += 1;
             return v2DaemonStatus(84);
           },
@@ -269,7 +287,96 @@ test("daemon control fails when the released endpoint replacement is unreachable
 
   assert.equal(exitCode, 1);
   assert.equal(replacementStarts, 1);
-  assert.match(controlErrorHint(receipt), /replacement did not become reachable: autostart failed/u);
+  assert.match(controlErrorHint(receipt), /DAEMON_RESTART_REPLACEMENT_FAILED_AFTER_HANDOFF: autostart failed/u);
+  assert.match(controlErrorHint(receipt), /Restore the daemon with: \/usr\/bin\/node --import tsx/u);
+  assert.match(controlErrorHint(receipt), /--authority-manifest \/authority\/production\.json/u);
+});
+
+test("daemon control rejects an accepted receipt that omits derived launch configuration before replacement", async () => {
+  let replacementStarts = 0;
+  const output: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => output.push(String(message));
+  try {
+    const exitCode = await runDaemonProductCommand({
+      rootDir: "/repo",
+      json: true,
+      args: ["daemon", "restart"],
+      runServe: async () => undefined,
+      requestDaemonControl: async () => ({
+        schema: "daemon-control-accepted/v1",
+        accepted: true,
+        operationId: "control-restart",
+        kind: "restart",
+        before: {
+          pid: 42,
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }),
+      daemonControlLifecycle: {
+        target: controlTarget,
+        probeStatus: async () => undefined,
+        ownerIsAlive: () => false,
+        startReplacement: async () => {
+          replacementStarts += 1;
+          return v2DaemonStatus(84);
+        },
+        wait: async () => undefined
+      }
+    });
+
+    assert.equal(exitCode, 1);
+    assert.equal(replacementStarts, 0);
+    const receipt = JSON.parse(output.at(-1) ?? "") as Record<string, unknown>;
+    assert.match(controlErrorHint(receipt), /did not include the running daemon launch configuration/u);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test("refresh rejects a pre-launch-spec daemon before sending control and leaves its PID alive", async () => {
+  let controlRequests = 0;
+  const runningPid = process.pid;
+  const output: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => output.push(String(message));
+  try {
+    const exitCode = await runDaemonProductCommand({
+      rootDir: "/repo",
+      json: true,
+      args: ["daemon", "refresh"],
+      runServe: async () => undefined,
+      requestDaemonControl: async () => {
+        controlRequests += 1;
+        throw new Error("control must not be sent to a pre-launch-spec daemon");
+      },
+      daemonControlLifecycle: {
+        target: controlTarget,
+        probeStatus: async () => v2DaemonStatus(runningPid),
+        ownerIsAlive: () => true,
+        prepareReplacement: async () => {
+          throw new Error(
+            "DAEMON_REFRESH_LAUNCH_SPEC_UNAVAILABLE: the running daemon predates the launch-spec protocol. "
+            + "Leave this daemon running and manually restart it once with --authority-manifest /authority/production.json."
+          );
+        },
+        startReplacement: async () => {
+          throw new Error("replacement must not start");
+        },
+        wait: async () => undefined
+      }
+    });
+
+    assert.equal(exitCode, 1);
+    assert.equal(controlRequests, 0);
+    process.kill(runningPid, 0);
+    const receipt = JSON.parse(output.at(-1) ?? "") as Record<string, unknown>;
+    assert.match(controlErrorHint(receipt), /predates the launch-spec protocol/u);
+    assert.match(controlErrorHint(receipt), /--authority-manifest \/authority\/production\.json/u);
+    assert.doesNotMatch(controlErrorHint(receipt), /did not become reachable|ENOENT/u);
+  } finally {
+    console.log = originalLog;
+  }
 });
 
 test("daemon control fails when the replacement PID does not change", async () => {
@@ -358,7 +465,8 @@ async function runCapturedControl(
         kind: "restart",
         before: {
           pid: 42,
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          launchConfiguration: runningLaunchConfiguration
         }
       }),
       daemonControlLifecycle

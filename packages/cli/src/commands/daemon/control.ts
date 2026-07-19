@@ -3,7 +3,7 @@ import {
   type JsonObject,
   type LocalDaemonTarget
 } from "../../../../daemon/src/index.ts";
-import { makeLocalVersionControlSystem } from "../../../../kernel/src/index.ts";
+import { makeLocalVersionControlSystem, readDaemonRegistry } from "../../../../kernel/src/index.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readOption } from "../../cli/parse-options.ts";
@@ -21,8 +21,20 @@ export interface DaemonControlLifecycle {
   readonly target: LocalDaemonTarget;
   readonly probeStatus: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
   readonly ownerIsAlive: (pid: number) => boolean;
-  readonly startReplacement: (target: LocalDaemonTarget, timeoutMs: number) => Promise<Record<string, unknown>>;
+  readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonReplacementLaunchConfiguration>;
+  readonly startReplacement: (
+    target: LocalDaemonTarget,
+    timeoutMs: number,
+    launchConfiguration: DaemonReplacementLaunchConfiguration
+  ) => Promise<Record<string, unknown>>;
   readonly wait: (ms: number) => Promise<void>;
+}
+
+export interface DaemonReplacementLaunchConfiguration {
+  readonly execPath: string;
+  readonly execArgv: ReadonlyArray<string>;
+  readonly entrypoint: string;
+  readonly args: ReadonlyArray<string>;
 }
 
 export interface DaemonControlCommandInput {
@@ -74,10 +86,15 @@ export async function runDaemonControl(
       allowLegacySocket: false
     }
   ));
+  const preparedLaunchConfiguration = kind === "refresh"
+    ? await lifecycle.prepareReplacement?.(lifecycle.target)
+    : undefined;
   const rpcReceipt = await request({ method, params });
   const receipt = controlPayloadFromRpcReceipt(rpcReceipt, method);
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
+  const launchConfiguration = preparedLaunchConfiguration
+    ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
   const replacement = await completeDaemonReplacement(
     lifecycle,
     before.pid,
@@ -85,7 +102,8 @@ export async function runDaemonControl(
     receipt.operationId,
     drainTimeoutMs,
     kind,
-    method
+    method,
+    launchConfiguration
   );
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
@@ -149,7 +167,8 @@ async function completeDaemonReplacement(
   operationId: unknown,
   timeoutMs: number,
   kind: DaemonControlKind,
-  method: DaemonControlRequest["method"]
+  method: DaemonControlRequest["method"],
+  launchConfiguration: DaemonReplacementLaunchConfiguration
 ): Promise<Record<string, unknown>> {
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
@@ -161,9 +180,12 @@ async function completeDaemonReplacement(
   if (handoff.kind === "adopt") return handoff.status;
   let replacement: Record<string, unknown>;
   try {
-    replacement = await lifecycle.startReplacement(lifecycle.target, timeoutMs);
+    replacement = await lifecycle.startReplacement(lifecycle.target, timeoutMs, launchConfiguration);
   } catch (error) {
-    throw new Error(`daemon ${kind} replacement did not become reachable: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `DAEMON_${kind.toUpperCase()}_REPLACEMENT_FAILED_AFTER_HANDOFF: ${error instanceof Error ? error.message : String(error)}. `
+      + `Restore the daemon with: ${daemonRecoveryCommand(launchConfiguration)}`
+    );
   }
   const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
   if (!replacementLifecycle) {
@@ -179,7 +201,6 @@ async function completeDaemonReplacement(
 }
 
 function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): DaemonControlLifecycle {
-  const entryPath = input.daemonEntryPath();
   const resolvedTarget = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: readOption(input.args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID,
@@ -192,14 +213,38 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     target,
     probeStatus: probeExactDaemonStatus,
     ownerIsAlive: daemonProcessIsAlive,
-    startReplacement: (candidate, timeoutMs) => startDaemonReplacement(
+    prepareReplacement: async (candidate) => {
+      try {
+        const receipt = await requestLocalDaemonJsonRpcForTarget(candidate, "admin.daemon.launch-spec", {}, 1_000);
+        return daemonReplacementLaunchConfiguration(statusFromReceipt(receipt));
+      } catch {
+        throw daemonLaunchSpecUpgradeError(candidate);
+      }
+    },
+    startReplacement: (candidate, timeoutMs, launchConfiguration) => startDaemonReplacement(
       candidate,
       input.layoutOverrides,
-      entryPath,
-      timeoutMs
+      timeoutMs,
+      launchConfiguration
     ),
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   };
+}
+
+function daemonLaunchSpecUpgradeError(target: LocalDaemonTarget): Error {
+  let pointers: ReadonlyArray<string> = [];
+  try {
+    pointers = [...new Set(readDaemonRegistry({ userRoot: target.userRoot }).repos.flatMap(
+      (repo) => repo.authorityManifestPath ? [repo.authorityManifestPath] : []
+    ))];
+  } catch {
+    // The upgrade guidance remains actionable with an explicit manifest placeholder.
+  }
+  const manifest = pointers.length === 1 ? quoteDaemonRecoveryArgument(pointers[0]!) : "<path>";
+  return new Error(
+    "DAEMON_REFRESH_LAUNCH_SPEC_UNAVAILABLE: the running daemon predates the launch-spec protocol, so its replacement startup configuration cannot be derived safely. "
+    + `Leave this daemon running. To enable automatic refresh, manually restart it once using the same daemon user root: ha daemon stop --user-root ${quoteDaemonRecoveryArgument(target.userRoot)} && ha daemon start --service --authority-manifest ${manifest}`
+  );
 }
 
 async function waitForDaemonControlHandoff(
@@ -296,20 +341,52 @@ async function probeExactDaemonStatus(target: LocalDaemonTarget): Promise<Record
 async function startDaemonReplacement(
   target: LocalDaemonTarget,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
-  entryPath: string,
-  timeoutMs: number
+  timeoutMs: number,
+  launchConfiguration: DaemonReplacementLaunchConfiguration
 ): Promise<Record<string, unknown>> {
   const receipt = await requestLocalDaemonJsonRpcForTarget(target, "repo.daemon.status", {
     repo: { repoId: target.repoId }
   }, 1_000, {
-    entryPath,
+    entryPath: launchConfiguration.entrypoint,
     idleExitMs: 0,
     timeoutMs,
-    layoutOverrides
+    layoutOverrides,
+    execPath: launchConfiguration.execPath,
+    execArgv: launchConfiguration.execArgv,
+    launchArguments: launchConfiguration.args
   });
   const status = statusFromReceipt(receipt);
   if (!status) throw new Error("replacement status RPC did not return daemon status data");
   return status;
+}
+
+function daemonReplacementLaunchConfiguration(value: unknown): DaemonReplacementLaunchConfiguration {
+  if (!isDaemonControlRecord(value)
+    || typeof value.execPath !== "string"
+    || typeof value.entrypoint !== "string"
+    || !Array.isArray(value.execArgv)
+    || !value.execArgv.every((arg) => typeof arg === "string")
+    || !Array.isArray(value.args)
+    || !value.args.every((arg) => typeof arg === "string")) {
+    throw new Error("daemon control accepted receipt did not include the running daemon launch configuration");
+  }
+  return {
+    execPath: value.execPath,
+    execArgv: value.execArgv,
+    entrypoint: value.entrypoint,
+    args: value.args
+  };
+}
+
+function daemonRecoveryCommand(configuration: DaemonReplacementLaunchConfiguration): string {
+  return [configuration.execPath, ...configuration.execArgv, configuration.entrypoint, ...configuration.args]
+    .map(quoteDaemonRecoveryArgument)
+    .join(" ");
+}
+
+function quoteDaemonRecoveryArgument(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function statusFromReceipt(receipt: Record<string, unknown>): Record<string, unknown> | undefined {

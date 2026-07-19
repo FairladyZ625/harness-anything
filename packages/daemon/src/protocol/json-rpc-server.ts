@@ -4,7 +4,6 @@ import {
   taskHolderPrincipalFromActor,
   type CommandFailureReceipt,
   type CommandReceipt,
-  type DaemonControlRequestV1,
   type DaemonControlService,
   type DaemonLogService,
   type DaemonStatusService,
@@ -31,6 +30,7 @@ import {
   type ProjectionNotificationOptions
 } from "./projection-notification-subscription.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
+import { daemonControlRequest } from "./daemon-control-request.ts";
 import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
 import {
   resolveAuthorityConnectionForRequest,
@@ -84,6 +84,9 @@ export interface DaemonServiceHost {
   readonly DaemonStatusService?: DaemonStatusService;
   readonly DaemonLogService?: DaemonLogService;
   readonly DaemonControlService?: DaemonControlService;
+  readonly DaemonLaunchSpecService?: {
+    readonly getLaunchSpec: () => JsonObject | Promise<JsonObject>;
+  };
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject, context?: {
       readonly actor?: AuthenticatedActor;
@@ -482,6 +485,12 @@ async function handleAdminMethod(
   params: JsonObject,
   options: JsonRpcServerOptions
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
+  if (contract.method === "admin.daemon.launch-spec") {
+    if (!options.services.DaemonLaunchSpecService) {
+      return failureReceipt(contract.method, "daemon_launch_spec_unavailable", "The running daemon predates the launch-spec protocol and cannot describe a safe replacement configuration. Leave it running until you can manually restart with `ha daemon stop && ha daemon start --service --authority-manifest <path>`.");
+    }
+    return successReceipt(contract.method, "read daemon launch specification", await options.services.DaemonLaunchSpecService.getLaunchSpec());
+  }
   if (contract.method === "admin.daemon.restart" || contract.method === "admin.daemon.refresh") {
     if (!options.services.DaemonControlService) {
       return failureReceipt(contract.method, "daemon_control_unavailable", "Daemon control service is not configured. Run `ha daemon status --json` to verify the reachable service before retrying.");
@@ -525,33 +534,6 @@ async function handleAdminMethod(
     });
   }
   return failureReceipt(contract.method, "method_not_implemented", `Admin method is not implemented: ${contract.method}`);
-}
-
-function daemonControlRequest(
-  method: "admin.daemon.restart" | "admin.daemon.refresh",
-  payload: JsonObject
-): { readonly ok: true; readonly value: DaemonControlRequestV1 } | { readonly ok: false; readonly code: string; readonly hint: string } {
-  const cliCommand = method === "admin.daemon.refresh" ? "ha daemon refresh" : "ha daemon restart";
-  if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.reason. Retry with \`${cliCommand} --reason "operator request"\`.` };
-  }
-  if (!Number.isSafeInteger(payload.drainTimeoutMs) || Number(payload.drainTimeoutMs) < 100 || Number(payload.drainTimeoutMs) > 120_000) {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.drainTimeoutMs from 100 through 120000. Retry with \`${cliCommand} --timeout-ms 5000\`.` };
-  }
-  if (method === "admin.daemon.refresh"
-    && payload.trigger !== "explicit"
-    && payload.trigger !== "post-merge"
-    && payload.trigger !== "dist-watcher") {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.trigger explicit|post-merge|dist-watcher. Retry with \`ha daemon refresh --trigger explicit\`.` };
-  }
-  return {
-    ok: true,
-    value: {
-      reason: payload.reason,
-      drainTimeoutMs: Number(payload.drainTimeoutMs),
-      ...(method === "admin.daemon.refresh" ? { trigger: payload.trigger as DaemonControlRequestV1["trigger"] } : {})
-    }
-  };
 }
 
 function stampReceipt<T extends ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>>(receipt: T, actor?: AuthenticatedActor): T {
