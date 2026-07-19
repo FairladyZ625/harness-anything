@@ -1,10 +1,10 @@
 import type { LocalDaemonTarget } from "./client.ts";
 import { readOption } from "../cli/parse-options.ts";
 import {
+  assertValidDaemonLaunchArgv,
   DaemonLaunchPreflightError,
   preflightDaemonLaunch,
-  readPersistedDaemonLaunchSpec,
-  resolveRestoredLaunchOptions,
+  resolveDaemonLaunchSpec,
   type DaemonLaunchConfiguration
 } from "./daemon-launch-spec.ts";
 
@@ -12,6 +12,7 @@ export function resolveAuthorityManifestOption(
   args: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv = process.env
 ): string | undefined {
+  assertValidDaemonLaunchArgv(args);
   const environmentValue = env.HARNESS_AUTHORITY_MANIFEST?.trim();
   return readOption(args, "--authority-manifest") ?? (environmentValue ? environmentValue : undefined);
 }
@@ -24,11 +25,11 @@ export async function prepareDaemonServiceLaunch(input: {
   readonly authorityManifest?: string;
   readonly entrypoint: string;
 }): Promise<DaemonLaunchConfiguration> {
-  const persisted = readPersistedDaemonLaunchSpec(input.target.userRoot, input.target.daemonId);
-  const restored = resolveRestoredLaunchOptions(persisted, {
+  assertValidDaemonLaunchArgv(input.args);
+  const restored = resolveDaemonLaunchSpec(input.target.userRoot, input.socketPath, {
     authorityManifest: input.authorityManifest,
     authoredRoot: input.layoutOverrides?.authoredRoot
-  });
+  }).options;
   const launchConfiguration = currentDaemonServiceLaunchConfiguration({
     ...input,
     authorityManifest: restored.authorityManifest,
@@ -67,7 +68,7 @@ function currentDaemonServiceLaunchConfiguration(input: {
     args: [
       "--root",
       input.target.canonicalRoot,
-      ...(input.layoutOverrides?.authoredRoot ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
+      ...(input.layoutOverrides?.authoredRoot !== undefined ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
       "daemon",
       "serve",
       "--repo",
@@ -78,7 +79,7 @@ function currentDaemonServiceLaunchConfiguration(input: {
       input.target.userRoot,
       "--idle-ms",
       "0",
-      ...(input.authorityManifest ? ["--authority-manifest", input.authorityManifest] : [])
+      ...(input.authorityManifest !== undefined ? ["--authority-manifest", input.authorityManifest] : [])
     ]
   };
 }

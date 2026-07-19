@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -10,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-export const daemonLaunchSpecSchema = "daemon-launch-spec/v1";
+export const daemonLaunchSpecSchema = "daemon-launch-spec/v2";
 
 export class DaemonLaunchPreflightError extends Error {
   readonly code: "authority-manifest-registry-incomplete" | "launch-check-failed";
@@ -32,39 +33,67 @@ export interface DaemonLaunchConfiguration {
   readonly args: ReadonlyArray<string>;
 }
 
+export interface DaemonLaunchOptions {
+  readonly authorityManifest?: string;
+  readonly authoredRoot?: string;
+}
+
 interface PersistedDaemonLaunchSpec {
   readonly schema: typeof daemonLaunchSpecSchema;
-  readonly launchConfiguration: DaemonLaunchConfiguration;
+  readonly endpoint: string;
+  readonly options: DaemonLaunchOptions;
+}
+
+const resolvedDaemonLaunchSpecMarker: unique symbol = Symbol("resolved-daemon-launch-spec");
+
+export interface ResolvedDaemonLaunchSpec {
+  readonly endpoint: string;
+  readonly options: DaemonLaunchOptions;
+  readonly [resolvedDaemonLaunchSpecMarker]: true;
 }
 
 /**
- * Launch specs are keyed by `(userRoot, daemonId)` — the same pair the daemon endpoint is keyed by
- * (`localUserDaemonEndpoint(userRoot, daemonIdFromEnv(env))`). Multiple daemons can share one user
- * root while differing only in `HARNESS_DAEMON_ID`; keying by user root alone would let one daemon's
- * cold start restore another daemon's authority manifest. `daemonId` is the stable endpoint id
- * (`HARNESS_DAEMON_ID ?? "default"`), never the ephemeral per-process `ha-<pid>` service id.
+ * The socket or named-pipe endpoint is the daemon's single-writer identity. The full digest keeps
+ * arbitrary endpoint characters out of the filename and remains distinct on case-insensitive file
+ * systems for endpoint strings that differ only by case.
  */
-export function daemonLaunchSpecPath(userRoot: string, daemonId: string): string {
-  const safeDaemonId = daemonId.replace(/[^A-Za-z0-9_.-]/gu, "_") || "default";
-  return path.join(path.resolve(userRoot), `daemon-launch-spec.${safeDaemonId}.json`);
+export function daemonLaunchSpecPath(userRoot: string, endpoint: string): string {
+  const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
+  const digest = createHash("sha256").update(endpointIdentity).digest("hex");
+  return path.join(path.resolve(userRoot), `daemon-launch-spec.${digest}.json`);
 }
 
-export function persistDaemonLaunchSpec(
+/**
+ * Resolve current structured values against the spec owned by this exact endpoint. Every path that
+ * may persist a spec obtains a branded resolution here first, so an omitted foreground/autostart
+ * option is restored before it can replace durable state.
+ */
+export function resolveDaemonLaunchSpec(
   userRoot: string,
-  daemonId: string,
-  launchConfiguration: DaemonLaunchConfiguration
-): void {
-  const target = daemonLaunchSpecPath(userRoot, daemonId);
+  endpoint: string,
+  explicit: DaemonLaunchOptions
+): ResolvedDaemonLaunchSpec {
+  assertValidDaemonLaunchOptions(explicit);
+  const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
+  const persisted = readPersistedDaemonLaunchSpec(userRoot, endpointIdentity);
+  return {
+    endpoint: endpointIdentity,
+    options: resolveRestoredLaunchOptions(persisted, explicit),
+    [resolvedDaemonLaunchSpecMarker]: true
+  };
+}
+
+export function persistDaemonLaunchSpec(userRoot: string, resolution: ResolvedDaemonLaunchSpec): void {
+  const target = daemonLaunchSpecPath(userRoot, resolution.endpoint);
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   mkdirSync(path.dirname(target), { recursive: true });
   try {
     const document: PersistedDaemonLaunchSpec = {
       schema: daemonLaunchSpecSchema,
-      launchConfiguration: cloneDaemonLaunchConfiguration(launchConfiguration)
+      endpoint: resolution.endpoint,
+      options: cloneDaemonLaunchOptions(resolution.options)
     };
-    // Owner-only mode. POSIX enforces this; on Windows chmod maps to the read-only bit only and does
-    // not restrict other local users, so the spec must never hold secret material — it records launch
-    // argv (repo/socket/user-root paths and the authority-manifest path), not credentials or key bytes.
+    // Owner-only mode. The spec contains paths, never credentials or key material.
     writeFileSync(temporary, `${JSON.stringify(document, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     renameSync(temporary, target);
     chmodSync(target, 0o600);
@@ -75,62 +104,56 @@ export function persistDaemonLaunchSpec(
 
 export function readPersistedDaemonLaunchSpec(
   userRoot: string,
-  daemonId: string
-): DaemonLaunchConfiguration | undefined {
-  const source = daemonLaunchSpecPath(userRoot, daemonId);
+  endpoint: string
+): DaemonLaunchOptions | undefined {
+  const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
+  const source = daemonLaunchSpecPath(userRoot, endpointIdentity);
   if (!existsSync(source)) return undefined;
   let decoded: unknown;
   try {
     decoded = JSON.parse(readFileSync(source, "utf8"));
-  } catch (error) {
-    throw incompatibleLaunchSpecError(source, error);
+  } catch {
+    return undefined;
   }
   if (!isRecordValue(decoded)
     || decoded.schema !== daemonLaunchSpecSchema
-    || !isDaemonLaunchConfiguration(decoded.launchConfiguration)) {
-    throw incompatibleLaunchSpecError(source);
+    || decoded.endpoint !== endpointIdentity
+    || !isDaemonLaunchOptions(decoded.options)) {
+    return undefined;
   }
-  return cloneDaemonLaunchConfiguration(decoded.launchConfiguration);
+  return cloneDaemonLaunchOptions(decoded.options);
 }
 
-export interface DaemonLaunchOverrides {
-  readonly authorityManifest?: string;
-  readonly authoredRoot?: string;
-}
-
-/**
- * Restore the launch options a bare cold start omits. `currentDaemonServiceLaunchConfiguration`
- * always rebuilds every launch flag except `--authority-manifest` and `--authored-root` from
- * resolved input, so those two are the only values that can go missing when the daemon is
- * relaunched without them. Explicitly-provided values (a CLI flag, or `HARNESS_AUTHORITY_MANIFEST`
- * for the manifest — both already resolved into `explicit`) take precedence and become the next
- * persisted value; a value only falls back to the persisted spec when the current invocation
- * omitted it. No raw-argv string merge is performed, so option boundaries, repeated options, and
- * explicit global flags such as `--root` cannot be misparsed or silently dropped.
- */
 export function resolveRestoredLaunchOptions(
-  persisted: DaemonLaunchConfiguration | undefined,
-  explicit: DaemonLaunchOverrides
-): { readonly authorityManifest: string | undefined; readonly authoredRoot: string | undefined } {
+  persisted: DaemonLaunchOptions | undefined,
+  explicit: DaemonLaunchOptions
+): DaemonLaunchOptions {
+  assertValidDaemonLaunchOptions(explicit);
   return {
-    authorityManifest: explicit.authorityManifest
-      ?? (persisted ? readBoundedOption(persisted.args, "--authority-manifest") : undefined),
-    authoredRoot: explicit.authoredRoot
-      ?? (persisted ? readBoundedOption(persisted.args, "--authored-root") : undefined)
+    ...(explicit.authorityManifest !== undefined
+      ? { authorityManifest: explicit.authorityManifest }
+      : persisted?.authorityManifest !== undefined
+        ? { authorityManifest: persisted.authorityManifest }
+        : {}),
+    ...(explicit.authoredRoot !== undefined
+      ? { authoredRoot: explicit.authoredRoot }
+      : persisted?.authoredRoot !== undefined
+        ? { authoredRoot: persisted.authoredRoot }
+        : {})
   };
 }
 
-/**
- * Read `--name <value>` from a persisted argv, rejecting a value that is itself a flag. The persisted
- * spec is written by `currentDaemonServiceLaunchConfiguration`, which always emits a real value, so
- * this only matters for a hand-edited or corrupted spec — there it fails closed (returns `undefined`,
- * which surfaces the missing-manifest remediation) instead of adopting the next flag as the value.
- */
-function readBoundedOption(argv: ReadonlyArray<string>, name: string): string | undefined {
-  const index = argv.indexOf(name);
-  if (index < 0) return undefined;
-  const value = argv[index + 1];
-  return value === undefined || value.startsWith("--") ? undefined : value;
+/** Reject present-but-empty launch path flags before omission can trigger restoration. */
+export function assertValidDaemonLaunchArgv(argv: ReadonlyArray<string>): void {
+  for (const name of ["--authority-manifest", "--authored-root"] as const) {
+    for (let index = 0; index < argv.length; index += 1) {
+      if (argv[index] !== name) continue;
+      const value = argv[index + 1];
+      if (value === undefined || value.trim().length === 0 || value.startsWith("--")) {
+        throw new Error(`${name} requires a non-empty path value.`);
+      }
+    }
+  }
 }
 
 export async function preflightDaemonLaunch(configuration: DaemonLaunchConfiguration): Promise<void> {
@@ -163,30 +186,35 @@ export async function preflightDaemonLaunch(configuration: DaemonLaunchConfigura
   );
 }
 
-function incompatibleLaunchSpecError(source: string, cause?: unknown): Error {
-  const detail = cause instanceof Error ? ` (${cause.message})` : "";
-  return new Error(
-    `DAEMON_LAUNCH_SPEC_INCOMPATIBLE: persisted daemon launch specification at ${source} is not compatible with this CLI${detail}. `
-    + `Remove that file and rebuild it with: ha daemon start --service --user-root <user-root> --authority-manifest <path>`
-  );
+function daemonLaunchEndpointIdentity(endpoint: string): string {
+  if (endpoint.length === 0) throw new Error("daemon launch endpoint must be non-empty");
+  if (process.platform === "win32" && endpoint.startsWith("\\\\.\\pipe\\")) {
+    return path.win32.normalize(endpoint).toLowerCase();
+  }
+  return path.resolve(endpoint);
 }
 
-function isDaemonLaunchConfiguration(value: unknown): value is DaemonLaunchConfiguration {
-  return isRecordValue(value)
-    && typeof value.execPath === "string"
-    && Array.isArray(value.execArgv)
-    && value.execArgv.every((arg) => typeof arg === "string")
-    && typeof value.entrypoint === "string"
-    && Array.isArray(value.args)
-    && value.args.every((arg) => typeof arg === "string");
+function assertValidDaemonLaunchOptions(options: DaemonLaunchOptions): void {
+  if (options.authorityManifest !== undefined && options.authorityManifest.trim().length === 0) {
+    throw new Error("--authority-manifest requires a non-empty path value.");
+  }
+  if (options.authoredRoot !== undefined && options.authoredRoot.trim().length === 0) {
+    throw new Error("--authored-root requires a non-empty path value.");
+  }
 }
 
-function cloneDaemonLaunchConfiguration(configuration: DaemonLaunchConfiguration): DaemonLaunchConfiguration {
+function isDaemonLaunchOptions(value: unknown): value is DaemonLaunchOptions {
+  if (!isRecordValue(value)) return false;
+  const authorityManifest = value.authorityManifest;
+  const authoredRoot = value.authoredRoot;
+  return (authorityManifest === undefined || (typeof authorityManifest === "string" && authorityManifest.trim().length > 0))
+    && (authoredRoot === undefined || (typeof authoredRoot === "string" && authoredRoot.trim().length > 0));
+}
+
+function cloneDaemonLaunchOptions(options: DaemonLaunchOptions): DaemonLaunchOptions {
   return {
-    execPath: configuration.execPath,
-    execArgv: [...configuration.execArgv],
-    entrypoint: configuration.entrypoint,
-    args: [...configuration.args]
+    ...(options.authorityManifest !== undefined ? { authorityManifest: options.authorityManifest } : {}),
+    ...(options.authoredRoot !== undefined ? { authoredRoot: options.authoredRoot } : {})
   };
 }
 

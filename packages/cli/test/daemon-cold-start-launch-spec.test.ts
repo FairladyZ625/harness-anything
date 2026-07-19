@@ -1,19 +1,21 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
+import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
 import { readDaemonRegistry, registerDaemonRepo } from "../../kernel/src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
 import { daemonLaunchSpecPath, preflightDaemonLaunch } from "../src/daemon/daemon-launch-spec.ts";
 import {
   defaultDaemonUserRoot,
+  pollUntil,
   runDaemonCommand,
   runRawJsonMaybeFail,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
 
 test("service cold start restores, overrides, and diagnoses the persisted launch spec", { timeout: 90_000 }, async () => {
@@ -21,6 +23,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const classicRoot = path.join(fixture.root, "classic-repo");
   const replacementManifest = path.join(fixture.root, "replacement-authority-manifest.json");
+  const endpoint = localUserDaemonEndpoint(userRoot);
   const env = {
     HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot,
@@ -37,7 +40,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     ], env);
     assert.equal(first.started, true, JSON.stringify(first));
     assert.equal(typeof first.pid, "number", JSON.stringify(first));
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, "default"), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
 
     mkdirSync(classicRoot, { recursive: true });
     initializeHarness({ rootDir: classicRoot }, false, "Classic");
@@ -45,6 +48,49 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
       "daemon", "repo", "register", "--repo-id", "classic",
       "--canonical-root", classicRoot, "--user-root", userRoot, "--no-link", "--json"
     ], env);
+    await stopDaemon(fixture.repoRoot, userRoot);
+
+    const autostartedSpec = await requestLocalDaemonJsonRpc(
+      fixture.repoRoot,
+      "admin.daemon.launch-spec",
+      {},
+      20_000,
+      {
+        userRoot,
+        allowLegacySocket: false,
+        autostart: {
+          entryPath: path.resolve("packages/cli/src/index.ts"),
+          idleExitMs: 60_000,
+          timeoutMs: 20_000,
+          env: cliTestEnv(env)
+        }
+      }
+    );
+    assert.equal(optionValue(launchSpecArgs(autostartedSpec), "--authority-manifest"), fixture.manifestPath);
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
+    await stopDaemon(fixture.repoRoot, userRoot);
+
+    spawn(process.execPath, [
+      path.resolve("packages/cli/src/index.ts"),
+      "--root", fixture.repoRoot,
+      "daemon", "start", "--foreground",
+      "--user-root", userRoot,
+      "--json"
+    ], {
+      stdio: "ignore",
+      env: cliTestEnv(env)
+    });
+    const foregroundSpec = await pollUntil(
+      () => requestLocalDaemonJsonRpc(fixture.repoRoot, "admin.daemon.launch-spec", {}, 1_000, {
+        userRoot,
+        allowLegacySocket: false
+      }),
+      () => true,
+      (_candidate, error) => String(error ?? "foreground daemon did not publish its launch spec"),
+      { timeoutMs: 20_000 }
+    );
+    assert.equal(optionValue(launchSpecArgs(foregroundSpec), "--authority-manifest"), fixture.manifestPath);
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
 
     const restored = runDaemonCommand(fixture.repoRoot, ["daemon", "start", "--service", "--json"], env);
@@ -66,7 +112,7 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     assert.equal(overridden.started, true, JSON.stringify(overridden));
     const overriddenSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
     assert.equal(optionValue(overriddenSpec.args, "--authority-manifest"), replacementManifest);
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, "default"), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
+    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
@@ -82,6 +128,7 @@ test("service cold start without a required manifest reports the preflight cause
     HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot
   };
+  const endpoint = localUserDaemonEndpoint(userRoot);
   try {
     mkdirSync(classicRoot, { recursive: true });
     initializeHarness({ rootDir: classicRoot }, false, "Classic");
@@ -102,7 +149,7 @@ test("service cold start without a required manifest reports the preflight cause
       readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "canonical")?.authorityManifestPath,
       fixture.manifestPath
     );
-    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, "default")), false);
+    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, endpoint)), false);
     await assert.rejects(preflightDaemonLaunch({
       execPath: process.execPath,
       execArgv: [...process.execArgv],
@@ -112,7 +159,7 @@ test("service cold start without a required manifest reports the preflight cause
         "--socket", path.join(userRoot, "preflight.sock"), "--user-root", userRoot, "--idle-ms", "0"
       ]
     }), /AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE/u);
-    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, "default")), false);
+    assert.equal(existsSync(daemonLaunchSpecPath(userRoot, endpoint)), false);
 
     const missing = runRawJsonMaybeFail(fixture.repoRoot, ["daemon", "start", "--service"], env);
     assert.notEqual(missing.status, 0, JSON.stringify(missing.receipt));
@@ -123,6 +170,29 @@ test("service cold start without a required manifest reports the preflight cause
     assert.doesNotMatch(failure, /did not become reachable/u);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("daemon start rejects explicit empty or valueless launch options before persisted fallback", () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot
+  };
+  try {
+    for (const args of [
+      ["daemon", "start", "--service", "--authority-manifest", "", "--json"],
+      ["--authored-root", "", "daemon", "start", "--service", "--json"],
+      ["daemon", "start", "--service", "--authority-manifest"],
+      ["daemon", "start", "--service", "--authored-root"]
+    ]) {
+      const failed = runRawJsonMaybeFail(fixture.repoRoot, args, env);
+      assert.notEqual(failed.status, 0, JSON.stringify({ args, receipt: failed.receipt }));
+      assert.match(JSON.stringify(failed.receipt), /requires a non-empty path value/u);
+    }
+  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -145,6 +215,14 @@ async function readRunningLaunchSpec(
 function optionValue(args: ReadonlyArray<string>, option: string): string | undefined {
   const index = args.indexOf(option);
   return index === -1 ? undefined : args[index + 1];
+}
+
+function launchSpecArgs(receipt: Record<string, unknown>): ReadonlyArray<string> {
+  const details = receipt.details as { readonly data?: unknown };
+  assert.equal(isRecord(details.data), true, JSON.stringify(receipt));
+  const data = details.data as Record<string, unknown>;
+  assert.equal(Array.isArray(data.args), true, JSON.stringify(receipt));
+  return data.args as ReadonlyArray<string>;
 }
 
 function escapeRegExp(value: string): string {
