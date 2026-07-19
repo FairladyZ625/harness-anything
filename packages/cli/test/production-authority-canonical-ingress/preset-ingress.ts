@@ -28,7 +28,7 @@ export function verifyProductionPresetIngress(
   const scriptOperationCount = authorityOperationRecords(fixture.serviceRoot).length;
   const scriptRun = runRawJsonMaybeFail(fixture.repoRoot, [
     "script", "run", "preset:production-artifact-scaffold:scaffold",
-    "--task", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"
+    "--task", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9"
   ], env);
   assert.equal(scriptRun.status, 0, JSON.stringify(scriptRun.receipt));
   assert.equal(scriptRun.receipt.ok, true, JSON.stringify(scriptRun.receipt));
@@ -36,6 +36,10 @@ export function verifyProductionPresetIngress(
     "script run must submit its declared artifact batch through one canonical operation");
   assert.equal(readFileSync(path.join(
     fixture.authoredRoot,
-    "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6/artifacts/production-scaffold.md"
-  ), "utf8"), "# Production scaffold\n\nTask: task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6\n");
+    "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope/artifacts/production-scaffold.md"
+  ), "utf8"), "# Production scaffold\n\nTask: task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9\n");
+  assert.equal(existsSync(path.join(
+    fixture.authoredRoot,
+    "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope/artifacts/.machine-evidence.registry.json"
+  )), true);
 }

@@ -5,6 +5,7 @@ import {
   encodeCanonicalCbor,
   normalizeRelativeDocumentPath,
   sha256Text,
+  taskPackagePath,
   type CanonicalCborValue,
   type RegistryMutationPlanInput,
   type WriteOp
@@ -34,6 +35,11 @@ interface ScriptScopePayload {
   readonly writes: ReadonlyArray<ScriptScopeWrite>;
 }
 
+interface ScriptTaskArtifactScope {
+  readonly packagePath: string;
+  readonly artifactsPrefix: string;
+}
+
 export function productionScriptIngestAttemptIntent(
   command: ParsedCommand,
   operation: WriteOp,
@@ -41,7 +47,8 @@ export function productionScriptIngestAttemptIntent(
 ): CanonicalAttemptIntent {
   const taskId = scriptTaskId(command);
   if (operation.kind !== "script_ingest") throw new Error("AUTHORITY_SCRIPT_SCOPE_OPERATION_REQUIRED");
-  const writes = scriptScopeWrites(operation.payload, taskId, authoredRoot);
+  const scope = scriptTaskArtifactScope(taskId, authoredRoot);
+  const writes = scriptScopeWrites(operation.payload, scope, authoredRoot);
   assertScriptRunEntityId(operation.entityId);
   const payload: ScriptScopePayload = {
     schema: payloadSchema,
@@ -67,10 +74,11 @@ export function makeProductionScriptIngestSemanticCompiler(authoredRoot: string)
   return {
     compile: async (envelope) => {
       const payload = decodeScriptScopeEnvelope(envelope);
-      const writes = scriptScopeWrites({ writes: payload.writes }, payload.taskId, authoredRoot);
+      const scope = scriptTaskArtifactScope(payload.taskId, authoredRoot);
+      const writes = scriptScopeWrites({ writes: payload.writes }, scope, authoredRoot);
       assertScriptRunEntityId(payload.entityId);
       return {
-        mutationPlan: scriptScopeMutationPlan(payload.taskId, writes),
+        mutationPlan: scriptScopeMutationPlan(payload.taskId, scope, writes),
         operation: {
           opId: "authority-overrides-this",
           entityId: payload.entityId as WriteOp["entityId"],
@@ -101,7 +109,20 @@ function scriptTaskId(command: ParsedCommand): string {
   return taskId;
 }
 
-function scriptScopeWrites(payload: unknown, taskId: string, authoredRoot: string): ReadonlyArray<ScriptScopeWrite> {
+function scriptTaskArtifactScope(taskId: string, authoredRoot: string): ScriptTaskArtifactScope {
+  const rootDir = path.dirname(authoredRoot);
+  const packagePath = normalizeRelativeDocumentPath(path.relative(authoredRoot, taskPackagePath({
+    rootDir,
+    layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
+  }, taskId)).split(path.sep).join("/"));
+  return { packagePath, artifactsPrefix: `${packagePath}/artifacts/` };
+}
+
+function scriptScopeWrites(
+  payload: unknown,
+  scope: ScriptTaskArtifactScope,
+  authoredRoot: string
+): ReadonlyArray<ScriptScopeWrite> {
   if (!payload || typeof payload !== "object" || !Array.isArray((payload as { readonly writes?: unknown }).writes)) {
     throw new Error("AUTHORITY_SCRIPT_SCOPE_PAYLOAD_INVALID");
   }
@@ -113,8 +134,7 @@ function scriptScopeWrites(payload: unknown, taskId: string, authoredRoot: strin
       throw new Error("AUTHORITY_SCRIPT_SCOPE_WRITE_INVALID");
     }
     const normalized = normalizeRelativeDocumentPath(row.path);
-    const expectedPrefix = `tasks/${taskId}/artifacts/`;
-    if (!normalized.startsWith(expectedPrefix) || normalized.length === expectedPrefix.length) {
+    if (!normalized.startsWith(scope.artifactsPrefix) || normalized.length === scope.artifactsPrefix.length) {
       throw new Error(`AUTHORITY_SCRIPT_SCOPE_PATH_DENIED:${normalized}`);
     }
     const absolute = path.join(authoredRoot, normalized);
@@ -131,10 +151,14 @@ function scriptScopeWrites(payload: unknown, taskId: string, authoredRoot: strin
   return writes;
 }
 
-function scriptScopeMutationPlan(taskId: string, writes: ReadonlyArray<ScriptScopeWrite>): RegistryMutationPlanInput {
+function scriptScopeMutationPlan(
+  taskId: string,
+  scope: ScriptTaskArtifactScope,
+  writes: ReadonlyArray<ScriptScopeWrite>
+): RegistryMutationPlanInput {
   const contexts = writes.map((write) => ({
-    packagePath: `tasks/${taskId}`,
-    documentPath: write.path.slice(`tasks/${taskId}/`.length)
+    packagePath: scope.packagePath,
+    documentPath: write.path.slice(`${scope.packagePath}/`.length)
   }));
   return {
     registryVersion: 1,

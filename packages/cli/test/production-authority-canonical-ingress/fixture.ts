@@ -32,6 +32,11 @@ export function createFixture() {
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"));
+  mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope"), { recursive: true });
+  writeFileSync(
+    path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope/INDEX.md"),
+    taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9")
+  );
   for (const taskId of [
     "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK0", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK1",
     "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK2", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK3",
@@ -231,7 +236,10 @@ export function installProductionArtifactPreset(repoRoot: string): void {
           capability: "task-artifacts",
           version: "1",
           target: { taskFrom: "current-task" },
-          artifacts: [{ id: "production-scaffold", schema: "production-scaffold/v1", mediaTypes: ["text/markdown"], cardinality: "one", required: true }]
+          artifacts: [
+            { id: "production-scaffold", schema: "production-scaffold/v1", mediaTypes: ["text/markdown"], cardinality: "one", required: true },
+            { id: "evidence", schema: "production-evidence/v1", mediaTypes: ["application/json"], cardinality: "one", required: true }
+          ]
         }],
         sideEffects: []
       }
@@ -244,8 +252,10 @@ export function installProductionArtifactPreset(repoRoot: string): void {
     'const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, "utf8"));',
     'const writer = context.capabilities.writes["task-artifacts"][0];',
     'const output = writer.artifacts["production-scaffold"].representations[0].path;',
+    'const evidence = writer.artifacts.evidence.representations[0].path;',
     'writeFileSync(output, `# Production scaffold\\n\\nTask: ${context.run.taskId}\\n`, "utf8");',
-    'writeFileSync(context.result.path, JSON.stringify({ schema: "script-result/v1", ok: true, produced: ["production-scaffold"] }), "utf8");',
+    'writeFileSync(evidence, JSON.stringify({ schema: "production-evidence/v1", ok: true }), "utf8");',
+    'writeFileSync(context.result.path, JSON.stringify({ schema: "script-result/v1", ok: true, produced: ["production-scaffold", "evidence"] }), "utf8");',
     ''
   ].join("\n"));
 }
