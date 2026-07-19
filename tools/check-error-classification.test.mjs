@@ -47,6 +47,27 @@ test("error classification gate allows typed error classification", () => {
   });
 });
 
+test("error classification gate derives a newly added package source root from workspaces", () => {
+  withTempRoot((rootDir) => {
+    writeJson(rootDir, "package.json", { workspaces: ["packages/*"] });
+    writeJson(rootDir, "packages/newcomer/package.json", { name: "newcomer" });
+    const sourceDir = path.join(rootDir, "packages/newcomer/src");
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(path.join(sourceDir, "bad.ts"), 'if (message.includes("drift")) throw error;\n');
+
+    const violations = findErrorClassificationViolations(rootDir);
+
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].file, "packages/newcomer/src/bad.ts");
+  });
+});
+
+function writeJson(rootDir, relativePath, value) {
+  const target = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 function withTempRoot(fn) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-error-gate-"));
   try {

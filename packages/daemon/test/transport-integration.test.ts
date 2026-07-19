@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, statSync, symlinkSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -118,6 +118,24 @@ test("unix socket shared-tmp fallback includes uid and rejects an unsafe pre-exi
   assert.throws(
     () => ensurePrivateUnixSocketDirectory(directory, uid),
     /mode 0777.*expected.*mode 0700/iu
+  );
+});
+
+test("unix socket directory validation preserves its typed unsafe-directory error", () => {
+  if (process.platform === "win32") return;
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-symlink-parent-"));
+  const target = path.join(tempDir, "target");
+  const directory = path.join(tempDir, "harness-anything");
+  mkdirSync(target, { mode: 0o700 });
+  symlinkSync(target, directory);
+
+  assert.throws(
+    () => ensurePrivateUnixSocketDirectory(directory),
+    (error: unknown) => {
+      assert.equal(error instanceof Error ? error.name : "", "UnsafeUnixSocketDirectoryError");
+      assert.match(String(error), /not a real directory/u);
+      return true;
+    }
   );
 });
 

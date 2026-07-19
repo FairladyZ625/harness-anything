@@ -2,47 +2,12 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { fsWriteApis } from "./fs-write-apis.mjs";
+import { discoverWorkspaceSourceRoots } from "./workspace-packages.mjs";
 
 const root = process.cwd();
 const registryPath = path.resolve(root, process.env.HARNESS_WRITE_ROAD_REGISTRY ?? "tools/write-road-registry.json");
-const sourceRoots = [
-  "packages/adapters/local/src",
-  "packages/application/src",
-  "packages/cli/src",
-  "packages/daemon/src",
-  "packages/gui/src",
-  "packages/kernel/src"
-];
-const fsWriteApis = new Set([
-  "appendFile",
-  "appendFileSync",
-  "closeSync",
-  "copyFile",
-  "copyFileSync",
-  "cp",
-  "cpSync",
-  "fsyncSync",
-  "mkdir",
-  "mkdirSync",
-  "open",
-  "openSync",
-  "rename",
-  "renameSync",
-  "rm",
-  "rmSync",
-  "rmdir",
-  "rmdirSync",
-  "symlink",
-  "symlinkSync",
-  "truncate",
-  "truncateSync",
-  "unlink",
-  "unlinkSync",
-  "write",
-  "writeFile",
-  "writeFileSync",
-  "writeSync"
-]);
+const sourceRoots = discoverWorkspaceSourceRoots(root);
 const mutatingHttpMethods = new Set(["POST", "PUT", "DELETE"]);
 
 const registry = loadRegistry();
@@ -69,7 +34,7 @@ if (findings.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log(`Write-road registry check passed (${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
+  console.log(`Write-road registry check passed (${sourceRoots.length} workspace source root(s), ${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
 }
 
 function loadRegistry() {

@@ -77,6 +77,7 @@
         "check-cli-error-codes",
         "check-error-next-steps",
         "check-error-classification",
+        "check-capabilities-kind-source",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
@@ -117,6 +118,7 @@
         "check-cli-error-codes",
         "check-error-next-steps",
         "check-error-classification",
+        "check-capabilities-kind-source",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
@@ -166,6 +168,7 @@
         "check-cli-error-codes",
         "check-error-next-steps",
         "check-error-classification",
+        "check-capabilities-kind-source",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
@@ -200,7 +203,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 44
+      "harnessLeafGateCount": 45
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1870,6 +1873,85 @@
         "status": "covered",
         "evidence": [
           "tools/check-error-classification.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-capabilities-kind-source",
+      "command": "npm run harness:check-capabilities-kind-source",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "task_01KXW79QQ19ES5BWWHM14FEA65",
+        "packages/cli/src/cli/parsers/capabilities.ts",
+        "tools/check-capabilities-kind-source.mjs"
+      ],
+      "consumerScope": [
+        "capabilities parser entity-kind source derivation"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Capabilities entity kinds must stay derived from registries; no hardcoded-kind exception is permitted."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-capabilities-kind-source.mjs",
+          "tools/check-capabilities-kind-source.test.mjs",
+          "package.json:scripts.harness:check-capabilities-kind-source",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-capabilities-kind-source"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-capabilities-kind-source.test.mjs",
+          "tools/check-gate-manifest-invariants.test.mjs"
         ]
       }
     },
