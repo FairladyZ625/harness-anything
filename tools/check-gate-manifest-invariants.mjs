@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -13,8 +13,11 @@ const INFRASTRUCTURE_COMMANDS = new Set([
 ]);
 
 export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
-  const manifest = readJson(path.join(root, "tools/gate-manifest.json"));
+  const manifestPath = path.join(root, "tools/gate-manifest.json");
+  const manifestSource = readFileSync(manifestPath, "utf8");
+  const manifest = JSON.parse(manifestSource);
   const workflow = parseWorkflow(readFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), "utf8"));
+  const localRunnerSource = readFileSync(path.join(root, "tools/run-local-check.mjs"), "utf8");
   const findings = [];
   const gates = Array.isArray(manifest.gates) ? manifest.gates : [];
 
@@ -22,6 +25,7 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
     findings.push(`manifest schema must be harness-anything/gate-manifest/v2, got ${JSON.stringify(manifest.schema)}`);
   }
   checkLocalStopSurface(manifest, gates, findings);
+  checkExecutableCheckerWiring(root, manifestSource, localRunnerSource, findings);
   checkWorkflowInventory(manifest, workflow, findings);
   checkWorkflowCommands(manifest, workflow, gates, findings);
   for (const gate of gates) {
@@ -38,6 +42,19 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
       findings: findings.length
     }
   };
+}
+
+function checkExecutableCheckerWiring(root, manifestSource, localRunnerSource, findings) {
+  const wiringSources = `${manifestSource}\n${localRunnerSource}`;
+  const toolsRoot = path.join(root, "tools");
+  for (const entry of readdirSync(toolsRoot, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !/^check-.*\.mjs$/u.test(entry.name)) continue;
+    const source = readFileSync(path.join(toolsRoot, entry.name), "utf8");
+    if (!source.startsWith("#!/usr/bin/env node")) continue;
+    if (!wiringSources.includes(entry.name)) {
+      findings.push(`unwired executable checker tools/${entry.name}; reference it from tools/gate-manifest.json or tools/run-local-check.mjs`);
+    }
+  }
 }
 
 function checkLocalStopSurface(manifest, gates, findings) {
@@ -274,10 +291,6 @@ function checkSurfaceClassMapping(gate, classes, findings) {
   if (hasClass("manual") !== (gate.tier === "manual-only")) {
     findings.push(`${gate.id} executionSurfaces.classes manual does not match its tier`);
   }
-}
-
-function readJson(filePath) {
-  return JSON.parse(readFileSync(filePath, "utf8"));
 }
 
 function parseArgs(argv) {

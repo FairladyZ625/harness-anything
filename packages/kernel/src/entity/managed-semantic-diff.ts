@@ -15,6 +15,17 @@ import type {
 } from "./registry-contract.ts";
 
 type TransparentSemanticKind = "task" | "decision" | "fact" | "relation";
+export type ManagedSemanticDiffErrorCode = "SEMANTIC_DIFF_REQUIRED" | "SEMANTIC_DIFF_AMBIGUOUS";
+
+export class ManagedSemanticDiffError extends Error {
+  readonly code: ManagedSemanticDiffErrorCode;
+
+  constructor(code: ManagedSemanticDiffErrorCode, detail: string) {
+    super(`${code}:${detail}`);
+    this.code = code;
+    this.name = "ManagedSemanticDiffError";
+  }
+}
 
 interface ChangedRegion {
   readonly document: SemanticDiffCandidateDocument;
@@ -369,8 +380,8 @@ function maskDeclaredSections(body: string, sections: ReadonlyArray<SemanticDiff
   return output.join("\n").trim();
 }
 
-function semanticDiffError(code: "SEMANTIC_DIFF_REQUIRED" | "SEMANTIC_DIFF_AMBIGUOUS", detail: string): never {
-  throw new Error(`${code}:${detail}`);
+function semanticDiffError(code: ManagedSemanticDiffErrorCode, detail: string): never {
+  throw new ManagedSemanticDiffError(code, detail);
 }
 
 function compareUtf8(left: string, right: string): number {

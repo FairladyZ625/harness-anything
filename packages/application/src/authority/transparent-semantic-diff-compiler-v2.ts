@@ -1,4 +1,5 @@
 import {
+  ManagedSemanticDiffError,
   sha256Text,
   stablePayloadHash,
   type EntityId,
@@ -188,11 +189,8 @@ function transparentOperation(
 }
 
 function normalizeSemanticDiffError(error: unknown): Error {
-  if (error instanceof Error && error.message.startsWith("SEMANTIC_DIFF_AMBIGUOUS")) {
-    return semanticAdmissionV2("SEMANTIC_DIFF_AMBIGUOUS", error.message);
-  }
-  if (error instanceof Error && error.message.startsWith("SEMANTIC_DIFF_REQUIRED")) {
-    return semanticAdmissionV2("SEMANTIC_DIFF_REQUIRED", error.message);
+  if (error instanceof ManagedSemanticDiffError) {
+    return semanticAdmissionV2(error.code, error.message);
   }
   return error instanceof Error ? error : semanticAdmissionV2("SEMANTIC_DIFF_AMBIGUOUS");
 }

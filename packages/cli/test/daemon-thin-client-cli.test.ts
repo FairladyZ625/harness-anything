@@ -9,6 +9,7 @@ import { JsonRpcLineClient } from "../../daemon/src/index.ts";
 import { readDaemonClientConfig } from "../src/daemon/client.ts";
 import {
   defaultDaemonUserRoot,
+  pollDaemonConnectionCount,
   pollUntil,
   runDaemonCommand,
   runRawJson,
@@ -48,13 +49,6 @@ const expectedCliVersion = readCliPackageVersion();
 test("daemon client defaults to the local daemon", () => {
   assert.equal(readDaemonClientConfig({}).mode, "local");
 });
-
-function connectionCount(receipt: Record<string, unknown>): number | undefined {
-  const details = receipt.details as Record<string, unknown> | undefined;
-  const data = details?.data as Record<string, unknown> | undefined;
-  const connections = data?.connections as Record<string, unknown> | undefined;
-  return typeof connections?.active === "number" ? connections.active : undefined;
-}
 
 function waitForChildOutput(child: ChildProcess, expected: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -207,16 +201,17 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       setInterval(() => undefined, 1000);
     `, endpoint], { stdio: ["ignore", "pipe", "pipe"] });
     try {
+      const readDaemonStatus = async (): Promise<Record<string, unknown>> =>
+        statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } }) as Promise<Record<string, unknown>>;
+
       await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
-      const heldStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
-      assert.equal(connectionCount(heldStatus), 2, JSON.stringify(heldStatus));
+      await pollDaemonConnectionCount(readDaemonStatus, 2);
 
       assert.equal(holder.kill("SIGKILL"), true);
       await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
-      const releasedStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
       // This status probe is the only remaining connection. Once it closes,
       // the daemon's active count returns to zero and its idle timer starts.
-      assert.equal(connectionCount(releasedStatus), 1, JSON.stringify(releasedStatus));
+      await pollDaemonConnectionCount(readDaemonStatus, 1);
       statusClient.close();
       statusSocket.destroy();
 

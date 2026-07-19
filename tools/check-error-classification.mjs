@@ -1,12 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-const defaultScanRoots = [
-  "packages/cli/src",
-  "packages/kernel/src",
-  "packages/adapters"
-];
+import { discoverWorkspaceSourceRoots } from "./workspace-packages.mjs";
 
 const forbiddenPatterns = [
   {
@@ -36,7 +31,7 @@ const forbiddenPatterns = [
   }
 ];
 
-export function findErrorClassificationViolations(rootDir = process.cwd(), scanRoots = defaultScanRoots) {
+export function findErrorClassificationViolations(rootDir = process.cwd(), scanRoots = discoverWorkspaceSourceRoots(rootDir)) {
   const violations = [];
   for (const scanRoot of scanRoots) {
     const absoluteRoot = path.join(rootDir, scanRoot);
@@ -77,8 +72,13 @@ function listSourceFiles(inputPath) {
 }
 
 function main() {
-  const violations = findErrorClassificationViolations();
-  if (violations.length === 0) return;
+  const rootDir = process.cwd();
+  const scanRoots = discoverWorkspaceSourceRoots(rootDir);
+  const violations = findErrorClassificationViolations(rootDir, scanRoots);
+  if (violations.length === 0) {
+    console.log(`Error classification gate passed (${scanRoots.length} workspace source root(s)).`);
+    return;
+  }
 
   console.error("Error classification gate failed:");
   for (const violation of violations) {
