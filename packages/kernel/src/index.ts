@@ -101,6 +101,7 @@ export {
   queryExecutionProjection,
   queryExecutions,
   queryExecutionsByTask,
+  queryConsentsBySourceStrength,
   queryReviewProjection,
   querySessionExecutionTrace,
   querySessionProjection,

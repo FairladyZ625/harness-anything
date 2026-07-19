@@ -110,7 +110,7 @@ export function seedApprovedExecution(rootDir: string, taskId: string, id: strin
     "--verdict", "approved",
     "--findings", "All acceptance checks passed.",
     "--rationale", "The submitted Execution satisfies the Task intent.",
-    "--consent-utterance", "Approved"
+    "--consent-asserted", "Approval was received through an external channel."
   ], true, executionActorEnv);
   assert.equal(reviewed.executionId, id);
 }

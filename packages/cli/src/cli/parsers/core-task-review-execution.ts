@@ -16,6 +16,8 @@ export function parseTaskReviewExecution(args: ReadonlyArray<string>, rootDir: s
   const rationale = payloadFallback(readOption(args, "--rationale"), payload, "rationale");
   const consentId = payloadFallback(readOption(args, "--consent"), payload, "consentId");
   const consentUtterance = payloadFallback(readOption(args, "--consent-utterance"), payload, "consentUtterance");
+  const consentStandingPolicyDecisionId = payloadFallback(readOption(args, "--consent-standing-policy"), payload, "consentStandingPolicyDecisionId");
+  const consentAssertedRationale = payloadFallback(readOption(args, "--consent-asserted"), payload, "consentAssertedRationale");
   if ((!executionId && !payload) || !verdict || !findings) {
     return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "task review-execution requires --execution-id, --verdict, --findings, and --rationale.") };
   }
@@ -23,13 +25,14 @@ export function parseTaskReviewExecution(args: ReadonlyArray<string>, rootDir: s
     return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, `Unknown Review verdict: ${verdict}. Valid verdicts: ${reviewVerdicts.join(", ")}.`) };
   }
   if (!rationale) return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "task review-execution requires --rationale.") };
-  if (consentId && consentUtterance) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use either --consent or --consent-utterance, not both.") };
+  const consentSourceCount = [consentUtterance, consentStandingPolicyDecisionId, consentAssertedRationale].filter(Boolean).length;
+  if ((consentId ? 1 : 0) + consentSourceCount > 1) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use either --consent or exactly one of --consent-utterance, --consent-standing-policy, or --consent-asserted.") };
   }
   const consentActions = parseReviewConsentActions(args, payload?.consentActions);
   if (!consentActions.ok) return consentActions;
-  if (consentActions.value && !consentUtterance) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "--consent-action requires --consent-utterance.") };
+  if (consentActions.value && consentSourceCount === 0) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "--consent-action requires an explicit consent source declaration.") };
   }
   return {
     ok: true,
@@ -47,6 +50,8 @@ export function parseTaskReviewExecution(args: ReadonlyArray<string>, rootDir: s
         archiveWarningsAcknowledged: args.includes("--acknowledge-archive-warnings") || jsonBoolean(payload, "archiveWarningsAcknowledged"),
         ...(consentId ? { consentId } : {}),
         ...(consentUtterance ? { consentUtterance } : {}),
+        ...(consentStandingPolicyDecisionId ? { consentStandingPolicyDecisionId } : {}),
+        ...(consentAssertedRationale ? { consentAssertedRationale } : {}),
         ...(consentActions.value ? { consentActions: consentActions.value } : {})
       }
     }

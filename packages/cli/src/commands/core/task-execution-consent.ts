@@ -20,6 +20,8 @@ export function runExecutionConsent(context: Parameters<CommandRunner>[0], actio
         actor: context.taskHolderPrincipal(),
         session,
         utterance: action.utterance,
+        standingPolicyDecisionId: action.standingPolicyDecisionId,
+        assertedRationale: action.assertedRationale,
         actions: action.consentActions
       }),
       catch: (error) => error
@@ -44,6 +46,7 @@ export function runExecutionConsent(context: Parameters<CommandRunner>[0], actio
           contentPin: consent.scope.content_pin.digest,
           actions: consent.scope.actions,
           channel: consent.channel,
+          source: consent.source,
           expiresAt: consent.expires_at,
           state: consent.state
         }

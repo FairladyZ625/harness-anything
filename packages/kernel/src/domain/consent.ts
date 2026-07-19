@@ -16,7 +16,23 @@ export type ConsentChannel =
 
 export type ConsentResponse =
   | { readonly kind: "utterance"; readonly text: string; readonly session_ref: string }
+  | { readonly kind: "authorization-declaration"; readonly source: "standing-policy" | "asserted" }
   | { readonly kind: "interaction"; readonly interaction_ref: string; readonly label: string };
+
+export type ConsentSource =
+  | {
+      readonly strength: "transcript-verified";
+      readonly transcript_anchor: {
+        readonly session_ref: string;
+        readonly message_index: number;
+        readonly role: "user";
+        readonly message_sha256: `sha256:${string}`;
+        readonly timestamp?: string;
+      };
+    }
+  | { readonly strength: "standing-policy"; readonly decision_ref: string }
+  | { readonly strength: "asserted"; readonly rationale: string }
+  | { readonly strength: "legacy-unrecorded" };
 
 export interface ConsentScope {
   readonly actions: ReadonlyArray<ConsentAction>;
@@ -33,7 +49,7 @@ export interface ConsentDisclosure {
 }
 
 export interface ConsentRecord {
-  readonly schema: "consent/v1";
+  readonly schema: "consent/v2";
   readonly consent_id: string;
   readonly task_ref: string;
   readonly execution_ref: string;
@@ -42,6 +58,7 @@ export interface ConsentRecord {
   readonly disclosure: ConsentDisclosure;
   readonly channel: ConsentChannel;
   readonly response: ConsentResponse;
+  readonly source: ConsentSource;
   readonly recorded_by: ExecutionActor;
   readonly granted_at: string;
   readonly expires_at: string;
@@ -56,6 +73,7 @@ export type ConsentSnapshot = Pick<ConsentRecord,
   | "disclosure"
   | "channel"
   | "response"
+  | "source"
   | "recorded_by"
   | "granted_at"
   | "expires_at"

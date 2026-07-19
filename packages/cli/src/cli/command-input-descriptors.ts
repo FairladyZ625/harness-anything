@@ -152,6 +152,8 @@ const explicitInputDescriptors = {
       archiveWarningsAcknowledged: { type: "boolean", description: "Explicit acknowledgement of archive warnings." },
       consentId: { type: "string", description: "Existing content-pinned human consent id." },
       consentUtterance: { type: "string", description: "Human's exact approval words; never defaulted." },
+      consentStandingPolicyDecisionId: { type: "string", description: "Existing active decision used as standing authorization." },
+      consentAssertedRationale: { type: "string", description: "Explicit rationale for externally obtained, unverified approval." },
       consentActions: { type: "array", description: "Explicit human consent actions.", items: { type: "string" } }
     },
     shortcuts: [
@@ -163,6 +165,8 @@ const explicitInputDescriptors = {
       shortcut("--acknowledge-archive-warnings", "$.archiveWarningsAcknowledged", "set"),
       shortcut("--consent", "$.consentId", "set"),
       shortcut("--consent-utterance", "$.consentUtterance", "set"),
+      shortcut("--consent-standing-policy", "$.consentStandingPolicyDecisionId", "set"),
+      shortcut("--consent-asserted", "$.consentAssertedRationale", "set"),
       shortcut("--consent-action", "$.consentActions", "append")
     ]
   },

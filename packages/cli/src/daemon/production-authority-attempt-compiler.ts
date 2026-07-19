@@ -508,7 +508,11 @@ async function canonicalAttemptIntent(
     if (!snapshot) throw new Error("AUTHORITY_CONSENT_EXECUTION_REQUIRED: submit the Execution before recording consent");
     const payload: ConsentCommandPayloadV2 = {
       schema: "consent.grant/v1", taskId: action.taskId, executionId: action.executionId,
-      consentId, utterance: action.utterance, actions: action.consentActions
+      consentId,
+      utterance: action.utterance ?? null,
+      standingPolicyDecisionId: action.standingPolicyDecisionId ?? null,
+      assertedRationale: action.assertedRationale ?? null,
+      actions: action.consentActions
     };
     const execution = ref("execution", `execution/${action.taskId}/${action.executionId}`);
     const consent = ref("consent", `consent/${action.taskId}/${consentId}`);

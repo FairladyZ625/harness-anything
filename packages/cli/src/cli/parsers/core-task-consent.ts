@@ -9,8 +9,11 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 export function parseTaskConsentRecord(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const executionId = readOption(args, "--execution-id");
   const utterance = readOption(args, "--utterance");
-  if (!executionId || !utterance) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "task consent-record requires --execution-id and --utterance.") };
+  const standingPolicyDecisionId = readOption(args, "--standing-policy");
+  const assertedRationale = readOption(args, "--asserted");
+  const sourceCount = [utterance, standingPolicyDecisionId, assertedRationale].filter(Boolean).length;
+  if (!executionId || sourceCount !== 1) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "task consent-record requires --execution-id and exactly one of --utterance, --standing-policy, or --asserted.") };
   }
   const actions = parseConsentActions(args);
   if (!actions.ok) return actions;
@@ -23,7 +26,9 @@ export function parseTaskConsentRecord(args: ReadonlyArray<string>, rootDir: str
         kind: "task-consent-record",
         taskId: args[2],
         executionId,
-        utterance,
+        ...(utterance ? { utterance } : {}),
+        ...(standingPolicyDecisionId ? { standingPolicyDecisionId } : {}),
+        ...(assertedRationale ? { assertedRationale } : {}),
         consentActions: actions.value ?? DEFAULT_HUMAN_CONSENT_ACTIONS
       }
     }

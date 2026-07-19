@@ -9,6 +9,7 @@ import {
   type ConsentRecord,
   type EntityId,
   type ExecutionRecord,
+  type HarnessLayoutInput,
   type RegistryMutationPlanInput,
   type ReviewRecord,
   type WriteOp
@@ -19,6 +20,8 @@ import {
   createConsentRecord,
   DEFAULT_HUMAN_CONSENT_TTL_MS
 } from "../execution-consent-helpers.ts";
+import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
+import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
 import {
   assertExecutionTaskInReview,
   executionHasArchiveWarnings
@@ -64,6 +67,8 @@ export interface ConsentAuthorityStateV2 {
 
 export interface ConsentSemanticCompilerV2Options {
   readonly state: ConsentAuthorityStateV2;
+  readonly rootInput: HarnessLayoutInput;
+  readonly runtimeLogOptions?: RuntimeLogOptions;
   readonly ttlMs?: number;
 }
 
@@ -82,7 +87,7 @@ export function makeConsentSemanticCompilerV2(options: ConsentSemanticCompilerV2
     compile: async (envelope, context) => {
       if (!context) throw admission("AUTHORITY_COMPILER_CONTEXT_REQUIRED");
       const { payload, decodedBytes } = decodeConsentCommandPayloadV2(envelope);
-      const compiled = await compileConsentPayloadV2(options.state, payload, context, ttlMs);
+      const compiled = await compileConsentPayloadV2(options, payload, context, ttlMs);
       await verifySemanticBaseCasV2(
         options.state,
         envelope.intent.kind === "typed" ? envelope.intent.baseCas : [],
@@ -98,22 +103,23 @@ export function makeConsentSemanticCompilerV2(options: ConsentSemanticCompilerV2
 }
 
 async function compileConsentPayloadV2(
-  state: ConsentAuthorityStateV2,
+  options: ConsentSemanticCompilerV2Options,
   payload: ConsentCommandPayloadV2,
   context: AuthoritySemanticCompilerContextV2,
   ttlMs: number
 ): Promise<CompiledConsentCommandV2> {
-  if (payload.schema === "consent.grant/v1") return compileConsentGrantV2(state, payload, context, ttlMs);
-  if (payload.schema === "consent.consume/v1") return compileConsentConsumeV2(state, payload, context, ttlMs);
-  return compileConsentExpireV2(state, payload, context);
+  if (payload.schema === "consent.grant/v1") return compileConsentGrantV2(options, payload, context, ttlMs);
+  if (payload.schema === "consent.consume/v1") return compileConsentConsumeV2(options, payload, context, ttlMs);
+  return compileConsentExpireV2(options.state, payload, context);
 }
 
 async function compileConsentGrantV2(
-  state: ConsentAuthorityStateV2,
+  options: ConsentSemanticCompilerV2Options,
   payload: ConsentGrantPayloadV2,
   context: AuthoritySemanticCompilerContextV2,
   ttlMs: number
 ): Promise<CompiledConsentCommandV2> {
+  const state = options.state;
   requireConsentActionsV2(payload.actions);
   const executionPath = consentStoragePathV2("execution", { taskId: payload.taskId, executionId: payload.executionId });
   const consentPath = consentStoragePathV2("consent", { taskId: payload.taskId, consentId: payload.consentId });
@@ -126,8 +132,16 @@ async function compileConsentGrantV2(
     taskId: payload.taskId,
     execution,
     actor: context.actor,
-    session: consentCompilerSessionV2(context, now),
-    utterance: payload.utterance,
+    authorization: await resolveConsentAuthorizationForAuthority({
+      rootInput: options.rootInput,
+      execution,
+      request: consentSourceRequest({
+        utterance: payload.utterance,
+        standingPolicyDecisionId: payload.standingPolicyDecisionId,
+        assertedRationale: payload.assertedRationale
+      }),
+      runtimeLogOptions: options.runtimeLogOptions
+    }),
     actions: payload.actions,
     grantedAt: now,
     ttlMs
@@ -155,11 +169,12 @@ async function compileConsentGrantV2(
 }
 
 async function compileConsentConsumeV2(
-  state: ConsentAuthorityStateV2,
+  options: ConsentSemanticCompilerV2Options,
   payload: ConsentConsumePayloadV2,
   context: AuthoritySemanticCompilerContextV2,
   ttlMs: number
 ): Promise<CompiledConsentCommandV2> {
+  const state = options.state;
   const executionPath = consentStoragePathV2("execution", { taskId: payload.taskId, executionId: payload.executionId });
   const consentPath = consentStoragePathV2("consent", { taskId: payload.taskId, consentId: payload.consentId });
   const reviewPath = consentStoragePathV2("review", { taskId: payload.taskId, reviewId: payload.review.reviewId });
@@ -173,7 +188,7 @@ async function compileConsentConsumeV2(
   const now = consentCompilerNowV2(context);
   const open = storedConsent
     ? existingConsentForConsumeV2(storedConsent.body, payload, execution, context, now)
-    : newConsentForConsumeV2(payload, execution, context, now, ttlMs);
+    : await newConsentForConsumeV2(payload, execution, context, now, ttlMs, options);
   const consumed = decodeConsentRecordV2({
     ...open,
     state: "consumed",
@@ -287,7 +302,9 @@ function existingConsentForConsumeV2(
   context: AuthoritySemanticCompilerContextV2,
   now: string
 ): ConsentRecord {
-  if (payload.utterance !== null || payload.actions.length !== 0) throw admission("CONSENT_EXISTING_INPUT_INVALID");
+  if (payload.utterance !== null || payload.standingPolicyDecisionId !== null || payload.assertedRationale !== null || payload.actions.length !== 0) {
+    throw admission("CONSENT_EXISTING_INPUT_INVALID");
+  }
   const consent = decodeConsentDocumentV2(body, payload.taskId, payload.consentId);
   if (consent.state !== "open") throw admission("CONSENT_NOT_OPEN");
   if (consent.principal.personId !== context.actor.principal.personId) throw admission("CONSENT_PRINCIPAL_MISMATCH");
@@ -298,26 +315,44 @@ function existingConsentForConsumeV2(
   return consent;
 }
 
-function newConsentForConsumeV2(
+async function newConsentForConsumeV2(
   payload: ConsentConsumePayloadV2,
   execution: ExecutionRecord,
   context: AuthoritySemanticCompilerContextV2,
   now: string,
-  ttlMs: number
-): ConsentRecord {
-  if (payload.utterance === null) throw admission("CONSENT_DOCUMENT_NOT_FOUND");
+  ttlMs: number,
+  options: ConsentSemanticCompilerV2Options
+): Promise<ConsentRecord> {
   requireConsentActionsV2(payload.actions);
   return createConsentRecord({
     consentId: payload.consentId,
     taskId: payload.taskId,
     execution,
     actor: context.actor,
-    session: consentCompilerSessionV2(context, now),
-    utterance: payload.utterance,
+    authorization: await resolveConsentAuthorizationForAuthority({
+      rootInput: options.rootInput,
+      execution,
+      request: consentSourceRequest({
+        utterance: payload.utterance,
+        standingPolicyDecisionId: payload.standingPolicyDecisionId,
+        assertedRationale: payload.assertedRationale
+      }),
+      runtimeLogOptions: options.runtimeLogOptions
+    }),
     actions: payload.actions,
     grantedAt: now,
     ttlMs
   });
+}
+
+async function resolveConsentAuthorizationForAuthority(
+  input: Parameters<typeof resolveConsentAuthorization>[0]
+): ReturnType<typeof resolveConsentAuthorization> {
+  try {
+    return await resolveConsentAuthorization(input);
+  } catch (error) {
+    throw admission("CONSENT_SOURCE_UNVERIFIED", error instanceof Error ? error.message : String(error));
+  }
 }
 
 function decodeConsentExecutionV2(body: string, taskId: string, executionId: string): ExecutionRecord {
@@ -421,16 +456,4 @@ function consentCompilerNowV2(context: AuthoritySemanticCompilerContextV2): stri
   const value = new Date(numeric).toISOString();
   if (Number.isNaN(Date.parse(value))) throw admission("AUTHORITY_TIME_INVALID");
   return value;
-}
-
-function consentCompilerSessionV2(
-  context: AuthoritySemanticCompilerContextV2,
-  detectedAt: string
-): { readonly runtime: "human" | "codex"; readonly sessionId: string; readonly source: "runtime"; readonly detectedAt: string } {
-  return {
-    runtime: context.actor.executor ? "codex" : "human",
-    sessionId: context.sessionId,
-    source: "runtime",
-    detectedAt
-  };
 }

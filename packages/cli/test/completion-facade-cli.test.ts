@@ -70,7 +70,7 @@ test("task submit facade sends the exact six-field packet through execution subm
       rationale: "The evidence and verification note cover the Task intent.",
       evidenceChecked: ["ev_cli_1"],
       archiveWarningsAcknowledged: false,
-      consentUtterance: "I approve this exact submitted content.",
+      consentAssertedRationale: "Approval was received through an external channel.",
       consentActions: ["approve_execution", "complete_task"]
     }), "utf8");
     const reviewed = runJson(rootDir, [
@@ -335,7 +335,7 @@ function runCompletionChain(rootDir: string, mode: ChainMode): Record<string, un
   const reviewInput = {
     verdict: "approved", findings: "All acceptance checks passed.", evidenceChecked: ["ev_cli_1"],
     rationale: "The submitted evidence satisfies the Task intent.", archiveWarningsAcknowledged: false,
-    consentUtterance: "I approve this exact submitted content.",
+    consentAssertedRationale: "Approval was received through an external channel.",
     consentActions: ["approve_execution", "complete_task"]
   };
   const reviewReceipt = mode === "flags"
@@ -343,7 +343,7 @@ function runCompletionChain(rootDir: string, mode: ChainMode): Record<string, un
       "task", "review-execution", chain.taskId, "--execution-id", chain.executionId,
       "--verdict", reviewInput.verdict, "--findings", reviewInput.findings,
       "--evidence-checked", reviewInput.evidenceChecked[0], "--rationale", reviewInput.rationale,
-      "--consent-utterance", reviewInput.consentUtterance,
+      "--consent-asserted", reviewInput.consentAssertedRationale,
       "--consent-action", "approve_execution", "--consent-action", "complete_task"
     ], true, { HARNESS_ACTOR: "agent:reviewer" })
     : (() => {

@@ -14,6 +14,10 @@ import { makeProductionScriptIngestSemanticCompiler } from "./production-authori
 
 export function createProductionAuthoritySemanticCompiler(authoredRoot: string) {
   const semanticState = createProductionCanonicalSemanticState(authoredRoot);
+  const rootInput = {
+    rootDir: path.dirname(authoredRoot),
+    layoutOverrides: { authoredRoot: path.basename(authoredRoot) }
+  };
   return makeCompositeAuthoritySemanticCompilerV2([{
     commandNames: ["script.scope-ingest"],
     compiler: makeProductionScriptIngestSemanticCompiler(authoredRoot)
@@ -37,6 +41,7 @@ export function createProductionAuthoritySemanticCompiler(authoredRoot: string) 
     compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
   }, {
     commandNames: consentTypedCommandsV2,
-    compiler: makeConsentSemanticCompilerV2({ state: semanticState })
+    compiler: makeConsentSemanticCompilerV2({ state: semanticState, rootInput })
   }]);
 }
+import path from "node:path";

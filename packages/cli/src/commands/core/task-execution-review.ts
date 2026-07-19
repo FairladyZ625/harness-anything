@@ -37,6 +37,8 @@ export function runExecutionReview(context: Parameters<CommandRunner>[0], action
         archiveWarningsAcknowledged: action.archiveWarningsAcknowledged,
         consentId: action.consentId,
         consentUtterance: action.consentUtterance,
+        consentStandingPolicyDecisionId: action.consentStandingPolicyDecisionId,
+        consentAssertedRationale: action.consentAssertedRationale,
         consentActions: action.consentActions
       }),
       catch: (error) => error

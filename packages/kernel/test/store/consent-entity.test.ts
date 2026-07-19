@@ -68,13 +68,21 @@ test("Execution consent pin changes before TTL whenever the submitted delivery c
   }), first);
 });
 
+test("legacy consent documents decode as legacy-unrecorded rather than asserted", () => {
+  const current = consentRecord();
+  const { source: _source, ...legacy } = current;
+  const decoded = consentDeclaration.documentCodec.decode(JSON.stringify({ ...legacy, schema: "consent/v1" })) as ConsentRecord;
+  assert.equal(decoded.schema, "consent/v2");
+  assert.deepEqual(decoded.source, { strength: "legacy-unrecorded" });
+});
+
 function decode(value: unknown): ConsentRecord {
   return Schema.decodeUnknownSync(consentDeclaration.schema)(value) as ConsentRecord;
 }
 
 function consentRecord(): ConsentRecord {
   return {
-    schema: "consent/v1",
+    schema: "consent/v2",
     consent_id: consentId,
     task_ref: `task/${taskId}`,
     execution_ref: `execution/${taskId}/${executionId}`,
@@ -85,7 +93,8 @@ function consentRecord(): ConsentRecord {
     },
     disclosure: { completion_claim: "ship it", known_gaps: [], residual_risks: [] },
     channel: { kind: "agent-relayed", assurance: "relayed-assertion" },
-    response: { kind: "utterance", text: "Approved", session_ref: "session/consent-test" },
+    response: { kind: "authorization-declaration", source: "asserted" },
+    source: { strength: "asserted", rationale: "Approval was received through an external channel." },
     recorded_by: executionRecord().primary_actor,
     granted_at: "2026-07-15T00:01:00.000Z",
     expires_at: "2026-07-16T00:01:00.000Z",

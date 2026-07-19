@@ -219,6 +219,8 @@ function approvedReviewIntent(
     schema: "consent.consume/v1", taskId: action.taskId, executionId,
     consentId,
     utterance: storedConsent ? null : action.consentUtterance ?? null,
+    standingPolicyDecisionId: storedConsent ? null : action.consentStandingPolicyDecisionId ?? null,
+    assertedRationale: storedConsent ? null : action.consentAssertedRationale ?? null,
     actions: storedConsent ? [] : action.consentActions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
     review: {
       reviewId, findings: action.findings, evidenceChecked: action.evidenceChecked,

@@ -52,6 +52,7 @@ import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
 import { verifyOmittedIngressRegressions } from "./omitted-ingress-regressions.ts";
 import { verifySluggedTaskRelatePathCas } from "./slugged-path-cas.ts";
+import { assertProductionConsentIngress, productionConsentIngressCase } from "./consent-ingress.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -282,7 +283,7 @@ test("production service route preserves progress dry-run and publishes canonica
       verdict: "approved", findings: "Slugged production evidence is complete.",
       evidenceChecked: ["ev_cli_1"], rationale: "The submitted execution and closeout evidence support approval.",
       archiveWarningsAcknowledged: true,
-      consentUtterance: "Approve and complete the slugged production execution.",
+      consentAssertedRationale: "Approval was received through an external channel.",
       consentActions: ["approve_execution", "complete_task"]
     }));
     const reviewed = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -497,16 +498,7 @@ test("production generic canonical ingress accepts and journals one write for ev
       canonicalEntityId: "review/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2" as EntityId,
       authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNH2/reviews/rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2.md",
       authoredMarker: /rev_01KXQ4WTA7Q4XJ5GDDRS1YXNG2/u
-    }, {
-      kind: "consent",
-      action: {
-        kind: "task-consent-record", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
-        utterance: "Approve and complete this exact submitted execution.", consentActions: ["approve_execution", "complete_task"]
-      },
-      canonicalEntityId: "consent/cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3" as EntityId,
-      authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/consents/cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3.md",
-      authoredMarker: /cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3/u
-    }, {
+    }, productionConsentIngressCase(), {
       kind: "fact-create-invalidator",
       action: {
         kind: "record-fact", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", factId: "F-A11CE002",
@@ -574,7 +566,9 @@ test("production generic canonical ingress accepts and journals one write for ev
       const watermarkPath = path.join(fixture.repoRoot, ".harness/write-journal/watermark.json");
       assert.equal(existsSync(watermarkPath), true, `${fixtureCase.kind}:${JSON.stringify(receipt)}`);
       assert.equal(readFileSync(watermarkPath, "utf8").includes(receipt.opId), true, `${fixtureCase.kind}:journal-watermark:${JSON.stringify(receipt)}`);
-      assert.match(readFileSync(path.join(fixture.authoredRoot, fixtureCase.authoredPath), "utf8"), fixtureCase.authoredMarker, fixtureCase.kind);
+      const authoredBody = readFileSync(path.join(fixture.authoredRoot, fixtureCase.authoredPath), "utf8");
+      assert.match(authoredBody, fixtureCase.authoredMarker, fixtureCase.kind);
+      if (fixtureCase.kind === "consent") assertProductionConsentIngress(authoredBody);
       const eventFiles = execFileSync("find", [path.join(fixture.authoredRoot, "authority-attribution-events/v2"), "-type", "f"], { encoding: "utf8" })
         .trim().split("\n").filter(Boolean);
       assert.equal(eventFiles.some((eventPath) => readFileSync(eventPath, "utf8").includes(sessionId)), true, `${fixtureCase.kind}:real-session-axis`);
