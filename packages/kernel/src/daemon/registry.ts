@@ -60,6 +60,12 @@ export interface DaemonRegistryMutationResult {
   readonly warnings: ReadonlyArray<string>;
 }
 
+export interface DaemonRegistryRegistrationProjection {
+  readonly registry: DaemonRegistry;
+  readonly repo: DaemonRegistryRepo;
+  readonly changed: boolean;
+}
+
 export function daemonRegistryPaths(options: DaemonRegistryOptions = {}): DaemonRegistryPaths {
   const userRoot = path.resolve(options.userRoot ?? path.join(os.homedir(), ".harness"));
   return {
@@ -79,11 +85,20 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
 export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRegistryMutationResult {
   const paths = daemonRegistryPaths(input);
   const registry = readDaemonRegistry(input);
+  const projected = projectDaemonRepoRegistration(registry, input);
+  if (projected.changed) writeDaemonRegistry(projected.registry, input);
+  const warnings = syncConvenienceLink(projected.repo, input);
+  return { ...projected, registryPath: paths.registryPath, warnings };
+}
+
+export function projectDaemonRepoRegistration(
+  registry: DaemonRegistry,
+  input: DaemonRegistryRegisterInput
+): DaemonRegistryRegistrationProjection {
   const canonicalRoot = canonicalHarnessRoot(input.canonicalRoot);
   const displayName = input.displayName ?? path.basename(canonicalRoot);
   const explicitRepoId = input.repoId ? normalizeExplicitRepoId(input.repoId) : undefined;
   const existingByRoot = registry.repos.find((repo) => repo.canonicalRoot === canonicalRoot);
-  const warnings: Array<string> = [];
 
   if (existingByRoot) {
     if (explicitRepoId && existingByRoot.repoId !== explicitRepoId) {
@@ -97,9 +112,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     };
     const next = replaceRepo(registry, repo);
     const changed = !daemonRepoEquals(existingByRoot, repo);
-    if (changed) writeDaemonRegistry(next, input);
-    warnings.push(...syncConvenienceLink(repo, input));
-    return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
+    return { registry: next, repo, changed };
   }
 
   const repoId = explicitRepoId ?? generateRepoId(displayName, canonicalRoot, registry.repos);
@@ -117,9 +130,7 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
     ...(input.authorityManifestPath ? { authorityManifestPath: canonicalAuthorityManifestPath(input.authorityManifestPath) } : {})
   };
   const next = sortDaemonRegistry({ schema: daemonRegistrySchema, repos: [...registry.repos, repo] });
-  writeDaemonRegistry(next, input);
-  warnings.push(...syncConvenienceLink(repo, input));
-  return { registry: next, repo, registryPath: paths.registryPath, changed: true, warnings };
+  return { registry: next, repo, changed: true };
 }
 
 export function unregisterDaemonRepo(repoId: string, options: DaemonRegistryOptions = {}): DaemonRegistryMutationResult {

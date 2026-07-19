@@ -4,7 +4,6 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   readDaemonRegistry,
-  registerDaemonRepo,
   type DaemonRegistryRepo
 } from "../../kernel/src/index.ts";
 import { makeDaemonLogService } from "../../application/src/index.ts";
@@ -44,6 +43,10 @@ import { createProductionAuthorityLifecycle } from "./daemon/production-authorit
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
 import { recordDaemonStarted, recordDaemonTerminated } from "./daemon/daemon-lifecycle.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
+import {
+  authorityManifestServeRepos,
+  persistAuthorityManifestPointer
+} from "./daemon/authority-manifest-registry.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
@@ -181,7 +184,7 @@ async function runDaemonServe(
     socketPath: restoredSpec.endpoint,
     userRoot: requestedUserRoot
   });
-  const configuration = resolveDaemonServeConfiguration(rootDir, restoredLayoutOverrides, args, true, restoredLaunchOptions);
+  const configuration = resolveDaemonServeConfiguration(rootDir, restoredLayoutOverrides, args, restoredLaunchOptions);
   const { userRoot, endpoint, serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = configuration;
   const completeSpec = restoredSpec.withEffectiveOptions({
     ...(authorityManifest ? { authorityManifest } : {}),
@@ -250,7 +253,6 @@ async function runDaemonServe(
         launchConfiguration,
         preflightReplacement: preflightDaemonLaunch
       }, authorityLifecycle, daemonLogService);
-      serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
         daemonId: serviceHost.daemonId,
         endpoint,
@@ -268,10 +270,14 @@ async function runDaemonServe(
         }
       });
       await transport.start();
-      completeSpec.persist(userRoot);
       serviceHost.onStop(async () => {
         await transport.stop();
       });
+      if (restoredLaunchOptions.authorityManifest) {
+        persistAuthorityManifestPointer(restoredLaunchOptions.authorityManifest, userRoot);
+      }
+      completeSpec.persist(userRoot);
+      serviceHost.startRegistryReconcile(userRoot);
       await recordDaemonStarted({
         userRoot,
         logService: daemonLogService,
@@ -340,14 +346,13 @@ function checkDaemonServeConfiguration(
   args: ReadonlyArray<string>,
   launchOptions: ParsedDaemonLaunchArgv
 ): void {
-  resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, false, launchOptions);
+  resolveDaemonServeConfiguration(rootDir, layoutOverrides, args, launchOptions);
 }
 
 function resolveDaemonServeConfiguration(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   args: ReadonlyArray<string>,
-  persistExplicitManifest: boolean,
   launchOptions: ParsedDaemonLaunchArgv
 ): {
   readonly userRoot: string;
@@ -361,11 +366,9 @@ function resolveDaemonServeConfiguration(
   const userRoot = launchOptions.userRoot ?? daemonUserRoot();
   const endpoint = launchOptions.socketPath ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
   const requestedAuthorityManifest = launchOptions.authorityManifest;
-  if (requestedAuthorityManifest) {
-    loadAuthorityProductionManifest(requestedAuthorityManifest);
-    if (persistExplicitManifest) persistAuthorityManifestPointer(requestedAuthorityManifest, userRoot);
-  }
-  const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
+  const serveRepos = requestedAuthorityManifest
+    ? authorityManifestServeRepos(requestedAuthorityManifest, userRoot)
+    : daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
   const authorityManifest = requestedAuthorityManifest ?? authorityManifestFromRegistry(serveRepos);
   if (authorityManifest) loadAuthorityProductionManifest(authorityManifest);
   const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
@@ -401,18 +404,6 @@ function daemonServeRepos(
     canonicalRoot: rootDir,
     displayName: layoutOverrides?.authoredRoot ?? requestedRepoId
   }];
-}
-
-function persistAuthorityManifestPointer(manifestPath: string, userRoot: string): void {
-  const manifest = loadAuthorityProductionManifest(manifestPath);
-  for (const repo of manifest.repos) {
-    registerDaemonRepo({
-      userRoot,
-      repoId: repo.repoId,
-      canonicalRoot: repo.canonicalRoot,
-      authorityManifestPath: manifestPath
-    });
-  }
 }
 
 export function authorityManifestFromRegistry(repos: ReadonlyArray<DaemonServeRepo>): string | undefined {

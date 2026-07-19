@@ -195,6 +195,7 @@ const publicRuntimeSurface = [
   "preflightPresetManifest",
   "priorityTiers",
   "privateTextScannerVersion",
+  "projectDaemonRepoRegistration",
   "queryConsentsBySourceStrength",
   "queryDecisionProjection",
   "queryExecutionEvidencePage",

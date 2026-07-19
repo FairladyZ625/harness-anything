@@ -1742,7 +1742,7 @@
       "bearing": "daemon-service-launch",
       "leaseRequired": false,
       "owner": "daemon endpoint owner",
-      "purpose": "Persist one opaque endpoint-isolated resolution of canonical authority-manifest and authored-root options after common-path restoration for safe service, foreground, and autostart cold starts.",
+      "purpose": "After the daemon owns and listens on its endpoint, persist the authority-manifest registry pointer and one opaque endpoint-isolated resolution of canonical authority-manifest and authored-root options for safe service, foreground, and autostart cold starts.",
       "channel": {
         "pathClass": "runtime-local-durable",
         "zoneClass": "non-sot-service-state"
@@ -1753,13 +1753,19 @@
       "directWrites": [
         {
           "file": "packages/cli/src/daemon/daemon-launch-spec.ts"
+        },
+        {
+          "file": "packages/kernel/src/daemon/registry.ts"
         }
       ],
       "evidence": [
+        "packages/cli/src/index.ts:272",
+        "packages/cli/src/daemon/authority-manifest-registry.ts:62",
         "packages/cli/src/daemon/daemon-launch-spec.ts:87",
-        "packages/cli/src/daemon/daemon-launch-spec.ts:134"
+        "packages/cli/src/daemon/daemon-launch-spec.ts:134",
+        "packages/kernel/src/daemon/registry.ts:85"
       ],
-      "freshness": "endpoint-sha256-keyed-structured-options-atomic-temp-rename-owner-only-0600-rewrite"
+      "freshness": "post-listen-authority-pointer-then-endpoint-sha256-keyed-structured-options-atomic-temp-rename-owner-only-0600-rewrite"
     },
     {
       "id": "daemon.agent-runtime.session-store",
