@@ -43,6 +43,31 @@ test("production script ingest admits one task-artifact batch as one semantic do
   }
 });
 
+test("production script ingest admits the runtime batch for a slugged task package", () => {
+  const authoredRoot = mkdtempSync(path.join(tmpdir(), "ha-script-ingest-"));
+  try {
+    const packageName = `${taskId}-architecture-rot-audit`;
+    mkdirSync(path.join(authoredRoot, "tasks", packageName), { recursive: true });
+    writeFileSync(path.join(authoredRoot, "tasks", packageName, "INDEX.md"), [
+      "---",
+      `task_id: ${taskId}`,
+      "---",
+      "# Architecture rot audit",
+      ""
+    ].join("\n"));
+    const registryPath = `tasks/${packageName}/artifacts/.machine-evidence.registry.json`;
+    const intent = productionScriptIngestAttemptIntent(command, operation([{
+      path: registryPath,
+      body: "{}\n",
+      baseBlobSha256: null
+    }]), authoredRoot);
+
+    assert.deepEqual(intent.portablePaths, [registryPath]);
+  } finally {
+    rmSync(authoredRoot, { recursive: true, force: true });
+  }
+});
+
 test("production script ingest fails closed outside the bound task artifact scope and on stale CAS", () => {
   const authoredRoot = mkdtempSync(path.join(tmpdir(), "ha-script-ingest-"));
   try {
