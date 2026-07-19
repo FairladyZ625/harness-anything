@@ -1,11 +1,10 @@
+import { defaultRuntimeSessionEnvCandidates } from "../../../application/src/index.ts";
+
+const runtimeSessionEnvKeys = defaultRuntimeSessionEnvCandidates.flatMap(({ keys }) => keys);
+
 export const blankedCliTestEnvKeys = [
   "HARNESS_AUTHORITY_MANIFEST",
-  "CLAUDE_SESSION_ID",
-  "CLAUDE_CODE_SESSION_ID",
-  "CODEX_THREAD_ID",
-  "CODEX_SESSION_ID",
-  "ZCODE_SESSION_ID",
-  "ANTIGRAVITY_SESSION_ID"
+  ...runtimeSessionEnvKeys
 ] as const;
 
 export function cliTestEnv(
