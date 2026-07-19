@@ -23,6 +23,11 @@ interface LocalDaemonTarget {
   readonly registered: boolean;
 }
 
+export interface GuiDaemonNotificationTarget {
+  readonly repoId: string;
+  readonly socketPath: string;
+}
+
 interface HarnessLayoutOverrides {
   readonly authoredRoot?: string;
 }
@@ -66,6 +71,20 @@ export function createLocalGuiServiceBridge(rootDir: string, layoutOverrides?: H
   validateProjectPath(resolvedRootDir, ".");
   const state: GuiDaemonBridgeState = { layoutOverrideDaemonStarted: false };
   return createGuiServiceBridgeForDaemon(async (route, payload) => requestGuiRouteViaDaemon(resolvedRootDir, layoutOverrides, state, route, payload));
+}
+
+export async function resolveGuiDaemonNotificationTarget(rootDir: string): Promise<GuiDaemonNotificationTarget> {
+  const resolvedRootDir = path.resolve(rootDir);
+  validateProjectPath(resolvedRootDir, ".");
+  const daemonClient = await loadDaemonClientModule();
+  const target = daemonClient.resolveLocalDaemonTarget({
+    rootDir: resolvedRootDir,
+    repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID,
+    userRoot: daemonClient.daemonUserRoot(),
+    daemonId: daemonClient.daemonIdFromEnv(),
+    autoRegisterSingleRepo: true
+  });
+  return { repoId: target.repoId, socketPath: target.socketPath };
 }
 
 async function requestGuiRouteViaDaemon(

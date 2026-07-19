@@ -5,6 +5,8 @@ import {
   apiRouteContracts,
   assertUniqueHarnessIpcChannels,
   deferredGuiBridgeContracts,
+  HARNESS_PROJECTION_CHANGED_CHANNEL,
+  HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL,
   preloadAllowlist,
   registerHarnessIpcHandlers,
   shippedPreloadMethods,
@@ -107,3 +109,45 @@ test("main process rejects duplicate IPC handler channels before registration", 
     /Duplicate Harness IPC handler channel: harness:getTasks/u
   );
 });
+
+test("projection subscription sink forwards daemon notifications to the trusted renderer", async () => {
+  type NotificationEvent = {
+    readonly sender: { readonly id: number; readonly send: (channel: string, payload: unknown) => void };
+    readonly senderFrame: { readonly url: string };
+  };
+  const handlers = new Map<string, (event: NotificationEvent, payload: unknown) => Promise<unknown>>();
+  const deliveries: Array<{ readonly channel: string; readonly payload: unknown }> = [];
+  let daemonSink: ((notification: never) => void) | undefined;
+  const event = {
+    ...trustedEvent,
+    sender: {
+      id: 1,
+      send: (channel: string, payload: unknown) => deliveries.push({ channel, payload })
+    }
+  };
+  registerHarnessIpcHandlers(
+    { handle: (channel, listener) => handlers.set(channel, listener as (event: NotificationEvent, payload: unknown) => Promise<unknown>) },
+    { invoke: async () => ({ ok: true }) },
+    { isTrustedWebContentsId: () => true, rendererUrl: { packagedRendererUrl: trustedRendererUrl } },
+    {
+      watch: async (_repoId, sink) => {
+        daemonSink = sink as (notification: never) => void;
+        return { mode: "push" };
+      }
+    }
+  );
+
+  expectChannelRegistered(handlers, HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL);
+  assert.deepEqual(await handlers.get(HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL)?.(event, { repoId: "repo-a" }), { mode: "push" });
+  const notification = {
+    type: "change" as const,
+    repoId: "repo-a",
+    event: { schema: "projection-change/v1" as const, sourceHash: "sha256:new", entities: [{ kind: "task", id: "task-a" }] }
+  };
+  daemonSink?.(notification as never);
+  assert.deepEqual(deliveries, [{ channel: HARNESS_PROJECTION_CHANGED_CHANNEL, payload: notification }]);
+});
+
+function expectChannelRegistered(handlers: ReadonlyMap<string, unknown>, channel: string): void {
+  assert.equal(handlers.has(channel), true, `missing IPC delivery link ${channel}`);
+}

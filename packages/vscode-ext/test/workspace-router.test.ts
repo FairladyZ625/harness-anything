@@ -4,7 +4,7 @@ import test from "node:test";
 import type * as vscode from "vscode";
 import { ConnectionPool } from "../../daemon-client/src/connection-pool.ts";
 import { PersistentDaemonClient } from "../../daemon-client/src/persistent-daemon-client.ts";
-import { FakeTransport, hello } from "../../daemon-client/test/fake-transport.ts";
+import { FakeTransport, hello, receipt } from "../../daemon-client/test/fake-transport.ts";
 import { WorkspaceRouter } from "../src/routing/workspace-router.ts";
 
 test("unknown roots fail closed with an explicit action and zero transport requests", async () => {
@@ -82,14 +82,14 @@ test("positive controls detect an extra socket, wrong RepoKey and injected unkno
 });
 
 function client(transport: FakeTransport, endpoint = "unix:/fixture"): PersistentDaemonClient {
-  return new PersistentDaemonClient({ endpoint, transport, readFull: async () => ({ headSeq: 0 }), requestTimeoutMs: 100 });
+  return new PersistentDaemonClient({ endpoint, transport, requestTimeoutMs: 100, onDiagnostic: () => undefined });
 }
 
 function daemonTransport(): FakeTransport {
   return new FakeTransport((request, connection) => {
     if (hello(connection, request)) return;
-    if (request.method === "repo.notifications.subscribe") connection.respond(request.id, { subscribed: true, headSeq: 0 });
-    if (request.method === "repo.notifications.unsubscribe") connection.respond(request.id, { unsubscribed: true });
+    if (request.method === "repo.notifications.subscribe") connection.respond(request.id, receipt(request.method, { subscription: "projection-change/v1" }));
+    if (request.method === "repo.notifications.unsubscribe") connection.respond(request.id, receipt(request.method, { subscription: "projection-change/v1" }));
   });
 }
 

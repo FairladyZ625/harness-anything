@@ -111,7 +111,9 @@ export function useRebuildGovernanceMutation(repoId?: string | null) {
   return useMutation({
     mutationFn: () => harnessClient.rebuildGovernance(repoId ?? undefined),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
+      // Rebuild mode intentionally emits no projection event, so this mutation
+      // is the full-query invalidation fallback for that path.
+      await queryClient.invalidateQueries({ queryKey: ["harness"] });
     }
   });
 }

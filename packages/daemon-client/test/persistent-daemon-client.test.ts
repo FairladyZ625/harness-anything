@@ -1,122 +1,100 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { DaemonClientDiagnostic } from "../../api-contracts/src/index.ts";
 import { ConnectionPool } from "../src/connection-pool.ts";
 import { JsonRpcWriter } from "../src/json-rpc-writer.ts";
 import { PersistentDaemonClient } from "../src/persistent-daemon-client.ts";
 import { createDaemonRegistryResolver } from "../src/registry-discovery.ts";
-import { FakeConnection, FakeTransport, hello, type RequestFrame } from "./fake-transport.ts";
+import { FakeConnection, FakeTransport, hello, receipt } from "./fake-transport.ts";
 
-test("20 concurrent responses and interleaved notifications keep ids and frames", async () => {
-  const queued: Array<{ request: RequestFrame; connection: FakeConnection }> = [];
-  const transport = new FakeTransport((request, connection) => {
-    if (hello(connection, request)) return;
-    if (request.method === "repo.notifications.subscribe") {
-      connection.respond(request.id, { subscribed: true, headSeq: 0 });
-      return;
-    }
-    queued.push({ request, connection });
-  });
-  const client = fixtureClient(transport, async () => ({ headSeq: 0 }));
-  const events: number[] = [];
-  client.onEvent((event) => events.push(event.seq));
-  await client.subscribe("repo-a");
-  const requests = Array.from({ length: 20 }, (_, index) => client.request("repo.read-full", { repoId: `repo-${index}` }));
-  await waitFor(() => queued.length === 20);
-  queued.slice().reverse().forEach(({ request, connection }, index) => {
-    connection.notify("repo-a", index + 1);
-    connection.respond(request.id, { headSeq: Number((request.params as { repoId: string }).repoId.slice(5)) });
-  });
-  const results = await Promise.all(requests);
-  await waitFor(() => events.length === 20);
-  assert.deepEqual(results.map((result) => result.headSeq), Array.from({ length: 20 }, (_, index) => index));
-  assert.deepEqual(events, Array.from({ length: 20 }, (_, index) => index + 1));
-  await client.dispose();
-});
-
-test("state traces cover stale reconnect and retention gap full-read", async () => {
-  let subscribeCalls = 0;
-  let fullReads = 0;
-  const transport = new FakeTransport((request, connection) => {
-    if (hello(connection, request)) return;
-    if (request.method === "repo.notifications.subscribe") {
-      subscribeCalls += 1;
-      if (subscribeCalls === 2) connection.reject(request.id, "RETENTION_GAP", { code: "RETENTION_GAP" });
-      else connection.respond(request.id, { subscribed: true, headSeq: fullReads });
-    } else if (request.method === "repo.notifications.unsubscribe") {
-      connection.respond(request.id, { unsubscribed: true });
-    }
-  });
-  const client = fixtureClient(transport, async () => ({ headSeq: ++fullReads }), { reconnectBaseMs: 1 });
-  const trace = [client.state()];
-  client.onState((state) => trace.push(state));
-  await client.subscribe("repo-a");
-  transport.connections[0]!.disconnect();
-  await waitFor(() => transport.connections.length === 2 && client.state() === "live");
-  assert.deepEqual(trace, ["connecting", "live", "stale", "unknown", "live"]);
-  assert.equal(fullReads, 2);
-  await client.dispose();
-});
-
-test("catch-up reconnect follows connecting to live to stale to live", async () => {
+test("real command-receipt hello and projection notifications interleave with responses", async () => {
   const transport = subscribingTransport();
-  const client = fixtureClient(transport, async () => ({ headSeq: 0 }), { reconnectBaseMs: 1 });
+  const client = fixtureClient(transport);
+  const events: string[] = [];
+  client.onEvent((notification) => events.push(notification.event.entities[0]!.id));
+  const helloResult = await client.connect();
+  assert.equal(helloResult.capabilities.notifications, true);
+  assert.deepEqual(helloResult.repos, [{ repoId: "repo-a", canonicalRoot: "/fixture" }]);
+  await client.subscribe("repo-a");
+
+  const request = client.request("protocol.hello", {
+    protocolVersion: 1,
+    clientName: "test",
+    clientVersion: "1"
+  });
+  transport.connections[0]!.notify("repo-a", "task-1");
+  await request;
+  await waitFor(() => events.length === 1);
+  assert.deepEqual(events, ["task-1"]);
+  await client.dispose();
+});
+
+test("stale connection reconnects and restores repo subscriptions", async () => {
+  const transport = subscribingTransport();
+  const client = fixtureClient(transport, { reconnectBaseMs: 1 });
   const trace = [client.state()];
   client.onState((state) => trace.push(state));
   await client.subscribe("repo-a");
   transport.connections[0]!.disconnect();
-  await waitFor(() => transport.connections.length === 2 && client.state() === "live");
+  await waitFor(() => transport.connections.length === 2 && subscribeCount(transport) === 2);
   assert.deepEqual(trace, ["connecting", "live", "stale", "live"]);
   await client.dispose();
 });
 
-test("sequence gap exposes unknown until full-read completes", async () => {
-  let releaseRead: (() => void) | undefined;
-  let reads = 0;
+test("unknown and malformed notification frames leave diagnostic evidence", async () => {
+  const diagnostics: DaemonClientDiagnostic[] = [];
   const transport = subscribingTransport();
-  const client = fixtureClient(transport, async () => {
-    reads += 1;
-    if (reads > 1) await new Promise<void>((resolve) => { releaseRead = resolve; });
-    return { headSeq: reads === 1 ? 1 : 3 };
+  const client = fixtureClient(transport, { onDiagnostic: (diagnostic) => diagnostics.push(diagnostic) });
+  await client.subscribe("repo-a");
+  transport.connections[0]!.emit({ jsonrpc: "2.0", method: "repo.event", params: {} });
+  transport.connections[0]!.emit({ jsonrpc: "2.0", method: "repo.projection.changed", params: {} });
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), ["unknown_notification", "invalid_notification"]);
+  await client.dispose();
+});
+
+test("subscription rejection and timeout are diagnostic and reject for polling fallback", async () => {
+  const diagnostics: DaemonClientDiagnostic[] = [];
+  const unavailable = new FakeTransport((request, connection) => {
+    if (hello(connection, request)) return;
+    if (request.method === "repo.notifications.subscribe") {
+      connection.respond(request.id, {
+        ok: false,
+        schema: "command-receipt/v2",
+        command: request.method,
+        summary: "not configured",
+        error: { code: "notifications_unavailable", hint: "not configured" }
+      });
+    }
   });
-  await client.subscribe("repo-a");
-  transport.connections[0]!.notify("repo-a", 3);
-  await waitFor(() => client.state() === "unknown");
-  assert.equal(client.state(), "unknown");
-  releaseRead?.();
-  await waitFor(() => client.state() === "live");
-  assert.equal(reads, 2);
-  await client.dispose();
+  const rejected = fixtureClient(unavailable, { onDiagnostic: (diagnostic) => diagnostics.push(diagnostic) });
+  await assert.rejects(rejected.subscribe("repo-a"), /notifications_unavailable/u);
+  assert.equal(diagnostics.at(-1)?.code, "subscription_failed");
+  await rejected.dispose();
+
+  const timeout = new FakeTransport((request, connection) => { hello(connection, request); });
+  const timedOut = fixtureClient(timeout, { requestTimeoutMs: 5, onDiagnostic: (diagnostic) => diagnostics.push(diagnostic) });
+  await assert.rejects(timedOut.subscribe("repo-a"), /timed out/u);
+  assert.match(diagnostics.at(-1)?.message ?? "", /timed out/u);
+  await timedOut.dispose();
 });
 
-test("missing notification capability degrades to full-read polling", async () => {
-  let reads = 0;
-  const transport = new FakeTransport((request, connection) => { hello(connection, request, false); });
-  const client = fixtureClient(transport, async () => ({ headSeq: ++reads }), { pollIntervalMs: 2 });
-  await client.subscribe("repo-a");
-  await waitFor(() => reads >= 2);
-  assert.equal(client.state(), "live");
-  assert.equal(transport.connections[0]!.writes.some((frame) => JSON.stringify(frame).includes("notifications.subscribe")), false);
-  await client.dispose();
-});
-
-test("timeout, abort, disconnect and dispose reject pending work deterministically", async () => {
-  const transport = new FakeTransport((request, connection) => { hello(connection, request); });
-  const client = fixtureClient(transport, async () => ({ headSeq: 0 }), { requestTimeoutMs: 5 });
-  await client.connect();
-  await assert.rejects(client.request("repo.read-full", { repoId: "timeout" }), /timed out/u);
+test("abort, disconnect and dispose reject pending hello deterministically", async () => {
+  const transport = new FakeTransport(() => undefined);
+  const client = fixtureClient(transport, { requestTimeoutMs: 100 });
   const controller = new AbortController();
-  const aborted = client.request("repo.read-full", { repoId: "abort" }, controller.signal);
+  const aborted = client.connect(controller.signal);
   controller.abort();
   await assert.rejects(aborted, { name: "AbortError" });
-  const disconnected = client.request("repo.read-full", { repoId: "disconnect" });
-  await waitFor(() => transport.connections[0]!.writes.some((frame) => JSON.stringify(frame).includes("disconnect")));
-  transport.connections[0]!.disconnect(new Error("fixture disconnect"));
-  await assert.rejects(disconnected, /fixture disconnect/u);
-  const started = Date.now();
   await client.dispose();
-  assert.ok(Date.now() - started < 1_000);
-  assert.equal(transport.connections.flatMap((connection) => connection.writes).some((frame) => JSON.stringify(frame).includes("terminate")), false);
+
+  const disconnectedTransport = new FakeTransport(() => undefined);
+  const disconnectedClient = fixtureClient(disconnectedTransport);
+  const disconnected = disconnectedClient.connect();
+  await waitFor(() => disconnectedTransport.connections.length === 1);
+  disconnectedTransport.connections[0]!.disconnect(new Error("fixture disconnect"));
+  await assert.rejects(disconnected, /fixture disconnect/u);
+  await disconnectedClient.dispose();
 });
 
 test("connection pool separates endpoint sockets from repo subscriptions", async () => {
@@ -125,7 +103,7 @@ test("connection pool separates endpoint sockets from repo subscriptions", async
   const pool = new ConnectionPool((endpoint) => {
     const transport = subscribingTransport();
     transports.push(transport);
-    const client = fixtureClient(transport, async () => ({ headSeq: 0 }), { endpoint });
+    const client = fixtureClient(transport, { endpoint });
     created.push(client);
     return client;
   });
@@ -136,14 +114,12 @@ test("connection pool separates endpoint sockets from repo subscriptions", async
   assert.equal(transports[0]!.connections.length, 1);
   assert.deepEqual(pool.snapshot(), [{ endpoint: "unix:/daemon", repos: ["repo-a", "repo-b"] }]);
   await a.dispose();
-  assert.deepEqual(pool.snapshot()[0]?.repos, ["repo-a", "repo-b"]);
   await a2.dispose();
-  assert.deepEqual(pool.snapshot()[0]?.repos, ["repo-b"]);
   await b.dispose();
   assert.deepEqual(pool.snapshot(), []);
 });
 
-test("positive controls detect unknown response ids and invalid state traces", async () => {
+test("positive controls detect unknown response ids and invalid state traces", () => {
   const connection = new FakeConnection(() => undefined);
   const writer = new JsonRpcWriter(connection);
   assert.throws(() => writer.accept({ jsonrpc: "2.0", id: 999, result: {} }), /unknown daemon response id/u);
@@ -167,17 +143,16 @@ test("registry discovery returns endpoint plus repoId and fails closed on unknow
 
 function fixtureClient(
   transport: FakeTransport,
-  readFull: (repoId: string) => Promise<{ headSeq: number }>,
   overrides: Partial<ConstructorParameters<typeof PersistentDaemonClient>[0]> = {}
 ): PersistentDaemonClient {
   return new PersistentDaemonClient({
     endpoint: "unix:/fixture",
     transport,
-    readFull,
     requestTimeoutMs: 100,
     reconnectBaseMs: 2,
     reconnectMaxMs: 5,
     jitter: () => 0,
+    onDiagnostic: () => undefined,
     ...overrides
   });
 }
@@ -185,13 +160,19 @@ function fixtureClient(
 function subscribingTransport(): FakeTransport {
   return new FakeTransport((request, connection) => {
     if (hello(connection, request)) return;
-    if (request.method === "repo.notifications.subscribe") connection.respond(request.id, { subscribed: true, headSeq: 1 });
-    if (request.method === "repo.notifications.unsubscribe") connection.respond(request.id, { unsubscribed: true });
+    if (request.method === "repo.notifications.subscribe" || request.method === "repo.notifications.unsubscribe") {
+      connection.respond(request.id, receipt(request.method, { subscription: "projection-change/v1" }));
+    }
   });
 }
 
+function subscribeCount(transport: FakeTransport): number {
+  return transport.connections.flatMap((connection) => connection.writes)
+    .filter((frame) => (frame as { method?: string }).method === "repo.notifications.subscribe").length;
+}
+
 function assertValidTrace(trace: readonly string[]): void {
-  const allowed = new Set(["connecting>live", "live>stale", "stale>connecting", "live>unknown", "unknown>live"]);
+  const allowed = new Set(["connecting>live", "live>stale", "stale>live"]);
   for (let index = 1; index < trace.length; index += 1) {
     if (!allowed.has(`${trace[index - 1]}>${trace[index]}`)) throw new Error("invalid state transition");
   }

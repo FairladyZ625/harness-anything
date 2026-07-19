@@ -2,13 +2,20 @@ export type DaemonClientState = "connecting" | "live" | "stale" | "unknown";
 
 export interface DaemonCapabilities {
   readonly notifications: boolean;
-  readonly retentionGap: boolean;
 }
 
+export interface DaemonRepoDescriptor {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+}
+
+/** Host-side view decoded from the daemon's command-receipt/v2 hello result. */
 export interface HelloResult {
   readonly protocolVersion: number;
   readonly daemonId: string;
   readonly capabilities: DaemonCapabilities;
+  readonly methods: ReadonlyArray<string>;
+  readonly repos: ReadonlyArray<DaemonRepoDescriptor>;
 }
 
 export interface RepoKey {
@@ -16,15 +23,19 @@ export interface RepoKey {
   readonly repoId: string;
 }
 
-export interface RepoEvent {
+export interface ProjectionChangeEvent {
+  readonly schema: "projection-change/v1";
+  readonly sourceHash: string;
+  readonly entities: ReadonlyArray<{ readonly kind: string; readonly id: string }>;
+}
+
+export interface ProjectionChangeNotification {
   readonly repoId: string;
-  readonly seq: number;
-  readonly kind: string;
+  readonly event: ProjectionChangeEvent;
 }
 
 export interface Subscription {
   readonly repoId: string;
-  readonly afterSeq?: number;
   readonly dispose: () => Promise<void>;
 }
 
@@ -32,22 +43,48 @@ export interface Disposable {
   readonly dispose: () => void;
 }
 
+export interface DaemonClientDiagnostic {
+  readonly code: "invalid_notification" | "unknown_notification" | "unsubscribed_notification" | "subscription_failed";
+  readonly message: string;
+  readonly frame?: unknown;
+}
+
+export interface DaemonSuccessReceipt<Data extends Record<string, unknown>> {
+  readonly ok: true;
+  readonly schema: "command-receipt/v2";
+  readonly command: string;
+  readonly details: { readonly data: Data };
+}
+
+export interface DaemonFailureReceipt {
+  readonly ok: false;
+  readonly schema: "command-receipt/v2";
+  readonly command: string;
+  readonly error?: { readonly code: string; readonly hint: string };
+  readonly summary: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+export type DaemonReceipt<Data extends Record<string, unknown>> = DaemonSuccessReceipt<Data> | DaemonFailureReceipt;
+
 export interface DaemonMethodMap {
   readonly "protocol.hello": {
-    readonly input: { readonly client: { readonly name: string; readonly version: string } };
-    readonly output: HelloResult;
+    readonly input: { readonly protocolVersion: number; readonly clientName: string; readonly clientVersion: string };
+    readonly output: DaemonReceipt<{
+      readonly protocolVersion: number;
+      readonly daemon: string;
+      readonly capabilities: ReadonlyArray<string>;
+      readonly methods: ReadonlyArray<string>;
+      readonly repos: ReadonlyArray<DaemonRepoDescriptor>;
+    }>;
   };
   readonly "repo.notifications.subscribe": {
-    readonly input: { readonly repoId: string; readonly afterSeq?: number };
-    readonly output: { readonly subscribed: true; readonly headSeq: number };
+    readonly input: { readonly repo: { readonly repoId: string } };
+    readonly output: DaemonReceipt<{ readonly subscription: "projection-change/v1" }>;
   };
   readonly "repo.notifications.unsubscribe": {
-    readonly input: { readonly repoId: string };
-    readonly output: { readonly unsubscribed: true };
-  };
-  readonly "repo.read-full": {
-    readonly input: { readonly repoId: string };
-    readonly output: { readonly headSeq: number };
+    readonly input: { readonly repo: { readonly repoId: string } };
+    readonly output: DaemonReceipt<{ readonly subscription: "projection-change/v1" }>;
   };
 }
 
