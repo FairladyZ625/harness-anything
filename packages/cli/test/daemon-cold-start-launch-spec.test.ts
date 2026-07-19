@@ -201,6 +201,7 @@ test("occupied daemon socket does not persist a new authority manifest registry 
   const owner = net.createServer();
   try {
     mkdirSync(userRoot, { recursive: true });
+    const registryBefore = readDaemonRegistry({ userRoot });
     await new Promise<void>((resolve, reject) => {
       owner.once("error", reject);
       owner.listen(endpoint, () => resolve());
@@ -221,12 +222,38 @@ test("occupied daemon socket does not persist a new authority manifest registry 
       "--authority-manifest", fixture.manifestPath
     ], { encoding: "utf8", env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }) }), /already owned/u);
 
-    assert.equal(
-      readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "canonical")?.authorityManifestPath,
-      undefined
-    );
+    assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
   } finally {
     await new Promise<void>((resolve) => owner.close(() => resolve()));
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("transport bind failure after socket ownership does not persist any registry change", {
+  skip: process.platform === "win32",
+  timeout: 30_000
+}, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const endpoint = localUserDaemonEndpoint(userRoot);
+  try {
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(endpoint);
+    const registryBefore = readDaemonRegistry({ userRoot });
+
+    await assert.rejects(execFileAsync(process.execPath, [
+      path.resolve("packages/cli/src/index.ts"),
+      "--root", fixture.repoRoot,
+      "daemon", "serve",
+      "--repo", "canonical",
+      "--socket", endpoint,
+      "--user-root", userRoot,
+      "--authority-manifest", fixture.manifestPath
+    ], { encoding: "utf8", env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }) }), /EISDIR|Path is a directory/u);
+
+    assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
+    assert.equal(existsSync(`${endpoint}.owner`), false);
+  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

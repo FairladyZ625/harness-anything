@@ -163,12 +163,16 @@ export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";
 export type { DaemonAdmissionBudget } from "./daemon/admission-budget.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
 export {
+  projectDaemonRepoRegistration,
   readDaemonRegistry,
   resolveDaemonRepoByRoot,
   registerDaemonRepo,
   unregisterDaemonRepo
 } from "./daemon/registry.ts";
-export type { DaemonRegistry, DaemonRegistryRepo } from "./daemon/registry.ts";
+export type {
+  DaemonRegistry,
+  DaemonRegistryRepo
+} from "./daemon/registry.ts";
 export {
   TaskClaimCollisionError,
   ExecutionLeaseCollisionError,
