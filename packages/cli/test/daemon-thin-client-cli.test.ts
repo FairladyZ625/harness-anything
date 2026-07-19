@@ -207,16 +207,28 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       setInterval(() => undefined, 1000);
     `, endpoint], { stdio: ["ignore", "pipe", "pipe"] });
     try {
+      // The daemon's active-connection count is eventually consistent with the
+      // holder's process state: the child announcing readiness (and later the
+      // kernel tearing its socket down on SIGKILL) both reach the daemon as
+      // events it processes on its own event loop. Asserting either count at a
+      // single instant races that delivery, so poll for the expected count and
+      // let the diagnostic report the last observed status on timeout.
+      const observeConnectionCount = async (expected: number): Promise<unknown> =>
+        pollUntil(
+          () => statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } }),
+          (status) => connectionCount(status) === expected,
+          (candidate, error) => JSON.stringify({ expected, candidate, error: String(error ?? "") }),
+          { timeoutMs: 5_000 }
+        );
+
       await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
-      const heldStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
-      assert.equal(connectionCount(heldStatus), 2, JSON.stringify(heldStatus));
+      await observeConnectionCount(2);
 
       assert.equal(holder.kill("SIGKILL"), true);
       await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
-      const releasedStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
       // This status probe is the only remaining connection. Once it closes,
       // the daemon's active count returns to zero and its idle timer starts.
-      assert.equal(connectionCount(releasedStatus), 1, JSON.stringify(releasedStatus));
+      await observeConnectionCount(1);
       statusClient.close();
       statusSocket.destroy();
 
