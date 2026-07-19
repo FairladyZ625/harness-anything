@@ -54,7 +54,7 @@
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
     "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
     "nightly-only": "Runs only on scheduled full-check.",
-    "local-only": "Runs automatically at the canonical local stop point because its private authority is unavailable to GitHub CI.",
+    "local-only": "Produces an applicable verdict only for a declared self-hosted layout. Public CI may execute the local runner but receives an explicit not-applicable result because no private layout is declared.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
   },
   "enforcementConstants": [
@@ -3447,15 +3447,15 @@
       "command": "npm run harness:check-ghost-task-packages",
       "category": "meta-governance",
       "tier": "local-only",
-      "tierReason": "The authored harness task ledger is private and gitignored, so the gate runs at the canonical local stop point and is deliberately absent from GitHub CI.",
+      "tierReason": "The authored task ledger is private and gitignored. The gate runs through check:local everywhere, but only declared self-hosted layouts produce a ledger verdict; public CI reports explicit not-applicable.",
       "authoritySource": [
         "harness/harness.yaml:tasks.root",
         "harness/tasks/*/INDEX.md:task_id",
         "task/task_01KXXJSNMCH6BQNGK7BKYVSDK2"
       ],
       "consumerScope": [
-        "canonical harness/tasks immediate child directories",
-        "task-package/v2 INDEX.md task_id registration"
+        "configured tasks.root immediate visible child directories; hidden tool-noise directories are excluded",
+        "task-package/v2 INDEX.md schema and task_id registration"
       ],
       "githubContext": {
         "requiredContexts": [],
@@ -3466,7 +3466,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every task directory must reconcile to its authored INDEX ledger record; unavailable authority, malformed directories, missing records, mismatched IDs, and duplicates fail closed."
+        "notes": "No declared self-hosted layout is explicitly not applicable. Once harness/harness.yaml declares tasks.root, unavailable authority, malformed visible directories, missing records, mismatched IDs, and duplicates fail closed with no allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -3500,10 +3500,12 @@
       "deterministic": false,
       "nonDeterminism": {
         "kind": "local-authority",
-        "reason": "The verdict depends on the private gitignored harness task ledger resolved from the canonical checkout, which GitHub CI does not possess.",
+        "reason": "The applicable verdict depends on tasks.root from a private harness/harness.yaml layout, resolved directly or through Git worktree commondir; a checkout with no self-host declaration is explicitly not applicable.",
         "evidence": [
           "harness/harness.yaml:tasks.root",
-          "tools/check-ghost-task-packages.mjs:resolveLedgerRoot"
+          "tools/check-ghost-task-packages.mjs:resolveLedgerRoot",
+          "tools/check-ghost-task-packages.mjs:inspectSelfHostedLayout",
+          "tools/check-ghost-task-packages.mjs:resolveCommonCheckoutRoot"
         ]
       },
       "positiveControl": {
