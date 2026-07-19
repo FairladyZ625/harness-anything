@@ -1,1 +1,1 @@
-export * from "../../../api-contracts/src/api-contract-registry.ts";
+export * from "@harness-anything/api-contracts/api-contract-registry";

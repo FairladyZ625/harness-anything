@@ -17,4 +17,4 @@ export * from "./renderer/app-model.ts";
 export * from "./renderer/workspace-shell.ts";
 export * from "./terminal/boundary.ts";
 export * from "./terminal/env-profile.ts";
-export type * from "../../application/src/terminal-session-contract.ts";
+export type * from "@harness-anything/application/terminal-session-contract";

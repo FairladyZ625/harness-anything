@@ -1,7 +1,7 @@
 import {
   projectDaemonStatusForRenderer,
   type DaemonStatusResultV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts, terminalGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
 import { terminalBridgeHandlerImplementations } from "./terminal-bridge-handlers.ts";

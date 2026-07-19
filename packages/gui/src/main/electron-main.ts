@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { createLocalGuiProjectionNotifications } from "./projection-notifications.ts";

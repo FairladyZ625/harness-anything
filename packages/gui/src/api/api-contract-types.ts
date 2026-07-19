@@ -7,4 +7,4 @@ export type {
   ApiServiceName,
   DeferredGuiBridgeContract,
   TerminalGuiBridgeContract
-} from "../../../api-contracts/src/api-contract-types.ts";
+} from "@harness-anything/api-contracts/api-contract-types";

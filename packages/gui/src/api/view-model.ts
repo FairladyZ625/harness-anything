@@ -1,6 +1,6 @@
-import { commandReceiptEnvelope } from "../../../application/src/index.ts";
-import type { CommandReceiptEnvelope } from "../../../application/src/index.ts";
-import type { TaskProjectionRow } from "../../../kernel/src/index.ts";
+import { commandReceiptEnvelope } from "@harness-anything/application";
+import type { CommandReceiptEnvelope } from "@harness-anything/application";
+import type { TaskProjectionRow } from "@harness-anything/kernel";
 
 /** @slice-activation Slice 7.5 GUI - Workspace renderer data flow will consume this view projection when wired. */
 export type GuiViewId = "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "graph";

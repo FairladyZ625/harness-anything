@@ -1,6 +1,6 @@
 import type * as vscode from "vscode";
 import type { RepoKey } from "@harness-anything/api-contracts";
-import { ConnectionPool, type PooledRepoConnection } from "../../../daemon-client/src/connection-pool.ts";
+import { ConnectionPool, type PooledRepoConnection } from "@harness-anything/daemon-client/connection-pool";
 
 export interface ResolvedWorkspaceRepo {
   readonly endpoint: string;

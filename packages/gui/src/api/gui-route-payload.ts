@@ -1,4 +1,4 @@
-import { decodeDaemonLogListInput } from "../../../application/src/index.ts";
+import { decodeDaemonLogListInput } from "@harness-anything/application";
 import type { ApiRouteContract } from "./api-contract-registry.ts";
 
 type JsonObject = { readonly [key: string]: JsonValue };
