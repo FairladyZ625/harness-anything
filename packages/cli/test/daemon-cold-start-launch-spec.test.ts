@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
 import { readDaemonRegistry, registerDaemonRepo } from "../../kernel/src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
@@ -21,6 +23,8 @@ import {
 } from "./helpers/daemon-cli.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
+
+const execFileAsync = promisify(execFile);
 
 test("service cold start restores, overrides, and diagnoses the persisted launch spec", { timeout: 90_000 }, async () => {
   const fixture = createFixture();
@@ -44,7 +48,18 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     ], env);
     assert.equal(first.started, true, JSON.stringify(first));
     assert.equal(typeof first.pid, "number", JSON.stringify(first));
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
+    assert.equal(first.endpoint, endpoint, JSON.stringify(first));
+    assert.equal(first.daemonId, `ha-${String(first.pid)}`, JSON.stringify(first));
+    assert.equal(
+      readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "canonical")?.authorityManifestPath,
+      fixture.manifestPath
+    );
+    const persistedLaunchSpec = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
+      readonly endpoint: string;
+      readonly options: { readonly authorityManifest?: string };
+    };
+    assert.equal(persistedLaunchSpec.endpoint, endpoint);
+    assert.equal(persistedLaunchSpec.options.authorityManifest, fixture.manifestPath);
     assert.equal((await readRunningLaunchSpec(fixture.repoRoot, userRoot)).args.includes(daemonLaunchOptionsResolvedFlag), true);
 
     mkdirSync(classicRoot, { recursive: true });
@@ -175,6 +190,43 @@ test("service cold start without a required manifest reports the preflight cause
     assert.doesNotMatch(failure, /did not become reachable/u);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("occupied daemon socket does not persist a new authority manifest registry pointer", async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const endpoint = localUserDaemonEndpoint(userRoot);
+  const owner = net.createServer();
+  try {
+    mkdirSync(userRoot, { recursive: true });
+    await new Promise<void>((resolve, reject) => {
+      owner.once("error", reject);
+      owner.listen(endpoint, () => resolve());
+    });
+    writeFileSync(`${endpoint}.owner`, JSON.stringify({
+      schema: "daemon-socket-owner/v1",
+      pid: process.pid,
+      ownerToken: "occupied-socket-test-owner"
+    }));
+
+    await assert.rejects(execFileAsync(process.execPath, [
+      path.resolve("packages/cli/src/index.ts"),
+      "--root", fixture.repoRoot,
+      "daemon", "serve",
+      "--repo", "canonical",
+      "--socket", endpoint,
+      "--user-root", userRoot,
+      "--authority-manifest", fixture.manifestPath
+    ], { encoding: "utf8", env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }) }), /already owned/u);
+
+    assert.equal(
+      readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "canonical")?.authorityManifestPath,
+      undefined
+    );
+  } finally {
+    await new Promise<void>((resolve) => owner.close(() => resolve()));
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
