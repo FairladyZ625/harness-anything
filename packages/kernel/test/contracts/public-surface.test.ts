@@ -32,6 +32,7 @@ const publicRuntimeSurface = [
   "LifecycleEngine",
   "LinkKindSchema",
   "LockRegistry",
+  "ManagedSemanticDiffError",
   "NonBlankStringSchema",
   "PresetDocumentFrontmatterSchema",
   "PresetEntrypointSchema",

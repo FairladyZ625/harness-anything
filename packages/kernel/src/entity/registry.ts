@@ -26,7 +26,8 @@ export {
   compileRegistryMutationPlan,
   createWritableEntityRegistry
 } from "./registry-compiler.ts";
-export { assertManagedSemanticRegions, readyManagedSemanticDiff } from "./managed-semantic-diff.ts";
+export { assertManagedSemanticRegions, ManagedSemanticDiffError, readyManagedSemanticDiff } from "./managed-semantic-diff.ts";
+export type { ManagedSemanticDiffErrorCode } from "./managed-semantic-diff.ts";
 export type {
   RegistryMutationPlanInput,
   StoragePlan

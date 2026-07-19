@@ -35,6 +35,7 @@ import {
   createWritableEntityRegistry,
   deriveRelationId,
   entityRegistry,
+  ManagedSemanticDiffError,
   type DecisionPackage,
   type EntityRegistration,
   type EntityRelationRecord
@@ -121,12 +122,16 @@ test("managed heading regions fail closed on undeclared, duplicate, machine-writ
     managedBody("Plan", "## Goal", "Old"),
     `${managedBody("Plan", "## Goal", "New")}\n## Surprise\n\nUndeclared.\n`,
     "free-prose"
-  ), /SEMANTIC_DIFF_REQUIRED:undeclared section/u);
+  ), (error: unknown) => error instanceof ManagedSemanticDiffError
+    && error.code === "SEMANTIC_DIFF_REQUIRED"
+    && /undeclared section/u.test(error.message));
   assert.throws(() => compile(
     managedBody("Plan", "## Goal", "Old"),
     `${managedBody("Plan", "## Goal", "New")}\n## Goal\n\nDuplicate.\n`,
     "free-prose"
-  ), /SEMANTIC_DIFF_AMBIGUOUS:duplicate heading/u);
+  ), (error: unknown) => error instanceof ManagedSemanticDiffError
+    && error.code === "SEMANTIC_DIFF_AMBIGUOUS"
+    && /duplicate heading/u.test(error.message));
   assert.throws(() => compile(
     managedBody("Plan", "## Goal", "Old"), managedBody("Plan", "## Goal", "New"), "machine-written"
   ), /SEMANTIC_DIFF_REQUIRED:machine-written section requires typed command/u);
