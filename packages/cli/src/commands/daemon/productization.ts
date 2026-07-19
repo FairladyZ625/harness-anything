@@ -26,6 +26,9 @@ import {
   type DaemonControlRequest
 } from "./control.ts";
 import type { AuthorityRepoLifecycleController } from "../../daemon/authority-lifecycle.ts";
+import { observeDaemonLifecycle } from "../../daemon/daemon-lifecycle.ts";
+import { makeDaemonLogFileStore } from "../../daemon/daemon-log-file-store.ts";
+import { makeDaemonLogService } from "../../../../application/src/index.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 
@@ -175,6 +178,12 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
   const lockStatus = readDaemonLock(path.join(layout.locksRoot, "global.lock"));
   const rpcStatus = await readReachableDaemonStatus(target);
   const cliRpcStatus = rpcStatus ? daemonStatusForCli(rpcStatus) : undefined;
+  const lifecycle = await observeDaemonLifecycle({
+    userRoot: target.userRoot,
+    repo: { repoId: target.repoId, canonicalRoot: target.canonicalRoot },
+    reachable: Boolean(rpcStatus),
+    logService: makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot: target.userRoot }) })
+  });
   emitDaemonResult("daemon-status", {
     ...lockStatus,
     ...(cliRpcStatus ?? {
@@ -185,7 +194,8 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
       connections: { active: 0, total: 0 }
     }),
     started: cliRpcStatus?.started === true,
-    reachable: Boolean(rpcStatus)
+    reachable: Boolean(rpcStatus),
+    lifecycle
   }, input.json);
   return 0;
 }

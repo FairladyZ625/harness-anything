@@ -60,6 +60,10 @@ import { requireAuthoritySubmissionForDispatch } from "./authority-submission-di
 
 export { bindAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
 
+export type DaemonServiceStopRequest =
+  | { readonly reason: "idle-timeout" }
+  | { readonly reason: "control"; readonly kind: "restart" | "refresh"; readonly operationId: string };
+
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
 type RepoServiceBinding = ReturnType<typeof createRepoServiceBinding>;
@@ -94,7 +98,7 @@ export async function createDaemonServiceHost(
   readonly onConnectionStart: () => void;
   readonly onConnectionSettled: () => void;
   readonly scheduleIdleExit: () => void;
-  readonly waitForStopRequest: () => Promise<void>;
+  readonly waitForStopRequest: () => Promise<DaemonServiceStopRequest>;
   readonly onStop: (handler: () => Promise<void>) => void;
   readonly startRegistryReconcile: (userRoot: string) => void;
   readonly reconcileNow: (userRoot: string) => Promise<void>;
@@ -105,8 +109,8 @@ export async function createDaemonServiceHost(
     ?? makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
   const stopHandlers: Array<() => Promise<void>> = [];
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
-  let requestStop: (() => void) | undefined;
-  const stopRequested = new Promise<void>((resolve) => {
+  let requestStop: ((request: DaemonServiceStopRequest) => void) | undefined;
+  const stopRequested = new Promise<DaemonServiceStopRequest>((resolve) => {
     requestStop = resolve;
   });
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -148,7 +152,7 @@ export async function createDaemonServiceHost(
     if (idleMs <= 0 || stopping || connections.active !== 0) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      requestStop?.();
+      requestStop?.({ reason: "idle-timeout" });
     }, idleMs);
     idleTimer.unref();
   };
@@ -194,7 +198,7 @@ export async function createDaemonServiceHost(
           if (activeControl?.operationId !== operationId) return;
           activeControl = { ...activeControl, phase: "draining" };
           drainTimeoutMs = request.drainTimeoutMs;
-          requestStop?.();
+          requestStop?.({ reason: "control", kind, operationId });
         }
       };
     }

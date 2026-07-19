@@ -31,6 +31,7 @@ import { createDaemonServiceHost } from "./daemon/service-host.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
+import { recordDaemonStarted, recordDaemonTerminated } from "./daemon/daemon-lifecycle.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
@@ -144,6 +145,13 @@ async function runDaemonServe(
   return withDaemonSocketOwnership(endpoint, async () => {
     let runtime: MultiRepoHarnessDaemonRuntime | undefined;
     let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost>> | undefined;
+    let lifecycleStarted = false;
+    let terminalReason: string | undefined;
+    let terminalClean = false;
+    let terminalMessage: string | undefined;
+    let failure: unknown;
+    const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
+    let lifecycleRepo: DaemonServeRepo | undefined;
     try {
       const requestedAuthorityManifest = readOption(args, "--authority-manifest")
         ?? process.env.HARNESS_AUTHORITY_MANIFEST?.trim();
@@ -151,6 +159,8 @@ async function runDaemonServe(
       const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
       const authorityManifest = requestedAuthorityManifest ?? authorityManifestFromRegistry(serveRepos);
       const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
+      lifecycleRepo = serveRepos.find((repo) => repo.repoId === defaultRepoId) ?? serveRepos[0];
+      if (!lifecycleRepo) throw new Error("daemon lifecycle requires at least one registered repository");
       runtime = createMultiRepoDaemonRuntime({
         materializerPollMs: 5_000,
         reservationReconciler: async (rootInput) => {
@@ -171,7 +181,6 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
-      const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
       const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
         ? createProductionAuthorityLifecycle({
           manifestPath: authorityManifest,
@@ -206,10 +215,30 @@ async function runDaemonServe(
       serviceHost.onStop(async () => {
         await transport.stop();
       });
+      await recordDaemonStarted({
+        userRoot,
+        logService: daemonLogService,
+        repo: lifecycleRepo,
+        instanceId: serviceHost.daemonId,
+        pid: process.pid,
+        startedAt
+      });
+      lifecycleStarted = true;
       hooks.onStarted?.(daemonStatusCliProjection(serviceHost.status()));
       serviceHost.scheduleIdleExit();
-      await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
-    } finally {
+      const trigger = await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
+      terminalReason = trigger.reason === "signal"
+        ? `signal:${trigger.signal}`
+        : trigger.reason === "control"
+          ? `control:${trigger.kind}`
+          : "idle-timeout";
+      terminalClean = true;
+    } catch (error) {
+      failure = error;
+      terminalReason = `unexpected-error:${error instanceof Error ? error.name : "unknown"}`;
+      terminalMessage = `Daemon service terminated after an unexpected error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
+    }
+    try {
       let stoppedByHost = false;
       try {
         if (serviceHost) {
@@ -221,7 +250,30 @@ async function runDaemonServe(
       } finally {
         if (!stoppedByHost && serviceHost && runtime) await runtime.stop();
       }
+    } catch (error) {
+      failure ??= error;
+      terminalClean = false;
+      terminalReason = `shutdown-error:${error instanceof Error ? error.name : "unknown"}`;
+      terminalMessage = `Daemon service cleanup failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
     }
+    if (lifecycleStarted && lifecycleRepo && serviceHost) {
+      try {
+        await recordDaemonTerminated({
+          userRoot,
+          logService: daemonLogService,
+          repo: lifecycleRepo,
+          instanceId: serviceHost.daemonId,
+          pid: process.pid,
+          startedAt,
+          reason: terminalReason ?? "unexpected-error:unknown",
+          clean: terminalClean,
+          ...(terminalMessage ? { message: terminalMessage } : {})
+        });
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== undefined) throw failure;
   });
 }
 
@@ -277,15 +329,17 @@ function defaultDaemonServeRepoId(repos: ReadonlyArray<DaemonServeRepo>, rootDir
   return matchingRoot?.repoId ?? repos[0]?.repoId ?? requestedRepoId;
 }
 
-async function waitForStopSignal(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const stop = () => {
-      process.off("SIGINT", stop);
-      process.off("SIGTERM", stop);
-      resolve();
+async function waitForStopSignal(): Promise<{ readonly reason: "signal"; readonly signal: "SIGINT" | "SIGTERM" }> {
+  return new Promise((resolve) => {
+    const stop = (signal: "SIGINT" | "SIGTERM") => {
+      process.off("SIGINT", onSigint);
+      process.off("SIGTERM", onSigterm);
+      resolve({ reason: "signal", signal });
     };
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
+    const onSigint = () => stop("SIGINT");
+    const onSigterm = () => stop("SIGTERM");
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
   });
 }
 
