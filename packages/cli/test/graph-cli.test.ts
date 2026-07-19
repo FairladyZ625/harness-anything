@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { deriveRelationId } from "../../kernel/src/index.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -154,7 +155,7 @@ function writeDecision(rootDir: string, decisionId: string, relations: ReadonlyA
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: process.env
+    env: cliTestEnv()
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }

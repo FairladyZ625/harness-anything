@@ -26,27 +26,13 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
     });
     const taskId = receiptDataString(created, "taskId");
 
-    const legacyClaim = runRawJson(rootDir, ["task", "claim", taskId], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "",
-      CODEX_SESSION_ID: ""
-    });
+    const legacyClaim = runRawJson(rootDir, ["task", "claim", taskId], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" });
     assert.equal(legacyClaim.ok, true, JSON.stringify(legacyClaim));
     assert.equal((((legacyClaim.details as Record<string, unknown>).data as Record<string, unknown>).report as {
       readonly holder?: { readonly schema?: string };
     }).holder?.schema, "task-holder/v1");
 
-    const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "claiming-codex-session",
-      CODEX_SESSION_ID: "claiming-codex-session"
-    });
+    const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: "claiming-codex-session", CODEX_SESSION_ID: "claiming-codex-session" });
 
     assert.equal(claimed.ok, true, JSON.stringify(claimed));
     const executionId = receiptDataString(claimed, "executionId");
@@ -56,27 +42,12 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
     });
     assert.match(String(claimReport.leaseToken), /^[0-9a-f]{64}$/u, JSON.stringify(claimed));
 
-    const otherHolder = runRawJsonMaybeFail(rootDir, ["task", "claim", taskId, "--execution"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      HARNESS_ACTOR: "agent:other-worker",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "other-worker-session",
-      CODEX_SESSION_ID: "other-worker-session"
-    });
+    const otherHolder = runRawJsonMaybeFail(rootDir, ["task", "claim", taskId, "--execution"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", HARNESS_ACTOR: "agent:other-worker", CODEX_THREAD_ID: "other-worker-session", CODEX_SESSION_ID: "other-worker-session" });
     assert.equal(otherHolder.status, 1);
     assert.equal(otherHolder.receipt.ok, false, JSON.stringify(otherHolder.receipt));
     assert.match(String((otherHolder.receipt.error as { readonly hint?: string } | undefined)?.hint), /current holder principal=person_execution, executor=agent:daemon-cli-test/u);
 
-    const renewed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "claiming-codex-session",
-      CODEX_SESSION_ID: "claiming-codex-session"
-    });
+    const renewed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: "claiming-codex-session", CODEX_SESSION_ID: "claiming-codex-session" });
     assert.equal(receiptDataString(renewed, "executionId"), executionId);
     const renewedReport = (((renewed.details as Record<string, unknown>).data as Record<string, unknown>).report as {
       readonly leaseToken?: unknown;
@@ -118,14 +89,7 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
     const holderData = (holder.details as { readonly data?: { readonly holder?: { readonly schema?: string } } } | undefined)?.data;
     assert.equal(holderData?.holder?.schema, "task-holder/v2");
 
-    const released = runRawJson(rootDir, ["task", "release", taskId], {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "claiming-codex-session",
-      CODEX_SESSION_ID: "claiming-codex-session"
-    });
+    const released = runRawJson(rootDir, ["task", "release", taskId], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: "claiming-codex-session", CODEX_SESSION_ID: "claiming-codex-session" });
     assert.equal(released.ok, true, JSON.stringify(released));
 
     const releasedHolder = runRawJson(rootDir, ["task", "holder", taskId], {
@@ -168,14 +132,7 @@ test("daemon-backed Execution submit materializes a newly exported Session befor
       JSON.stringify({ timestamp: "2026-07-15T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "submit on the first attempt" } }),
       JSON.stringify({ timestamp: "2026-07-15T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ready" }] } })
     ].join("\n"), "utf8");
-    const daemonSessionEnv = {
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: sessionId,
-      CODEX_SESSION_ID: sessionId
-    };
+    const daemonSessionEnv = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
     const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], daemonSessionEnv);
     const claimReport = (((claimed.details as Record<string, unknown>).data as Record<string, unknown>).report as {
       readonly leaseToken?: unknown;

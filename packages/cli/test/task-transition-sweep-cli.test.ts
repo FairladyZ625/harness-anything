@@ -8,6 +8,7 @@ import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -160,7 +161,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_ACTOR: "agent:harness-test", ...env }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:harness-test", ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -210,15 +211,7 @@ function approveExecution(rootDir: string, taskId: string, executionId: string):
 }
 
 function actorEnv(id: string): Record<string, string> {
-  return {
-    HARNESS_ACTOR: `agent:${id}`,
-    CLAUDE_SESSION_ID: "",
-    CLAUDE_CODE_SESSION_ID: "",
-    CODEX_THREAD_ID: "",
-    CODEX_SESSION_ID: "",
-    ZCODE_SESSION_ID: "",
-    ANTIGRAVITY_SESSION_ID: ""
-  };
+  return { HARNESS_ACTOR: `agent:${id}` };
 }
 
 function writeFact(rootDir: string, taskPath: string): void {

@@ -9,6 +9,7 @@ import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { PRESET_POLICY_SCHEMA_CREATE_MILESTONE } from "../src/commands/extensions/preset-policy.ts";
 import { executeScript } from "../src/commands/extensions/script-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -479,7 +480,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_ACTOR: "agent:test" }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:test" })
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);

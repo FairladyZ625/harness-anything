@@ -9,15 +9,7 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
-const noRuntimeSession = {
-  HARNESS_ACTOR: "agent:test",
-  CLAUDE_SESSION_ID: "",
-  CLAUDE_CODE_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  CODEX_SESSION_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-} as const;
+const noRuntimeSession = { HARNESS_ACTOR: "agent:test" } as const;
 
 test("in_review without an Execution submission fails closed", () => {
   withTempRoot((rootDir) => {

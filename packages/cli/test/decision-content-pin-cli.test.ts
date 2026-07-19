@@ -8,6 +8,7 @@ import test from "node:test";
 import { readUnionAttributionEvents } from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity, initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -151,12 +152,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
   const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
     encoding: "utf8",
     windowsHide: true,
-    env: {
-      ...process.env,
-      HARNESS_ACTOR: "agent:test",
-      HARNESS_DAEMON_MODE: "fixture",
-      HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:test", HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") })
   });
   const parsed = JSON.parse(output) as Record<string, any>;
   assert.equal(parsed.ok, true, output);

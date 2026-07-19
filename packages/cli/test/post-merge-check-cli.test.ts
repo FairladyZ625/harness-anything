@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, formatRelationFlowRecord, sha256Text, type EntityRelationRecord } from "../../kernel/src/index.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -376,7 +377,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1", ...env },
+      env: cliTestEnv({ HARNESS_SKIP_NPM_INSTALL: "1", ...env }),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const result = JSON.parse(stdout) as Record<string, any>;

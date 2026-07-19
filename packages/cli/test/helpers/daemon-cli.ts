@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { localUserDaemonEndpoint } from "../../../daemon/src/index.ts";
+import { cliTestEnv } from "./cli-test-env.ts";
 import { ensureTestHarnessIdentity } from "./git-fixtures.ts";
 import { delay, pollUntil } from "./poll-until.ts";
 
@@ -196,8 +197,7 @@ function waitBeforeRemoveRetry(ms: number): void {
 
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   const homeDir = path.join(rootDir, ".home");
-  return {
-    ...process.env,
+  return cliTestEnv({
     HOME: homeDir,
     USERPROFILE: homeDir,
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -205,15 +205,8 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     HARNESS_GIT_AUTHOR_NAME: "Harness Test",
     HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
     HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir),
-    HARNESS_AUTHORITY_MANIFEST: "",
-    CLAUDE_SESSION_ID: "",
-    CLAUDE_CODE_SESSION_ID: "",
-    CODEX_THREAD_ID: "",
-    CODEX_SESSION_ID: "",
-    ZCODE_SESSION_ID: "",
-    ANTIGRAVITY_SESSION_ID: "",
     ...env
-  };
+  });
 }
 
 function isRetriableRemoveError(error: unknown): boolean {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskId = "task_01KWY3Z4VEVP6FNT28ZFA809GW";
@@ -38,14 +39,7 @@ test("worktree create writes a task binding and status reports active", () => {
 
 test("worktree create fails closed without explicit or runtime namespace", () => {
   withGitHarnessRoot((rootDir) => {
-    const result = runJson(rootDir, ["worktree", "create", "--task", taskId, "--base", "HEAD"], false, {
-      CLAUDE_CODE_SESSION_ID: "",
-      CLAUDE_SESSION_ID: "",
-      CODEX_SESSION_ID: "",
-      CODEX_THREAD_ID: "",
-      ZCODE_SESSION_ID: "",
-      ANTIGRAVITY_SESSION_ID: ""
-    });
+    const result = runJson(rootDir, ["worktree", "create", "--task", taskId, "--base", "HEAD"], false, {});
 
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "invalid_worktree_namespace");
@@ -96,7 +90,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: cliTestEnv({ ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

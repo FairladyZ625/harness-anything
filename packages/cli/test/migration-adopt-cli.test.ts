@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -589,7 +590,7 @@ function runJson(
   try {
     const output = execFileSync(process.execPath, command, {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: cliTestEnv({ ...env })
     });
     const parsed = JSON.parse(output);
     if (expectSuccess) assert.equal(parsed.ok, true, output);

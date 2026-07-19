@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { initializeNestedHarnessRepo } from "./git-fixtures.ts";
 import { unwrapCommandReceipt } from "./receipt.ts";
+import { cliTestEnv } from "./cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const testActorEnv = { HARNESS_ACTOR: "agent:test" };
@@ -187,7 +188,7 @@ export function runJson(rootDir: string, args: ReadonlyArray<string>, expectSucc
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1", ...testActorEnv, ...env },
+      env: cliTestEnv({ HARNESS_SKIP_NPM_INSTALL: "1", ...testActorEnv, ...env }),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const result = JSON.parse(stdout) as Record<string, any>;

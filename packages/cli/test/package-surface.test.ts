@@ -13,6 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { loadPresetDocument } from "../src/commands/extensions/preset-document-loader.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const architectureRotRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/architecture-rot-audit");
@@ -486,13 +487,7 @@ function assertPresetScriptImportsStayInsidePackage(presetRoot: string, command:
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      HARNESS_ACTOR: "agent:package-surface-test",
-      HARNESS_DAEMON_MODE: "fixture",
-      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-      HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:package-surface-test", HARNESS_DAEMON_MODE: "fixture", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test" })
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }

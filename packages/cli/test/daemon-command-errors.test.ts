@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -25,7 +26,7 @@ function runDaemonFailure(args: ReadonlyArray<string>): {
 } {
   const result = spawnSync(process.execPath, [cliEntry, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, HARNESS_DAEMON_MODE: "fixture" }
+    env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture" })
   });
   assert.equal(result.stderr, "");
   return {

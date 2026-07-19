@@ -8,17 +8,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
-const noAgentRuntimeEnv = {
-  CLAUDE_SESSION_ID: "",
-  CLAUDE_CODE_SESSION_ID: "",
-  CODEX_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-};
 const testActorEnv = { HARNESS_ACTOR: "agent:new-task-cli-test" } as const;
 
 test("CLI init dogfoods coding vertical defaults for new tasks", () => {
@@ -29,7 +22,7 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/milestones")), true);
 
-    const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"], true, noAgentRuntimeEnv);
+    const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"], true, {});
     const taskId = assertGeneratedTaskId(result.taskId);
     const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
     const contract = JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/task-contract.json`), "utf8"));
@@ -83,7 +76,7 @@ test("CLI reference-task preset materializes localized references on demand", ()
         "reference-task",
         "--locale",
         testCase.locale
-      ], true, noAgentRuntimeEnv);
+      ], true, {});
       const referencesPath = path.join(rootDir, result.packagePath, "references", "INDEX.md");
 
       assert.equal(result.generated.includes("references/INDEX.md"), true);
@@ -105,7 +98,7 @@ test("CLI task readers keep existing references directories compatible", () => {
       "software/coding",
       "--preset",
       "standard-task"
-    ], true, noAgentRuntimeEnv);
+    ], true, {});
     const legacyReferencePath = path.join(rootDir, created.packagePath, "references", "legacy-input.md");
     mkdirSync(path.dirname(legacyReferencePath), { recursive: true });
     writeFileSync(legacyReferencePath, "# Legacy input\n", "utf8");
@@ -134,7 +127,7 @@ test("CLI check reads a created task contract without the mutable preset registr
       "software/coding",
       "--preset",
       "standard-task"
-    ], true, noAgentRuntimeEnv);
+    ], true, {});
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
 
     const overrideDir = path.join(rootDir, ".harness", "presets", "standard-task");
@@ -150,9 +143,9 @@ test("CLI check reads a created task contract without the mutable preset registr
 test("CLI task contract migration is dry-run safe, idempotent, and queues ambiguous tasks", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    const migratable = runJson(rootDir, ["task", "create", "--title", "Legacy Explicit", "--vertical", "software/coding", "--preset", "standard-task"] , true, noAgentRuntimeEnv);
-    const ambiguous = runJson(rootDir, ["task", "create", "--title", "Legacy Ambiguous", "--vertical", "software/coding", "--preset", "standard-task"], true, noAgentRuntimeEnv);
-    const unverified = runJson(rootDir, ["task", "create", "--title", "Legacy Unverified", "--vertical", "software/coding", "--preset", "standard-task"], true, noAgentRuntimeEnv);
+    const migratable = runJson(rootDir, ["task", "create", "--title", "Legacy Explicit", "--vertical", "software/coding", "--preset", "standard-task"] , true, {});
+    const ambiguous = runJson(rootDir, ["task", "create", "--title", "Legacy Ambiguous", "--vertical", "software/coding", "--preset", "standard-task"], true, {});
+    const unverified = runJson(rootDir, ["task", "create", "--title", "Legacy Unverified", "--vertical", "software/coding", "--preset", "standard-task"], true, {});
     const migratableContract = path.join(rootDir, migratable.packagePath, "task-contract.json");
     const ambiguousContract = path.join(rootDir, ambiguous.packagePath, "task-contract.json");
     const unverifiedContract = path.join(rootDir, unverified.packagePath, "task-contract.json");
@@ -207,7 +200,7 @@ test("CLI task contract migration uses source Git history plus actual scaffold e
     runJson(rootDir, ["init"]);
     const created = runJson(rootDir, [
       "task", "create", "--title", "Historical Contract", "--vertical", "software/coding", "--preset", "standard-task"
-    ], true, noAgentRuntimeEnv);
+    ], true, {});
     const contractPath = path.join(rootDir, created.packagePath, "task-contract.json");
     rmSync(contractPath, { force: true });
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
@@ -223,7 +216,7 @@ test("CLI task contract migration uses source Git history plus actual scaffold e
 
 test("CLI creates a local task with generated identity, provenance, and stable JSON output", () => {
   withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["new-task", "--title", "Task One"], true, noAgentRuntimeEnv);
+    const result = runJson(rootDir, ["new-task", "--title", "Task One"], true, {});
     const taskId = assertGeneratedTaskId(result.taskId);
     const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8");
 
@@ -243,7 +236,7 @@ test("CLI creates a local task with generated identity, provenance, and stable J
 
 test("CLI task create persists work kind and priority metadata", () => {
   withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["task", "create", "--title", "Metadata Task", "--kind", "feat", "--risk-tier", "high", "--urgency", "low"], true, noAgentRuntimeEnv);
+    const result = runJson(rootDir, ["task", "create", "--title", "Metadata Task", "--kind", "feat", "--risk-tier", "high", "--urgency", "low"], true, {});
     const taskId = assertGeneratedTaskId(result.taskId);
     const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-metadata-task/INDEX.md`), "utf8");
 
@@ -269,7 +262,6 @@ test("CLI task create keeps runtime provenance without fabricating a missing tra
       "--preset",
       "standard-task"
     ], true, {
-      ...noAgentRuntimeEnv,
       CODEX_THREAD_ID: sessionId,
       HOME: path.join(rootDir, "home")
     });
@@ -314,12 +306,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_DAEMON_MODE: "fixture",
-        ...testActorEnv,
-        ...env
-      }
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture", ...testActorEnv, ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -333,11 +320,7 @@ function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_DAEMON_MODE: "fixture",
-        ...testActorEnv
-      },
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture", ...testActorEnv }),
       stdio: ["ignore", "pipe", "pipe"]
     });
     return stdout;
