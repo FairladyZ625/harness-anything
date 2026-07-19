@@ -4,7 +4,7 @@ import {
   type DaemonActiveControlStatus,
   type DaemonControlService,
   type DaemonStatusResultV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
 

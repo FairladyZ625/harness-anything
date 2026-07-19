@@ -1,4 +1,4 @@
-import { domainStatuses, isDomainStatus, slugifyTaskTitle } from "../../../../kernel/src/index.ts";
+import { domainStatuses, isDomainStatus, slugifyTaskTitle } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

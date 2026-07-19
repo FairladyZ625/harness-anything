@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { compileTaskContractSnapshot, parseTaskContractSnapshot } from "../../../../application/src/index.ts";
+import { compileTaskContractSnapshot, parseTaskContractSnapshot } from "@harness-anything/application";
 import {
   readFrontmatter,
   readNestedScalar,
@@ -9,7 +9,7 @@ import {
   type MaterializedTemplatePlan,
   type PresetManifest,
   type TemplateCatalog
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { bundledTemplateCatalog } from "../extensions/bundled.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "../extensions/state.ts";
 import { renderTemplateBody } from "../preset-task.ts";

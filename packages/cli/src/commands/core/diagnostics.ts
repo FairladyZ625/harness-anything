@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { runDoctor } from "../doctor.ts";
 import { runGitDiffEvidence } from "../git-diff.ts";
 import { runGraphCommand } from "../graph.ts";

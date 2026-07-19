@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { CanonicalPublicationInspector } from "../../../application/src/index.ts";
+import type { CanonicalPublicationInspector } from "@harness-anything/application";
 import {
   encodeCanonicalCbor,
   entityRegistry,
@@ -14,7 +14,7 @@ import {
   type HarnessLayoutInput,
   type PhysicalChangeV2,
   type SemanticMutationSetV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",

@@ -1,10 +1,10 @@
 import { Effect } from "effect";
-import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderPrincipal, TaskHolderService } from "../../../application/src/index.ts";
-import type { ArtifactStore, CurrentSessionProbePort, OperationalActor } from "../../../kernel/src/index.ts";
-import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderPrincipal, TaskHolderService } from "@harness-anything/application";
+import type { ArtifactStore, CurrentSessionProbePort, OperationalActor } from "@harness-anything/kernel";
+import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "@harness-anything/kernel";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
+import { createHarnessRuntimeContext } from "@harness-anything/kernel";
+import type { WriteCoordinator } from "@harness-anything/kernel";
 import { requiresConflictMarkerPreflight, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
 import { receiptCommandKind } from "./receipt-command-kind.ts";
 import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";

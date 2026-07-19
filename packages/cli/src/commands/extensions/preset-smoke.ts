@@ -1,10 +1,10 @@
 import path from "node:path";
-import { taskPackagePath, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { taskPackagePath, type HarnessLayoutInput } from "@harness-anything/kernel";
 import {
   isPresetRunEntrypoint,
   presetRunEntrypointCapabilities
 } from "../../cli/preset-entrypoint-capabilities.ts";
-import type { PresetInputV3, PresetManifestV3 } from "../../../../kernel/src/index.ts";
+import type { PresetInputV3, PresetManifestV3 } from "@harness-anything/kernel";
 import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
 import { legacyPresetScriptEntry, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import type { ResolvedPreset } from "./state.ts";

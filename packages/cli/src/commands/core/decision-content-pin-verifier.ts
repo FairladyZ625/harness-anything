@@ -10,7 +10,7 @@ import {
   type DecisionContentDigestField,
   type DecisionPackage,
   type HarnessLayoutInput
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const decisionContentPinVerificationSchema = "decision-content-pin-verification-report/v1" as const;
 

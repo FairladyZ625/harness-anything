@@ -1,4 +1,4 @@
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import { customVerticalGateResult, readProjectHarnessSettings } from "../settings.ts";
 import {

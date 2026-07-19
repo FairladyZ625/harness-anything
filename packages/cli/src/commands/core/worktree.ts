@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { resolveHarnessLayout, type CurrentSessionRef } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type CurrentSessionRef } from "@harness-anything/kernel";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";

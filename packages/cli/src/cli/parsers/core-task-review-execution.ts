@@ -1,4 +1,4 @@
-import { consentActions as validConsentActions, reviewVerdicts, type ConsentAction } from "../../../../kernel/src/index.ts";
+import { consentActions as validConsentActions, reviewVerdicts, type ConsentAction } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import type { CommandJsonInput } from "../json-input.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";

@@ -3,8 +3,8 @@ import {
   registerDaemonRepo,
   unregisterDaemonRepo,
   type DaemonRegistryRepo
-} from "../../../../kernel/src/index.ts";
-import { daemonUserRootForRepo } from "../../../../daemon/src/index.ts";
+} from "@harness-anything/kernel";
+import { daemonUserRootForRepo } from "@harness-anything/daemon";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 

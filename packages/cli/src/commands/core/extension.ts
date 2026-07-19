@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createHarnessRuntimeContext } from "../../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext } from "@harness-anything/kernel";
 import { runExtensionCommand } from "../extensions/index.ts";
 import { readModules, writeModules } from "../extensions/state.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

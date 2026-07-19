@@ -1,4 +1,4 @@
-import { collectGitDiffEvidence } from "../../../adapters/local/src/index.ts";
+import { collectGitDiffEvidence } from "@harness-anything/adapter-local";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
 

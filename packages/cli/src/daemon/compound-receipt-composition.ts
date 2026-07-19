@@ -12,11 +12,11 @@ import {
   type ResultPreparedFrameV1,
   type WaiterOpenedFrameV1,
   type WaiterStateFrameV1
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   createBrokerCompoundReceiptCoordinatorV2,
   ReplicaBroker
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import { createDurableCompoundReceiptStoreV2, renderCompoundCliExit } from "../receipt/index.ts";
 
 /**

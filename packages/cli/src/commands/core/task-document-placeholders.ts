@@ -1,4 +1,4 @@
-import { extractMarkdownSection, type TaskDocumentPlaceholderPolicy, type TaskDocumentPlaceholderSectionFingerprint } from "../../../../application/src/index.ts";
+import { extractMarkdownSection, type TaskDocumentPlaceholderPolicy, type TaskDocumentPlaceholderSectionFingerprint } from "@harness-anything/application";
 import { bundledTemplateCatalog } from "../extensions/bundled.ts";
 import { resolveTemplateCatalogBody, type TemplateCatalog } from "../extensions/template-catalog-loader.ts";
 

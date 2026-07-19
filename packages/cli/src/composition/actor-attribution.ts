@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { AuthenticatedActor } from "../../../daemon/src/index.ts";
-import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "../../../application/src/index.ts";
-import type { WriteAttribution } from "../../../kernel/src/index.ts";
+import type { AuthenticatedActor } from "@harness-anything/daemon";
+import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "@harness-anything/application";
+import type { WriteAttribution } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import { readNonBlankEnv } from "./environment.ts";
 

@@ -6,8 +6,8 @@ import {
   makeLocalLifecycleEngine,
   makeLocalWriteCoordinator,
   runLedgerMaterializer
-} from "../../../adapters/local/src/index.ts";
-import { multicaAdapterProviderMetadata } from "../../../adapters/multica/src/index.ts";
+} from "@harness-anything/adapter-local";
+import { multicaAdapterProviderMetadata } from "@harness-anything/adapter-multica";
 import {
   makeGithubIssuesLifecycleEngine,
   type GithubCredentialResolver,
@@ -17,13 +17,13 @@ import {
   type GithubIssuesProviderOptions,
   type GithubTransport,
   type GithubTransportError
-} from "../../../adapters/github-issues/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { makeMarkdownArtifactStore } from "../../../kernel/src/index.ts";
+} from "@harness-anything/adapter-github-issues";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { makeMarkdownArtifactStore } from "@harness-anything/kernel";
 import type {
   LocalLifecycleOptions,
   LocalWriteCoordinatorOptions
-} from "../../../adapters/local/src/index.ts";
+} from "@harness-anything/adapter-local";
 import type { MaterializerCommandReport } from "../cli/types.ts";
 
 export type AdapterCapability =

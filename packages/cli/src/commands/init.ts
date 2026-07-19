@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { CliGitCommitAuthor } from "../composition/actor-attribution.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { resolveActiveVertical } from "./extensions/active-vertical.ts";

@@ -1,10 +1,10 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
-import { moduleEntityId, stablePayloadHash, type WriteCoordinator, type WriteError } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
-import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
+import { moduleEntityId, stablePayloadHash, type WriteCoordinator, type WriteError } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";

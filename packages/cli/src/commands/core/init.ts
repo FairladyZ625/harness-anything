@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { generateTaskId, queryTaskProjection, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { generateTaskId, queryTaskProjection, resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { initializeHarness } from "../init.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { resolveLocalCliBootstrapAuthor } from "../../composition/actor-attribution.ts";
-import { daemonUserRootForRepo, ensureMachinePeopleRoster } from "../../../../daemon/src/index.ts";
+import { daemonUserRootForRepo, ensureMachinePeopleRoster } from "@harness-anything/daemon";
 
 const initSmokeTitle = "Harness onboarding smoke";
 const initSmokeSlug = "harness-onboarding-smoke";

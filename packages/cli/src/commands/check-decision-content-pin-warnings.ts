@@ -1,4 +1,4 @@
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 import { verifyDecisionContentPins } from "./core/decision-content-pin-verifier.ts";
 

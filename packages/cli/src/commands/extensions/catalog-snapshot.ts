@@ -3,8 +3,8 @@ import type {
   CatalogSnapshotResult,
   CatalogTemplateEntry,
   CatalogTemplateSelection
-} from "../../../../application/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { adapterProviderRegistry } from "../../composition/adapter-registry.ts";

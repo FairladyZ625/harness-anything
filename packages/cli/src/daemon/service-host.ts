@@ -1,8 +1,8 @@
 import {
   makeDaemonLogService,
   makeLocalControllerService
-} from "../../../application/src/index.ts";
-import type { DaemonLogService } from "../../../application/src/index.ts";
+} from "@harness-anything/application";
+import type { DaemonLogService } from "@harness-anything/application";
 import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
@@ -16,11 +16,11 @@ import {
   type JsonRpcNotification,
   type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import {
   makeMarkdownArtifactStore,
   readDaemonRegistry,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-controller-options.ts";

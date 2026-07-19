@@ -1,9 +1,9 @@
-import type { CommandFailureReceipt, CommandReceipt } from "../../../application/src/index.ts";
+import type { CommandFailureReceipt, CommandReceipt } from "@harness-anything/application";
 import {
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,
   type JsonObject
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import { readOption, stripGlobalOptions } from "../cli/parse-options.ts";
 import { daemonClientCliEntrypointPath, readDaemonClientConfig } from "../daemon/client.ts";
 

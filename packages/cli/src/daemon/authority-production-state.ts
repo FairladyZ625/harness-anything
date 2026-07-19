@@ -16,13 +16,13 @@ import {
   type OperationNamespaceVerifierV2,
   type ProtocolSchemaTupleV2,
   type RevocationEpochTupleV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   openLocalAuthorityKeyStore,
   type LocalAuthorityKeyStore
-} from "../../../daemon/src/index.ts";
-import type { WriteAttribution } from "../../../kernel/src/index.ts";
-import { stableStringify } from "../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import type { WriteAttribution } from "@harness-anything/kernel";
+import { stableStringify } from "@harness-anything/kernel";
 import { authorityDurableAdapterMarker, type AuthorityDurableAdapterMarker } from "./authority-lifecycle.ts";
 import type { DurableAuthorityStateTable } from "./authority-service-state.ts";
 

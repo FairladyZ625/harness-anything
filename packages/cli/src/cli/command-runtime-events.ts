@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { runtimeEventActorFromTaskHolderPrincipal } from "../../../application/src/index.ts";
+import { runtimeEventActorFromTaskHolderPrincipal } from "@harness-anything/application";
 import { runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import { actionTaskId } from "./parse-args.ts";
 import type { CommandRunnerContext, CommandRunnerEffect } from "./runner-registry.ts";

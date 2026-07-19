@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { readEntityCascadeImpact } from "../../../kernel/src/index.ts";
-import { readRelationGraphProjection } from "../../../kernel/src/index.ts";
+import { readEntityCascadeImpact } from "@harness-anything/kernel";
+import { readRelationGraphProjection } from "@harness-anything/kernel";
 
 const defaultProjectionPath = ".harness/cache/projections.sqlite";
 const defaultOutputPath = ".harness/generated/graph-panorama/index.html";

@@ -1,4 +1,4 @@
-import { planTemplateMaterialization, type HarnessLayoutInput, type MaterializedTemplatePlan } from "../../../kernel/src/index.ts";
+import { planTemplateMaterialization, type HarnessLayoutInput, type MaterializedTemplatePlan } from "@harness-anything/kernel";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 import type { TaskContractDocumentRequirement } from "./check-task-contract.ts";
 import { bundledTemplateCatalog } from "./extensions/bundled.ts";

@@ -1,4 +1,4 @@
-import { createCompoundReceiptServiceV2 } from "../../../application/src/index.ts";
+import { createCompoundReceiptServiceV2 } from "@harness-anything/application";
 import { readOption } from "../cli/parse-options.ts";
 import { createDurableCompoundReceiptStoreV2, renderCompoundCliExit } from "../receipt/index.ts";
 

@@ -3,9 +3,9 @@ import type { CommandDescriptorIdentity } from "../command-spec/types.ts";
 import type { CommandJsonInput } from "../json-input.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
-import { isFactMemoryClass, isFactMemoryTag, type FactMemoryTag } from "../../../../kernel/src/index.ts";
+import { isFactMemoryClass, isFactMemoryTag, type FactMemoryTag } from "@harness-anything/kernel";
 import { jsonBoolean, jsonPayloadFor, jsonString, jsonStringList, type JsonPayload } from "./json-values.ts";
-import { generateFactIdV1 } from "../../../../application/src/index.ts";
+import { generateFactIdV1 } from "@harness-anything/application";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 

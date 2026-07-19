@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { listTaskIndexPaths, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { listTaskIndexPaths, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { readProjectHarnessSettings } from "../settings.ts";

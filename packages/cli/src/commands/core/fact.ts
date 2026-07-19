@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { FactWriteRejected } from "../../../../application/src/index.ts";
-import { parseFactFlowRecords, type FactRecord, type WriteError } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { FactWriteRejected } from "@harness-anything/application";
+import { parseFactFlowRecords, type FactRecord, type WriteError } from "@harness-anything/kernel";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

@@ -7,7 +7,7 @@ import {
   type CommandFailureReceipt,
   type CommandReceipt,
   type CommandReceiptEnvelope
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export { commandReceiptEnvelope };
 export type { CommandFailureReceipt, CommandReceipt };

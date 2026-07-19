@@ -1,4 +1,4 @@
-import type { PresetManifest } from "../../../../kernel/src/index.ts";
+import type { PresetManifest } from "@harness-anything/kernel";
 import { selectPresetProfile } from "../extensions/state.ts";
 
 export function resolvePresetCompletionGates(

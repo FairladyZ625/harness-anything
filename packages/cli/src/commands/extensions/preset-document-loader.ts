@@ -5,7 +5,7 @@ import {
   PresetDocumentFrontmatterSchema,
   readFrontmatter,
   type PresetDocumentFrontmatter
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const presetDocumentFilename = "PRESET.md";
 

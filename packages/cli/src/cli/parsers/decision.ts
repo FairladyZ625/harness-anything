@@ -2,7 +2,7 @@ import {
   parseEntityRef,
   relationTypes,
   type RelationType
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { CommandDescriptorIdentity } from "../command-spec/types.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import type { CommandJsonInput } from "../json-input.ts";

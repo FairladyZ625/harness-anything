@@ -9,7 +9,7 @@ import {
   type PresetEntrypointV3,
   type PresetInputV3,
   type PresetManifestV3
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ResolvedPreset } from "./state.ts";
 import type { ResolvedScriptEntry, ScriptEntry } from "./script-host.ts";
 import {

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { entityRegistry, entityRegistryKinds } from "../../../../kernel/src/index.ts";
+import { entityRegistry, entityRegistryKinds } from "@harness-anything/kernel";
 import { capabilityEntityKinds, capabilityExcludedCommandKinds } from "../../cli/capability-entity-kinds.ts";
 import { cliCommandAlias } from "../../cli/command-names.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";

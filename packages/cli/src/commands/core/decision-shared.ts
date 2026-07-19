@@ -1,12 +1,12 @@
 import path from "node:path";
 import {
   type DecisionWriteRejected
-} from "../../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   type DecisionPackage,
   type WriteError
-} from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";

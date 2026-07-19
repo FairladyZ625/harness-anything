@@ -1,7 +1,7 @@
 import { createHash, type Hash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import path from "node:path";
-import type { AuthorityProductionRepoScan } from "../../../application/src/index.ts";
+import type { AuthorityProductionRepoScan } from "@harness-anything/application";
 import { readAuthorityGitBytes } from "./authority-publication-evidence.ts";
 
 export function createAuthorityProductionScanner(input: {

@@ -3,8 +3,8 @@ import {
   type DaemonLogLevel,
   type DaemonLogListInputV1,
   type DaemonLogPageV1
-} from "../../../../application/src/index.ts";
-import type { JsonObject } from "../../../../daemon/src/index.ts";
+} from "@harness-anything/application";
+import type { JsonObject } from "@harness-anything/daemon";
 import { readOption } from "../../cli/parse-options.ts";
 import { requestLocalDaemonJsonRpc, resolveLocalDaemonTarget } from "../../daemon/client.ts";
 import type { DaemonCommandInput } from "./productization.ts";

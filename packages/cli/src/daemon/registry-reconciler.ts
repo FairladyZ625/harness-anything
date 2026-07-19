@@ -1,4 +1,4 @@
-import type { DaemonRegistryRepo } from "../../../kernel/src/index.ts";
+import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 
 export interface DaemonReconcileError {
   readonly at: string;

@@ -11,7 +11,7 @@ import {
   type FlushReport,
   type SessionManifest,
   type WriteError
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { authoredRelativePath } from "./authored-git.ts";

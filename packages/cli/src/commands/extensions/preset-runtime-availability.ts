@@ -3,14 +3,14 @@ import path from "node:path";
 import {
   evaluatePresetRuntimeAvailability,
   parseTaskContractSnapshot
-} from "../../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   listTaskIndexPaths,
   readFrontmatter,
   readScalar,
   type HarnessLayoutInput,
   type PresetManifest
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 

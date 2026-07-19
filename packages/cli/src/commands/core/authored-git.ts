@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { normalizeSlashes } from "../../cli/path.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 
 export function authoredRelativePath(rootInput: HarnessLayoutInput, absolutePath: string): string {
   const layout = resolveHarnessLayout(rootInput);

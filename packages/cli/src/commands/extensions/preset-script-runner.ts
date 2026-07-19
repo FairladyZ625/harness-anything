@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import { PresetManifestSchema } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
+import { PresetManifestSchema } from "@harness-anything/kernel";
+import type { HarnessLayoutInput, WriteOp } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";

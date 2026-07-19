@@ -1,4 +1,4 @@
-import type { LocalDaemonTarget } from "../../../../daemon/src/index.ts";
+import type { LocalDaemonTarget } from "@harness-anything/daemon";
 
 export interface DaemonReplacementStopRuntime {
   readonly probeStatus: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;

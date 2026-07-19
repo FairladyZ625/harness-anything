@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { readDecisionDocument, type DecisionWriteService, type DecisionWriteRejected } from "../../../../application/src/index.ts";
-import { type DecisionPackage, type EntityRelationRecord, type WriteError } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, taskDocumentPath, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { readFrontmatter, readScalar } from "../../../../kernel/src/index.ts";
+import { readDecisionDocument, type DecisionWriteService, type DecisionWriteRejected } from "@harness-anything/application";
+import { type DecisionPackage, type EntityRelationRecord, type WriteError } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskDocumentPath, type HarnessLayoutInput } from "@harness-anything/kernel";
+import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { decisionRelationRecord } from "./decision-relation-record.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type {
   EngineError,
   TaskSnapshot
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   createGithubIssuesReadProvider,
   type GithubIssuesLifecycleEngine,

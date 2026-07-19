@@ -4,7 +4,7 @@ import {
   type CompoundExitInput,
   type CompoundOperationReceipt,
   type CompoundOperationReceiptV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 type RenderableCompoundReceipt = CompoundOperationReceipt | CompoundOperationReceiptV2;
 

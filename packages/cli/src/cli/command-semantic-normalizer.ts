@@ -1,4 +1,4 @@
-import type { ArtifactStore, CurrentSessionRef, TaskHolderService } from "../../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionRef, TaskHolderService } from "@harness-anything/kernel";
 import { normalizeDecisionProposeAction } from "./decision-propose-normalizer.ts";
 import { normalizeExecutionSubmissionCommand } from "./execution-submission-normalizer.ts";
 import type { ParsedCommand } from "./types.ts";

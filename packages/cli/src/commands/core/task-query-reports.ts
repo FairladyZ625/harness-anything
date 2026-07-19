@@ -2,7 +2,7 @@ import {
   type FactAnchorRow,
   type RelationGraphEdgeRow,
   type TaskProjectionRow
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { CliResult, RelationListFilters } from "../../cli/types.ts";
 
 export function buildTaskShowReport(

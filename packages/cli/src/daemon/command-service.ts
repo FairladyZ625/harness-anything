@@ -4,9 +4,9 @@ import {
   type AuthenticatedActor,
   type AuthorityConnectionDispatch,
   type JsonObject
-} from "../../../daemon/src/index.ts";
-import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
-import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
+import type { CurrentSessionRef, WriteCoordinator } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isDryRunAction } from "../cli/dry-run-preview.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";

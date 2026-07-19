@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { CurrentSessionRef, FlushReport, SessionManifest, WriteError } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, writeSessionEntity } from "../../../../kernel/src/index.ts";
+import type { CurrentSessionRef, FlushReport, SessionManifest, WriteError } from "@harness-anything/kernel";
+import { resolveHarnessLayout, writeSessionEntity } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, SessionExportRuntime, SessionExportSource } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

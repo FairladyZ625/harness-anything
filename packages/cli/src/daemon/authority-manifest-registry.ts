@@ -4,7 +4,7 @@ import {
   registerDaemonRepo,
   type DaemonRegistry,
   type DaemonRegistryRepo
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { loadAuthorityProductionManifest } from "./authority-production-state.ts";
 
 export type AuthorityManifestRegistryRepo = Pick<

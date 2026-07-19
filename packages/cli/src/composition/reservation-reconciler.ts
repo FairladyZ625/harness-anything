@@ -5,7 +5,7 @@ import {
   makeRuntimeEventLedgerService,
   makeTaskHolderService,
   type TaskHolderPrincipal
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   Effect,
 } from "effect";
@@ -15,7 +15,7 @@ import {
   type HarnessLayoutInput,
   type WriteAttribution,
   type WriteCoordinator
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeDaemonQueuedOperationalWriteCoordinator, type CliDaemonRuntime } from "../daemon/queued-write-coordinator.ts";
 
 export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput, runtime?: CliDaemonRuntime): () => Promise<void> {

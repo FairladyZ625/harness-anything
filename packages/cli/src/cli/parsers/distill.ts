@@ -1,4 +1,4 @@
-import { isFactMemoryClass, isFactMemoryTag, type FactMemoryTag } from "../../../../kernel/src/index.ts";
+import { isFactMemoryClass, isFactMemoryTag, type FactMemoryTag } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

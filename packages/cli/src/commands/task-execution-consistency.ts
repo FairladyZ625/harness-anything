@@ -9,7 +9,7 @@ import {
   resolveHarnessLayout,
   type ExecutionRecord,
   type HarnessLayoutInput
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { relativePath } from "../cli/path.ts";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 

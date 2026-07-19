@@ -8,23 +8,23 @@ import {
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
-} from "../../../application/src/index.ts";
-import { createAuthoritySubmissionService } from "../../../application/src/authority/service.ts";
+} from "@harness-anything/application";
+import { createAuthoritySubmissionService } from "@harness-anything/application/authority/service";
 import {
   answerAttestationChallenge,
   createAttestationChallenge,
   createTransportObservedAttestationAdapter,
   verifyAttestationAssertion,
   type AuthorityConnectionContext
-} from "../../../daemon/src/index.ts";
-import { serveAuthorityForcedCommand } from "../../../daemon/src/authority/forced-command-session.ts";
+} from "@harness-anything/daemon";
+import { serveAuthorityForcedCommand } from "@harness-anything/daemon/authority/forced-command-session";
 import {
   entityRegistry,
   entityRegistryKinds,
   makeLocalAuthorityAttributionEventV2Log,
   resolveHarnessLayout,
   type EntityRegistration
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import {
   createDaemonAuthorityCommandSubmissionV2,

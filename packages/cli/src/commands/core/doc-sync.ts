@@ -1,5 +1,5 @@
 import { buildDocSyncReport } from "../../daemon/doc-sync-service.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 
 export function buildDocSyncStatusResult(rootInput: HarnessLayoutInput): CliResult {

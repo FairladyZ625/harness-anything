@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { parseTaskContractSnapshot } from "../../../application/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { parseTaskContractSnapshot } from "@harness-anything/application";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
 import type { ProjectHarnessSettings } from "./settings.ts";

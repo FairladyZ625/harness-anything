@@ -5,9 +5,9 @@ import type {
   LocalControllerCallContext,
   LocalControllerDecisionMutationPort,
   LocalControllerServiceOptions
-} from "../../../../application/src/index.ts";
-import type { AuthenticatedActor, JsonObject } from "../../../../daemon/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import type { AuthenticatedActor, JsonObject } from "@harness-anything/daemon";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { normalizeDecisionProposeAction } from "../../cli/decision-propose-normalizer.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { ParsedCommand } from "../../cli/types.ts";

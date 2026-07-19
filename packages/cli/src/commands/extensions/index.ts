@@ -1,7 +1,7 @@
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
-import { createHarnessRuntimeContext } from "../../../../kernel/src/index.ts";
-import type { WriteOp } from "../../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext } from "@harness-anything/kernel";
+import type { WriteOp } from "@harness-anything/kernel";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
 import { runScriptCommand } from "./script.ts";

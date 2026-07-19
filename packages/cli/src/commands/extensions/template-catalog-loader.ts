@@ -5,7 +5,7 @@ import {
   type TemplateBodyResolver,
   TemplateCatalogSchema,
   validateExtensionInputShape
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { isPathInside, isSafeBodyPath } from "../../cli/path.ts";
 
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;

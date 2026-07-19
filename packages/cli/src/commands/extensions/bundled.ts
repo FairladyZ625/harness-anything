@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
-import { PresetManifestSchema, VerticalDefinitionSchema } from "../../../../kernel/src/index.ts";
-import type { PresetDocumentFrontmatter } from "../../../../kernel/src/index.ts";
+import { PresetManifestSchema, VerticalDefinitionSchema } from "@harness-anything/kernel";
+import type { PresetDocumentFrontmatter } from "@harness-anything/kernel";
 import { loadPresetDocument, type PresetDocumentWarning } from "./preset-document-loader.ts";
 import { readTemplateCatalogFile, type TemplateCatalog } from "./template-catalog-loader.ts";
 

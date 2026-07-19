@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { makeTaskLifecycleOrchestrator } from "../../../../application/src/index.ts";
+import { makeTaskLifecycleOrchestrator } from "@harness-anything/application";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";

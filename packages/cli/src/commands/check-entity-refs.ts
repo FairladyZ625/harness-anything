@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { parseFactFlowRecords, readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { listTaskIndexPaths, resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import { parseFactFlowRecords, readFrontmatter, readScalar } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { listTaskIndexPaths, resolveHarnessLayout } from "@harness-anything/kernel";
 
 export function buildResolvableEntityIndex(rootInput: HarnessLayoutInput): { readonly refs: ReadonlySet<string> } {
   const layout = resolveHarnessLayout(rootInput);

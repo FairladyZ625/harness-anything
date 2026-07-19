@@ -13,7 +13,7 @@ import {
   type HarnessLayoutInput,
   type RetiredAttributionDocumentKind,
   type WriteError
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";

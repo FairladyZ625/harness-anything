@@ -7,7 +7,7 @@ import {
   makeEnvironmentCurrentSessionProbe,
   taskHolderExecutorFromJournalActor,
   type TaskHolderExecutor
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   daemonIdFromEnv,
   daemonUserRootForRepo,
@@ -20,12 +20,12 @@ import {
   resolveLocalDaemonTarget,
   type JsonObject,
   type LocalDaemonTarget
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import {
   createHarnessRuntimeContext,
   resolveHarnessLayout,
   type CurrentSessionRef
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { CliErrorCode, cliError } from "../cli/error-codes.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import { toCommandReceipt } from "../cli/receipt.ts";
@@ -49,7 +49,7 @@ export {
   requestLocalDaemonJsonRpc,
   resolveLocalDaemonTarget,
   type LocalDaemonTarget
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 
 export type DaemonClientMode = "direct" | "local" | "remote";
 

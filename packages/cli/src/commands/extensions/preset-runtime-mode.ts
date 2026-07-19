@@ -1,4 +1,4 @@
-import { legacyPhysicalScopeWarning, type PresetManifest } from "../../../../kernel/src/index.ts";
+import { legacyPhysicalScopeWarning, type PresetManifest } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 
 export function withPresetRuntimeWarning(result: CliResult, manifest: PresetManifest): CliResult {

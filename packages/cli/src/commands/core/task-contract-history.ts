@@ -15,7 +15,7 @@ import {
   type PresetManifest,
   type TemplateBodyResolver,
   type TemplateCatalog
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const softwareCodingAssetRoot = "packages/cli/src/commands/extensions/assets/software-coding";
 

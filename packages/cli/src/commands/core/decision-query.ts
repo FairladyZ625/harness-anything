@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { queryDecisionProjection } from "../../../../kernel/src/index.ts";
-import type { DecisionProjectionRow } from "../../../../kernel/src/index.ts";
+import { queryDecisionProjection } from "@harness-anything/kernel";
+import type { DecisionProjectionRow } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";

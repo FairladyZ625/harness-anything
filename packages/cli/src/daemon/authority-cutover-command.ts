@@ -1,4 +1,4 @@
-import type { AuthorityCutoverControlService } from "../../../application/src/index.ts";
+import type { AuthorityCutoverControlService } from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 

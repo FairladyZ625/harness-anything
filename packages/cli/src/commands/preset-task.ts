@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
-import { bindCreateProvenance, compileTaskContractSnapshot, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
+import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "@harness-anything/adapter-local/task-index";
+import { bindCreateProvenance, compileTaskContractSnapshot, type ProvenanceBindingOptions } from "@harness-anything/application";
 import {
   createTaskPackagePath,
   generateTaskId,
@@ -17,7 +17,7 @@ import {
   type ProvenancePayload,
   type WriteCoordinator,
   type WriteError
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { bundledTemplateCatalog } from "./extensions/bundled.ts";

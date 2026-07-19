@@ -8,8 +8,8 @@ import {
   createHarnessRuntimeContext,
   registerDaemonRepo,
   resolveHarnessLayout,
-} from "../../../../kernel/src/index.ts";
-import { currentDaemonProtocolVersion } from "../../../../daemon/src/index.ts";
+} from "@harness-anything/kernel";
+import { currentDaemonProtocolVersion } from "@harness-anything/daemon";
 import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -25,7 +25,7 @@ import {
 } from "./control.ts";
 import { observeDaemonLifecycle } from "../../daemon/daemon-lifecycle.ts";
 import { makeDaemonLogFileStore } from "../../daemon/daemon-log-file-store.ts";
-import { makeDaemonLogService } from "../../../../application/src/index.ts";
+import { makeDaemonLogService } from "@harness-anything/application";
 import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.ts";
 import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonCommandInput } from "./command-types.ts";

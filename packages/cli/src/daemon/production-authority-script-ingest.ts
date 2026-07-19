@@ -9,13 +9,13 @@ import {
   type CanonicalCborValue,
   type RegistryMutationPlanInput,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   canonicalPayloadDigestV2,
   SemanticAdmissionErrorV2,
   type AuthoritySemanticCompilerV2,
   type SemanticMutationEnvelopeV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 

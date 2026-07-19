@@ -12,7 +12,7 @@ import {
   type FactRelationCommandPayloadV2,
   type SessionExecutionReviewCommandPayloadV2,
   type TaskDecisionModuleCommandPayloadV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   executionDeclaration,
   deriveRelationId,
@@ -21,7 +21,7 @@ import {
   taskPackagePath,
   type ExecutionRecord,
   type RegistryEntityRefV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";

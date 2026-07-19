@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, type CliError } from "../../cli/error-codes.ts";
 import { isPathInside, normalizeSlashes } from "../../cli/path.ts";
 import type { ResolvedPreset } from "./state.ts";

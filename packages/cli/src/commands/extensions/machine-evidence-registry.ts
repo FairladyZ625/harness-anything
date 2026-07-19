@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { sha256Text } from "../../../../kernel/src/index.ts";
+import { sha256Text } from "@harness-anything/kernel";
 
 export function writeMachineEvidenceRegistry(outputRoot: string, generated: ReadonlyArray<string>): void {
   const machineEvidence = generated

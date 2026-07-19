@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { isCloseoutPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "../../../application/src/index.ts";
-import { checkTaskProjection, extractMarkdownSection, findEntityRefs, markdownHeadingSections } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../kernel/src/index.ts";
-import { readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
+import { isCloseoutPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "@harness-anything/application";
+import { checkTaskProjection, extractMarkdownSection, findEntityRefs, markdownHeadingSections } from "@harness-anything/kernel";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
+import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
+import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult, CommandRegistryEntry } from "../cli/types.ts";

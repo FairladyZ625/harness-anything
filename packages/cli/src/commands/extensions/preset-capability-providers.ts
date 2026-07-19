@@ -12,7 +12,7 @@ import {
   type HarnessLayoutInput,
   type HarnessLayoutOverrides,
   type PresetCapabilityRequirement
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { normalizeSlashes, relativePath } from "../../cli/path.ts";
 import { repositorySourceProjection } from "./repository-source-capability.ts";
 import { isPathInside } from "./script-scope.ts";

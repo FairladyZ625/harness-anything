@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { readFrontmatter, readNestedScalar, readScalar, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { readFrontmatter, readNestedScalar, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
 import { toSlash } from "./machine-evidence-registry.ts";
 import type { ResolvedPresetPolicy } from "./preset-policy.ts";
 import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
