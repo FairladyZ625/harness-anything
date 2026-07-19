@@ -56,6 +56,7 @@
     "harness:check-cli-error-codes": "node tools/check-cli-error-codes.mjs",
     "harness:check-error-next-steps": "node tools/check-error-next-steps.mjs",
     "harness:check-error-classification": "node tools/check-error-classification.mjs",
+    "harness:check-capabilities-kind-source": "node tools/check-capabilities-kind-source.mjs",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-duplicate-definitions": "node tools/check-duplicate-definitions.mjs",

@@ -139,6 +139,25 @@ test("rejects an unmanifested command added to an existing PR gate job", () => {
   }
 });
 
+test("rejects capabilities checker when it is absent from manifest and local runner wiring", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      deterministic: true,
+      surfaceClasses: ["local", "pr", "main-full"],
+      pullRequestJobs: ["boundaries"]
+    });
+    writeFileSync(path.join(root, "tools/check-capabilities-kind-source.mjs"), "#!/usr/bin/env node\nconsole.log('fixture');\n", "utf8");
+
+    const result = runChecker(root);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /unwired executable checker tools\/check-capabilities-kind-source\.mjs/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gate-invariants-"));
   mkdirSync(path.join(root, "tools"), { recursive: true });
@@ -219,6 +238,7 @@ function writeFixture(root, {
   ].join("\n");
 
   writeFileSync(path.join(root, "tools/gate-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  writeFileSync(path.join(root, "tools/run-local-check.mjs"), "// fixture local runner\n", "utf8");
   writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), workflow, "utf8");
 }
 

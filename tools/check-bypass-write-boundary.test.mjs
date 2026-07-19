@@ -75,6 +75,27 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
   }
 });
 
+test("bypass write boundary reports closeSync through the shared fs write API criterion", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeStore(root, [
+      "import { closeSync } from 'node:fs';",
+      "export function bypass(fd: number) {",
+      "  closeSync(fd);",
+      "}"
+    ]);
+    writeAllowlist(policyRoot);
+
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/kernel\/src\/store\/fixture\.ts#closeSync@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("bypass write boundary rejects stale stable anchors", () => {
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));

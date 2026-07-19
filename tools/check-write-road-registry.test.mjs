@@ -77,6 +77,28 @@ test("write-road registry rejects an unregistered direct fs write", () => {
   }
 });
 
+test("write-road registry derives a newly added package source root from workspaces", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      file: {
+        "packages/newcomer/src/unregistered-fs.ts": [
+          "import { writeFileSync } from 'node:fs';",
+          "writeFileSync('output.txt', 'bad', 'utf8');"
+        ]
+      }
+    });
+    writeLines(root, "packages/newcomer/package.json", ['{"name":"newcomer"}']);
+
+    const result = runChecker(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/newcomer\/src\/unregistered-fs\.ts#direct-write/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("write-road registry rejects an unregistered mutating GUI route", () => {
   const root = makeFixtureRoot();
   try {
@@ -150,6 +172,10 @@ function makeFixtureRoot() {
 }
 
 function writeFixture(root, overrides = {}) {
+  writeLines(root, "package.json", ['{"workspaces":["packages/*"]}']);
+  for (const packageRoot of ["kernel", "application", "daemon", "gui", "cli", "api-contracts"]) {
+    writeLines(root, `packages/${packageRoot}/package.json`, [`{"name":"${packageRoot}"}`]);
+  }
   const boundary = overrides.operationsBoundary ?? "\"registered-boundary\"";
   writeLines(root, "packages/kernel/src/ports/write-coordinator.ts", [
     "export type TaskWriteOpKind = 'registered_kind';",
