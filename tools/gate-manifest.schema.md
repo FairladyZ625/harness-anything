@@ -17,6 +17,8 @@ policy. Changing it is a governance change under ADR-0023 D2/D5.
   `local-consistency` are intentionally machine-readable for architecture
   review.
 - `tierDefinitions`: tier vocabulary.
+- `nonDeterminismDefinitions`: closed taxonomy for every
+  `deterministic: false` declaration.
 - `enforcementConstants`: declarations that name an enforcement parameter,
   locate its external authority, and enumerate every source consumer audited for
   naked derived literals.
@@ -63,13 +65,20 @@ Each gate entry must declare:
   wrappers, external-API checks, live-registry checks, wall-clock enforcement,
   and headed-environment checks are `false` even when they contain deterministic
   subchecks.
+- `nonDeterminism`: required exactly when `deterministic` is `false`. The object
+  contains one taxonomy `kind`, a non-empty human-readable `reason`, and a
+  non-empty `evidence` array naming the declaration or runtime source that
+  justifies the classification. The closed kinds are `aggregate`,
+  `external-state`, `host-environment`, `local-authority`, and `temporal`.
 - `positiveControl`: object with `status` (`covered`, `documented-gap`, or
   `not-applicable`) and a non-empty `evidence` array. Evidence contains a fixture
   or test path when one exists; gaps and non-applicable aggregate/control-flow
   gates use an explicit explanation instead of inventing coverage.
 - `category`: one of `boundary`, `local-consistency`, `smoke`,
   `release-policy`, or `meta-governance`.
-- `tier`: one of `pr-required`, `main-only`, `nightly-only`, or `manual-only`.
+- `tier`: one of `pr-required`, `main-only`, `nightly-only`, `local-only`, or
+  `manual-only`. `local-only` is reserved for automatic local-stop gates whose
+  private authority is deliberately unavailable in GitHub CI.
 - `tierReason`: required for every non-`pr-required` gate.
 - `authoritySource`: non-empty array of authority files or declarations.
   Boundary gates must not use only their checker file as authority.
@@ -98,8 +107,9 @@ Each gate entry must declare:
    gate, or includes a non-deterministic/non-PR/aggregate gate.
 
 The checker also requires the v2 classification and positive-control fields on
-every gate. Its positive-control test deliberately declares a deterministic gate
-without `pr` and asserts a red result.
+every gate. Its positive controls deliberately declare a deterministic gate
+without `pr` and a non-deterministic gate without `nonDeterminism`, and assert
+red results.
 
 ## Sample Entries
 
@@ -194,12 +204,13 @@ Release-policy gate sample:
 
 The registry records:
 
-- 55 gates: 45 deterministic and 10 non-deterministic/composite.
-- 41 `harness:*` scripts in `package.json`, of which 40 are registered leaf
-  gates; 38 are in `check`, 36 are in `check:pr`, and 39 execute in pull-request
+- 64 gates: 49 deterministic and 15 non-deterministic/composite/local-authority.
+- 46 `harness:*` scripts in `package.json`, of which 45 are registered leaf
+  gates; 42 are in `check`, 40 are in `check:pr`, and 43 execute in pull-request
   workflow jobs. `harness:sync-runtime-skills` is an operational command, not a
   gate. The only registered `harness:*` gate outside the PR workflow is the
-  non-deterministic, schedule-only `check-enforcement-debt-sunset`.
+  non-deterministic, schedule-only `check-enforcement-debt-sunset`, plus
+  local-only `check-ghost-task-packages` whose private ledger is absent in CI.
 - 11 formerly main-only deterministic gates added to the existing `boundaries`
   required context: `check-cli-help-contract`, `check-cli-error-codes`,
   `check-error-classification`, `check-duplicate-definitions`,
@@ -212,6 +223,11 @@ The registry records:
 - `check-staged-activation` executes locally, in `boundaries`, and in non-PR
   `full-check`; its wall-clock expiry semantics make it non-deterministic even
   though each production import-graph probe is repository-local and read-only.
+- `check-ghost-task-packages` resolves the canonical checkout from Git worktree
+  metadata, then reconciles every `harness/tasks/` directory ID with the
+  authored `task-package/v2` `INDEX.md` ledger ID. Missing private authority is
+  an error; the gate is intentionally local-only rather than silently green in
+  CI.
 - `check-retired-keys` executes locally, in `boundaries`, and in non-PR
   `full-check`; it parses authored frontmatter and rejects only retired top-level
   attribution keys, while preserving active nested `contentPins[].arbiter`.

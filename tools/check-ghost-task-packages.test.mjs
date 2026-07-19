@@ -13,25 +13,25 @@ test("canonical task packages pass", () => {
     writeCanonicalPackage(rootDir, `${taskId}-authority`);
 
     assert.deepEqual(checkGhostTaskPackages(rootDir), {
-      skipped: false,
+      available: true,
       scanned: 1,
-      missingIndexes: [],
+      unregisteredPackages: [],
       duplicateTaskIds: []
     });
   });
 });
 
-test("missing harness skips cleanly", () => {
+test("missing canonical ledger fails closed", () => {
   withFixture((rootDir) => {
     const result = checkGhostTaskPackages(rootDir);
 
     assert.deepEqual(result, {
-      skipped: true,
+      available: false,
       scanned: 0,
-      missingIndexes: [],
+      unregisteredPackages: [],
       duplicateTaskIds: []
     });
-    assert.match(formatGhostTaskPackageReport(result), /harness\/tasks not present; skipping/u);
+    assert.match(formatGhostTaskPackageReport(result), /canonical harness\/tasks ledger is unavailable/u);
   });
 });
 
@@ -43,10 +43,12 @@ test("duplicate task id identifies the canonical and ghost directories", () => {
     const result = checkGhostTaskPackages(rootDir);
     const report = formatGhostTaskPackageReport(result);
 
-    assert.equal(result.skipped, false);
-    assert.deepEqual(result.missingIndexes, [
-      `harness/tasks/${taskId}-ghost-packages`
-    ]);
+    assert.equal(result.available, true);
+    assert.deepEqual(result.unregisteredPackages, [{
+      relativePath: `harness/tasks/${taskId}-ghost-packages`,
+      directoryTaskId: taskId,
+      registeredTaskId: null
+    }]);
     assert.deepEqual(result.duplicateTaskIds, [{
       taskId,
       directories: [
@@ -60,7 +62,7 @@ test("duplicate task id identifies the canonical and ghost directories", () => {
   });
 });
 
-test("removing the canonical INDEX.md turns the check red", () => {
+test("positive control: a ghost directory without ledger registration turns the check red", () => {
   withFixture((rootDir) => {
     const packageName = `${taskId}-authority`;
     writeCanonicalPackage(rootDir, packageName);
@@ -68,14 +70,41 @@ test("removing the canonical INDEX.md turns the check red", () => {
 
     const result = checkGhostTaskPackages(rootDir);
 
-    assert.deepEqual(result.missingIndexes, [`harness/tasks/${packageName}`]);
+    assert.deepEqual(result.unregisteredPackages, [{
+      relativePath: `harness/tasks/${packageName}`,
+      directoryTaskId: taskId,
+      registeredTaskId: null
+    }]);
   });
 });
 
-function writeCanonicalPackage(rootDir, packageName) {
+test("directory task id must match the authored ledger task id", () => {
+  withFixture((rootDir) => {
+    const packageName = `${taskId}-authority`;
+    writeCanonicalPackage(rootDir, packageName, "task_01KXVMJ093BMM53KXPPMS8CRNQ");
+
+    const result = checkGhostTaskPackages(rootDir);
+
+    assert.deepEqual(result.unregisteredPackages, [{
+      relativePath: `harness/tasks/${packageName}`,
+      directoryTaskId: taskId,
+      registeredTaskId: "task_01KXVMJ093BMM53KXPPMS8CRNQ"
+    }]);
+  });
+});
+
+function writeCanonicalPackage(rootDir, packageName, registeredTaskId = taskId) {
   const packageDir = path.join(rootDir, "harness", "tasks", packageName);
   mkdirSync(packageDir, { recursive: true });
-  writeFileSync(path.join(packageDir, "INDEX.md"), "# Task\n", "utf8");
+  writeFileSync(path.join(packageDir, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${registeredTaskId}`,
+    "---",
+    "",
+    "# Task",
+    ""
+  ].join("\n"), "utf8");
   writeFileSync(path.join(packageDir, "task-contract.json"), "{}\n", "utf8");
 }
 
