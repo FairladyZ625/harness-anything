@@ -28,6 +28,7 @@ export interface DaemonControlLifecycle {
     timeoutMs: number,
     launchConfiguration: DaemonLaunchConfiguration
   ) => Promise<Record<string, unknown>>;
+  readonly stopReplacement?: (target: LocalDaemonTarget, pid: number, timeoutMs: number) => Promise<void>;
   readonly wait: (ms: number) => Promise<void>;
 }
 
@@ -42,7 +43,17 @@ export interface DaemonControlCommandInput {
 
 type DaemonControlHandoff =
   | { readonly kind: "adopt"; readonly status: Record<string, unknown> }
+  | { readonly kind: "reject"; readonly status: DaemonLifecycleStatus }
   | { readonly kind: "autostart" };
+
+type DaemonLifecycleStatus = {
+  readonly schema: "daemon-status/v1" | "daemon-status/v2";
+  readonly started: true;
+  readonly pid: number;
+  readonly loadedIdentity?: string;
+  readonly installedIdentity?: string;
+  readonly operationCleared?: true;
+};
 
 class DaemonRefreshWrongCheckoutError extends Error {
   constructor() {
@@ -170,8 +181,11 @@ async function completeDaemonReplacement(
   if (typeof beforeLoadedIdentity !== "string" || typeof operationId !== "string") {
     throw new Error(`${method} accepted receipt did not identify the loaded build and operation`);
   }
-  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, beforeLoadedIdentity, operationId, timeoutMs);
+  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, timeoutMs);
   if (handoff.kind === "adopt") return handoff.status;
+  if (handoff.kind === "reject") {
+    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, timeoutMs, kind);
+  }
   let replacement: Record<string, unknown>;
   try {
     replacement = await lifecycle.startReplacement(lifecycle.target, timeoutMs, launchConfiguration);
@@ -185,13 +199,29 @@ async function completeDaemonReplacement(
   if (!replacementLifecycle) {
     throw new Error(`daemon ${kind} replacement did not return a reachable started daemon status`);
   }
-  if (replacementLifecycle.pid === beforePid) {
-    throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}`);
-  }
-  if (!isCompleteReplacement(replacementLifecycle, beforePid, beforeLoadedIdentity, operationId)) {
-    throw new Error(`daemon ${kind} replacement did not satisfy new PID, new loaded identity, and cleared operation criteria`);
+  if (!isCompleteReplacement(replacementLifecycle, beforePid)) {
+    await rejectIncompleteReplacement(lifecycle, replacementLifecycle, beforePid, timeoutMs, kind);
   }
   return replacement;
+}
+
+async function rejectIncompleteReplacement(
+  lifecycle: DaemonControlLifecycle,
+  replacement: DaemonLifecycleStatus,
+  beforePid: number,
+  timeoutMs: number,
+  kind: DaemonControlKind
+): Promise<never> {
+  const failure = incompleteReplacementReason(replacement, beforePid);
+  try {
+    if (!lifecycle.stopReplacement) throw new Error("replacement cleanup is unavailable");
+    await lifecycle.stopReplacement(lifecycle.target, replacement.pid, timeoutMs);
+  } catch (error) {
+    throw new Error(
+      `daemon ${kind} replacement ${failure}; cleanup failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  throw new Error(`daemon ${kind} replacement ${failure}; the rejected replacement was stopped`);
 }
 
 function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): DaemonControlLifecycle {
@@ -221,6 +251,7 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
       timeoutMs,
       launchConfiguration
     ),
+    stopReplacement: stopDaemonReplacement,
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   };
 }
@@ -244,8 +275,6 @@ function daemonLaunchSpecUpgradeError(target: LocalDaemonTarget): Error {
 async function waitForDaemonControlHandoff(
   lifecycle: DaemonControlLifecycle,
   beforePid: number,
-  beforeLoadedIdentity: string,
-  operationId: string,
   timeoutMs: number
 ): Promise<DaemonControlHandoff> {
   const pollIntervalMs = 100;
@@ -261,8 +290,11 @@ async function waitForDaemonControlHandoff(
       // that permits the existing autostart primitive to run.
       if (!status) return { kind: "autostart" };
       const observedLifecycle = normalizeDaemonLifecycleStatus(status);
-      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, beforeLoadedIdentity, operationId)) {
+      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid)) {
         return { kind: "adopt", status };
+      }
+      if (observedLifecycle && observedLifecycle.pid !== beforePid) {
+        return { kind: "reject", status: observedLifecycle };
       }
       // Reachable old-PID or malformed status is not replacement proof and
       // blocks autostart, avoiding an overlapping service-owner window.
@@ -281,39 +313,48 @@ async function waitForDaemonControlHandoff(
 
 function normalizeDaemonLifecycleStatus(
   status: Record<string, unknown>
-): {
-  readonly schema: "daemon-status/v1" | "daemon-status/v2";
-  readonly started: true;
-  readonly pid: number;
-  readonly loadedIdentity?: string;
-  readonly activeOperationId?: string;
-} | undefined {
+): DaemonLifecycleStatus | undefined {
   const isV2 = status.schema === "daemon-status/v2";
   const lifecycle = isV2 ? (isDaemonControlRecord(status.service) ? status.service : undefined) : status.schema === "daemon-status/v1" ? status : undefined;
   if (lifecycle?.started !== true || !isPositivePid(lifecycle.pid)) return undefined;
   if (!isV2) return { schema: "daemon-status/v1", started: true, pid: lifecycle.pid };
   const build = isDaemonControlRecord(lifecycle.build) ? lifecycle.build : {};
-  const activeControl = isDaemonControlRecord(lifecycle.activeControl) ? lifecycle.activeControl : undefined;
   return {
     schema: "daemon-status/v2",
     started: true,
     pid: lifecycle.pid,
     ...(typeof build.loadedIdentity === "string" ? { loadedIdentity: build.loadedIdentity } : {}),
-    ...(typeof activeControl?.operationId === "string" ? { activeOperationId: activeControl.operationId } : {})
+    ...(typeof build.installedIdentity === "string" ? { installedIdentity: build.installedIdentity } : {}),
+    ...(lifecycle.activeControl === null ? { operationCleared: true as const } : {})
   };
 }
 
 function isCompleteReplacement(
   status: NonNullable<ReturnType<typeof normalizeDaemonLifecycleStatus>>,
-  beforePid: number,
-  beforeLoadedIdentity: string,
-  operationId: string
+  beforePid: number
 ): boolean {
   if (status.pid === beforePid) return false;
-  if (status.schema === "daemon-status/v1") return true;
+  if (status.schema === "daemon-status/v1") return false;
   return typeof status.loadedIdentity === "string"
-    && status.loadedIdentity !== beforeLoadedIdentity
-    && status.activeOperationId !== operationId;
+    && typeof status.installedIdentity === "string"
+    && status.loadedIdentity === status.installedIdentity
+    && status.operationCleared === true;
+}
+
+function incompleteReplacementReason(
+  status: NonNullable<ReturnType<typeof normalizeDaemonLifecycleStatus>>,
+  beforePid: number
+): string {
+  if (status.pid === beforePid) return `PID did not change: ${String(status.pid)}`;
+  if (status.schema === "daemon-status/v1") return "did not expose daemon-status/v2 replacement criteria";
+  if (typeof status.loadedIdentity !== "string" || typeof status.installedIdentity !== "string") {
+    return "did not expose loaded and installed identities";
+  }
+  if (status.loadedIdentity !== status.installedIdentity) {
+    return `loaded identity did not converge on the installed identity: loaded=${status.loadedIdentity} installed=${status.installedIdentity}`;
+  }
+  if (status.operationCleared !== true) return "did not clear the accepted control operation";
+  return "did not satisfy replacement criteria";
 }
 
 async function probeExactDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {
@@ -352,6 +393,25 @@ async function startDaemonReplacement(
   const status = statusFromReceipt(receipt);
   if (!status) throw new Error("replacement status RPC did not return daemon status data");
   return status;
+}
+
+async function stopDaemonReplacement(
+  _target: LocalDaemonTarget,
+  pid: number,
+  timeoutMs: number
+): Promise<void> {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (isDaemonControlErrorCode(error, "ESRCH")) return;
+    throw error;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (!daemonProcessIsAlive(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`replacement process did not exit before timeout (pid ${pid})`);
 }
 
 function daemonReplacementLaunchConfiguration(value: unknown): DaemonLaunchConfiguration {
@@ -415,6 +475,10 @@ function daemonProcessIsAlive(pid: number): boolean {
   } catch (error) {
     return !(isDaemonControlRecord(error) && error.code === "ESRCH");
   }
+}
+
+function isDaemonControlErrorCode(error: unknown, code: string): boolean {
+  return isDaemonControlRecord(error) && error.code === code;
 }
 
 function isPositivePid(value: unknown): value is number {
