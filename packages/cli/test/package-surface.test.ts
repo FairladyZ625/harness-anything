@@ -247,13 +247,23 @@ test("architecture contracts are single-authority, portable, and route the scaff
     "verified evidence rule must reference an allowed lifecycle status"
   );
   assert.deepEqual(contract.validateArchitectureManifest(manifest), { ok: true, value: manifest, issues: [] });
+  // This probe narrows filesystem access to the contracts directory on purpose,
+  // so that loading the contracts proves they are self-contained. The
+  // integration tier's runner injects a fixture preload into NODE_OPTIONS for
+  // every child process; that file lives outside the permitted directory, so an
+  // inherited environment makes the probe fail on the preload rather than
+  // measuring the contracts at all. Strip the runner's instrumentation so this
+  // asserts the vertical's portability and nothing else.
+  const permissionProbeEnv = { ...process.env };
+  delete permissionProbeEnv.NODE_OPTIONS;
+  delete permissionProbeEnv.HARNESS_CLI_TEST_FIXTURE_PRELOAD;
   const permissionProbe = execFileSync(process.execPath, [
     "--permission",
     `--allow-fs-read=${path.dirname(contractPath)}`,
     "--input-type=module",
     "--eval",
     `import { architectureManifestJsonSchema, architectureModelContract } from ${JSON.stringify(pathToFileURL(contractPath).href)}; process.stdout.write(architectureManifestJsonSchema().$id + "\\n" + architectureModelContract().id);`
-  ], { encoding: "utf8" });
+  ], { encoding: "utf8", env: permissionProbeEnv });
   assert.equal(permissionProbe, `${generatedSchema.$id}\n${modelContract.id}`, "vertical actions can load both contracts without node_modules access");
   for (const metadataKey of new Set([
     ...modelContract.elements.requiredMetadataKeys,
