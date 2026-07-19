@@ -60,6 +60,9 @@ function moduleLiteral(node) {
   if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
     return node.moduleSpecifier;
   }
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+    return node.argument.literal;
+  }
   if (
     ts.isCallExpression(node) &&
     node.arguments.length === 1 &&

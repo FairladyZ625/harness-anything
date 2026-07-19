@@ -38,7 +38,7 @@ export interface LocalControllerProjectionQueries {
 
 export interface LocalControllerStatusWriteResult {
   readonly taskId: string;
-  readonly status: import("../../kernel/src/index.ts").DomainStatus;
+  readonly status: import("@harness-anything/kernel").DomainStatus;
 }
 
 export interface LocalControllerProgressWriteResult {

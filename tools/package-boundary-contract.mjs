@@ -53,6 +53,8 @@ export function moduleSpecifiers(file, source) {
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       values.push(node.moduleSpecifier.text);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      values.push(node.argument.literal.text);
     } else if (
       ts.isCallExpression(node) &&
       node.arguments.length === 1 &&

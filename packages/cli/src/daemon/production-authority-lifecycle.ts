@@ -209,7 +209,7 @@ export function createProductionAuthorityLifecycle(input: {
         recover: committedEventPublisher.recoverCommittedReceipt,
         watermarkPath: `${state.stateDirectory}/recovery-watermark.json`,
         ...(input.daemonLogService ? {
-          onDeferred: (record: import("../../../application/src/index.ts").AuthorityStoredOperationRecord, error: unknown) =>
+          onDeferred: (record: import("@harness-anything/application").AuthorityStoredOperationRecord, error: unknown) =>
             input.daemonLogService!.append({
               level: "error",
               source: "daemon",
