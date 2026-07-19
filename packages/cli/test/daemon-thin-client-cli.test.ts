@@ -9,6 +9,7 @@ import { JsonRpcLineClient } from "../../daemon/src/index.ts";
 import { readDaemonClientConfig } from "../src/daemon/client.ts";
 import {
   defaultDaemonUserRoot,
+  pollDaemonConnectionCount,
   pollUntil,
   runDaemonCommand,
   runRawJson,
@@ -48,13 +49,6 @@ const expectedCliVersion = readCliPackageVersion();
 test("daemon client defaults to the local daemon", () => {
   assert.equal(readDaemonClientConfig({}).mode, "local");
 });
-
-function connectionCount(receipt: Record<string, unknown>): number | undefined {
-  const details = receipt.details as Record<string, unknown> | undefined;
-  const data = details?.data as Record<string, unknown> | undefined;
-  const connections = data?.connections as Record<string, unknown> | undefined;
-  return typeof connections?.active === "number" ? connections.active : undefined;
-}
 
 function waitForChildOutput(child: ChildProcess, expected: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -207,28 +201,17 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       setInterval(() => undefined, 1000);
     `, endpoint], { stdio: ["ignore", "pipe", "pipe"] });
     try {
-      // The daemon's active-connection count is eventually consistent with the
-      // holder's process state: the child announcing readiness (and later the
-      // kernel tearing its socket down on SIGKILL) both reach the daemon as
-      // events it processes on its own event loop. Asserting either count at a
-      // single instant races that delivery, so poll for the expected count and
-      // let the diagnostic report the last observed status on timeout.
-      const observeConnectionCount = async (expected: number): Promise<unknown> =>
-        pollUntil(
-          () => statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } }),
-          (status) => connectionCount(status) === expected,
-          (candidate, error) => JSON.stringify({ expected, candidate, error: String(error ?? "") }),
-          { timeoutMs: 5_000 }
-        );
+      const readDaemonStatus = async (): Promise<Record<string, unknown>> =>
+        statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } }) as Promise<Record<string, unknown>>;
 
       await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
-      await observeConnectionCount(2);
+      await pollDaemonConnectionCount(readDaemonStatus, 2);
 
       assert.equal(holder.kill("SIGKILL"), true);
       await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
       // This status probe is the only remaining connection. Once it closes,
       // the daemon's active count returns to zero and its idle timer starts.
-      await observeConnectionCount(1);
+      await pollDaemonConnectionCount(readDaemonStatus, 1);
       statusClient.close();
       statusSocket.destroy();
 
