@@ -215,7 +215,7 @@ test("relative launch paths retain their original cwd meaning across a service c
     const first = runDaemonJsonFromCwd(cwdA, path.relative(cwdA, fixture.repoRoot), [
       "daemon", "start", "--service",
       "--authority-manifest", path.relative(cwdA, fixture.manifestPath),
-      "--authored-root", path.relative(cwdA, fixture.authoredRoot)
+      "--authored-root", path.relative(fixture.repoRoot, fixture.authoredRoot)
     ], env);
     assert.equal(first.ok, true, JSON.stringify(first));
     await stopDaemon(fixture.repoRoot, userRoot);

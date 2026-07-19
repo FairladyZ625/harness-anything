@@ -161,7 +161,7 @@ test("launch argv parsing canonicalizes recoverable paths and validates known op
   ], cwd, {});
   assert.equal(parsed.rootDir, path.join(cwd, "repo"));
   assert.equal(parsed.authorityManifest, path.join(cwd, "config/authority.json"));
-  assert.equal(parsed.authoredRoot, path.join(cwd, "--relative-authored"));
+  assert.equal(parsed.authoredRoot, path.join(cwd, "repo", "--relative-authored"));
   assert.equal(parsed.socketPath, path.join(cwd, "daemon.sock"));
   assert.equal(parsed.userRoot, path.join(cwd, "state"));
   for (const argv of [

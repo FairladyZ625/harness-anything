@@ -151,7 +151,7 @@ export function parseDaemonLaunchArgv(
   cwd = process.cwd(),
   env: NodeJS.ProcessEnv = process.env
 ): ParsedDaemonLaunchArgv {
-  const rootDir = validatedDaemonPathOption(argv, "--root", true);
+  const rootDir = path.resolve(cwd, validatedDaemonPathOption(argv, "--root", true) ?? ".");
   const authorityManifest = validatedDaemonPathOption(argv, "--authority-manifest", false)
     ?? nonEmptyDaemonEnvironmentPath(env.HARNESS_AUTHORITY_MANIFEST);
   const authoredRoot = validatedDaemonPathOption(argv, "--authored-root", false)
@@ -160,9 +160,9 @@ export function parseDaemonLaunchArgv(
   const userRoot = validatedDaemonPathOption(argv, "--user-root", true)
     ?? nonEmptyDaemonEnvironmentPath(env.HARNESS_DAEMON_USER_ROOT);
   return Object.freeze({
-    rootDir: path.resolve(cwd, rootDir ?? "."),
+    rootDir,
     ...(authorityManifest !== undefined ? { authorityManifest: path.resolve(cwd, authorityManifest) } : {}),
-    ...(authoredRoot !== undefined ? { authoredRoot: path.resolve(cwd, authoredRoot) } : {}),
+    ...(authoredRoot !== undefined ? { authoredRoot: path.resolve(rootDir, authoredRoot) } : {}),
     ...(socketPath !== undefined ? { socketPath: daemonLaunchEndpointIdentity(socketPath, cwd) } : {}),
     ...(userRoot !== undefined ? { userRoot: path.resolve(cwd, userRoot) } : {}),
     optionsResolved: argv.includes(daemonLaunchOptionsResolvedFlag)
