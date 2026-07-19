@@ -183,8 +183,16 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
     const endpoint = path.join(rootDir, "gui-kill-idle.sock");
     const daemon = spawnDaemonCli(rootDir, ["daemon", "serve", "--socket", endpoint, "--idle-ms", "1000"]);
-    const readyProbe = await connectSocketWhenReady(endpoint);
-    readyProbe.destroy();
+    // Open the status connection before the holder starts and keep it open. The
+    // daemon arms its idle timer the moment its last connection closes, so a
+    // transient readiness probe would start the countdown and then race it
+    // against the holder's boot (Node startup plus TypeScript module load). On a
+    // loaded machine the holder loses that race, the daemon exits, and the
+    // holder's connect fails with ENOENT. Holding one connection open keeps the
+    // idle timer disarmed until this test deliberately closes it below.
+    const statusSocket = await connectSocketWhenReady(endpoint);
+    const statusClient = new JsonRpcLineClient(statusSocket, statusSocket);
+    await statusClient.request("protocol.hello", { protocolVersion: 1 });
     const clientModuleUrl = new URL("../../daemon-client/src/index.ts", import.meta.url).href;
     const holder = spawn(process.execPath, ["--input-type=module", "--eval", `
       import { JsonLineSocketTransport, PersistentDaemonClient } from ${JSON.stringify(clientModuleUrl)};
@@ -200,9 +208,6 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
     `, endpoint], { stdio: ["ignore", "pipe", "pipe"] });
     try {
       await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
-      const statusSocket = await connectSocket(endpoint);
-      const statusClient = new JsonRpcLineClient(statusSocket, statusSocket);
-      await statusClient.request("protocol.hello", { protocolVersion: 1 });
       const heldStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
       assert.equal(connectionCount(heldStatus), 2, JSON.stringify(heldStatus));
 
@@ -224,6 +229,10 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       assert.equal(daemon.exitCode, 0);
     } finally {
       if (holder.exitCode === null && holder.signalCode === null) holder.kill("SIGKILL");
+      if (!statusSocket.destroyed) {
+        statusClient.close();
+        statusSocket.destroy();
+      }
       await stopSpawnedDaemon(daemon, endpoint);
       await stopDaemon(rootDir, userRoot);
     }
