@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readOption } from "../../cli/parse-options.ts";
 import { requestLocalDaemonJsonRpc, resolveLocalDaemonTarget } from "../../daemon/client.ts";
+import type { DaemonLaunchConfiguration } from "../../daemon/daemon-launch-spec.ts";
 
 export type DaemonControlKind = "restart" | "refresh";
 type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
@@ -21,20 +22,13 @@ export interface DaemonControlLifecycle {
   readonly target: LocalDaemonTarget;
   readonly probeStatus: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
   readonly ownerIsAlive: (pid: number) => boolean;
-  readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonReplacementLaunchConfiguration>;
+  readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonLaunchConfiguration>;
   readonly startReplacement: (
     target: LocalDaemonTarget,
     timeoutMs: number,
-    launchConfiguration: DaemonReplacementLaunchConfiguration
+    launchConfiguration: DaemonLaunchConfiguration
   ) => Promise<Record<string, unknown>>;
   readonly wait: (ms: number) => Promise<void>;
-}
-
-export interface DaemonReplacementLaunchConfiguration {
-  readonly execPath: string;
-  readonly execArgv: ReadonlyArray<string>;
-  readonly entrypoint: string;
-  readonly args: ReadonlyArray<string>;
 }
 
 export interface DaemonControlCommandInput {
@@ -168,7 +162,7 @@ async function completeDaemonReplacement(
   timeoutMs: number,
   kind: DaemonControlKind,
   method: DaemonControlRequest["method"],
-  launchConfiguration: DaemonReplacementLaunchConfiguration
+  launchConfiguration: DaemonLaunchConfiguration
 ): Promise<Record<string, unknown>> {
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
@@ -342,7 +336,7 @@ async function startDaemonReplacement(
   target: LocalDaemonTarget,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   timeoutMs: number,
-  launchConfiguration: DaemonReplacementLaunchConfiguration
+  launchConfiguration: DaemonLaunchConfiguration
 ): Promise<Record<string, unknown>> {
   const receipt = await requestLocalDaemonJsonRpcForTarget(target, "repo.daemon.status", {
     repo: { repoId: target.repoId }
@@ -360,7 +354,7 @@ async function startDaemonReplacement(
   return status;
 }
 
-function daemonReplacementLaunchConfiguration(value: unknown): DaemonReplacementLaunchConfiguration {
+function daemonReplacementLaunchConfiguration(value: unknown): DaemonLaunchConfiguration {
   if (!isDaemonControlRecord(value)
     || typeof value.execPath !== "string"
     || typeof value.entrypoint !== "string"
@@ -378,7 +372,7 @@ function daemonReplacementLaunchConfiguration(value: unknown): DaemonReplacement
   };
 }
 
-function daemonRecoveryCommand(configuration: DaemonReplacementLaunchConfiguration): string {
+function daemonRecoveryCommand(configuration: DaemonLaunchConfiguration): string {
   return [configuration.execPath, ...configuration.execArgv, configuration.entrypoint, ...configuration.args]
     .map(quoteDaemonRecoveryArgument)
     .join(" ");

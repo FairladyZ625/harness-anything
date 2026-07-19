@@ -6,13 +6,9 @@ import {
   type DaemonStatusResultV2
 } from "../../../application/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
 
-export interface DaemonLaunchConfiguration {
-  readonly execPath: string;
-  readonly execArgv: ReadonlyArray<string>;
-  readonly entrypoint: string;
-  readonly args: ReadonlyArray<string>;
-}
+export type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
 
 export function createDaemonControlService(input: {
   readonly launchConfiguration: DaemonLaunchConfiguration;
