@@ -1,5 +1,13 @@
 import type { IpcMainInvokeEvent } from "electron";
-import { assertPreloadPayload, preloadAllowlist } from "../preload/allowlist.ts";
+import {
+  HARNESS_PROJECTION_CHANGED_CHANNEL,
+  HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL,
+  assertPreloadPayload,
+  assertProjectionWatchPayload,
+  preloadAllowlist,
+  type ProjectionWatchResult,
+  type RendererProjectionNotification
+} from "../preload/allowlist.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { evaluateIpcSender, type IpcSenderIdentity, type IpcWebContentsTrustPolicy } from "./security-policy.ts";
 
@@ -10,10 +18,18 @@ export interface HarnessIpcRegistrar {
   ) => void;
 }
 
+export interface HarnessProjectionNotificationSource {
+  readonly watch: (
+    repoId: string,
+    sink: (notification: RendererProjectionNotification) => void
+  ) => Promise<ProjectionWatchResult>;
+}
+
 export function registerHarnessIpcHandlers(
   registrar: HarnessIpcRegistrar,
   bridge: GuiServiceBridge,
-  trustPolicy: IpcWebContentsTrustPolicy
+  trustPolicy: IpcWebContentsTrustPolicy,
+  projectionNotifications?: HarnessProjectionNotificationSource
 ): void {
   assertUniqueHarnessIpcChannels(preloadAllowlist);
   for (const method of preloadAllowlist) {
@@ -21,6 +37,15 @@ export function registerHarnessIpcHandlers(
       assertTrustedIpcSender(event, trustPolicy);
       assertPreloadPayload(method, payload);
       return bridge.invoke(method, payload);
+    });
+  }
+  if (projectionNotifications) {
+    registrar.handle(HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL, async (event, payload) => {
+      assertTrustedIpcSender(event, trustPolicy);
+      assertProjectionWatchPayload(payload);
+      return projectionNotifications.watch(payload.repoId, (notification) => {
+        event.sender.send(HARNESS_PROJECTION_CHANGED_CHANNEL, notification);
+      });
     });
   }
 }

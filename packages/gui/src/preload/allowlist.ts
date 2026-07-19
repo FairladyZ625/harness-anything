@@ -1,6 +1,31 @@
 import type { apiRouteContracts, deferredGuiBridgeContracts, terminalGuiBridgeContracts } from "../api/api-contract-registry.ts";
 
 export const HARNESS_PRELOAD_API = "harness";
+export const HARNESS_PROJECTION_CHANGED_CHANNEL = "harness:projection-changed";
+export const HARNESS_WATCH_PROJECTION_CHANGES_CHANNEL = "harness:watch-projection-changes";
+
+export interface RendererProjectionChange {
+  readonly type: "change";
+  readonly repoId: string;
+  readonly event: {
+    readonly schema: "projection-change/v1";
+    readonly sourceHash: string;
+    readonly entities: ReadonlyArray<{ readonly kind: string; readonly id: string }>;
+  };
+}
+
+export interface RendererProjectionState {
+  readonly type: "state";
+  readonly mode: "push" | "polling";
+  readonly diagnostic?: string;
+}
+
+export type RendererProjectionNotification = RendererProjectionChange | RendererProjectionState;
+
+export interface ProjectionWatchResult {
+  readonly mode: "push" | "polling";
+  readonly diagnostic?: string;
+}
 
 type ShippedPreloadApiMethod = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: string }>["guiBridgeMethod"];
 type TerminalPreloadApiMethod = (typeof terminalGuiBridgeContracts)[number]["guiBridgeMethod"];
@@ -165,4 +190,12 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     throw new Error("Preload payload must be an object or null.");
   }
   return true;
+}
+
+export function assertProjectionWatchPayload(payload: unknown): asserts payload is { readonly repoId: string } {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)
+    || typeof (payload as { readonly repoId?: unknown }).repoId !== "string"
+    || (payload as { readonly repoId: string }).repoId.length === 0) {
+    throw new Error("Projection watch payload requires a non-empty repoId.");
+  }
 }

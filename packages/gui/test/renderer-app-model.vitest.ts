@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TaskProjectionRow } from "../../kernel/src/index.ts";
@@ -13,16 +14,24 @@ import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app
 import {
   LEDGER_REFRESH_INTERVAL_MS,
   createRendererQueryClient,
+  ledgerRefreshInterval,
+  setProjectionPushActive,
 } from "../src/renderer/query-client.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
+import { applyProjectionChange } from "../src/renderer/projection-notifications.ts";
 
 describe("renderer app model", () => {
   it("refreshes visible ledger queries without polling a hidden window", () => {
     const defaults = createRendererQueryClient().getDefaultOptions().queries;
 
     expect(defaults?.refetchOnWindowFocus).toBe("always");
-    expect(defaults?.refetchInterval).toBe(LEDGER_REFRESH_INTERVAL_MS);
+    expect(defaults?.refetchInterval).toBe(ledgerRefreshInterval);
     expect(defaults?.refetchIntervalInBackground).toBe(false);
+    setProjectionPushActive(false);
+    expect(ledgerRefreshInterval()).toBe(LEDGER_REFRESH_INTERVAL_MS);
+    setProjectionPushActive(true);
+    expect(ledgerRefreshInterval()).toBe(false);
+    setProjectionPushActive(false);
   });
 
   it("keeps the renderer capability model privilege-free", () => {
@@ -159,6 +168,54 @@ describe("renderer app model", () => {
     expect(markup).toContain("No triadic relation data yet");
   });
 });
+
+describe("projection notification invalidation", () => {
+  it("invalidates the changed entity surfaces for only the notified repo", async () => {
+    const client = projectionQueryClient();
+    client.setQueryData(["harness", "tasks", "list", "repo-a"], [{ id: "task-a" }]);
+    client.setQueryData(["harness", "tasks", "detail", "repo-a", "task-a"], { id: "task-a" });
+    client.setQueryData(["harness", "tasks", "detail", "repo-a", "task-b"], { id: "task-b" });
+    client.setQueryData(["harness", "tasks", "list", "repo-b"], [{ id: "task-a" }]);
+    client.setQueryData(["harness", "triadic", "snapshot", "repo-a"], {});
+
+    applyProjectionChange(client, projectionChange("repo-a", [{ kind: "task", id: "task-a" }]));
+    await Promise.resolve();
+
+    expect(queryInvalidated(client, ["harness", "tasks", "list", "repo-a"])).toBe(true);
+    expect(queryInvalidated(client, ["harness", "tasks", "detail", "repo-a", "task-a"])).toBe(true);
+    expect(queryInvalidated(client, ["harness", "tasks", "detail", "repo-a", "task-b"])).toBe(false);
+    expect(queryInvalidated(client, ["harness", "tasks", "list", "repo-b"])).toBe(false);
+    expect(queryInvalidated(client, ["harness", "triadic", "snapshot", "repo-a"])).toBe(true);
+  });
+
+  it("uses repo-wide invalidation when an event has no entity detail", async () => {
+    const client = projectionQueryClient();
+    client.setQueryData(["harness", "catalog", "snapshot", "repo-a"], {});
+    client.setQueryData(["harness", "tasks", "list", "repo-a"], []);
+    client.setQueryData(["harness", "tasks", "list", "repo-b"], []);
+    applyProjectionChange(client, projectionChange("repo-a", []));
+    await Promise.resolve();
+    expect(queryInvalidated(client, ["harness", "catalog", "snapshot", "repo-a"])).toBe(true);
+    expect(queryInvalidated(client, ["harness", "tasks", "list", "repo-a"])).toBe(true);
+    expect(queryInvalidated(client, ["harness", "tasks", "list", "repo-b"])).toBe(false);
+  });
+});
+
+function projectionQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+}
+
+function queryInvalidated(client: QueryClient, key: ReadonlyArray<string>): boolean {
+  return client.getQueryState(key)?.isInvalidated ?? false;
+}
+
+function projectionChange(repoId: string, entities: ReadonlyArray<{ readonly kind: string; readonly id: string }>) {
+  return {
+    type: "change" as const,
+    repoId,
+    event: { schema: "projection-change/v1" as const, sourceHash: "sha256:new", entities }
+  };
+}
 
 function taskRow(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
   return {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useProjectionNotifications } from "./projection-notifications.ts";
 import { isGenericStatusWriteTransition, type SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
@@ -49,6 +50,7 @@ function AppShell() {
     () => resolveActiveRepoId(daemonRepos, selectedRepoId, requestedRepoId),
     [daemonRepos, selectedRepoId, requestedRepoId],
   );
+  useProjectionNotifications(activeRepoId);
 
   // Align selection with resolved active repo once status is known (single-repo
   // path auto-picks the only registered repo — identical to pre-multi-repo UX).

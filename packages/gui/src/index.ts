@@ -8,6 +8,7 @@ export * from "./distribution/supply-chain-release-readiness.ts";
 export * from "./doc-renderer/sanitize.ts";
 export * from "./main/ipc-handlers.ts";
 export * from "./main/local-composition-root.ts";
+export * from "./main/projection-notifications.ts";
 export * from "./main/security-policy.ts";
 export * from "./main/trust-policy.ts";
 export * from "./main/window-config.ts";

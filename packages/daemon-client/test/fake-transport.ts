@@ -45,8 +45,19 @@ export class FakeConnection implements JsonRpcConnection {
     queueMicrotask(() => this.emit({ jsonrpc: "2.0", id, error: { code: -32010, message, data } }));
   }
 
-  notify(repoId: string, seq: number, kind = "invalidate"): void {
-    queueMicrotask(() => this.emit({ jsonrpc: "2.0", method: "repo.event", params: { repoId, seq, kind } }));
+  notify(repoId: string, id: string, kind = "task"): void {
+    queueMicrotask(() => this.emit({
+      jsonrpc: "2.0",
+      method: "repo.projection.changed",
+      params: {
+        repo: { repoId },
+        event: {
+          schema: "projection-change/v1",
+          sourceHash: `sha256:${id}`,
+          entities: [{ kind, id }]
+        }
+      }
+    }));
   }
 
   emit(frame: unknown): void {
@@ -78,10 +89,24 @@ export class FakeTransport implements PersistentTransport {
 
 export function hello(connection: FakeConnection, request: RequestFrame, notifications = true): boolean {
   if (request.method !== "protocol.hello") return false;
-  connection.respond(request.id, {
+  connection.respond(request.id, receipt("protocol.hello", {
     protocolVersion: 1,
-    daemonId: "fixture",
-    capabilities: { notifications, retentionGap: notifications }
-  });
+    daemon: "fixture",
+    capabilities: ["json-rpc-2.0", "command-receipt/v2", "repo-namespace"],
+    methods: notifications ? ["repo.notifications.subscribe", "repo.notifications.unsubscribe"] : [],
+    repos: [{ repoId: "repo-a", canonicalRoot: "/fixture" }]
+  }));
   return true;
+}
+
+export function receipt(command: string, data: Record<string, unknown>): unknown {
+  return {
+    ok: true,
+    schema: "command-receipt/v2",
+    command,
+    action: command,
+    summary: command,
+    details: { data },
+    meta: { generatedAt: "2026-01-01T00:00:00.000Z", compatibility: {} }
+  };
 }

@@ -87,6 +87,8 @@ type HarnessBridgeMethod =
 
 type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
+  readonly watchProjectionChanges?: (repoId: string) => Promise<{ readonly mode: "push" | "polling"; readonly diagnostic?: string }>;
+  readonly onProjectionChanged?: (listener: (notification: import("./projection-notifications.ts").RendererProjectionNotification) => void) => () => void;
 };
 
 declare global {

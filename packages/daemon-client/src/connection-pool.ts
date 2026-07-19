@@ -20,7 +20,7 @@ export class ConnectionPool {
     this.#createClient = createClient;
   }
 
-  async acquire(endpoint: string, repoId: string, afterSeq?: number): Promise<PooledRepoConnection> {
+  async acquire(endpoint: string, repoId: string): Promise<PooledRepoConnection> {
     let entry = this.#entries.get(endpoint);
     if (!entry) {
       entry = { client: this.#createClient(endpoint), repos: new Map() };
@@ -31,7 +31,7 @@ export class ConnectionPool {
       repo.refs += 1;
     } else {
       try {
-        repo = { refs: 1, subscription: await entry.client.subscribe(repoId, afterSeq) };
+        repo = { refs: 1, subscription: await entry.client.subscribe(repoId) };
       } catch (error) {
         if (entry.repos.size === 0) {
           this.#entries.delete(endpoint);

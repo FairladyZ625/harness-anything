@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -48,6 +48,35 @@ const expectedCliVersion = readCliPackageVersion();
 test("daemon client defaults to the local daemon", () => {
   assert.equal(readDaemonClientConfig({}).mode, "local");
 });
+
+function connectionCount(receipt: Record<string, unknown>): number | undefined {
+  const details = receipt.details as Record<string, unknown> | undefined;
+  const data = details?.data as Record<string, unknown> | undefined;
+  const connections = data?.connections as Record<string, unknown> | undefined;
+  return typeof connections?.active === "number" ? connections.active : undefined;
+}
+
+function waitForChildOutput(child: ChildProcess, expected: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => reject(new Error(`child output timed out: ${stdout}\n${stderr}`)), 5_000);
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+      if (!stdout.includes(expected)) return;
+      clearTimeout(timer);
+      resolve();
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.once("exit", (code, signal) => {
+      if (stdout.includes(expected)) return;
+      clearTimeout(timer);
+      reject(new Error(`child exited before ready: ${JSON.stringify({ code, signal, stdout, stderr })}`));
+    });
+  });
+}
 
 test("daemon connect relays opaque bytes without creating repository runtime state", { skip: process.platform === "win32" }, async () => {
   await withTempRootAsync(async (rootDir) => {
@@ -140,6 +169,70 @@ test("persistent daemon connection prevents idle exit after a command settles", 
     } finally {
       client.close();
       socket.destroy();
+      await stopSpawnedDaemon(daemon, endpoint);
+      await stopDaemon(rootDir, userRoot);
+    }
+  });
+});
+
+test("SIGKILL of a GUI notification holder closes its socket and restores daemon idle exit", {
+  skip: process.platform === "win32" ? "SIGKILL is unavailable on Windows" : false
+}, async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const userRoot = defaultDaemonUserRoot(rootDir);
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
+    const endpoint = path.join(rootDir, "gui-kill-idle.sock");
+    const daemon = spawnDaemonCli(rootDir, ["daemon", "serve", "--socket", endpoint, "--idle-ms", "1000"]);
+    // Open the status connection before the holder starts and keep it open. The
+    // daemon arms its idle timer the moment its last connection closes, so a
+    // transient readiness probe would start the countdown and then race it
+    // against the holder's boot (Node startup plus TypeScript module load). On a
+    // loaded machine the holder loses that race, the daemon exits, and the
+    // holder's connect fails with ENOENT. Holding one connection open keeps the
+    // idle timer disarmed until this test deliberately closes it below.
+    const statusSocket = await connectSocketWhenReady(endpoint);
+    const statusClient = new JsonRpcLineClient(statusSocket, statusSocket);
+    await statusClient.request("protocol.hello", { protocolVersion: 1 });
+    const clientModuleUrl = new URL("../../daemon-client/src/index.ts", import.meta.url).href;
+    const holder = spawn(process.execPath, ["--input-type=module", "--eval", `
+      import { JsonLineSocketTransport, PersistentDaemonClient } from ${JSON.stringify(clientModuleUrl)};
+      const client = new PersistentDaemonClient({
+        endpoint: process.argv[1],
+        transport: new JsonLineSocketTransport(),
+        requestTimeoutMs: 1000,
+        onDiagnostic: (diagnostic) => console.error(diagnostic.message)
+      });
+      await client.subscribe("canonical");
+      console.log("GUI_NOTIFICATION_SOCKET_READY");
+      setInterval(() => undefined, 1000);
+    `, endpoint], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
+      const heldStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
+      assert.equal(connectionCount(heldStatus), 2, JSON.stringify(heldStatus));
+
+      assert.equal(holder.kill("SIGKILL"), true);
+      await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
+      const releasedStatus = await statusClient.request("repo.daemon.status", { repo: { repoId: "canonical" } });
+      // This status probe is the only remaining connection. Once it closes,
+      // the daemon's active count returns to zero and its idle timer starts.
+      assert.equal(connectionCount(releasedStatus), 1, JSON.stringify(releasedStatus));
+      statusClient.close();
+      statusSocket.destroy();
+
+      await pollUntil(
+        () => daemon.exitCode,
+        (exitCode) => exitCode !== null,
+        (candidate, error) => JSON.stringify({ candidate, error: String(error ?? "") }),
+        { timeoutMs: 3_000 }
+      );
+      assert.equal(daemon.exitCode, 0);
+    } finally {
+      if (holder.exitCode === null && holder.signalCode === null) holder.kill("SIGKILL");
+      if (!statusSocket.destroyed) {
+        statusClient.close();
+        statusSocket.destroy();
+      }
       await stopSpawnedDaemon(daemon, endpoint);
       await stopDaemon(rootDir, userRoot);
     }

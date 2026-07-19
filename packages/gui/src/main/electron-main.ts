@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import { createLocalGuiProjectionNotifications } from "./projection-notifications.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
 
@@ -66,12 +67,17 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot(), resolveGuiLayoutOverrides()), {
+  const rootDir = resolveGuiProjectRoot();
+  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir);
+  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),
       allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
     }
+  }, projectionNotifications.source);
+  app.once("before-quit", () => {
+    void projectionNotifications.dispose();
   });
   createTrustedMainWindow(trustedWebContentsIds);
   app.on("activate", () => {
