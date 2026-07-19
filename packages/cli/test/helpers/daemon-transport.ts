@@ -8,18 +8,13 @@ import {
   defaultDaemonUserRoot,
   pollUntil
 } from "./daemon-cli.ts";
+import { cliTestEnv } from "./cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
 export function spawnDaemonCli(rootDir: string, args: ReadonlyArray<string>) {
   return spawn(process.execPath, [cliEntry, "--root", rootDir, ...args], {
-    env: {
-      ...process.env,
-      HOME: path.join(rootDir, ".home"),
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      HARNESS_DAEMON_MODE: "fixture",
-      HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir)
-    },
+    env: cliTestEnv({ HOME: path.join(rootDir, ".home"), GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir) }),
     stdio: ["pipe", "pipe", "pipe"]
   });
 }

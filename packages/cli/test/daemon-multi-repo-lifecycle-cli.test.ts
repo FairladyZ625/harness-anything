@@ -9,6 +9,7 @@ import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { writeJsonAtomically } from "./helpers/atomic-fixtures.ts";
 import { pollUntil } from "./helpers/poll-until.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { stderrWithoutDeprecationWarnings, stopDaemon } from "./helpers/daemon-cli.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -436,8 +437,7 @@ function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Rea
 }
 
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
+  return cliTestEnv({
     HOME: path.join(rootDir, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_SYSTEM: "/dev/null",
@@ -449,14 +449,8 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     GIT_COMMITTER_NAME: "Harness Test",
     GIT_COMMITTER_EMAIL: "harness@example.test",
     HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
-    CLAUDE_SESSION_ID: "",
-    CLAUDE_CODE_SESSION_ID: "",
-    CODEX_THREAD_ID: "",
-    CODEX_SESSION_ID: "",
-    ZCODE_SESSION_ID: "",
-    ANTIGRAVITY_SESSION_ID: "",
     ...env
-  };
+  });
 }
 
 async function assertTaskIndexContains(rootDir: string, taskId: string, slug: string, title: string): Promise<void> {

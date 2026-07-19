@@ -14,16 +14,9 @@ import type { ParsedCommand } from "../src/cli/types.ts";
 import { runRegisteredCommandWithCliComposition } from "../src/composition/command-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
-const cleanRuntimeEnv = {
-  CLAUDE_CODE_SESSION_ID: "",
-  CLAUDE_SESSION_ID: "",
-  CODEX_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-} as const;
 
 test("automatic runtime event failure warns without reversing a successful command receipt", async () => {
   const command = {
@@ -69,10 +62,7 @@ test("automatic runtime event failure warns without reversing a successful comma
 test("CLI authored write commands append a current-session result event", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-command-event";
-    const created = runJson(rootDir, ["task", "create", "--title", "Evented Task"], true, {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: ""
-    });
+    const created = runJson(rootDir, ["task", "create", "--title", "Evented Task"], true, { CODEX_SESSION_ID: sessionId });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
     const events = readJsonl(ledgerPath);
 
@@ -139,10 +129,7 @@ test("deprecated grammar tags the existing auto command event instead of adding 
     initGitRoot(rootDir);
     const sessionId = "codex-deprecated-grammar-tag";
     const taskId = "task_01KWY3Z4VEVP6FNT28ZFA809GW";
-    const result = runJson(rootDir, ["task", "status", "set", taskId, "done"], false, {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: ""
-    });
+    const result = runJson(rootDir, ["task", "status", "set", taskId, "done"], false, { CODEX_SESSION_ID: sessionId });
     const events = readJsonl(path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`));
 
     assert.equal(result.ok, false);
@@ -158,10 +145,7 @@ test("CLI failed command results append failed command events", () => {
     initGitRoot(rootDir);
     const sessionId = "codex-w2-command-failure";
     const taskId = "task_01KWY3Z4VEVP6FNT28ZFA809GW";
-    const result = runJson(rootDir, ["task", "transition", taskId, "done"], false, {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: ""
-    });
+    const result = runJson(rootDir, ["task", "transition", taskId, "done"], false, { CODEX_SESSION_ID: sessionId });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
     const events = readJsonl(ledgerPath);
 
@@ -180,11 +164,7 @@ test("CLI task transition runtime event records dual-axis actor", () => {
     const created = runJson(rootDir, ["new-task", "--title", "Transition Actor Task"]);
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const sessionId = "codex-transition-actor";
-    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: "",
-      HARNESS_ACTOR: "agent:codex-cli"
-    });
+    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, { CODEX_SESSION_ID: sessionId, HARNESS_ACTOR: "agent:codex-cli" });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
     const events = readJsonl(ledgerPath);
 
@@ -203,11 +183,7 @@ test("CLI entity write fails closed before runtime event append when principal c
   withTempRoot((rootDir) => {
     writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nsettings:\n", "utf8");
     const sessionId = "codex-runtime-event-missing-actor";
-    const output = runJsonWithStderr(rootDir, ["new-task", "--title", "Missing Actor Event"], {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: "",
-      HARNESS_DAEMON_MODE: "fixture"
-    }, 1);
+    const output = runJsonWithStderr(rootDir, ["new-task", "--title", "Missing Actor Event"], { CODEX_SESSION_ID: sessionId, HARNESS_DAEMON_MODE: "fixture" }, 1);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
 
     assert.equal(output.result.ok, false);
@@ -225,15 +201,7 @@ test("CLI parse failures preserve the receipt without opening a canonical diagno
       "--question", "Which option?",
       "--chosen", "Chosen option",
       "--rejected", '{"badfield":"do-not-store"}'
-    ], {
-      CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: "",
-      HARNESS_ACTOR: "",
-      HARNESS_GIT_AUTHOR_NAME: "",
-      HARNESS_GIT_AUTHOR_EMAIL: "",
-      GIT_AUTHOR_NAME: "",
-      GIT_AUTHOR_EMAIL: ""
-    }, 2);
+    ], { CODEX_SESSION_ID: sessionId, HARNESS_ACTOR: "", HARNESS_GIT_AUTHOR_NAME: "", HARNESS_GIT_AUTHOR_EMAIL: "", GIT_AUTHOR_NAME: "", GIT_AUTHOR_EMAIL: "" }, 2);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
 
     assert.equal(output.result.ok, false);
@@ -377,15 +345,7 @@ async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promis
 function bootstrapRuntimeEventRoot(rootDir: string): void {
   execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "init"], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      ...cleanRuntimeEnv,
-      HARNESS_ACTOR: "agent:harness-test",
-      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
-      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:harness-test", HARNESS_GIT_AUTHOR_NAME: "Harness Tester", HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test", HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") })
   });
   const configPath = path.join(rootDir, "harness/harness.yaml");
   writeFileSync(configPath, readFileSync(configPath, "utf8").replace(
@@ -427,16 +387,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        ...cleanRuntimeEnv,
-        HARNESS_ACTOR: "agent:harness-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
-        HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-        HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
-        HARNESS_DAEMON_IDLE_MS: "250",
-        ...env
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:harness-test", HARNESS_GIT_AUTHOR_NAME: "Harness Tester", HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -462,14 +413,7 @@ function runJsonWithStderr(
 ): { readonly result: Record<string, any>; readonly stderr: string } {
   const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      ...cleanRuntimeEnv,
-      HARNESS_ACTOR: "agent:harness-test",
-      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
-      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-      ...env
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:harness-test", HARNESS_GIT_AUTHOR_NAME: "Harness Tester", HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test", ...env })
   });
   assert.equal(child.status, expectedStatus);
   return {
@@ -481,16 +425,6 @@ function runJsonWithStderr(
 function runRaw(rootDir: string, args: ReadonlyArray<string>) {
   return spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      ...cleanRuntimeEnv,
-      HARNESS_ACTOR: "agent:harness-test",
-      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
-      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-      HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
-      HARNESS_DAEMON_IDLE_MS: "250",
-      CODEX_SESSION_ID: "codex-deprecation-warning"
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:harness-test", HARNESS_GIT_AUTHOR_NAME: "Harness Tester", HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test", HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", CODEX_SESSION_ID: "codex-deprecation-warning" })
   });
 }

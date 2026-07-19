@@ -8,6 +8,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -625,17 +626,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:test",
-        ANTIGRAVITY_SESSION_ID: "",
-        CLAUDE_CODE_SESSION_ID: "",
-        CLAUDE_SESSION_ID: "",
-        CODEX_SESSION_ID: "",
-        CODEX_THREAD_ID: "",
-        ZCODE_SESSION_ID: "",
-        ...envOverrides
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:test", ...envOverrides })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

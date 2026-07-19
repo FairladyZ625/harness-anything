@@ -38,6 +38,7 @@ test("light steps contain incremental typecheck, changed lint, and affected test
   const steps = buildSteps(false, ["tools/run-local-check.mjs", "docs-release/readme.md"]);
   assert.deepEqual(steps.map(([label]) => label), [
     "ghost task packages",
+    "CLI test env isolation",
     "incremental typecheck",
     "manifest local stop gates",
     "changed-file lint",
@@ -55,6 +56,7 @@ test("manual full tier appends integration, GUI E2E, and manifest gates", () => 
   assert.ok(labels.includes("GUI E2E"));
   assert.ok(labels.includes("manifest local stop gates"));
   assert.ok(labels.includes("ghost task packages"));
+  assert.ok(labels.includes("CLI test env isolation"));
 });
 
 test("local steps apply the shared QoS prefix", () => {

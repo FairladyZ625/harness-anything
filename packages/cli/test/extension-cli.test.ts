@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const catalogFixture = "packages/kernel/fixtures/schemas/template-catalog/valid.json";
@@ -347,15 +348,7 @@ function runJson(args: ReadonlyArray<string>, expectSuccess = true): Record<stri
 function runRootJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_SESSION_ID: "",
-      CODEX_THREAD_ID: "",
-      ZCODE_SESSION_ID: "",
-      ANTIGRAVITY_SESSION_ID: ""
-    }
+    env: cliTestEnv()
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }

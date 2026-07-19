@@ -9,16 +9,9 @@ import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
 import { readSessionEntity } from "../../application/src/index.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
-const cleanRuntimeEnv = {
-  CLAUDE_CODE_SESSION_ID: "",
-  CLAUDE_SESSION_ID: "",
-  CODEX_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-} as const;
 const testActorEnv = { HARNESS_ACTOR: "agent:session-cli-test" } as const;
 
 test("CLI session export binds CODEX_THREAD_ID and writes managed session markdown through the journal", () => {
@@ -317,7 +310,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...cleanRuntimeEnv, ...testActorEnv, ...env }
+      env: cliTestEnv({ ...testActorEnv, ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

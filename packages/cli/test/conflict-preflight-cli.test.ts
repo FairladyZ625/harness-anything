@@ -10,6 +10,7 @@ import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { runtimeEventPolicyForAction } from "../src/cli/command-event-policy.ts";
 import { commandDescriptors } from "../src/cli/command-registry.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -284,14 +285,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.Proce
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_DAEMON_MODE: "fixture",
-        HARNESS_ACTOR: "agent:conflict-preflight-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-        ...env
-      }
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture", HARNESS_ACTOR: "agent:conflict-preflight-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

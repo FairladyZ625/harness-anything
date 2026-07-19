@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { isTrustedGuiWorkspaceRoot } from "../src/commands/core/gui.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -147,7 +148,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env },
+      env: cliTestEnv({ ...env }),
       cwd
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);

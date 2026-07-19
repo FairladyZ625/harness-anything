@@ -8,6 +8,7 @@ import test from "node:test";
 import { architectureSourceDigest } from "../src/commands/extensions/assets/software-coding/architecture/contracts/architecture-runtime.mjs";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -392,12 +393,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:architecture-script-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:architecture-script-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test" })
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);

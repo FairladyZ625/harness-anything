@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const presetId = "subtask-expansion";
@@ -59,14 +60,7 @@ test("CLI subtask-expansion exposes v3 agent guidance without a script runtime",
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
   const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      HARNESS_ACTOR: "agent:subtask-expansion-guidance-test",
-      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-      HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-      HARNESS_DAEMON_MODE: "fixture",
-      HARNESS_USER_HOME: path.join(rootDir, ".empty-user-home")
-    }
+    env: cliTestEnv({ HARNESS_ACTOR: "agent:subtask-expansion-guidance-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", HARNESS_DAEMON_MODE: "fixture", HARNESS_USER_HOME: path.join(rootDir, ".empty-user-home") })
   });
   const parsed = JSON.parse(output) as Record<string, any>;
   assert.equal(parsed.ok, true, output);

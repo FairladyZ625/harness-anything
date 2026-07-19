@@ -8,6 +8,7 @@ import test from "node:test";
 import { discoverScriptEntries } from "../src/commands/extensions/script.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -338,13 +339,7 @@ function runJson(
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:preset-script-staging-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-        ...extraEnvironment
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:preset-script-staging-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", ...extraEnvironment })
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);

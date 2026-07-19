@@ -3,6 +3,7 @@ import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { parseDecisionDocument } from "../../../kernel/src/index.ts";
 import { runRawJsonMaybeFail } from "../helpers/daemon-cli.ts";
+import { cliTestEnv } from "../helpers/cli-test-env.ts";
 import { createFixture, type ProductionCanonicalIngressFixture } from "./fixture.ts";
 
 export function verifyWave2CanonicalParity(
@@ -10,7 +11,7 @@ export function verifyWave2CanonicalParity(
   daemonEnv: NodeJS.ProcessEnv
 ): void {
   const directFixture = createFixture();
-  const directEnv = { ...daemonEnv, HARNESS_DAEMON_MODE: "fixture", HARNESS_AUTHORITY_MANIFEST: "" };
+  const directEnv = cliTestEnv({ ...daemonEnv, HARNESS_DAEMON_MODE: "fixture" });
   const failures: Error[] = [];
   const check = (assertion: () => void): void => {
     try { assertion(); } catch (error) { failures.push(error instanceof Error ? error : new Error(String(error))); }

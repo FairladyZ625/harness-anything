@@ -7,6 +7,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -130,12 +131,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:attribution-diff-test",
-        HARNESS_DAEMON_MODE: "fixture",
-        ...env
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:attribution-diff-test", HARNESS_DAEMON_MODE: "fixture", ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

@@ -9,6 +9,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { pollUntil, stopDaemon } from "./helpers/daemon-cli.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
@@ -209,16 +210,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:doc-sync-cli-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-        HARNESS_DAEMON_MODE: daemonMode,
-        HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
-        HARNESS_DAEMON_IDLE_MS: "250",
-        GIT_CONFIG_GLOBAL: "/dev/null"
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:doc-sync-cli-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", HARNESS_DAEMON_MODE: daemonMode, HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", GIT_CONFIG_GLOBAL: "/dev/null" })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

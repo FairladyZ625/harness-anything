@@ -10,6 +10,7 @@ import { trustedScriptRepositoryContext } from "../src/commands/extensions/scrip
 import { resolveDeclaredReadScopes, resolveDeclaredWriteScopes } from "../src/commands/extensions/script-scope.ts";
 import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -561,7 +562,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_ACTOR: "agent:script-host-boundary-test" }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:script-host-boundary-test" })
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);

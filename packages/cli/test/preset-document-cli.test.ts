@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const bundledPresetIndexPath = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/index.json");
@@ -43,7 +44,7 @@ test("CLI preset list text prints one semantic row per bundled preset", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "preset", "list"], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_DAEMON_MODE: "fixture" }
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture" })
     });
     const rows = stdout.trim().split("\n");
     const bundledPresetIndex = JSON.parse(readFileSync(bundledPresetIndexPath, "utf8")) as { readonly presets: ReadonlyArray<string> };
@@ -87,7 +88,7 @@ test("CLI preset summaries warn and fall back to title when PRESET.md is missing
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, HARNESS_DAEMON_MODE: "fixture" }
+    env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture" })
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }

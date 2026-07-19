@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -185,14 +186,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_DAEMON_MODE: "fixture",
-        CLAUDE_SESSION_ID: "",
-        CLAUDE_CODE_SESSION_ID: "",
-        CODEX_THREAD_ID: "",
-        CODEX_SESSION_ID: ""
-      }
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "fixture" })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

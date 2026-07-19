@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { unwrapCommandReceipt } from "./receipt.ts";
+import { cliTestEnv } from "./cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -144,7 +145,7 @@ export function runJson(rootDir: string, args: ReadonlyArray<string>, expectSucc
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: cliTestEnv({ ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

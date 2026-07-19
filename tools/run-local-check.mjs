@@ -76,7 +76,10 @@ export function buildSteps(full, changedFiles = []) {
     const invocation = npmCliInvocation(args);
     return [label, invocation.command, invocation.args];
   };
-  const steps = [["ghost task packages", process.execPath, ["tools/check-ghost-task-packages.mjs"]]];
+  const steps = [
+    ["ghost task packages", process.execPath, ["tools/check-ghost-task-packages.mjs"]],
+    ["CLI test env isolation", process.execPath, ["tools/check-cli-test-env.mjs"]]
+  ];
   steps.push(npmStep("incremental typecheck", ["run", "typecheck"]));
   steps.push(["manifest local stop gates", process.execPath, ["tools/run-local-gates-check.mjs"]]);
   const lintFiles = changedFiles.filter((file) => LINTABLE_EXTENSION.test(file) && existsSync(path.join(repoRoot, file)));

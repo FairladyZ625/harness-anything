@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -101,7 +102,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_ACTOR: "agent:test" }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:test" })
     });
     const parsed = unwrapCommandReceipt(JSON.parse(output) as Record<string, any>);
     if (expectSuccess) assert.equal(parsed.ok, true, output);

@@ -8,16 +8,9 @@ import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
-const noAgentRuntimeEnv = {
-  CLAUDE_SESSION_ID: "",
-  CLAUDE_CODE_SESSION_ID: "",
-  CODEX_SESSION_ID: "",
-  CODEX_THREAD_ID: "",
-  ZCODE_SESSION_ID: "",
-  ANTIGRAVITY_SESSION_ID: ""
-};
 
 test("preset uninstall dry-run emits impact without deleting and declarative active tasks allow apply", () => {
   withFixture("template-content", (fixture) => {
@@ -115,7 +108,6 @@ function withFixture(kind: "process-action" | "template-content", fn: (fixture: 
   const version = "3.4.5";
   const sourceDir = path.join(rootDir, "source-preset");
   const env = {
-    ...noAgentRuntimeEnv,
     HARNESS_DAEMON_MODE: "fixture",
     HARNESS_USER_HOME: userHome,
     HARNESS_ACTOR: "agent:preset-uninstall-test"
@@ -229,7 +221,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: cliTestEnv({ ...env })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

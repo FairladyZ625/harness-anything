@@ -5,20 +5,20 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { runRawJson, runRawJsonMaybeFail, withTempRoot } from "./helpers/daemon-cli.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 test("initialized ledgers fail closed when an ordinary caller requests a direct canonical write", () => {
   withTempRoot((rootDir) => {
     execFileSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", rootDir, "--json", "init"], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: cliTestEnv({
         HARNESS_DAEMON_MODE: "direct",
         HARNESS_DAEMON_USER_ROOT: `${rootDir}/.daemon-user`,
         HARNESS_BOOTSTRAP_MACHINE_IDENTITY: "1",
         HARNESS_ACTOR: "agent:direct-mode-contract",
         HARNESS_GIT_AUTHOR_NAME: "Harness Test",
         HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
-      }
+      })
     });
     const initialHead = canonicalHead(rootDir);
     const failed = runRawJsonMaybeFail(rootDir, ["new-task", "--title", "Must Use Daemon"], {
@@ -47,7 +47,7 @@ test("architecture help parse failure does not create a direct operational write
   withTempRoot((rootDir) => {
     const result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", rootDir, "architecture", "--help"], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: `${rootDir}/.daemon-user` }
+      env: cliTestEnv({ HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: `${rootDir}/.daemon-user` })
     });
 
     assert.equal(result.status, 2);

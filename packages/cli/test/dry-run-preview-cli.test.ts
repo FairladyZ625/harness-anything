@@ -10,6 +10,7 @@ import { commandDryRunPreviewRequiredByKind } from "../src/cli/receipt-contracts
 import { dryRunPreviewContractViolation } from "../src/cli/dry-run-preview.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -57,13 +58,7 @@ test("decision propose dry-run previews both chosen and both rejected entries", 
       "--dry-run"
     ], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:test",
-        HARNESS_DAEMON_MODE: "fixture",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
-      }
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:test", HARNESS_DAEMON_MODE: "fixture", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test" })
     });
     const receipt = JSON.parse(stdout) as Record<string, any>;
     const preview = receipt.details.report.preview;

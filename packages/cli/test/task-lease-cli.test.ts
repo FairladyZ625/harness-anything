@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -239,13 +240,7 @@ test("default claim preserves status and the Holder V2 actor can submit without 
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
     writeSubstantiveTaskPlan(rootDir, created.packagePath);
-    const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, {
-      HARNESS_ACTOR: "agent:test",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "codex-primary-session",
-      CODEX_SESSION_ID: "codex-primary-session"
-    });
+    const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
 
     assert.match(claimed.executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
     assert.match(claimed.report.leaseToken, /^[0-9a-f]{64}$/u);
@@ -268,32 +263,14 @@ test("default claim preserves status and the Holder V2 actor can submit without 
     const indexPath = path.join(rootDir, `harness/tasks/${created.taskId}-execution-saga/INDEX.md`);
     assert.match(readFileSync(indexPath, "utf8"), /^  status: planned$/mu);
 
-    const activated = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, {
-      HARNESS_ACTOR: "agent:test",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "codex-primary-session",
-      CODEX_SESSION_ID: "codex-primary-session"
-    });
+    const activated = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
     assert.equal(activated.status, "active");
 
-    const otherHolder = runJson(rootDir, ["task", "claim", created.taskId], false, {
-      HARNESS_ACTOR: "agent:other-worker",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "other-worker-session",
-      CODEX_SESSION_ID: "other-worker-session"
-    });
+    const otherHolder = runJson(rootDir, ["task", "claim", created.taskId], false, { HARNESS_ACTOR: "agent:other-worker", CODEX_THREAD_ID: "other-worker-session", CODEX_SESSION_ID: "other-worker-session" });
     assert.equal(otherHolder.ok, false);
     assert.equal(otherHolder.report.code, "execution_lease_collision");
 
-    const renewed = runJson(rootDir, ["task", "claim", created.taskId], true, {
-      HARNESS_ACTOR: "agent:test",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "codex-primary-session",
-      CODEX_SESSION_ID: "codex-primary-session"
-    });
+    const renewed = runJson(rootDir, ["task", "claim", created.taskId], true, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
     assert.equal(renewed.executionId, claimed.executionId);
     assert.notEqual(renewed.report.leaseToken, claimed.report.leaseToken);
     const renewedLeaseLedgerBody = readFileSync(path.join(
@@ -308,13 +285,7 @@ test("default claim preserves status and the Holder V2 actor can submit without 
       "task", "transition", created.taskId, "in_review",
       "--lease-token", claimed.report.leaseToken,
       "--summary", "stale credential must be rejected"
-    ], false, {
-      HARNESS_ACTOR: "agent:test",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "codex-primary-session",
-      CODEX_SESSION_ID: "codex-primary-session"
-    });
+    ], false, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
     assert.equal(staleToken.ok, false);
     assert.match(staleToken.error.hint, /requires an active lease/u);
 
@@ -339,14 +310,7 @@ test("default claim preserves status and the Holder V2 actor can submit without 
       "--summary", "ready for review",
       "--verification", "node:test",
       "--output", "commit:abc123"
-    ], true, {
-      HARNESS_ACTOR: "agent:test",
-      HOME: homeDir,
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "codex-primary-session",
-      CODEX_SESSION_ID: "codex-primary-session"
-    });
+    ], true, { HARNESS_ACTOR: "agent:test", HOME: homeDir, CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
 
     assert.equal(submitted.status, "in_review");
     assert.equal(submitted.report.leaseReleased, true);
@@ -531,20 +495,13 @@ function writePeopleRoster(rootDir: string, personId: string, displayName: strin
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
   try {
-    const childEnv = {
-      ...process.env,
+    const childEnv = cliTestEnv({
       HARNESS_ACTOR: "agent:harness-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
       HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
       HARNESS_DAEMON_MODE: "fixture",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "",
-      CODEX_SESSION_ID: "",
-      ZCODE_SESSION_ID: "",
-      ANTIGRAVITY_SESSION_ID: "",
       ...env
-    };
+    });
     delete childEnv.HARNESS_TASK_LEASE_ENFORCEMENT;
     delete childEnv.HARNESS_TASK_LEASE_TTL_MS;
     if (env.HARNESS_TASK_LEASE_ENFORCEMENT !== undefined) {
