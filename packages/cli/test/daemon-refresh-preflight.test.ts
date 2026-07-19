@@ -115,6 +115,8 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     const refresh = runRawJsonMaybeFail(fixture.repoRoot, [
       "daemon", "refresh", "--trigger", "post-merge", "--timeout-ms", "10000", "--user-root", userRoot
     ], env);
+    assert.equal(refresh.status, 0, JSON.stringify(refresh.receipt));
+    assert.equal(refresh.receipt.ok, true, JSON.stringify(refresh.receipt));
     const after = await pollUntil(
       () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
       (status) => status.reachable === true && typeof status.pid === "number" && status.pid !== before.pid,
@@ -123,6 +125,14 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     );
     assert.equal(after.reachable, true, JSON.stringify({ refresh, after }));
     assert.notEqual(after.pid, before.pid);
+    const beforeService = before.service as { readonly build: { readonly loadedIdentity: string } };
+    const afterService = after.service as {
+      readonly build: { readonly loadedIdentity: string; readonly installedIdentity: string };
+      readonly activeControl: unknown;
+    };
+    assert.equal(afterService.build.loadedIdentity, afterService.build.installedIdentity);
+    assert.equal(afterService.build.loadedIdentity, beforeService.build.loadedIdentity);
+    assert.equal(afterService.activeControl, null);
     process.kill(after.pid as number, 0);
     console.log(JSON.stringify({ scenario: "derived-manifest-refresh", beforePid: before.pid, afterPid: after.pid, reachable: after.reachable, refresh: refresh.receipt }));
   } finally {
