@@ -101,7 +101,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
   const foreground = input.args.includes("--foreground");
   const service = input.args.includes("--service") || !foreground;
   const target = resolveLocalDaemonTarget({
-    rootDir: input.rootDir,
+    rootDir: launchOptions.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
     userRoot: launchOptions.userRoot,
     autoRegisterSingleRepo: true

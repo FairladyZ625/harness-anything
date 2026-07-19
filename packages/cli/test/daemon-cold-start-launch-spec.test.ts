@@ -212,7 +212,7 @@ test("relative launch paths retain their original cwd meaning across a service c
   mkdirSync(cwdA);
   mkdirSync(cwdB);
   try {
-    const first = runDaemonJsonFromCwd(cwdA, fixture.repoRoot, [
+    const first = runDaemonJsonFromCwd(cwdA, path.relative(cwdA, fixture.repoRoot), [
       "daemon", "start", "--service",
       "--authority-manifest", path.relative(cwdA, fixture.manifestPath),
       "--authored-root", path.relative(cwdA, fixture.authoredRoot)
@@ -226,9 +226,10 @@ test("relative launch paths retain their original cwd meaning across a service c
     assert.equal(persisted.options.authorityManifest, fixture.manifestPath);
     assert.equal(persisted.options.authoredRoot, fixture.authoredRoot);
 
-    const restored = runDaemonJsonFromCwd(cwdB, fixture.repoRoot, ["daemon", "start", "--service"], env);
+    const restored = runDaemonJsonFromCwd(cwdB, path.relative(cwdB, fixture.repoRoot), ["daemon", "start", "--service"], env);
     assert.equal(restored.ok, true, JSON.stringify(restored));
     const running = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
+    assert.equal(optionValue(running.args, "--root"), fixture.repoRoot);
     assert.equal(optionValue(running.args, "--authority-manifest"), fixture.manifestPath);
     assert.equal(optionValue(running.args, "--authored-root"), fixture.authoredRoot);
   } finally {
@@ -242,6 +243,9 @@ test("daemon serve and start reject malformed launch path boundaries without per
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot };
   const malformed = [
+    ["--root"],
+    ["--root", ""],
+    ["--root", "--socket", path.join(fixture.root, "daemon.sock")],
     ["--socket"],
     ["--user-root"],
     ["--socket", "--root", fixture.repoRoot],

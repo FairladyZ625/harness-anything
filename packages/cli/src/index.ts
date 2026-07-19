@@ -134,16 +134,16 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
       console.error(error instanceof Error ? error.message : String(error));
       return 2;
     }
-    const serveLayoutOverrides = daemonRuntimeLayoutOverrides(stripped.rootDir, launchOptions.authoredRoot);
+    const serveLayoutOverrides = daemonRuntimeLayoutOverrides(launchOptions.rootDir, launchOptions.authoredRoot);
     if (daemonArgs.includes("--stdio")) {
       console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");
       return 2;
     }
     if (daemonArgs.includes("--check")) {
-      checkDaemonServeConfiguration(stripped.rootDir, serveLayoutOverrides, daemonArgs.filter((arg) => arg !== "--check"), launchOptions);
+      checkDaemonServeConfiguration(launchOptions.rootDir, serveLayoutOverrides, daemonArgs.filter((arg) => arg !== "--check"), launchOptions);
       return 0;
     }
-    await runDaemonServe(stripped.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
+    await runDaemonServe(launchOptions.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
     return 0;
   }
   return runDaemonProductCommand({

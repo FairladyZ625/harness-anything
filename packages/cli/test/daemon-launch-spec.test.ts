@@ -156,9 +156,10 @@ test("explicit empty launch options are invalid instead of restoring persisted v
 test("launch argv parsing canonicalizes recoverable paths and validates known option boundaries", () => {
   const cwd = path.join(tmpdir(), "daemon-launch-cwd");
   const parsed = parseDaemonLaunchArgv([
-    "daemon", "start", "--authority-manifest", "config/authority.json",
+    "daemon", "start", "--root", "repo", "--authority-manifest", "config/authority.json",
     "--authored-root", "--relative-authored", "--socket", "daemon.sock", "--user-root", "state"
   ], cwd, {});
+  assert.equal(parsed.rootDir, path.join(cwd, "repo"));
   assert.equal(parsed.authorityManifest, path.join(cwd, "config/authority.json"));
   assert.equal(parsed.authoredRoot, path.join(cwd, "--relative-authored"));
   assert.equal(parsed.socketPath, path.join(cwd, "daemon.sock"));
@@ -167,6 +168,9 @@ test("launch argv parsing canonicalizes recoverable paths and validates known op
     ["daemon", "serve", "--socket"],
     ["daemon", "serve", "--user-root", ""],
     ["daemon", "serve", "--socket", "--root", "/repo"],
+    ["daemon", "serve", "--root"],
+    ["daemon", "serve", "--root", ""],
+    ["daemon", "serve", "--root", "--socket", "/tmp/daemon.sock"],
     ["daemon", "start", "--user-root", "-relative-root"],
     ["daemon", "start", "--authored-root", "--json"]
   ]) assert.throws(() => parseDaemonLaunchArgv(argv, cwd, {}), /requires a non-empty/u);
