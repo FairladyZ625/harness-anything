@@ -23,6 +23,7 @@ import {
   materializeAttributionProjectionFromEvents,
   readAttributionProjection
 } from "../../src/projection/sqlite-attribution-projection.ts";
+import { readProjectionSourceCacheSnapshot } from "../../src/projection/sqlite-projection-source-cache.ts";
 import { queryTaskProjectionRows, runSqlite } from "../../src/projection/sqlite-projection-store.ts";
 import { readTaskProjection, rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import {
@@ -112,6 +113,30 @@ test("union event headers and mutation join rebuild identically after SQLite del
     assert.equal(existsSync(projectionPath), false);
     rebuildTaskProjection({ rootDir });
     assert.deepEqual(readAttributionProjection(rootDir), before);
+  });
+});
+
+test("mixed V1 and V2 attribution source cache hashes survive persistence", () => {
+  withTempStore((rootDir) => {
+    const eventsRoot = path.join(rootDir, "harness/attribution-events");
+    mkdirSync(eventsRoot, { recursive: true });
+    writeFileSync(path.join(eventsRoot, "legacy-op.jsonl"), `${JSON.stringify(v1Event())}\n`, "utf8");
+    makeLocalAuthorityAttributionEventV2Log(rootDir).ensure(
+      v2Event([mutation("fact", "fact/task_T/F-1", "create")])
+    );
+
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const persisted = readProjectionSourceCacheSnapshot(projectionPath);
+    const db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(
+        db.prepare("SELECT value FROM projection_meta WHERE key = 'sourceCacheHash'").get()?.value,
+        persisted.hash
+      );
+    } finally {
+      db.close();
+    }
   });
 });
 
