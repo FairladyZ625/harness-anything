@@ -77,6 +77,7 @@ export * from "./authority/key-lifecycle-v1.ts";
 export * from "./authority/canonical-cbor.ts";
 export * from "./authority/semantic-mutation-envelope-v2.ts";
 export * from "./authority/daemon-host-contract.ts";
+export * from "./authority/production-authority-host-contract.ts";
 export * from "./authority/fact-relation-semantic-compiler-v2.ts";
 export * from "./authority/task-decision-module-semantic-compiler-v2.ts";
 export * from "./authority/session-execution-review-semantic-compiler-v2.ts";

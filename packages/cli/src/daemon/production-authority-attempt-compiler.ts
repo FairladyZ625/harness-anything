@@ -15,6 +15,8 @@ import {
   semanticRequestDigestV2,
   type FactRelationCommandPayloadV2,
   type ConsentCommandPayloadV2,
+  type ProductionAuthorityCommand,
+  type ProductionAuthorityCompilerHostServices,
   type SessionExecutionReviewCommandPayloadV2,
   type SemanticMutationEnvelopeV2,
   type TaskDecisionModuleCommandPayloadV2
@@ -34,13 +36,6 @@ import {
   type RegistryEntityRefV2,
   type WriteOp
 } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
-import { normalizeDecisionProposeAction } from "../cli/decision-propose-normalizer.ts";
-import { normalizedFactSource } from "../cli/command-semantic-normalizer.ts";
-import {
-  productionAuthorityIngressFor,
-  productionAuthorityUnsupportedHint
-} from "../cli/command-spec/index.ts";
 import {
   hostedSnapshot,
   type AuthorityConnectionContext,
@@ -51,16 +46,10 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
-import { decisionRelationRecord } from "../commands/core/decision-relation-record.ts";
 import { productionLifecycleAttemptIntent } from "./production-authority-lifecycle-intents.ts";
-import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
-import { buildAuthorityPresetTaskCreateWrites, shouldUsePresetAwareNewTask } from "../commands/preset-task.ts";
-import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../commands/settings.ts";
 import { provenanceSessionAttemptIntent } from "./production-authority-provenance-session-intent.ts";
 import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent.ts";
 import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
-import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
-import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
 export { createProductionCanonicalSemanticState } from "@harness-anything/daemon";
 
@@ -91,9 +80,10 @@ export function createProductionCanonicalAttemptCompiler(input: {
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
   readonly context: AuthorityConnectionContext;
   readonly authoredRoot: string;
+  readonly hostServices: ProductionAuthorityCompilerHostServices;
 }): DaemonAuthorityAttemptCompilerV2 {
   const compileIntent = async (
-    command: ParsedCommand,
+    command: ProductionAuthorityCommand,
     attribution: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"],
     currentSession: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["currentSession"],
     canonicalEntityId: WriteOp["entityId"],
@@ -101,7 +91,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
   ) => {
       if (!intent) {
         throw new Error(
-          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint(command.action.kind)}`
+          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${input.hostServices.productionAuthorityUnsupportedHint(command.action.kind)}`
         );
       }
       if (canonicalEntityId !== intent.physicalEntityId) {
@@ -204,54 +194,58 @@ export function createProductionCanonicalAttemptCompiler(input: {
   };
   return {
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const cliCommand = command as ParsedCommand;
-      const disposition = productionAuthorityIngressFor(cliCommand.action.kind);
+      const productionCommand = command as ProductionAuthorityCommand;
+      const disposition = input.hostServices.productionAuthorityIngressFor(productionCommand.action.kind);
       const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
-        ? await canonicalAttemptIntent(cliCommand, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor)
+        ? await canonicalAttemptIntent(productionCommand, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor, input.hostServices)
         : null;
-      return compileIntent(cliCommand, attribution, currentSession, canonicalEntityId, intent);
+      return compileIntent(productionCommand, attribution, currentSession, canonicalEntityId, intent);
     },
     compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => {
-      const cliCommand = command as ParsedCommand;
-      assertTypedIngressAdapter(cliCommand.action.kind, "generic");
-      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
-        provenanceSessionAttemptIntent(cliCommand, currentSession, operation));
+      const productionCommand = command as ProductionAuthorityCommand;
+      assertTypedIngressAdapter(productionCommand.action.kind, "generic", input.hostServices);
+      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
+        provenanceSessionAttemptIntent(productionCommand, currentSession, operation));
     },
     compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => {
-      const cliCommand = command as ParsedCommand;
-      assertTypedIngressAdapter(cliCommand.action.kind, "decision-transition");
-      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
-        decisionTransitionAttemptIntent(cliCommand, operation, input.authoredRoot));
+      const productionCommand = command as ProductionAuthorityCommand;
+      assertTypedIngressAdapter(productionCommand.action.kind, "decision-transition", input.hostServices);
+      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
+        decisionTransitionAttemptIntent(productionCommand, operation, input.authoredRoot));
     },
     compileTaskClaim: async ({ command, attribution, currentSession, operation }) => {
-      const cliCommand = command as ParsedCommand;
-      assertTypedIngressAdapter(cliCommand.action.kind, "task-claim");
-      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
-        taskClaimAttemptIntent(cliCommand, attribution, currentSession, operation));
+      const productionCommand = command as ProductionAuthorityCommand;
+      assertTypedIngressAdapter(productionCommand.action.kind, "task-claim", input.hostServices);
+      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
+        taskClaimAttemptIntent(productionCommand, attribution, currentSession, operation));
     },
     compileObservedWrite: async ({ command, attribution, currentSession, operation }) => {
-      const cliCommand = command as ParsedCommand;
-      assertTypedIngressAdapter(cliCommand.action.kind, "observed-write");
-      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
-        productionObservedWriteAttemptIntent(cliCommand, operation, input.authoredRoot));
+      const productionCommand = command as ProductionAuthorityCommand;
+      assertTypedIngressAdapter(productionCommand.action.kind, "observed-write", input.hostServices);
+      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
+        productionObservedWriteAttemptIntent(productionCommand, operation, input.authoredRoot));
     },
     compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
-      const cliCommand = command as ParsedCommand;
-      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
-        productionScriptIngestAttemptIntent(cliCommand, operation, input.authoredRoot));
+      const productionCommand = command as ProductionAuthorityCommand;
+      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
+        productionScriptIngestAttemptIntent(productionCommand, operation, input.authoredRoot));
     }
   };
 }
 
-function assertTypedIngressAdapter(kind: string, expected: "generic" | "decision-transition" | "task-claim" | "observed-write"): void {
-  const disposition = productionAuthorityIngressFor(kind);
+function assertTypedIngressAdapter(
+  kind: string,
+  expected: "generic" | "decision-transition" | "task-claim" | "observed-write",
+  hostServices: ProductionAuthorityCompilerHostServices
+): void {
+  const disposition = hostServices.productionAuthorityIngressFor(kind);
   if (disposition?.status !== "typed-v2" || disposition.adapter !== expected) {
     throw new Error(`AUTHORITY_TYPED_INGRESS_REGISTRY_MISMATCH:${kind}:${expected}`);
   }
 }
 
 function decisionTransitionAttemptIntent(
-  command: ParsedCommand,
+  command: ProductionAuthorityCommand,
   operation: WriteOp,
   authoredRoot: string
 ): CanonicalAttemptIntent {
@@ -297,14 +291,15 @@ function decisionTransitionAttemptIntent(
 }
 
 async function canonicalAttemptIntent(
-  command: ParsedCommand,
+  command: ProductionAuthorityCommand,
   currentSession: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["currentSession"],
   canonicalEntityId: string,
   authoredRoot: string,
-  actor: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"]["writeAttribution"]["actor"]
+  actor: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"]["writeAttribution"]["actor"],
+  hostServices: ProductionAuthorityCompilerHostServices
 ): Promise<CanonicalAttemptIntent | null> {
   const action = command.action.kind === "decision-propose"
-    ? normalizeDecisionProposeAction(command.action)
+    ? hostServices.normalizeDecisionProposeAction(command.action)
     : command.action;
   if ((action.kind === "decision-propose" && action.decisionIdProvided)
     || (action.kind === "record-fact" && action.factIdProvided)) {
@@ -322,26 +317,16 @@ async function canonicalAttemptIntent(
       sessionId: currentSession.sessionId,
       boundAt: currentSession.detectedAt
     };
-    const settingsResult = readProjectHarnessSettings({ rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }, "new-task");
-    if (!settingsResult.ok) throw new Error(`AUTHORITY_TASK_CREATE_SETTINGS_INVALID:${settingsResult.result.error?.code ?? "unknown"}`);
-    const writes = shouldUsePresetAwareNewTask(action) || shouldUseSettingsPresetAwareNewTask(settingsResult.settings)
-      ? buildAuthorityPresetTaskCreateWrites(
-        { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
-        action,
-        settingsResult.settings,
-        currentSession.detectedAt,
-        provenance
-      )
-      : defaultCliAdapterProvider().buildLocalTaskCreateWrites({
-        taskId: action.taskId,
-        title: action.title,
-        allowManualId: action.allowManualId,
-        slug: action.slug,
-        parent: action.parent,
-        workKind: action.workKind,
-        riskTier: action.riskTier,
-        urgency: action.urgency
-      }, currentSession.detectedAt, provenance);
+    const writeResult = hostServices.buildTaskCreateWrites({
+      rootInput: { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
+      action,
+      createdAt: currentSession.detectedAt,
+      provenance
+    });
+    if (!writeResult.ok) {
+      throw new Error(`AUTHORITY_TASK_CREATE_SETTINGS_INVALID:${writeResult.settingsErrorCode ?? "unknown"}`);
+    }
+    const writes = writeResult.writes;
     const indexBody = writes.find((write) => write.path === "INDEX.md")!.body;
     const entity = ref("task", `task/${action.taskId}`);
     const payload: TaskDecisionModuleCommandPayloadV2 = {
@@ -384,7 +369,7 @@ async function canonicalAttemptIntent(
       ownerTaskId: action.taskId,
       factId: action.factId,
       statement: action.statement,
-      source: normalizedFactSource(action),
+      source: hostServices.normalizedFactSource(action),
       observedAt: action.observedAt,
       confidence: action.confidence,
       memoryClass: action.memoryClass,
@@ -410,7 +395,7 @@ async function canonicalAttemptIntent(
     if (action.rejected.some((entry) => !entry.why_not)) {
       throw new Error("AUTHORITY_DECISION_REJECTED_RATIONALE_REQUIRED: add why_not to every rejected alternative and retry decision propose");
     }
-    const materialized = materializeProposedDecision(action);
+    const materialized = hostServices.materializeProposedDecision(action);
     if (!materialized.ok) throw new Error(`AUTHORITY_DECISION_PROPOSE_ENRICHMENT_INVALID:${materialized.reason}`);
     const decision: DecisionPackage = {
       ...materialized.decision,
@@ -451,7 +436,7 @@ async function canonicalAttemptIntent(
     return moduleCanonicalIntent("module.step", encodeTaskDecisionModuleCommandPayloadV2(payload), entity, "step", action.moduleKey, authoredRoot);
   }
   if (action.kind === "decision-relate") {
-    const relation: EntityRelationRecord = decisionRelationRecord({
+    const relation: EntityRelationRecord = hostServices.decisionRelationRecord({
       decisionId: action.decisionId,
       anchor: action.anchor,
       target: action.target,
@@ -464,7 +449,7 @@ async function canonicalAttemptIntent(
     const snapshot = hostedSnapshot(authoredRoot, documentPath);
     if (!snapshot) throw new Error("AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED: run decision show and repair the source Decision before decision relate");
     const current = parseDecisionDocument(snapshot.body).decision;
-    const materialized = materializedTaskPriorityWrites(
+    const materialized = hostServices.materializedTaskPriorityWrites(
       { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }, current, relation
     );
     if (!materialized.ok) throw new Error(`AUTHORITY_DECISION_RELATION_PRIORITY_INVALID:${materialized.error.hint}`);
@@ -529,7 +514,7 @@ async function canonicalAttemptIntent(
       declaredPathCas: [{ path: executionPath, ...snapshot.cas }]
     };
   }
-  return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot, actor: executionActor });
+  return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot, actor: executionActor }, hostServices);
 }
 
 function canonicalIntent(

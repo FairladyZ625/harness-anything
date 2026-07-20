@@ -14,9 +14,9 @@ import {
   canonicalPayloadDigestV2,
   SemanticAdmissionErrorV2,
   type AuthoritySemanticCompilerV2,
+  type ProductionAuthorityCommand,
   type SemanticMutationEnvelopeV2
 } from "@harness-anything/application";
-import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 const commandName = "script.scope-ingest";
@@ -41,7 +41,7 @@ interface ScriptTaskArtifactScope {
 }
 
 export function productionScriptIngestAttemptIntent(
-  command: ParsedCommand,
+  command: ProductionAuthorityCommand,
   operation: WriteOp,
   authoredRoot: string
 ): CanonicalAttemptIntent {
@@ -91,7 +91,7 @@ export function makeProductionScriptIngestSemanticCompiler(authoredRoot: string)
   };
 }
 
-export function executorDerivedFromPresetScript(command: ParsedCommand, executorAgentId: string): boolean {
+export function executorDerivedFromPresetScript(command: ProductionAuthorityCommand, executorAgentId: string): boolean {
   const action = command.action;
   if (action.kind === "preset-entrypoint") return executorAgentId === `preset:${action.presetId}`;
   if (action.kind !== "script-run") return false;
@@ -99,7 +99,7 @@ export function executorDerivedFromPresetScript(command: ParsedCommand, executor
   return Boolean(match?.[1]) && executorAgentId === `preset:${match![1]}`;
 }
 
-function scriptTaskId(command: ParsedCommand): string {
+function scriptTaskId(command: ProductionAuthorityCommand): string {
   const action = command.action;
   if (action.kind !== "preset-entrypoint" && action.kind !== "script-run") {
     throw new Error("AUTHORITY_SCRIPT_SCOPE_COMMAND_REQUIRED");

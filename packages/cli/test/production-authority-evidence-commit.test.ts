@@ -6,7 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { taskEntityId } from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
-import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
+import {
+  createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
+} from "../src/composition/production-authority-lifecycle.ts";
 import {
   productionAuthorityActor,
   productionAuthorityConnection

@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { Schema } from "effect";
-import { encodeSessionExecutionReviewCommandPayloadV2 } from "@harness-anything/application";
+import {
+  encodeSessionExecutionReviewCommandPayloadV2,
+  type AuthorityHostAttribution,
+  type ProductionAuthorityCommand
+} from "@harness-anything/application";
 import {
   executionDeclaration,
   taskHolderActor,
@@ -8,13 +12,11 @@ import {
   type ExecutionRecord,
   type WriteOp
 } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
-import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 export function taskClaimAttemptIntent(
-  command: ParsedCommand,
-  attribution: CliActorAttribution,
+  command: ProductionAuthorityCommand,
+  attribution: AuthorityHostAttribution,
   currentSession: CurrentSessionRef,
   operation: WriteOp
 ): CanonicalAttemptIntent {

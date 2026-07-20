@@ -32,6 +32,7 @@ export * from "./semantic-mutation-envelope-v2.ts";
 export { authorityProtocolTuple } from "./types.ts";
 export * from "./cutover-control.ts";
 export * from "./daemon-host-contract.ts";
+export * from "./production-authority-host-contract.ts";
 export { createAuthorityCutoverEntityRegistryQualification } from "./cutover-registry-qualification.ts";
 export type {
   AttributedCoordinatorFactory,
