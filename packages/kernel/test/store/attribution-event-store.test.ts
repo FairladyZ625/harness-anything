@@ -10,8 +10,8 @@ import {
   rebuildTaskProjection
 } from "../../src/index.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
-import type { AttributionEventStore } from "../../src/store/write-journal-attribution-events.ts";
-import { makeLocalGitAttributionEventStore } from "../../src/store/write-journal-attribution-events.ts";
+import type { AttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
+import { makeLocalGitAttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
 import { readAttributionEvents } from "../../src/local/attribution-event-source.ts";
 import { readJournal } from "../../src/store/write-journal-durable.ts";
 import { testWriteAttribution } from "../test-attribution.ts";

@@ -5,17 +5,17 @@ import {
   authorityAttributionEventV2ProtocolDamage,
   decodeAuthorityAttributionEventV2Bytes,
   encodeAuthorityAttributionEventV2Bytes
-} from "../integrity/authority-attribution-event-v2-log.ts";
-import { sha256Bytes, stablePayloadHash } from "../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
-import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
-import { decodeAndVerifyAttributionEventV2, type AttributionEventV2 } from "../schemas/attribution-event-union.ts";
+} from "../../integrity/authority-attribution-event-v2-log.ts";
+import { sha256Bytes, stablePayloadHash } from "../../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../layout/index.ts";
+import { resolveHarnessLayout } from "../../layout/index.ts";
+import { localLayoutFileSystem } from "../../local/local-layout-file-system.ts";
+import { decodeAndVerifyAttributionEventV2, type AttributionEventV2 } from "../../schemas/attribution-event-union.ts";
 import {
   appendImmutableBytesDurably,
   durableFileExists,
   readFileBytes
-} from "./write-journal-durable.ts";
+} from "../../store/write-journal-durable.ts";
 import {
   recoverAuthorityAttributionEventV2FromOperationRecord,
   type RecoverableAuthorityOperationRecordV2,

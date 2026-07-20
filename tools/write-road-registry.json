@@ -429,7 +429,7 @@
         }
       ],
       "evidence": [
-        "packages/kernel/src/store/write-journal-attribution-events.ts:28",
+        "packages/kernel/src/write-coordination/attribution/legacy-attribution-event-store.ts:28",
         "packages/kernel/src/store/write-journal-durable.ts:117"
       ],
       "freshness": "append-only-op-id-shard"
@@ -465,18 +465,18 @@
         "<authoredRoot>/authority-attribution-events/v2"
       ],
       "integrityPaths": [
-        "packages/kernel/src/store/authority-attribution-event-v2-log.ts#scanIntegrity"
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-log.ts#scanIntegrity"
       ],
       "materializerPaths": [
         "packages/kernel/src/local/attribution-event-source.ts#readUnionAttributionEvents",
         "packages/kernel/src/projection/sqlite-attribution-projection.ts#materializeAttributionProjectionFromEvents"
       ],
       "recoveryPaths": [
-        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts#recoverAuthorityAttributionEventV2FromOperationRecord"
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts#recoverAuthorityAttributionEventV2FromOperationRecord"
       ],
       "evidence": [
-        "packages/kernel/src/store/authority-attribution-event-v2-log.ts:49",
-        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts:27",
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-log.ts:49",
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts:27",
         "packages/kernel/src/local/attribution-event-source.ts:89",
         "packages/kernel/src/projection/sqlite-attribution-projection.ts:82"
       ],

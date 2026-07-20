@@ -5,5 +5,5 @@ export { makeMarkdownArtifactStore } from "../persistence/markdown/markdown-arti
 export { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../store/write-journal-coordinator.ts";
 export { makeLocalLockRegistry } from "../persistence/local/local-lock-registry.ts";
 export { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
-export { makeLocalAuthorityAttributionEventV2Log } from "../store/authority-attribution-event-v2-log.ts";
-export type { AuthorityAttributionEventV2Log } from "../store/authority-attribution-event-v2-log.ts";
+export { makeLocalAuthorityAttributionEventV2Log } from "../write-coordination/attribution/authority-attribution-event-v2-log.ts";
+export type { AuthorityAttributionEventV2Log } from "../write-coordination/attribution/authority-attribution-event-v2-log.ts";

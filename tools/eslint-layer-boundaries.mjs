@@ -37,7 +37,9 @@ export const eslintLayerBoundaries = Object.freeze({
             "**/kernel/src/store",
             "**/kernel/src/store/**",
             "**/kernel/src/persistence",
-            "**/kernel/src/persistence/**"
+            "**/kernel/src/persistence/**",
+            "**/kernel/src/write-coordination",
+            "**/kernel/src/write-coordination/**"
           ]),
           message: rendererStorageBoundaryMessage
         })

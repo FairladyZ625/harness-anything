@@ -26,8 +26,8 @@ import {
   encodeAuthorityAttributionEventV2Bytes
 } from "../../src/integrity/authority-attribution-event-v2-log.ts";
 import { readAttributionEvents } from "../../src/local/attribution-event-source.ts";
-import { authorityAttributionEventV2FilePath } from "../../src/store/authority-attribution-event-v2-log.ts";
-import { recoverAuthorityAttributionEventV2FromOperationRecord } from "../../src/store/authority-attribution-event-v2-recovery.ts";
+import { authorityAttributionEventV2FilePath } from "../../src/write-coordination/attribution/authority-attribution-event-v2-log.ts";
+import { recoverAuthorityAttributionEventV2FromOperationRecord } from "../../src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts";
 import { withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const digestA = "11".repeat(32);

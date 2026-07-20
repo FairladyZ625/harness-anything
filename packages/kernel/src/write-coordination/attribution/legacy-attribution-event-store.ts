@@ -1,14 +1,14 @@
 import path from "node:path";
 import { Schema } from "effect";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
-import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
-import { readAttributionEvents } from "../local/attribution-event-source.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
-import { AttributionEventSchema, type AttributionEvent } from "../schemas/attribution-event.ts";
-import { resolveCommitPlan } from "./write-journal-git.ts";
-import type { JournalRecordV2 } from "./write-journal-types.ts";
-import { appendImmutableJsonLineDurably, durableFileExists, readFileBytes } from "./write-journal-durable.ts";
+import type { HarnessLayoutInput } from "../../layout/index.ts";
+import { resolveHarnessLayout } from "../../layout/index.ts";
+import { sha256Text, stableStringify } from "../../integrity/stable-hash.ts";
+import { readAttributionEvents } from "../../local/attribution-event-source.ts";
+import type { VersionControlSystem } from "../../ports/version-control-system.ts";
+import { AttributionEventSchema, type AttributionEvent } from "../../schemas/attribution-event.ts";
+import { resolveCommitPlan } from "../../store/write-journal-git.ts";
+import type { JournalRecordV2 } from "../../store/write-journal-types.ts";
+import { appendImmutableJsonLineDurably, durableFileExists, readFileBytes } from "../../store/write-journal-durable.ts";
 
 export interface AttributionEventStoreContext {
   readonly rootDir: string;

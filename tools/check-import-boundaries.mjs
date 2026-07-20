@@ -233,7 +233,7 @@ for (const file of packageSourceFiles) {
         if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
           record(file, `domain layer imports IO/runtime module via ${specifier}`);
         }
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store|persistence)\//.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target))) {
           record(file, `domain layer imports upper kernel layer via ${specifier}`);
         }
       }
@@ -241,7 +241,7 @@ for (const file of packageSourceFiles) {
 
     if (rel.startsWith("packages/kernel/src/ports/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store|persistence)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `ports layer imports implementation/controller layer via ${specifier}`);
         }
       }
@@ -249,9 +249,10 @@ for (const file of packageSourceFiles) {
 
     const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
     const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/")) {
+    const isKernelWriteImplementation = /packages\/kernel\/src\/write-coordination\/(?:attribution|journal|materialization)\//.test(rel);
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:store|persistence)\//.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target))) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
         }
       }
@@ -259,7 +260,7 @@ for (const file of packageSourceFiles) {
 
     if (rel.startsWith("packages/application/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:store|persistence)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
         }
       }
@@ -268,7 +269,7 @@ for (const file of packageSourceFiles) {
     if (rel.startsWith("packages/gui/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => {
-          if (/packages\/kernel\/src\/(?:store|persistence)\//.test(target)) return true;
+          if (/packages\/kernel\/src\/(?:store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !guiAdapterCompositionRoots.has(rel);
           }
@@ -282,7 +283,7 @@ for (const file of packageSourceFiles) {
     if (rel.startsWith("packages/cli/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => {
-          if (/packages\/gui\//.test(target) || /packages\/kernel\/src\/(?:store|persistence)\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
+          if (/packages\/gui\//.test(target) || /packages\/kernel\/src\/(?:store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !cliAdapterCompositionRoots.has(rel) && !cliAdapterKnownDebt.has(rel);
           }

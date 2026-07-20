@@ -27,7 +27,7 @@ import { makeLocalVersionControlSystem } from "../persistence/git/local-version-
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./write-journal-commit-summary.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
-import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "./write-journal-attribution-events.ts";
+import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../write-coordination/attribution/legacy-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./write-journal-entity.ts";
 import { rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";

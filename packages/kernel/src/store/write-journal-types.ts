@@ -1,7 +1,7 @@
 import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
-import type { AttributionEventStore } from "./write-journal-attribution-events.ts";
+import type { AttributionEventStore } from "../write-coordination/attribution/legacy-attribution-event-store.ts";
 import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import type { ActorAxes, AgentRef, OperationalActor, WriteAttribution } from "../schemas/actor-attribution.ts";
