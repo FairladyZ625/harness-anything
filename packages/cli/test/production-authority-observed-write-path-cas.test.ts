@@ -7,7 +7,7 @@ import test from "node:test";
 import { decisionEntityId, taskEntityId, type WriteOp } from "../../kernel/src/index.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { productionObservedWriteAttemptIntent } from "../src/daemon/production-authority-observed-write-intents.ts";
-import { resolveHostedDocument } from "../src/daemon/production-authority-semantic-state.ts";
+import { resolveHostedDocument } from "@harness-anything/daemon";
 
 test("observed-write path CAS matches the authority read set for slugged task packages", () => {
   const fixture = createPathCasFixture();

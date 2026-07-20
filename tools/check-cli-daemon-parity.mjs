@@ -8,7 +8,7 @@ import { productionAuthorityTypedIngressKinds } from "../packages/cli/src/cli/co
 import { commandRunPayload } from "../packages/cli/src/daemon/client.ts";
 import { createCliCommandService } from "../packages/cli/src/daemon/command-service.ts";
 import { productionObservedWriteAttemptIntent } from "../packages/cli/src/daemon/production-authority-observed-write-intents.ts";
-import { resolveHostedDocument } from "../packages/cli/src/daemon/production-authority-semantic-state.ts";
+import { resolveHostedDocument } from "@harness-anything/daemon";
 import { taskEntityId } from "../packages/kernel/src/index.ts";
 
 const missingTask = "task_01KXT3E1MN1VBS64DCNZ4VX81B";

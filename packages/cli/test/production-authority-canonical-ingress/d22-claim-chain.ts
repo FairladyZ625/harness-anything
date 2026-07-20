@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "../../../kernel/src/index.ts";
-import { createGitCanonicalPublicationInspector } from "../../src/daemon/authority-publication-evidence.ts";
+import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import { runRawJsonMaybeFail } from "../helpers/daemon-cli.ts";
 import {
   authorityEventBodies,

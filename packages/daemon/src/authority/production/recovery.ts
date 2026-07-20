@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned production authority recovery to CLI composition consumers.
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -13,7 +14,7 @@ import {
   AuthorityCanonicalPublicationNotFoundError,
   AuthorityRecoveryWatermarkInvalidError,
   type GitCanonicalPublicationInspector
-} from "./authority-publication-evidence.ts";
+} from "./publication-evidence.ts";
 
 interface ProductionRecoveryInput {
   readonly workspaceId: string;

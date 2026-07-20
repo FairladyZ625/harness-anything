@@ -17,7 +17,7 @@ import {
   AuthorityRecoveryWatermarkInvalidError,
   assertPublicationMatchesMutationSet,
   createGitCanonicalPublicationInspector
-} from "../src/daemon/authority-publication-evidence.ts";
+} from "@harness-anything/daemon";
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {
   const evidence = {

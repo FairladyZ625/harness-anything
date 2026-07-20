@@ -4385,9 +4385,9 @@
       },
       "deterministic": true,
       "positiveControl": {
-        "status": "documented-gap",
+        "status": "covered",
         "evidence": [
-          "No dedicated positive-control fixture is registered for check-implementation-contracts."
+          "tools/implementation-contract-daemon-protocol.test.mjs"
         ]
       }
     },

@@ -14,6 +14,12 @@ import type {
   PersonRegistry
 } from "@harness-anything/daemon";
 import {
+  createGitCanonicalPublicationInspector,
+  openDurableAuthorityServiceState,
+  type CanonicalPublicationEvidence,
+  type DurableAuthorityServiceState
+} from "@harness-anything/daemon";
+import {
   resolveHarnessLayout,
   stableStringify,
   type DaemonAdmissionBudget,
@@ -25,14 +31,6 @@ import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-sub
 import type { ProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 import type { AuthorityForcedCommandSession } from "@harness-anything/daemon";
 import type { Readable, Writable } from "node:stream";
-import {
-  createGitCanonicalPublicationInspector,
-  type CanonicalPublicationEvidence
-} from "./authority-publication-evidence.ts";
-import {
-  openDurableAuthorityServiceState,
-  type DurableAuthorityServiceState
-} from "./authority-service-state.ts";
 
 export type AuthorityRepoStopReason =
   | "repo-detached"

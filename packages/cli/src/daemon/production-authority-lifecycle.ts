@@ -12,8 +12,16 @@ import {
 import { createAuthoritySubmissionService } from "@harness-anything/application/authority/service";
 import {
   answerAttestationChallenge,
+  assertPublicationMatchesMutationSet,
+  createAuthorityProductionScanner,
   createAttestationChallenge,
+  createGitAuthorityAttributionEvidenceCommitterV2,
+  createGitCanonicalPublicationInspector,
   createTransportObservedAttestationAdapter,
+  gateCutoverAdmission,
+  recoverPendingProductionEvents,
+  recoveryErrorCode,
+  recoveryErrorSummary,
   verifyAttestationAssertion,
   type AuthorityConnectionContext
 } from "@harness-anything/daemon";
@@ -45,24 +53,11 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
-import {
-  createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector
-} from "./authority-publication-evidence.ts";
-import { assertPublicationMatchesMutationSet } from "./authority-publication-evidence.ts";
-import { createAuthorityProductionScanner } from "./authority-production-scanner.ts";
 import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
-import { gateCutoverAdmission } from "./authority-cutover-admission.ts";
-import {
-  recoverPendingProductionEvents,
-  recoveryErrorCode,
-  recoveryErrorSummary
-} from "./production-authority-recovery.ts";
-
-export { recoverPendingProductionEvents } from "./production-authority-recovery.ts";
+export { recoverPendingProductionEvents } from "@harness-anything/daemon";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;

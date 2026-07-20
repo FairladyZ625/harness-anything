@@ -6,16 +6,16 @@ import {
   type AuthorityStoredOperationRecord
 } from "@harness-anything/application";
 import {
+  assertPublicationMatchesMutationSet,
+  type DurableAuthorityServiceState,
+  type GitCanonicalPublicationInspector
+} from "@harness-anything/daemon";
+import {
   actorAxesBindingCoreDigestV2,
   makeLocalAuthorityAttributionEventV2Log,
   type ActorAxesBindingCoreV2
 } from "@harness-anything/kernel";
 import type { DurableAuthorityBindingRuntimeV2 } from "./authority-production-state.ts";
-import type { DurableAuthorityServiceState } from "./authority-service-state.ts";
-import {
-  assertPublicationMatchesMutationSet,
-  type GitCanonicalPublicationInspector
-} from "./authority-publication-evidence.ts";
 
 export async function recoverProductionAuthorityCommittedReceiptV2(input: {
   readonly record: AuthorityStoredOperationRecord;
