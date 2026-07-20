@@ -56,11 +56,13 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     );
     const persistedLaunchSpec = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
       readonly endpoint: string;
-      readonly options: { readonly authorityManifest?: string };
+      readonly launchConfiguration: { readonly args: ReadonlyArray<string> };
     };
     assert.equal(persistedLaunchSpec.endpoint, endpoint);
-    assert.equal(persistedLaunchSpec.options.authorityManifest, fixture.manifestPath);
-    assert.equal((await readRunningLaunchSpec(fixture.repoRoot, userRoot)).args.includes(daemonLaunchOptionsResolvedFlag), true);
+    assert.equal(optionValue(persistedLaunchSpec.launchConfiguration.args, "--authority-manifest"), fixture.manifestPath);
+    const runningLaunchSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
+    assert.deepEqual(persistedLaunchSpec.launchConfiguration, runningLaunchSpec);
+    assert.equal(runningLaunchSpec.args.includes(daemonLaunchOptionsResolvedFlag), true);
 
     mkdirSync(classicRoot, { recursive: true });
     initializeHarness({ rootDir: classicRoot }, false, "Classic");
@@ -68,6 +70,29 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
       "daemon", "repo", "register", "--repo-id", "classic",
       "--canonical-root", classicRoot, "--user-root", userRoot, "--no-link", "--json"
     ], env);
+    await stopDaemon(fixture.repoRoot, userRoot);
+
+    writeFileSync(daemonLaunchSpecPath(userRoot, endpoint), JSON.stringify({
+      schema: "daemon-launch-spec/v2",
+      endpoint,
+      options: { authorityManifest: fixture.manifestPath }
+    }), "utf8");
+    const migratedFromV2 = runDaemonCommand(
+      fixture.repoRoot,
+      ["daemon", "start", "--service", "--json"],
+      env
+    );
+    assert.equal(migratedFromV2.started, true, JSON.stringify(migratedFromV2));
+    assert.equal(
+      optionValue((await readRunningLaunchSpec(fixture.repoRoot, userRoot)).args, "--authority-manifest"),
+      fixture.manifestPath
+    );
+    const migratedDocument = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
+      readonly schema?: string;
+      readonly launchConfiguration?: unknown;
+    };
+    assert.equal(migratedDocument.schema, "daemon-launch-spec/v3");
+    assert.equal(typeof migratedDocument.launchConfiguration, "object");
     await stopDaemon(fixture.repoRoot, userRoot);
 
     const autostartedSpec = await requestLocalDaemonJsonRpc(
@@ -126,13 +151,23 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     await stopDaemon(fixture.repoRoot, userRoot);
 
     copyFileSync(fixture.manifestPath, replacementManifest);
+    const damagedPrivateFragment = `${fixture.manifestPath}-damaged-private-fragment`;
+    writeFileSync(
+      daemonLaunchSpecPath(userRoot, endpoint),
+      `{"schema":"daemon-launch-spec/v3","authorityManifest":"${damagedPrivateFragment}",BROKEN}`,
+      "utf8"
+    );
     const overridden = runDaemonCommand(fixture.repoRoot, [
-      "daemon", "start", "--service", "--authority-manifest", replacementManifest, "--json"
+      "daemon", "start", "--service", "--user-root", userRoot,
+      "--authority-manifest", replacementManifest, "--authored-root", fixture.authoredRoot, "--json"
     ], env);
     assert.equal(overridden.started, true, JSON.stringify(overridden));
     const overriddenSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
     assert.equal(optionValue(overriddenSpec.args, "--authority-manifest"), replacementManifest);
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
+    const rewrittenSpec = readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8");
+    assert.match(rewrittenSpec, /"schema": "daemon-launch-spec\/v3"/u);
+    assert.match(rewrittenSpec, new RegExp(escapeRegExp(replacementManifest), "u"));
+    assert.doesNotMatch(rewrittenSpec, new RegExp(escapeRegExp(damagedPrivateFragment), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
@@ -300,10 +335,10 @@ test("relative launch paths retain their original cwd meaning across a service c
     await stopDaemon(fixture.repoRoot, userRoot);
 
     const persisted = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
-      readonly options: { readonly authorityManifest?: string; readonly authoredRoot?: string };
+      readonly launchConfiguration: { readonly args: ReadonlyArray<string> };
     };
-    assert.equal(persisted.options.authorityManifest, fixture.manifestPath);
-    assert.equal(persisted.options.authoredRoot, fixture.authoredRoot);
+    assert.equal(optionValue(persisted.launchConfiguration.args, "--authority-manifest"), fixture.manifestPath);
+    assert.equal(optionValue(persisted.launchConfiguration.args, "--authored-root"), fixture.authoredRoot);
 
     const restored = runDaemonJsonFromCwd(cwdB, path.relative(cwdB, fixture.repoRoot), ["daemon", "start", "--service"], env);
     assert.equal(restored.ok, true, JSON.stringify(restored));
@@ -360,7 +395,12 @@ test("daemon serve and start reject malformed launch path boundaries without per
 async function readRunningLaunchSpec(
   rootDir: string,
   userRoot: string
-): Promise<{ readonly args: ReadonlyArray<string> }> {
+): Promise<{
+  readonly execPath: string;
+  readonly execArgv: ReadonlyArray<string>;
+  readonly entrypoint: string;
+  readonly args: ReadonlyArray<string>;
+}> {
   const receipt = await requestLocalDaemonJsonRpc(rootDir, "admin.daemon.launch-spec", {}, 1_000, {
     userRoot,
     allowLegacySocket: false
@@ -368,8 +408,16 @@ async function readRunningLaunchSpec(
   const details = receipt.details as { readonly data?: unknown };
   assert.equal(isRecord(details.data), true, JSON.stringify(receipt));
   const data = details.data as Record<string, unknown>;
+  assert.equal(typeof data.execPath, "string", JSON.stringify(receipt));
+  assert.equal(Array.isArray(data.execArgv), true, JSON.stringify(receipt));
+  assert.equal(typeof data.entrypoint, "string", JSON.stringify(receipt));
   assert.equal(Array.isArray(data.args), true, JSON.stringify(receipt));
-  return { args: data.args as ReadonlyArray<string> };
+  return {
+    execPath: data.execPath as string,
+    execArgv: data.execArgv as ReadonlyArray<string>,
+    entrypoint: data.entrypoint as string,
+    args: data.args as ReadonlyArray<string>
+  };
 }
 
 function optionValue(args: ReadonlyArray<string>, option: string): string | undefined {
