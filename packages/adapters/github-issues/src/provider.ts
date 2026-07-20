@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { Effect } from "effect";
 import type { EngineError, ExternalRef, TaskSnapshot } from "@harness-anything/kernel";
 import { makeGithubCredentialResolver } from "./auth.ts";

@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 export interface DaemonStatusRequestV2 {
   readonly repo: { readonly repoId: string };
 }

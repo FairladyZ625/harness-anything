@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 owns the daemon registry DTO package API.
 export type DaemonRepoState = "enabled" | "disabled";
 
 export interface DaemonRegistryRepo {

@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";

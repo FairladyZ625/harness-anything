@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import type { ExecutionRecord } from "../domain/execution.ts";
 import { sha256Text, stableStringify } from "./stable-hash.ts";
 
