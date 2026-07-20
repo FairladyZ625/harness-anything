@@ -3,7 +3,7 @@ import { taskEntityId } from "@harness-anything/kernel";
 import type { TaskId, WriteError } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
 import type { WriteOpKind } from "@harness-anything/kernel";
-import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "@harness-anything/kernel";
 import type { HashPayload } from "./task-index.ts";
 
 export interface TaskDocumentWrite {

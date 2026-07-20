@@ -7,7 +7,7 @@ import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } 
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteCoordinator } from "../ports/index.ts";
-import { writeCoordinatedPayload, type PayloadHasher } from "../write-coordination/write-helpers.ts";
+import { writeCoordinatedPayload, type PayloadHasher } from "../write-coordination/submit.ts";
 import {
   isEntityStorageForm,
   type CompositeManifestBlobDeclaration,

@@ -9,17 +9,16 @@ const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 const allowlist = loadGateAllowlist("check-import-boundaries", {
-  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "kernelWritePublicPaths", "cliAdapterKnownDebt"]
+  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "kernelWriteInternalConsumers", "cliAdapterKnownDebt"]
 });
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
-const publicKernelWriteCoordinationPaths = new Set(entryValues(allowlist.kernelWritePublicPaths));
+const kernelWriteInternalConsumers = new Set(entryValues(allowlist.kernelWriteInternalConsumers));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 
 function isKernelWriteCoordinationInternalPath(target) {
-  return target.startsWith("packages/kernel/src/write-coordination/")
-    && !publicKernelWriteCoordinationPaths.has(target);
+  return target.startsWith("packages/kernel/src/write-coordination/");
 }
 
 function isKernelStoreImplementationPath(target) {
@@ -260,8 +259,10 @@ for (const file of packageSourceFiles) {
 
     const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
     const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
+    const isKernelWritePublicBarrel = rel === "packages/kernel/src/index.ts";
+    const isKernelWriteInternalConsumer = kernelWriteInternalConsumers.has(rel);
     const isKernelWriteImplementation = rel.startsWith("packages/kernel/src/write-coordination/");
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !isKernelWritePublicBarrel && !isKernelWriteInternalConsumer && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, isKernelStoreImplementationPath)) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);

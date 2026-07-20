@@ -376,7 +376,7 @@
         "packages/cli/src/commands/core/coordinated-machine-write.ts",
         "packages/kernel/src/store/daemon-runtime-authority-coordinator.ts",
         "packages/kernel/src/store/daemon-runtime-queue.ts",
-        "packages/kernel/src/write-coordination/write-helpers.ts"
+        "packages/kernel/src/write-coordination/submit.ts"
       ],
       "directWrites": [
         {
@@ -400,7 +400,7 @@
       ],
       "evidence": [
         "packages/kernel/src/daemon/admission-budget.ts:62",
-        "packages/kernel/src/write-coordination/write-helpers.ts:20",
+        "packages/kernel/src/write-coordination/submit.ts:20",
         "packages/kernel/src/write-coordination/journal/durable.ts:109",
         "packages/kernel/src/write-coordination/journal/locks.ts:125"
       ],

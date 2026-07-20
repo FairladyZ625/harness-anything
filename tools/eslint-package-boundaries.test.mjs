@@ -20,7 +20,7 @@ test("package boundary ESLint rule reports every governed violation class", asyn
   const cases = [
     ["packages/kernel/src/fixture.ts", "import '@harness-anything/gui';", packageBoundaryMessageIds.forbiddenEdge],
     ["packages/application/src/fixture.ts", "import '../../kernel/src/index.ts';", packageBoundaryMessageIds.crossPackageRelative],
-    ["packages/cli/src/fixture.ts", "import '@harness-anything/kernel/private';", packageBoundaryMessageIds.unregisteredDeepSubpath],
+    ["packages/cli/src/fixture.ts", "import '@harness-anything/kernel/write-coordination/write-helpers';", packageBoundaryMessageIds.unregisteredDeepSubpath],
     ["packages/gui/src/main/fixture.ts", "new URL('../../../daemon/src/index.ts', import.meta.url);", packageBoundaryMessageIds.crossPackageSourcePath]
   ];
   for (const [file, source, messageId] of cases) {
@@ -30,10 +30,7 @@ test("package boundary ESLint rule reports every governed violation class", asyn
 });
 
 test("package boundary ESLint rule accepts allowed roots and registered subpaths", async () => {
-  const [result] = await eslint.lintText([
-    "import '@harness-anything/kernel';",
-    "import '@harness-anything/kernel/write-coordination/write-helpers';"
-  ].join("\n"), { filePath: path.join(root, "packages/application/src/fixture.ts") });
+  const [result] = await eslint.lintText("import '@harness-anything/kernel';", { filePath: path.join(root, "packages/application/src/fixture.ts") });
   assert.equal(result.messages.filter((message) => message.ruleId === ruleId).length, 0);
 });
 

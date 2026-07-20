@@ -4,7 +4,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
 import type { WriteCoordinator, WriteOp } from "../../src/ports/index.ts";
-import { stablePayloadHash, writeCoordinatedPayload } from "../../src/write-coordination/write-helpers.ts";
+import { stablePayloadHash, writeCoordinatedPayload } from "../../src/index.ts";
 
 test("coordinated payload op ids include entity and kind identity", () => {
   const enqueued: WriteOp[] = [];

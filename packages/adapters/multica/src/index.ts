@@ -6,7 +6,7 @@ import { stablePayloadHash } from "@harness-anything/kernel";
 import type { ArtifactStore, LifecycleEngine, LockLease, LockRegistry, WriteCoordinator } from "@harness-anything/kernel";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext, findTaskIdByExternalRef, makeLocalLockRegistry, taskDocumentPath, validateTaskIdSyntax } from "@harness-anything/kernel";
-import { writeCoordinatedPayload } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { writeCoordinatedPayload } from "@harness-anything/kernel";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
 import type { TaskSnapshot } from "@harness-anything/kernel";

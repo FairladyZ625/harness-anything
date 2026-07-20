@@ -10,7 +10,7 @@ import test from "node:test";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-implementation-contracts.mjs");
 
-test("implementation contract check rejects direct ArtifactStoreWriter calls from public write helpers", (t) => {
+test("implementation contract check rejects direct ArtifactStoreWriter calls from write submission helpers", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-implementation-contract-"));
   try {
     for (const relativePath of ["package.json", "package-lock.json", "tsconfig.json", "packages"]) {
@@ -24,15 +24,15 @@ test("implementation contract check rejects direct ArtifactStoreWriter calls fro
     assert.equal(baseline.status, 0, baseline.stderr);
 
     appendFileSync(
-      path.join(root, "packages/kernel/src/write-coordination/write-helpers.ts"),
+      path.join(root, "packages/kernel/src/write-coordination/submit.ts"),
       "\nexport function implementationContractPositiveControl(writer) { return writer.writeDocument('task.md', 'body'); }\n",
       "utf8"
     );
 
     const injected = runChecker(root);
-    t.diagnostic(`write-helpers direct-writer positive control exit=${injected.status}`);
+    t.diagnostic(`submit direct-writer positive control exit=${injected.status}`);
     assert.notEqual(injected.status, 0);
-    assert.match(injected.stderr, /write-coordination\/write-helpers\.ts: authored writes must go through WriteCoordinator\.enqueue/);
+    assert.match(injected.stderr, /write-coordination\/submit\.ts: authored writes must go through WriteCoordinator\.enqueue/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
