@@ -19,10 +19,10 @@ test("CLI package smoke explicitly builds the CLI artifact even when npm lifecyc
     rmSync: (...args) => removals.push(args)
   });
 
-  assert.deepEqual(removals, [["/repo/packages/cli/dist", { recursive: true, force: true }]]);
+  assert.deepEqual(removals, [[path.join("/repo", "packages/cli/dist"), { recursive: true, force: true }]]);
   assert.deepEqual(calls.map((call) => [call.command, call.args]), [
     ["npm", ["run", "build", "--workspace", "@harness-anything/cli"]],
-    [process.execPath, ["/repo/packages/cli/dist/cli/src/index.js", "--json", "version"]]
+    [process.execPath, [path.join("/repo", "packages/cli/dist/cli/src/index.js"), "--json", "version"]]
   ]);
   assert.equal(calls[0].options.cwd, "/repo");
   assert.equal(calls[0].options.env.NPM_CONFIG_IGNORE_SCRIPTS, "false");
