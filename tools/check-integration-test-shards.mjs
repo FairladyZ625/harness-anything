@@ -7,6 +7,8 @@ import {
   integrationShardCount,
   integrationShardSummaries,
   integrationTestFileWeightsMs,
+  nightlyTestFileWeightsMs,
+  validateNightlyTestWeights,
   validateIntegrationTestShards
 } from "./integration-test-shards.mjs";
 import {
@@ -24,6 +26,7 @@ const deletionAllowlistRelativePath = "tools/gate-allowlists/check-integration-t
 export function checkIntegrationTestShards({
   repoRoot = defaultRepoRoot,
   weightOverrides = integrationTestFileWeightsMs,
+  nightlyWeightOverrides,
   previousTestCount,
   baselineRef,
   workflowText = readFileSync(workflowPath, "utf8"),
@@ -33,8 +36,12 @@ export function checkIntegrationTestShards({
   const testFiles = discoverTestFiles(repoRoot);
   const testTierManifest = discoverTestTierManifest(repoRoot);
   const integrationFiles = testTierManifest.integration;
+  const nightlyFiles = testTierManifest.nightly;
   const manifestValidation = validateManifest(testFiles, testTierManifest);
   const shardValidation = validateIntegrationTestShards(integrationFiles, weightOverrides);
+  const resolvedNightlyWeights = nightlyWeightOverrides
+    ?? (repoRoot === defaultRepoRoot ? nightlyTestFileWeightsMs : {});
+  const nightlyWeightValidation = validateNightlyTestWeights(nightlyFiles, resolvedNightlyWeights);
   const workflowValidation = validateIntegrationShardWorkflowMatrix(workflowText, integrationShardCount);
   const gateValidation = validateIntegrationShardRequiredContexts(gateManifestText, integrationShardCount);
   const baseline = previousTestCount === undefined
@@ -46,6 +53,7 @@ export function checkIntegrationTestShards({
     repoRoot,
     testFiles,
     integrationFiles,
+    nightlyFiles,
     baseline,
     delta,
     currentText: deletionAllowlistText
@@ -56,6 +64,7 @@ export function checkIntegrationTestShards({
   const errors = [
     ...manifestValidation.errors,
     ...shardValidation.errors,
+    ...nightlyWeightValidation.errors,
     ...workflowValidation.errors,
     ...gateValidation.errors,
     ...ratchetErrors
@@ -66,11 +75,13 @@ export function checkIntegrationTestShards({
     errors,
     derivedFiles: integrationFiles,
     executionFiles: integrationFiles,
+    nightlyFiles,
     summaries: integrationShardSummaries(integrationFiles, weightOverrides),
     currentCount: integrationFiles.length,
     previousCount: resolvedPreviousCount,
     delta,
     deletedFiles: deletionValidation.deletedFiles,
+    movedToNightlyFiles: deletionValidation.movedToNightlyFiles,
     confirmedDeletions: deletionValidation.confirmedDeletions,
     workflowShards: workflowValidation.shards,
     requiredContexts: gateValidation.contexts
@@ -180,7 +191,7 @@ function parseLegacyTierArray(source, tier, nextTier) {
   return JSON.parse(segment.slice(arrayStart, arrayEnd + 1));
 }
 
-function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFiles, baseline, delta, currentText }) {
+function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFiles, nightlyFiles, baseline, delta, currentText }) {
   const current = parseDeletionAllowlist(
     currentText ?? readDeletionAllowlist(repoRoot),
     deletionAllowlistRelativePath
@@ -193,9 +204,13 @@ function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFile
   const newlyConfirmed = current.paths.filter((file) => !previousPaths.has(file));
   const previousIntegration = new Set(baseline.files ?? []);
   const currentIntegration = new Set(integrationFiles);
+  const currentNightly = new Set(nightlyFiles);
+  const movedToNightlyFiles = baseline.files === null
+    ? []
+    : [...previousIntegration].filter((file) => !currentIntegration.has(file) && currentNightly.has(file)).sort();
   const deletedFiles = baseline.files === null
     ? []
-    : [...previousIntegration].filter((file) => !currentIntegration.has(file)).sort();
+    : [...previousIntegration].filter((file) => !currentIntegration.has(file) && !currentNightly.has(file)).sort();
   const deletedSet = new Set(deletedFiles);
   const confirmedDeletions = deletedFiles.filter((file) => newlyConfirmed.includes(file));
 
@@ -204,6 +219,12 @@ function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFile
   }
   for (const file of newlyConfirmed) {
     if (!deletedSet.has(file)) errors.push(`new intentional test deletion confirmation does not match a baseline deletion: ${file}`);
+  }
+  for (const file of movedToNightlyFiles) {
+    const source = readFileSync(path.join(repoRoot, file), "utf8");
+    if (!/^\/\/ harness-test-tier-decision: (?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)$/mu.test(source)) {
+      errors.push(`integration test moved to nightly without a decision reference: ${file}`);
+    }
   }
 
   if (delta < 0) {
@@ -217,7 +238,7 @@ function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFile
     }
   }
 
-  return { errors, deletedFiles, confirmedDeletions };
+  return { errors, deletedFiles, movedToNightlyFiles, confirmedDeletions };
 }
 
 function readDeletionAllowlist(repoRoot) {
@@ -335,7 +356,7 @@ function main() {
   const delta = result.delta === null ? "unavailable" : result.delta;
   console.log(`integration shard check passed: current=${result.currentCount} previous=${previous} delta=${delta} shards=${result.summaries.length} workflowShards=[${result.workflowShards.join(", ")}] requiredContexts=[${result.requiredContexts.join(", ")}]`);
   for (const summary of result.summaries) {
-    console.log(`shard ${summary.id}: files=${summary.files} estimatedMs=${summary.estimatedMs.toFixed(1)}`);
+    console.log(`shard ${summary.id}: files=${summary.files} estimatedMs=${summary.estimatedMs.toFixed(1)} workMs=${summary.estimatedWorkMs.toFixed(1)}`);
   }
 }
 

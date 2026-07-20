@@ -41,6 +41,7 @@
     "test:fast": "node tools/run-node-tests.mjs --tier fast",
     "test:contract": "node tools/run-node-tests.mjs --tier contract",
     "test:integration": "node tools/run-node-tests.mjs --tier integration",
+    "test:nightly": "node tools/run-node-tests.mjs --tier nightly --concurrency 1",
     "test:list": "node tools/run-node-tests.mjs --list",
     "quickstart:demo": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs",
     "quickstart:demo:fail-closed": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs --break-step fact-record",

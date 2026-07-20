@@ -72,6 +72,52 @@ test("default shard assignment is deterministic across discovery order", () => {
   assert.deepEqual(forward, reverse);
 });
 
+test("moving an integration test to nightly does not count as deleting coverage", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-integration-to-nightly-"));
+  try {
+    const testRoot = path.join(root, "tools");
+    mkdirSync(testRoot, { recursive: true });
+    for (let index = 1; index <= 7; index += 1) {
+      writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
+    }
+    writeDeletionAllowlist(root);
+    git(root, ["init", "-q"]);
+    git(root, ["config", "user.name", "Harness Test"]);
+    git(root, ["config", "user.email", "harness@example.test"]);
+    git(root, ["add", "tools"]);
+    git(root, ["commit", "-qm", "register integration tests"]);
+
+    writeFileSync(path.join(testRoot, "fixture-7.test.mjs"), "// harness-test-tier: nightly\n", "utf8");
+    const unapproved = checkIntegrationTestShards({
+      repoRoot: root,
+      weightOverrides: {},
+      nightlyWeightOverrides: {},
+      deletionAllowlistText: deletionAllowlistText()
+    });
+    assert.equal(unapproved.ok, false);
+    assert.match(unapproved.errors.join("\n"), /moved to nightly without a decision reference/u);
+
+    writeFileSync(path.join(testRoot, "fixture-7.test.mjs"), [
+      "// harness-test-tier: nightly",
+      "// harness-test-tier-decision: dec_TEST_NIGHTLY_MOVE",
+      ""
+    ].join("\n"), "utf8");
+    const after = checkIntegrationTestShards({
+      repoRoot: root,
+      weightOverrides: {},
+      nightlyWeightOverrides: {},
+      deletionAllowlistText: deletionAllowlistText()
+    });
+    assert.equal(after.ok, true, after.errors.join("\n"));
+    assert.equal(after.currentCount, 6);
+    assert.deepEqual(after.deletedFiles, []);
+    assert.deepEqual(after.movedToNightlyFiles, ["tools/fixture-7.test.mjs"]);
+    assert.deepEqual(after.nightlyFiles, ["tools/fixture-7.test.mjs"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("integration shard validation rejects duplicate inputs and stale weight overrides", () => {
   const result = validateIntegrationTestShards(
     ["tools/a.test.mjs", "tools/a.test.mjs"],

@@ -1,4 +1,5 @@
-// harness-test-tier: integration
+// harness-test-tier: nightly
+// harness-test-tier-decision: dec_01KXZ2WZMB8YS18F549K8BMM7H
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
