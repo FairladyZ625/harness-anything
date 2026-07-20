@@ -1,20 +1,20 @@
+// @slice-activation PLT-Boundary W2 exports the daemon-owned local agent runtime host to composition consumers.
 import {
   attachChannelProbeEvidence,
   authenticationProbeEvidence,
   makeAgentRuntimeService,
   processProbeEvidence
 } from "@harness-anything/application";
-import type { AgentRuntimeSessionStatus } from "@harness-anything/application/agent-runtime-control";
-import {
-  createAgentRuntimeSessionService,
-  createClaudeCodeRuntimeAdapter,
-  createCodexRuntimeAdapter,
-  type AgentRuntimeControlService
-} from "@harness-anything/daemon";
+import type {
+  AgentRuntimeControlService,
+  AgentRuntimeSessionStatus
+} from "@harness-anything/application/agent-runtime-control";
 import type { RuntimeInstallation, RuntimeSession } from "@harness-anything/kernel";
-import { probeRuntimeAuthenticationProfiles } from "./agent-runtime-auth-profiles.ts";
-import { createLocalAgentRuntimeDiscoveryProbe } from "./agent-runtime-host-discovery.ts";
-import { createFileRuntimeSessionStore } from "./agent-runtime-session-store.ts";
+import { createClaudeCodeRuntimeAdapter, createCodexRuntimeAdapter } from "./protocol-adapters.ts";
+import { createAgentRuntimeSessionService } from "./session-service.ts";
+import { probeRuntimeAuthenticationProfiles } from "./auth-profiles.ts";
+import { createLocalAgentRuntimeDiscoveryProbe } from "./host-discovery.ts";
+import { createFileRuntimeSessionStore } from "./session-store.ts";
 
 export function createLocalAgentRuntimeControlHost(rootDir: string): {
   readonly control: AgentRuntimeControlService;

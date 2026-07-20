@@ -8,11 +8,13 @@ import {
   type TaskHolderServiceOptions
 } from "@harness-anything/application";
 import {
+  makeLocalAgentRuntimeControllerOptions
+} from "@harness-anything/daemon";
+import {
   queryExecutions,
   queryTaskProjection,
   type HarnessLayoutOverrides
 } from "@harness-anything/kernel";
-import { makeLocalAgentRuntimeControllerOptions } from "./agent-runtime-control-host.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator } from "./queued-write-coordinator.ts";
 
 export function makeLocalAgentHolderServices(

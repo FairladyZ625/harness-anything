@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createFileRuntimeSessionStore } from "../src/daemon/agent-runtime-session-store.ts";
+import { createFileRuntimeSessionStore } from "../src/agent-runtime/session-store.ts";
 
 test("runtime session store persists safe witness records and fails closed on malformed state", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ha-runtime-store-"));
