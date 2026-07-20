@@ -7,7 +7,7 @@ import {
   type AuthorityOperationReceipt,
   type AuthoritySubmissionService,
   type AuthorizedOperationAttemptV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import type {
   CurrentSessionRef,
   FlushReason,
@@ -16,8 +16,8 @@ import type {
   WriteCoordinator,
   WriteError,
   WriteOp
-} from "../../../kernel/src/index.ts";
-import { taskEntityId } from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { taskEntityId } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";

@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
-import type { CurrentSessionRef } from "../../../../kernel/src/index.ts";
-import type { TaskId, WriteError } from "../../../../kernel/src/index.ts";
-import { stablePayloadHash } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { listTaskIndexPaths, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
-import { ProvenanceEntrySchema } from "../../../../kernel/src/index.ts";
-import { writeCoordinatedTaskDocuments } from "../../../../kernel/src/write-coordination/write-helpers.ts";
+import type { CurrentSessionRef } from "@harness-anything/kernel";
+import type { TaskId, WriteError } from "@harness-anything/kernel";
+import { stablePayloadHash } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { listTaskIndexPaths, readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
+import { ProvenanceEntrySchema } from "@harness-anything/kernel";
+import { writeCoordinatedTaskDocuments } from "@harness-anything/kernel/write-coordination/write-helpers";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 

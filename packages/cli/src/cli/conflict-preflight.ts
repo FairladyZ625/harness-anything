@@ -1,5 +1,5 @@
-import type { HarnessLayoutInput, ProjectionWarning } from "../../../kernel/src/index.ts";
-import { findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, ProjectionWarning } from "@harness-anything/kernel";
+import { findConflictMarkerWarnings } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult } from "./types.ts";
 

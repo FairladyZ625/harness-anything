@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { isRecord } from "../../../application/src/record.ts";
+import { isRecord } from "@harness-anything/application/record";
 
 const execFileAsync = promisify(execFile);
 

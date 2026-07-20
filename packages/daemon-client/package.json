@@ -4,9 +4,8 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./connection-pool": "./src/connection-pool.ts" },
   "dependencies": {
-    "@harness-anything/api-contracts": "0.1.0",
-    "@harness-anything/kernel": "0.1.0"
+    "@harness-anything/api-contracts": "0.1.0"
   }
 }

@@ -2,7 +2,7 @@ import {
   planTemplateMaterialization,
   validateTemplateCatalog,
   type HarnessLayoutInput
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";

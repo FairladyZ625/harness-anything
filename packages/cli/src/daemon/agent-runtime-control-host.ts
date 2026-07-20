@@ -3,15 +3,15 @@ import {
   authenticationProbeEvidence,
   makeAgentRuntimeService,
   processProbeEvidence
-} from "../../../application/src/index.ts";
-import type { AgentRuntimeSessionStatus } from "../../../application/src/agent-runtime-control.ts";
+} from "@harness-anything/application";
+import type { AgentRuntimeSessionStatus } from "@harness-anything/application/agent-runtime-control";
 import {
   createAgentRuntimeSessionService,
   createClaudeCodeRuntimeAdapter,
   createCodexRuntimeAdapter,
   type AgentRuntimeControlService
-} from "../../../daemon/src/index.ts";
-import type { RuntimeInstallation, RuntimeSession } from "../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import type { RuntimeInstallation, RuntimeSession } from "@harness-anything/kernel";
 import { probeRuntimeAuthenticationProfiles } from "./agent-runtime-auth-profiles.ts";
 import { createLocalAgentRuntimeDiscoveryProbe } from "./agent-runtime-host-discovery.ts";
 import { createFileRuntimeSessionStore } from "./agent-runtime-session-store.ts";

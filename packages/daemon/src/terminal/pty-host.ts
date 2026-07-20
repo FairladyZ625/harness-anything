@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { accessSync, chmodSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";

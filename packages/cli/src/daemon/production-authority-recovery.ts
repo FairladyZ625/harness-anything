@@ -6,8 +6,8 @@ import type {
   AuthorityOperationRegistry,
   AuthorityStoredOperationRecord,
   ReplicaChangeLog
-} from "../../../application/src/index.ts";
-import type { makeLocalAuthorityAttributionEventV2Log } from "../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import type { makeLocalAuthorityAttributionEventV2Log } from "@harness-anything/kernel";
 import {
   assertPublicationMatchesMutationSet,
   AuthorityCanonicalPublicationNotFoundError,

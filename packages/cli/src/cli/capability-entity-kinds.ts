@@ -1,4 +1,4 @@
-import { entityRegistryKinds } from "../../../kernel/src/index.ts";
+import { entityRegistryKinds } from "@harness-anything/kernel";
 import type { CommandKind } from "./command-spec/index.ts";
 import type { CommandDescriptorIdentity } from "./command-spec/types.ts";
 import { entityForCommand } from "./command-input-descriptors.ts";

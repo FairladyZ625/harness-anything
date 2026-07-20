@@ -17,6 +17,10 @@
   "include": [
     "src/**/*.ts",
     "../kernel/src/**/*.ts",
+    "../application/src/**/*.ts",
+    "../api-contracts/src/**/*.ts",
+    "../daemon/src/**/*.ts",
+    "../adapters/github-issues/src/**/*.ts",
     "../adapters/local/src/**/*.ts",
     "../adapters/multica/src/**/*.ts"
   ]

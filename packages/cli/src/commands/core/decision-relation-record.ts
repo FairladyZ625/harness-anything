@@ -1,4 +1,4 @@
-import { deriveRelationId, type EntityRelationRecord } from "../../../../kernel/src/index.ts";
+import { deriveRelationId, type EntityRelationRecord } from "@harness-anything/kernel";
 
 export interface DecisionRelationInput {
   readonly decisionId: string;

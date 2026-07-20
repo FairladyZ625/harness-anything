@@ -3,8 +3,8 @@ import type {
   DaemonLogService,
   DaemonStatusService,
   LocalControllerService
-} from "../../application/src/index.ts";
-import type { TerminalSessionService } from "../../application/src/terminal-session-contract.ts";
+} from "@harness-anything/application";
+import type { TerminalSessionService } from "@harness-anything/application/terminal-session-contract";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";

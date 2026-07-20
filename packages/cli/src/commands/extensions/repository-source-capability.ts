@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { relativePath } from "../../cli/path.ts";
 
 type RepositorySourceCollection = "project-config" | "gate-tooling" | "product-source";

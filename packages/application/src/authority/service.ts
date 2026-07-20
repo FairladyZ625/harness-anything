@@ -5,7 +5,7 @@ import {
   daemonAdmissionBytes,
   type AuthorityOperationIntegrity,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   AuthorityIndeterminateReceipt,
   AuthorityCommittedEventPublisherV2,
@@ -83,7 +83,7 @@ export interface AuthoritySubmissionServiceOptions {
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
   readonly v2?: AuthoritySubmissionV2Options;
-  readonly admissionBudget?: import("../../../kernel/src/index.ts").DaemonAdmissionBudget;
+  readonly admissionBudget?: import("@harness-anything/kernel").DaemonAdmissionBudget;
 }
 
 export interface AuthoritySubmissionV2Options {

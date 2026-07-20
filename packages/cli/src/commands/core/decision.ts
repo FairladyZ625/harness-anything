@@ -2,8 +2,8 @@ import { Effect } from "effect";
 import {
   readDecisionDocument,
   type DecisionWriteService,
-} from "../../../../application/src/index.ts";
-import { type DecisionState, type WriteError } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import { type DecisionState, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, DecisionAmendPatchInput, ParsedCommand } from "../../cli/types.ts";

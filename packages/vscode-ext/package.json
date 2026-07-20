@@ -12,6 +12,7 @@
     "directory": "packages/vscode-ext"
   },
   "type": "module",
+  "exports": { ".": "./src/extension/extension.ts" },
   "engines": { "vscode": "^1.125.0" },
   "main": "./dist/extension.cjs",
   "extensionKind": ["workspace"],

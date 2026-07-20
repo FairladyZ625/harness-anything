@@ -324,4 +324,4 @@ function isPhaseKind(value: string): value is PhaseKind {
 function isPhaseActor(value: string): value is PhaseActor {
   return value === "agent" || value === "human" || value === "coordinator" || value === "reviewer";
 }
-import { extractMarkdownSection } from "../../kernel/src/index.ts";
+import { extractMarkdownSection } from "@harness-anything/kernel";

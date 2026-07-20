@@ -1,5 +1,5 @@
-import { generateTaskId } from "../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../kernel/src/index.ts";
+import { generateTaskId } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type {
   CurrentSessionRef,
   ExecutionLeaseContext,
@@ -7,7 +7,7 @@ import type {
   OutputEvidence,
   TaskHolderPrincipal,
   TaskHolderService
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface ExecutionSubmission {
   readonly completionClaim: string;

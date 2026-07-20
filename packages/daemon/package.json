@@ -5,9 +5,14 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./agent-runtime/session-service": "./src/agent-runtime/session-service.ts",
+    "./authority/forced-command-session": "./src/authority/forced-command-session.ts"
   },
   "dependencies": {
+    "@harness-anything/api-contracts": "0.1.0",
+    "@harness-anything/application": "0.1.0",
+    "@harness-anything/kernel": "0.1.0",
     "node-pty": "^1.1.0"
   }
 }

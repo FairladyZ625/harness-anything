@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
-import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/index.ts";
-import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../../../../kernel/src/index.ts";
+import { readTaskLifecyclePolicy } from "@harness-anything/application";
+import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";

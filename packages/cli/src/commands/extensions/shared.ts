@@ -6,7 +6,7 @@ import {
   TemplateCatalogSchema,
   VerticalDefinitionSchema,
   validateExtensionInputShape
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { bundledTemplateCatalog, bundledVerticalDefinition } from "./bundled.ts";

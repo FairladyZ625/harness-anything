@@ -14,7 +14,7 @@ import {
   type ReviewRecord,
   type TaskHolderPrincipal,
   type WriteCoordinator
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { assertExecutionTaskCompletable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
 
 export interface ExecutionCompletionService {

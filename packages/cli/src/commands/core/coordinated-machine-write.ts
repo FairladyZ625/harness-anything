@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { stablePayloadHash } from "../../../../kernel/src/index.ts";
-import type { EntityId, WriteCoordinator, WriteError, WriteOpKind } from "../../../../kernel/src/index.ts";
+import { stablePayloadHash } from "@harness-anything/kernel";
+import type { EntityId, WriteCoordinator, WriteError, WriteOpKind } from "@harness-anything/kernel";
 
 export function writeCoordinatedPayload(
   coordinator: WriteCoordinator,

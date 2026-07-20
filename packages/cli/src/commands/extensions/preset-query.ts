@@ -1,5 +1,5 @@
 import path from "node:path";
-import { validatePresetManifests, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { validatePresetManifests, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "../../kernel/src/index.ts";
-import { privateTextScannerVersion, resolveHarnessLayout, scanPrivateText, writeContentAddressedBlob, writeSessionEntity, type HarnessLayoutInput } from "../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import { privateTextScannerVersion, resolveHarnessLayout, scanPrivateText, writeContentAddressedBlob, writeSessionEntity, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 import { readSessionEntity } from "./session-entity-reader.ts";
 

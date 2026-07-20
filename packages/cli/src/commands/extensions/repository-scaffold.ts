@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { planTemplateMaterialization, type TemplateCatalog, type VerticalDefinition } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { planTemplateMaterialization, type TemplateCatalog, type VerticalDefinition } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { isPathInside } from "../../cli/path.ts";
 import { readProjectHarnessSettings } from "../settings.ts";
 import { bundledTemplateCatalog } from "./bundled.ts";

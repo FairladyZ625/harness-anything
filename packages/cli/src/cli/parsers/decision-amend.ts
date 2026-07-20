@@ -1,7 +1,7 @@
 import {
   decisionAmendFieldSupportsOperation,
   isDecisionAmendField
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionAmendPatchInput } from "../types.ts";

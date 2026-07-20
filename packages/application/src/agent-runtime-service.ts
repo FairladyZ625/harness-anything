@@ -13,7 +13,7 @@ import {
   type RuntimeRunningEvidence,
   type RuntimeSession,
   type RuntimeStateEvidence
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   AgentRuntimeInventoryProjection,
   AgentRuntimeStateProjection

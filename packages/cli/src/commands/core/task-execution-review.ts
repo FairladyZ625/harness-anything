@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { makeReviewExecutionService } from "../../../../application/src/index.ts";
+import { makeReviewExecutionService } from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

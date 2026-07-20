@@ -13,8 +13,8 @@ import type {
   TerminalSessionInfo,
   TerminalSessionService,
   TerminateTerminalSessionPayload
-} from "../../../application/src/terminal-session-contract.ts";
-export type * from "../../../application/src/terminal-session-contract.ts";
+} from "@harness-anything/application/terminal-session-contract";
+export type * from "@harness-anything/application/terminal-session-contract";
 
 export interface InMemoryTerminalSessionService extends TerminalSessionService {
   readonly detachSessionView: (payload: TerminalSessionIdPayload) => TerminalSessionDetailResult;

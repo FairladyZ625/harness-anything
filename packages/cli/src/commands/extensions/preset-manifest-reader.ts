@@ -6,7 +6,7 @@ import {
   validateExtensionInputShape,
   type ExtensionValidationIssue,
   type PresetManifest
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export function readPresetManifestFromSourceResult(sourcePath: string):
   | { readonly ok: true; readonly value: PresetManifest }

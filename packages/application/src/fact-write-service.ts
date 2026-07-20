@@ -15,9 +15,9 @@ import {
   type TaskId,
   type WriteCoordinator,
   type WriteError
-} from "../../kernel/src/index.ts";
-import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
-import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
+} from "@harness-anything/kernel";
+import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
+import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "@harness-anything/kernel/write-coordination/write-helpers";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 
 export interface FactWriteServiceOptions extends ProvenanceBindingOptions {

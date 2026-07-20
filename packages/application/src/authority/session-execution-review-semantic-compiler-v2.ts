@@ -11,7 +11,7 @@ import {
   type ReviewRecord,
   type SessionManifest,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   decodeSessionExecutionReviewCommandPayloadV2,
   type ExecutionActionPayloadV2,

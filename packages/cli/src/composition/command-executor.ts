@@ -12,9 +12,9 @@ import {
   type ProvenanceSessionExporterRejected,
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
-} from "../../../application/src/index.ts";
-import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "@harness-anything/kernel";
 import { toCliError } from "../cli/error-mapper.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { actionTaskId } from "../cli/parse-args.ts";

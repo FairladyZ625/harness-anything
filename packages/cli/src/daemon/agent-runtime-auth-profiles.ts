@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { RuntimeAuthenticationProfileProjection } from "../../../application/src/agent-runtime-control.ts";
+import type { RuntimeAuthenticationProfileProjection } from "@harness-anything/application/agent-runtime-control";
 
 export interface RuntimeAuthStatusResult {
   readonly exitCode: number;

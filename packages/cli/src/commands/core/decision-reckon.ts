@@ -4,9 +4,9 @@ import {
   type FactWriteRejected,
   type FactWriteService,
   readDecisionDocument
-} from "../../../../application/src/index.ts";
-import { queryConsentsBySourceStrength, readDecisionFactCoverage, type WriteError } from "../../../../kernel/src/index.ts";
-import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import { queryConsentsBySourceStrength, readDecisionFactCoverage, type WriteError } from "@harness-anything/kernel";
+import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 

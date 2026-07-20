@@ -1,8 +1,8 @@
 // Contract-only compatibility facade. PTY processes, registry state, persistence,
 // and lifecycle implementation are owned by packages/daemon/src/terminal.
-export type * from "../../../application/src/terminal-session-contract.ts";
+export type * from "@harness-anything/application/terminal-session-contract";
 
-import type * as TerminalContract from "../../../application/src/terminal-session-contract.ts";
+import type * as TerminalContract from "@harness-anything/application/terminal-session-contract";
 
 export interface TerminalSessionService {
   readonly createSession: (payload: TerminalContract.CreateTerminalSessionPayload) => TerminalContract.TerminalSessionDetailResult;

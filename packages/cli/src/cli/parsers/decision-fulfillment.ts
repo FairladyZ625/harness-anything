@@ -1,4 +1,4 @@
-import { decisionClaimFulfillments, type DecisionClaimFulfillment } from "../../../../kernel/src/index.ts";
+import { decisionClaimFulfillments, type DecisionClaimFulfillment } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionClaimFulfillmentInput } from "../types.ts";

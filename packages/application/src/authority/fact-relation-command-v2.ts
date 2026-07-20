@@ -9,7 +9,7 @@ import {
   type FactMemoryTag,
   type FactRecord,
   type ProvenancePayload
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   SemanticAdmissionErrorV2,
   bytesEqual,

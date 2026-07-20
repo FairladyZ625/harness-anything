@@ -2,7 +2,7 @@ import {
   assertManagedSemanticRegions,
   type RegistryMutationPlanInput,
   type SemanticDiffDocumentPolicy
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface RegistryRow {
   readonly id: string;

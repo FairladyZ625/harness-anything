@@ -3,9 +3,9 @@ import type {
   PresetManifest,
   TaskContractSnapshot,
   TemplateCatalog
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { Schema } from "effect";
-import { sha256Text, stablePayloadHash, TaskContractSnapshotSchema } from "../../kernel/src/index.ts";
+import { sha256Text, stablePayloadHash, TaskContractSnapshotSchema } from "@harness-anything/kernel";
 
 export interface CompileTaskContractSnapshotInput {
   readonly vertical: string;

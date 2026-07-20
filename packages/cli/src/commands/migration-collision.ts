@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
-import { LegacyCollisionReportSchema, type LegacyCollisionReport, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { LegacyCollisionReportSchema, type LegacyCollisionReport, type LegacyIndexEntry } from "@harness-anything/kernel";
 
 export interface LegacyCopyTarget {
   readonly entry: LegacyIndexEntry;

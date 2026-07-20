@@ -3,7 +3,7 @@ import {
   readSessionEntityDocument,
   type HarnessLayoutInput,
   type SessionManifest
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface SessionEntityReadResult {
   readonly format: "manifest";

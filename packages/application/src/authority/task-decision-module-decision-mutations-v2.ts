@@ -15,7 +15,7 @@ import {
   type EntityRelationRecord,
   type RegistryMutationPlanInput,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   DecisionAmendPayloadV2,
   DecisionRelationPayloadV2,

@@ -5,7 +5,7 @@ import {
   type DaemonRepoNamespace,
   type IdentityProvider,
   type PersonRegistry
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import type { AuthorityRepoLifecycleController } from "./authority-lifecycle.ts";
 import { canonicalRootIdentity } from "./canonical-root.ts";
 

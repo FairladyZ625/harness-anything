@@ -1,5 +1,5 @@
 import type { CommandRegistryEntry } from "./types.ts";
-import { commandReceiptEnvelope } from "../../../application/src/index.ts";
+import { commandReceiptEnvelope } from "@harness-anything/application";
 import { commandSpecs, type CommandKind, type CommandSpec } from "./command-spec/index.ts";
 import type { CommandReceiptContract } from "./command-spec/types.ts";
 import { cliCommandAlias, cliCommandName } from "./command-names.ts";

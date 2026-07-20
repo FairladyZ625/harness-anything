@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "../../../../application/src/index.ts";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "@harness-anything/application";
+import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

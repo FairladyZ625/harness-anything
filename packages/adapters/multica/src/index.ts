@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
-import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteError } from "../../../kernel/src/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { ArtifactStore, LifecycleEngine, LockLease, LockRegistry, WriteCoordinator } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, findTaskIdByExternalRef, makeLocalLockRegistry, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
-import { writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
+import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteError } from "@harness-anything/kernel";
+import { stablePayloadHash } from "@harness-anything/kernel";
+import type { ArtifactStore, LifecycleEngine, LockLease, LockRegistry, WriteCoordinator } from "@harness-anything/kernel";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "@harness-anything/kernel";
+import { createHarnessRuntimeContext, findTaskIdByExternalRef, makeLocalLockRegistry, taskDocumentPath, validateTaskIdSyntax } from "@harness-anything/kernel";
+import { writeCoordinatedPayload } from "@harness-anything/kernel/write-coordination/write-helpers";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
-import type { TaskSnapshot } from "../../../kernel/src/index.ts";
+import type { TaskSnapshot } from "@harness-anything/kernel";
 
 export interface MulticaRawIssue {
   readonly ref: ExternalRef;

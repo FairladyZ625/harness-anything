@@ -15,5 +15,5 @@
     "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../api-contracts" }, { "path": "../kernel" }]
+  "references": [{ "path": "../api-contracts" }]
 }

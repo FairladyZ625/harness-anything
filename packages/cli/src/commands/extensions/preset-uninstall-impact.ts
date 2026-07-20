@@ -6,14 +6,14 @@ import {
   type PresetRuntimeRequirement,
   type PresetUninstallImpactReport,
   type PresetUninstallTaskReference
-} from "../../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   listTaskIndexPaths,
   readFrontmatter,
   readScalar,
   type HarnessLayoutInput,
   type PresetManifest
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readPresetManifestFromSourceResult } from "./preset-manifest-reader.ts";
 
 export function buildPresetUninstallImpact(

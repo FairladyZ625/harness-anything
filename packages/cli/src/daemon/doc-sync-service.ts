@@ -11,8 +11,8 @@ import {
   type SemanticDiffCandidateTree,
   type SemanticDiffDocumentPolicy,
   type WriteCoordinator
-} from "../../../kernel/src/index.ts";
-import { compileManagedCandidateTreeV2 } from "../../../application/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileManagedCandidateTreeV2 } from "@harness-anything/application";
 import {
   classifyStaticZones,
   classifyTouchedZones,
@@ -28,7 +28,7 @@ import {
   type DocSyncValidationResult,
   type RegistryRow,
   type TouchedZone
-} from "../../../application/src/doc-sync.ts";
+} from "@harness-anything/application/doc-sync";
 import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
 
 export interface DocSyncServiceOptions {

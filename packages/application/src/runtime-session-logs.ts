@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import type { CurrentSessionRef, CurrentSessionRuntime } from "../../kernel/src/index.ts";
+import type { CurrentSessionRef, CurrentSessionRuntime } from "@harness-anything/kernel";
 import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from "./provenance-session-exporter.ts";
 
 export interface RuntimeLogOptions {

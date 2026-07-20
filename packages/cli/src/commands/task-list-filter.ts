@@ -1,4 +1,4 @@
-import type { TaskProjectionRow } from "../../../kernel/src/index.ts";
+import type { TaskProjectionRow } from "@harness-anything/kernel";
 import type { TaskListFilters } from "../cli/types.ts";
 
 export function filterTaskProjectionRows(

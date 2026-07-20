@@ -1,4 +1,4 @@
-import type { DecisionPackage } from "../../../../kernel/src/index.ts";
+import type { DecisionPackage } from "@harness-anything/kernel";
 import type { DecisionClaimFulfillmentInput } from "../../cli/types.ts";
 
 export function applyClaimFulfillments<Decision extends { readonly claims: DecisionPackage["claims"] }>(

@@ -1,4 +1,4 @@
-import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/index.ts";
+import type { ArtifactStoreError, EngineError, WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, isCliErrorCode } from "./error-codes.ts";
 import type { CliResult } from "./types.ts";
 

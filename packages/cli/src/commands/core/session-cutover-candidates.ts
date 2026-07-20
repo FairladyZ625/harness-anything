@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, stablePayloadHash, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, stablePayloadHash, type HarnessLayoutInput } from "@harness-anything/kernel";
 
 export interface ExecutionCandidate {
   readonly candidateId: string;

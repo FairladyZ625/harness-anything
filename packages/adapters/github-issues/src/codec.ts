@@ -1,4 +1,4 @@
-import type { EngineError } from "../../../kernel/src/index.ts";
+import type { EngineError } from "@harness-anything/kernel";
 
 export interface GithubRawIssue {
   readonly number: number;

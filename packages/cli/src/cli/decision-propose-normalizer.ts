@@ -1,4 +1,4 @@
-import { generateTaskId } from "../../../kernel/src/index.ts";
+import { generateTaskId } from "@harness-anything/kernel";
 import type { ParsedCommand } from "./types.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;

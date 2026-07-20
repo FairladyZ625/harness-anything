@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import type { RendererSafeConnectionState } from "./daemon-protocol.ts";
 
 export type RendererSafeStateDecoder = (value: unknown) => RendererSafeConnectionState;

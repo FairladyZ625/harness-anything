@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 
 export function resolveCanonicalHarnessRoot(input: HarnessLayoutInput): string {
   const layout = resolveHarnessLayout(input);

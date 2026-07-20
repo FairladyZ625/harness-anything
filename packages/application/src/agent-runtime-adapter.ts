@@ -2,8 +2,8 @@ import type {
   RuntimeCapabilityName,
   RuntimeInstallation,
   RuntimeSession
-} from "../../kernel/src/index.ts";
-import { runtimeCapabilityNames } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { runtimeCapabilityNames } from "@harness-anything/kernel";
 
 export type RuntimeCapabilityMatrix = Readonly<Record<RuntimeCapabilityName, boolean>>;
 

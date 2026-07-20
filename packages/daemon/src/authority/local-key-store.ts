@@ -30,7 +30,7 @@ import {
   type ActorAxesSigningProfileV2,
   type AuthorityKeyRegistryEntryV1,
   type AuthorityKeyRegistryV1
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { isMissing } from "../broker/errno.ts";
 
 const localAuthorityKeyCacheSchema = "authority-key-material-cache/v1" as const;

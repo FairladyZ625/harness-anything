@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import {
   readDaemonRegistry,
   type DaemonRegistryRepo
-} from "../../kernel/src/index.ts";
-import { makeDaemonLogService } from "../../application/src/index.ts";
+} from "@harness-anything/kernel";
+import { makeDaemonLogService } from "@harness-anything/application";
 import { parseArgs } from "./cli/parse-args.ts";
 import { deprecationWarning } from "./cli/command-deprecations.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
-import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "../../daemon/src/index.ts";
+import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "@harness-anything/daemon";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";

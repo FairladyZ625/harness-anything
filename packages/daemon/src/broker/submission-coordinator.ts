@@ -1,7 +1,7 @@
 import type {
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { ReplicaBroker } from "./replica-broker.ts";
 import type { AuthoritySubmissionClient } from "./types.ts";
 

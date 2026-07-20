@@ -4,7 +4,7 @@ import {
   generateTaskId,
   type ArtifactStore,
   type ExecutionRecord
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "./types.ts";
 
 export async function normalizeReviewExecutionSelection(

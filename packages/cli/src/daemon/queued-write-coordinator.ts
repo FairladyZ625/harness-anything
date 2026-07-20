@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import type { MaterializerCommandReport } from "../cli/types.ts";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];

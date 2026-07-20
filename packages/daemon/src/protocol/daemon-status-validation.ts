@@ -1,7 +1,7 @@
 import {
   decodeDaemonStatusRequestV2,
   decodeDaemonStatusResultV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import type { JsonObject } from "./json-rpc-types.ts";
 
 import { failureReceipt } from "./receipt-envelope.ts";

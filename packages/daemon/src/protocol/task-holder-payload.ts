@@ -1,4 +1,4 @@
-import type { TaskHolderExecutor } from "../../../application/src/index.ts";
+import type { TaskHolderExecutor } from "@harness-anything/application";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 export function readTaskHolderExecutor(payload: JsonObject | undefined): TaskHolderExecutor | null {

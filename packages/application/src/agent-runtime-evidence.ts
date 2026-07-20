@@ -4,7 +4,7 @@ import type {
   RuntimeDiscoverySource,
   RuntimeInstalledEvidence,
   RuntimeRunningEvidence
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   AgentRuntimeSessionStatus,
   RuntimeAuthenticationProfileProjection

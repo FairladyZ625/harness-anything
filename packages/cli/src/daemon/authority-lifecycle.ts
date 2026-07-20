@@ -6,13 +6,13 @@ import type {
   AuthorityFenceWitness,
   OperationNamespaceVerifierV2,
   ProtocolSchemaTupleV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { Effect } from "effect";
 import type {
   AuthorityConnectionContext,
   DaemonRepoNamespace,
   PersonRegistry
-} from "../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import {
   resolveHarnessLayout,
   stableStringify,
@@ -20,10 +20,10 @@ import {
   type FlushReport,
   type WriteAttribution,
   type WriteCoordinator
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import type { ProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
-import type { AuthorityForcedCommandSession } from "../../../daemon/src/index.ts";
+import type { AuthorityForcedCommandSession } from "@harness-anything/daemon";
 import type { Readable, Writable } from "node:stream";
 import {
   createGitCanonicalPublicationInspector,

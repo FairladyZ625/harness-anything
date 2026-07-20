@@ -1,0 +1,16 @@
+{
+  "schema": "harness-anything/package-boundary-violations/v1",
+  "total": 12,
+  "violations": [
+    { "file": "packages/gui/src/api/gui-route-payload.ts", "source": "gui", "target": "application", "count": 1 },
+    { "file": "packages/gui/src/api/renderer-dto.ts", "source": "gui", "target": "application", "count": 1 },
+    { "file": "packages/gui/src/api/renderer-dto.ts", "source": "gui", "target": "kernel", "count": 1 },
+    { "file": "packages/gui/src/api/service-bridge.ts", "source": "gui", "target": "application", "count": 1 },
+    { "file": "packages/gui/src/api/view-model.ts", "source": "gui", "target": "application", "count": 2 },
+    { "file": "packages/gui/src/api/view-model.ts", "source": "gui", "target": "kernel", "count": 1 },
+    { "file": "packages/gui/src/daemon/remote-tunnel.ts", "source": "gui", "target": "application", "count": 1 },
+    { "file": "packages/gui/src/index.ts", "source": "gui", "target": "application", "count": 1 },
+    { "file": "packages/gui/src/main/electron-main.ts", "source": "gui", "target": "kernel", "count": 1 },
+    { "file": "packages/gui/src/terminal/session-registry.ts", "source": "gui", "target": "application", "count": 2 }
+  ]
+}

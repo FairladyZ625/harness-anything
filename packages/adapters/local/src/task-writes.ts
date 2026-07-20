@@ -1,9 +1,9 @@
 import { Effect } from "effect";
-import { taskEntityId } from "../../../kernel/src/index.ts";
-import type { TaskId, WriteError } from "../../../kernel/src/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/index.ts";
-import type { WriteOpKind } from "../../../kernel/src/index.ts";
-import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "../../../kernel/src/write-coordination/write-helpers.ts";
+import { taskEntityId } from "@harness-anything/kernel";
+import type { TaskId, WriteError } from "@harness-anything/kernel";
+import type { WriteCoordinator } from "@harness-anything/kernel";
+import type { WriteOpKind } from "@harness-anything/kernel";
+import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "@harness-anything/kernel/write-coordination/write-helpers";
 import type { HashPayload } from "./task-index.ts";
 
 export interface TaskDocumentWrite {

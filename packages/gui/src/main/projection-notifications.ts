@@ -1,5 +1,5 @@
-import type { Disposable, ProjectionChangeNotification, Subscription } from "../../../api-contracts/src/index.ts";
-import { JsonLineSocketTransport, PersistentDaemonClient } from "../../../daemon-client/src/index.ts";
+import type { Disposable, ProjectionChangeNotification, Subscription } from "@harness-anything/api-contracts";
+import { JsonLineSocketTransport, PersistentDaemonClient } from "@harness-anything/daemon-client";
 import type {
   HarnessProjectionNotificationSource
 } from "./ipc-handlers.ts";

@@ -5,7 +5,7 @@ import {
   taskHolderActor,
   type TaskHolderPersonPrincipal,
   type TaskHolderPrincipal
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   daemonUserRootForRepo,
   hasPersonRegistry,
@@ -15,8 +15,8 @@ import {
   mergePeopleRosters,
   personRegistryFromLegacyRoster,
   validatePeopleRosterReferences
-} from "../../../daemon/src/index.ts";
-import { resolveHarnessLayout, sha256Text, type HarnessLayoutInput, type PrincipalSource } from "../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import { resolveHarnessLayout, sha256Text, type HarnessLayoutInput, type PrincipalSource } from "@harness-anything/kernel";
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import {
   CliActorAttributionError,

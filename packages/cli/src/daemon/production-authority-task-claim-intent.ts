@@ -1,13 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
 import { Schema } from "effect";
-import { encodeSessionExecutionReviewCommandPayloadV2 } from "../../../application/src/index.ts";
+import { encodeSessionExecutionReviewCommandPayloadV2 } from "@harness-anything/application";
 import {
   executionDeclaration,
   taskHolderActor,
   type CurrentSessionRef,
   type ExecutionRecord,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";

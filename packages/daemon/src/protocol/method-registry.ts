@@ -1,5 +1,5 @@
-import { apiRouteContracts, type ApiRouteContract } from "../../../api-contracts/src/api-contract-registry.ts";
-import { taskWriteCliRoutePolicies, taskWriteCliRoutePolicy } from "../../../application/src/index.ts";
+import { apiRouteContracts, type ApiRouteContract } from "@harness-anything/api-contracts/api-contract-registry";
+import { taskWriteCliRoutePolicies, taskWriteCliRoutePolicy } from "@harness-anything/application";
 import type { DaemonCommandClass } from "../identity/types.ts";
 
 export const currentDaemonProtocolVersion = 1 as const;

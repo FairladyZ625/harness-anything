@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import { sha256Text, stableStringify } from "./stable-hash.ts";
 

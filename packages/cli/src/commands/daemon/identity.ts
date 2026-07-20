@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../../../application/src/index.ts";
+import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "@harness-anything/application";
 import {
   composeIdentityProvider,
   credentialKey,
@@ -22,8 +22,8 @@ import {
   type IdentityProvider,
   type PersonRegistry,
   type RolePolicy
-} from "../../../../daemon/src/index.ts";
-import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import { createHarnessRuntimeContext, resolveHarnessLayout } from "@harness-anything/kernel";
 import { readProjectHarnessSettings } from "../settings.ts";
 
 export function loadDaemonIdentityWithEmail(

@@ -1,4 +1,4 @@
-import type { RegistryMutationPlanInput, StoragePlan, WriteOp } from "../../../kernel/src/index.ts";
+import type { RegistryMutationPlanInput, StoragePlan, WriteOp } from "@harness-anything/kernel";
 import {
   semanticMutationSetBytesV2,
   semanticMutationSetDigestV2,
@@ -6,7 +6,7 @@ import {
   validateSemanticMutationSetV2,
   type RegistryEntityRefV2,
   type SemanticMutationSetV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   actorAxesBindingDigestV2,
   type ActorAxesBindingClaimsV2,
@@ -27,13 +27,13 @@ export {
   semanticMutationSetBytesV2,
   semanticMutationSetDigestV2,
   semanticMutationSetV2Domain
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 export type {
   RegisteredSemanticActionV2,
   RegistryEntityRefV2,
   SemanticMutationSetV2,
   SemanticMutationV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export type ContentValueV2 =
   | { readonly kind: "inline"; readonly size: bigint; readonly bytes: Uint8Array }

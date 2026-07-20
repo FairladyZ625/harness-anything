@@ -1,4 +1,4 @@
-import type { DomainStatus } from "../../../../kernel/src/index.ts";
+import type { DomainStatus } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
-import { deriveRelationId, formatRelationFlowRecord, readRelationGraphProjection, readTaskProjection } from "../../../../kernel/src/index.ts";
-import type { EntityRelationRecord } from "../../../../kernel/src/index.ts";
-import { readFrontmatter, taskDocumentPath } from "../../../../kernel/src/index.ts";
-import { detectRelationGraphCycles } from "../../../../kernel/src/index.ts";
-import { parseRelationFlowRecords } from "../../../../kernel/src/index.ts";
+import type { EngineError, WriteError } from "@harness-anything/kernel";
+import { deriveRelationId, formatRelationFlowRecord, readRelationGraphProjection, readTaskProjection } from "@harness-anything/kernel";
+import type { EntityRelationRecord } from "@harness-anything/kernel";
+import { readFrontmatter, taskDocumentPath } from "@harness-anything/kernel";
+import { detectRelationGraphCycles } from "@harness-anything/kernel";
+import { parseRelationFlowRecords } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";

@@ -5,7 +5,7 @@ import {
   stablePayloadHash,
   type PresetManifest,
   type TaskContractSnapshot
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export type PresetRuntimeRequirement = "none" | "required" | "unknown";
 export type PresetUninstallDecisionReason =

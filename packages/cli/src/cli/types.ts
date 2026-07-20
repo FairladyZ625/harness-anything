@@ -12,10 +12,10 @@ import type {
   ReviewVerdict,
   ConsentAction,
   TaskWorkKind
-} from "../../../kernel/src/index.ts";
-import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/index.ts";
-import type { DecisionClaimFulfillment } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import type { DecisionAmendField, DecisionAmendOperation } from "@harness-anything/kernel";
+import type { DecisionClaimFulfillment } from "@harness-anything/kernel";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";

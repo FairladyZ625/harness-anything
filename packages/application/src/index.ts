@@ -2,7 +2,7 @@ import type {
   DomainStatus,
   ProjectionWarning,
   TaskProjectionRow
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 export * from "./public-exports.ts";
 export * from "./daemon-status-contract.ts";
 export * from "./daemon-log-contract.ts";

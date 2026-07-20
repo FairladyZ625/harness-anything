@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput, type WriteOp } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput, type WriteOp } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";

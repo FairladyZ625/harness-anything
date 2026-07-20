@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 
 export function validateJournalActorAttribution(rootInput: HarnessLayoutInput): ReadonlyArray<ProfileValidationIssue> {

@@ -2,7 +2,7 @@ import {
   parseEntityRef,
   relationTypes,
   type RelationType
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

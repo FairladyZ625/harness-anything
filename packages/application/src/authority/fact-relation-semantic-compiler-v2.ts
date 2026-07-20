@@ -14,7 +14,7 @@ import {
   type EntityRelationRecord,
   type RegistryMutationPlanInput,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   decodeFactRecordV2,
   decodeFactRelationCommandPayloadV2,

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
-import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import type { EngineError, WriteError } from "@harness-anything/kernel";
+import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";

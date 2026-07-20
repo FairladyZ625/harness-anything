@@ -4,7 +4,7 @@ import type {
   DaemonLogEntryV1,
   DaemonLogStorePort,
   DaemonLogStoreReadResult
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export interface DaemonLogFileStoreOptions {
   readonly userRoot: string;

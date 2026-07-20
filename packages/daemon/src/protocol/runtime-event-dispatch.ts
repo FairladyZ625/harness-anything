@@ -1,8 +1,8 @@
 import {
   runtimeEventActorFromTaskHolderPrincipal,
   taskHolderPrincipalFromActor
-} from "../../../application/src/index.ts";
-import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
+} from "@harness-anything/application";
+import type { RuntimeEventAppendInput } from "@harness-anything/application/runtime-event-ledger-service";
 import type { AuthenticatedActor } from "../identity/types.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 import type { JsonRpcMethodContract } from "./method-registry.ts";

@@ -1,5 +1,5 @@
 // @slice-activation W-D2 fail-closed registry discovery exported for W-D3 host composition.
-import { resolveDaemonRepoByRoot } from "@harness-anything/kernel";
+import type { ResolveDaemonRepoByRoot } from "@harness-anything/api-contracts";
 
 export interface RegistryWorkspaceRoute {
   readonly endpoint: string;
@@ -9,14 +9,18 @@ export interface RegistryWorkspaceRoute {
 export interface DaemonRegistryResolverOptions {
   readonly endpoint: string;
   readonly userRoot: string;
-  readonly resolveRepoByRoot?: typeof resolveDaemonRepoByRoot;
+  readonly resolveRepoByRoot: ResolveDaemonRepoByRoot;
 }
 
 export function createDaemonRegistryResolver(options: DaemonRegistryResolverOptions): (rootDir: string) => RegistryWorkspaceRoute | undefined {
-  const resolveRepo = options.resolveRepoByRoot ?? resolveDaemonRepoByRoot;
+  // W1 dependency inversion makes the resolver explicit: restoring the former
+  // kernel-backed default would recreate daemon-client -> kernel.
+  if (typeof options.resolveRepoByRoot !== "function") {
+    throw new TypeError("createDaemonRegistryResolver requires resolveRepoByRoot after PLT-Boundary W1");
+  }
   return (rootDir) => {
     try {
-      const repo = resolveRepo(rootDir, { userRoot: options.userRoot });
+      const repo = options.resolveRepoByRoot(rootDir, { userRoot: options.userRoot });
       return repo?.state === "enabled" ? { endpoint: options.endpoint, repoId: repo.repoId } : undefined;
     } catch {
       return undefined;

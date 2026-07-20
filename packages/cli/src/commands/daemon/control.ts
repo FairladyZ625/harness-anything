@@ -2,8 +2,8 @@ import {
   requestLocalDaemonJsonRpcForTarget,
   type JsonObject,
   type LocalDaemonTarget
-} from "../../../../daemon/src/index.ts";
-import { makeLocalVersionControlSystem, readDaemonRegistry } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/daemon";
+import { makeLocalVersionControlSystem, readDaemonRegistry } from "@harness-anything/kernel";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readOption } from "../../cli/parse-options.ts";

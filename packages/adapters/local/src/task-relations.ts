@@ -1,4 +1,4 @@
-import type { TaskId } from "../../../kernel/src/index.ts";
+import type { TaskId } from "@harness-anything/kernel";
 
 export function renderSupersedesRelation(newTaskId: TaskId, oldTaskId: TaskId, reason: string): string {
   return [

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";

@@ -1,4 +1,4 @@
-import type { TaskHolderService } from "../../../kernel/src/index.ts";
+import type { TaskHolderService } from "@harness-anything/kernel";
 import type { ParsedCommand } from "./types.ts";
 
 export async function normalizeExecutionSubmissionCommand(

@@ -5,7 +5,11 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./api-contract-registry": "./src/api-contract-registry.ts",
+    "./api-contract-types": "./src/api-contract-types.ts",
+    "./daemon-protocol": "./src/daemon-protocol.ts",
+    "./renderer-safe-state": "./src/renderer-safe-state.ts"
   },
   "dependencies": {
     "@harness-anything/application": "0.1.0"

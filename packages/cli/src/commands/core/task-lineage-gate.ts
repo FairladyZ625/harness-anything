@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { readFrontmatter, readRelationGraphProjection, readScalar, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { readFrontmatter, readRelationGraphProjection, readScalar, taskDocumentPath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";

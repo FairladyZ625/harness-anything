@@ -1,4 +1,4 @@
-import { makeCodeDocGitEvidenceResolver, type VersionControlSystem } from "../../kernel/src/index.ts";
+import { makeCodeDocGitEvidenceResolver, type VersionControlSystem } from "@harness-anything/kernel";
 
 export const CODE_DOC_RECONCILIATION_DOCUMENT = "code-doc-anchors.json";
 

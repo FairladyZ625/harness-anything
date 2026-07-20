@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import path from "node:path";
-import { makeMulticaAdoptionService, makeMulticaLifecycleEngine, type MulticaClient, type MulticaRawIssue } from "../../../adapters/multica/src/index.ts";
-import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, TaskId, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { resolveHarnessLayout, taskPackagePath } from "../../../kernel/src/index.ts";
+import { makeMulticaAdoptionService, makeMulticaLifecycleEngine, type MulticaClient, type MulticaRawIssue } from "@harness-anything/adapter-multica";
+import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, TaskId, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
 
 export interface AdoptMulticaAction {

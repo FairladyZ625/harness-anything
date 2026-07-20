@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { ReplicaChangeRecord } from "../../../application/src/index.ts";
+import type { ReplicaChangeRecord } from "@harness-anything/application";
 import { fingerprintDigest } from "./fingerprint.ts";
 import type { BrokerDurableState } from "./types.ts";
 import { isMissing } from "./errno.ts";

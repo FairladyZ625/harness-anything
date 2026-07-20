@@ -13,8 +13,8 @@ import type {
   AuthorityStoredOperationRecord,
   ReplicaChangeLog,
   ReplicaChangeRecord
-} from "../../../application/src/index.ts";
-import { stableStringify } from "../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import { stableStringify } from "@harness-anything/kernel";
 
 const serviceStateSchema = "authority-service-state/v1" as const;
 

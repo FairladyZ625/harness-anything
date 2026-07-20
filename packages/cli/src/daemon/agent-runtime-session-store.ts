@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { RuntimeSessionStore, StoredRuntimeSession } from "../../../daemon/src/agent-runtime/session-service.ts";
+import type { RuntimeSessionStore, StoredRuntimeSession } from "@harness-anything/daemon/agent-runtime/session-service";
 
 const storeSchema = "agent-runtime-session-store/v1" as const;
 

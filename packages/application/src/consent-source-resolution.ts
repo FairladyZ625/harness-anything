@@ -6,7 +6,7 @@ import {
   type CurrentSessionRuntime,
   type ExecutionRecord,
   type HarnessLayoutInput
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readDecisionDocument } from "./decision-document-reader.ts";
 import {
   resolveRuntimeConversation,

@@ -9,7 +9,7 @@ import {
   type PresetPreflightReceipt,
   type PresetRawFsEnforcementEvidence,
   type PresetRawFsGrant
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { presetRuntimeRepairHint, smokePresetEntrypoints, type PresetEntrypointSmokeIssue } from "./preset-smoke.ts";
 import { registeredSemanticPresetCapabilityProviders } from "./preset-capability-runtime.ts";
 import type { ResolvedPreset } from "./state.ts";

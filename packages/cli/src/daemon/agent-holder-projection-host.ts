@@ -6,12 +6,12 @@ import {
   type AgentRuntimeControlService,
   type TaskHolderService,
   type TaskHolderServiceOptions
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   queryExecutions,
   queryTaskProjection,
   type HarnessLayoutOverrides
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeLocalAgentRuntimeControllerOptions } from "./agent-runtime-control-host.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator } from "./queued-write-coordinator.ts";
 

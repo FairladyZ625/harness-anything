@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
 
 export interface DoctorReport {

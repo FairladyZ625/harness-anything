@@ -7,7 +7,7 @@ import {
   resolveHarnessLayout,
   type HarnessLayoutInput,
   type SemanticDiffDocumentPolicy
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { bundledTemplateCatalog } from "./bundled.ts";
 import { materializePresetTaskDocuments, resolvePresetEntry } from "./state.ts";
 

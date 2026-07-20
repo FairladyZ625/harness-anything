@@ -16,7 +16,7 @@ import {
   type NamedPipeTransportServer,
   type SshAuthenticatedBootstrapFrame,
   type UnixSocketTransportServer
-} from "../../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 
 interface DaemonSocketOwnerRecord {
   readonly schema: "daemon-socket-owner/v1";

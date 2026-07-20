@@ -8,7 +8,7 @@ import {
   makeTaskDecisionModuleSemanticCompilerV2,
   sessionExecutionReviewTypedCommandsV2,
   taskDecisionModuleTypedCommandsV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { createProductionCanonicalSemanticState } from "./production-authority-attempt-compiler.ts";
 import { makeProductionScriptIngestSemanticCompiler } from "./production-authority-script-ingest.ts";
 

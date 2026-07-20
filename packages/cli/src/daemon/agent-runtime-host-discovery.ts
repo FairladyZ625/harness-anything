@@ -6,9 +6,9 @@ import type {
   AgentRuntimeDiscoveryProbe,
   AgentRuntimeInventoryProjection,
   RuntimeExecutableCandidate
-} from "../../../application/src/index.ts";
-import { makeAgentRuntimeService } from "../../../application/src/index.ts";
-import type { RuntimeKind } from "../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import { makeAgentRuntimeService } from "@harness-anything/application";
+import type { RuntimeKind } from "@harness-anything/kernel";
 
 export interface LocalAgentRuntimeDiscoveryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;

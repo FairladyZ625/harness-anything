@@ -4,12 +4,12 @@ import {
   type AuthorityCommittedEventPublisherV2,
   type AuthorityCommittedReceipt,
   type AuthorityStoredOperationRecord
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   actorAxesBindingCoreDigestV2,
   makeLocalAuthorityAttributionEventV2Log,
   type ActorAxesBindingCoreV2
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { DurableAuthorityBindingRuntimeV2 } from "./authority-production-state.ts";
 import type { DurableAuthorityServiceState } from "./authority-service-state.ts";
 import {

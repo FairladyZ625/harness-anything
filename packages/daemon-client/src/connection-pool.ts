@@ -1,4 +1,5 @@
-import type { Subscription } from "../../api-contracts/src/daemon-protocol.ts";
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
+import type { Subscription } from "@harness-anything/api-contracts/daemon-protocol";
 import { PersistentDaemonClient, type PersistentDaemonClientOptions } from "./persistent-daemon-client.ts";
 
 export interface PooledRepoConnection {

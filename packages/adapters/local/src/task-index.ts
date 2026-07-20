@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } from "../../../kernel/src/index.ts";
-import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
-import { readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
-import type { ProvenancePayload } from "../../../kernel/src/index.ts";
-import { ProvenanceEntrySchema } from "../../../kernel/src/index.ts";
+import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } from "@harness-anything/kernel";
+import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "@harness-anything/kernel";
+import { readFrontmatter, readScalar } from "@harness-anything/kernel";
+import type { ProvenancePayload } from "@harness-anything/kernel";
+import { ProvenanceEntrySchema } from "@harness-anything/kernel";
 import type { LocalTaskIndex } from "./types.ts";
 
 export type HashPayload = (value: unknown) => string;

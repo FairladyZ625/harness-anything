@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";

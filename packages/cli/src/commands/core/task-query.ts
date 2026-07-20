@@ -6,7 +6,7 @@ import {
   queryTaskSubtree,
   readRelationGraphProjection,
   type TaskFieldExtensionProjection,
-} from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

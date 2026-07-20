@@ -1,14 +1,14 @@
 import {
   encodeSessionExecutionReviewCommandPayloadV2,
   type SessionExecutionReviewCommandPayloadV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   readContentAddressedTextBlob,
   type CurrentSessionRef,
   type RegistryEntityRefV2,
   type SessionManifest,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 

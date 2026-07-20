@@ -12,9 +12,9 @@ import {
   type LocalControllerService,
   type TaskHolderExecutor,
   type TaskHolderService
-} from "../../../application/src/index.ts";
-import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
-import type { TerminalSessionService } from "../../../application/src/terminal-session-contract.ts";
+} from "@harness-anything/application";
+import type { RuntimeEventAppendInput } from "@harness-anything/application/runtime-event-ledger-service";
+import type { TerminalSessionService } from "@harness-anything/application/terminal-session-contract";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";

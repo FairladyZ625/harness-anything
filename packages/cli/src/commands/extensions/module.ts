@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
-import { moduleEntityId } from "../../../../kernel/src/index.ts";
-import type { WriteOp } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { moduleEntityId } from "@harness-anything/kernel";
+import type { WriteOp } from "@harness-anything/kernel";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
   moduleNotFound,

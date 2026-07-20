@@ -1,4 +1,4 @@
-import { isTaskHolderError, type TaskHolderPrincipal } from "../../../../application/src/index.ts";
+import { isTaskHolderError, type TaskHolderPrincipal } from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";

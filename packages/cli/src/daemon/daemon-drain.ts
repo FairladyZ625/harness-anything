@@ -1,4 +1,4 @@
-import { DaemonDrainTimeoutError } from "../../../kernel/src/index.ts";
+import { DaemonDrainTimeoutError } from "@harness-anything/kernel";
 import type { AuthorityRepoLifecycleController } from "./authority-lifecycle.ts";
 
 export async function drainDaemonRuntime(input: {

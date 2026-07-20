@@ -3,7 +3,7 @@ import { cliError, CliErrorCode } from "./error-codes.ts";
 import { applyJsonInputLayer } from "./json-input.ts";
 import { parseRegisteredCommand } from "./parser-registry.ts";
 import { stripGlobalOptions } from "./parse-options.ts";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { CliResult, ParsedCommand } from "./types.ts";
 import { withDeprecatedInvocation } from "./command-deprecations.ts";
 

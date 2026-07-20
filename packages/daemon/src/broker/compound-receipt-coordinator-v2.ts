@@ -6,7 +6,7 @@ import {
   type CompoundReceiptServiceV2,
   type CompoundReceiptWireBrokerV1,
   type ReceiptIdentityV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { materializationWitnessToAppliedExactAtCutV2 } from "./compound-receipt-witness.ts";
 import { ReplicaBroker } from "./replica-broker.ts";
 import type { BrokerBarrierResult, BrokerDurableState } from "./types.ts";

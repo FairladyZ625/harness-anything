@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { runtimeEventActorFromTaskHolderPrincipal, type RuntimeEventLedgerRejected } from "../../../../application/src/index.ts";
+import { runtimeEventActorFromTaskHolderPrincipal, type RuntimeEventLedgerRejected } from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";

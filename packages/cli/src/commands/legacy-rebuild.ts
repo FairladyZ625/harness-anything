@@ -1,13 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
-import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
-import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { OperationalActor, WriteCoordinator } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/index.ts";
-import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
+import { indexPath, makeIndex, renderIndex } from "@harness-anything/adapter-local/task-index";
+import { taskEntityId, type EngineError, type WriteError } from "@harness-anything/kernel";
+import { stablePayloadHash } from "@harness-anything/kernel";
+import type { OperationalActor, WriteCoordinator } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "@harness-anything/kernel";
+import { LegacyIndexSchema, type LegacyIndexEntry } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 

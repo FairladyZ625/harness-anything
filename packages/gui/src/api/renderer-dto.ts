@@ -11,7 +11,7 @@ export type {
   ProjectionWarning,
   RelationType,
   TaskProjectionRow
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 export type {
   AppendTaskProgressPayload,
   CatalogAdapterEntry,
@@ -72,4 +72,4 @@ export type {
   TaskFactListResult,
   TaskListResult,
   TriadicProjectionResult
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";

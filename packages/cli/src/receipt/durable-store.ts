@@ -6,7 +6,7 @@ import {
   type CompoundOperationReceipt,
   type CompoundReceiptStore,
   type ReceiptIdentity
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export interface DurableCompoundReceiptStoreOptions {
   readonly directory: string;

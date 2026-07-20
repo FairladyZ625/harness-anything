@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { encodeCanonicalCbor, type CanonicalCborValue } from "./canonical-cbor.ts";
 import type { ProtocolSchemaTupleV2 } from "./actor-axes-binding-v2.ts";
 import type { AuthorityProtocolTuple, RecordedAuthorityProtocol } from "./types.ts";
-import { entityRegistryKinds } from "../../../kernel/src/index.ts";
+import { entityRegistryKinds } from "@harness-anything/kernel";
 
 export const authorityCutoverControlStateSchema = "authority-cutover-control/v1" as const;
 export const authorityCutoverDrainReceiptSchema = "authority-cutover-drain-receipt/v1" as const;

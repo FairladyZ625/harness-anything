@@ -10,8 +10,8 @@ import {
   type ArtifactStore,
   type HarnessLayoutInput,
   type WriteCoordinator
-} from "../../kernel/src/index.ts";
-import type { ExecutionRecord } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import type { ExecutionRecord } from "@harness-anything/kernel";
 import type { ExecutionAuthoredStore, ExecutionSubmission } from "./execution-saga-service.ts";
 
 export function makeCoordinatedExecutionAuthoredStore(input: {

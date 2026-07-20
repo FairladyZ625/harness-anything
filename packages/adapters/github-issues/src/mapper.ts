@@ -1,4 +1,4 @@
-import type { TaskSnapshot } from "../../../kernel/src/index.ts";
+import type { TaskSnapshot } from "@harness-anything/kernel";
 import type { GithubRawIssue } from "./codec.ts";
 import type { GithubLabelMapping, GithubOpenStatus } from "./types.ts";
 

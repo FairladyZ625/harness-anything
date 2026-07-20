@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { execFileSync } from "node:child_process";
 
 const gitMaxBuffer = 256 * 1024 * 1024;

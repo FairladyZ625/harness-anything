@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { isPresetRunEntrypoint } from "../../cli/preset-entrypoint-capabilities.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";

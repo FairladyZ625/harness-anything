@@ -2,7 +2,7 @@ import {
   decodeDaemonLogEntry,
   type DaemonLogEntryV1,
   type DaemonLogService
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 
 const lifecycleEventSchema = "daemon-lifecycle-event/v1" as const;

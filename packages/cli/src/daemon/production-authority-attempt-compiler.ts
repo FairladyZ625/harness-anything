@@ -18,7 +18,7 @@ import {
   type SessionExecutionReviewCommandPayloadV2,
   type SemanticMutationEnvelopeV2,
   type TaskDecisionModuleCommandPayloadV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   decisionEntityId,
   decisionSemanticMutationActions,
@@ -33,7 +33,7 @@ import {
   type EntityRelationRecord,
   type RegistryEntityRefV2,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import { normalizeDecisionProposeAction } from "../cli/decision-propose-normalizer.ts";
 import { normalizedFactSource } from "../cli/command-semantic-normalizer.ts";
@@ -41,7 +41,7 @@ import {
   productionAuthorityIngressFor,
   productionAuthorityUnsupportedHint
 } from "../cli/command-spec/index.ts";
-import type { AuthorityConnectionContext } from "../../../daemon/src/index.ts";
+import type { AuthorityConnectionContext } from "@harness-anything/daemon";
 import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import {
   openAuthorityProductionKeyMaterial,

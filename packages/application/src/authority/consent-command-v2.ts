@@ -1,4 +1,4 @@
-import { consentActions, type ConsentAction } from "../../../kernel/src/index.ts";
+import { consentActions, type ConsentAction } from "@harness-anything/kernel";
 import { canonicalPayloadDigestV2 } from "./fact-relation-command-v2.ts";
 import {
   bytesEqual,

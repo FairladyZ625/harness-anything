@@ -4,5 +4,6 @@
   "description": "Placeholder Linear adapter package; not shipped.",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "type": "module"
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
 }

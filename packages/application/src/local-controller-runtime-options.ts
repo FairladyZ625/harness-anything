@@ -4,7 +4,7 @@ import type {
   EngineError,
   HarnessLayoutOverrides,
   WriteError
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AgentRuntimeControlService } from "./agent-runtime-control.ts";
 import type { AgentHolderProjectionService } from "./agent-holder-projection.ts";
 import type {
@@ -38,7 +38,7 @@ export interface LocalControllerProjectionQueries {
 
 export interface LocalControllerStatusWriteResult {
   readonly taskId: string;
-  readonly status: import("../../kernel/src/index.ts").DomainStatus;
+  readonly status: import("@harness-anything/kernel").DomainStatus;
 }
 
 export interface LocalControllerProgressWriteResult {

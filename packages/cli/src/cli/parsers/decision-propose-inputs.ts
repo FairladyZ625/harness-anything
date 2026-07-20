@@ -1,7 +1,7 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionChoiceInput, DecisionClaimInput, DecisionRejectedInput } from "../types.ts";
-import { decisionClaimFulfillments } from "../../../../kernel/src/index.ts";
+import { decisionClaimFulfillments } from "@harness-anything/kernel";
 
 export function parseChoiceInputs(args: ReadonlyArray<string>, input?: unknown):
   | { readonly ok: true; readonly value: ReadonlyArray<DecisionChoiceInput> }

@@ -3,8 +3,8 @@ import {
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionSagaService,
   type TaskHolderPrincipal
-} from "../../../../application/src/index.ts";
-import { readSessionEntityDocument, type WriteError } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/application";
+import { readSessionEntityDocument, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";

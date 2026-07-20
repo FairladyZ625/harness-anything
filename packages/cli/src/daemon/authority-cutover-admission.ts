@@ -1,7 +1,7 @@
 import type {
   AuthorityCutoverControlService,
   AuthoritySubmissionService
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 export function gateCutoverAdmission(
   service: AuthoritySubmissionService,

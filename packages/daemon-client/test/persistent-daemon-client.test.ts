@@ -141,6 +141,13 @@ test("registry discovery returns endpoint plus repoId and fails closed on unknow
   assert.equal(unknown("/work/missing"), undefined);
 });
 
+test("registry discovery fails explicitly when the kernel resolver seam is not injected", () => {
+  assert.throws(
+    () => createDaemonRegistryResolver({ endpoint: "unix:/daemon", userRoot: "/profile" } as never),
+    /requires resolveRepoByRoot after PLT-Boundary W1/u
+  );
+});
+
 function fixtureClient(
   transport: FakeTransport,
   overrides: Partial<ConstructorParameters<typeof PersistentDaemonClient>[0]> = {}

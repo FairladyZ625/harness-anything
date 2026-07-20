@@ -16,7 +16,7 @@ import {
   type OutputEvidence,
   type TaskId,
   type WriteError
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";

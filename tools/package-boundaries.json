@@ -1,0 +1,43 @@
+{
+  "schema": "harness-anything/package-boundaries/v1",
+  "packages": {
+    "kernel": { "name": "@harness-anything/kernel", "root": "packages/kernel", "allowedDependencies": [] },
+    "application": { "name": "@harness-anything/application", "root": "packages/application", "allowedDependencies": ["kernel"] },
+    "api-contracts": { "name": "@harness-anything/api-contracts", "root": "packages/api-contracts", "allowedDependencies": ["application"] },
+    "daemon-client": { "name": "@harness-anything/daemon-client", "root": "packages/daemon-client", "allowedDependencies": ["api-contracts"] },
+    "adapter-local": { "name": "@harness-anything/adapter-local", "root": "packages/adapters/local", "allowedDependencies": ["kernel"] },
+    "adapter-github-issues": { "name": "@harness-anything/adapter-github-issues", "root": "packages/adapters/github-issues", "allowedDependencies": ["kernel"] },
+    "adapter-multica": { "name": "@harness-anything/adapter-multica", "root": "packages/adapters/multica", "allowedDependencies": ["kernel"] },
+    "adapter-linear": { "name": "@harness-anything/adapter-linear", "root": "packages/adapters/linear", "allowedDependencies": ["kernel"] },
+    "daemon": { "name": "@harness-anything/daemon", "root": "packages/daemon", "allowedDependencies": ["api-contracts", "application", "kernel", "adapter-local"] },
+    "cli": {
+      "name": "@harness-anything/cli",
+      "root": "packages/cli",
+      "allowedDependencies": ["daemon", "daemon-client", "application", "kernel", "adapter-local", "adapter-github-issues", "adapter-multica"]
+    },
+    "gui": { "name": "@harness-anything/gui", "root": "packages/gui", "allowedDependencies": ["api-contracts", "daemon-client"] },
+    "vscode-ext": { "name": "harness-anything-vscode", "root": "packages/vscode-ext", "allowedDependencies": ["api-contracts", "daemon-client"] }
+  },
+  "deepSubpaths": [
+    { "package": "adapter-local", "subpath": "./task-index", "target": "./src/task-index.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "api-contracts", "subpath": "./api-contract-registry", "target": "./src/api-contract-registry.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "api-contracts", "subpath": "./api-contract-types", "target": "./src/api-contract-types.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "api-contracts", "subpath": "./daemon-protocol", "target": "./src/daemon-protocol.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "api-contracts", "subpath": "./renderer-safe-state", "target": "./src/renderer-safe-state.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./agent-runtime-adapter", "target": "./src/agent-runtime-adapter.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./agent-runtime-control", "target": "./src/agent-runtime-control.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./authority/service", "target": "./src/authority/service.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./daemon-log-contract", "target": "./src/daemon-log-contract.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./daemon-status-contract", "target": "./src/daemon-status-contract.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./doc-sync", "target": "./src/doc-sync.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./record", "target": "./src/record.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./runtime-event-ledger-service", "target": "./src/runtime-event-ledger-service.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "application", "subpath": "./terminal-session-contract", "target": "./src/terminal-session-contract.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "daemon", "subpath": "./agent-runtime/session-service", "target": "./src/agent-runtime/session-service.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "daemon", "subpath": "./authority/forced-command-session", "target": "./src/authority/forced-command-session.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "daemon-client", "subpath": "./connection-pool", "target": "./src/connection-pool.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
+    { "package": "kernel", "subpath": "./daemon/registry", "target": "./src/daemon/registry.ts", "owner": "PLT-Boundary", "sunset": "W2 moves daemon registry ownership out of kernel" },
+    { "package": "kernel", "subpath": "./store/index", "target": "./src/store/index.ts", "owner": "PLT-Boundary", "sunset": "W3 replaces the transitional kernel store barrel" },
+    { "package": "kernel", "subpath": "./write-coordination/write-helpers", "target": "./src/write-coordination/write-helpers.ts", "owner": "PLT-Boundary", "sunset": "W3 consumers migrate to the package root API" }
+  ]
+}

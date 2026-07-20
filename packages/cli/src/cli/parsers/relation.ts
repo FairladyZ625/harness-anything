@@ -1,4 +1,4 @@
-import { parseEntityRef, relationTypes, type RelationType } from "../../../../kernel/src/index.ts";
+import { parseEntityRef, relationTypes, type RelationType } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand, RelationListFilters } from "../types.ts";

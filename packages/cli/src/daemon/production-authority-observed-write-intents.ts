@@ -1,7 +1,7 @@
 import {
   encodeTaskDecisionModuleCommandPayloadV2,
   type TaskDecisionModuleCommandPayloadV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   decisionEntityId,
   decisionSemanticMutationActions,
@@ -11,7 +11,7 @@ import {
   type EntityRelationRecord,
   type RegistryEntityRefV2,
   type WriteOp
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 import { resolveHostedDocument } from "./production-authority-semantic-state.ts";

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import type { ModuleRegistry } from "./state.ts";
 
 export function writeModuleRegistryView(rootInput: HarnessLayoutInput, registry: ModuleRegistry): void {

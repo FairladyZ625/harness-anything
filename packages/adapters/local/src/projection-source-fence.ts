@@ -9,7 +9,7 @@ import {
   type HarnessLayoutOverrides,
   type ProjectionSourceFence,
   type ProjectionSourceFenceReader
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 const maxChangedPaths = 50_000;

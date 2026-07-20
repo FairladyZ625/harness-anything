@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
-import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/index.ts";
-import { parseEntityRef, queryTaskProjection, resolveHarnessLayout, taskDocumentPath, validateRelationGraphRecords } from "../../../../kernel/src/index.ts";
+import { readTaskLifecyclePolicy } from "@harness-anything/application";
+import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import { parseEntityRef, queryTaskProjection, resolveHarnessLayout, taskDocumentPath, validateRelationGraphRecords } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";

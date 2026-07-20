@@ -3,5 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent-runtime-adapter": "./src/agent-runtime-adapter.ts",
+    "./agent-runtime-control": "./src/agent-runtime-control.ts",
+    "./authority/service": "./src/authority/service.ts",
+    "./daemon-log-contract": "./src/daemon-log-contract.ts",
+    "./daemon-status-contract": "./src/daemon-status-contract.ts",
+    "./doc-sync": "./src/doc-sync.ts",
+    "./record": "./src/record.ts",
+    "./runtime-event-ledger-service": "./src/runtime-event-ledger-service.ts",
+    "./terminal-session-contract": "./src/terminal-session-contract.ts"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.1.0"
+  }
 }

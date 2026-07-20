@@ -2,13 +2,13 @@ import { Effect } from "effect";
 import {
   type DecisionCreateInput,
   type DecisionWriteService
-} from "../../../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   deriveRelationId,
   type EntityRelationRecord,
   type WriteError
-} from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { normalizeDecisionProposeAction } from "../../cli/decision-propose-normalizer.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";

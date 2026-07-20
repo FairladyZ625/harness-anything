@@ -8,7 +8,7 @@ import {
   type CompoundReceiptStoreV2,
   type CompoundTerminalJournalEntry,
   type ReceiptIdentityV2
-} from "../../../application/src/index.ts";
+} from "@harness-anything/application";
 
 const durableStateSchema = "compound-receipt-broker-state/v2" as const;
 const durableStateFile = "compound-receipt-broker-state-v2.json";

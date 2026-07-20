@@ -10,8 +10,8 @@ import {
   type SemanticDiffCandidateTree,
   type SemanticDiffDocumentPolicy,
   type WriteOp
-} from "../../../../kernel/src/index.ts";
-import { compileManagedCandidateTreeV2 } from "../../../../application/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileManagedCandidateTreeV2 } from "@harness-anything/application";
 import {
   listGeneratedFiles,
   permissionPathsForScope,

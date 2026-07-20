@@ -1,4 +1,4 @@
-import type { EngineError } from "../../../kernel/src/index.ts";
+import type { EngineError } from "@harness-anything/kernel";
 import type { GithubIssueRef, GithubRepositoryRef } from "./types.ts";
 
 const ownerPattern = /^(?!-)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u;

@@ -128,6 +128,7 @@
         "check-error-classification",
         "check-capabilities-kind-source",
         "check-import-boundaries",
+        "check-package-boundaries",
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
         "check-write-road-registry",
@@ -178,6 +179,7 @@
         "check-error-classification",
         "check-capabilities-kind-source",
         "check-import-boundaries",
+        "check-package-boundaries",
         "check-write-coordinator-boundary",
         "check-bypass-write-boundary",
         "check-write-road-registry",
@@ -211,7 +213,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 46
+      "harnessLeafGateCount": 47
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -828,6 +830,74 @@
           "tools/eslint-layer-boundaries.test.mjs",
           "tools/fixtures/eslint-layer-boundaries/application-triadic-read-authored-document.ts",
           "tools/fixtures/eslint-layer-boundaries/renderer-kernel-store.ts"
+        ]
+      }
+    },
+    {
+      "id": "check-package-boundaries",
+      "command": "npm run harness:check-package-boundaries",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/package-boundaries.json",
+        "tools/package-boundary-violations.json",
+        "package.json:workspaces",
+        "packages/*/package.json",
+        "packages/adapters/*/package.json"
+      ],
+      "consumerScope": [
+        "workspace package root exports, registered deep subpaths, and internal dependencies",
+        "cross-package imports, TypeScript import types, and source-path strings under packages/**",
+        "allowed internal dependency edges derived from tools/package-boundaries.json"
+      ],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/package-boundaries.json:deepSubpaths",
+        "adrOrDecisionRequired": true,
+        "notes": "Every explicit deep subpath carries an owner and sunset condition; architecture violations remain warnings during W1 migration."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/package-boundaries.json",
+          "tools/package-boundary-violations.json",
+          "tools/package-boundary-contract.mjs",
+          "tools/check-package-boundary-contract.mjs",
+          "tools/eslint-package-boundaries.mjs",
+          "tools/run-package-boundary-eslint.mjs",
+          "package.json:scripts.harness:check-package-boundaries"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-package-boundaries"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["boundaries"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-package-boundary-contract.test.mjs",
+          "tools/eslint-package-boundaries.test.mjs"
         ]
       }
     },

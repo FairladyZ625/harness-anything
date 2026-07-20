@@ -1,5 +1,5 @@
-import { DEFAULT_HUMAN_CONSENT_ACTIONS } from "../../../../application/src/index.ts";
-import { consentActions, type ConsentAction } from "../../../../kernel/src/index.ts";
+import { DEFAULT_HUMAN_CONSENT_ACTIONS } from "@harness-anything/application";
+import { consentActions, type ConsentAction } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

@@ -1,4 +1,4 @@
-import type { AuthorityConnectionDispatch } from "../../../daemon/src/index.ts";
+import type { AuthorityConnectionDispatch } from "@harness-anything/daemon";
 import type { AuthorityRepoComponent } from "./authority-lifecycle.ts";
 
 export function bindAuthoritySubmissionForDispatch(

@@ -1,4 +1,4 @@
-import type { AuthorityFenceWitness } from "../../../application/src/index.ts";
+import type { AuthorityFenceWitness } from "@harness-anything/application";
 
 export interface AuthorityFenceEndpoint {
   readonly host: "127.0.0.1" | "::1";

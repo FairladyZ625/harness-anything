@@ -9,7 +9,7 @@ import {
   sshAuthorityWireBootstrapFrame,
   sshForcedCommandBootstrapFrame,
   type SshForcedCommandBootstrapInput
-} from "../../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import { readOption } from "../../cli/parse-options.ts";
 import { verifyCurrentProcessHasPrivilegedSshdAncestor } from "./sshd-witness.ts";
 

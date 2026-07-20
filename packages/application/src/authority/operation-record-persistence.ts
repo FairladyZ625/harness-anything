@@ -1,4 +1,4 @@
-import type { AuthorityOperationIntegrity } from "../../../kernel/src/index.ts";
+import type { AuthorityOperationIntegrity } from "@harness-anything/kernel";
 import type {
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,

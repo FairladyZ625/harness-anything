@@ -1,6 +1,6 @@
 import {
   decodeRendererSafeConnectionState,
   type RendererSafeStateDecoder
-} from "../../../api-contracts/src/renderer-safe-state.ts";
+} from "@harness-anything/api-contracts/renderer-safe-state";
 
 export const decodeWebviewConnectionState = decodeRendererSafeConnectionState satisfies RendererSafeStateDecoder;

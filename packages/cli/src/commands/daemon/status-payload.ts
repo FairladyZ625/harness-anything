@@ -6,7 +6,7 @@ import {
   type DaemonStatusResultV2,
   type JsonObject,
   type JsonValue
-} from "../../../../daemon/src/index.ts";
+} from "@harness-anything/daemon";
 import { resolveCliVersion } from "../core/version.ts";
 import type {
   DaemonReconcileError,

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, realpathSync, readdirSync } from "node:fs";
 import path from "node:path";
-import type { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import type { resolveHarnessLayout } from "@harness-anything/kernel";
 import { isPathInside } from "../../cli/path.ts";
 
 export { isPathInside } from "../../cli/path.ts";

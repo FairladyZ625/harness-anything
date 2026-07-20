@@ -10,7 +10,7 @@ import {
   resolveHarnessLayout,
   type FactRecord,
   type HarnessLayoutInput
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const deliveryEvidenceTerms = [
   "pull-request", "merged", "ci", "test-pass", "check-pass", "commit-sha", "diff", "screenshot", "report"

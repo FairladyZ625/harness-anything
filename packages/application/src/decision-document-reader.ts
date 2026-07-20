@@ -5,9 +5,9 @@ import {
   DecisionPackageSchema,
   type DecisionPackage,
   type DecisionState
-} from "../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../kernel/src/index.ts";
-import { readFrontmatter, readScalar, resolveHarnessLayout } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
 import { isNodeErrorCode } from "./node-errors.ts";
 
 export interface DecisionDocumentReadResult {

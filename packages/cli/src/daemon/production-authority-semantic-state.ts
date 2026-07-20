@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { sha256Text, taskPackagePath } from "../../../kernel/src/index.ts";
+import { sha256Text, taskPackagePath } from "@harness-anything/kernel";
 
 export function createProductionCanonicalSemanticState(authoredRoot: string) {
   return {
