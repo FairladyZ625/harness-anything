@@ -153,6 +153,7 @@
     "task-amend",
     "task-archive",
     "task-claim",
+    "task-closeout",
     "task-code-doc-reconcile",
     "task-complete",
     "task-consent-record",
@@ -166,6 +167,7 @@
     "task-review",
     "task-review-execution",
     "task-show",
+    "task-start",
     "task-submit",
     "task-supersede"
   ],

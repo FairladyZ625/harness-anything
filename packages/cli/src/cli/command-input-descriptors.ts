@@ -141,6 +141,41 @@ const explicitInputDescriptors = {
     },
     shortcuts: []
   },
+  "task-closeout": {
+    required: ["completionClaim", "verdict", "findings", "rationale", "ci"],
+    properties: {
+      completionClaim: { type: "string", description: "Human-authored completion claim submitted with the active Execution." },
+      deliverables: { type: "array", description: "Submission deliverables; defaults to an empty list.", items: { type: "string" } },
+      outputs: { type: "array", description: "Inline OutputEvidence text; defaults to an empty list.", items: { type: "string" } },
+      verificationNotes: { type: "array", description: "Verification notes; defaults to an empty list.", items: { type: "string" } },
+      knownGaps: { type: "array", description: "Known gaps; defaults to an empty list.", items: { type: "string" } },
+      residualRisks: { type: "array", description: "Residual risks; defaults to an empty list.", items: { type: "string" } },
+      executionId: { type: "string", description: "Optional active Execution id; Holder V2 and the sole submitted round are used when omitted." },
+      leaseToken: { type: "string", description: "Optional one-time Holder V2 lease token." },
+      verdict: { type: "string", description: "Human Review verdict." },
+      findings: { type: "string", description: "Human Review findings." },
+      rationale: { type: "string", description: "Human Review rationale." },
+      evidenceChecked: { type: "array", description: "Inspected OutputEvidence ids.", items: { type: "string" } },
+      archiveWarningsAcknowledged: { type: "boolean", description: "Explicit acknowledgement of archive warnings." },
+      consentId: { type: "string", description: "Existing human consent id." },
+      consentUtterance: { type: "string", description: "Human's exact approval words." },
+      consentStandingPolicyDecisionId: { type: "string", description: "Active decision granting standing consent." },
+      consentAssertedRationale: { type: "string", description: "Rationale for externally obtained consent." },
+      consentActions: { type: "array", description: "Consent actions granted by the human.", items: { type: "string" } },
+      ci: { type: "string", description: "Human-supplied CI result: passed or failed." },
+      commit: { type: "string", description: "Git ref resolved to a full SHA; defaults to HEAD." },
+      paths: { type: "array", description: "Optional repository-relative code-doc anchors.", items: { type: "string" } },
+      prRef: { type: "string", description: "Optional pull request reference." },
+      forceCodeDoc: { type: "boolean", description: "Replace an existing code-doc reconciliation through the original force gate." },
+      reviewerId: { type: "string", description: "Completion reviewer id." }
+    },
+    shortcuts: [
+      shortcut("--execution-id", "$.executionId", "set"),
+      shortcut("--lease-token", "$.leaseToken", "set"),
+      shortcut("--commit", "$.commit", "set"),
+      shortcut("--reviewer", "$.reviewerId", "set")
+    ]
+  },
   "task-review-execution": {
     required: ["verdict", "findings", "rationale"],
     properties: {

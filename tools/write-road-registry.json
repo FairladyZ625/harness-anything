@@ -80,6 +80,8 @@
         "task-reopen",
         "task-supersede",
         "task-submit",
+        "task-start",
+        "task-closeout",
         "task-complete",
         "task-review",
         "task-review-execution"

@@ -17,6 +17,7 @@ import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { deprecatedCommandDefinitions } from "../src/cli/command-deprecations.ts";
+import { taskLifecycleFacadeParseCases } from "./fixtures/task-lifecycle-facade-parse-cases.ts";
 
 type ParsedAction = ParsedCommand["action"];
 
@@ -62,6 +63,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     fields: { title: "Untitled task", fromLegacyId: "legacy-1", allowManualId: false }
   },
   { name: "task claim", argv: ["task", "claim", "task_1", "--ttl-ms", "60000"], kind: "task-claim", fields: { taskId: "task_1", ttlMs: 60000 } },
+  ...taskLifecycleFacadeParseCases,
   { name: "task holder", argv: ["task", "holder", "task_1"], kind: "task-holder", fields: { taskId: "task_1" } },
   { name: "task release", argv: ["task", "release", "task_1"], kind: "task-release", fields: { taskId: "task_1" } },
   {

@@ -43,6 +43,19 @@ export function gitTopLevel(inputPath: string): string | null {
   }
 }
 
+export function resolveGitCommitSha(rootDir: string, ref: string): string {
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))
+  );
+  environment.GIT_OPTIONAL_LOCKS = "0";
+  return execFileSync("git", ["-C", rootDir, "rev-parse", "--verify", `${ref}^{commit}`], {
+    encoding: "utf8",
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true
+  }).trim();
+}
+
 function normalizeExistingPath(inputPath: string): string {
   const resolved = path.resolve(inputPath);
   if (existsSync(resolved)) return realpathSync.native(resolved);

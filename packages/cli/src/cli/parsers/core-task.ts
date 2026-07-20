@@ -10,6 +10,7 @@ import { parseTaskList } from "./core-task-list.ts";
 import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 import { parseTaskConsentRecord } from "./core-task-consent.ts";
 import { parseTaskSubmit } from "./task-submit.ts";
+import { parseTaskCloseout, parseTaskStart } from "./task-lifecycle-facade.ts";
 import type { CommandJsonInput } from "../json-input.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean, _commandSpecs?: ReadonlyArray<unknown>, input?: CommandJsonInput): ParseResult | null {
@@ -23,9 +24,11 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
     });
   }
   if (args[0] === "task" && args[1] === "claim" && args[2]) return parseTaskClaim(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "start" && args[2]) return parseTaskStart(args, rootDir, json);
   if (args[0] === "task" && args[1] === "holder" && args[2]) return ok(rootDir, json, { kind: "task-holder", taskId: args[2] });
   if (args[0] === "task" && args[1] === "release" && args[2]) return ok(rootDir, json, { kind: "task-release", taskId: args[2] });
   if (args[0] === "task" && args[1] === "submit" && args[2]) return parseTaskSubmit(args, rootDir, json, input);
+  if (args[0] === "task" && args[1] === "closeout" && args[2]) return parseTaskCloseout(args, rootDir, json, input);
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
