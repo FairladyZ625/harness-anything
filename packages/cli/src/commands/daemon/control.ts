@@ -1,4 +1,5 @@
 import {
+  calculateDaemonArtifactIdentity,
   requestLocalDaemonJsonRpcForTarget,
   type JsonObject,
   type LocalDaemonTarget
@@ -43,6 +44,7 @@ export interface DaemonControlCommandInput {
   readonly requestDaemonControl?: (request: DaemonControlRequest) => Promise<Record<string, unknown>>;
   readonly daemonControlLifecycle?: DaemonControlLifecycle;
   readonly daemonEntryPath: () => string;
+  readonly calculateInstalledIdentity?: (entrypoint: string) => string;
 }
 
 type DaemonControlHandoff =
@@ -99,12 +101,18 @@ export async function runDaemonControl(
   const preparedLaunchConfiguration = kind === "refresh"
     ? await lifecycle.prepareReplacement?.(lifecycle.target)
     : undefined;
+  const preparedExpectedIdentity = preparedLaunchConfiguration
+    ? calculateInstalledIdentity(input, preparedLaunchConfiguration.entrypoint)
+    : undefined;
   const rpcReceipt = await request({ method, params });
   const receipt = controlPayloadFromRpcReceipt(rpcReceipt, method);
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
   const launchConfiguration = preparedLaunchConfiguration
     ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
+  const expectedIdentity = kind === "refresh"
+    ? preparedExpectedIdentity ?? calculateInstalledIdentity(input, launchConfiguration.entrypoint)
+    : undefined;
   const replacement = await completeDaemonReplacement(
     lifecycle,
     before.pid,
@@ -113,7 +121,8 @@ export async function runDaemonControl(
     drainTimeoutMs,
     kind,
     method,
-    launchConfiguration
+    launchConfiguration,
+    expectedIdentity
   );
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
@@ -178,7 +187,8 @@ async function completeDaemonReplacement(
   timeoutMs: number,
   kind: DaemonControlKind,
   method: DaemonControlRequest["method"],
-  launchConfiguration: DaemonLaunchConfiguration
+  launchConfiguration: DaemonLaunchConfiguration,
+  expectedIdentity: string | undefined
 ): Promise<Record<string, unknown>> {
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
@@ -186,10 +196,10 @@ async function completeDaemonReplacement(
   if (typeof beforeLoadedIdentity !== "string" || typeof operationId !== "string") {
     throw new Error(`${method} accepted receipt did not identify the loaded build and operation`);
   }
-  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, operationId, timeoutMs);
+  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, operationId, timeoutMs, expectedIdentity);
   if (handoff.kind === "adopt") return handoff.status;
   if (handoff.kind === "reject") {
-    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, operationId, timeoutMs, kind);
+    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, operationId, timeoutMs, kind, expectedIdentity);
   }
   let replacement: Record<string, unknown>;
   try {
@@ -214,7 +224,8 @@ async function completeDaemonReplacement(
     beforePid,
     operationId,
     timeoutMs,
-    kind
+    kind,
+    expectedIdentity
   );
 }
 
@@ -225,7 +236,8 @@ async function waitForStartedReplacement(
   beforePid: number,
   operationId: string,
   timeoutMs: number,
-  kind: DaemonControlKind
+  kind: DaemonControlKind,
+  expectedIdentity: string | undefined
 ): Promise<Record<string, unknown>> {
   let status = initialStatus;
   let replacement = initialLifecycle;
@@ -235,10 +247,10 @@ async function waitForStartedReplacement(
     if (replacement.pid === beforePid) {
       throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacement.pid)}; replacement was not signaled`);
     }
-    if (replacementIdentityIsInvalid(replacement)) {
-      await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind);
+    if (replacementIdentityIsInvalid(replacement, expectedIdentity)) {
+      await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity);
     }
-    if (isCompleteReplacement(replacement, beforePid, operationId)) return status;
+    if (isCompleteReplacement(replacement, beforePid, operationId, expectedIdentity)) return status;
     if (attempt + 1 < attempts) {
       await lifecycle.wait(pollIntervalMs);
       const observed = await lifecycle.probeStatus(lifecycle.target);
@@ -256,7 +268,7 @@ async function waitForStartedReplacement(
       + `${replacement.activeOperationId}; replacement was left running`
     );
   }
-  return await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind);
+  return await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity);
 }
 
 async function rejectIncompleteReplacement(
@@ -265,9 +277,10 @@ async function rejectIncompleteReplacement(
   beforePid: number,
   operationId: string,
   timeoutMs: number,
-  kind: DaemonControlKind
+  kind: DaemonControlKind,
+  expectedIdentity: string | undefined
 ): Promise<never> {
-  const failure = incompleteReplacementReason(replacement, beforePid, operationId);
+  const failure = incompleteReplacementReason(replacement, beforePid, operationId, expectedIdentity);
   if (replacement.pid === beforePid) {
     throw new Error(`daemon ${kind} replacement ${failure}; replacement was not signaled`);
   }
@@ -300,12 +313,13 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     probeStatus: probeExactDaemonStatus,
     ownerIsAlive: daemonProcessIsAlive,
     prepareReplacement: async (candidate) => {
+      let receipt: Record<string, unknown>;
       try {
-        const receipt = await requestLocalDaemonJsonRpcForTarget(candidate, "admin.daemon.launch-spec", {}, 1_000);
-        return daemonReplacementLaunchConfiguration(statusFromReceipt(receipt));
+        receipt = await requestLocalDaemonJsonRpcForTarget(candidate, "admin.daemon.launch-spec", {}, 1_000);
       } catch {
         throw daemonLaunchSpecUpgradeError(candidate);
       }
+      return daemonReplacementLaunchConfiguration(statusFromReceipt(receipt));
     },
     startReplacement: (candidate, timeoutMs, launchConfiguration) => startDaemonReplacement(
       candidate,
@@ -321,6 +335,11 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     ),
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   };
+}
+
+function calculateInstalledIdentity(input: DaemonControlCommandInput, entrypoint: string): string {
+  return input.calculateInstalledIdentity?.(entrypoint)
+    ?? calculateDaemonArtifactIdentity(entrypoint).identity;
 }
 
 function daemonLaunchSpecUpgradeError(target: LocalDaemonTarget): Error {
@@ -343,7 +362,8 @@ async function waitForDaemonControlHandoff(
   lifecycle: DaemonControlLifecycle,
   beforePid: number,
   operationId: string,
-  timeoutMs: number
+  timeoutMs: number,
+  expectedIdentity: string | undefined
 ): Promise<DaemonControlHandoff> {
   const pollIntervalMs = 100;
   const attempts = Math.ceil(timeoutMs / pollIntervalMs) + 1;
@@ -361,10 +381,10 @@ async function waitForDaemonControlHandoff(
       // that permits the existing autostart primitive to run.
       if (!status) return { kind: "autostart" };
       const observedLifecycle = normalizeDaemonLifecycleStatus(status);
-      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, operationId)) {
+      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, operationId, expectedIdentity)) {
         return { kind: "adopt", status };
       }
-      if (observedLifecycle && observedLifecycle.pid !== beforePid && replacementIdentityIsInvalid(observedLifecycle)) {
+      if (observedLifecycle && observedLifecycle.pid !== beforePid && replacementIdentityIsInvalid(observedLifecycle, expectedIdentity)) {
         return { kind: "reject", status: observedLifecycle };
       }
       if (observedLifecycle?.pid !== beforePid) pendingReplacement = observedLifecycle;
@@ -434,28 +454,32 @@ function normalizeDaemonLifecycleStatus(
 function isCompleteReplacement(
   status: NonNullable<ReturnType<typeof normalizeDaemonLifecycleStatus>>,
   beforePid: number,
-  operationId: string
+  operationId: string,
+  expectedIdentity: string | undefined
 ): boolean {
   if (status.pid === beforePid) return false;
   if (status.schema === "daemon-status/v1") return false;
   return typeof status.loadedIdentity === "string"
     && typeof status.installedIdentity === "string"
     && status.loadedIdentity === status.installedIdentity
+    && (expectedIdentity === undefined || status.loadedIdentity === expectedIdentity)
     && status.operationCleared === true
     && status.activeOperationId !== operationId;
 }
 
-function replacementIdentityIsInvalid(status: DaemonLifecycleStatus): boolean {
+function replacementIdentityIsInvalid(status: DaemonLifecycleStatus, expectedIdentity: string | undefined): boolean {
   return status.schema === "daemon-status/v1"
     || typeof status.loadedIdentity !== "string"
     || typeof status.installedIdentity !== "string"
-    || status.loadedIdentity !== status.installedIdentity;
+    || status.loadedIdentity !== status.installedIdentity
+    || (expectedIdentity !== undefined && status.loadedIdentity !== expectedIdentity);
 }
 
 function incompleteReplacementReason(
   status: NonNullable<ReturnType<typeof normalizeDaemonLifecycleStatus>>,
   beforePid: number,
-  operationId: string
+  operationId: string,
+  expectedIdentity: string | undefined
 ): string {
   if (status.pid === beforePid) return `PID did not change: ${String(status.pid)}`;
   if (status.schema === "daemon-status/v1") return "did not expose daemon-status/v2 replacement criteria";
@@ -464,6 +488,9 @@ function incompleteReplacementReason(
   }
   if (status.loadedIdentity !== status.installedIdentity) {
     return `loaded identity did not converge on the installed identity: loaded=${status.loadedIdentity} installed=${status.installedIdentity}`;
+  }
+  if (expectedIdentity !== undefined && status.loadedIdentity !== expectedIdentity) {
+    return `loaded identity did not match the replacement identity calculated before handoff: loaded=${status.loadedIdentity} expected=${expectedIdentity}`;
   }
   if (status.activeOperationId === operationId) return `did not clear the accepted control operation ${operationId}`;
   if (status.operationCleared !== true) return "did not expose a cleared control operation state";

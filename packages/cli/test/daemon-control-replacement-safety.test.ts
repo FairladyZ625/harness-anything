@@ -247,7 +247,8 @@ async function runCapturedControl(
           launchConfiguration: runningLaunchConfiguration
         }
       }),
-      daemonControlLifecycle
+      daemonControlLifecycle,
+      calculateInstalledIdentity: () => "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     });
     return { exitCode, receipt: JSON.parse(output.at(-1) ?? "") as Record<string, unknown> };
   } finally {
