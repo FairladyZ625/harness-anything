@@ -282,7 +282,7 @@ async function runDaemonServe(
       if (restoredLaunchOptions.authorityManifest) {
         persistAuthorityManifestPointer(restoredLaunchOptions.authorityManifest, userRoot);
       }
-      completeSpec.persist(userRoot);
+      completeSpec.persist(userRoot, launchConfiguration);
       serviceHost.startRegistryReconcile(userRoot);
       await recordDaemonStarted({
         userRoot,
