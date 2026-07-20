@@ -10,6 +10,8 @@ import {
   renderCodeDocReconciliationDraft,
   type ConsentCommandPayloadV2,
   type FactRelationCommandPayloadV2,
+  type ProductionAuthorityCommand,
+  type ProductionAuthorityCompilerHostServices,
   type SessionExecutionReviewCommandPayloadV2,
   type TaskDecisionModuleCommandPayloadV2
 } from "@harness-anything/application";
@@ -22,20 +24,18 @@ import {
   type ExecutionRecord,
   type RegistryEntityRefV2
 } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
 import type { DaemonAuthorityAttemptCompilerV2 } from "@harness-anything/daemon";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
-import { renderForceStatusAudit } from "../commands/core/task-lifecycle.ts";
 
 type CompileInput = Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
 
 export function productionLifecycleAttemptIntent(input: {
-  readonly command: ParsedCommand;
+  readonly command: ProductionAuthorityCommand;
   readonly currentSession: CompileInput["currentSession"];
   readonly canonicalEntityId: string;
   readonly authoredRoot: string;
   readonly actor: ExecutionRecord["primary_actor"];
-}): CanonicalAttemptIntent | null {
+}, hostServices: ProductionAuthorityCompilerHostServices): CanonicalAttemptIntent | null {
   const { action } = input.command;
   if (action.kind === "status-set") {
     const taskPath = taskLifecyclePath(input.authoredRoot, action.taskId, "INDEX.md");
@@ -49,7 +49,7 @@ export function productionLifecycleAttemptIntent(input: {
       );
     }
     const auditText = action.force
-      ? renderForceStatusAudit(action.status, action.reason ?? "unspecified", input.currentSession.detectedAt)
+      ? hostServices.renderForceStatusAudit(action.status, action.reason ?? "unspecified", input.currentSession.detectedAt)
       : undefined;
     const payload: TaskDecisionModuleCommandPayloadV2 = {
       schema: "task.transition/v1", taskId: action.taskId, to: action.status,
@@ -118,7 +118,7 @@ function executionSubmitIntent(
   authoredRoot: string,
   rootInput: { readonly rootDir: string; readonly layoutOverrides?: { readonly authoredRoot?: string } },
   submittedAt: string,
-  action: Extract<ParsedCommand["action"], { readonly kind: "status-set" }>,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "status-set" }>,
   taskPath: ReturnType<typeof taskLifecyclePath>
 ): CanonicalAttemptIntent {
   const submission = action.executionSubmission!;
@@ -183,7 +183,7 @@ function executionSubmitIntent(
 
 function codeDocIntent(
   authoredRoot: string,
-  action: Extract<ParsedCommand["action"], { readonly kind: "task-code-doc-reconcile" }>
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-code-doc-reconcile" }>
 ): CanonicalAttemptIntent {
   const taskRoot = resolvedTaskRoot(authoredRoot, action.taskId);
   const documents = ["closeout.md", "review.md"]
@@ -205,7 +205,7 @@ function codeDocIntent(
 function approvedReviewIntent(
   authoredRoot: string,
   canonicalEntityId: string,
-  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-review-execution" }>
 ): CanonicalAttemptIntent {
   const executionId = requiredReviewExecutionId(action);
   const consentId = action.consentId ?? action.generatedConsentId;
@@ -250,7 +250,7 @@ function changesRequestedReviewIntent(
   reviewedAt: string,
   reviewerSessionId: string,
   canonicalEntityId: string,
-  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-review-execution" }>,
   reviewerActor: ExecutionRecord["primary_actor"]
 ): CanonicalAttemptIntent {
   const executionId = requiredReviewExecutionId(action);
@@ -307,7 +307,7 @@ function dismissedReviewIntent(
   reviewedAt: string,
   reviewerSessionId: string,
   canonicalEntityId: string,
-  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-review-execution" }>,
   reviewerActor: ExecutionRecord["primary_actor"]
 ): CanonicalAttemptIntent {
   const executionId = requiredReviewExecutionId(action);
@@ -339,7 +339,7 @@ function dismissedReviewIntent(
 }
 
 function requiredReviewExecutionId(
-  action: Extract<ParsedCommand["action"], { readonly kind: "task-review-execution" }>
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-review-execution" }>
 ): string {
   if (!action.executionId) throw new Error("AUTHORITY_REVIEW_EXECUTION_SELECTION_REQUIRED: set executionId or provide exactly one submitted Execution");
   return action.executionId;

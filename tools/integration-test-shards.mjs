@@ -15,6 +15,7 @@ export const observedCiIntegrationParallelism = 2.5;
 // makes tier moves and future drift visible instead of falling back to 1000ms.
 export const nightlyTestFileWeightsMs = Object.freeze({
   "packages/cli/test/production-authority-canonical-ingress/canonical-ingress.test.ts": 186900,
+  "packages/cli/test/production-authority-host-services/adapter-golden.test.ts": 6600,
   "packages/cli/test/production-authority-startup-performance.test.ts": 25900
 });
 

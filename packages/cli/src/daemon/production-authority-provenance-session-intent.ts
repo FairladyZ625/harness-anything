@@ -1,5 +1,6 @@
 import {
   encodeSessionExecutionReviewCommandPayloadV2,
+  type ProductionAuthorityCommand,
   type SessionExecutionReviewCommandPayloadV2
 } from "@harness-anything/application";
 import {
@@ -9,11 +10,10 @@ import {
   type SessionManifest,
   type WriteOp
 } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 export function provenanceSessionAttemptIntent(
-  command: ParsedCommand,
+  command: ProductionAuthorityCommand,
   currentSession: CurrentSessionRef,
   operation: WriteOp
 ): CanonicalAttemptIntent {

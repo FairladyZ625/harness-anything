@@ -1,0 +1,105 @@
+{
+  "baselineCommit": "b4db87f72675b78e2dc1f25b803d183610942fa9",
+  "baselineImplementationBlobs": {
+    "packages/cli/src/cli/command-semantic-normalizer.ts": "714a6822fa65957f83c5136bcc19e32252b07e46",
+    "packages/cli/src/cli/command-spec/index.ts": "36a906cadb9af3b5d6cc2849607644fa077904fd",
+    "packages/cli/src/cli/decision-propose-normalizer.ts": "9855cbd743297bf74506b8964f1e84f9e015ff16",
+    "packages/cli/src/commands/core/decision-propose.ts": "1ddf29ec5168cb35c9906e500a91c0d5797aa376",
+    "packages/cli/src/commands/core/decision-relate.ts": "22b3eff78b8115c6c97e870d0218b6f779064dca",
+    "packages/cli/src/commands/core/decision-relation-record.ts": "b802dcbb858030d86d40e2b928750afd7150d239",
+    "packages/cli/src/commands/core/task-lifecycle.ts": "ca002e96498531aef065647cabe7ed6279caa54e",
+    "packages/cli/src/commands/daemon/productization.ts": "0b2633e856c6be5aa42d3bac727c0b287c2b4033",
+    "packages/cli/src/commands/preset-task.ts": "e425389b163993d17ce37c11c60ab088e2d46258",
+    "packages/cli/src/commands/settings.ts": "640579058ad11b952ed8212d4de6e7835e2d670e",
+    "packages/cli/src/composition/adapter-registry.ts": "dbf9fdbb2f3e2aa4c5efaa9440fcb85400b6ffb9"
+  },
+  "adapterE2E": {
+    "generic": {
+      "envelope": { "byteLength": 919, "sha256": "cc68c260a6ad3c434d4ec32febf14a8eb41a097da635dafea9b5bc551f37f240" },
+      "receipt": { "byteLength": 504, "sha256": "a17c9eff4a77a74d997ef11d4298382ba4cd85ee43aff60b8459f2b111bdc913" }
+    },
+    "taskClaim": {
+      "envelope": { "byteLength": 1912, "sha256": "aaa618d11cd1805e081c0f503c6efe8ff20b2269ca415f9ad0e5180fefa8ea37" },
+      "receipt": { "byteLength": 1368, "sha256": "4fd7d4dc44cd68d0b08c5458fad2e8859e670b69d3a37ade8979cc4e6f203d42" }
+    },
+    "observedWrite": {
+      "envelope": { "byteLength": 1589, "sha256": "2376a1b604025f8691ed09b5045c9703b7e481d64e3c6e566cf2cf39d3501811" },
+      "receipt": { "byteLength": 595, "sha256": "c734a98664aeabaaf5500950cf55dc912deb3799e715814442cd5f1fa3f0985a" }
+    },
+    "decisionTransition": {
+      "envelope": { "byteLength": 1949, "sha256": "d7107a5274371776aceaae4e53551248e37143708b4490eb630775534510648f" },
+      "receipt": { "byteLength": 779, "sha256": "b019e2eeb0e383dc3fc656311535aa64235b72b10183126db009ea23c23e1ed2" }
+    }
+  },
+  "hostServices": {
+    "ingressAdapters": {
+      "generic": { "status": "typed-v2", "adapter": "generic" },
+      "decisionTransition": { "status": "typed-v2", "adapter": "decision-transition" },
+      "taskClaim": { "status": "typed-v2", "adapter": "task-claim" },
+      "observedWrite": { "status": "typed-v2", "adapter": "observed-write" }
+    },
+    "normalizer": {
+      "success": {
+        "kind": "decision-propose", "decisionId": "dec_GOLDEN", "proposedAt": "2026-07-20T00:00:00.000Z",
+        "title": "Golden decision", "question": "Keep bytes?",
+        "chosen": [{ "id": "CH9", "text": "Yes" }],
+        "rejected": [{ "id": "RJ9", "text": "No", "why_not": "Breaks parity" }],
+        "claim": "Bytes stay stable", "claims": [{ "id": "C9", "text": "Bytes stay stable" }],
+        "claimLoadBearing": true, "fulfillments": [], "riskTier": "medium", "urgency": "high",
+        "modules": [], "productLines": [], "evidenceRelations": [], "dryRun": false
+      },
+      "defaults": {
+        "kind": "decision-propose", "decisionId": "dec_GOLDEN", "proposedAt": "2026-07-20T00:00:00.000Z",
+        "title": "Golden decision", "question": "Keep bytes?",
+        "chosen": [{ "text": "Yes", "id": "CH1" }],
+        "rejected": [{ "text": "No", "why_not": "Breaks parity", "id": "RJ1" }],
+        "claim": "Bytes stay stable", "claims": [{ "text": "Bytes stay stable", "id": "C1" }],
+        "claimLoadBearing": true, "fulfillments": [], "riskTier": "medium", "urgency": "high",
+        "modules": [], "productLines": [], "evidenceRelations": [], "dryRun": false
+      },
+      "duplicateRecovery": {
+        "kind": "decision-propose", "decisionId": "dec_GOLDEN", "proposedAt": "2026-07-20T00:00:00.000Z",
+        "title": "Golden decision", "question": "Keep bytes?",
+        "chosen": [{ "id": "CH1", "text": "One" }, { "id": "CH2", "text": "Two" }],
+        "rejected": [{ "text": "No", "why_not": "Breaks parity", "id": "RJ1" }],
+        "claim": "Bytes stay stable", "claims": [{ "text": "Bytes stay stable", "id": "C1" }],
+        "claimLoadBearing": true, "fulfillments": [], "riskTier": "medium", "urgency": "high",
+        "modules": [], "productLines": [], "evidenceRelations": [], "dryRun": false
+      }
+    },
+    "materializer": {
+      "success": { "ok": true, "value": { "ok": true, "decision": {
+        "schema": "decision-package/v1", "decision_id": "dec_GOLDEN", "title": "Golden decision", "state": "proposed",
+        "riskTier": "medium", "urgency": "high", "vertical": "software/coding", "preset": "architecture-decision",
+        "applies_to": { "modules": [], "productLines": [] }, "proposedAt": "2026-07-20T00:00:00.000Z",
+        "question": "Keep bytes?", "chosen": [{ "id": "CH9", "text": "Yes" }],
+        "rejected": [{ "id": "RJ9", "text": "No", "why_not": "Breaks parity" }],
+        "claims": [{ "id": "C9", "text": "Bytes stay stable" }], "relations": []
+      } } },
+      "defaults": { "ok": true, "value": { "ok": true, "decision": {
+        "schema": "decision-package/v1", "decision_id": "dec_GOLDEN", "title": "Golden decision", "state": "proposed",
+        "riskTier": "medium", "urgency": "high", "vertical": "software/coding", "preset": "architecture-decision",
+        "applies_to": { "modules": [], "productLines": [] }, "proposedAt": "2026-07-20T00:00:00.000Z",
+        "question": "Keep bytes?", "chosen": [{ "id": "CH1", "text": "Yes" }],
+        "rejected": [{ "id": "RJ1", "text": "No", "why_not": "Breaks parity" }],
+        "claims": [{ "id": "C1", "text": "Bytes stay stable" }], "relations": []
+      } } },
+      "failure": { "ok": true, "value": { "ok": false, "code": "invalid_decision_evidence_relation", "reason": "decision evidence relation source anchor does not exist: MISSING" } }
+    },
+    "identity": {
+      "success": { "ok": true, "value": { "mode": "local", "people": ["person_golden"], "providerId": "transport-derived/v1", "adminPeople": [{ "personId": "person_golden", "primaryEmail": "golden@example.test" }] } },
+      "defaults": { "ok": true, "value": { "mode": "local", "people": [], "providerId": null, "adminPeople": [] } },
+      "failure": { "ok": true, "value": { "mode": "remote", "people": [], "providerId": null, "adminPeople": [] } }
+    },
+    "forceStatusAudit": {
+      "success": "FORCE_STATUS_SET_AUDIT: forced terminal status=completed; reason=golden reason; recordedAt=2026-07-20T00:00:00.000Z",
+      "defaults": "FORCE_STATUS_SET_AUDIT: forced terminal status=in_review; reason=default timestamp; recordedAt=<generated-at>",
+      "edge": "FORCE_STATUS_SET_AUDIT: forced terminal status=; reason=; recordedAt=2026-07-20T00:00:00.000Z"
+    },
+    "taskCreateWrites": {
+      "adapterDefault": { "byteLength": 1468, "sha256": "196bf0ad812a4b626e197556bb0413b8a5185a9505ffe5afd5f6ab312090e957" },
+      "settingsPreset": { "byteLength": 7076, "sha256": "2bd4a4a4732084f3576a9bd2abb9a6383f36a4127afba583e74c9ad359aada79" },
+      "settingsFailure": { "byteLength": 79, "sha256": "be9d4989c69f9ffc90dd734fcc56801a0a0cd5caa35d27a895a8a83c172bc3d4" }
+    }
+  }
+}

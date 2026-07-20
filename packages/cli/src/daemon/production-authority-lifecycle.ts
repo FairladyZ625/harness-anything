@@ -8,6 +8,7 @@ import {
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
+  type ProductionAuthorityHostServices,
 } from "@harness-anything/application";
 import { createAuthoritySubmissionService } from "@harness-anything/application/authority/service";
 import {
@@ -31,7 +32,8 @@ import {
   type AuthorityRepoComponent,
   type AuthorityRepoConnectionBinding,
   type AuthorityRepoLifecycleController,
-  type AuthorityRepoLifecycleHooks
+  type AuthorityRepoLifecycleHooks,
+  type PersonRegistry
 } from "@harness-anything/daemon";
 import { serveAuthorityForcedCommand } from "@harness-anything/daemon/authority/forced-command-session";
 import {
@@ -41,7 +43,6 @@ import {
   resolveHarnessLayout,
   type EntityRegistration
 } from "@harness-anything/kernel";
-import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import {
   createDurableAuthorityBindingRuntimeV2,
   createDurableOperationNamespaceVerifierV2,
@@ -76,11 +77,16 @@ const productionAuthorityV2EntityKinds = [
   "task", "decision", "module", "fact", "relation", "session", "execution", "review", "consent"
 ] as const;
 
+interface ProductionAuthorityIdentity {
+  readonly personRegistry?: PersonRegistry;
+}
+
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
   readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly daemonLogService?: DaemonLogService;
   readonly backgroundRecovery?: true;
+  readonly hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>;
 }): AuthorityRepoLifecycleController {
   const manifest = loadAuthorityProductionManifest(input.manifestPath);
   const materials = new Map<string, RepoProductionMaterial>();
@@ -94,7 +100,7 @@ export function createProductionAuthorityLifecycle(input: {
       if (!config || canonicalRoot(config.canonicalRoot) !== canonicalRoot(repo.canonicalRoot)) {
         throw new Error("AUTHORITY_PRODUCTION_REPO_NOT_CONFIGURED");
       }
-      const identity = loadDaemonIdentity(
+      const identity = input.hostServices.loadDaemonIdentity(
         repo.canonicalRoot,
         input.layoutOverrides,
         undefined,
@@ -250,7 +256,7 @@ export function createProductionAuthorityLifecycle(input: {
         publicationObservers.set(startInput.repo.repoId, startInput.inspectPublication);
         const material = options.materials.get(startInput.repo.repoId);
         if (!material) throw new Error("AUTHORITY_PRODUCTION_MATERIAL_UNAVAILABLE");
-        return createRepoComponent(startInput, material);
+        return createRepoComponent(startInput, material, input.hostServices);
       },
       serve: async ({ component }) => {
         (component as ProductionAuthorityRepoComponent).setServing(true);
@@ -275,7 +281,8 @@ interface ProductionAuthorityRepoComponent extends AuthorityRepoComponent {
 
 function createRepoComponent(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
-  material: RepoProductionMaterial
+  material: RepoProductionMaterial,
+  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
@@ -349,7 +356,8 @@ function createRepoComponent(
           keyRegistry: material.keyRegistry,
           bindingRuntime: material.bindingRuntime,
           context,
-          authoredRoot: material.authoredRoot
+          authoredRoot: material.authoredRoot,
+          hostServices
         })
       });
       const binding: AuthorityRepoConnectionBinding = {

@@ -32,7 +32,9 @@ import {
   loadAuthorityProductionManifest,
   openAuthorityProductionKeyMaterial
 } from "../src/daemon/authority-production-state.ts";
-import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
+import {
+  createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
+} from "../src/composition/production-authority-lifecycle.ts";
 import {
   createAuthorityProductionScanner,
   openDurableAuthorityServiceState

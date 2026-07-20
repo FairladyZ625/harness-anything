@@ -8,7 +8,9 @@ import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
 import { authorityManifestFromRegistry, main, type DaemonServeRepo } from "../src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
-import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
+import {
+  createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
+} from "../src/composition/production-authority-lifecycle.ts";
 
 const protectedRepo: DaemonServeRepo = {
   repoId: "canonical",

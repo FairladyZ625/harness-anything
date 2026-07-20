@@ -19,13 +19,14 @@ import {
 import { defaultCliAdapterProvider } from "../../src/composition/adapter-registry.ts";
 import type { EntityId } from "../../../kernel/src/index.ts";
 import type { ParsedCommand } from "../../src/cli/types.ts";
-import { productionAuthorityUnsupportedHint } from "../../src/cli/command-spec/index.ts";
 import { daemonActorAttribution } from "../../src/composition/actor-attribution.ts";
 import { parseRecordArgs } from "../../src/cli/parsers/record.ts";
 import { parseNewTaskArgs } from "../../src/cli/parsers/new-task.ts";
 import { createCliCommandService } from "../../src/daemon/command-service.ts";
 import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
-import { createProductionAuthorityLifecycle } from "../../src/daemon/production-authority-lifecycle.ts";
+import {
+  createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
+} from "../../src/composition/production-authority-lifecycle.ts";
 import {
   defaultDaemonUserRoot,
   pollUntil,
@@ -660,7 +661,10 @@ test("production generic canonical ingress accepts and journals one write for ev
       }
     }
     await assert.rejects(submission.submit({
-      command: { rootDir: fixture.repoRoot, json: true, action: { kind: "help" } },
+      command: {
+        rootDir: fixture.repoRoot,
+        action: { kind: "task-claim", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0" }
+      },
       attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
       currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
       canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0")
@@ -668,7 +672,7 @@ test("production generic canonical ingress accepts and journals one write for ev
       const rejected = error as { readonly _tag?: unknown; readonly code?: unknown; readonly reason?: unknown };
       return rejected?._tag === "WriteRejected"
         && rejected.code === "authority_ingress_rejected"
-        && rejected.reason === `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint("help")}`;
+        && rejected.reason === "AUTHORITY_TYPED_COMMAND_UNSUPPORTED:task-claim";
     });
     await assert.rejects(submission.submit({
       command: {

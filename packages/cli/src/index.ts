@@ -46,7 +46,9 @@ import {
 } from "./daemon/daemon-launch-spec.ts";
 import { daemonRuntimeLayoutOverrides } from "./daemon/daemon-serve-launch-options.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
-import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
+import {
+  createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
+} from "./composition/production-authority-lifecycle.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import {
   authorityManifestServeRepos,

@@ -1,5 +1,6 @@
 import {
   encodeTaskDecisionModuleCommandPayloadV2,
+  type ProductionAuthorityCommand,
   type TaskDecisionModuleCommandPayloadV2
 } from "@harness-anything/application";
 import {
@@ -12,12 +13,11 @@ import {
   type RegistryEntityRefV2,
   type WriteOp
 } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
 import { resolveHostedDocument } from "@harness-anything/daemon";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 export function productionObservedWriteAttemptIntent(
-  command: ParsedCommand,
+  command: ProductionAuthorityCommand,
   operation: WriteOp,
   authoredRoot: string
 ): CanonicalAttemptIntent {
@@ -211,14 +211,14 @@ function singleTaskBody(operation: WriteOp, kind: WriteOp["kind"], taskId: strin
   return raw.body;
 }
 
-function singleArchiveTaskId(action: Extract<ParsedCommand["action"], { readonly kind: "task-archive" }>, operation: WriteOp): string {
+function singleArchiveTaskId(action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-archive" }>, operation: WriteOp): string {
   const selected = action.taskId ? [action.taskId] : action.ids ? [...new Set(action.ids)] : [];
   if (selected.length !== 1) throw new Error("AUTHORITY_TASK_ARCHIVE_SINGLE_SELECTOR_REQUIRED: production typed archive currently requires exactly one explicit task id");
   if (operation.entityId !== taskEntityId(selected[0]!)) throw new Error("AUTHORITY_TASK_ARCHIVE_OPERATION_MISMATCH");
   return selected[0]!;
 }
 
-function taskRelation(action: Extract<ParsedCommand["action"], { readonly kind: "task-relate" }>): EntityRelationRecord {
+function taskRelation(action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-relate" }>): EntityRelationRecord {
   const base = {
     source: `task/${action.sourceTaskId}`, target: `task/${action.targetTaskId}`, type: action.relationType,
     strength: "strong", direction: "directed", origin: "declared", rationale: action.rationale, state: "active"

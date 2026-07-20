@@ -1,5 +1,6 @@
 import type { ArtifactStoreError, EngineError, WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, isCliErrorCode } from "./error-codes.ts";
+import { productionAuthorityUnsupportedHint } from "./command-spec/index.ts";
 import type { CliResult } from "./types.ts";
 
 type CliReachableKernelError = ArtifactStoreError | EngineError | WriteError;
@@ -36,7 +37,7 @@ const cliErrorMappers = {
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
   WriteRejected: (error) => error.code && isCliErrorCode(error.code)
-    ? cliError(error.code, error.reason)
+    ? cliError(error.code, authorityIngressPresentation(error.reason))
     : error.reason.includes("authored root is not isolated from the outer code repository")
       ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
       : cliError(CliErrorCode.WriteRejected, error.reason),
@@ -59,6 +60,13 @@ const cliErrorMappers = {
 export function toCliError(error: CliReachableKernelError): CliResult["error"] {
   const mapper = cliErrorMappers[error._tag] as (input: typeof error) => CliResult["error"];
   return mapper(error);
+}
+
+function authorityIngressPresentation(reason: string): string {
+  const prefix = "AUTHORITY_TYPED_COMMAND_UNSUPPORTED:";
+  if (!reason.startsWith(prefix)) return reason;
+  const rejectedKind = reason.slice(prefix.length);
+  return `${prefix} ${productionAuthorityUnsupportedHint(rejectedKind)}`;
 }
 
 function journalUnavailableCause(cause: unknown): string {
