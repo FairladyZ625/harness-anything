@@ -10,7 +10,7 @@ import type { ProjectionSourceFence, ProjectionSourceFenceFactory } from "../../
 import { queryExecutionEvidencePage } from "../../src/projection/sqlite-execution-evidence-reader.ts";
 import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import { createDaemonProjectionGenerationManager } from "../../src/store/daemon-projection-generation-manager.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
+import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
 import {
   createDaemonRuntime,
   createMultiRepoDaemonRuntime

@@ -25,9 +25,11 @@ import {
 import type { DocumentWrite } from "@harness-anything/kernel";
 import { readUnionAttributionEvents } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
-import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { stablePayloadHash, writeCoordinatedPayload } from "@harness-anything/kernel";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 import type { ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";
+
+type PayloadHasher = Parameters<typeof writeCoordinatedPayload>[1];
 
 export interface DecisionWriteServiceOptions extends ProvenanceBindingOptions {
   readonly coordinator: WriteCoordinator;

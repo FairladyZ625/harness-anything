@@ -15,7 +15,7 @@ import {
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
-import { stablePayloadHash, writeCoordinatedPayload } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { stablePayloadHash, writeCoordinatedPayload } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {

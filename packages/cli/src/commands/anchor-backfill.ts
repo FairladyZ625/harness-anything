@@ -5,7 +5,7 @@ import type { TaskId, WriteError } from "@harness-anything/kernel";
 import type { MaterializedTemplatePlan } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
-import { stablePayloadHash, writeCoordinatedTaskDocuments } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { stablePayloadHash, writeCoordinatedTaskDocuments } from "@harness-anything/kernel";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";

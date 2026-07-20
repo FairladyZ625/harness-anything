@@ -76,9 +76,10 @@ test("import boundary check fails closed on allowlist entries without refs", () 
             reason: "fixture includes ref"
           }
         ],
-        kernelWritePublicPaths: [
+        kernelWriteInternalConsumers: [
           {
-            value: "packages/kernel/src/write-coordination/write-helpers.ts",
+            source: "packages/kernel/src/entity/declaration.ts",
+            target: "packages/kernel/src/write-coordination/submit.ts",
             ref: "task_01KXW80M803GR3EKRDV3X7T0MM",
             reason: "fixture includes ref"
           }
@@ -164,22 +165,67 @@ test("import boundary check rejects application deep imports from write-coordina
   }
 });
 
-test("import boundary check allows the governed public write helper", (t) => {
+test("import boundary check allows write helpers through the governed kernel root barrel", (t) => {
   const root = makeFixtureRoot();
   try {
     mkdirSync(path.join(root, "packages/kernel/src/write-coordination"), { recursive: true });
     writeFileSync(path.join(root, "packages/application/src/index.ts"), [
-      "import { writeCoordinatedPayload } from '../../kernel/src/write-coordination/write-helpers.ts';",
+      "import { writeCoordinatedPayload } from '../../kernel/src/index.ts';",
       "export const writePayload = writeCoordinatedPayload;"
     ].join("\n"), "utf8");
-    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/write-helpers.ts"), [
+    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), [
+      "export { writeCoordinatedPayload } from './write-coordination/submit.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/submit.ts"), [
       "export const writeCoordinatedPayload = true;"
     ].join("\n"), "utf8");
 
     const result = runChecker(root);
-    t.diagnostic(`public-helper control exit=${result.status}`);
+    t.diagnostic(`root-public-helper control exit=${result.status}`);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Import boundary check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects other internal imports from the governed submit consumer", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/entity"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/entity/declaration.ts"), [
+      "import { privateJournal } from '../write-coordination/journal/private.ts';",
+      "export const leakedJournal = privateJournal;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/private.ts"), [
+      "export const privateJournal = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`governed-consumer-other-internal control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /entity\/declaration\.ts: store implementation is internal/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects other internal exports from the kernel root barrel", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), [
+      "export { privateJournal } from './write-coordination/journal/private.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/private.ts"), [
+      "export const privateJournal = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`root-barrel-other-internal control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /kernel\/src\/index\.ts: store implementation is internal/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

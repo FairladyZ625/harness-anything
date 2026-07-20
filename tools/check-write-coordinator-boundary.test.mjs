@@ -67,7 +67,7 @@ test("WriteCoordinator boundary check fails closed on allowlist entries without 
       entries: {
         knownMetabolicDecisionDebt: [
           {
-            value: "packages/kernel/src/store/write-journal-coordinator.ts#local-function:assertHardDeleteAllowed",
+            value: "packages/kernel/src/write-coordination/journal/coordinator.ts#local-function:assertHardDeleteAllowed",
             reason: "fixture omits ref"
           }
         ]
@@ -85,7 +85,7 @@ test("WriteCoordinator boundary check fails closed on allowlist entries without 
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-f6-boundary-"));
-  mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+  mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/entity"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/domain"), { recursive: true });
   writeFileSync(path.join(root, "packages/kernel/src/entity/disposition.ts"), "export function evaluateEntityDisposition() { return { allowed: true }; }\n", "utf8");
@@ -98,7 +98,7 @@ function makeFixtureRoot() {
 }
 
 function writeCoordinator(root, lines) {
-  writeFileSync(path.join(root, "packages/kernel/src/store/write-journal-coordinator.ts"), `${lines.join("\n")}\n`, "utf8");
+  writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/coordinator.ts"), `${lines.join("\n")}\n`, "utf8");
 }
 
 function runChecker(root, options = {}) {

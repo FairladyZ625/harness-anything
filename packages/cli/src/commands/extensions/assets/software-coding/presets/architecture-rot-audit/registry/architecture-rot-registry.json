@@ -214,13 +214,13 @@
       "mechanism": {
         "mustBeTrue": "WriteOp.kind is interpreted once into a complete transaction plan containing validation, touched paths, materialization, and replay metadata; preflight, flush, and recovery consume that plan.",
         "scope": [
-          "packages/kernel/src/store/write-journal-operations.ts",
-          "packages/kernel/src/store/write-journal-coordinator.ts"
+          "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts",
+          "packages/kernel/src/write-coordination/journal/coordinator.ts"
         ]
       },
       "detection": {
         "detector": "ROT-005",
-        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/kernel/src/store/write-journal-operations.ts\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const interpreters=[]; const visit=(node,current)=>{let next=current; if(ts.isFunctionDeclaration(node)&&node.name) next=node.name.text; if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"op\"&&node.name.text===\"kind\"&&next) interpreters.push(next); ts.forEachChild(node,(child)=>visit(child,next));}; visit(source,null); const unique=[...new Set(interpreters)]; console.log(JSON.stringify({opKindInterpreterCount:unique.length,interpreters:unique})); process.exit(unique.length<=1?0:1);'",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const interpreters=[]; const visit=(node,current)=>{let next=current; if(ts.isFunctionDeclaration(node)&&node.name) next=node.name.text; if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"op\"&&node.name.text===\"kind\"&&next) interpreters.push(next); ts.forEachChild(node,(child)=>visit(child,next));}; visit(source,null); const unique=[...new Set(interpreters)]; console.log(JSON.stringify({opKindInterpreterCount:unique.length,interpreters:unique})); process.exit(unique.length<=1?0:1);'",
         "cwd": ".",
         "successExitCodes": [
           0
@@ -232,8 +232,8 @@
           "report": "architecture-review-A-fable-4way-20260710.html",
           "card": "A#5 / #c5",
           "evidence": [
-            "packages/kernel/src/store/write-journal-operations.ts:21-160",
-            "packages/kernel/src/store/write-journal-coordinator.ts:408-457",
+            "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:21-160",
+            "packages/kernel/src/write-coordination/journal/coordinator.ts:408-457",
             "packages/kernel/src/write-coordination/journal/publication/git.ts:106-168"
           ]
         }

@@ -17,8 +17,10 @@ import {
   type WriteError
 } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
-import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { stablePayloadHash, writeCoordinatedPayload } from "@harness-anything/kernel";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
+
+type PayloadHasher = Parameters<typeof writeCoordinatedPayload>[1];
 
 export interface FactWriteServiceOptions extends ProvenanceBindingOptions {
   readonly rootInput: HarnessLayoutInput;

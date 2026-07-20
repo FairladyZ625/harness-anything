@@ -28,11 +28,12 @@
         "reason": "PLT-Bedrock W1 needs one public composition seam for local ArtifactStore and WriteCoordinator factories without exposing the internal store barrel."
       }
     ],
-    "kernelWritePublicPaths": [
+    "kernelWriteInternalConsumers": [
       {
-        "value": "packages/kernel/src/write-coordination/write-helpers.ts",
+        "source": "packages/kernel/src/entity/declaration.ts",
+        "target": "packages/kernel/src/write-coordination/submit.ts",
         "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
-        "reason": "This helper is the governed public enqueue facade; every other physical path under write-coordination remains internal."
+        "reason": "Only this exact package-internal edge may call the submission helper; the same consumer remains forbidden from every other store, persistence, and write-coordination target."
       }
     ],
     "cliAdapterKnownDebt": [

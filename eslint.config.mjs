@@ -140,6 +140,24 @@ function kernelDeepImportSyntaxRestrictions(allowedTargets = []) {
   ];
 }
 
+function noRestrictedKernelImportsExceptTargets(allowedTargets = []) {
+  const allowedTails = [
+    "index\\.ts",
+    ...allowedTargets.map((target) => escapeRegExp(target.replace(/^packages\/kernel\/src\//u, "")))
+  ];
+  return [
+    "error",
+    {
+      patterns: [
+        {
+          regex: `kernel/src/(?!(?:${allowedTails.join("|")})$)`,
+          message: kernelDeepImportPattern.message
+        }
+      ]
+    }
+  ];
+}
+
 const guiBridgeOnlyMessage = "GUI renderer must consume window.harness bridge only.";
 const guiRendererRestrictedImportPaths = [
   "electron",
@@ -194,7 +212,7 @@ const kernelImportKnownDebtOverrides = Object.values(Object.groupBy(
 )).map((entries) => ({
   files: [entries[0].file],
   rules: {
-    "no-restricted-imports": "off",
+    "no-restricted-imports": noRestrictedKernelImportsExceptTargets(entries.map((entry) => entry.target)),
     "no-restricted-syntax": [
       "error",
       ...kernelDeepImportSyntaxRestrictions(entries.map((entry) => entry.target))

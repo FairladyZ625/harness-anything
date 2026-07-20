@@ -4,35 +4,35 @@ import {
   decodeEntityPathDeclaration,
   resolveEntityDocumentPath,
   type DeclaredEntityDocumentWritePayload
-} from "../entity/declaration.ts";
-import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
+} from "../../../entity/declaration.ts";
+import type { DocumentWrite } from "../../../ports/artifact-store-writer.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
 import {
   type HarnessLayoutInput,
   resolveHarnessLayout,
   taskPackagePath
-} from "../layout/index.ts";
-import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "../write-coordination/journal/operations/decision-documents.ts";
-import { taskIdForWriteOp } from "../write-coordination/journal/operations/entity.ts";
-import { appendJsonLineDurably, writeFileDurably } from "../write-coordination/journal/durable.ts";
-import { rejectTaskWrite, rejectWrite } from "../write-coordination/journal/rejection.ts";
+} from "../../../layout/index.ts";
+import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./decision-documents.ts";
+import { taskIdForWriteOp } from "./entity.ts";
+import { appendJsonLineDurably, writeFileDurably } from "../durable.ts";
+import { rejectTaskWrite, rejectWrite } from "../rejection.ts";
 import {
   resolveContentAddressedBlobPath,
   writeContentAddressedBlob
-} from "../persistence/blob/content-addressed-blob-store.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import { assertReservedCodeDocWrite } from "../write-coordination/journal/operations/code-doc-policy.ts";
+} from "../../../persistence/blob/content-addressed-blob-store.ts";
+import { sha256Text } from "../../../integrity/stable-hash.ts";
+import { assertReservedCodeDocWrite } from "./code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
 import {
   prepareRetiredAttributionFieldCleanup,
   retiredAttributionFieldCleanupTargetPath
-} from "../write-coordination/journal/operations/retired-attribution-cleanup.ts";
+} from "./retired-attribution-cleanup.ts";
 import {
   applyCanonicalAuthoredBatch,
   canonicalAuthoredBatchPaths,
   validateCanonicalAuthoredBatch
 } from "./canonical-authored-batch.ts";
-import { writeDocument } from "../persistence/markdown/markdown-artifact-store.ts";
+import { writeDocument } from "../../../persistence/markdown/markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
   applyProgressAppendDelta,
@@ -57,7 +57,7 @@ import {
   resolveMachineArtifactWrite,
   toDocumentWrite,
   documentWriteKinds
-} from "./write-journal-operations-internal.ts";
+} from "./internal.ts";
 
 export interface WriteTransactionPlan {
   readonly touchedPaths: (rootInput: HarnessLayoutInput) => ReadonlyArray<string>;
@@ -444,7 +444,7 @@ export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWri
   return writeTransactionPlan(op).documentWrites();
 }
 
-export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-journal-operations-internal.ts";
+export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./internal.ts";
 
 
 

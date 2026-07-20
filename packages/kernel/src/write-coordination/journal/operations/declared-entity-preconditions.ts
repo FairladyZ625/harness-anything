@@ -1,11 +1,11 @@
 import type {
   DeclaredEntityDocumentPrecondition,
   DeclaredEntityDocumentWritePayload
-} from "../entity/declaration.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { documentTargetPath } from "./write-journal-operations-internal.ts";
-import { rejectWrite } from "../write-coordination/journal/rejection.ts";
+} from "../../../entity/declaration.ts";
+import type { HarnessLayoutInput } from "../../../layout/index.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import { documentTargetPath } from "./internal.ts";
+import { rejectWrite } from "../rejection.ts";
 
 export function declaredEntityPreconditions(
   payload: DeclaredEntityDocumentWritePayload

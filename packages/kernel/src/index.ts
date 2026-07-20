@@ -162,7 +162,7 @@ export {
 export { DaemonDrainTimeoutError } from "./daemon/drain-timeout.ts";
 export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";
 export type { DaemonAdmissionBudget } from "./daemon/admission-budget.ts";
-export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
+export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/submit.ts";
 export {
   projectDaemonRepoRegistration,
   readDaemonRegistry,

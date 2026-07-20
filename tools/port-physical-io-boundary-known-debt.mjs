@@ -85,7 +85,7 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing markdown artifact store implementation owns local package document reads and writes."
   },
   {
-    file: "packages/kernel/src/store/write-journal-coordinator.ts",
+    file: "packages/kernel/src/write-coordination/journal/coordinator.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing write coordinator still performs local recovery/disposition filesystem checks; W3 records this implementation exception without migrating behavior."
   },
@@ -105,12 +105,12 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing journal lock implementation owns filesystem lock files and host metadata."
   },
   {
-    file: "packages/kernel/src/store/write-journal-operations.ts",
+    file: "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing journal operation implementation owns local authored-file write operations."
   },
   {
-    file: "packages/kernel/src/store/write-journal-operations-internal.ts",
+    file: "packages/kernel/src/write-coordination/journal/operations/internal.ts",
     decision: "task_01KX68A7MK6HH9TM16T95M8ZZK",
     reason: "P3-1 split of write-journal-operations.ts (already-frozen exception): read-side apply helpers relocated with the same debt; no new physical I/O surface. Dissolves with the P1-3 port extraction."
   }

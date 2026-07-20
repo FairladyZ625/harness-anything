@@ -10,7 +10,6 @@
       "default": "./src/index.ts"
     },
     "./daemon/registry": "./src/daemon/registry.ts",
-    "./store/index": "./src/store/index.ts",
-    "./write-coordination/write-helpers": "./src/write-coordination/write-helpers.ts"
+    "./store/index": "./src/store/index.ts"
   }
 }

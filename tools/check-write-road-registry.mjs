@@ -177,7 +177,7 @@ function discoverWriteOpKinds() {
 }
 
 function discoverMachineArtifactBoundaries() {
-  const rel = "packages/kernel/src/store/write-journal-operations.ts";
+  const rel = "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts";
   const sourceFile = parseSource(rel);
   const out = [];
   visit(sourceFile, (node) => {

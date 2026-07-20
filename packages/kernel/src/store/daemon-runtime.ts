@@ -11,7 +11,7 @@ import {
   type HarnessLayoutOverrides,
   resolveHarnessLayout
 } from "../layout/index.ts";
-import { runLedgerMaterializer, type LedgerMaterializerReport } from "./ledger-materializer.ts";
+import { runLedgerMaterializer, type LedgerMaterializerReport } from "../write-coordination/materialization/ledger-materializer.ts";
 import { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
 import {
   type BackgroundBatchRequest,
@@ -31,9 +31,9 @@ import {
 import type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
 export type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
 import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "../write-coordination/journal/locks.ts";
-import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
+import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "../write-coordination/journal/coordinator.ts";
 import type { OperationalActor } from "../write-coordination/journal/types.ts";
-import { writeOpTouchedPaths } from "./write-journal-operations.ts";
+import { writeOpTouchedPaths } from "../write-coordination/journal/operations/transaction-plan.ts";
 import {
   createDaemonProjectionGenerationManager,
   type DaemonProjectionGenerationManager,

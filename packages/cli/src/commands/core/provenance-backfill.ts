@@ -7,7 +7,7 @@ import { stablePayloadHash } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { listTaskIndexPaths, readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
 import { ProvenanceEntrySchema } from "@harness-anything/kernel";
-import { writeCoordinatedTaskDocuments } from "@harness-anything/kernel/write-coordination/write-helpers";
+import { writeCoordinatedTaskDocuments } from "@harness-anything/kernel";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 

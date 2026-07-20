@@ -7,7 +7,7 @@ import type { VcsCommitAuthor } from "../ports/version-control-system.ts";
 import type { WriteAttribution } from "../schemas/actor-attribution.ts";
 import type { OperationalActor } from "../write-coordination/journal/types.ts";
 import { singleWriteIntegrityDomain, type WriteIntegrityDomain } from "../write-coordination/journal/integrity-domain.ts";
-import type { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
+import type { makeJournaledWriteCoordinator } from "../write-coordination/journal/coordinator.ts";
 
 export type DaemonWritePriority = "interactive" | "normal" | "background" | "maintenance";
 

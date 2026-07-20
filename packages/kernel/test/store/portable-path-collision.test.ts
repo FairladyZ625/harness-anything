@@ -8,7 +8,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { assertNoPortablePathCollisions } from "../../src/layout/index.ts";
 import { readTaskPackage, writeDocument } from "../../src/persistence/markdown/markdown-artifact-store.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
+import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
 import { docWrite } from "./helpers.ts";
 
 test("markdown artifact store rejects case-insensitive authored document path collisions when the host filesystem can materialize them", () => {

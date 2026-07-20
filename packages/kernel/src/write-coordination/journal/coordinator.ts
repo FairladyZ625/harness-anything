@@ -8,29 +8,29 @@ import type {
   WriteAck,
   WriteCoordinator,
   WriteOp
-} from "../ports/write-coordinator.ts";
-import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
-import type { EntityId, WriteError } from "../domain/index.ts";
-import { taskIdFromEntityId } from "../domain/index.ts";
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
-import { assertDocumentWritePathsDoNotCollide } from "../persistence/markdown/markdown-artifact-store.ts";
+} from "../../ports/write-coordinator.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
+import type { EntityId, WriteError } from "../../domain/index.ts";
+import { taskIdFromEntityId } from "../../domain/index.ts";
+import { stablePayloadHash } from "../../integrity/stable-hash.ts";
+import { assertDocumentWritePathsDoNotCollide } from "../../persistence/markdown/markdown-artifact-store.ts";
 import {
   createHarnessRuntimeContext,
   type HarnessLayoutInput,
   resolveHarnessLayout,
-} from "../layout/index.ts";
-import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
-import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
-import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "../write-coordination/journal/durable.ts";
-import { assertCommitPlanAddable, commitTouchedPaths } from "../write-coordination/journal/publication/git.ts";
-import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
-import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "../write-coordination/journal/operations/code-doc-policy.ts";
-import { writeJournalRecordCommitSummary } from "../write-coordination/journal/publication/commit-summary.ts";
-import { runLedgerMaterializer } from "./ledger-materializer.ts";
-import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../write-coordination/attribution/legacy-attribution-event-store.ts";
-import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "../write-coordination/journal/locks.ts";
-import { NonTaskWriteEntityError, taskIdForJournalRecord } from "../write-coordination/journal/operations/entity.ts";
-import { rejectWrite, WriteRejectedError } from "../write-coordination/journal/rejection.ts";
+} from "../../layout/index.ts";
+import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
+import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
+import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./durable.ts";
+import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
+import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
+import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./operations/code-doc-policy.ts";
+import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
+import { runLedgerMaterializer } from "../materialization/ledger-materializer.ts";
+import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/legacy-attribution-event-store.ts";
+import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
+import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./operations/entity.ts";
+import { rejectWrite, WriteRejectedError } from "./rejection.ts";
 import {
   assertRecordMatchesAttributedOp,
   assertRecordMatchesOperationalOp,
@@ -38,21 +38,21 @@ import {
   createOperationalJournalRecord,
   decodeWriteAttribution,
   uniquePendingRecords
-} from "../write-coordination/journal/records.ts";
+} from "./records.ts";
 import {
   applyWriteOp,
   documentWritesForWriteOp,
   readHardDeletePayload,
   validateWriteTransaction,
   writeOpTouchedPaths
-} from "./write-journal-operations.ts";
-import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "../write-coordination/journal/receipt.ts";
-import { semanticCommitMessage } from "../write-coordination/journal/publication/authority-trailer.ts";
-import { recoverJournalIntegrityDomains } from "../write-coordination/journal/recovery/integrity-domains.ts";
-import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "../write-coordination/journal/integrity-domain.ts";
-import { memoizePublicationVcs } from "../write-coordination/journal/publication/memoized-vcs.ts";
-import { rebuildProjectionHash } from "../write-coordination/journal/publication/projection.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "../write-coordination/journal/types.ts";
+} from "./operations/transaction-plan.ts";
+import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./receipt.ts";
+import { semanticCommitMessage } from "./publication/authority-trailer.ts";
+import { recoverJournalIntegrityDomains } from "./recovery/integrity-domains.ts";
+import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "./integrity-domain.ts";
+import { memoizePublicationVcs } from "./publication/memoized-vcs.ts";
+import { rebuildProjectionHash } from "./publication/projection.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
   JournalRecordV1,
@@ -62,7 +62,7 @@ export type {
   LockConflictRetryOptions,
   OperationalActor,
   ReadableJournalRecord
-} from "../write-coordination/journal/types.ts";
+} from "./types.ts";
 
 const defaultOperationalActor: OperationalActor = { scope: "operational", kind: "agent", id: "write-coordinator" };
 // Flush writes the full op-id set before compaction for recovery safety, then
