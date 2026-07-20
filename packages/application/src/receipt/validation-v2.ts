@@ -20,7 +20,7 @@ export function isCompoundOperationReceiptV2(value: unknown): value is CompoundO
       "delivery", "pinReleaseEligible", "currentLease", "sequence", "updatedAt"
     ], [
       "authority", "origin", "originPin", "terminalLSN", "acknowledgement",
-      "machineId", "daemonGeneration", "runtimeRegistrationId", "connectionId", "leaseGeneration", "errorCode"
+      "machineId", "daemonGeneration", "runtimeRegistrationId", "connectionId", "leaseGeneration"
     ])
     || value.schema !== compoundReceiptV2Schema
     || !requiredStringsV2(value, ["workspaceId", "viewId", "opId", "waiterId", "resultTokenDigest", "updatedAt"])
@@ -186,7 +186,7 @@ function stringArrayV2(value: unknown): boolean {
 }
 
 function validTerminalGenerationAxesV2(value: Record<string, unknown>): boolean {
-  for (const field of ["machineId", "runtimeRegistrationId", "connectionId", "errorCode"] as const) {
+  for (const field of ["machineId", "runtimeRegistrationId", "connectionId"] as const) {
     if (value[field] !== undefined && (typeof value[field] !== "string" || value[field].length === 0)) return false;
   }
   for (const field of ["daemonGeneration", "leaseGeneration"] as const) {

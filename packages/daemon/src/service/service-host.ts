@@ -10,7 +10,7 @@ import { createPtyTerminalSessionService } from "../terminal/pty-host.ts";
 import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { AuthorityWireIngressHandler } from "../transport/authority-wire-ingress.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
+import type { JsonObject, JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { DaemonRepoAvailabilityFailure, DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
 import type { AuthorityRepoComponent, AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 import type { AuthenticatedActor, IdentityAdminSnapshot, IdentityProvider, PersonRegistry } from "../identity/types.ts";
@@ -39,6 +39,7 @@ import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonRec
 import { createAuthorityWireIngressHandler } from "../authority/authority-wire-service.ts";
 import { requireAuthoritySubmissionForDispatch } from "../authority/authority-submission-dispatch.ts";
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
+import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
@@ -487,16 +488,10 @@ function createRepoServiceBinding<
       ...(statusOptions?.controlService ? { DaemonControlService: statusOptions.controlService } : {}),
       ...(statusOptions?.build?.launchConfiguration ? {
         DaemonLaunchSpecService: {
-          getLaunchSpec: () => ({
-            execPath: statusOptions.build!.launchConfiguration!.execPath,
-            execArgv: [...statusOptions.build!.launchConfiguration!.execArgv],
-            entrypoint: statusOptions.build!.launchConfiguration!.entrypoint,
-            args: [...statusOptions.build!.launchConfiguration!.args],
-            ...(statusOptions.build!.launchConfiguration!.machineId !== undefined
-              ? { machineId: statusOptions.build!.launchConfiguration!.machineId } : {}),
-            ...(statusOptions.build!.launchConfiguration!.daemonGeneration !== undefined
-              ? { daemonGeneration: statusOptions.build!.launchConfiguration!.daemonGeneration } : {})
-          })
+          getLaunchSpec: (capability) => projectDaemonLaunchConfiguration(
+            statusOptions.build!.launchConfiguration!,
+            capability?.includeGenerationAxes === true
+          ) as unknown as JsonObject
         }
       } : {}),
       CliCommandService: daemonCommandService,

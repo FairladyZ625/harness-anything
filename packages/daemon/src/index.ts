@@ -36,6 +36,7 @@ export {
   localUserDaemonEndpoint,
   localUserDaemonSocketPath,
   createDaemonLaunchConfiguration,
+  projectDaemonLaunchConfiguration,
   requestLocalDaemonJsonRpc,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,

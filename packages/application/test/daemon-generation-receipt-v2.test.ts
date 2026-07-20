@@ -29,8 +29,7 @@ test("compound receipt v2 accepts omitted, partial, and full generation projecti
     daemonGeneration: 2,
     runtimeRegistrationId: "runtime-a",
     connectionId: "connection-a",
-    leaseGeneration: 1,
-    errorCode: "DAEMON_GENERATION_FENCED"
+    leaseGeneration: 1
   })), true);
   assert.equal(isCompoundOperationReceiptV2(pending({ daemonGeneration: 0 })), false);
 });

@@ -240,3 +240,54 @@ test("daemon status generation capability preserves legacy bytes and validates t
   };
   assert.doesNotThrow(() => decodeDaemonStatusResultV2(full));
 });
+
+test("generation-aware control remains byte-identical for a legacy status request", () => {
+  const common = {
+    daemonId: "daemon-test",
+    rootDir: "/repo/alpha",
+    repoId: "alpha",
+    endpoint: "/user/daemon.sock",
+    userRoot: "/user",
+    startedAt: "2999-01-01T00:00:00.000Z",
+    loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    version: "0.1.0-test",
+    readInstalledIdentity: () => "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    runtimeStatus: {
+      started: true,
+      repos: [{
+        repoId: "alpha",
+        canonicalRoot: "/repo/alpha",
+        state: "attached",
+        queue: { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false }
+      }]
+    },
+    connections: { active: 1, total: 1 }
+  } as const;
+  const legacyControl = {
+    operationId: "control-a",
+    kind: "refresh",
+    phase: "accepted",
+    requestedAt: "2026-07-21T00:00:00.000Z"
+  } as const;
+  const expected = Buffer.from(JSON.stringify(daemonStatusPayload({
+    ...common,
+    activeControl: legacyControl
+  })));
+  const actual = Buffer.from(JSON.stringify(daemonStatusPayload({
+    ...common,
+    activeControl: {
+      ...legacyControl,
+      machineId: "machine-installation-a",
+      daemonGeneration: 4
+    }
+  })));
+  assert.equal(actual.equals(expected), true, "legacy status producer leaked control generation axes");
+
+  const capable = daemonStatusPayload({
+    ...common,
+    activeControl: { ...legacyControl, machineId: "machine-installation-a", daemonGeneration: 4 },
+    generationAxes: { machineId: "machine-installation-a", daemonGeneration: 4 },
+    includeGenerationAxes: true
+  });
+  assert.equal(capable.service.activeControl?.daemonGeneration, 4);
+});

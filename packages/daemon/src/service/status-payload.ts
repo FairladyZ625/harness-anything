@@ -131,7 +131,7 @@ export function daemonStatusPayload(input: {
       unavailableCount: repos.filter((repo) => repo.state === "unavailable").length,
       lastReconcileAt: input.reconcileStatus?.lastReconcileAt ?? null,
       lastReconcileError: reconcileErrorPayload(input.reconcileStatus?.lastReconcileError ?? null),
-      activeControl: input.activeControl,
+      activeControl: projectActiveControl(input.activeControl, input.includeGenerationAxes === true),
       ...(input.includeGenerationAxes && input.generationAxes ? {
         machineId: input.generationAxes.machineId,
         daemonGeneration: input.generationAxes.daemonGeneration
@@ -140,6 +140,16 @@ export function daemonStatusPayload(input: {
     requestedRepo: selectedRepo,
     repos
   };
+}
+
+function projectActiveControl(
+  activeControl: DaemonActiveControlStatus | null,
+  includeGenerationAxes: boolean
+): DaemonActiveControlStatus | null {
+  if (!activeControl || includeGenerationAxes
+    || (activeControl.machineId === undefined && activeControl.daemonGeneration === undefined)) return activeControl;
+  const { machineId: _machineId, daemonGeneration: _daemonGeneration, ...legacy } = activeControl;
+  return legacy;
 }
 
 function repoStatus(

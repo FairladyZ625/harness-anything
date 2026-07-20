@@ -126,7 +126,7 @@ function isState(value: unknown): value is DurableCompoundReceiptStateV2 {
       "pinReleaseEligible", "receiptSequence", "recordedAt"
     ], [
       "preparedSequence", "preparedReceiptDigest", "reason", "machineId", "daemonGeneration",
-      "runtimeRegistrationId", "connectionId", "leaseGeneration", "errorCode"
+      "runtimeRegistrationId", "connectionId", "leaseGeneration"
     ])
       || entry.schema !== compoundTerminalJournalSchema || !uint(entry.terminalLSN)
       || entry.terminalLSN <= priorLSN || !uint(entry.receiptSequence)
@@ -219,7 +219,7 @@ function strings(value: Record<string, unknown>, keys: ReadonlyArray<string>): b
 }
 
 function validTerminalGenerationAxes(value: Record<string, unknown>): boolean {
-  for (const field of ["machineId", "runtimeRegistrationId", "connectionId", "errorCode"] as const) {
+  for (const field of ["machineId", "runtimeRegistrationId", "connectionId"] as const) {
     if (value[field] !== undefined && (typeof value[field] !== "string" || value[field].length === 0)) return false;
   }
   for (const field of ["daemonGeneration", "leaseGeneration"] as const) {

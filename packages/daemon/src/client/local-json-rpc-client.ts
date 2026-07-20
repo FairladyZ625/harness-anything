@@ -306,6 +306,23 @@ export function createDaemonLaunchConfiguration(
   };
 }
 
+/** Legacy RPC/control projection is exactly the original four-key launch contract. */
+export function projectDaemonLaunchConfiguration(
+  configuration: DaemonLaunchConfiguration,
+  includeGenerationAxes = false
+): DaemonLaunchConfiguration {
+  return {
+    execPath: configuration.execPath,
+    execArgv: [...configuration.execArgv],
+    entrypoint: configuration.entrypoint,
+    args: [...configuration.args],
+    ...(includeGenerationAxes && configuration.machineId !== undefined
+      ? { machineId: configuration.machineId } : {}),
+    ...(includeGenerationAxes && configuration.daemonGeneration !== undefined
+      ? { daemonGeneration: configuration.daemonGeneration } : {})
+  };
+}
+
 export function daemonServerHostEnvironment(
   base: NodeJS.ProcessEnv,
   target: Pick<LocalDaemonTarget, "userRoot" | "daemonId">

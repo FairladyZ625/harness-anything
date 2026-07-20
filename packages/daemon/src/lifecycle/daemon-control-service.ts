@@ -7,7 +7,10 @@ import {
   type DaemonControlService,
   type DaemonStatusResultV2
 } from "@harness-anything/application";
-import type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
+import {
+  projectDaemonLaunchConfiguration,
+  type DaemonLaunchConfiguration
+} from "../client/local-json-rpc-client.ts";
 
 export type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
@@ -75,7 +78,7 @@ export function createDaemonControlService<
             loadedIdentity: before.service.build.loadedIdentity,
             repoCount: before.service.repoCount,
             queueDepth: before.service.queue.depth,
-            launchConfiguration: input.launchConfiguration,
+            launchConfiguration: projectDaemonLaunchConfiguration(input.launchConfiguration, generationCapability),
             ...(generationCapability && input.launchConfiguration.daemonGeneration !== undefined
               ? { daemonGeneration: input.launchConfiguration.daemonGeneration } : {})
           }

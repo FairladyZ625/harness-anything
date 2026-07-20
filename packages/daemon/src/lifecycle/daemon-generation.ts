@@ -34,7 +34,11 @@ export function daemonGenerationRecordPath(userRoot: string, endpointIdentity: s
 }
 
 /** Installation-scoped identity. Different userRoot values intentionally receive different identities. */
-export function readOrCreateDaemonMachineId(installationRoot: string): string {
+export function readOrCreateDaemonMachineId(
+  installationRoot: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  assertDurableGenerationPlatform(platform);
   const directory = path.resolve(installationRoot);
   const target = daemonMachineIdPath(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -71,7 +75,9 @@ export function publishNextDaemonGeneration(input: {
   readonly machineId: string;
   readonly daemonInstanceId: string;
   readonly now?: () => Date;
+  readonly platform?: NodeJS.Platform;
 }): DaemonGenerationRecordV1 {
+  assertDurableGenerationPlatform(input.platform ?? process.platform);
   assertNonEmpty(input.endpointIdentity, "endpointIdentity");
   assertNonEmpty(input.machineId, "machineId");
   assertNonEmpty(input.daemonInstanceId, "daemonInstanceId");
@@ -135,12 +141,19 @@ function isDaemonGenerationRecord(value: unknown): value is DaemonGenerationReco
 }
 
 function fsyncDirectory(directory: string): void {
-  if (process.platform === "win32") return;
   const descriptor = openSync(directory, "r");
   try {
     fsyncSync(descriptor);
   } finally {
     closeSync(descriptor);
+  }
+}
+
+function assertDurableGenerationPlatform(platform: NodeJS.Platform): void {
+  if (platform === "win32") {
+    throw new Error(
+      "DAEMON_GENERATION_DURABILITY_UNSUPPORTED: Windows daemon generation publication is disabled until a crash-durable directory replacement primitive is available."
+    );
   }
 }
 

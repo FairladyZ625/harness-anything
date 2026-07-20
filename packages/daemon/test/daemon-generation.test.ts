@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -79,6 +79,32 @@ test("generation publication fails closed on corrupt or exhausted state", () => 
       publishedAt: "2026-07-21T00:00:00.000Z"
     })}\n`, "utf8");
     assert.throws(() => publishNextDaemonGeneration({ userRoot, endpointIdentity, machineId, daemonInstanceId: "daemon" }), /space exhausted/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("Windows fails closed before publishing machine identity or daemon generation", () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-generation-win32-"));
+  const machinePath = daemonMachineIdPath(userRoot);
+  const generationPath = daemonGenerationRecordPath(userRoot, "pipe:daemon");
+  try {
+    assert.throws(
+      () => readOrCreateDaemonMachineId(userRoot, "win32"),
+      /DAEMON_GENERATION_DURABILITY_UNSUPPORTED/u
+    );
+    assert.equal(existsSync(machinePath), false);
+    assert.throws(
+      () => publishNextDaemonGeneration({
+        userRoot,
+        endpointIdentity: "pipe:daemon",
+        machineId: "machine-a",
+        daemonInstanceId: "daemon-a",
+        platform: "win32"
+      }),
+      /DAEMON_GENERATION_DURABILITY_UNSUPPORTED/u
+    );
+    assert.equal(existsSync(generationPath), false);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

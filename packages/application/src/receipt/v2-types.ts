@@ -84,7 +84,6 @@ export interface CompoundOperationReceiptV2 extends ReceiptIdentityV2 {
   readonly connectionId?: string;
   /** Reserved for S4; S1 neither generates nor enforces this value. */
   readonly leaseGeneration?: number;
-  readonly errorCode?: string;
 }
 
 export interface OpenedCompoundWaiterV2 {
@@ -118,7 +117,6 @@ export interface CompoundTerminalJournalEntry {
   readonly connectionId?: string;
   /** Reserved for S4; S1 neither generates nor enforces this value. */
   readonly leaseGeneration?: number;
-  readonly errorCode?: string;
 }
 
 export type CompoundTerminalJournalDraft = Omit<CompoundTerminalJournalEntry, "terminalLSN" | "receiptSequence">;
