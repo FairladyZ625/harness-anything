@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
+import { isConcurrentRenameLoss, localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
 import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
 import { hashExecutionLeaseToken, leaseDurationMs, renewExecutionLeaseCredential, requireExecutionCredential,
   sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
@@ -511,7 +511,7 @@ function recoverAbandonedTaskHolderMutationLock(lockPath: string): void {
     localRuntimeStateFileSystem.rename(lockPath, quarantinePath);
     localRuntimeStateFileSystem.remove(quarantinePath);
   } catch (error) {
-    if (!isMissingFileError(error)) throw error;
+    if (!isMissingFileError(error) && !isConcurrentRenameLoss(error, lockPath)) throw error;
   }
 }
 

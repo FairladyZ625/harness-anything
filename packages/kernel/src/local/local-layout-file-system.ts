@@ -70,7 +70,7 @@ export const localRuntimeStateFileSystem = {
     try {
       descriptor = openSync(inputPath, "wx");
     } catch (error) {
-      if (isExclusiveCreateConflict(error)) return false;
+      if (isExclusiveCreateConflict(error, inputPath)) return false;
       throw error;
     }
     try {
@@ -89,6 +89,23 @@ export const localRuntimeStateFileSystem = {
   writeText: (inputPath: string, value: string) => writeFileSync(inputPath, value, "utf8")
 };
 
-function isExclusiveCreateConflict(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+export function isExclusiveCreateConflict(
+  error: unknown,
+  inputPath: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  const code = nodeErrorCode(error);
+  return code === "EEXIST" || (platform === "win32" && code === "EPERM" && existsSync(inputPath));
+}
+
+export function isConcurrentRenameLoss(
+  error: unknown,
+  sourcePath: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  return platform === "win32" && nodeErrorCode(error) === "EPERM" && !existsSync(sourcePath);
+}
+
+function nodeErrorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
 }
