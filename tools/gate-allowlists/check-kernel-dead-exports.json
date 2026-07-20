@@ -1034,11 +1034,6 @@
         "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
       },
       {
-        "value": "VcsCommitAuthor",
-        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
-        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
-      },
-      {
         "value": "VersionControlSystemPort",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
