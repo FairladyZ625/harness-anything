@@ -38,6 +38,33 @@ test("daemon artifact identity is deterministic over the adjudicated regular-fil
   }
 });
 
+test("source daemon artifact identity covers CLI build inputs and remains deterministic", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-source-artifact-"));
+  try {
+    const entrypoint = path.join(root, "packages", "cli", "src", "index.ts");
+    const daemonSource = path.join(root, "packages", "daemon", "src", "index.ts");
+    mkdirSync(path.dirname(entrypoint), { recursive: true });
+    mkdirSync(path.dirname(daemonSource), { recursive: true });
+    writeFileSync(entrypoint, "export const cli = true;\n");
+    writeFileSync(daemonSource, "export const daemon = 1;\n");
+    writeFileSync(path.join(path.dirname(daemonSource), "types.d.ts"), "export type Ignored = true;\n");
+
+    const first = calculateDaemonArtifactIdentity(entrypoint);
+    const unchanged = calculateDaemonArtifactIdentity(entrypoint);
+    assert.equal(first.artifactRoot, realpathSync(root));
+    assert.equal(first.fileCount, 2);
+    assert.equal(unchanged.identity, first.identity);
+
+    writeFileSync(entrypoint, "export const cli = false;\n");
+    assert.notEqual(calculateDaemonArtifactIdentity(entrypoint).identity, first.identity);
+    writeFileSync(entrypoint, "export const cli = true;\n");
+    writeFileSync(daemonSource, "export const daemon = 2;\n");
+    assert.notEqual(calculateDaemonArtifactIdentity(entrypoint).identity, first.identity);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("representative installed artifact identity is stable with a sub-50ms median calculation", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-installed-artifact-"));
   try {

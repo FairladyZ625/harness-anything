@@ -98,7 +98,8 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
             return v2DaemonStatus(84);
           },
           wait: async () => undefined
-        }
+        },
+        calculateInstalledIdentity: () => "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       });
 
       assert.equal(exitCode, 0);
@@ -200,7 +201,7 @@ test("refresh accepts a healthy no-delta replacement converged on the installed 
     wait: async () => undefined
   } satisfies DaemonControlLifecycle;
 
-  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh");
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh", identity);
 
   assert.equal(exitCode, 0, JSON.stringify(receipt));
 });
@@ -220,16 +221,18 @@ test("restart accepts a healthy same-version replacement converged on the instal
   assert.equal(exitCode, 0, JSON.stringify(receipt));
 });
 
-test("refresh accepts a healthy delta replacement loaded from the new installed identity", async () => {
+test("refresh accepts a new expected identity when the old daemon reported a legacy identity", async () => {
+  const expectedIdentity = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   const lifecycle = {
     target: controlTarget,
     probeStatus: async () => undefined,
     ownerIsAlive: () => false,
+    prepareReplacement: async () => runningLaunchConfiguration,
     startReplacement: async () => v2DaemonStatus(84),
     wait: async () => undefined
   } satisfies DaemonControlLifecycle;
 
-  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh");
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh", expectedIdentity);
 
   assert.equal(exitCode, 0, JSON.stringify(receipt));
   const replacement = receipt.replacement as Record<string, unknown>;
@@ -237,6 +240,29 @@ test("refresh accepts a healthy delta replacement loaded from the new installed 
   const build = service.build as Record<string, unknown>;
   assert.equal(build.loadedIdentity, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   assert.equal(build.loadedIdentity, build.installedIdentity);
+});
+
+test("refresh rejects a self-consistent replacement that did not load the expected new identity", async () => {
+  const staleIdentity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const expectedIdentity = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const stoppedPids: number[] = [];
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => undefined,
+    ownerIsAlive: () => false,
+    prepareReplacement: async () => runningLaunchConfiguration,
+    startReplacement: async () => v2DaemonStatus(84, staleIdentity, staleIdentity),
+    stopReplacement: async (_target: typeof controlTarget, pid: number) => {
+      stoppedPids.push(pid);
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh", expectedIdentity);
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(stoppedPids, [84]);
+  assert.match(controlErrorHint(receipt), /did not match the replacement identity calculated before handoff/u);
 });
 
 test("refresh rejects and cleans up a replacement that loaded an old identity", async () => {
@@ -603,7 +629,8 @@ test("daemon help exposes logs, restart, refresh, and refresh trigger selection"
 async function runCapturedControl(
   daemonControlLifecycle: DaemonControlLifecycle,
   extraArgs: ReadonlyArray<string> = [],
-  kind: "restart" | "refresh" = "restart"
+  kind: "restart" | "refresh" = "restart",
+  expectedIdentity = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 ): Promise<{ readonly exitCode: number; readonly receipt: Record<string, unknown> }> {
   const output: string[] = [];
   const originalLog = console.log;
@@ -625,7 +652,8 @@ async function runCapturedControl(
           launchConfiguration: runningLaunchConfiguration
         }
       }),
-      daemonControlLifecycle
+      daemonControlLifecycle,
+      calculateInstalledIdentity: () => expectedIdentity
     });
     return {
       exitCode,
