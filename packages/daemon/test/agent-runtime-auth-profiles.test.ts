@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { probeRuntimeAuthenticationProfiles } from "../src/daemon/agent-runtime-auth-profiles.ts";
+import { probeRuntimeAuthenticationProfiles } from "../src/agent-runtime/auth-profiles.ts";
 
 test("runtime auth profiles detect account and API-key configuration without projecting credentials", async () => {
   const profiles = await probeRuntimeAuthenticationProfiles({

@@ -308,6 +308,10 @@ export {
   type RuntimeChildProcess,
   type RuntimeChildSpawner
 } from "./agent-runtime/protocol-adapters.ts";
+export {
+  createLocalAgentRuntimeControlHost,
+  makeLocalAgentRuntimeControllerOptions
+} from "./agent-runtime/control-host.ts";
 export type { AgentRuntimeControlService } from "@harness-anything/application/agent-runtime-control";
 export {
   attachTokenBootstrapFrame,

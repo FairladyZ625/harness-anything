@@ -1790,11 +1790,11 @@
       ],
       "directWrites": [
         {
-          "file": "packages/cli/src/daemon/agent-runtime-session-store.ts"
+          "file": "packages/daemon/src/agent-runtime/session-store.ts"
         }
       ],
       "evidence": [
-        "packages/cli/src/daemon/agent-runtime-session-store.ts:7",
+        "packages/daemon/src/agent-runtime/session-store.ts:7",
         "packages/daemon/src/agent-runtime/session-service.ts:60"
       ],
       "freshness": "daemon-exclusive-atomic-replace-restart-replayed"
