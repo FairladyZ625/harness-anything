@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   authoritySubmissionWriteError,
   gateAuthoritySubmissionForRecovery
-} from "../src/daemon/authority-command-submission.ts";
+} from "@harness-anything/daemon";
 import { authorityCommandAttemptFixture } from "./helpers/authority-command-adapter-v2.ts";
 
 test("authority JournalUnavailable errors serialize diagnostic fields without stacks", () => {

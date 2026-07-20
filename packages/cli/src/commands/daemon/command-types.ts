@@ -1,4 +1,4 @@
-import type { AuthorityRepoLifecycleController } from "../../daemon/authority-lifecycle.ts";
+import type { AuthorityRepoLifecycleController } from "@harness-anything/daemon";
 import type { ParsedDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonControlLifecycle, DaemonControlRequest } from "./control.ts";
 

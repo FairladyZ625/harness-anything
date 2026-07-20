@@ -10,7 +10,7 @@ import {
   type CompoundReceiptServiceV2,
   type ReceiptIdentityV2
 } from "../../application/src/index.ts";
-import { createDurableCompoundReceiptStoreV2 } from "../../cli/src/receipt/durable-store-v2.ts";
+import { createDurableCompoundReceiptStoreV2 } from "../src/index.ts";
 import {
   createBrokerCompoundReceiptCoordinatorV2,
   ReplicaBroker

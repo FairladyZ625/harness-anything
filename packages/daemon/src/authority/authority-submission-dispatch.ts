@@ -1,4 +1,5 @@
-import type { AuthorityConnectionDispatch } from "@harness-anything/daemon";
+// @slice-activation PLT-Boundary W2 daemon-owned authority submission dispatch host.
+import type { AuthorityConnectionDispatch } from "../protocol/connection-context.ts";
 import type { AuthorityRepoComponent } from "./authority-lifecycle.ts";
 
 export function bindAuthoritySubmissionForDispatch(

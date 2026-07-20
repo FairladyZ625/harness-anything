@@ -20,16 +20,6 @@ import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "@harness-anything/application";
 import type { WriteAttribution } from "@harness-anything/kernel";
 
-export type CommandDeprecationKind = "alias-grammar" | "migration-command" | "cutover-command";
-
-export interface DeprecatedCommandInvocation {
-  readonly kind: CommandDeprecationKind;
-  readonly commandKind: string;
-  readonly syntax: string;
-  readonly replacement: string;
-  readonly sunsetStage: "warning";
-  readonly decisionId: "dec_01KXQKTCKDDZF16QSMP5E5HFG1" | "dec_01KXSN6AVD6PSEB4CFCW8P2RQP";
-}
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
 /** Dormant implementation compatibility type; lesson commands are not registered. */
@@ -145,16 +135,6 @@ export interface CommandActorAttribution {
   readonly executor: TaskHolderExecutor | null;
 }
 
-export interface CompoundReceiptExitCommand {
-  readonly stateDirectory: string;
-  readonly workspaceId: string;
-  readonly viewId: string;
-  readonly opId: string;
-  readonly waiterId: string;
-  readonly resultToken: string;
-  readonly json: boolean;
-}
-
 export type AuthorityCutoverCommandErrorCode = "AuthMissing" | "EngineNotEnabled" | "write_rejected";
 
 export interface AuthorityCutoverCommandResult {
@@ -175,7 +155,14 @@ export interface ParsedCommand {
   readonly daemonModeOverride?: "direct" | "local" | "remote";
   readonly daemonProfileOverride?: "default" | "isolated";
   readonly json: boolean;
-  readonly deprecatedInvocation?: DeprecatedCommandInvocation;
+  readonly deprecatedInvocation?: {
+    readonly kind: "alias-grammar" | "migration-command" | "cutover-command";
+    readonly commandKind: string;
+    readonly syntax: string;
+    readonly replacement: string;
+    readonly sunsetStage: "warning";
+    readonly decisionId: "dec_01KXQKTCKDDZF16QSMP5E5HFG1" | "dec_01KXSN6AVD6PSEB4CFCW8P2RQP";
+  };
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }
     | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly workKind?: TaskWorkKind; readonly riskTier?: PriorityTier; readonly urgency?: PriorityTier; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }

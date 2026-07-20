@@ -17,7 +17,8 @@ import {
   createBrokerCompoundReceiptCoordinatorV2,
   ReplicaBroker
 } from "@harness-anything/daemon";
-import { createDurableCompoundReceiptStoreV2, renderCompoundCliExit } from "../receipt/index.ts";
+import { renderCompoundCliExit } from "@harness-anything/application";
+import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-store.ts";
 
 /**
  * The daemon-owned compound path.  Keeping this owner beside the daemon

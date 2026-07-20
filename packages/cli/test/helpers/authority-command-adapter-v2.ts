@@ -21,7 +21,7 @@ import {
   v2Envelope
 } from "../../../daemon/test/authority-v2-fixtures.ts";
 import { daemonActorAttribution } from "../../src/composition/actor-attribution.ts";
-import { createDaemonAuthorityCommandSubmissionV2 } from "../../src/daemon/authority-command-submission.ts";
+import { createDaemonAuthorityCommandSubmissionV2 } from "@harness-anything/daemon";
 
 const workspaceId = "workspace-command-service";
 const channelNonceDigest = Buffer.alloc(32, 12);

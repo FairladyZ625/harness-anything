@@ -18,12 +18,20 @@ import {
   createGitAuthorityAttributionEvidenceCommitterV2,
   createGitCanonicalPublicationInspector,
   createTransportObservedAttestationAdapter,
+  createDaemonAuthorityCommandSubmissionV2,
+  createAuthorityRepoLifecycleController,
+  createProductionCompoundReceiptComposition,
+  gateAuthoritySubmissionForRecovery,
   gateCutoverAdmission,
   recoverPendingProductionEvents,
   recoveryErrorCode,
   recoveryErrorSummary,
   verifyAttestationAssertion,
-  type AuthorityConnectionContext
+  type AuthorityConnectionContext,
+  type AuthorityRepoComponent,
+  type AuthorityRepoConnectionBinding,
+  type AuthorityRepoLifecycleController,
+  type AuthorityRepoLifecycleHooks
 } from "@harness-anything/daemon";
 import { serveAuthorityForcedCommand } from "@harness-anything/daemon/authority/forced-command-session";
 import {
@@ -35,17 +43,6 @@ import {
 } from "@harness-anything/kernel";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import {
-  createDaemonAuthorityCommandSubmissionV2,
-  gateAuthoritySubmissionForRecovery
-} from "./authority-command-submission.ts";
-import {
-  createAuthorityRepoLifecycleController,
-  type AuthorityRepoComponent,
-  type AuthorityRepoConnectionBinding,
-  type AuthorityRepoLifecycleController,
-  type AuthorityRepoLifecycleHooks
-} from "./authority-lifecycle.ts";
-import {
   createDurableAuthorityBindingRuntimeV2,
   createDurableOperationNamespaceVerifierV2,
   loadAuthorityProductionManifest,
@@ -53,7 +50,6 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
-import { createProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";

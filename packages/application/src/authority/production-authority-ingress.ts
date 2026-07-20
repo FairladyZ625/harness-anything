@@ -1,4 +1,6 @@
-interface CommandSpecDefinition {\n  readonly kind: string;\n}
+interface CommandSpecDefinition {
+  readonly kind: string;
+}
 
 export const productionAuthorityIngressDecisionRef =
   "decision/dec_01KXSWKWTEXB751A30TRRCQWDG" as const;

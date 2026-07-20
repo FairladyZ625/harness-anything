@@ -17,9 +17,15 @@ import { CliActorAttributionError, daemonActorAttributionForParsedCommand, migra
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
 import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
-import { makeDaemonAuthorityWriteCoordinator, type DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
-import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
-import { isAuthorityCutoverAction, runAuthorityCutoverControlCommand } from "./authority-cutover-command.ts";
+import {
+  isAuthorityCutoverAction,
+  makeDaemonAuthorityWriteCoordinator,
+  makeDaemonQueuedOperationalWriteCoordinator,
+  makeDaemonQueuedWriteCoordinator,
+  runAuthorityCutoverControlCommand,
+  type CliDaemonRuntime,
+  type DaemonAuthorityCommandSubmissionV2
+} from "@harness-anything/daemon";
 
 export interface CliCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {

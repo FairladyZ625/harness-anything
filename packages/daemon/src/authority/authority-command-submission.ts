@@ -18,9 +18,8 @@ import type {
   WriteOp
 } from "@harness-anything/kernel";
 import { taskEntityId } from "@harness-anything/kernel";
-import type { ParsedCommand } from "../cli/types.ts";
-import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
-import type { CliActorAttribution } from "../composition/actor-attribution.ts";
+import { productionAuthorityIngressFor } from "@harness-anything/application";
+import type { CommandActorAttribution as CliActorAttribution, ParsedCommand } from "./command-contract.ts";
 
 export interface DaemonAuthorityAttemptCompilerV2 {
   /**

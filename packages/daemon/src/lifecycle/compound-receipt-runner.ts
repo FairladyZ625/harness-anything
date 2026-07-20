@@ -1,9 +1,9 @@
-import { createCompoundReceiptServiceV2 } from "@harness-anything/application";
-import { readOption } from "../cli/parse-options.ts";
-import { createDurableCompoundReceiptStoreV2, renderCompoundCliExit } from "../receipt/index.ts";
+// @slice-activation PLT-Boundary W2 daemon-owned compound receipt lifecycle entry.
+import { createCompoundReceiptServiceV2, renderCompoundCliExit } from "@harness-anything/application";
+import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-store.ts";
 
 /**
- * Top-level CLI owner for the compound exit contract.  A recovered waiter is
+ * Top-level daemon owner for the compound exit contract. A recovered waiter is
  * classified only from durable state; this command never infers success from a
  * lost RESULT_PREPARED/ACK_COMMITTED transport frame.
  */
@@ -29,7 +29,8 @@ export async function runCompoundReceiptExitCommand(argv: ReadonlyArray<string>)
 }
 
 function required(argv: ReadonlyArray<string>, name: string): string | undefined {
-  const value = readOption(argv, name);
+  const index = argv.indexOf(name);
+  const value = index >= 0 ? argv[index + 1] : undefined;
   return value && !value.startsWith("--") ? value : undefined;
 }
 

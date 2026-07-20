@@ -24,7 +24,7 @@ import {
   type AuthorityRepoCompositionData,
   type AuthorityRepoLifecycleHooks,
   type AuthorityLifecycleRuntime
-} from "../src/daemon/authority-lifecycle.ts";
+} from "@harness-anything/daemon";
 import { openDurableAuthorityServiceState } from "@harness-anything/daemon";
 import {
   bindAuthoritySubmissionForDispatch,

@@ -28,7 +28,7 @@ import {
   type WriteCoordinator
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
-import type { ProductionCompoundReceiptComposition } from "./compound-receipt-composition.ts";
+import type { ProductionCompoundReceiptComposition } from "../lifecycle/compound-receipt-composition.ts";
 import type { AuthorityForcedCommandSession } from "@harness-anything/daemon";
 import type { Readable, Writable } from "node:stream";
 

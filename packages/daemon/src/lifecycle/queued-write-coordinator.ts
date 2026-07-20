@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "@harness-anything/kernel";
-import type { MaterializerCommandReport } from "../cli/types.ts";
+import type { MaterializerCommandReport } from "../authority/command-contract.ts";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];
 interface QueuedGitCommitAuthor {

@@ -1467,7 +1467,7 @@
         "packages/cli/src/commands/extensions/script-staging.ts:32",
         "packages/cli/src/commands/core/extension.ts:10",
         "packages/cli/src/daemon/production-authority-script-ingest.ts:35",
-        "packages/cli/src/daemon/authority-command-submission.ts:227"
+        "packages/daemon/src/authority/authority-command-submission.ts:227"
       ],
       "freshness": "staging-mirror-ingest"
     },
@@ -1510,19 +1510,20 @@
         "zoneClass": "compound-receipt-crash-recovery"
       },
       "entry": [
-        "cli"
+        "cli",
+        "daemon"
       ],
       "directWrites": [
         {
           "file": "packages/cli/src/receipt/durable-store.ts"
         },
         {
-          "file": "packages/cli/src/receipt/durable-store-v2.ts"
+          "file": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts"
         }
       ],
       "evidence": [
         "packages/cli/src/receipt/durable-store.ts:76",
-        "packages/cli/src/receipt/durable-store-v2.ts:1",
+        "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts:143",
         "packages/application/src/receipt/service.ts:1"
       ],
       "freshness": "fsync-atomic-rename"
@@ -1556,24 +1557,24 @@
           "file": "packages/daemon/src/broker/cas-store.ts"
         },
         {
-          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "file": "packages/daemon/src/lifecycle/compound-receipt-composition.ts",
           "command": "git"
         },
         {
-          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "file": "packages/daemon/src/lifecycle/compound-receipt-composition.ts",
           "command": "git"
         },
         {
-          "file": "packages/cli/src/daemon/compound-receipt-composition.ts",
+          "file": "packages/daemon/src/lifecycle/compound-receipt-composition.ts",
           "api": "mkdirSync"
         }
       ],
       "evidence": [
         "packages/daemon/src/broker/native-applier.ts:168",
         "packages/daemon/src/broker/durable-state-store.ts:1",
-        "packages/cli/src/daemon/compound-receipt-composition.ts:45",
-        "packages/cli/src/daemon/compound-receipt-composition.ts:94",
-        "packages/cli/src/daemon/compound-receipt-composition.ts:99"
+        "packages/daemon/src/lifecycle/compound-receipt-composition.ts:46",
+        "packages/daemon/src/lifecycle/compound-receipt-composition.ts:95",
+        "packages/daemon/src/lifecycle/compound-receipt-composition.ts:100"
       ],
       "freshness": "crash-safe-cut-apply"
     },

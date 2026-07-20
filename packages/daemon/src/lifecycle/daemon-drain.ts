@@ -1,5 +1,6 @@
+// @slice-activation PLT-Boundary W2 daemon-owned authority and runtime drain seam.
 import { DaemonDrainTimeoutError } from "@harness-anything/kernel";
-import type { AuthorityRepoLifecycleController } from "./authority-lifecycle.ts";
+import type { AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 
 export async function drainDaemonRuntime(input: {
   readonly authorityLifecycle: AuthorityRepoLifecycleController | undefined;

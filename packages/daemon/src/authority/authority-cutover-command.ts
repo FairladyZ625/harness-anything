@@ -1,6 +1,6 @@
+// @slice-activation PLT-Boundary W2 daemon-owned authority cutover command host.
 import type { AuthorityCutoverControlService } from "@harness-anything/application";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
-import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import type { AuthorityCutoverCommandErrorCode, AuthorityCutoverCommandResult, ParsedCommand } from "./command-contract.ts";
 
 type AuthorityCutoverAction = Extract<ParsedCommand["action"], { readonly kind: `authority-cutover-${string}` }>;
 
@@ -12,9 +12,9 @@ export async function runAuthorityCutoverControlCommand(input: {
   readonly action: AuthorityCutoverAction;
   readonly control?: AuthorityCutoverControlService;
   readonly authenticated: boolean;
-}): Promise<CliResult> {
-  if (!input.authenticated) return cutoverCommandFailure(input.action.kind, CliErrorCode.AuthMissing, "Authority cutover controls require an authenticated daemon principal.");
-  if (!input.control) return cutoverCommandFailure(input.action.kind, CliErrorCode.EngineNotEnabled, "Authority cutover controls require a production daemon started with --authority-manifest.");
+}): Promise<AuthorityCutoverCommandResult> {
+  if (!input.authenticated) return cutoverCommandFailure(input.action.kind, "AuthMissing", "Authority cutover controls require an authenticated daemon principal.");
+  if (!input.control) return cutoverCommandFailure(input.action.kind, "EngineNotEnabled", "Authority cutover controls require a production daemon started with --authority-manifest.");
   try {
     const report = await executeAuthorityCutoverAction(input.control, input.action);
     const rejected = isRejectedCutoverReport(report);
@@ -22,10 +22,10 @@ export async function runAuthorityCutoverControlCommand(input: {
       ok: !rejected,
       command: input.action.kind,
       report,
-      ...(rejected ? { error: cliError(CliErrorCode.WriteRejected, cutoverRejectionMessage(report)) } : {})
+      ...(rejected ? { error: { code: "write_rejected" as const, hint: cutoverRejectionMessage(report) } } : {})
     };
   } catch (error) {
-    return cutoverCommandFailure(input.action.kind, CliErrorCode.WriteRejected, error instanceof Error ? error.message : String(error));
+    return cutoverCommandFailure(input.action.kind, "write_rejected", error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -64,6 +64,6 @@ function cutoverRejectionMessage(report: unknown): string {
     : "Authority drain has unclassified non-terminal operations; admission remains closed."
 }
 
-function cutoverCommandFailure(command: string, code: typeof CliErrorCode.AuthMissing | typeof CliErrorCode.EngineNotEnabled | typeof CliErrorCode.WriteRejected, message: string): CliResult {
-  return { ok: false, command, error: cliError(code, message) };
+function cutoverCommandFailure(command: string, code: AuthorityCutoverCommandErrorCode, message: string): AuthorityCutoverCommandResult {
+  return { ok: false, command, error: { code, hint: message } };
 }

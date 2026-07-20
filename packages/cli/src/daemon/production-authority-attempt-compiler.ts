@@ -43,9 +43,9 @@ import {
 } from "../cli/command-spec/index.ts";
 import {
   hostedSnapshot,
-  type AuthorityConnectionContext
+  type AuthorityConnectionContext,
+  type DaemonAuthorityAttemptCompilerV2
 } from "@harness-anything/daemon";
-import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import {
   openAuthorityProductionKeyMaterial,
   type AuthorityProductionRepoConfigV1,

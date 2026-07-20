@@ -99,6 +99,7 @@ export {
   createCompoundReceiptService,
   isCompoundOperationReceipt
 } from "./receipt/index.ts";
+export { renderCompoundCliExit } from "./receipt/index.ts";
 export * from "./receipt/witness-v1.ts";
 export * from "./receipt/v2-integrity.ts";
 export * from "./receipt/v2-service.ts";
@@ -117,6 +118,7 @@ export type {
   CompoundReceiptService,
   CompoundReceiptServiceOptions,
   CompoundReceiptStore,
+  CompoundCliExit,
   CurrentLeaseState,
   ImmutableReceiptAcknowledgement,
   LocalConflictOrigin,
