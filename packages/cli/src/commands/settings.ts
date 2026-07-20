@@ -64,11 +64,13 @@ const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
 const DEFAULT_TASK_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 
-export function readProjectHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): SettingsResult {
+export function readProjectHarnessSettings(
+  rootInput: HarnessLayoutInput,
+  command = "settings",
+  options: { readonly preferAuthoredRootConfig?: boolean } = {}
+): SettingsResult {
   const layout = resolveHarnessLayout(rootInput);
-  const authoredRootOverridden = typeof rootInput !== "string"
-    && rootInput.layoutOverrides?.authoredRoot !== undefined;
-  const configPath = authoredRootOverridden
+  const configPath = options.preferAuthoredRootConfig
     ? path.join(layout.authoredRoot, "harness.yaml")
     : layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_SETTINGS };

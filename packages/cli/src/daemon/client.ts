@@ -132,7 +132,8 @@ function resolveDaemonUserRoot(
 function readProjectDaemonSettings(rootDir: string, layoutOverrides?: HarnessLayoutOverrides) {
   const settings = readProjectHarnessSettings(
     createHarnessRuntimeContext(rootDir, layoutOverrides),
-    "daemon-client-mode"
+    "daemon-client-mode",
+    { preferAuthoredRootConfig: layoutOverrides?.authoredRoot !== undefined }
   );
   if (!settings.ok) {
     const hint = settings.result.error?.hint ?? "Project daemon settings are invalid.";
