@@ -20,11 +20,11 @@ export function daemonControlRequest(
   }
   if (payload.daemonGeneration !== undefined
     && (!Number.isSafeInteger(payload.daemonGeneration) || Number(payload.daemonGeneration) < 1)) {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.daemonGeneration to be a positive safe integer.` };
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.daemonGeneration to be a positive safe integer. Read the current value from \`ha daemon status --json --include-generation-axes\`, or omit the field to use legacy control.` };
   }
   if (payload.connectionId !== undefined
     && (typeof payload.connectionId !== "string" || payload.connectionId.length === 0)) {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.connectionId to be a non-empty string.` };
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.connectionId to be a non-empty string. Reuse the connectionId from your accepted connection, or omit the field to use legacy control.` };
   }
   return {
     ok: true,
