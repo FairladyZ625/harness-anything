@@ -63,6 +63,7 @@ export function planPostMergeRuntimeRefresh(input) {
 
 export function executePostMergeRuntimeRefresh(input) {
   const cliEntry = path.join(input.repoRoot, "packages/cli/dist/cli/src/index.js");
+  const daemonTarget = input.daemonTarget ?? resolvePostMergeDaemonTarget(input.repoRoot, input.env ?? {});
   const wrapped = (label, command, args) => input.run(process.execPath, [
     "tools/run-with-local-resources.mjs",
     "--label",
@@ -95,10 +96,7 @@ export function executePostMergeRuntimeRefresh(input) {
   const before = daemonStatusView(input.daemonStatus);
   const control = parseJsonObject(input.run(process.execPath, [
     cliEntry,
-    "--root",
-    input.repoRoot,
-    "daemon",
-    "refresh",
+    ...postMergeDaemonCommandArgs(daemonTarget, "refresh"),
     "--trigger",
     "post-merge",
     "--timeout-ms",
@@ -110,6 +108,7 @@ export function executePostMergeRuntimeRefresh(input) {
   const accepted = acceptedRefreshControl(control, before);
   const status = waitForRefreshedDaemon({
     cliEntry,
+    daemonTarget,
     input,
     before: {
       ...before,
@@ -135,10 +134,14 @@ export function runPostMergeRuntimeRefresh(input) {
     "--"
   ], { print: false }).split(/\r?\n/u).filter(Boolean);
   const initialPlan = planPostMergeRuntimeRefresh({ branch, changedPaths, repoRoot: input.repoRoot });
+  const daemonTarget = resolvePostMergeDaemonTarget(input.repoRoot, input.env);
   let daemonStatus;
   if (branch === "main" && initialPlan.buildCli) {
     try {
-      daemonStatus = JSON.parse(input.run("ha", ["--root", input.repoRoot, "daemon", "status", "--json"], { print: false }));
+      daemonStatus = JSON.parse(input.run("ha", [
+        ...postMergeDaemonCommandArgs(daemonTarget, "status"),
+        "--json"
+      ], { print: false }));
     } catch (error) {
       input.log?.(`post-merge: unable to read the existing Daemon status; it will not be restarted: ${error instanceof Error ? error.message : String(error)}`);
       daemonStatus = undefined;
@@ -146,8 +149,34 @@ export function runPostMergeRuntimeRefresh(input) {
   }
   const plan = planPostMergeRuntimeRefresh({ branch, changedPaths, daemonStatus, repoRoot: input.repoRoot });
   input.log?.(`post-merge: plan dependency-sync=${plan.syncDependencies} cli-build=${plan.buildCli} gui-build=${plan.buildGui} install-cli=${plan.installCli} refresh-daemon=${plan.refreshDaemon}`);
-  executePostMergeRuntimeRefresh({ daemonStatus, plan, repoRoot: input.repoRoot, run: input.run });
+  executePostMergeRuntimeRefresh({
+    daemonStatus,
+    daemonTarget,
+    plan,
+    repoRoot: input.repoRoot,
+    run: input.run
+  });
   return plan;
+}
+
+export function resolvePostMergeDaemonTarget(repoRoot, env = process.env) {
+  const userRoot = nonEmptyEnvironmentOption(env?.HARNESS_DAEMON_USER_ROOT);
+  const repoId = nonEmptyEnvironmentOption(env?.HARNESS_DAEMON_REPO_ID);
+  return Object.freeze({ repoRoot, userRoot, repoId });
+}
+
+function postMergeDaemonCommandArgs(target, action) {
+  return [
+    "--root", target.repoRoot,
+    ...(target.repoId ? ["--repo", target.repoId] : []),
+    "daemon", action,
+    ...(target.userRoot ? ["--user-root", target.userRoot] : [])
+  ];
+}
+
+function nonEmptyEnvironmentOption(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function acceptedRefreshControl(control, before) {
@@ -175,7 +204,7 @@ function acceptedRefreshControl(control, before) {
   return { beforePid, beforeLoadedIdentity };
 }
 
-function waitForRefreshedDaemon({ cliEntry, input, before }) {
+function waitForRefreshedDaemon({ cliEntry, daemonTarget, input, before }) {
   const attempts = input.statusPollAttempts ?? 300;
   const wait = input.wait ?? waitSynchronously;
   let lastStatus;
@@ -184,10 +213,7 @@ function waitForRefreshedDaemon({ cliEntry, input, before }) {
     try {
       lastStatus = parseJsonObject(input.run(process.execPath, [
         cliEntry,
-        "--root",
-        input.repoRoot,
-        "daemon",
-        "status",
+        ...postMergeDaemonCommandArgs(daemonTarget, "status"),
         "--json"
       ], { print: false }), "post-merge: daemon status returned invalid JSON");
       if (isRefreshedDaemon(lastStatus, before, input.repoRoot)) return lastStatus;

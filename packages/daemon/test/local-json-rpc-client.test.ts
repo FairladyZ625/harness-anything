@@ -6,6 +6,8 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import {
+  createDaemonLaunchConfiguration,
+  daemonLaunchOptionsResolvedFlag,
   DaemonJsonRpcResponseError,
   replaceSpawnLocalDaemonForTest,
   requestLocalDaemonJsonRpcForTarget,
@@ -17,6 +19,49 @@ import {
   type JsonObject,
   type JsonRpcRequest
 } from "../src/index.ts";
+
+test("daemon launch configuration is the canonical argv derivation for every spawner", () => {
+  const canonicalRoot = path.resolve("test-fixtures", "canonical");
+  const userRoot = path.resolve("test-fixtures", "ha-user-root");
+  const authorityManifest = path.resolve("authority", "manifest.json");
+  const authoredRoot = path.resolve(canonicalRoot, ".harness-authored");
+  const execPath = path.resolve("runtime", "node");
+  const entrypoint = path.resolve("runtime", "cli.js");
+  const target = {
+    ...makeTarget(path.resolve("test-fixtures", "ha-canonical.sock")),
+    canonicalRoot,
+    userRoot
+  };
+  const configuration = createDaemonLaunchConfiguration({
+    target,
+    entrypoint,
+    idleExitMs: 15_000,
+    execPath,
+    execArgv: ["--enable-source-maps"],
+    env: {
+      HARNESS_AUTHORITY_MANIFEST: authorityManifest,
+      HARNESS_AUTHORED_ROOT: ".harness-authored"
+    },
+    launchOptionsResolved: true
+  });
+
+  assert.deepEqual(configuration, {
+    execPath,
+    execArgv: ["--enable-source-maps"],
+    entrypoint,
+    args: [
+      "--root", target.canonicalRoot,
+      "--authored-root", authoredRoot,
+      "daemon", "serve",
+      "--repo", target.repoId,
+      "--socket", target.socketPath,
+      "--user-root", target.userRoot,
+      "--idle-ms", "15000",
+      "--authority-manifest", authorityManifest,
+      daemonLaunchOptionsResolvedFlag
+    ]
+  });
+});
 
 test("JSON line frames preserve UTF-8 when a multibyte character spans chunks", () => {
   const request = {

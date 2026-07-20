@@ -9,7 +9,11 @@ import {
   registerDaemonRepo,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
-import { currentDaemonProtocolVersion } from "@harness-anything/daemon";
+import {
+  createDaemonLaunchConfiguration,
+  currentDaemonProtocolVersion,
+  daemonServerHostEnvironment
+} from "@harness-anything/daemon";
 import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -110,11 +114,14 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
   const socketPath = launchOptions.socketPath ?? target.socketPath;
   const authorityManifest = launchOptions.authorityManifest;
   if (foreground) {
-    await input.runServe(target.canonicalRoot, layoutOverrides, [
-      "daemon", "serve", "--repo", target.repoId, "--socket", socketPath,
-      "--user-root", target.userRoot, "--idle-ms", "0",
-      ...(authorityManifest ? ["--authority-manifest", authorityManifest] : [])
-    ], {
+    const launchConfiguration = createDaemonLaunchConfiguration({
+      target: { ...target, socketPath },
+      entrypoint: productizationCliEntrypointPath(),
+      idleExitMs: 0,
+      ...(layoutOverrides?.authoredRoot !== undefined ? { authoredRoot: layoutOverrides.authoredRoot } : {}),
+      ...(authorityManifest !== undefined ? { authorityManifest } : {})
+    });
+    await input.runServe(target.canonicalRoot, layoutOverrides, launchConfiguration.args, {
       onStarted: (status) => emitDaemonResult("daemon-start", { ...status, mode: "foreground" }, input.json)
     }, { ...launchOptions, socketPath, userRoot: target.userRoot, optionsResolved: false });
     return 0;
@@ -135,7 +142,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
-      env: daemonServerHostEnvironment(target.userRoot, target.daemonId)
+      env: daemonServerHostEnvironment(process.env, target)
     });
     child.unref();
     const launchTarget = {
@@ -153,6 +160,7 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
+    userRoot: readDaemonUserRootOption(input.args),
     layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
@@ -187,6 +195,7 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
+    userRoot: readDaemonUserRootOption(input.args),
     layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
@@ -258,7 +267,12 @@ async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
   const mirrorReport = readonlyMirror ? ensureReadonlyMirror(canonicalRoot, path.resolve(readonlyMirror)) : undefined;
   const daemon = noStart
     ? { started: false, reason: "no-start" }
-    : await startBootstrapDaemon(canonicalRoot, registry.repo.repoId, registry.registryPath);
+    : await startBootstrapDaemon(
+      canonicalRoot,
+      registry.repo.repoId,
+      registry.registryPath,
+      input.launchOptions ?? parseDaemonLaunchArgv(input.rawArgs ?? input.args)
+    );
   const ssh = skipSshCheck ? { checked: false, reason: "skip-ssh-check" } : await checkSshReachability(sshHost, sshUser, canonicalRoot);
   const report = {
     schema: "daemon-bootstrap-report/v1",
@@ -361,7 +375,12 @@ function ensureReadonlyMirror(canonicalRoot: string, mirrorRoot: string): Record
   return { path: mirrorRoot, sync: "git fetch", hookPath };
 }
 
-async function startBootstrapDaemon(rootDir: string, repoId: string, registryPath: string): Promise<Record<string, unknown>> {
+async function startBootstrapDaemon(
+  rootDir: string,
+  repoId: string,
+  registryPath: string,
+  launchOptions: ReturnType<typeof parseDaemonLaunchArgv>
+): Promise<Record<string, unknown>> {
   const userRoot = path.dirname(registryPath);
   const target = resolveLocalDaemonTarget({
     rootDir,
@@ -369,41 +388,27 @@ async function startBootstrapDaemon(rootDir: string, repoId: string, registryPat
     userRoot,
     autoRegisterSingleRepo: false
   });
-  const child = spawn(process.execPath, [
-    ...process.execArgv,
-    productizationCliEntrypointPath(),
-    "--root",
-    rootDir,
-    "daemon",
-    "serve",
-    "--repo",
-    target.repoId,
-    "--socket",
-    target.socketPath,
-    "--user-root",
-    target.userRoot,
-    "--idle-ms",
-    "0"
+  const launchConfiguration = createDaemonLaunchConfiguration({
+    target,
+    entrypoint: productizationCliEntrypointPath(),
+    idleExitMs: 0,
+    ...(launchOptions.authoredRoot !== undefined ? { authoredRoot: launchOptions.authoredRoot } : {}),
+    ...(launchOptions.authorityManifest !== undefined
+      ? { authorityManifest: launchOptions.authorityManifest }
+      : {})
+  });
+  const child = spawn(launchConfiguration.execPath, [
+    ...launchConfiguration.execArgv,
+    launchConfiguration.entrypoint,
+    ...launchConfiguration.args
   ], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
-    env: daemonServerHostEnvironment(target.userRoot, target.daemonId)
+    env: daemonServerHostEnvironment(process.env, target)
   });
   child.unref();
   return waitForReachableStatus(target, 6_000);
-}
-
-function daemonServerHostEnvironment(userRoot: string, daemonId: string): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.HARNESS_DAEMON_MODE;
-  delete env.HARNESS_DIRECT_WRITE_REASON;
-  return {
-    ...env,
-    HARNESS_DAEMON_SERVER_HOST: "1",
-    HARNESS_DAEMON_USER_ROOT: userRoot,
-    HARNESS_DAEMON_ID: daemonId
-  };
 }
 
 async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {

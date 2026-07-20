@@ -10,9 +10,13 @@ import {
   writeFileSync
 } from "node:fs";
 import path from "node:path";
+import {
+  daemonLaunchOptionsResolvedFlag,
+  type DaemonLaunchConfiguration
+} from "@harness-anything/daemon";
 
 export const daemonLaunchSpecSchema = "daemon-launch-spec/v3";
-export const daemonLaunchOptionsResolvedFlag = "--launch-options-resolved";
+export { daemonLaunchOptionsResolvedFlag } from "@harness-anything/daemon";
 
 export class DaemonLaunchPreflightError extends Error {
   readonly code: "authority-manifest-registry-incomplete" | "launch-check-failed";
@@ -27,12 +31,7 @@ export class DaemonLaunchPreflightError extends Error {
   }
 }
 
-export interface DaemonLaunchConfiguration {
-  readonly execPath: string;
-  readonly execArgv: ReadonlyArray<string>;
-  readonly entrypoint: string;
-  readonly args: ReadonlyArray<string>;
-}
+export type { DaemonLaunchConfiguration } from "@harness-anything/daemon";
 
 export interface DaemonLaunchOptions {
   readonly authorityManifest?: string;

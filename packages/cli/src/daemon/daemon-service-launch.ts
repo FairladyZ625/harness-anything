@@ -1,6 +1,6 @@
 import type { LocalDaemonTarget } from "./client.ts";
+import { createDaemonLaunchConfiguration } from "@harness-anything/daemon";
 import {
-  daemonLaunchOptionsResolvedFlag,
   DaemonLaunchPreflightError,
   preflightDaemonLaunch,
   resolveDaemonLaunchSpec,
@@ -52,26 +52,14 @@ function currentDaemonServiceLaunchConfiguration(input: {
   readonly authorityManifest?: string;
   readonly entrypoint: string;
 }): DaemonLaunchConfiguration {
-  return {
-    execPath: process.execPath,
-    execArgv: [...process.execArgv],
+  return createDaemonLaunchConfiguration({
+    target: { ...input.target, socketPath: input.socketPath },
     entrypoint: input.entrypoint,
-    args: [
-      "--root",
-      input.target.canonicalRoot,
-      ...(input.layoutOverrides?.authoredRoot !== undefined ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
-      "daemon",
-      "serve",
-      "--repo",
-      input.target.repoId,
-      "--socket",
-      input.socketPath,
-      "--user-root",
-      input.target.userRoot,
-      "--idle-ms",
-      "0",
-      ...(input.authorityManifest !== undefined ? ["--authority-manifest", input.authorityManifest] : []),
-      daemonLaunchOptionsResolvedFlag
-    ]
-  };
+    idleExitMs: 0,
+    ...(input.layoutOverrides?.authoredRoot !== undefined
+      ? { authoredRoot: input.layoutOverrides.authoredRoot }
+      : {}),
+    ...(input.authorityManifest !== undefined ? { authorityManifest: input.authorityManifest } : {}),
+    launchOptionsResolved: true
+  });
 }

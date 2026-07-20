@@ -363,6 +363,10 @@ test("post-merge discovery refreshes a running canonical daemon for daemon-only 
 
   runPostMergeRuntimeRefresh({
     currentHead: "new",
+    env: {
+      HARNESS_DAEMON_REPO_ID: "canonical",
+      HARNESS_DAEMON_USER_ROOT: "/state/user"
+    },
     previousHead: "old",
     repoRoot: "/repo",
     run
@@ -371,6 +375,10 @@ test("post-merge discovery refreshes a running canonical daemon for daemon-only 
   const rendered = calls.map((call) => call.join(" "));
   assert.ok(rendered.some((call) => call === "git diff --name-only old new --"));
   assert.ok(rendered.some((call) => call.includes("daemon refresh") && call.includes("--trigger post-merge")));
+  const daemonCommands = rendered.filter((call) => /daemon (?:status|refresh)/u.test(call));
+  assert.ok(daemonCommands.length >= 3, JSON.stringify(daemonCommands));
+  assert.equal(daemonCommands.every((call) => call.includes("--repo canonical")), true, JSON.stringify(daemonCommands));
+  assert.equal(daemonCommands.every((call) => call.includes("--user-root /state/user")), true, JSON.stringify(daemonCommands));
   assert.equal(rendered.some((call) => call.includes("daemon stop")), false);
   assert.equal(rendered.some((call) => call.includes("daemon start")), false);
 });
