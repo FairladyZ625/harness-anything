@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
+import { pathToFileURL } from "node:url";
+import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
 import {
   defaultDaemonUserRoot,
@@ -140,3 +142,77 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("refresh explicitly exits the old owner after safe shutdown even with an active resource", { timeout: 60_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const markerPath = path.join(fixture.root, "old-owner-resource.marker");
+  const evidencePath = path.join(fixture.root, "old-owner-resources.json");
+  const preloadPath = path.resolve("packages/cli/test/fixtures/daemon-owner-active-resource-preload.mjs");
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_TEST_DAEMON_OWNER_RESOURCE_MARKER: markerPath,
+    HARNESS_TEST_DAEMON_OWNER_RESOURCE_EVIDENCE: evidencePath,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
+  };
+  let oldPid: number | undefined;
+  let persistentClient: net.Socket | undefined;
+  try {
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical",
+      "--canonical-root", fixture.repoRoot, "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    oldPid = started.pid as number;
+    assert.equal(typeof oldPid, "number", JSON.stringify(started));
+    persistentClient = net.createConnection(localUserDaemonEndpoint(userRoot));
+    await new Promise<void>((resolve, reject) => {
+      persistentClient!.once("connect", resolve);
+      persistentClient!.once("error", reject);
+    });
+    const persistentClientClosed = new Promise<void>((resolve) => persistentClient!.once("close", () => resolve()));
+
+    const refresh = runRawJsonMaybeFail(fixture.repoRoot, [
+      "daemon", "refresh", "--trigger", "post-merge", "--timeout-ms", "10000", "--user-root", userRoot
+    ], env);
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+      readonly pid: number;
+      readonly resources: ReadonlyArray<string>;
+    };
+    console.log(JSON.stringify({ scenario: "old-owner-active-resource", oldPid, evidence, refresh: refresh.receipt }));
+    assert.equal(refresh.status, 0, JSON.stringify(refresh.receipt));
+    const replacement = refresh.receipt.replacement as { readonly pid?: unknown };
+    assert.equal(typeof replacement.pid, "number", JSON.stringify(refresh.receipt));
+    assert.notEqual(replacement.pid, oldPid);
+    await persistentClientClosed;
+    await pollUntil(
+      () => processIsAlive(oldPid),
+      (alive) => !alive,
+      (alive, error) => JSON.stringify({ oldPid, alive, error: String(error ?? "") }),
+      { timeoutMs: 5_000 }
+    );
+    assert.equal(evidence.pid, oldPid);
+    assert.equal(evidence.resources.includes("Timeout"), true, JSON.stringify(evidence));
+    console.log(JSON.stringify({ scenario: "old-owner-explicit-exit", oldPid, replacementPid: replacement.pid, refresh: refresh.receipt }));
+  } finally {
+    persistentClient?.destroy();
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    if (oldPid !== undefined && processIsAlive(oldPid)) process.kill(oldPid, "SIGKILL");
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+function processIsAlive(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

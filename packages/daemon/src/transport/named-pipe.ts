@@ -60,7 +60,10 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
   const platform = options.platform ?? process.platform;
   const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
     ?? createNodeSocketAcceptedConnectionEvidenceAdapter({ platform, transportKind: "named-pipe" });
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     void acceptNamedPipeConnection(socket);
   });
 
@@ -125,9 +128,11 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
       });
     },
     stop: async () => {
-      await new Promise<void>((resolve, reject) => {
+      const stopped = new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
+      for (const socket of sockets) socket.destroy();
+      await stopped;
     }
   };
 }

@@ -560,5 +560,9 @@ function isCliEntrypoint(): boolean {
 }
 
 if (isCliEntrypoint()) {
-  process.exitCode = await main();
+  const exitCode = await main();
+  if (process.env.HARNESS_DAEMON_SERVER_HOST === "1") {
+    process.exit(exitCode);
+  }
+  process.exitCode = exitCode;
 }

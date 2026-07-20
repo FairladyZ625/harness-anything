@@ -129,7 +129,10 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
     ?? createNodeSocketAcceptedConnectionEvidenceAdapter();
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     void acceptUnixSocket(socket);
   });
 
@@ -202,9 +205,11 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       });
     },
     stop: async () => {
-      await new Promise<void>((resolve, reject) => {
+      const stopped = new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
+      for (const socket of sockets) socket.destroy();
+      await stopped;
       rmSync(endpoint, { force: true });
     }
   };
