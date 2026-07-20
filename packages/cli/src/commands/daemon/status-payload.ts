@@ -2,16 +2,14 @@ import {
   type DaemonActiveControlStatus,
   type DaemonAdmissionStatus,
   type DaemonQueueStatus,
+  type DaemonReconcileError,
+  type DaemonReconcileState,
   type DaemonRepoStatus,
   type DaemonStatusResultV2,
   type JsonObject,
   type JsonValue
 } from "@harness-anything/daemon";
 import { resolveCliVersion } from "../core/version.ts";
-import type {
-  DaemonReconcileError,
-  DaemonReconcileState
-} from "../../daemon/registry-reconciler.ts";
 
 export interface DaemonConnectionStats {
   active: number;

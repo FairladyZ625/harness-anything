@@ -7,6 +7,10 @@ import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
   calculateDaemonArtifactIdentity,
+  canonicalRootIdentity,
+  createDaemonReconcileState,
+  makeDaemonLogFileStore,
+  reconcileDaemonRepoRegistry,
   type AcceptedConnectionBinding,
   type AuthorityWireIngressHandler,
   type DaemonActiveControlStatus,
@@ -15,7 +19,8 @@ import {
   type DaemonAuthenticationContext,
   type JsonRpcNotification,
   type DaemonRepoAvailabilityFailure,
-  type DaemonRepoNamespace
+  type DaemonRepoNamespace,
+  type DaemonReconcileState
 } from "@harness-anything/daemon";
 import {
   makeMarkdownArtifactStore,
@@ -37,18 +42,11 @@ import { daemonActorAttribution } from "../composition/actor-attribution.ts";
 import { failClosedReservationReconcilerCoordinator } from "../composition/reservation-reconciler.ts";
 import { createCliCommandService } from "./command-service.ts";
 import { createAuthorityWireIngressHandler } from "./authority-wire-service.ts";
-import { canonicalRootIdentity } from "./canonical-root.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";
-import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import { drainDaemonRuntime, isDaemonDrainTimeout } from "./daemon-drain.ts";
 import {
   makeDaemonQueuedWriteCoordinator
 } from "./queued-write-coordinator.ts";
-import {
-  createDaemonReconcileState,
-  reconcileDaemonRepoRegistry,
-  type DaemonReconcileState
-} from "./registry-reconciler.ts";
 import type {
   AuthorityRepoComponent,
   AuthorityRepoLifecycleController

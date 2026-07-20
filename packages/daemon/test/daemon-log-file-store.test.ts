@@ -4,8 +4,8 @@ import { appendFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { DaemonLogEntryV1 } from "../../application/src/index.ts";
-import { makeDaemonLogFileStore } from "../src/daemon/daemon-log-file-store.ts";
+import type { DaemonLogEntryV1 } from "@harness-anything/application";
+import { makeDaemonLogFileStore } from "../src/lifecycle/daemon-log-file-store.ts";
 
 test("daemon log file store rotates segments, enforces retention, and counts malformed JSONL", async () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-log-store-"));

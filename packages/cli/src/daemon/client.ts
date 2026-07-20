@@ -17,6 +17,7 @@ import {
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,
   currentDaemonProtocolVersion,
+  resolveCanonicalHarnessRoot,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget as resolveDaemonTarget,
   type JsonObject,
@@ -36,7 +37,6 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "./doc-sync-service.ts";
-import { resolveCanonicalHarnessRoot } from "./canonical-harness-root.ts";
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 

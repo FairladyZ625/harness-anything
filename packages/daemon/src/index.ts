@@ -34,6 +34,11 @@ export * from "./authority/index.ts";
 export * from "./fence/index.ts";
 export * from "./broker/index.ts";
 export * from "./resolver/index.ts";
+export * from "./runtime/canonical-harness-root.ts";
+export * from "./runtime/canonical-root.ts";
+export * from "./runtime/registry-reconciler.ts";
+export * from "./lifecycle/daemon-lifecycle.ts";
+export * from "./lifecycle/daemon-log-file-store.ts";
 export {
   actorGitCommitAuthor,
   actorStamp,

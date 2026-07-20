@@ -5,7 +5,7 @@ import {
   createDaemonReconcileState,
   reconcileDaemonRepoRegistry,
   type DaemonRepoReconcileAdapter
-} from "../src/daemon/registry-reconciler.ts";
+} from "../src/runtime/registry-reconciler.ts";
 
 test("registry reconciler isolates attach, bind, detach, and retry failures by repo", async () => {
   const desiredRepos = ["attach-bad", "retry-bad", "bind-bad", "healthy"].map((repoId) => ({
