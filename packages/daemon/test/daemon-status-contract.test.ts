@@ -82,7 +82,16 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
     startedAt: new Date(Date.now() - 1000).toISOString(),
     loadedIdentity,
     readInstalledIdentity: () => installedIdentity,
-    activeControl: null,
+    activeControl: {
+      operationId: "control-stuck",
+      kind: "refresh",
+      phase: "failed",
+      requestedAt: "2026-07-20T00:00:00.000Z",
+      failure: {
+        code: "daemon_queue_drain_timeout",
+        hint: "in-flight operations failed to settle in time"
+      }
+    },
     runtimeStatus: {
       started: true,
       repos: [
@@ -138,6 +147,8 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
   assert.equal(JSON.stringify(projected).includes("ownerToken"), false);
   assert.equal(projected.requestedRepo.lock.path, status.requestedRepo.lock.path);
   assert.equal(status.requestedRepo.lock.ownerToken, "alpha-owner");
+  assert.doesNotThrow(() => decodeDaemonStatusResultV2(status));
+  assert.equal(status.service.activeControl?.failure?.code, "daemon_queue_drain_timeout");
 });
 
 test("renderer-safe projection is generated from the canonical fixture without mutating it", () => {

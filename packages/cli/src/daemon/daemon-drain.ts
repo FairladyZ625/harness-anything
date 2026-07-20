@@ -18,6 +18,9 @@ export async function drainDaemonRuntime(input: {
       (async () => {
         await input.authorityLifecycle?.stopAll("daemon-shutdown");
         if (expired) return;
+        if (process.env.HARNESS_TEST_DAEMON_RUNTIME_DRAIN_STUCK === "1") {
+          await new Promise<void>(() => undefined);
+        }
         await input.runtime.stop({ drainTimeoutMs: input.drainTimeoutMs });
       })(),
       new Promise<never>((_, reject) => {

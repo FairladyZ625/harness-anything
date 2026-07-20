@@ -147,7 +147,7 @@ export async function createDaemonServiceHost(
             `Daemon ${activeControl.kind} requires the write queue to drain within the deadline, but in-flight operations failed to settle in time. Run \`ha daemon status --json\`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request.`
           ) as NonNullable<DaemonActiveControlStatus["failure"]>
         };
-        return;
+        return await remainWedgedAfterFailedDrain();
       }
       throw error;
     }
@@ -363,6 +363,10 @@ export async function createDaemonServiceHost(
       reconcileStatus: reconcileState
     });
   }
+}
+
+function remainWedgedAfterFailedDrain(): Promise<never> {
+  return new Promise(() => undefined);
 }
 
 function createRepoServiceBinding(

@@ -350,6 +350,8 @@ async function waitForDaemonControlHandoff(
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const status = await lifecycle.probeStatus(lifecycle.target);
     const ownerAlive = lifecycle.ownerIsAlive(beforePid);
+    const controlFailure = daemonControlFailure(status, operationId);
+    if (controlFailure) throw new Error(controlFailure);
 
     // One service process owns each OS-user + userRoot pair. While the old
     // owner lives, neither a reachable endpoint nor autostart can prove a safe handoff.
@@ -380,6 +382,12 @@ async function waitForDaemonControlHandoff(
         return { kind: "reject", status: pendingReplacement };
       }
       if (status) {
+        for (let finalAttempt = 0; finalAttempt < 5; finalAttempt += 1) {
+          await lifecycle.wait(pollIntervalMs);
+          const finalStatus = await lifecycle.probeStatus(lifecycle.target);
+          const finalControlFailure = daemonControlFailure(finalStatus, operationId);
+          if (finalControlFailure) throw new Error(finalControlFailure);
+        }
         throw new Error(`old daemon endpoint was not released before timeout (pid ${beforePid})`);
       }
       throw new Error(`old daemon owner did not exit after releasing its endpoint (pid ${beforePid})`);
@@ -387,6 +395,19 @@ async function waitForDaemonControlHandoff(
     await lifecycle.wait(pollIntervalMs);
   }
   throw new Error(`daemon control handoff exhausted without a safe decision (pid ${beforePid})`);
+}
+
+function daemonControlFailure(status: Record<string, unknown> | undefined, operationId: string): string | undefined {
+  if (!status || status.schema !== "daemon-status/v2") return undefined;
+  const service = isDaemonControlRecord(status.service) ? status.service : undefined;
+  const activeControl = isDaemonControlRecord(service?.activeControl) ? service.activeControl : undefined;
+  const failure = isDaemonControlRecord(activeControl?.failure) ? activeControl.failure : undefined;
+  if (activeControl?.operationId !== operationId
+    || activeControl.phase !== "failed"
+    || typeof failure?.hint !== "string") return undefined;
+  return typeof failure.code === "string"
+    ? `${failure.code}: ${failure.hint}`
+    : failure.hint;
 }
 
 function normalizeDaemonLifecycleStatus(

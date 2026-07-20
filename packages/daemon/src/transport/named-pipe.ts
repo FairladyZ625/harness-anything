@@ -12,6 +12,7 @@ import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-s
 import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import { authenticateSshForcedCommandFrame, type AcceptSshForcedCommand } from "./ssh-forced-command.ts";
 import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
+import { gracefullyCloseSocketServer } from "./graceful-socket-shutdown.ts";
 
 export interface NamedPipeTransportOptions {
   readonly daemonId: string;
@@ -60,7 +61,10 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
   const platform = options.platform ?? process.platform;
   const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
     ?? createNodeSocketAcceptedConnectionEvidenceAdapter({ platform, transportKind: "named-pipe" });
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     void acceptNamedPipeConnection(socket);
   });
 
@@ -125,9 +129,7 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
       });
     },
     stop: async () => {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
-      });
+      await gracefullyCloseSocketServer(server, sockets);
     }
   };
 }

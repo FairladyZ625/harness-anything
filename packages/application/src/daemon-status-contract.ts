@@ -238,11 +238,17 @@ function connections(value: unknown, label: string): void {
 
 function activeControl(value: unknown): void {
   const record = object(value, "result.service.activeControl");
-  keys(record, ["operationId", "kind", "phase", "requestedAt"], "result.service.activeControl");
+  keys(record, ["operationId", "kind", "phase", "requestedAt", "failure"], "result.service.activeControl");
   string(record.operationId, "result.service.activeControl.operationId");
   oneOf(record.kind, ["restart", "refresh"], "result.service.activeControl.kind");
   oneOf(record.phase, ["accepted", "draining", "building", "replacing", "failed"], "result.service.activeControl.phase");
   timestamp(record.requestedAt, "result.service.activeControl.requestedAt");
+  if (record.failure !== undefined) {
+    const failure = object(record.failure, "result.service.activeControl.failure");
+    keys(failure, ["code", "hint"], "result.service.activeControl.failure");
+    string(failure.code, "result.service.activeControl.failure.code");
+    string(failure.hint, "result.service.activeControl.failure.hint");
+  }
 }
 
 function nullableReconcileError(value: unknown, label: string): void {
