@@ -21,33 +21,43 @@ import {
 } from "../src/index.ts";
 
 test("daemon launch configuration is the canonical argv derivation for every spawner", () => {
-  const target = makeTarget("/tmp/ha-canonical.sock");
+  const canonicalRoot = path.resolve("test-fixtures", "canonical");
+  const userRoot = path.resolve("test-fixtures", "ha-user-root");
+  const authorityManifest = path.resolve("authority", "manifest.json");
+  const authoredRoot = path.resolve(canonicalRoot, ".harness-authored");
+  const execPath = path.resolve("runtime", "node");
+  const entrypoint = path.resolve("runtime", "cli.js");
+  const target = {
+    ...makeTarget(path.resolve("test-fixtures", "ha-canonical.sock")),
+    canonicalRoot,
+    userRoot
+  };
   const configuration = createDaemonLaunchConfiguration({
     target,
-    entrypoint: "/runtime/cli.js",
+    entrypoint,
     idleExitMs: 15_000,
-    execPath: "/runtime/node",
+    execPath,
     execArgv: ["--enable-source-maps"],
     env: {
-      HARNESS_AUTHORITY_MANIFEST: "/authority/manifest.json",
+      HARNESS_AUTHORITY_MANIFEST: authorityManifest,
       HARNESS_AUTHORED_ROOT: ".harness-authored"
     },
     launchOptionsResolved: true
   });
 
   assert.deepEqual(configuration, {
-    execPath: "/runtime/node",
+    execPath,
     execArgv: ["--enable-source-maps"],
-    entrypoint: "/runtime/cli.js",
+    entrypoint,
     args: [
       "--root", target.canonicalRoot,
-      "--authored-root", path.join(target.canonicalRoot, ".harness-authored"),
+      "--authored-root", authoredRoot,
       "daemon", "serve",
       "--repo", target.repoId,
       "--socket", target.socketPath,
       "--user-root", target.userRoot,
       "--idle-ms", "15000",
-      "--authority-manifest", "/authority/manifest.json",
+      "--authority-manifest", authorityManifest,
       daemonLaunchOptionsResolvedFlag
     ]
   });
