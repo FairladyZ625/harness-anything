@@ -76,6 +76,13 @@ test("import boundary check fails closed on allowlist entries without refs", () 
             reason: "fixture includes ref"
           }
         ],
+        kernelWritePublicPaths: [
+          {
+            value: "packages/kernel/src/write-coordination/write-helpers.ts",
+            ref: "task_01KXW80M803GR3EKRDV3X7T0MM",
+            reason: "fixture includes ref"
+          }
+        ],
         cliAdapterKnownDebt: [
           {
             value: "packages/cli/src/commands/lifecycle.ts",
@@ -108,6 +115,69 @@ test("import boundary check allows application imports from kernel public contra
     ].join("\n"), "utf8");
 
     const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Import boundary check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects application deep imports from write-coordination journal", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), [
+      "import { internalJournal } from '../../kernel/src/write-coordination/journal/private.ts';",
+      "export const leakedJournal = internalJournal;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/private.ts"), [
+      "export const internalJournal = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`journal positive control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /application layer imports store\/adapter\/controller implementation/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects application deep imports from write-coordination root", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination"), { recursive: true });
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), [
+      "import { privateWrite } from '../../kernel/src/write-coordination/private.ts';",
+      "export const leakedWrite = privateWrite;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/private.ts"), [
+      "export const privateWrite = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`root-private positive control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /application layer imports store\/adapter\/controller implementation/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check allows the governed public write helper", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination"), { recursive: true });
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), [
+      "import { writeCoordinatedPayload } from '../../kernel/src/write-coordination/write-helpers.ts';",
+      "export const writePayload = writeCoordinatedPayload;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/write-helpers.ts"), [
+      "export const writeCoordinatedPayload = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`public-helper control exit=${result.status}`);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Import boundary check passed/);
   } finally {

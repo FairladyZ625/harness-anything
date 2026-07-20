@@ -33,7 +33,7 @@ import {
   type AttributionEventV2,
   type PhysicalChangeV2
 } from "../../src/schemas/attribution-event-union.ts";
-import { makeLocalAuthorityAttributionEventV2Log } from "../../src/store/authority-attribution-event-v2-log.ts";
+import { makeLocalAuthorityAttributionEventV2Log } from "../../src/write-coordination/attribution/authority-attribution-event-v2-log.ts";
 import { withTempStore } from "./helpers.ts";
 
 const digestA = "11".repeat(32);

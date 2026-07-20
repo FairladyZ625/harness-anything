@@ -96,6 +96,27 @@ test("bypass write boundary governs daemon fs writes", () => {
   }
 });
 
+test("bypass write boundary governs kernel write-coordination fs writes", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/fixture.ts"), [
+      "import { writeFileSync } from 'node:fs';",
+      "export function bypass() {",
+      "  writeFileSync('journal.jsonl', '{}', 'utf8');",
+      "}"
+    ].join("\n"), "utf8");
+    writeAllowlist(policyRoot);
+
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/kernel\/src\/write-coordination\/fixture\.ts#writeFileSync@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("bypass write boundary reports closeSync through the shared fs write API criterion", () => {
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
@@ -152,6 +173,7 @@ test("bypass write anchor migration converts legacy positions mechanically", () 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-w8-boundary-"));
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+  mkdirSync(path.join(root, "packages/kernel/src/write-coordination"), { recursive: true });
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });

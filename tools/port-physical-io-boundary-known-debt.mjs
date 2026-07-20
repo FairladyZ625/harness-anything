@@ -70,17 +70,17 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing projection helper centralizes TOCTOU-safe filesystem reads for projection builders."
   },
   {
-    file: "packages/kernel/src/store/local-lock-registry.ts",
+    file: "packages/kernel/src/persistence/local/local-lock-registry.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing local lock registry implementation owns filesystem-backed lock cleanup."
   },
   {
-    file: "packages/kernel/src/store/local-version-control-system.ts",
+    file: "packages/kernel/src/persistence/git/local-version-control-system.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing local VersionControlSystem port implementation shells out to git; W3 allows only this precise git implementation file."
   },
   {
-    file: "packages/kernel/src/store/markdown-artifact-store.ts",
+    file: "packages/kernel/src/persistence/markdown/markdown-artifact-store.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing markdown artifact store implementation owns local package document reads and writes."
   },
@@ -90,17 +90,17 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing write coordinator still performs local recovery/disposition filesystem checks; W3 records this implementation exception without migrating behavior."
   },
   {
-    file: "packages/kernel/src/store/write-journal-decision-documents.ts",
+    file: "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing decision document write helper owns directory creation for authored decision documents."
   },
   {
-    file: "packages/kernel/src/store/write-journal-durable.ts",
+    file: "packages/kernel/src/write-coordination/journal/durable.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing durable journal writer owns atomic filesystem writes for the journal implementation."
   },
   {
-    file: "packages/kernel/src/store/write-journal-locks.ts",
+    file: "packages/kernel/src/write-coordination/journal/locks.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing journal lock implementation owns filesystem lock files and host metadata."
   },

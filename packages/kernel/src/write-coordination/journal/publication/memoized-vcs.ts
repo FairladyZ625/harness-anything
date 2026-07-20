@@ -1,4 +1,4 @@
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import type { VersionControlSystem } from "../../../ports/version-control-system.ts";
 
 export function memoizePublicationVcs(delegate: VersionControlSystem): VersionControlSystem {
   const normalizedPaths = new Map<string, string>();

@@ -12,27 +12,27 @@ import {
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";
-import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
-import { taskIdForWriteOp } from "./write-journal-entity.ts";
-import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
-import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
+import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "../write-coordination/journal/operations/decision-documents.ts";
+import { taskIdForWriteOp } from "../write-coordination/journal/operations/entity.ts";
+import { appendJsonLineDurably, writeFileDurably } from "../write-coordination/journal/durable.ts";
+import { rejectTaskWrite, rejectWrite } from "../write-coordination/journal/rejection.ts";
 import {
   resolveContentAddressedBlobPath,
   writeContentAddressedBlob
-} from "./content-addressed-blob-store.ts";
+} from "../persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
+import { assertReservedCodeDocWrite } from "../write-coordination/journal/operations/code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
 import {
   prepareRetiredAttributionFieldCleanup,
   retiredAttributionFieldCleanupTargetPath
-} from "./write-journal-retired-attribution-cleanup.ts";
+} from "../write-coordination/journal/operations/retired-attribution-cleanup.ts";
 import {
   applyCanonicalAuthoredBatch,
   canonicalAuthoredBatchPaths,
   validateCanonicalAuthoredBatch
 } from "./canonical-authored-batch.ts";
-import { writeDocument } from "./markdown-artifact-store.ts";
+import { writeDocument } from "../persistence/markdown/markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
   applyProgressAppendDelta,

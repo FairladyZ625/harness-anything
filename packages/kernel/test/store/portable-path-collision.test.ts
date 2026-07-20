@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { assertNoPortablePathCollisions } from "../../src/layout/index.ts";
-import { readTaskPackage, writeDocument } from "../../src/store/markdown-artifact-store.ts";
+import { readTaskPackage, writeDocument } from "../../src/persistence/markdown/markdown-artifact-store.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
 import { docWrite } from "./helpers.ts";
 

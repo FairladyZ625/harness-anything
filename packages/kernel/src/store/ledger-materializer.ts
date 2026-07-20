@@ -6,16 +6,16 @@ import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-inc
 import { countAttributionProjectionRows } from "../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
-import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
 import {
   materializerCommitter,
   recoverScriptIngestArtifactConflicts,
   type PreservedMachineArtifact
 } from "./ledger-materializer-machine-recovery.ts";
-import { resolveTrunkBranch, sessionBranchName } from "./write-journal-git.ts";
-import { withRepoLocks } from "./write-journal-locks.ts";
-import type { OwnedLock } from "./write-journal-types.ts";
-import { durableFileExists } from "./write-journal-durable.ts";
+import { resolveTrunkBranch, sessionBranchName } from "../write-coordination/journal/publication/git.ts";
+import { withRepoLocks } from "../write-coordination/journal/locks.ts";
+import type { OwnedLock } from "../write-coordination/journal/types.ts";
+import { durableFileExists } from "../write-coordination/journal/durable.ts";
 
 export interface LedgerMaterializerBranchReport {
   readonly branch: string;

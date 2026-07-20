@@ -2,9 +2,9 @@ import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFi
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Schema } from "effect";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import { ReadableJournalRecordSchema } from "../schemas/write-journal.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordV1, LockTakeoverRecord, NormalizedJournalRecordV1, PayloadRef, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+import { sha256Text } from "../../integrity/stable-hash.ts";
+import { ReadableJournalRecordSchema } from "../../schemas/write-journal.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordV1, LockTakeoverRecord, NormalizedJournalRecordV1, PayloadRef, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 
 export function readDurableState(journalPath: string, watermarkPath: string, rootDir: string): {
   readonly records: ReadonlyArray<ReadableJournalRecord>;

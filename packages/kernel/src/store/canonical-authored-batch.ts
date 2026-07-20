@@ -3,8 +3,8 @@ import type { EntityId } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import { durableFileExists, readFileBytes, removeFileDurably, writeFileDurably } from "./write-journal-durable.ts";
-import { rejectWrite } from "./write-journal-rejection.ts";
+import { durableFileExists, readFileBytes, removeFileDurably, writeFileDurably } from "../write-coordination/journal/durable.ts";
+import { rejectWrite } from "../write-coordination/journal/rejection.ts";
 
 export interface CanonicalAuthoredWrite {
   readonly path: string;

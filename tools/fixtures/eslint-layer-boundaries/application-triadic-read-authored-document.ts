@@ -1,3 +1,3 @@
-import { readAuthoredDocument } from "../../../packages/kernel/src/store/markdown-artifact-store.ts";
+import { readAuthoredDocument } from "../../../packages/kernel/src/persistence/markdown/markdown-artifact-store.ts";
 
 export const forbiddenApplicationProjectionRead = readAuthoredDocument;

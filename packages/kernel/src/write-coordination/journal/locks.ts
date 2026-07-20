@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import type { EntityId, TaskId } from "../domain/index.ts";
-import { taskIdFromEntityId } from "../domain/index.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
-import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
-import type { LockRecord, LockTakeoverRecord, OperationalActor, OwnedLock } from "./write-journal-types.ts";
+import type { EntityId, TaskId } from "../../domain/index.ts";
+import { taskIdFromEntityId } from "../../domain/index.ts";
+import { sha256Text } from "../../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../layout/index.ts";
+import { resolveHarnessLayout } from "../../layout/index.ts";
+import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./durable.ts";
+import type { LockRecord, LockTakeoverRecord, OperationalActor, OwnedLock } from "./types.ts";
 
 export interface DaemonGlobalLock extends OwnedLock {
   readonly refreshHeartbeat: () => void;

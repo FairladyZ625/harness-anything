@@ -1,4 +1,4 @@
-import type { AttributionEventV2 } from "../schemas/attribution-event-union.ts";
+import type { AttributionEventV2 } from "../../schemas/attribution-event-union.ts";
 import type {
   AuthorityAttributionEventV2AppendResult,
   AuthorityAttributionEventV2Log

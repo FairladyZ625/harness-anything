@@ -9,12 +9,23 @@ const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 const allowlist = loadGateAllowlist("check-import-boundaries", {
-  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "cliAdapterKnownDebt"]
+  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "kernelWritePublicPaths", "cliAdapterKnownDebt"]
 });
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
+const publicKernelWriteCoordinationPaths = new Set(entryValues(allowlist.kernelWritePublicPaths));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
+
+function isKernelWriteCoordinationInternalPath(target) {
+  return target.startsWith("packages/kernel/src/write-coordination/")
+    && !publicKernelWriteCoordinationPaths.has(target);
+}
+
+function isKernelStoreImplementationPath(target) {
+  return /packages\/kernel\/src\/(?:store|persistence)\//.test(target)
+    || isKernelWriteCoordinationInternalPath(target);
+}
 
 async function walk(dir) {
   let entries;
@@ -233,7 +244,7 @@ for (const file of packageSourceFiles) {
         if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
           record(file, `domain layer imports IO/runtime module via ${specifier}`);
         }
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store)\//.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application)\//.test(target) || isKernelStoreImplementationPath(target))) {
           record(file, `domain layer imports upper kernel layer via ${specifier}`);
         }
       }
@@ -241,7 +252,7 @@ for (const file of packageSourceFiles) {
 
     if (rel.startsWith("packages/kernel/src/ports/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/application\//.test(target) || isKernelStoreImplementationPath(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `ports layer imports implementation/controller layer via ${specifier}`);
         }
       }
@@ -249,9 +260,10 @@ for (const file of packageSourceFiles) {
 
     const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
     const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
+    const isKernelWriteImplementation = rel.startsWith("packages/kernel/src/write-coordination/");
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
+        if (importedPathViolates(file, specifier, isKernelStoreImplementationPath)) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
         }
       }
@@ -259,7 +271,7 @@ for (const file of packageSourceFiles) {
 
     if (rel.startsWith("packages/application/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => isKernelStoreImplementationPath(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
         }
       }
@@ -268,7 +280,7 @@ for (const file of packageSourceFiles) {
     if (rel.startsWith("packages/gui/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => {
-          if (/packages\/kernel\/src\/store\//.test(target)) return true;
+          if (isKernelStoreImplementationPath(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !guiAdapterCompositionRoots.has(rel);
           }
@@ -282,7 +294,7 @@ for (const file of packageSourceFiles) {
     if (rel.startsWith("packages/cli/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => {
-          if (/packages\/gui\//.test(target) || /packages\/kernel\/src\/store\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
+          if (/packages\/gui\//.test(target) || isKernelStoreImplementationPath(target) || /^@harness-anything\/gui/.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !cliAdapterCompositionRoots.has(rel) && !cliAdapterKnownDebt.has(rel);
           }

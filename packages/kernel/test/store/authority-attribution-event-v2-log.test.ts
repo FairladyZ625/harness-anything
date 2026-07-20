@@ -26,8 +26,8 @@ import {
   encodeAuthorityAttributionEventV2Bytes
 } from "../../src/integrity/authority-attribution-event-v2-log.ts";
 import { readAttributionEvents } from "../../src/local/attribution-event-source.ts";
-import { authorityAttributionEventV2FilePath } from "../../src/store/authority-attribution-event-v2-log.ts";
-import { recoverAuthorityAttributionEventV2FromOperationRecord } from "../../src/store/authority-attribution-event-v2-recovery.ts";
+import { authorityAttributionEventV2FilePath } from "../../src/write-coordination/attribution/authority-attribution-event-v2-log.ts";
+import { recoverAuthorityAttributionEventV2FromOperationRecord } from "../../src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts";
 import { withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const digestA = "11".repeat(32);
@@ -76,7 +76,7 @@ test("immutable V2 shard converges after SIGKILL at every publication boundary",
       const bytes = encodeAuthorityAttributionEventV2Bytes(event);
       const child = spawnSync(process.execPath, [
         "--experimental-strip-types", "--eval",
-        "import { appendImmutableBytesDurably } from './packages/kernel/src/store/write-journal-durable.ts'; appendImmutableBytesDurably(process.env.EVENT_PATH, Buffer.from(process.env.EVENT_BYTES, 'base64'));"
+        "import { appendImmutableBytesDurably } from './packages/kernel/src/write-coordination/journal/durable.ts'; appendImmutableBytesDurably(process.env.EVENT_PATH, Buffer.from(process.env.EVENT_BYTES, 'base64'));"
       ], {
         cwd: process.cwd(),
         env: {

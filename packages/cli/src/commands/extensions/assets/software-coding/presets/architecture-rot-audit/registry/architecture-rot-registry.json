@@ -234,7 +234,7 @@
           "evidence": [
             "packages/kernel/src/store/write-journal-operations.ts:21-160",
             "packages/kernel/src/store/write-journal-coordinator.ts:408-457",
-            "packages/kernel/src/store/write-journal-git.ts:106-168"
+            "packages/kernel/src/write-coordination/journal/publication/git.ts:106-168"
           ]
         }
       ],

@@ -1,8 +1,8 @@
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
-import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
-import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
-import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
+import type { HarnessLayoutInput } from "../../../layout/index.ts";
+import type { ProjectionChangeEvent } from "../../../projection/projection-change-event.ts";
+import { captureAuthoredProjectionFingerprint } from "../../../projection/projection-source-baseline.ts";
+import { updateTaskProjectionIncrementally } from "../../../projection/sqlite-task-incremental-projection.ts";
+import { hashTaskProjectionRows } from "../../../projection/sqlite-task-projection.ts";
 
 export function rebuildProjectionHash(
   rootDir: string,

@@ -1,9 +1,9 @@
 import { Schema } from "effect";
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { WriteAttributionSchema, type WriteAttribution } from "../schemas/actor-attribution.ts";
-import { rejectWrite } from "./write-journal-rejection.ts";
-import { writePayloadRef } from "./write-journal-durable.ts";
+import { stablePayloadHash } from "../../integrity/stable-hash.ts";
+import type { WriteOp } from "../../ports/write-coordinator.ts";
+import { WriteAttributionSchema, type WriteAttribution } from "../../schemas/actor-attribution.ts";
+import { rejectWrite } from "./rejection.ts";
+import { writePayloadRef } from "./durable.ts";
 import type {
   JournalActor,
   JournalRecordKind,
@@ -11,7 +11,7 @@ import type {
   JournalRecordV2,
   OperationalActor,
   ReadableJournalRecord
-} from "./write-journal-types.ts";
+} from "./types.ts";
 
 interface JournalRecordInput {
   readonly opId: string;

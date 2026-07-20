@@ -1,5 +1,5 @@
-import type { EntityId } from "../domain/index.ts";
-import type { JournalRecordKind, ReadableJournalRecord } from "./write-journal-types.ts";
+import type { EntityId } from "../../../domain/index.ts";
+import type { JournalRecordKind, ReadableJournalRecord } from "../types.ts";
 
 export function writeJournalRecordCommitSummary(
   record: ReadableJournalRecord,

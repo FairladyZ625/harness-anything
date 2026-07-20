@@ -7,17 +7,17 @@ import type {
   ArtifactStore,
   AuthoredDocumentDescriptor,
   TaskPackageRead
-} from "../ports/artifact-store.ts";
+} from "../../ports/artifact-store.ts";
 import type {
   ArtifactWriteReceipt,
   DocumentWrite
-} from "../ports/artifact-store-writer.ts";
-import { isPackageDisposition } from "../domain/index.ts";
-import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../layout/index.ts";
-import { assertNoPortablePathCollisions, createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
+} from "../../ports/artifact-store-writer.ts";
+import { isPackageDisposition } from "../../domain/index.ts";
+import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../../domain/index.ts";
+import { sha256Text } from "../../integrity/stable-hash.ts";
+import { readFrontmatter, readScalar } from "../../markdown/frontmatter.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../layout/index.ts";
+import { assertNoPortablePathCollisions, createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath, validateTaskIdSyntax } from "../../layout/index.ts";
 
 export interface MarkdownArtifactStoreOptions {
   readonly rootDir: string;

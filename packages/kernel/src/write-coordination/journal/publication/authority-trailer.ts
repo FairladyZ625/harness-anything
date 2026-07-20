@@ -1,8 +1,8 @@
 import {
   authorityBatchTrailerName,
   buildAuthorityBatchIntegrity
-} from "../integrity/authority-batch-integrity.ts";
-import type { ReadableJournalRecord } from "./write-journal-types.ts";
+} from "../../../integrity/authority-batch-integrity.ts";
+import type { ReadableJournalRecord } from "../types.ts";
 
 export function authorityBatchCommitTrailer(records: ReadonlyArray<ReadableJournalRecord>): string | undefined {
   const authorityRecords = records.filter((record) => record.authorityIntegrity);

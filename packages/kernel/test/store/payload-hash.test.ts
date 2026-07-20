@@ -14,7 +14,7 @@ import {
 } from "../../src/domain/index.ts";
 import type { DocumentWrite } from "../../src/ports/artifact-store-writer.ts";
 import type { WriteOp } from "../../src/ports/write-coordinator.ts";
-import { writeContentAddressedBlob } from "../../src/store/content-addressed-blob-store.ts";
+import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
 import { createTaskPackagePath, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../src/layout/index.ts";
 import { applyWriteOp, documentWritesForWriteOp, writeOpTouchedPaths } from "../../src/store/write-journal-operations.ts";

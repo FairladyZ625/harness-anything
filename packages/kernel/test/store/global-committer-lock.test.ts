@@ -12,7 +12,7 @@ import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import type { VersionControlSystem } from "../../src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
-import { makeLocalVersionControlSystem } from "../../src/store/local-version-control-system.ts";
+import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { docWrite, runEffect, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const execFileAsync = promisify(execFile);

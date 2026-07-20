@@ -1,6 +1,6 @@
-import type { WriteError } from "../domain/index.ts";
-import type { FlushReason, FlushReport, WriteOp } from "../ports/write-coordinator.ts";
-import { durableFileExists, readDurableState, readFileBytes } from "./write-journal-durable.ts";
+import type { WriteError } from "../../domain/index.ts";
+import type { FlushReason, FlushReport, WriteOp } from "../../ports/write-coordinator.ts";
+import { durableFileExists, readDurableState, readFileBytes } from "./durable.ts";
 
 export function reconcileDurableFlush(
   reason: FlushReason,

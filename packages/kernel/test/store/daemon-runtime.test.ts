@@ -15,7 +15,7 @@ import {
   createDaemonRuntime,
   createMultiRepoDaemonRuntime
 } from "../../../adapters/local/src/index.ts";
-import { acquireDaemonGlobalLock } from "../../src/store/write-journal-locks.ts";
+import { acquireDaemonGlobalLock } from "../../src/write-coordination/journal/locks.ts";
 import { docWrite, withTempStoreAsync } from "./helpers.ts";
 import {
   commitAuthoredFixture,

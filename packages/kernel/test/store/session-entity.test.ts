@@ -15,7 +15,7 @@ import {
   writeSessionEntity
 } from "../../src/entity/session.ts";
 import { getEntityRegistration } from "../../src/entity/registry.ts";
-import { writeContentAddressedBlob } from "../../src/store/content-addressed-blob-store.ts";
+import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
 import { withTempStore } from "./helpers.ts";

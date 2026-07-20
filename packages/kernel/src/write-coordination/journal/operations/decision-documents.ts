@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { decisionIdFromEntityId } from "../domain/index.ts";
-import { isDecisionDocumentPayload, parseDecisionDocument, readDecisionWatermark, serializeDecisionDocument, type DecisionDocumentPayload } from "../domain/decision-document.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { writeFileDurably } from "./write-journal-durable.ts";
-import { rejectCasWatermarkMismatch, rejectWrite } from "./write-journal-rejection.ts";
+import { decisionIdFromEntityId } from "../../../domain/index.ts";
+import { isDecisionDocumentPayload, parseDecisionDocument, readDecisionWatermark, serializeDecisionDocument, type DecisionDocumentPayload } from "../../../domain/decision-document.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../layout/index.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import { writeFileDurably } from "../durable.ts";
+import { rejectCasWatermarkMismatch, rejectWrite } from "../rejection.ts";
 
 export const decisionWriteKinds = new Set<WriteOp["kind"]>([
   "decision_propose",

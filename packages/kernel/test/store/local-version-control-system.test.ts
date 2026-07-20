@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { makeLocalVersionControlSystem, localGitProcessOptions } from "../../src/store/local-version-control-system.ts";
+import { makeLocalVersionControlSystem, localGitProcessOptions } from "../../src/persistence/git/local-version-control-system.ts";
 import { VcsCommandError } from "../../src/ports/version-control-system.ts";
 
 test("local Git subprocesses stay hidden on Windows while preserving captured output", () => {

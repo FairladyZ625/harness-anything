@@ -380,19 +380,19 @@
       ],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/local-lock-registry.ts"
+          "file": "packages/kernel/src/persistence/local/local-lock-registry.ts"
         },
         {
-          "file": "packages/kernel/src/store/markdown-artifact-store.ts"
+          "file": "packages/kernel/src/persistence/markdown/markdown-artifact-store.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-decision-documents.ts"
+          "file": "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-locks.ts"
+          "file": "packages/kernel/src/write-coordination/journal/locks.ts"
         },
         {
           "file": "packages/kernel/src/store/write-journal-operations.ts"
@@ -401,8 +401,8 @@
       "evidence": [
         "packages/kernel/src/daemon/admission-budget.ts:62",
         "packages/kernel/src/write-coordination/write-helpers.ts:20",
-        "packages/kernel/src/store/write-journal-durable.ts:109",
-        "packages/kernel/src/store/write-journal-locks.ts:125"
+        "packages/kernel/src/write-coordination/journal/durable.ts:109",
+        "packages/kernel/src/write-coordination/journal/locks.ts:125"
       ],
       "freshness": "wal-lock-and-atomic-flush"
     },
@@ -425,12 +425,12 @@
       "cliActions": [],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         }
       ],
       "evidence": [
-        "packages/kernel/src/store/write-journal-attribution-events.ts:28",
-        "packages/kernel/src/store/write-journal-durable.ts:117"
+        "packages/kernel/src/write-coordination/attribution/legacy-attribution-event-store.ts:28",
+        "packages/kernel/src/write-coordination/journal/durable.ts:117"
       ],
       "freshness": "append-only-op-id-shard"
     },
@@ -455,7 +455,7 @@
       "cliActions": [],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         }
       ],
       "retentionPaths": [
@@ -465,18 +465,18 @@
         "<authoredRoot>/authority-attribution-events/v2"
       ],
       "integrityPaths": [
-        "packages/kernel/src/store/authority-attribution-event-v2-log.ts#scanIntegrity"
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-log.ts#scanIntegrity"
       ],
       "materializerPaths": [
         "packages/kernel/src/local/attribution-event-source.ts#readUnionAttributionEvents",
         "packages/kernel/src/projection/sqlite-attribution-projection.ts#materializeAttributionProjectionFromEvents"
       ],
       "recoveryPaths": [
-        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts#recoverAuthorityAttributionEventV2FromOperationRecord"
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts#recoverAuthorityAttributionEventV2FromOperationRecord"
       ],
       "evidence": [
-        "packages/kernel/src/store/authority-attribution-event-v2-log.ts:49",
-        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts:27",
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-log.ts:49",
+        "packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-recovery.ts:27",
         "packages/kernel/src/local/attribution-event-source.ts:89",
         "packages/kernel/src/projection/sqlite-attribution-projection.ts:82"
       ],
@@ -766,7 +766,7 @@
       "evidence": [
         "packages/application/src/decision-write-service.ts:56",
         "packages/application/src/decision-write-service.ts:124",
-        "packages/kernel/src/store/write-journal-decision-documents.ts:61"
+        "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts:61"
       ],
       "freshness": "append-relation"
     },
@@ -1369,7 +1369,7 @@
           "command": "git"
         },
         {
-          "file": "packages/kernel/src/store/local-version-control-system.ts",
+          "file": "packages/kernel/src/persistence/git/local-version-control-system.ts",
           "command": "git"
         }
       ],
@@ -1377,7 +1377,7 @@
         "packages/adapters/local/src/projection-source-fence.ts:219",
         "packages/cli/src/commands/core/worktree.ts:183",
         "packages/cli/src/commands/extensions/script-repository-context.ts:37",
-        "packages/kernel/src/store/local-version-control-system.ts:21"
+        "packages/kernel/src/persistence/git/local-version-control-system.ts:21"
       ],
       "freshness": "git-ref"
     },
