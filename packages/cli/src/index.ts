@@ -19,6 +19,7 @@ import {
   recordDaemonTerminated,
   type DaemonRepoNamespace
 } from "@harness-anything/daemon";
+import { runCompoundReceiptExitCommand } from "./receipt/compound-exit-command.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";
@@ -51,7 +52,6 @@ import {
   authorityManifestServeRepos,
   persistAuthorityManifestPointer
 } from "./daemon/authority-manifest-registry.ts";
-import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
 import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";

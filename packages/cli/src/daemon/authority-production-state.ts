@@ -18,13 +18,14 @@ import {
   type RevocationEpochTupleV2
 } from "@harness-anything/application";
 import {
+  authorityDurableAdapterMarker,
   openLocalAuthorityKeyStore,
+  type AuthorityDurableAdapterMarker,
   type DurableAuthorityStateTable,
   type LocalAuthorityKeyStore
 } from "@harness-anything/daemon";
 import type { WriteAttribution } from "@harness-anything/kernel";
 import { stableStringify } from "@harness-anything/kernel";
-import { authorityDurableAdapterMarker, type AuthorityDurableAdapterMarker } from "./authority-lifecycle.ts";
 
 const productionManifestSchema = "authority-production-composition/v1" as const;
 const bindingStateSchema = "authority-binding-state/v1" as const;

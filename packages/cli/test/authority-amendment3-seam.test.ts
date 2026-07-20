@@ -4,12 +4,12 @@ import test from "node:test";
 import { Effect } from "effect";
 import { executionDeclaration, taskEntityId, taskHolderActor, type ExecutionRecord, type WriteOp } from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
-import { makeDaemonAuthorityWriteCoordinator } from "../src/daemon/authority-command-submission.ts";
+import { makeDaemonAuthorityWriteCoordinator } from "@harness-anything/daemon";
 import { taskClaimAttemptIntent } from "../src/daemon/production-authority-task-claim-intent.ts";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime
-} from "../src/daemon/authority-lifecycle.ts";
+} from "@harness-anything/daemon";
 
 test("cold task create submits provenance session and task as two ordered canonical operations", async () => {
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9";
@@ -108,7 +108,8 @@ test("task claim submits the observed execution write through its narrow typed i
       sessionId: "session-task-claim",
       source: "runtime",
       detectedAt: "2026-07-18T00:00:00.000Z"
-    }
+    },
+    ingressAdapter: "task-claim"
   });
   const operation = {
     opId: "observed-task-claim-op",

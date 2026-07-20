@@ -7,6 +7,9 @@ import { daemonProtocolHandlerViolations } from "./implementation-contract-daemo
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
 const violations = [];
+const effectControllerCompositionRootPaths = new Set([
+  "packages/daemon/src/authority/authority-lifecycle.ts"
+]);
 
 const allowlist = loadGateAllowlist("check-implementation-contracts", {
   requiredSections: [
@@ -380,7 +383,10 @@ for (const file of files) {
     }
   }
 
-  if (!rel.startsWith("packages/cli/src/") && !rel.startsWith("packages/application/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
+  const isEffectControllerCompositionRoot = rel.startsWith("packages/cli/src/")
+    || rel.startsWith("packages/application/src/")
+    || effectControllerCompositionRootPaths.has(rel);
+  if (!isEffectControllerCompositionRoot && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
     record(`${rel}: Effect.runPromise* is only allowed at controller composition roots`);
   }
 

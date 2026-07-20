@@ -3,8 +3,9 @@ import { daemonAdmissionBytes, type DaemonAdmissionBudget, type DaemonAdmissionB
 import type { DaemonQueueDrainTarget } from "../daemon/drain-timeout.ts";
 import type { WriteError } from "../domain/index.ts";
 import type { FlushReport, WriteOp } from "../ports/write-coordinator.ts";
+import type { VcsCommitAuthor } from "../ports/version-control-system.ts";
 import type { WriteAttribution } from "../schemas/actor-attribution.ts";
-import type { GitCommitAuthor, OperationalActor } from "./write-journal-types.ts";
+import type { OperationalActor } from "./write-journal-types.ts";
 import { singleWriteIntegrityDomain, type WriteIntegrityDomain } from "./write-integrity-domain.ts";
 import type { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
 
@@ -18,7 +19,7 @@ export type InteractiveWriteRequest = InteractiveWriteAttribution & {
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
   readonly deadlineMs?: number;
-  readonly commitAuthor?: GitCommitAuthor;
+  readonly commitAuthor?: VcsCommitAuthor;
   readonly sessionId?: string;
 };
 
@@ -50,7 +51,7 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly kind: "interactive";
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
-  readonly commitAuthor?: GitCommitAuthor;
+  readonly commitAuthor?: VcsCommitAuthor;
   readonly sessionId?: string;
   readonly integrityDomain: WriteIntegrityDomain;
   readonly enqueuedAt: number;
@@ -62,7 +63,7 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
 };
 
 type InteractiveCoordinatorBatch = InteractiveWriteAttribution & {
-  readonly commitAuthor?: GitCommitAuthor;
+  readonly commitAuthor?: VcsCommitAuthor;
   readonly sessionId?: string;
 };
 
@@ -371,7 +372,7 @@ function attributionKey(input: InteractiveWriteAttribution): string {
   ].join("\0");
 }
 
-function authorKey(author: GitCommitAuthor | undefined): string {
+function authorKey(author: VcsCommitAuthor | undefined): string {
   return author ? `${author.name}\0${author.email}` : "";
 }
 

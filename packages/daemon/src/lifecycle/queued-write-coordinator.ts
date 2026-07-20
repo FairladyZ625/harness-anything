@@ -1,13 +1,8 @@
 import { Effect } from "effect";
-import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "@harness-anything/kernel";
-import type { MaterializerCommandReport } from "../cli/types.ts";
+import type { VcsCommitAuthor, FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "@harness-anything/kernel";
+import type { MaterializerCommandReport } from "@harness-anything/application";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];
-interface QueuedGitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
-}
-
 type QueuedAttribution =
   | { readonly attribution: WriteAttribution; readonly operationalActor?: never }
   | { readonly attribution?: never; readonly operationalActor: OperationalActor };
@@ -16,7 +11,7 @@ export interface CliDaemonRuntime {
   readonly enqueueInteractiveWrite: (request: QueuedAttribution & {
     readonly commandId: string;
     readonly ops: ReadonlyArray<QueuedWriteOp>;
-    readonly commitAuthor?: QueuedGitCommitAuthor;
+    readonly commitAuthor?: VcsCommitAuthor;
     readonly sessionId?: string;
   }) => Promise<{
     readonly flush: FlushReport;
@@ -33,7 +28,7 @@ export interface CliDaemonRuntime {
 export function makeDaemonQueuedWriteCoordinator(
   runtime: CliDaemonRuntime,
   commandId: string,
-  options: { readonly attribution: WriteAttribution; readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string }
+  options: { readonly attribution: WriteAttribution; readonly commitAuthor?: VcsCommitAuthor; readonly sessionId?: string }
 ): WriteCoordinator {
   return makeQueuedCoordinator(runtime, commandId, options);
 }
@@ -49,7 +44,7 @@ export function makeDaemonQueuedOperationalWriteCoordinator(
 function makeQueuedCoordinator(
   runtime: CliDaemonRuntime,
   commandId: string,
-  options: QueuedAttribution & { readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string }
+  options: QueuedAttribution & { readonly commitAuthor?: VcsCommitAuthor; readonly sessionId?: string }
 ): WriteCoordinator {
   const pending: Array<QueuedWriteOp> = [];
   return {

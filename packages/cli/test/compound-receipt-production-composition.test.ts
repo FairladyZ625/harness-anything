@@ -15,8 +15,7 @@ import {
   type AuthorityCommittedReceipt,
   type ReceiptIdentityV2
 } from "../../application/src/index.ts";
-import { createProductionCompoundReceiptComposition } from "../src/daemon/compound-receipt-composition.ts";
-import { createDurableCompoundReceiptStoreV2 } from "../src/receipt/durable-store-v2.ts";
+import { createDurableCompoundReceiptStoreV2, createProductionCompoundReceiptComposition } from "@harness-anything/daemon";
 import { createInMemoryReplicaChangeLog } from "../../application/src/index.ts";
 
 const restartWorkerFlag = "--compound-receipt-restart-worker";

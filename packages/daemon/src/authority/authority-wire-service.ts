@@ -1,12 +1,9 @@
-import {
-  createJsonRpcProtocolServer,
-  canonicalRootIdentity,
-  resolveAuthorityConnectionForRequest,
-  type AuthorityWireIngressHandler,
-  type DaemonRepoNamespace,
-  type IdentityProvider,
-  type PersonRegistry
-} from "@harness-anything/daemon";
+// @slice-activation PLT-Boundary W2 daemon-owned authority wire service host.
+import { canonicalRootIdentity } from "../runtime/canonical-root.ts";
+import { resolveAuthorityConnectionForRequest } from "../protocol/connection-context.ts";
+import { createJsonRpcProtocolServer, type DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
+import type { IdentityProvider, PersonRegistry } from "../identity/types.ts";
+import type { AuthorityWireIngressHandler } from "../transport/authority-wire-ingress.ts";
 import type { AuthorityRepoLifecycleController } from "./authority-lifecycle.ts";
 
 export interface AuthorityWireRepoBinding {

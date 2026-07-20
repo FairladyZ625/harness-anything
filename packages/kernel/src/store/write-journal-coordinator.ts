@@ -9,7 +9,7 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "../ports/write-coordinator.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import type { EntityId, WriteError } from "../domain/index.ts";
 import { taskIdFromEntityId } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
@@ -52,9 +52,8 @@ import { recoverJournalIntegrityDomains } from "./write-journal-domain-recovery.
 import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "./write-integrity-domain.ts";
 import { memoizePublicationVcs } from "./write-journal-publication-vcs.ts";
 import { rebuildProjectionHash } from "./write-journal-projection-publication.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
-  GitCommitAuthor,
   JournalActor,
   JournalRecordV1,
   JournalRecordV2,
@@ -305,7 +304,7 @@ function flushRecords(
   records: ReadonlyArray<ReadableJournalRecord>,
   fileApplied: ReadonlySet<string>,
   sessionId?: string,
-  commitAuthor?: GitCommitAuthor,
+  commitAuthor?: VcsCommitAuthor,
   versionControlSystem?: VersionControlSystem,
   attributionEventStore: AttributionEventStore = makeLocalGitAttributionEventStore(),
   onProjectionChange?: (event: ProjectionChangeEvent) => void

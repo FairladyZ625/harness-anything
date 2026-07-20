@@ -23,7 +23,7 @@ import {
   type RegistryEntityRefV2
 } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
-import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
+import type { DaemonAuthorityAttemptCompilerV2 } from "@harness-anything/daemon";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 import { renderForceStatusAudit } from "../commands/core/task-lifecycle.ts";
 

@@ -5,11 +5,12 @@ import {
   type AuthorityConnectionDispatch,
   type JsonObject
 } from "@harness-anything/daemon";
-import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
+import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverCommandAction, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
 import type { CurrentSessionRef, WriteCoordinator } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isDryRunAction } from "../cli/dry-run-preview.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
+import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
@@ -17,9 +18,15 @@ import { CliActorAttributionError, daemonActorAttributionForParsedCommand, migra
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
 import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
-import { makeDaemonAuthorityWriteCoordinator, type DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
-import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
-import { isAuthorityCutoverAction, runAuthorityCutoverControlCommand } from "./authority-cutover-command.ts";
+import {
+  isAuthorityCutoverAction,
+  makeDaemonAuthorityWriteCoordinator,
+  makeDaemonQueuedOperationalWriteCoordinator,
+  makeDaemonQueuedWriteCoordinator,
+  runAuthorityCutoverControlCommand,
+  type CliDaemonRuntime,
+  type DaemonAuthorityCommandSubmissionV2
+} from "@harness-anything/daemon";
 
 export interface CliCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -56,7 +63,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         const daemonActor = context?.actor;
         if (isAuthorityCutoverAction(parsedCommand.action)) {
           return toCommandReceipt(await runAuthorityCutoverControlCommand({
-            action: parsedCommand.action,
+            action: parsedCommand.action as AuthorityCutoverCommandAction,
             control: options.authorityCutoverControl,
             authenticated: daemonActor !== undefined
           }));
@@ -77,7 +84,8 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
           ? makeDaemonAuthorityWriteCoordinator(authoritySubmissionV2, {
             command: parsedCommand,
             attribution,
-            currentSession
+            currentSession,
+            ingressAdapter: typedAuthorityIngressAdapter(parsedCommand.action.kind)
           })
           : undefined;
         const dryRun = isDryRunAction(parsedCommand.action);
@@ -146,6 +154,11 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       }
     }
   };
+}
+
+function typedAuthorityIngressAdapter(kind: string) {
+  const ingress = productionAuthorityIngressFor(kind);
+  return ingress?.status === "typed-v2" ? ingress.adapter : undefined;
 }
 
 export function materializeExportedSession(

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AuthenticatedActor } from "@harness-anything/daemon";
 import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "@harness-anything/application";
-import type { WriteAttribution } from "@harness-anything/kernel";
+import type { VcsCommitAuthor, WriteAttribution } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import { readNonBlankEnv } from "./environment.ts";
 
@@ -10,14 +10,9 @@ export interface CliJournalActor {
   readonly id: string;
 }
 
-export interface CliGitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
-}
-
 export interface CliActorAttribution {
   readonly writeAttribution: WriteAttribution;
-  readonly commitAuthor: CliGitCommitAuthor;
+  readonly commitAuthor: VcsCommitAuthor;
   readonly taskHolderPrincipal: TaskHolderPersonPrincipal;
   readonly executor: TaskHolderExecutor | null;
 }
@@ -41,7 +36,7 @@ export function migrationWriteAttribution(attribution: WriteAttribution, evidenc
 export function resolveLocalCliBootstrapAuthor(
   env: NodeJS.ProcessEnv = process.env,
   actorFlag?: string
-): CliGitCommitAuthor {
+): VcsCommitAuthor {
   const actor = actorFlag ? readCliJournalActorFromFlag(actorFlag) : readCliJournalActorFromEnv(env);
   const name = readNonBlankEnv(env, "HARNESS_GIT_AUTHOR_NAME") ?? readNonBlankEnv(env, "GIT_AUTHOR_NAME");
   const email = readNonBlankEnv(env, "HARNESS_GIT_AUTHOR_EMAIL") ?? readNonBlankEnv(env, "GIT_AUTHOR_EMAIL");

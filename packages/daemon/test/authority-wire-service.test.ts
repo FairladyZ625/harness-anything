@@ -7,12 +7,12 @@ import {
   createAcceptedConnectionEvidence,
   type AuthorityConnectionContext,
   type DaemonRepoNamespace
-} from "../../daemon/src/index.ts";
+} from "../src/index.ts";
 import type {
   AuthorityRepoComponent,
   AuthorityRepoLifecycleController
-} from "../src/daemon/authority-lifecycle.ts";
-import { createAuthorityWireIngressHandler } from "../src/daemon/authority-wire-service.ts";
+} from "../src/index.ts";
+import { createAuthorityWireIngressHandler } from "../src/index.ts";
 
 test("authority-wire service binds the authenticated principal to the exact accepted connection", async () => {
   const repo: DaemonRepoNamespace = { repoId: "canonical", canonicalRoot: process.cwd() };

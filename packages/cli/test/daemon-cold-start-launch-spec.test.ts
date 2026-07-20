@@ -223,6 +223,15 @@ test("service cold start without a required manifest reports the preflight cause
     assert.match(failure, /Missing required option --authority-manifest/u);
     assert.match(failure, /ha daemon start --service --user-root <user-root> --authority-manifest <path>/u);
     assert.doesNotMatch(failure, /did not become reachable/u);
+    const batch4Golden = JSON.parse(readFileSync(new URL("../../daemon/test/fixtures/batch4-equivalence-golden.json", import.meta.url), "utf8")) as Record<string, string>;
+    assert.equal(JSON.stringify({
+      status: missing.status,
+      code: failure.includes("AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE") ? "AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE" : "missing",
+      missingOption: failure.includes("Missing required option --authority-manifest") ? "--authority-manifest" : "missing",
+      recovery: failure.includes("ha daemon start --service --user-root <user-root> --authority-manifest <path>")
+        ? "ha daemon start --service --user-root <user-root> --authority-manifest <path>"
+        : "missing"
+    }), batch4Golden.launchColdStartReceipt);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

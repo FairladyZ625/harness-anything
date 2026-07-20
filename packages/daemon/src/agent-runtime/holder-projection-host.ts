@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 daemon-owned agent holder projection host.
 import {
   makeAgentHolderProjectionService,
   makeRuntimeEventAppendPromise,
@@ -7,15 +8,13 @@ import {
   type TaskHolderService,
   type TaskHolderServiceOptions
 } from "@harness-anything/application";
-import {
-  makeLocalAgentRuntimeControllerOptions
-} from "@harness-anything/daemon";
+import { makeLocalAgentRuntimeControllerOptions } from "./control-host.ts";
 import {
   queryExecutions,
   queryTaskProjection,
   type HarnessLayoutOverrides
 } from "@harness-anything/kernel";
-import { makeDaemonQueuedOperationalWriteCoordinator } from "./queued-write-coordinator.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator } from "../lifecycle/queued-write-coordinator.ts";
 
 export function makeLocalAgentHolderServices(
   rootDir: string,

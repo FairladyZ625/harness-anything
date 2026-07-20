@@ -17,7 +17,7 @@ import {
   createBrokerCompoundReceiptCoordinatorV2,
   ReplicaBroker
 } from "@harness-anything/daemon";
-import { createDurableCompoundReceiptStoreV2, renderCompoundCliExit } from "../receipt/index.ts";
+import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-store.ts";
 
 /**
  * The daemon-owned compound path.  Keeping this owner beside the daemon
@@ -32,7 +32,6 @@ export interface ProductionCompoundReceiptComposition {
     readonly preparedReceiptDigest: string;
   }) => Promise<AckCommittedFrameV1>;
   readonly recover: (input: Omit<GetWaiterFrameV1, "type" | "kind">) => Promise<WaiterStateFrameV1>;
-  readonly renderExit: (receipt: CompoundOperationReceiptV2) => ReturnType<typeof renderCompoundCliExit>;
 }
 
 export function createProductionCompoundReceiptComposition(input: {
@@ -85,8 +84,7 @@ export function createProductionCompoundReceiptComposition(input: {
       const result = await coordinator.wire.handle({ type: "harness-compound-receipt-wire/v1", kind: "GET_WAITER", ...frame });
       if (result.kind !== "WAITER_STATE") throw new Error("COMPOUND_WAITER_QUERY_PROTOCOL_DAMAGED");
       return result;
-    },
-    renderExit: (receipt) => renderCompoundCliExit({ kind: "RECEIPT", receipt })
+    }
   };
 }
 

@@ -12,7 +12,7 @@ import { normalizeDecisionProposeAction } from "../../cli/decision-propose-norma
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { ParsedCommand } from "../../cli/types.ts";
 import { createCliCommandService, type CliCommandServiceOptions } from "../../daemon/command-service.ts";
-import type { CliDaemonRuntime } from "../../daemon/queued-write-coordinator.ts";
+import type { CliDaemonRuntime } from "@harness-anything/daemon";
 import { readCatalogSnapshot } from "./catalog-snapshot.ts";
 
 export function makeDaemonGuiControllerOptions(

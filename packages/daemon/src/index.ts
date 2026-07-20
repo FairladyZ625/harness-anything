@@ -36,6 +36,11 @@ export {
   type LocalDaemonTarget
 } from "./client/local-json-rpc-client.ts";
 export * from "./authority/index.ts";
+export * from "./authority/authority-command-submission.ts";
+export * from "./authority/authority-cutover-command.ts";
+export * from "./authority/authority-lifecycle.ts";
+export * from "./authority/authority-submission-dispatch.ts";
+export * from "./authority/authority-wire-service.ts";
 // TW-06 fence
 export * from "./fence/index.ts";
 export * from "./broker/index.ts";
@@ -45,6 +50,12 @@ export * from "./runtime/canonical-root.ts";
 export * from "./runtime/registry-reconciler.ts";
 export * from "./lifecycle/daemon-lifecycle.ts";
 export * from "./lifecycle/daemon-log-file-store.ts";
+export * from "./lifecycle/compound-receipt-composition.ts";
+export * from "./lifecycle/compound-receipt-runner.ts";
+export * from "./lifecycle/daemon-drain.ts";
+export * from "./lifecycle/durable-compound-receipt-store.ts";
+export * from "./lifecycle/queued-write-coordinator.ts";
+export * from "./agent-runtime/holder-projection-host.ts";
 export {
   actorGitCommitAuthor,
   actorStamp,
@@ -58,7 +69,6 @@ export {
   type CredentialKind,
   type CredentialRef,
   type DaemonCommandClass,
-  type GitCommitAuthor,
   type IdentityAdminSnapshot,
   type IdentityAuthenticationResult,
   type IdentityAuthenticationSuccess,

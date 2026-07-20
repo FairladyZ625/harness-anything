@@ -15,9 +15,9 @@ import {
   assertAuthorityReceiptOperation,
   assertCompleteAuthorityReceiptV2,
   createDaemonAuthorityCommandSubmissionV2
-} from "../src/daemon/authority-command-submission.ts";
+} from "@harness-anything/daemon";
 import { createCliCommandService, materializeExportedSession } from "../src/daemon/command-service.ts";
-import type { CliDaemonRuntime } from "../src/daemon/queued-write-coordinator.ts";
+import type { CliDaemonRuntime } from "@harness-anything/daemon";
 import {
   authorityCommandAttemptFixture,
   submitThroughActualAuthorityServiceV2

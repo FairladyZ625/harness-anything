@@ -16,7 +16,7 @@ import {
   type WriteAttribution,
   type WriteCoordinator
 } from "@harness-anything/kernel";
-import { makeDaemonQueuedOperationalWriteCoordinator, type CliDaemonRuntime } from "../daemon/queued-write-coordinator.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator, type CliDaemonRuntime } from "@harness-anything/daemon";
 
 export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput, runtime?: CliDaemonRuntime): () => Promise<void> {
   const appendLeaseEvent = runtime

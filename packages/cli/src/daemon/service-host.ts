@@ -9,8 +9,14 @@ import {
   calculateDaemonArtifactIdentity,
   canonicalRootIdentity,
   createDaemonReconcileState,
+  createAuthorityWireIngressHandler,
+  drainDaemonRuntime,
+  isDaemonDrainTimeout,
+  makeDaemonQueuedWriteCoordinator,
+  makeLocalAgentHolderServices,
   makeDaemonLogFileStore,
   reconcileDaemonRepoRegistry,
+  requireAuthoritySubmissionForDispatch,
   type AcceptedConnectionBinding,
   type AuthorityWireIngressHandler,
   type DaemonActiveControlStatus,
@@ -20,7 +26,9 @@ import {
   type JsonRpcNotification,
   type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace,
-  type DaemonReconcileState
+  type DaemonReconcileState,
+  type AuthorityRepoComponent,
+  type AuthorityRepoLifecycleController
 } from "@harness-anything/daemon";
 import {
   makeMarkdownArtifactStore,
@@ -41,24 +49,13 @@ import {
 import { daemonActorAttribution } from "../composition/actor-attribution.ts";
 import { failClosedReservationReconcilerCoordinator } from "../composition/reservation-reconciler.ts";
 import { createCliCommandService } from "./command-service.ts";
-import { createAuthorityWireIngressHandler } from "./authority-wire-service.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";
-import { drainDaemonRuntime, isDaemonDrainTimeout } from "./daemon-drain.ts";
-import {
-  makeDaemonQueuedWriteCoordinator
-} from "./queued-write-coordinator.ts";
-import type {
-  AuthorityRepoComponent,
-  AuthorityRepoLifecycleController
-} from "./authority-lifecycle.ts";
-import { makeLocalAgentHolderServices } from "./agent-holder-projection-host.ts";
-import { requireAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
 import {
   createDaemonControlService,
   type DaemonLaunchConfiguration
 } from "./daemon-control-service.ts";
 
-export { bindAuthoritySubmissionForDispatch } from "./authority-submission-dispatch.ts";
+export { bindAuthoritySubmissionForDispatch } from "@harness-anything/daemon";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }

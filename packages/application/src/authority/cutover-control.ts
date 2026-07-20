@@ -58,6 +58,10 @@ export {
 } from "./cutover-contract.ts";
 export type {
   AuthorityCutoverBoundaryReceipt,
+  AuthorityCutoverCommandAction,
+  AuthorityCutoverCommandErrorCode,
+  AuthorityCutoverCommandReport,
+  AuthorityCutoverCommandResult,
   AuthorityCutoverControlService,
   AuthorityCutoverControlState,
   AuthorityCutoverDrainReceipt,

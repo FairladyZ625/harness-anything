@@ -4,8 +4,13 @@ import test from "node:test";
 import {
   authoritySubmissionWriteError,
   gateAuthoritySubmissionForRecovery
-} from "../src/daemon/authority-command-submission.ts";
-import { authorityCommandAttemptFixture } from "./helpers/authority-command-adapter-v2.ts";
+} from "../src/index.ts";
+import {
+  encodeSemanticMutationEnvelopeV2,
+  operationIdDiagnosticV2,
+  type ProtocolSchemaTupleV2
+} from "@harness-anything/application";
+import { v2Claims, v2Envelope } from "./authority-v2-fixtures.ts";
 
 test("authority JournalUnavailable errors serialize diagnostic fields without stacks", () => {
   const failure = new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVATION_MISMATCH") as Error & { code: string };
@@ -53,3 +58,21 @@ test("recovery gate returns retryable receipts on both legacy and V2 authority i
   assert.equal(v2.opId, fixture.expectedOpId);
   assert.equal(submissions, 0);
 });
+
+function authorityCommandAttemptFixture() {
+  const schemaTuple: ProtocolSchemaTupleV2 = {
+    wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+    commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1,
+    localState: 1, applyJournal: 1
+  };
+  const claims = v2Claims("workspace-command-service", Buffer.alloc(32, 12), schemaTuple);
+  const envelope = v2Envelope(claims, Buffer.alloc(32, 6), "task-command-service", "command service\n", 4);
+  return {
+    attempt: {
+      requestId: "command-service-v2",
+      presentationToken: Buffer.from("server-bound-token"),
+      envelope: encodeSemanticMutationEnvelopeV2(envelope)
+    },
+    expectedOpId: operationIdDiagnosticV2(envelope.operationId)
+  };
+}
