@@ -12,7 +12,9 @@ import {
   readOrCreateDaemonMachineId
 } from "../src/index.ts";
 
-test("machine identity is stable within one installation root and isolated across roots", () => {
+test("machine identity is stable within one installation root and isolated across roots", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
   const parent = mkdtempSync(path.join(os.tmpdir(), "ha-machine-id-"));
   try {
     const firstRoot = path.join(parent, "first");
@@ -27,7 +29,9 @@ test("machine identity is stable within one installation root and isolated acros
   }
 });
 
-test("generation publication is durable, endpoint-scoped, and strictly increasing", () => {
+test("generation publication is durable, endpoint-scoped, and strictly increasing", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-generation-"));
   try {
     const machineId = readOrCreateDaemonMachineId(userRoot);
@@ -63,7 +67,9 @@ test("generation publication is durable, endpoint-scoped, and strictly increasin
   }
 });
 
-test("generation publication fails closed on corrupt or exhausted state", () => {
+test("generation publication fails closed on corrupt or exhausted state", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-generation-corrupt-"));
   const endpointIdentity = "/tmp/a.sock";
   try {
