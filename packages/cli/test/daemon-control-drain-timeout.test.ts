@@ -68,13 +68,16 @@ test("daemon control reports a stuck drain and does not run transport shutdown",
 
     const stopRequest = await host.waitForStopRequest();
     assert.equal(stopRequest.reason, "control");
-    await host.stop();
+    let stopSettled = false;
+    void host.stop().then(() => { stopSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     const activeControl = host.status().service.activeControl;
     assert.equal(activeControl?.phase, "failed");
     assert.equal(activeControl?.failure?.code, "daemon_queue_drain_timeout");
     assert.match(activeControl?.failure?.hint ?? "", /in-flight operations failed to settle in time/u);
     assert.deepEqual(events, ["runtime:stop-stuck"]);
+    assert.equal(stopSettled, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -207,6 +207,55 @@ test("refresh explicitly exits the old owner after safe shutdown even with an ac
   }
 });
 
+test("refresh reports a stuck drain and leaves the old owner alive", { timeout: 60_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const markerPath = path.join(fixture.root, "old-owner-stuck-drain.marker");
+  const preloadPath = path.resolve("packages/cli/test/fixtures/daemon-stuck-drain-preload.mjs");
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_TEST_DAEMON_STUCK_DRAIN_MARKER: markerPath,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
+  };
+  let oldPid: number | undefined;
+  try {
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical",
+      "--canonical-root", fixture.repoRoot, "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    oldPid = started.pid as number;
+    assert.equal(typeof oldPid, "number", JSON.stringify(started));
+
+    const refresh = runRawJsonMaybeFail(fixture.repoRoot, [
+      "daemon", "refresh", "--trigger", "post-merge", "--timeout-ms", "1000", "--user-root", userRoot
+    ], env);
+    const status = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
+    assert.notEqual(refresh.status, 0, JSON.stringify(refresh.receipt));
+    assert.match(JSON.stringify(refresh.receipt), /daemon_queue_drain_timeout/u);
+    assert.match(JSON.stringify(refresh.receipt), /in-flight operations failed to settle in time/u);
+    assert.equal(processIsAlive(oldPid), true);
+
+    const service = status.service as {
+      readonly pid?: unknown;
+      readonly activeControl?: { readonly phase?: unknown; readonly failure?: { readonly code?: unknown } };
+    };
+    assert.equal(status.reachable, true, JSON.stringify(status));
+    assert.equal(service.pid, oldPid);
+    assert.equal(service.activeControl?.phase, "failed");
+    assert.equal(service.activeControl?.failure?.code, "daemon_queue_drain_timeout");
+    console.log(JSON.stringify({ scenario: "stuck-drain-owner-remains", oldPid, refresh: refresh.receipt, activeControl: service.activeControl }));
+  } finally {
+    if (oldPid !== undefined && processIsAlive(oldPid)) process.kill(oldPid, "SIGKILL");
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 function processIsAlive(pid: number | undefined): boolean {
   if (pid === undefined) return false;
   try {

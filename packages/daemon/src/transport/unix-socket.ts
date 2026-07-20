@@ -17,6 +17,7 @@ import type {
 } from "./authority-wire-ingress.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
 import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
+import { gracefullyCloseSocketServer } from "./graceful-socket-shutdown.ts";
 import {
   authenticateSshAuthorityWireFrame,
   authenticateSshForcedCommandFrame,
@@ -205,11 +206,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       });
     },
     stop: async () => {
-      const stopped = new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
-      });
-      for (const socket of sockets) socket.destroy();
-      await stopped;
+      await gracefullyCloseSocketServer(server, sockets);
       rmSync(endpoint, { force: true });
     }
   };
