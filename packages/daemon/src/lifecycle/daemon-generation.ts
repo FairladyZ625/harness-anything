@@ -14,6 +14,7 @@ import {
 import path from "node:path";
 
 export const daemonGenerationRecordSchema = "daemon-generation-record/v1" as const;
+export const daemonGenerationDurabilityUnsupportedCode = "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" as const;
 
 export interface DaemonGenerationRecordV1 {
   readonly schema: typeof daemonGenerationRecordSchema;
@@ -24,6 +25,15 @@ export interface DaemonGenerationRecordV1 {
   readonly publishedAt: string;
 }
 
+export type DaemonGenerationServePreparation = {
+  readonly mode: "generation";
+  readonly machineId: string;
+  readonly daemonGeneration: number;
+} | {
+  readonly mode: "legacy";
+  readonly diagnostic: typeof daemonGenerationDurabilityUnsupportedCode;
+};
+
 export function daemonMachineIdPath(installationRoot: string): string {
   return path.join(path.resolve(installationRoot), "machine-id");
 }
@@ -31,6 +41,32 @@ export function daemonMachineIdPath(installationRoot: string): string {
 export function daemonGenerationRecordPath(userRoot: string, endpointIdentity: string): string {
   const endpointHash = createHash("sha256").update(endpointIdentity).digest("hex");
   return path.join(path.resolve(userRoot), `daemon-generation.${endpointHash}.json`);
+}
+
+/** Default daemon startup remains legacy-compatible where durable generation publication is unavailable. */
+export function prepareDaemonGenerationForServe(input: {
+  readonly userRoot: string;
+  readonly endpointIdentity: string;
+  readonly daemonInstanceId: string;
+  readonly platform?: NodeJS.Platform;
+}): DaemonGenerationServePreparation {
+  const platform = input.platform ?? process.platform;
+  if (platform === "win32") {
+    return { mode: "legacy", diagnostic: daemonGenerationDurabilityUnsupportedCode };
+  }
+  const machineId = readOrCreateDaemonMachineId(input.userRoot, platform);
+  const generationRecord = publishNextDaemonGeneration({
+    userRoot: input.userRoot,
+    endpointIdentity: input.endpointIdentity,
+    machineId,
+    daemonInstanceId: input.daemonInstanceId,
+    platform
+  });
+  return {
+    mode: "generation",
+    machineId,
+    daemonGeneration: generationRecord.daemonGeneration
+  };
 }
 
 /** Installation-scoped identity. Different userRoot values intentionally receive different identities. */
@@ -152,7 +188,7 @@ function fsyncDirectory(directory: string): void {
 function assertDurableGenerationPlatform(platform: NodeJS.Platform): void {
   if (platform === "win32") {
     throw new Error(
-      "DAEMON_GENERATION_DURABILITY_UNSUPPORTED: Windows daemon generation publication is disabled until a crash-durable directory replacement primitive is available."
+      `${daemonGenerationDurabilityUnsupportedCode}: Windows daemon generation publication is disabled until a crash-durable directory replacement primitive is available.`
     );
   }
 }

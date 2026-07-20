@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   daemonGenerationRecordPath,
   daemonMachineIdPath,
+  prepareDaemonGenerationForServe,
   publishNextDaemonGeneration,
   readOrCreateDaemonMachineId
 } from "../src/index.ts";
@@ -105,6 +106,29 @@ test("Windows fails closed before publishing machine identity or daemon generati
       /DAEMON_GENERATION_DURABILITY_UNSUPPORTED/u
     );
     assert.equal(existsSync(generationPath), false);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("Windows daemon startup degrades to legacy generation mode without throwing or publishing", () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-start-win32-"));
+  try {
+    let preparation: ReturnType<typeof prepareDaemonGenerationForServe> | undefined;
+    assert.doesNotThrow(() => {
+      preparation = prepareDaemonGenerationForServe({
+        userRoot,
+        endpointIdentity: "pipe:daemon",
+        daemonInstanceId: "daemon-a",
+        platform: "win32"
+      });
+    });
+    assert.deepEqual(preparation, {
+      mode: "legacy",
+      diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED"
+    });
+    assert.equal(existsSync(daemonMachineIdPath(userRoot)), false);
+    assert.equal(existsSync(daemonGenerationRecordPath(userRoot, "pipe:daemon")), false);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
