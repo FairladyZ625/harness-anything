@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { daemonProtocolHandlerViolations } from "./implementation-contract-daemon-protocol.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
@@ -460,17 +461,7 @@ for (const file of files) {
     }
   }
 
-  if (rel.startsWith("packages/daemon/src/")) {
-    if (/from\s+["'][^"']*(?:packages\/kernel\/src\/store|packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
-      record(`${rel}: daemon protocol handlers must not import store or adapter implementations`);
-    }
-    if (/\bWriteCoordinator\.(?:enqueue|flush)\s*\(|\bcoordinator\.(?:enqueue|flush)\s*\(|\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
-      record(`${rel}: daemon protocol handlers must not perform write coordination or authored writes directly`);
-    }
-    if (/switch\s*\([^)]*status[^)]*\)|if\s*\([^)]*status[^)]*(?:===|!==|==|!=)/i.test(text)) {
-      record(`${rel}: daemon protocol handlers must not infer business state from status values`);
-    }
-  }
+  for (const violation of daemonProtocolHandlerViolations(rel, text)) record(violation);
 
   if (/new\s+BrowserWindow\s*\(/.test(text)) {
     for (const required of browserWindowRequiredPatterns) {
