@@ -11,7 +11,11 @@ import { parseArgs } from "./cli/parse-args.ts";
 import { deprecationWarning } from "./cli/command-deprecations.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
-import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "@harness-anything/daemon";
+import {
+  calculateDaemonArtifactIdentity,
+  createDaemonLaunchConfiguration,
+  type DaemonRepoNamespace
+} from "@harness-anything/daemon";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";
@@ -34,10 +38,9 @@ import {
   preflightDaemonLaunch,
   resolveCompleteDaemonLaunchSpec,
   resolveDaemonLaunchSpec,
-  type DaemonLaunchConfiguration,
   type ParsedDaemonLaunchArgv
 } from "./daemon/daemon-launch-spec.ts";
-import { daemonRuntimeLayoutOverrides, daemonServeArgsWithResolvedOptions } from "./daemon/daemon-serve-launch-options.ts";
+import { daemonRuntimeLayoutOverrides } from "./daemon/daemon-serve-launch-options.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
@@ -196,22 +199,19 @@ async function runDaemonServe(
     ...(authorityManifest ? { authorityManifest } : {}),
     ...(restoredAuthoredRoot ? { authoredRoot: restoredAuthoredRoot } : {})
   });
-  const launchArgs = daemonServeArgsWithResolvedOptions(args, {
-    ...restoredLaunchOptions,
-    ...(authorityManifest ? { authorityManifest } : {})
-  });
-  const launchConfiguration: DaemonLaunchConfiguration = {
-    execPath: process.execPath,
-    execArgv: [...process.execArgv],
+  const launchConfiguration = createDaemonLaunchConfiguration({
+    target: {
+      canonicalRoot: rootDir,
+      repoId: defaultRepoId,
+      socketPath: endpoint,
+      userRoot
+    },
     entrypoint,
-    args: [
-      "--root", rootDir,
-      ...(restoredAuthoredRoot !== undefined
-        ? ["--authored-root", restoredAuthoredRoot]
-        : []),
-      ...launchArgs
-    ]
-  };
+    idleExitMs: parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true }),
+    ...(restoredAuthoredRoot !== undefined ? { authoredRoot: restoredAuthoredRoot } : {}),
+    ...(authorityManifest ? { authorityManifest } : {}),
+    launchOptionsResolved: true
+  });
   const loadedBuild = calculateDaemonArtifactIdentity(entrypoint);
   const startedAt = new Date().toISOString();
   return withDaemonSocketOwnership(endpoint, async () => {

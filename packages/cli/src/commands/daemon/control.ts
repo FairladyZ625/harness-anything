@@ -445,9 +445,7 @@ async function startDaemonReplacement(
     idleExitMs: 0,
     timeoutMs,
     layoutOverrides,
-    execPath: launchConfiguration.execPath,
-    execArgv: launchConfiguration.execArgv,
-    launchArguments: launchConfiguration.args
+    launchConfiguration
   });
   const status = statusFromReceipt(receipt);
   if (!status) throw new Error("replacement status RPC did not return daemon status data");

@@ -33,6 +33,20 @@ export interface HarnessLayoutOverrides {
 }
 
 interface LocalDaemonClientModule {
+  readonly createDaemonLaunchConfiguration: (input: {
+    readonly target: LocalDaemonTarget;
+    readonly entrypoint: string;
+    readonly idleExitMs: number;
+    readonly execPath: string;
+    readonly execArgv: ReadonlyArray<string>;
+    readonly env: NodeJS.ProcessEnv;
+    readonly authoredRoot?: string;
+  }) => {
+    readonly execPath: string;
+    readonly execArgv: ReadonlyArray<string>;
+    readonly entrypoint: string;
+    readonly args: ReadonlyArray<string>;
+  };
   readonly daemonIdFromEnv: (env?: NodeJS.ProcessEnv) => string;
   readonly resolveLocalDaemonTarget: (input: {
     readonly rootDir: string;
@@ -56,6 +70,12 @@ interface LocalDaemonClientModule {
       readonly env?: NodeJS.ProcessEnv;
       readonly execPath?: string;
       readonly execArgv?: ReadonlyArray<string>;
+      readonly launchConfiguration?: {
+        readonly execPath: string;
+        readonly execArgv: ReadonlyArray<string>;
+        readonly entrypoint: string;
+        readonly args: ReadonlyArray<string>;
+      };
     }
   ) => Promise<JsonObject>;
 }
@@ -129,13 +149,20 @@ async function requestGuiRouteViaDaemon(
     const params = jsonRpcParamsForGuiRoute(route, target.repoId, payload);
     // Admin control (restart) waits for accept + drain; allow a longer socket timeout.
     const timeoutMs = route.commandClass === "admin" ? 5_000 : 200;
-    const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, method, params, timeoutMs, {
-      entryPath: cliEntrypointPath(),
+    const launchConfiguration = daemonClient.createDaemonLaunchConfiguration({
+      target,
+      entrypoint: cliEntrypointPath(),
       idleExitMs: resolveGuiDaemonIdleExitMs(),
-      timeoutMs: daemonAutostartTimeoutMs(),
       execPath: nodeRuntime.execPath,
       execArgv: nodeRuntime.execArgv,
       env: nodeRuntime.env,
+      ...(layoutOverrides?.authoredRoot !== undefined ? { authoredRoot: layoutOverrides.authoredRoot } : {})
+    });
+    const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, method, params, timeoutMs, {
+      entryPath: launchConfiguration.entrypoint,
+      timeoutMs: daemonAutostartTimeoutMs(),
+      env: nodeRuntime.env,
+      launchConfiguration,
       ...(layoutOverrides ? { layoutOverrides } : {})
     });
     if (customLayout) state.layoutOverrideDaemonStarted = true;
