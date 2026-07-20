@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
@@ -39,7 +39,30 @@ test("closeout facade, explicit-wire facade, and manual chain have equivalent te
   })));
 });
 
-test("closeout failures retain the true gate cause, partial receipts, and one copyable next command", () => {
+test("approved closeout without consent is rejected before any lifecycle write", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "Missing Consent");
+    const packet = writeCloseoutPacket(rootDir, { omitConsent: true });
+    const taskRoot = path.join(rootDir, fixture.packagePath);
+    const indexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
+    const executionPath = path.join(taskRoot, "executions", `${fixture.executionId}.md`);
+    const executionBefore = readFileSync(executionPath, "utf8");
+    const holderPath = path.join(rootDir, ".harness/task-holders", `${fixture.taskId}.json`);
+    const holderBefore = readFileSync(holderPath, "utf8");
+
+    const rejected = runJson(rootDir, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
+
+    assert.equal(rejected.error.code, "invalid_task_metadata");
+    assert.match(rejected.error.hint, /approved closeout requires exactly one consent source/iu);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
+    assert.equal(readFileSync(executionPath, "utf8"), executionBefore);
+    assert.equal(readFileSync(holderPath, "utf8"), holderBefore);
+    const reviewsRoot = path.join(taskRoot, "reviews");
+    assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
+  });
+});
+
+test("closeout held by another worker recommends waiting or contacting the holder, never claim", () => {
   withTempRoot((leaseRoot) => {
     const fixture = prepareActiveTask(leaseRoot, "Lost Lease");
     const packet = writeCloseoutPacket(leaseRoot);
@@ -49,10 +72,14 @@ test("closeout failures retain the true gate cause, partial receipts, and one co
     ], false, { HARNESS_ACTOR: "agent:different-worker" });
     assert.equal(rejected.error.code, "write_rejected");
     assert.match(rejected.error.hint, /not held by the caller|requires an active lease/iu);
-    assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task claim ${fixture.taskId} --execution --execution-id ${fixture.executionId}`, "u"));
+    assert.match(rejected.error.hint, /lease status active.+otherwise wait or contact the current holder/iu);
+    assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task holder ${fixture.taskId}`, "u"));
+    assert.doesNotMatch(rejected.error.hint, /Next: run .+ha task claim/iu);
     assert.equal(rejected.facade.completedSteps.length, 0);
   });
+});
 
+test("closeout failures retain the true gate cause, partial receipts, and one copyable next command", () => {
   withTempRoot((gateRoot) => {
     const fixture = prepareActiveTask(gateRoot, "Failed CI");
     const packet = writeCloseoutPacket(gateRoot, { ci: "failed" });
@@ -138,7 +165,7 @@ function prepareSession(rootDir: string, sessionId: string): Record<string, stri
   return { ...workerEnv, HOME: homeDir, CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
 }
 
-function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed" | "failed" } = {}): string {
+function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed" | "failed"; readonly omitConsent?: boolean } = {}): string {
   const packet = path.join(rootDir, `closeout-${overrides.ci ?? "passed"}.json`);
   writeFileSync(packet, JSON.stringify({
     completionClaim: "The implementation is ready for review.",
@@ -146,8 +173,10 @@ function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed
     verificationNotes: ["targeted tests passed"], knownGaps: [], residualRisks: ["none observed"],
     verdict: "approved", findings: "Acceptance checks passed.",
     rationale: "The evidence satisfies the task intent.", evidenceChecked: ["ev_cli_1"],
-    consentAssertedRationale: "The human approved through an external channel.",
-    consentActions: ["approve_execution", "complete_task"],
+    ...(overrides.omitConsent ? {} : {
+      consentAssertedRationale: "The human approved through an external channel.",
+      consentActions: ["approve_execution", "complete_task"]
+    }),
     ci: overrides.ci ?? "passed", paths: ["evidence/facade.txt"], reviewerId: "person_reviewer"
   }), "utf8");
   return packet;

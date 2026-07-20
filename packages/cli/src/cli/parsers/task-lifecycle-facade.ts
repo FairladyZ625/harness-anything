@@ -54,7 +54,7 @@ export function parseTaskCloseout(
   }
   const ciGate = payload.ci;
   if (ciGate !== "passed" && ciGate !== "failed") return lifecycleFacadeParseFailure("Closeout field ci must be passed or failed.");
-  const consent = parseConsent(payload);
+  const consent = parseConsent(payload, verdict.value);
   if (!consent.ok) return consent;
   const executionId = textOverride(readOption(args, "--execution-id"), payload.executionId);
   const leaseToken = textOverride(readOption(args, "--lease-token"), payload.leaseToken);
@@ -92,15 +92,19 @@ export function parseTaskCloseout(
   });
 }
 
-function parseConsent(payload: Readonly<Record<string, unknown>>):
+function parseConsent(payload: Readonly<Record<string, unknown>>, verdict: string):
   | { readonly ok: true; readonly value: Pick<Extract<ParsedCommand["action"], { readonly kind: "task-closeout" }>["review"], "consentId" | "consentUtterance" | "consentStandingPolicyDecisionId" | "consentAssertedRationale" | "consentActions"> }
   | { readonly ok: false; readonly error: CliResult["error"] } {
   const consentId = optionalText(payload.consentId);
   const consentUtterance = optionalText(payload.consentUtterance);
   const consentStandingPolicyDecisionId = optionalText(payload.consentStandingPolicyDecisionId);
   const consentAssertedRationale = optionalText(payload.consentAssertedRationale);
-  if ([consentId, consentUtterance, consentStandingPolicyDecisionId, consentAssertedRationale].filter(Boolean).length > 1) {
+  const consentSourceCount = [consentId, consentUtterance, consentStandingPolicyDecisionId, consentAssertedRationale].filter(Boolean).length;
+  if (consentSourceCount > 1) {
     return lifecycleFacadeParseFailure("Closeout review accepts either consentId or exactly one consent source declaration.");
+  }
+  if (verdict === "approved" && consentSourceCount !== 1) {
+    return lifecycleFacadeParseFailure("An approved closeout requires exactly one consent source: consentId, consentUtterance, consentStandingPolicyDecisionId, or consentAssertedRationale.");
   }
   if (payload.consentActions !== undefined && (!isCloseoutStringArray(payload.consentActions) || payload.consentActions.some((entry) => !(validConsentActions as ReadonlyArray<string>).includes(entry)))) {
     return lifecycleFacadeParseFailure(`Closeout field consentActions must contain only: ${validConsentActions.join(", ")}.`);

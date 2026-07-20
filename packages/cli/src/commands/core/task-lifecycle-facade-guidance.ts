@@ -33,10 +33,12 @@ export function shellLifecycleToken(value: string): string {
 }
 
 function lifecycleFacadeNextCommand(failure: CommandFailureReceipt, step: ParsedCommand): string {
-  if (step.action.kind === "status-set" && step.action.executionSubmission && (
-    failure.error?.code === "task_lease_required" || /requires an active lease|not held by the caller/iu.test(failure.error?.hint ?? "")
-  )) {
-    return joinLifecycleCommand("ha", "task", "claim", step.action.taskId, "--execution", step.action.executionSubmission.executionId && "--execution-id", step.action.executionSubmission.executionId);
+  const failureHint = failure.error?.hint ?? "";
+  if (step.action.kind === "status-set" && step.action.executionSubmission && isLeaseRequiredFailure(failure, failureHint)) {
+    if (/current holder none; lease status none|lease status orphaned/iu.test(failureHint)) {
+      return joinLifecycleCommand("ha", "task", "claim", step.action.taskId, "--execution", step.action.executionSubmission.executionId && "--execution-id", step.action.executionSubmission.executionId);
+    }
+    return joinLifecycleCommand("ha", "task", "holder", step.action.taskId);
   }
   if (step.action.kind === "task-code-doc-reconcile" && /already exists/iu.test(failure.error?.hint ?? "")) {
     return renderLifecycleStep({ ...step, action: { ...step.action, force: true } });
@@ -45,6 +47,10 @@ function lifecycleFacadeNextCommand(failure: CommandFailureReceipt, step: Parsed
     return joinLifecycleCommand("ha", "task", "complete", step.action.taskId, "--ci", "passed", "--reviewer", step.action.reviewerId);
   }
   return renderLifecycleStep(step);
+}
+
+function isLeaseRequiredFailure(failure: CommandFailureReceipt, hint: string): boolean {
+  return failure.error?.code === "task_lease_required" || /requires an active lease|not held by the caller/iu.test(hint);
 }
 
 function renderLifecycleStep(command: ParsedCommand): string {
