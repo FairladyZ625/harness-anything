@@ -237,7 +237,7 @@ export interface CliErrorCodeDefinition {
 
 export const cliErrorCodeRegistry = {
   [CliErrorCode.AdmissionOverloaded]: { category: "domain", defaultHint: "Shared daemon admission failed because the op/byte budget is full. Run `ha daemon status --json`, wait for admitted writes to settle, then retry the exact command." },
-  [CliErrorCode.AdmissionPayloadExceedsLimit]: { category: "domain", defaultHint: "Shared daemon admission payload exceeds its permanent per-request limit. Split the batch or reduce the payload, then submit each smaller request." },
+  [CliErrorCode.AdmissionPayloadExceedsLimit]: { category: "domain", defaultHint: "Shared daemon admission rejected this request because its operations or bytes exceed the protected per-request limit. Split it into multiple calls or pass a smaller `--evidence` value, then rerun the original command." },
   [CliErrorCode.ArchivedHardDeleteForbidden]: { category: "domain", defaultHint: "Archived tasks cannot be hard deleted." },
   [CliErrorCode.ArtifactReadFailed]: { category: "domain", defaultHint: "Artifact read failed." },
   [CliErrorCode.ArtifactWriteRejected]: { category: "domain", defaultHint: "Artifact write was rejected." },
