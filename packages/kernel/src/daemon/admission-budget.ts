@@ -39,7 +39,7 @@ export interface DaemonAdmissionBudget {
   readonly snapshot: () => DaemonAdmissionBudgetSnapshot;
 }
 
-const overloadError: WriteError = Object.freeze({
+const capacityExceededError: WriteError = Object.freeze({
   _tag: "WriteRejected" as const,
   code: "admission_overloaded",
   reason: "Shared daemon admission budget is full. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.",
@@ -62,6 +62,15 @@ export function createDaemonAdmissionBudget(limits: DaemonAdmissionBudgetLimits)
     reserve: (input) => {
       assertNonNegativeInteger(input.operations, "operations");
       assertNonNegativeInteger(input.bytes, "bytes");
+      const operationLimit = limits.maxOperations - limits.reservedOperationsPerPlane;
+      const byteLimit = limits.maxBytes - limits.reservedBytesPerPlane;
+      if (input.operations > operationLimit || input.bytes > byteLimit) {
+        rejected[input.plane] += 1;
+        return {
+          ok: false,
+          error: payloadExceedsLimitError(input.operations, operationLimit, input.bytes, byteLimit)
+        };
+      }
       const otherOperations = input.plane === "authority" ? used.jsonRpcOperations : used.authorityOperations;
       const otherBytes = input.plane === "authority" ? used.jsonRpcBytes : used.authorityBytes;
       const protectedOperations = Math.max(0, limits.reservedOperationsPerPlane - otherOperations);
@@ -70,7 +79,7 @@ export function createDaemonAdmissionBudget(limits: DaemonAdmissionBudgetLimits)
       const exceedsBytes = used.bytes + input.bytes > limits.maxBytes - protectedBytes;
       if (exceedsOperations || exceedsBytes) {
         rejected[input.plane] += 1;
-        return { ok: false, error: overloadError };
+        return { ok: false, error: capacityExceededError };
       }
 
       used.operations += input.operations;
@@ -103,6 +112,15 @@ export function createDaemonAdmissionBudget(limits: DaemonAdmissionBudgetLimits)
       };
     },
     snapshot: () => ({ limits: { ...limits }, used: { ...used }, rejected: { ...rejected } })
+  };
+}
+
+function payloadExceedsLimitError(operations: number, operationLimit: number, bytes: number, byteLimit: number): WriteError {
+  return {
+    _tag: "WriteRejected",
+    code: "admission_payload_exceeds_limit",
+    reason: `Shared daemon admission payload exceeds the per-request limit (operations: requested ${operations}, limit ${operationLimit}; bytes: requested ${bytes}, limit ${byteLimit}). Split the batch or reduce the payload, then submit each smaller request.`,
+    retryable: false
   };
 }
 
