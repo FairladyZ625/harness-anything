@@ -72,6 +72,29 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     ], env);
     await stopDaemon(fixture.repoRoot, userRoot);
 
+    writeFileSync(daemonLaunchSpecPath(userRoot, endpoint), JSON.stringify({
+      schema: "daemon-launch-spec/v2",
+      endpoint,
+      options: { authorityManifest: fixture.manifestPath }
+    }), "utf8");
+    const migratedFromV2 = runDaemonCommand(
+      fixture.repoRoot,
+      ["daemon", "start", "--service", "--json"],
+      env
+    );
+    assert.equal(migratedFromV2.started, true, JSON.stringify(migratedFromV2));
+    assert.equal(
+      optionValue((await readRunningLaunchSpec(fixture.repoRoot, userRoot)).args, "--authority-manifest"),
+      fixture.manifestPath
+    );
+    const migratedDocument = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
+      readonly schema?: string;
+      readonly launchConfiguration?: unknown;
+    };
+    assert.equal(migratedDocument.schema, "daemon-launch-spec/v3");
+    assert.equal(typeof migratedDocument.launchConfiguration, "object");
+    await stopDaemon(fixture.repoRoot, userRoot);
+
     const autostartedSpec = await requestLocalDaemonJsonRpc(
       fixture.repoRoot,
       "admin.daemon.launch-spec",
@@ -128,13 +151,23 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     await stopDaemon(fixture.repoRoot, userRoot);
 
     copyFileSync(fixture.manifestPath, replacementManifest);
+    const damagedPrivateFragment = `${fixture.manifestPath}-damaged-private-fragment`;
+    writeFileSync(
+      daemonLaunchSpecPath(userRoot, endpoint),
+      `{"schema":"daemon-launch-spec/v3","authorityManifest":"${damagedPrivateFragment}",BROKEN}`,
+      "utf8"
+    );
     const overridden = runDaemonCommand(fixture.repoRoot, [
-      "daemon", "start", "--service", "--authority-manifest", replacementManifest, "--json"
+      "daemon", "start", "--service", "--user-root", userRoot,
+      "--authority-manifest", replacementManifest, "--authored-root", fixture.authoredRoot, "--json"
     ], env);
     assert.equal(overridden.started, true, JSON.stringify(overridden));
     const overriddenSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
     assert.equal(optionValue(overriddenSpec.args, "--authority-manifest"), replacementManifest);
-    assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(replacementManifest), "u"));
+    const rewrittenSpec = readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8");
+    assert.match(rewrittenSpec, /"schema": "daemon-launch-spec\/v3"/u);
+    assert.match(rewrittenSpec, new RegExp(escapeRegExp(replacementManifest), "u"));
+    assert.doesNotMatch(rewrittenSpec, new RegExp(escapeRegExp(damagedPrivateFragment), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);

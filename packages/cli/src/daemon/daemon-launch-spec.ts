@@ -52,6 +52,12 @@ interface PersistedDaemonLaunchSpec {
   readonly launchConfiguration: DaemonLaunchConfiguration;
 }
 
+interface LegacyPersistedDaemonLaunchSpec {
+  readonly schema: "daemon-launch-spec/v2";
+  readonly endpoint: string;
+  readonly options: DaemonLaunchOptions;
+}
+
 export class DaemonLaunchResolution {
   readonly #endpoint: string;
   readonly #options: DaemonLaunchOptions;
@@ -65,8 +71,17 @@ export class DaemonLaunchResolution {
 
   static restore(userRoot: string, endpoint: string, explicit: DaemonLaunchOptions): DaemonLaunchResolution {
     const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
-    const persisted = readPersistedDaemonLaunchSpec(userRoot, endpointIdentity);
-    const persistedOptions = persisted ? daemonLaunchOptionsFromConfiguration(persisted) : undefined;
+    let persistedOptions: DaemonLaunchOptions | undefined;
+    try {
+      const persisted = readPersistedDaemonLaunchSpec(userRoot, endpointIdentity);
+      persistedOptions = persisted && isDaemonLaunchConfiguration(persisted)
+        ? daemonLaunchOptionsFromConfiguration(persisted)
+        : persisted;
+    } catch (error) {
+      // A complete explicit authority configuration is sufficient to rebuild durable state. Do not
+      // let an obsolete or damaged cache prevent that recovery path; a successful start rewrites v3.
+      if (explicit.authorityManifest === undefined) throw error;
+    }
     return new DaemonLaunchResolution(endpointIdentity, resolveRestoredLaunchOptions(persistedOptions, explicit));
   }
 
@@ -182,29 +197,30 @@ export function parseDaemonLaunchArgv(
 export function readPersistedDaemonLaunchSpec(
   userRoot: string,
   endpoint: string
-): DaemonLaunchConfiguration | undefined {
+): DaemonLaunchConfiguration | DaemonLaunchOptions | undefined {
   const endpointIdentity = daemonLaunchEndpointIdentity(endpoint);
   const source = daemonLaunchSpecPath(userRoot, endpointIdentity);
   if (!existsSync(source)) return undefined;
   let decoded: unknown;
   try {
     decoded = JSON.parse(readFileSync(source, "utf8"));
-  } catch (error) {
-    throw incompatibleDaemonLaunchSpecError(source, error);
+  } catch {
+    throw incompatibleDaemonLaunchSpecError(source, "invalid-json");
   }
-  if (!isRecordValue(decoded)
-    || decoded.schema !== daemonLaunchSpecSchema
-    || decoded.endpoint !== endpointIdentity
-    || !isDaemonLaunchConfiguration(decoded.launchConfiguration)) {
-    throw incompatibleDaemonLaunchSpecError(source);
+  if (!isRecordValue(decoded) || decoded.endpoint !== endpointIdentity) {
+    throw incompatibleDaemonLaunchSpecError(source, "endpoint-mismatch");
+  }
+  if (isLegacyPersistedDaemonLaunchSpec(decoded)) return cloneDaemonLaunchOptions(decoded.options);
+  if (decoded.schema !== daemonLaunchSpecSchema || !isDaemonLaunchConfiguration(decoded.launchConfiguration)) {
+    throw incompatibleDaemonLaunchSpecError(source, "invalid-document");
   }
   const configuration = cloneDaemonLaunchConfiguration(decoded.launchConfiguration);
   try {
     assertDaemonLaunchConfigurationForEndpoint(configuration, endpointIdentity);
-  } catch (error) {
-    throw incompatibleDaemonLaunchSpecError(source, error);
+    return configuration;
+  } catch {
+    throw incompatibleDaemonLaunchSpecError(source, "invalid-launch-configuration");
   }
-  return configuration;
 }
 
 export function resolveRestoredLaunchOptions(
@@ -309,10 +325,26 @@ function isDaemonLaunchConfiguration(value: unknown): value is DaemonLaunchConfi
     && value.args.every((arg) => typeof arg === "string");
 }
 
-function incompatibleDaemonLaunchSpecError(source: string, cause?: unknown): Error {
-  const detail = cause instanceof Error ? ` (${cause.message})` : "";
+function isLegacyPersistedDaemonLaunchSpec(
+  value: Record<string, unknown>
+): value is Record<string, unknown> & LegacyPersistedDaemonLaunchSpec {
+  return value.schema === "daemon-launch-spec/v2" && isDaemonLaunchOptions(value.options);
+}
+
+function isDaemonLaunchOptions(value: unknown): value is DaemonLaunchOptions {
+  if (!isRecordValue(value)) return false;
+  const authorityManifest = value.authorityManifest;
+  const authoredRoot = value.authoredRoot;
+  return (authorityManifest === undefined || (typeof authorityManifest === "string" && path.isAbsolute(authorityManifest)))
+    && (authoredRoot === undefined || (typeof authoredRoot === "string" && path.isAbsolute(authoredRoot)));
+}
+
+function incompatibleDaemonLaunchSpecError(
+  source: string,
+  category: "invalid-json" | "invalid-document" | "endpoint-mismatch" | "invalid-launch-configuration"
+): Error {
   return new Error(
-    `DAEMON_LAUNCH_SPEC_INCOMPATIBLE: persisted daemon launch specification at ${source} is not compatible with this CLI${detail}. `
+    `DAEMON_LAUNCH_SPEC_INCOMPATIBLE: persisted daemon launch specification at ${source} is not compatible with this CLI (${category}). `
     + "Remove that file and rebuild it with: ha daemon start --service --user-root <user-root> --authority-manifest <path>"
   );
 }

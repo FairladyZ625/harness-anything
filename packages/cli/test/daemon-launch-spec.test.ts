@@ -68,25 +68,41 @@ test("no persisted spec and no explicit values leaves restored options absent (f
   assert.deepEqual(resolveRestoredLaunchOptions(undefined, {}), {});
 });
 
-test("unpublished or malformed persisted formats fail closed with a rebuild command", () => {
+test("a validated v2 launch spec remains a compatible cold-start source", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
   try {
     writeFileSync(daemonLaunchSpecPath(userRoot, endpoint), JSON.stringify({
-      schema: "daemon-launch-spec/v1",
-      launchConfiguration: { args: ["--authority-manifest", "/old/manifest.json"] }
-    }), "utf8");
-    assert.throws(
-      () => readPersistedDaemonLaunchSpec(userRoot, endpoint),
-      /DAEMON_LAUNCH_SPEC_INCOMPATIBLE.*ha daemon start --service --user-root <user-root> --authority-manifest <path>/u
-    );
-    writeFileSync(daemonLaunchSpecPath(userRoot, endpoint), JSON.stringify({
       schema: "daemon-launch-spec/v2",
       endpoint,
-      options: { authorityManifest: "relative/authority.json" }
+      options: persisted
     }), "utf8");
+    assert.deepEqual(resolveDaemonLaunchSpec(userRoot, endpoint, {}).options, persisted);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("malformed persisted formats fail closed with a rebuild command without exposing JSON content", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-spec-"));
+  const privateFragment = `${persisted.authorityManifest}-private-fragment`;
+  try {
+    writeFileSync(
+      daemonLaunchSpecPath(userRoot, endpoint),
+      `{"schema":"daemon-launch-spec/v3","authorityManifest":"${privateFragment}",BROKEN}`,
+      "utf8"
+    );
     assert.throws(
       () => resolveDaemonLaunchSpec(userRoot, endpoint, {}),
-      /DAEMON_LAUNCH_SPEC_INCOMPATIBLE/u
+      (error: unknown) => {
+        assert.equal(error instanceof Error, true);
+        const message = (error as Error).message;
+        assert.match(
+          message,
+          /DAEMON_LAUNCH_SPEC_INCOMPATIBLE.*invalid-json.*ha daemon start --service --user-root <user-root> --authority-manifest <path>/u
+        );
+        assert.equal(message.includes(privateFragment), false);
+        return true;
+      }
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
