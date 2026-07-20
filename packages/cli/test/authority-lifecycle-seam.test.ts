@@ -30,7 +30,8 @@ import {
   bindAuthoritySubmissionForDispatch,
   createDaemonServiceHost,
   localAuthorityPeerPolicy
-} from "../src/daemon/service-host.ts";
+} from "@harness-anything/daemon";
+import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
 
 test("lifecycle-initial-two-repos starts and serves each component before transport publication", async () => {
   await withRoots(async ({ serviceRoot, alphaRoot, betaRoot }) => {
@@ -172,6 +173,7 @@ test("lifecycle-daemon-shutdown stops accept, drains every repo component, then 
           throw new Error("AUTHORITY_MANIFEST_REGISTRY_INCOMPLETE");
         }
       },
+      cliDaemonServiceHostServices,
       lifecycle
     );
     const rejectedRefresh = await host.requestControl("refresh", {

@@ -1,4 +1,4 @@
-import type { AuthorityRepoLifecycleController } from "@harness-anything/daemon";
+import type { DaemonServeHooks } from "@harness-anything/daemon";
 import type { ParsedDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonControlLifecycle, DaemonControlRequest } from "./control.ts";
 
@@ -20,8 +20,4 @@ export interface DaemonCommandInput {
   readonly daemonControlLifecycle?: DaemonControlLifecycle;
 }
 
-export interface DaemonServeHooks {
-  readonly onStarted?: (status: Record<string, unknown>) => void;
-  /** Production/test composition point; absent until S supplies all authority inputs. */
-  readonly authorityLifecycle?: AuthorityRepoLifecycleController;
-}
+export type { DaemonServeHooks } from "@harness-anything/daemon";

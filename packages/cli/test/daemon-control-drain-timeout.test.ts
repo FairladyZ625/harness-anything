@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createDaemonServiceHost } from "../src/daemon/service-host.ts";
+import { createDaemonServiceHost } from "@harness-anything/daemon";
+import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
 
 const batch4Golden = JSON.parse(readFileSync(new URL("../../daemon/test/fixtures/batch4-equivalence-golden.json", import.meta.url), "utf8")) as Record<string, string>;
 
@@ -55,7 +56,8 @@ test("daemon control reports a stuck drain and does not run transport shutdown",
           args: ["--root", repoRoot, "daemon", "serve"]
         },
         preflightReplacement: async () => undefined
-      }
+      },
+      cliDaemonServiceHostServices
     );
     host.onStop(async () => {
       events.push("transport:stopped");

@@ -18,14 +18,23 @@ import {
   type WriteCoordinator
 } from "../../kernel/src/index.ts";
 import {
-  buildDocSyncReport,
-  makeDocSyncService,
-  validateDocSyncSubmitRequest
-} from "../src/daemon/doc-sync-service.ts";
+  buildDocSyncReport as daemonBuildDocSyncReport,
+  makeDocSyncService as makeDaemonDocSyncService,
+  validateDocSyncSubmitRequest as validateDaemonDocSyncSubmitRequest
+} from "@harness-anything/daemon";
+import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const registryBody = readFileSync(path.join(repoRoot, "tools/write-road-registry.json"), "utf8");
 const commitAuthor = { name: "Harness Test", email: "harness@example.test" };
+const buildDocSyncReport = (rootInput: Parameters<typeof daemonBuildDocSyncReport>[0]) =>
+  daemonBuildDocSyncReport(rootInput, cliDaemonServiceHostServices.docSync);
+const makeDocSyncService = (
+  options: Omit<Parameters<typeof makeDaemonDocSyncService>[0], "hostServices">
+) => makeDaemonDocSyncService({ ...options, hostServices: cliDaemonServiceHostServices.docSync });
+const validateDocSyncSubmitRequest = (
+  input: Omit<Parameters<typeof validateDaemonDocSyncSubmitRequest>[0], "hostServices">
+) => validateDaemonDocSyncSubmitRequest({ ...input, hostServices: cliDaemonServiceHostServices.docSync });
 
 test("doc sync preview and submit validator classify same-extension prose and frontmatter consistently", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {

@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   daemonControlInProgressError,
+  type DaemonControlErrorHostServices,
   type DaemonActiveControlStatus,
   type DaemonControlService,
   type DaemonStatusResultV2
 } from "@harness-anything/application";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
-import type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
+import type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
-export type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
+export type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
 export function createDaemonControlService(input: {
   readonly launchConfiguration: DaemonLaunchConfiguration;
@@ -22,7 +22,7 @@ export function createDaemonControlService(input: {
     readonly kind: "restart" | "refresh";
     readonly operationId: string;
   }) => void;
-}): DaemonControlService {
+}, hostServices: DaemonControlErrorHostServices): DaemonControlService {
   return {
     requestControl: async (kind, request) => {
       const activeControl = input.activeControl();
@@ -34,11 +34,7 @@ export function createDaemonControlService(input: {
           return {
             ok: false,
             error: {
-              ...cliError(
-                CliErrorCode.DaemonRefreshBuildFailed,
-                `Daemon refresh replacement preflight failed before the running daemon was changed: ${error instanceof Error ? error.message : String(error)}`
-              ),
-              code: CliErrorCode.DaemonRefreshBuildFailed,
+              ...hostServices.refreshBuildFailed({ cause: error instanceof Error ? error.message : String(error) }),
               operationId: null
             }
           };

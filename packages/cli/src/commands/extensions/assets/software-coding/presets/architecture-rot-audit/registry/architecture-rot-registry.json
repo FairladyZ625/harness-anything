@@ -169,7 +169,7 @@
         "scope": [
           "packages/cli/src/cli/command-spec/**",
           "packages/daemon/src/protocol/method-registry.ts",
-          "packages/cli/src/daemon/command-service.ts"
+          "packages/daemon/src/service/command-service.ts"
         ]
       },
       "detection": {
@@ -187,7 +187,7 @@
           "card": "A#4 / #c4",
           "evidence": [
             "packages/daemon/src/protocol/method-registry.ts:193,236,291",
-            "packages/cli/src/daemon/command-service.ts:82",
+            "packages/daemon/src/service/command-service.ts:86",
             "packages/daemon/test/json-rpc-protocol.test.ts:60"
           ]
         }

@@ -6,7 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
-import { authorityManifestFromRegistry, main, type DaemonServeRepo } from "../src/index.ts";
+import { main } from "../src/index.ts";
+import { authorityManifestFromRegistry, type DaemonServeRepo } from "@harness-anything/daemon";
 import { initializeHarness } from "../src/commands/init.ts";
 import {
   createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle

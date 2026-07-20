@@ -16,7 +16,8 @@ import {
   assertCompleteAuthorityReceiptV2,
   createDaemonAuthorityCommandSubmissionV2
 } from "@harness-anything/daemon";
-import { createCliCommandService, materializeExportedSession } from "../src/daemon/command-service.ts";
+import { createDaemonCommandService, materializeExportedSession } from "@harness-anything/daemon";
+import { cliDaemonCommandHostServices } from "../src/composition/daemon-command-host-services.ts";
 import type { CliDaemonRuntime } from "@harness-anything/daemon";
 import {
   authorityCommandAttemptFixture,
@@ -25,6 +26,11 @@ import {
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
+
+const createCliCommandService = (
+  runtime: Parameters<typeof createDaemonCommandService>[0],
+  options: Parameters<typeof createDaemonCommandService>[2] = {}
+) => createDaemonCommandService(runtime, cliDaemonCommandHostServices, options);
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;

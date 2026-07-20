@@ -67,9 +67,6 @@ function inspectDirectConsumers(root, rel) {
 function allowedCoordinatorConstruction(rel, node, sourceFile) {
   if (rel.startsWith("packages/cli/src/daemon/")) return true;
   if (rel === "packages/cli/src/composition/adapter-registry.ts") return true;
-  if (rel === "packages/cli/src/composition/reservation-reconciler.ts") {
-    return enclosingFunctionName(node) === "makeDaemonReservationReconciler";
-  }
   if (rel === "packages/cli/src/composition/command-executor.ts") {
     return guardedByDeclaredLocalCoordinatorScope(node, sourceFile);
   }

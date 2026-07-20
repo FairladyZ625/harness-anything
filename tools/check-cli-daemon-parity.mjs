@@ -6,8 +6,8 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "../packages/cli/src/cli/parse-args.ts";
 import { productionAuthorityTypedIngressKinds } from "../packages/cli/src/cli/command-spec/index.ts";
 import { commandRunPayload } from "../packages/cli/src/daemon/client.ts";
-import { createCliCommandService } from "../packages/cli/src/daemon/command-service.ts";
-import { productionObservedWriteAttemptIntent } from "@harness-anything/daemon";
+import { createDaemonCommandService, productionObservedWriteAttemptIntent } from "@harness-anything/daemon";
+import { cliDaemonCommandHostServices } from "../packages/cli/src/composition/daemon-command-host-services.ts";
 import { resolveHostedDocument } from "@harness-anything/daemon";
 import { taskEntityId } from "../packages/kernel/src/index.ts";
 
@@ -58,6 +58,9 @@ const session = {
   source: "runtime",
   detectedAt: "2026-07-19T00:00:00.000Z"
 };
+
+const createCliCommandService = (runtime, options = {}) =>
+  createDaemonCommandService(runtime, cliDaemonCommandHostServices, options);
 
 export async function checkCliDaemonParity() {
   const rootDir = makeRoot();

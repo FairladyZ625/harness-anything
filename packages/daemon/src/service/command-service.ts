@@ -1,42 +1,47 @@
 import { Effect } from "effect";
 import {
-  commandClassForCliActionKind,
-  type AuthenticatedActor,
-  type AuthorityConnectionDispatch,
-  type JsonObject
-} from "@harness-anything/daemon";
-import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverCommandAction, type AuthorityCutoverControlService, type AuthorityHostCommand, type AuthorityHostCommandAction, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
+  commandClassForCliActionKind
+} from "../protocol/method-registry.ts";
+import type { AuthenticatedActor } from "../identity/types.ts";
+import type { AuthorityConnectionDispatch } from "../protocol/connection-context.ts";
+import type { JsonObject } from "../protocol/json-rpc-types.ts";
+import {
+  makeHumanFallbackSessionProbe,
+  type AuthorityCutoverCommandAction,
+  type AuthorityCutoverControlService,
+  type AuthorityHostCommand,
+  type CommandReceiptEnvelope,
+  type DaemonCommandHostServices,
+  type DaemonHostCommand,
+  type DaemonHostCommandResult,
+  type ProvenanceSessionExporterRejected,
+  type ProvenanceSessionExportResult,
+  type TaskHolderExecutor
+} from "@harness-anything/application";
 import type { CurrentSessionRef, WriteCoordinator } from "@harness-anything/kernel";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
-import { isDryRunAction } from "../cli/dry-run-preview.ts";
-import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
-import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
-import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
-import type { ParsedCommand } from "../cli/types.ts";
-import { isPlainRecord } from "../cli/value-utils.ts";
-import { CliActorAttributionError, daemonActorAttributionForParsedCommand, migrationWriteAttribution } from "../composition/actor-attribution.ts";
-import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
-import { defaultCliAdapterProvider } from "../composition/adapter-registry.ts";
-import { materializerCommandResult } from "../commands/core/materializer.ts";
 import {
   isAuthorityCutoverAction,
+  runAuthorityCutoverControlCommand
+} from "../authority/authority-cutover-command.ts";
+import {
   makeDaemonAuthorityWriteCoordinator,
+  type DaemonAuthorityCommandSubmissionV2
+} from "../authority/authority-command-submission.ts";
+import {
   makeDaemonQueuedOperationalWriteCoordinator,
   makeDaemonQueuedWriteCoordinator,
-  runAuthorityCutoverControlCommand,
-  type CliDaemonRuntime,
-  type DaemonAuthorityCommandSubmissionV2
-} from "@harness-anything/daemon";
+  type CliDaemonRuntime
+} from "../lifecycle/queued-write-coordinator.ts";
 
-export interface CliCommandService {
+export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
     readonly actor?: AuthenticatedActor;
     readonly executor?: TaskHolderExecutor | null;
     readonly authorityConnection?: AuthorityConnectionDispatch;
-  }) => Promise<CommandReceipt | CommandFailureReceipt>;
+  }) => Promise<CommandReceiptEnvelope>;
 }
 
-export interface CliCommandServiceOptions {
+export interface DaemonCommandServiceOptions {
   readonly onCommandStart?: () => void;
   readonly onCommandSettled?: () => void;
   readonly resolveAuthoritySubmissionV2?: (
@@ -45,24 +50,26 @@ export interface CliCommandServiceOptions {
   readonly authorityCutoverControl?: AuthorityCutoverControlService;
 }
 
-export function createCliCommandService(runtime: CliDaemonRuntime, options: CliCommandServiceOptions = {}): CliCommandService {
+export function createDaemonCommandService<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult
+>(
+  runtime: CliDaemonRuntime,
+  hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>,
+  options: DaemonCommandServiceOptions = {}
+): DaemonCommandService {
   return {
     runCommand: async (payload, context) => {
       options.onCommandStart?.();
-      let command: ParsedCommand | undefined;
+      let command: Command | undefined;
       try {
-        const wireCommand = readParsedCommandPayload(payload);
+        const wireCommand = hostServices.parseCommandPayload(payload);
         const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
-        const parsedCommand = await normalizeCommandSemantics(wireCommand, makeTaskHolderService({
-          rootInput: { rootDir: wireCommand.rootDir, layoutOverrides: wireCommand.layoutOverrides }
-        }), currentSession, defaultCliAdapterProvider().createArtifactStore({
-          rootDir: wireCommand.rootDir,
-          layoutOverrides: wireCommand.layoutOverrides
-        }));
+        const parsedCommand = await hostServices.normalizeCommand(wireCommand, currentSession);
         command = parsedCommand;
         const daemonActor = context?.actor;
         if (isAuthorityCutoverAction(parsedCommand.action)) {
-          return toCommandReceipt(await runAuthorityCutoverControlCommand({
+          return hostServices.toReceipt(await runAuthorityCutoverControlCommand({
             action: parsedCommand.action as AuthorityCutoverCommandAction,
             control: options.authorityCutoverControl,
             authenticated: daemonActor !== undefined
@@ -70,32 +77,30 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         }
         if (parsedCommand.action.kind === "materializer-run") {
           const report = await runtime.enqueueMaterializerBatch({ dryRun: parsedCommand.action.dryRun });
-          return toCommandReceipt(materializerCommandResult(report));
+          return hostServices.toReceipt(hostServices.materializerCommandResult(report));
         }
         const attribution = daemonActor
-          ? daemonActorAttributionForParsedCommand(daemonActor, parsedCommand, context?.executor)
+          ? hostServices.actorAttribution(daemonActor, parsedCommand, context?.executor ?? null)
           : undefined;
         const commandClass = commandClassForCliActionKind(parsedCommand.action.kind);
         const authoritySubmissionV2 = attribution
           && (commandClass === "repo-write" || commandClass === "arbiter")
           ? options.resolveAuthoritySubmissionV2?.(context?.authorityConnection)
           : undefined;
-        const productionAuthorityCommand = isProductionAuthorityCommand(parsedCommand)
-          ? parsedCommand
-          : undefined;
+        const productionAuthorityCommand = hostServices.authorityCommand(parsedCommand);
         const authorityCoordinator = attribution && authoritySubmissionV2 && productionAuthorityCommand
           ? makeDaemonAuthorityWriteCoordinator(authoritySubmissionV2, {
             command: productionAuthorityCommand,
             attribution,
             currentSession,
-            ingressAdapter: typedAuthorityIngressAdapter(parsedCommand.action.kind)
+            ingressAdapter: hostServices.authorityIngressFor(parsedCommand.action.kind)
           })
           : undefined;
-        const dryRun = isDryRunAction(parsedCommand.action);
+        const dryRun = hostServices.isDryRunAction(parsedCommand);
         const dryRunCoordinator = dryRun
           ? dryRunWriteBarrier()
           : undefined;
-        const result = await runRegisteredCommandWithCliComposition(parsedCommand, {
+        const result = await hostServices.executeCommand(parsedCommand, {
           requireProvidedActorAttribution: true,
           ...(attribution ? { actorAttribution: attribution } : {
             missingActorAttributionMessage: "Daemon writes require a per-request authenticated actor from harness/people.yaml."
@@ -123,7 +128,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
               runtime,
               `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:migration`,
               {
-                attribution: migrationWriteAttribution(attribution.writeAttribution, evidenceRef),
+                attribution: hostServices.migrationWriteAttribution(attribution.writeAttribution, evidenceRef),
                 commitAuthor: attribution.commitAuthor,
                 ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
               }
@@ -135,20 +140,20 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
               actor
             )
         });
-        return toCommandReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime));
+        return hostServices.toReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices));
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
-          return toCommandReceipt({
+          return hostServices.toReceipt({
             ok: false,
             command: command?.action.kind ?? "repo.command.run",
-            error: cliError(CliErrorCode.InvalidSession, error.message)
+            error: hostServices.invalidSessionError(error.message)
           });
         }
-        if (error instanceof CliActorAttributionError) {
-          return toCommandReceipt({
+        if (hostServices.isActorAttributionError(error)) {
+          return hostServices.toReceipt({
             ok: false,
             command: command?.action.kind ?? "repo.command.run",
-            error: cliError(CliErrorCode.AuthMissing, error.message)
+            error: hostServices.authMissingError(error instanceof Error ? error.message : String(error))
           });
         }
         throw error;
@@ -157,27 +162,6 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       }
     }
   };
-}
-
-function typedAuthorityIngressAdapter(kind: string) {
-  const ingress = productionAuthorityIngressFor(kind);
-  return ingress?.status === "typed-v2" ? ingress.adapter : undefined;
-}
-
-type CliProductionAuthorityCommand = Extract<
-  ParsedCommand,
-  { readonly action: { readonly kind: AuthorityHostCommandAction["kind"] } }
->;
-
-const cliProductionCommandsSatisfyAuthorityHostContract = true satisfies
-  CliProductionAuthorityCommand extends AuthorityHostCommand ? true : never;
-void cliProductionCommandsSatisfyAuthorityHostContract;
-
-function isProductionAuthorityCommand(command: ParsedCommand): command is CliProductionAuthorityCommand {
-  const ingress = productionAuthorityIngressFor(command.action.kind);
-  return ingress?.status === "typed-v2"
-    || command.action.kind === "preset-entrypoint"
-    || command.action.kind === "script-run";
 }
 
 export function materializeExportedSession(
@@ -223,13 +207,14 @@ function isSessionMaterializationRejection(error: unknown): error is ProvenanceS
     && (error as { readonly _tag?: unknown })._tag === "ProvenanceSessionExporterRejected";
 }
 
-async function withSessionMaterialization(
-  result: Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>,
-  command: ParsedCommand,
+async function withSessionMaterialization<Command extends DaemonHostCommand, Result extends DaemonHostCommandResult>(
+  result: Result,
+  command: Command,
   currentSession: CurrentSessionRef,
-  runtime: CliDaemonRuntime
-): Promise<Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>> {
-  if (!result.ok || isDryRunAction(command.action) || currentSession.source !== "runtime") return result;
+  runtime: CliDaemonRuntime,
+  hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>
+): Promise<Result> {
+  if (!result.ok || hostServices.isDryRunAction(command) || currentSession.source !== "runtime") return result;
   const commandClass = commandClassForCliActionKind(command.action.kind);
   if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
 
@@ -247,11 +232,11 @@ async function withSessionMaterialization(
   }
 }
 
-function appendPendingMaterializationWarning(
-  result: Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>,
+function appendPendingMaterializationWarning<Result extends DaemonHostCommandResult>(
+  result: Result,
   sessionId: string,
   reason?: string
-): Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>> {
+): Result {
   const nextCommand = "ha materializer run --json";
   return {
     ...result,
@@ -265,7 +250,7 @@ function appendPendingMaterializationWarning(
         nextCommand
       }
     ]
-  };
+  } as Result;
 }
 
 function dryRunWriteBarrier(): WriteCoordinator {
@@ -302,7 +287,7 @@ function missingDaemonActorCoordinator(
 function readCurrentSession(payload: JsonObject | undefined): CurrentSessionRef | undefined {
   const session = payload?.session;
   if (session === undefined) return undefined;
-  if (!isPlainRecord(session)) throw new CurrentSessionPayloadError("command.run payload.session must be a CurrentSessionRef object.");
+  if (!isCommandPayloadRecord(session)) throw new CurrentSessionPayloadError("command.run payload.session must be a CurrentSessionRef object.");
   const runtime = session.runtime;
   const source = session.source;
   const validatedRuntime = isCurrentSessionRuntime(runtime) ? runtime : undefined;
@@ -333,10 +318,6 @@ function isCurrentSessionRuntime(value: unknown): value is CurrentSessionRef["ru
   return value === "human" || value === "claude-code" || value === "codex" || value === "zcode" || value === "antigravity";
 }
 
-function readParsedCommandPayload(payload: JsonObject | undefined): ParsedCommand {
-  const command = payload?.command;
-  if (!isPlainRecord(command) || typeof command.rootDir !== "string" || !isPlainRecord(command.action) || typeof command.action.kind !== "string") {
-    throw new Error("command.run requires payload.command parsed by the CLI parser.");
-  }
-  return command as unknown as ParsedCommand;
+function isCommandPayloadRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

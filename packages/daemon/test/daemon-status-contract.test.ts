@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonStatusResultV2 } from "../../application/src/index.ts";
-import { daemonStatusPayload } from "../../cli/src/commands/daemon/status-payload.ts";
 import {
   calculateDaemonArtifactIdentity,
+  daemonStatusPayload,
   decodeDaemonStatusRequestV2,
   decodeDaemonStatusResultV2,
   projectDaemonStatusForRenderer
@@ -108,6 +108,7 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
     userRoot: "/user",
     startedAt: new Date(Date.now() - 1000).toISOString(),
     loadedIdentity,
+    version: "0.1.0-test",
     readInstalledIdentity: () => installedIdentity,
     activeControl: {
       operationId: "control-stuck",

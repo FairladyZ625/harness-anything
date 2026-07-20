@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { acquireDaemonSocketOwnership } from "../src/commands/daemon/serve-transport.ts";
+import { acquireDaemonSocketOwnership } from "@harness-anything/daemon";
 import {
   delay,
   runDaemonCommand,

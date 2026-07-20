@@ -4,34 +4,37 @@ import type {
   DecisionTransitionPayload,
   LocalControllerCallContext,
   LocalControllerDecisionMutationPort,
-  LocalControllerServiceOptions
+  LocalControllerServiceOptions,
+  DaemonCommandHostServices
 } from "@harness-anything/application";
 import type { AuthenticatedActor, JsonObject } from "@harness-anything/daemon";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { normalizeDecisionProposeAction } from "../../cli/decision-propose-normalizer.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { ParsedCommand } from "../../cli/types.ts";
-import { createCliCommandService, type CliCommandServiceOptions } from "../../daemon/command-service.ts";
-import type { CliDaemonRuntime } from "@harness-anything/daemon";
+import { createDaemonCommandService, type DaemonCommandServiceOptions, type CliDaemonRuntime } from "@harness-anything/daemon";
+import type { CliResult } from "../../cli/types.ts";
 import { readCatalogSnapshot } from "./catalog-snapshot.ts";
 
 export function makeDaemonGuiControllerOptions(
   runtime: CliDaemonRuntime,
   rootInput: Exclude<HarnessLayoutInput, string>,
-  commandOptions: CliCommandServiceOptions
+  commandOptions: DaemonCommandServiceOptions,
+  commandHostServices: DaemonCommandHostServices<ParsedCommand, CliResult, AuthenticatedActor>
 ): Pick<LocalControllerServiceOptions, "catalogSnapshotReader" | "decisionMutationPort"> {
   return {
     catalogSnapshotReader: () => readCatalogSnapshot(rootInput),
-    decisionMutationPort: makeDaemonDecisionMutationPort(runtime, rootInput, commandOptions)
+    decisionMutationPort: makeDaemonDecisionMutationPort(runtime, rootInput, commandOptions, commandHostServices)
   };
 }
 
 function makeDaemonDecisionMutationPort(
   runtime: CliDaemonRuntime,
   rootInput: Exclude<HarnessLayoutInput, string>,
-  commandOptions: CliCommandServiceOptions
+  commandOptions: DaemonCommandServiceOptions,
+  commandHostServices: DaemonCommandHostServices<ParsedCommand, CliResult, AuthenticatedActor>
 ): LocalControllerDecisionMutationPort {
-  const commands = createCliCommandService(runtime, commandOptions);
+  const commands = createDaemonCommandService(runtime, commandHostServices, commandOptions);
   const run = async (
     action: Record<string, unknown>,
     context?: LocalControllerCallContext

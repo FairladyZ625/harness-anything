@@ -1,9 +1,12 @@
-import { buildDocSyncReport } from "../../daemon/doc-sync-service.ts";
+import { buildDocSyncReport } from "@harness-anything/daemon";
+import { resolveManagedSectionPolicy } from "../extensions/managed-section-policy.ts";
+
+const docSyncHostServices = { resolveManagedSectionPolicy };
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { CliResult } from "../../cli/types.ts";
 
 export function buildDocSyncStatusResult(rootInput: HarnessLayoutInput): CliResult {
-  const report = buildDocSyncReport(rootInput);
+  const report = buildDocSyncReport(rootInput, docSyncHostServices);
   return {
     ok: true,
     command: "doc-status",
@@ -14,7 +17,7 @@ export function buildDocSyncStatusResult(rootInput: HarnessLayoutInput): CliResu
 }
 
 export function buildDocSyncDryRunResult(rootInput: HarnessLayoutInput): CliResult {
-  const report = buildDocSyncReport(rootInput);
+  const report = buildDocSyncReport(rootInput, docSyncHostServices);
   return {
     ok: true,
     command: "doc-sync-dry-run",
@@ -25,7 +28,7 @@ export function buildDocSyncDryRunResult(rootInput: HarnessLayoutInput): CliResu
 }
 
 export function docSyncDirtyWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<Record<string, unknown>> | undefined {
-  const report = buildDocSyncReport(rootInput);
+  const report = buildDocSyncReport(rootInput, docSyncHostServices);
   if (report.dirtyFiles.length === 0) return undefined;
   return [{
     severity: "warning",

@@ -13,7 +13,8 @@ import { channelDigest32, connectionGeneration } from "@harness-anything/daemon"
 import type { ParsedCommand } from "../../src/cli/types.ts";
 import { defaultCliAdapterProvider } from "../../src/composition/adapter-registry.ts";
 import { createCliProductionAuthorityLifecycle } from "../../src/composition/production-authority-lifecycle.ts";
-import { createCliCommandService } from "../../src/daemon/command-service.ts";
+import { createDaemonCommandService } from "@harness-anything/daemon";
+import { cliDaemonCommandHostServices } from "../../src/composition/daemon-command-host-services.ts";
 import { authorityOperationShape } from "../production-authority-canonical-ingress/operation-shape.ts";
 import {
   createFixture,
@@ -21,6 +22,10 @@ import {
 } from "../production-authority-canonical-ingress/fixture.ts";
 
 const fixtureUrl = new URL("./fixtures/batch5a-parent-differential.json", import.meta.url);
+const createCliCommandService = (
+  runtime: Parameters<typeof createDaemonCommandService>[0],
+  options: Parameters<typeof createDaemonCommandService>[2] = {}
+) => createDaemonCommandService(runtime, cliDaemonCommandHostServices, options);
 
 test("all four production ingress adapters retain canonical envelope and receipt bytes", { timeout: 120_000 }, async () => {
   const fixture = createFixture();

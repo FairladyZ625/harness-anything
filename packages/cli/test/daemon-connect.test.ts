@@ -19,7 +19,7 @@ import {
   resolveSshForcedCommandAuthentication,
   runDaemonConnect
 } from "../src/commands/daemon/connect.ts";
-import { createDaemonLocalTransport } from "../src/commands/daemon/serve-transport.ts";
+import { createDaemonLocalTransport } from "@harness-anything/daemon";
 import { hasPrivilegedSshdAncestor } from "../src/commands/daemon/sshd-witness.ts";
 import {
   commandRunPayload,
