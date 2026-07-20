@@ -1,4 +1,4 @@
-import type { CommandSpecDefinition } from "./types.ts";
+interface CommandSpecDefinition {\n  readonly kind: string;\n}
 
 export const productionAuthorityIngressDecisionRef =
   "decision/dec_01KXSWKWTEXB751A30TRRCQWDG" as const;
@@ -105,6 +105,22 @@ const dispositions = {
   "module-step": typed("generic"),
   "gui": excluded("GUI launch is daemon orchestration and does not author a canonical entity")
 } as const satisfies Readonly<Record<string, ProductionAuthorityIngressDisposition>>;
+
+export function productionAuthorityIngressFor(kind: string): ProductionAuthorityIngressDisposition | undefined {
+  return dispositions[kind as keyof typeof dispositions];
+}
+export function productionAuthorityTypedIngressKinds(): ReadonlyArray<string> {
+  return Object.entries(dispositions)
+    .filter((entry): entry is [string, Extract<ProductionAuthorityIngressDisposition, { readonly status: "typed-v2" }>] =>
+      entry[1].status === "typed-v2"
+    )
+    .map(([kind]) => kind)
+    .sort();
+}
+
+export function productionAuthorityUnsupportedHint(rejectedKind: string): string {
+  return `production canonical ingress rejected ${rejectedKind}; typed V2 command kinds from command-spec: ${productionAuthorityTypedIngressKinds().join(", ")}`;
+}
 
 export function attachProductionAuthorityIngress<const Specs extends ReadonlyArray<CommandSpecDefinition>>(
   specs: Specs

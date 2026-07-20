@@ -11,7 +11,7 @@ import type { CommandSpecDefinition, ParsedCommandKind } from "./types.ts";
 import {
   attachProductionAuthorityIngress,
   type CommandSpecWithProductionAuthorityIngress
-} from "./production-authority-ingress.ts";
+} from "@harness-anything/application";
 
 export const commandSpecs = [
   ...authorityCutoverCommandSpecs,
@@ -41,24 +41,12 @@ export function commandSpecMap<Value>(
   return Object.fromEntries(commandSpecs.map((spec) => [spec.kind, select(spec)])) as Record<CommandKind, Value>;
 }
 
-export function productionAuthorityIngressFor(kind: string) {
-  return productionAuthorityCommandSpecs.find((spec) => spec.kind === kind)?.productionAuthorityIngress;
-}
-
-export function productionAuthorityTypedIngressKinds(): ReadonlyArray<string> {
-  return productionAuthorityCommandSpecs
-    .filter((spec) => spec.productionAuthorityIngress?.status === "typed-v2")
-    .map((spec) => spec.kind)
-    .sort();
-}
-
-export function productionAuthorityUnsupportedHint(rejectedKind: string): string {
-  return `production canonical ingress rejected ${rejectedKind}; typed V2 command kinds from command-spec: ${productionAuthorityTypedIngressKinds().join(", ")}`;
-}
-
 export {
   assertProductionAuthorityIngressCompleteness,
+  productionAuthorityIngressFor,
   productionAuthorityIngressDecisionRef,
+  productionAuthorityTypedIngressKinds,
+  productionAuthorityUnsupportedHint,
   type ProductionAuthorityIngressAdapter,
   type ProductionAuthorityIngressDisposition
-} from "./production-authority-ingress.ts";
+} from "@harness-anything/application";

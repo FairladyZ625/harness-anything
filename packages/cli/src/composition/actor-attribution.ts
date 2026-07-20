@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
-import type { AuthenticatedActor } from "@harness-anything/daemon";
-import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "@harness-anything/application";
+import type {
+  AuthenticatedActor,
+  CommandActorAttribution,
+  CommandGitCommitAuthor
+} from "@harness-anything/daemon";
+import type { TaskHolderExecutor } from "@harness-anything/application";
 import type { WriteAttribution } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
 import { readNonBlankEnv } from "./environment.ts";
@@ -10,17 +14,8 @@ export interface CliJournalActor {
   readonly id: string;
 }
 
-export interface CliGitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
-}
-
-export interface CliActorAttribution {
-  readonly writeAttribution: WriteAttribution;
-  readonly commitAuthor: CliGitCommitAuthor;
-  readonly taskHolderPrincipal: TaskHolderPersonPrincipal;
-  readonly executor: TaskHolderExecutor | null;
-}
+export type CliGitCommitAuthor = CommandGitCommitAuthor;
+export type CliActorAttribution = CommandActorAttribution;
 
 export class CliActorAttributionError extends Error {
   constructor(message: string) {
