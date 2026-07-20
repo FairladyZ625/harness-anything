@@ -397,6 +397,7 @@
         }
       ],
       "evidence": [
+        "packages/kernel/src/daemon/admission-budget.ts:62",
         "packages/kernel/src/write-coordination/write-helpers.ts:20",
         "packages/kernel/src/store/write-journal-durable.ts:109",
         "packages/kernel/src/store/write-journal-locks.ts:125"
@@ -1488,6 +1489,7 @@
         "packages/application/src/authority/service.ts"
       ],
       "evidence": [
+        "packages/application/src/authority/admission.ts:23",
         "packages/application/src/authority/service.ts:86",
         "packages/daemon/src/authority/forced-command-session.ts:1"
       ],

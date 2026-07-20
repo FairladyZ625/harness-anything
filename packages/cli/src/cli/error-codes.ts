@@ -1,5 +1,6 @@
 export const CliErrorCode = {
   AdmissionOverloaded: "admission_overloaded",
+  AdmissionPayloadExceedsLimit: "admission_payload_exceeds_limit",
   ArchivedHardDeleteForbidden: "archived_hard_delete_forbidden",
   ArtifactReadFailed: "artifact_read_failed",
   ArtifactWriteRejected: "artifact_write_rejected",
@@ -188,6 +189,7 @@ export type CliErrorCategory = "parse" | "command" | "domain" | "settings" | "ex
 export type CliErrorFamily = "kernel-mapped" | "command-local";
 
 export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([
+  CliErrorCode.AdmissionPayloadExceedsLimit,
   CliErrorCode.ArchivedHardDeleteForbidden,
   CliErrorCode.ArtifactReadFailed,
   CliErrorCode.ArtifactWriteRejected,
@@ -235,6 +237,7 @@ export interface CliErrorCodeDefinition {
 
 export const cliErrorCodeRegistry = {
   [CliErrorCode.AdmissionOverloaded]: { category: "domain", defaultHint: "Shared daemon admission failed because the op/byte budget is full. Run `ha daemon status --json`, wait for admitted writes to settle, then retry the exact command." },
+  [CliErrorCode.AdmissionPayloadExceedsLimit]: { category: "domain", defaultHint: "Shared daemon admission rejected this request because its operations or bytes exceed the protected per-request limit. Split it into multiple calls or pass a smaller `--evidence` value, then rerun the original command." },
   [CliErrorCode.ArchivedHardDeleteForbidden]: { category: "domain", defaultHint: "Archived tasks cannot be hard deleted." },
   [CliErrorCode.ArtifactReadFailed]: { category: "domain", defaultHint: "Artifact read failed." },
   [CliErrorCode.ArtifactWriteRejected]: { category: "domain", defaultHint: "Artifact write was rejected." },

@@ -42,8 +42,49 @@ test("shared admission budget bounds 32 clients per plane without starving the p
         else {
           assert.equal(result.error._tag, "WriteRejected");
           assert.equal(result.error._tag === "WriteRejected" ? result.error.code : undefined, "admission_overloaded");
+          assert.equal(result.error._tag === "WriteRejected" ? result.error.retryable : undefined, true);
         }
       }
     }
+  }
+});
+
+test("admission distinguishes temporary capacity pressure from a payload that can never fit", () => {
+  for (const plane of ["authority", "json-rpc"] as const) {
+    const budget = createDaemonAdmissionBudget({
+      maxOperations: 4,
+      maxBytes: 400,
+      reservedOperationsPerPlane: 1,
+      reservedBytesPerPlane: 100
+    });
+    const held = budget.reserve({ plane, operations: 3, bytes: 300 });
+    assert.equal(held.ok, true);
+
+    const temporarilyFull = budget.reserve({ plane, operations: 1, bytes: 100 });
+    assert.deepEqual(temporarilyFull, {
+      ok: false,
+      error: {
+        _tag: "WriteRejected",
+        code: "admission_overloaded",
+        reason: "Shared daemon admission budget is full. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.",
+        retryable: true
+      }
+    });
+    if (held.ok) held.reservation.release();
+    const retriedAfterRelease = budget.reserve({ plane, operations: 1, bytes: 100 });
+    assert.equal(retriedAfterRelease.ok, true);
+    if (retriedAfterRelease.ok) retriedAfterRelease.reservation.release();
+
+    const oversized = {
+      ok: false,
+      error: {
+        _tag: "WriteRejected",
+        code: "admission_payload_exceeds_limit",
+        reason: "Shared daemon admission payload exceeds the per-request limit (operations: requested 4, limit 3; bytes: requested 301, limit 300). Split the batch or reduce the payload, then submit each smaller request.",
+        retryable: false
+      }
+    };
+    assert.deepEqual(budget.reserve({ plane, operations: 4, bytes: 301 }), oversized);
+    assert.deepEqual(budget.reserve({ plane, operations: 4, bytes: 301 }), oversized);
   }
 });

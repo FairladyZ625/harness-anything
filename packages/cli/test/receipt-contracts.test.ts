@@ -174,6 +174,27 @@ test("task lease write rejection preserves its specific CLI error code and hint"
   });
 });
 
+test("CLI failure receipt preserves the permanent admission payload classification", () => {
+  const receipt = toCommandReceipt({
+    ok: false,
+    command: "progress-append",
+    error: toCliError({
+      _tag: "WriteRejected",
+      code: "admission_payload_exceeds_limit",
+      reason: "Requested bytes exceed the permanent admission limit. Split the batch.",
+      retryable: false
+    })
+  });
+
+  assert.equal(receipt.ok, false);
+  if (receipt.ok) return;
+  assert.deepEqual(receipt.error, {
+    code: "admission_payload_exceeds_limit",
+    hint: "Requested bytes exceed the permanent admission limit. Split the batch."
+  });
+  assert.match(renderReceiptText(receipt), /code=admission_payload_exceeds_limit/u);
+});
+
 test("command receipts accept explicitly optional declared data when present", () => {
   const receipt = toCommandReceipt({
     ok: true,
