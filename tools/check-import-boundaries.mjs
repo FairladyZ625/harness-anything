@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
 const sourceRoots = [path.join(root, "packages")];
@@ -14,7 +14,10 @@ const allowlist = loadGateAllowlist("check-import-boundaries", {
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
-const kernelWriteInternalConsumers = new Set(entryValues(allowlist.kernelWriteInternalConsumers));
+const kernelWriteInternalEdges = new Set(
+  entryPairs(allowlist.kernelWriteInternalConsumers, "source", "target")
+    .map(([source, target]) => `${source}\0${target}`)
+);
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 
 function isKernelWriteCoordinationInternalPath(target) {
@@ -24,6 +27,11 @@ function isKernelWriteCoordinationInternalPath(target) {
 function isKernelStoreImplementationPath(target) {
   return /packages\/kernel\/src\/(?:store|persistence)\//.test(target)
     || isKernelWriteCoordinationInternalPath(target);
+}
+
+function isAllowedKernelWriteInternalEdge(source, target) {
+  if (source === "packages/kernel/src/index.ts" && target === "packages/kernel/src/write-coordination/submit.ts") return true;
+  return kernelWriteInternalEdges.has(`${source}\0${target}`);
 }
 
 async function walk(dir) {
@@ -259,12 +267,10 @@ for (const file of packageSourceFiles) {
 
     const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
     const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-    const isKernelWritePublicBarrel = rel === "packages/kernel/src/index.ts";
-    const isKernelWriteInternalConsumer = kernelWriteInternalConsumers.has(rel);
     const isKernelWriteImplementation = rel.startsWith("packages/kernel/src/write-coordination/");
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !isKernelWritePublicBarrel && !isKernelWriteInternalConsumer && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/") && !rel.startsWith("packages/kernel/src/persistence/") && !isKernelWriteImplementation) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, isKernelStoreImplementationPath)) {
+        if (importedPathViolates(file, specifier, (target) => isKernelStoreImplementationPath(target) && !isAllowedKernelWriteInternalEdge(rel, target))) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
         }
       }

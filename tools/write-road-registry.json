@@ -598,8 +598,8 @@
         "packages/application/src/fact-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/fact-write-service.ts:85",
-        "packages/application/src/fact-write-service.ts:107",
+        "packages/application/src/fact-write-service.ts:87",
+        "packages/application/src/fact-write-service.ts:109",
         "packages/cli/src/commands/core/decision-reckon.ts:44"
       ],
       "freshness": "append-record-delta"
@@ -629,8 +629,8 @@
         "packages/application/src/fact-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/fact-write-service.ts:128",
-        "packages/application/src/fact-write-service.ts:151",
+        "packages/application/src/fact-write-service.ts:130",
+        "packages/application/src/fact-write-service.ts:153",
         "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:296"
       ],
       "freshness": "append-relation-delta-with-required-facts"
@@ -662,8 +662,8 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/decision-write-service.ts:104",
-        "packages/application/src/decision-write-service.ts:285"
+        "packages/application/src/decision-write-service.ts:106",
+        "packages/application/src/decision-write-service.ts:287"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -697,9 +697,9 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/decision-write-service.ts:113",
-        "packages/application/src/decision-write-service.ts:200",
-        "packages/application/src/decision-write-service.ts:267"
+        "packages/application/src/decision-write-service.ts:115",
+        "packages/application/src/decision-write-service.ts:202",
+        "packages/application/src/decision-write-service.ts:269"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -731,8 +731,8 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/decision-write-service.ts:119",
-        "packages/application/src/decision-write-service.ts:267",
+        "packages/application/src/decision-write-service.ts:121",
+        "packages/application/src/decision-write-service.ts:269",
         "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "decision-watermark-cas"
@@ -764,8 +764,8 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/decision-write-service.ts:56",
-        "packages/application/src/decision-write-service.ts:124",
+        "packages/application/src/decision-write-service.ts:58",
+        "packages/application/src/decision-write-service.ts:126",
         "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts:61"
       ],
       "freshness": "append-relation"
@@ -799,8 +799,8 @@
         "packages/application/src/decision-write-service.ts"
       ],
       "evidence": [
-        "packages/application/src/decision-write-service.ts:134",
-        "packages/application/src/decision-write-service.ts:267",
+        "packages/application/src/decision-write-service.ts:136",
+        "packages/application/src/decision-write-service.ts:269",
         "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "decision-watermark-cas"

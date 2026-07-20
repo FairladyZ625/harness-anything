@@ -30,9 +30,10 @@
     ],
     "kernelWriteInternalConsumers": [
       {
-        "value": "packages/kernel/src/entity/declaration.ts",
+        "source": "packages/kernel/src/entity/declaration.ts",
+        "target": "packages/kernel/src/write-coordination/submit.ts",
         "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
-        "reason": "Entity declaration preserves its existing package-internal submission call while external consumers use the kernel root; every physical write-coordination path remains internal cross-package."
+        "reason": "Only this exact package-internal edge may call the submission helper; the same consumer remains forbidden from every other store, persistence, and write-coordination target."
       }
     ],
     "cliAdapterKnownDebt": [

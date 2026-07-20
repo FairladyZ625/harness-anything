@@ -78,7 +78,8 @@ test("import boundary check fails closed on allowlist entries without refs", () 
         ],
         kernelWriteInternalConsumers: [
           {
-            value: "packages/kernel/src/entity/declaration.ts",
+            source: "packages/kernel/src/entity/declaration.ts",
+            target: "packages/kernel/src/write-coordination/submit.ts",
             ref: "task_01KXW80M803GR3EKRDV3X7T0MM",
             reason: "fixture includes ref"
           }
@@ -183,6 +184,48 @@ test("import boundary check allows write helpers through the governed kernel roo
     t.diagnostic(`root-public-helper control exit=${result.status}`);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Import boundary check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects other internal imports from the governed submit consumer", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/entity"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/entity/declaration.ts"), [
+      "import { privateJournal } from '../write-coordination/journal/private.ts';",
+      "export const leakedJournal = privateJournal;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/private.ts"), [
+      "export const privateJournal = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`governed-consumer-other-internal control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /entity\/declaration\.ts: store implementation is internal/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects other internal exports from the kernel root barrel", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/write-coordination/journal"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), [
+      "export { privateJournal } from './write-coordination/journal/private.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/write-coordination/journal/private.ts"), [
+      "export const privateJournal = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`root-barrel-other-internal control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /kernel\/src\/index\.ts: store implementation is internal/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
