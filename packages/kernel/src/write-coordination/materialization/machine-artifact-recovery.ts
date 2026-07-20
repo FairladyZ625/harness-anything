@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import type { VersionControlSystem } from "../../ports/version-control-system.ts";
 
 export interface PreservedMachineArtifact {
   readonly originalPath: string;

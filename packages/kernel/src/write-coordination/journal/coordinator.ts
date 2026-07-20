@@ -26,7 +26,7 @@ import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.t
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./operations/code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
-import { runLedgerMaterializer } from "../../store/ledger-materializer.ts";
+import { runLedgerMaterializer } from "../materialization/ledger-materializer.ts";
 import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/legacy-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./operations/entity.ts";

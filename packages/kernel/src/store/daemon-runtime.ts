@@ -11,7 +11,7 @@ import {
   type HarnessLayoutOverrides,
   resolveHarnessLayout
 } from "../layout/index.ts";
-import { runLedgerMaterializer, type LedgerMaterializerReport } from "./ledger-materializer.ts";
+import { runLedgerMaterializer, type LedgerMaterializerReport } from "../write-coordination/materialization/ledger-materializer.ts";
 import { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
 import {
   type BackgroundBatchRequest,

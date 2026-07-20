@@ -1,21 +1,21 @@
 import path from "node:path";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
-import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
-import { countAttributionProjectionRows } from "../projection/sqlite-attribution-projection.ts";
-import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
-import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
-import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
+import type { HarnessLayoutInput } from "../../layout/index.ts";
+import { resolveHarnessLayout } from "../../layout/index.ts";
+import type { VersionControlSystem } from "../../ports/version-control-system.ts";
+import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
+import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
+import { rebuildTaskProjection } from "../../projection/sqlite-task-projection.ts";
+import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
+import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import {
   materializerCommitter,
   recoverScriptIngestArtifactConflicts,
   type PreservedMachineArtifact
-} from "./ledger-materializer-machine-recovery.ts";
-import { resolveTrunkBranch, sessionBranchName } from "../write-coordination/journal/publication/git.ts";
-import { withRepoLocks } from "../write-coordination/journal/locks.ts";
-import type { OwnedLock } from "../write-coordination/journal/types.ts";
-import { durableFileExists } from "../write-coordination/journal/durable.ts";
+} from "./machine-artifact-recovery.ts";
+import { resolveTrunkBranch, sessionBranchName } from "../journal/publication/git.ts";
+import { withRepoLocks } from "../journal/locks.ts";
+import type { OwnedLock } from "../journal/types.ts";
+import { durableFileExists } from "../journal/durable.ts";
 
 export interface LedgerMaterializerBranchReport {
   readonly branch: string;
