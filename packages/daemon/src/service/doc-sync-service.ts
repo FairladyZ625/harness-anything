@@ -12,7 +12,7 @@ import {
   type SemanticDiffDocumentPolicy,
   type WriteCoordinator
 } from "@harness-anything/kernel";
-import { compileManagedCandidateTreeV2 } from "@harness-anything/application";
+import { compileManagedCandidateTreeV2, type DaemonDocSyncHostServices } from "@harness-anything/application";
 import {
   classifyStaticZones,
   classifyTouchedZones,
@@ -29,13 +29,13 @@ import {
   type RegistryRow,
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
-import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
 
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator?: WriteCoordinator;
   readonly afterApplyBeforePostCheck?: () => void | Promise<void>;
+  readonly hostServices: DaemonDocSyncHostServices;
 }
 
 export function makeDocSyncService(options: DocSyncServiceOptions): { readonly submit: (request: DocSyncSubmitRequestV1) => Promise<DocSyncSubmitResultV1> } {
@@ -44,7 +44,7 @@ export function makeDocSyncService(options: DocSyncServiceOptions): { readonly s
   };
 }
 
-export function buildDocSyncReport(rootInput: HarnessLayoutInput) {
+export function buildDocSyncReport(rootInput: HarnessLayoutInput, hostServices: DaemonDocSyncHostServices) {
   const layout = resolveHarnessLayout(rootInput);
   const authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/") || ".";
   const registry = loadRegistry(layout.rootDir);
@@ -52,7 +52,7 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput) {
   // skip the authored-tree scan so we don't manufacture "resolution failed" unresolved
   // touches for every dirty file, and so the warning layer stays silent. See issue #644.
   const dirtyFiles = registry.present ? gitDirtyEntries(layout.authoredRoot) : [];
-  const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows));
+  const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows, hostServices));
   const candidateBlobs = files.filter((entry) => entry.docSyncCandidate && entry.newBlobSha256);
   const forbiddenTouches = files.flatMap((entry) => entry.forbiddenTouches);
   const unresolvedTouches = files.flatMap((entry) => entry.unresolvedTouches);
@@ -90,9 +90,11 @@ export function buildDocSyncSubmitRequest(
   rootInput: HarnessLayoutInput,
   repoId: string,
   selectedPaths: ReadonlyArray<string> = [],
-  executor?: { readonly kind: "agent"; readonly id: string } | null
+  executor?: { readonly kind: "agent"; readonly id: string } | null,
+  hostServices?: DaemonDocSyncHostServices
 ): DocSyncSubmitRequestV1 {
-  const report = buildDocSyncReport(rootInput);
+  if (!hostServices) throw new Error("doc-sync host services are required");
+  const report = buildDocSyncReport(rootInput, hostServices);
   const selected = new Set(selectedPaths);
   const files = selected.size > 0
     ? report.dirtyFiles.filter((entry) => selected.has(entry.path))
@@ -143,7 +145,7 @@ export function buildDocSyncSubmitRequest(
   };
 }
 
-export function validateDocSyncSubmitRequest(input: { readonly rootInput: HarnessLayoutInput; readonly request: DocSyncSubmitRequestV1 }): DocSyncValidationResult {
+export function validateDocSyncSubmitRequest(input: { readonly rootInput: HarnessLayoutInput; readonly request: DocSyncSubmitRequestV1; readonly hostServices: DaemonDocSyncHostServices }): DocSyncValidationResult {
   const layout = resolveHarnessLayout(input.rootInput);
   const registry = loadRegistry(layout.rootDir);
   const currentLedgerSha = gitText(layout.authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
@@ -181,7 +183,7 @@ export function validateDocSyncSubmitRequest(input: { readonly rootInput: Harnes
       baseBody,
       body,
       registry.rows,
-      resolveManagedSectionPolicy(input.rootInput, change.path)
+      input.hostServices.resolveManagedSectionPolicy(input.rootInput, change.path)
     );
     const okZones = zones.filter((zone): zone is Extract<TouchedZone, { readonly ok: true }> => zone.ok);
     unresolvedTouches.push(...zones.flatMap((zone) => zone.ok ? [] : [{ path: change.path, reason: zone.reason, bearing: zone.bearing, zoneClass: zone.zoneClass }]));
@@ -201,7 +203,7 @@ export function validateDocSyncSubmitRequest(input: { readonly rootInput: Harnes
   let semanticMutationPlan: ReturnType<typeof compileManagedCandidateTreeV2> = { registryVersion: 1, mutations: [] };
   if (conflicts.length === 0 && forbiddenTouches.length === 0 && unresolvedTouches.length === 0) {
     try {
-      semanticMutationPlan = compileDocSyncSemanticPlan(input.rootInput, acceptedChanges);
+      semanticMutationPlan = compileDocSyncSemanticPlan(input.rootInput, acceptedChanges, input.hostServices);
     } catch (error) {
       unresolvedTouches.push({
         path: acceptedChanges[0]?.path ?? "candidate-tree",
@@ -224,7 +226,7 @@ export function validateDocSyncSubmitRequest(input: { readonly rootInput: Harnes
 async function submitDocSyncRequest(options: DocSyncServiceOptions, request: DocSyncSubmitRequestV1): Promise<DocSyncSubmitResultV1> {
   let validation: DocSyncValidationResult;
   try {
-    validation = validateDocSyncSubmitRequest({ rootInput: rootInput(options), request });
+    validation = validateDocSyncSubmitRequest({ rootInput: rootInput(options), request, hostServices: options.hostServices });
   } catch (error) {
     return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
@@ -311,11 +313,12 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
 
 function compileDocSyncSemanticPlan(
   rootInput: HarnessLayoutInput,
-  changes: ReadonlyArray<AppliedChangePlan>
+  changes: ReadonlyArray<AppliedChangePlan>,
+  hostServices: DaemonDocSyncHostServices
 ): ReturnType<typeof compileManagedCandidateTreeV2> {
   if (changes.length === 0) return { registryVersion: 1, mutations: [] };
   const layout = resolveHarnessLayout(rootInput);
-  const resolved = changes.map((change) => ({ change, policy: resolveManagedSectionPolicy(rootInput, change.path) }));
+  const resolved = changes.map((change) => ({ change, policy: hostServices.resolveManagedSectionPolicy(rootInput, change.path) }));
   if (resolved.some(({ change, policy }) => policy === null && isManagedSemanticDocument(change.path))) {
     throw new Error("SEMANTIC_DIFF_REQUIRED: candidate tree contains an undeclared managed document");
   }
@@ -349,7 +352,13 @@ function isManagedSemanticDocument(documentPath: string): boolean {
     || documentPath === "modules.json";
 }
 
-function inspectDirtyFile(rootDir: string, authoredRoot: string, entry: DirtyEntry, rows: ReadonlyArray<RegistryRow>) {
+function inspectDirtyFile(
+  rootDir: string,
+  authoredRoot: string,
+  entry: DirtyEntry,
+  rows: ReadonlyArray<RegistryRow>,
+  hostServices: DaemonDocSyncHostServices
+) {
   const absolutePath = path.join(authoredRoot, entry.path);
   const currentBody = existsSync(absolutePath) && entry.status !== "deleted" ? readFileSync(absolutePath, "utf8") : null;
   const baseBody = gitBlobText(authoredRoot, ["show", `HEAD:${entry.path}`]);
@@ -359,7 +368,7 @@ function inspectDirtyFile(rootDir: string, authoredRoot: string, entry: DirtyEnt
     baseBody,
     currentBody,
     rows,
-    resolveManagedSectionPolicy({ rootDir, layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) } }, entry.path)
+    hostServices.resolveManagedSectionPolicy({ rootDir, layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) } }, entry.path)
   );
   const okZones = zones.filter((zone): zone is Extract<TouchedZone, { readonly ok: true }> => zone.ok);
   const forbiddenTouches = forbiddenTouchesForZones(entry.path, okZones);

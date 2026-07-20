@@ -8,7 +8,8 @@ const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
 const violations = [];
 const effectControllerCompositionRootPaths = new Set([
-  "packages/daemon/src/authority/authority-lifecycle.ts"
+  "packages/daemon/src/authority/authority-lifecycle.ts",
+  "packages/daemon/src/service/doc-sync-service.ts"
 ]);
 
 const allowlist = loadGateAllowlist("check-implementation-contracts", {

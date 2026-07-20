@@ -67,9 +67,6 @@ function inspectDirectConsumers(root, rel) {
 function allowedCoordinatorConstruction(rel, node, sourceFile) {
   if (rel.startsWith("packages/cli/src/daemon/")) return true;
   if (rel === "packages/cli/src/composition/adapter-registry.ts") return true;
-  if (rel === "packages/cli/src/composition/reservation-reconciler.ts") {
-    return enclosingFunctionName(node) === "makeDaemonReservationReconciler";
-  }
   if (rel === "packages/cli/src/composition/command-executor.ts") {
     return guardedByDeclaredLocalCoordinatorScope(node, sourceFile);
   }
@@ -196,11 +193,6 @@ function finding(file, node, sourceFile, kind, message) {
 
 function compareFindings(left, right) {
   return left.file.localeCompare(right.file) || left.line - right.line || left.column - right.column || left.kind.localeCompare(right.kind);
-}
-
-function enclosingFunctionName(node) {
-  const declaration = ancestor(node, (candidate) => ts.isFunctionDeclaration(candidate) || ts.isMethodDeclaration(candidate));
-  return declaration?.name?.getText();
 }
 
 function ancestor(node, predicate) {

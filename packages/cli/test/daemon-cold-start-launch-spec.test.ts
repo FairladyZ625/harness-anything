@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
-import { readDaemonRegistry, registerDaemonRepo } from "../../kernel/src/index.ts";
+import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo } from "../../kernel/src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
 import {
   daemonLaunchOptionsResolvedFlag,
@@ -232,6 +232,55 @@ test("service cold start without a required manifest reports the preflight cause
         ? "ha daemon start --service --user-root <user-root> --authority-manifest <path>"
         : "missing"
     }), batch4Golden.launchColdStartReceipt);
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("registry-inferred authority cold start preserves disabled manifest repositories", { timeout: 30_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const disabledRoot = path.join(fixture.root, "disabled-repo");
+  const env = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot };
+  try {
+    mkdirSync(disabledRoot, { recursive: true });
+    initializeHarness({ rootDir: disabledRoot }, false, "Disabled");
+    const manifest = JSON.parse(readFileSync(fixture.manifestPath, "utf8")) as {
+      repos: Array<Record<string, unknown>>;
+    };
+    manifest.repos.push({
+      ...manifest.repos[0],
+      repoId: "disabled",
+      canonicalRoot: disabledRoot,
+      workspaceId: "workspace-disabled",
+      deviceId: "device-disabled",
+      viewId: "view-disabled",
+      sessionId: "session-disabled"
+    });
+    writeFileSync(fixture.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    registerDaemonRepo({
+      userRoot,
+      repoId: "canonical",
+      canonicalRoot: fixture.repoRoot,
+      authorityManifestPath: fixture.manifestPath,
+      createConvenienceLinks: false
+    });
+    registerDaemonRepo({
+      userRoot,
+      repoId: "disabled",
+      canonicalRoot: disabledRoot,
+      authorityManifestPath: fixture.manifestPath,
+      createConvenienceLinks: false
+    });
+    unregisterDaemonRepo("disabled", { userRoot, createConvenienceLinks: false });
+
+    const started = runDaemonCommand(fixture.repoRoot, ["daemon", "start", "--service", "--json"], env);
+    assert.equal(started.started, true, JSON.stringify(started));
+    assert.equal(
+      readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "disabled")?.state,
+      "disabled"
+    );
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

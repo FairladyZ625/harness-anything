@@ -36,7 +36,10 @@ import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
-import { buildDocSyncSubmitRequest } from "./doc-sync-service.ts";
+import { buildDocSyncSubmitRequest } from "@harness-anything/daemon";
+import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
+
+const docSyncHostServices = { resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 
@@ -218,7 +221,8 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
         { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
         target.repoId,
         docSyncSubmitPaths(command),
-        commandExecutor(command)
+        commandExecutor(command),
+        docSyncHostServices
       );
     } catch (error) {
       return docSyncSubmitPreviewRejected(error);
@@ -282,7 +286,13 @@ async function runWithLineClient(
     if (isDocSyncSubmitCommand(command)) {
       let request: ReturnType<typeof buildDocSyncSubmitRequest>;
       try {
-        request = buildDocSyncSubmitRequest(command.rootDir, repoId, docSyncSubmitPaths(command), commandExecutor(command));
+        request = buildDocSyncSubmitRequest(
+          command.rootDir,
+          repoId,
+          docSyncSubmitPaths(command),
+          commandExecutor(command),
+          docSyncHostServices
+        );
       } catch (error) {
         return docSyncSubmitPreviewRejected(error);
       }

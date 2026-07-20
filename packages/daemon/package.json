@@ -10,6 +10,7 @@
     "./authority/forced-command-session": "./src/authority/forced-command-session.ts"
   },
   "dependencies": {
+    "@harness-anything/adapter-local": "0.1.0",
     "@harness-anything/api-contracts": "0.1.0",
     "@harness-anything/application": "0.1.0",
     "@harness-anything/kernel": "0.1.0",

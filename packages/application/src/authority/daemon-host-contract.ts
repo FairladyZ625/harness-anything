@@ -5,16 +5,25 @@ import type {
   DomainStatus,
   FactMemoryClass,
   FactMemoryTag,
+  HarnessLayoutInput,
   HarnessLayoutOverrides,
   PriorityTier,
   RelationType,
   ReviewVerdict,
+  SemanticDiffDocumentPolicy,
+  OperationalActor,
   TaskWorkKind,
   TaskHolderExecutor,
   TaskHolderPersonPrincipal,
   VcsCommitAuthor,
-  WriteAttribution
+  WriteAttribution,
+  WriteCoordinator
 } from "@harness-anything/kernel";
+import type * as EffectNamespace from "effect";
+import type { ProvenanceSessionExporterRejected, ProvenanceSessionExportResult } from "../provenance-session-exporter.ts";
+import type { LocalControllerServiceOptions } from "../local-controller-runtime-options.ts";
+import type { DaemonLogService } from "../daemon-log-contract.ts";
+import type { DaemonStatusResultV2 } from "../daemon-status-contract.ts";
 
 export interface AuthorityHostEvidenceInput {
   readonly type: string;
@@ -168,4 +177,132 @@ export interface MaterializerCommandReport {
     }>;
   }>;
   readonly warnings: ReadonlyArray<unknown>;
+}
+
+/** Minimal normalized command shape consumed by the daemon command host. CLI grammar stays CLI-owned. */
+export interface DaemonHostCommand {
+  readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
+  readonly action: {
+    readonly kind: string;
+    readonly dryRun?: boolean;
+  };
+}
+
+/** Minimal result shape the daemon augments with materialization warnings before CLI receipt encoding. */
+export interface DaemonHostCommandResult {
+  readonly ok: boolean;
+  readonly command: string;
+  readonly warnings?: ReadonlyArray<unknown>;
+}
+
+export interface DaemonHostCommandExecutionOptions {
+  readonly requireProvidedActorAttribution: true;
+  readonly actorAttribution?: AuthorityHostAttribution;
+  readonly currentSession?: CurrentSessionRef;
+  readonly inlineCreateProvenanceOnly?: true;
+  readonly syncExportedSession: (
+    result: ProvenanceSessionExportResult
+  ) => EffectNamespace.Effect.Effect<void, ProvenanceSessionExporterRejected>;
+  readonly makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator;
+  readonly makeMigrationWriteCoordinator: (
+    actor: OperationalActor,
+    evidenceRef: string
+  ) => WriteCoordinator;
+  readonly makeOperationalWriteCoordinator: (
+    actor: OperationalActor
+  ) => WriteCoordinator;
+}
+
+export type DaemonCommandHostError =
+  | { readonly code: "invalid_session"; readonly context: { readonly cause: string } }
+  | { readonly code: "auth_missing"; readonly context: { readonly cause: string } };
+
+/** CLI-owned parser/executor/error/receipt adapters consumed by the daemon command service. */
+export interface DaemonCommandHostServices<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult,
+  Actor = unknown
+> {
+  readonly parseCommandPayload: (payload: Readonly<Record<string, unknown>> | undefined) => Command;
+  readonly normalizeCommand: (command: Command, currentSession: CurrentSessionRef) => Promise<Command>;
+  readonly authorityCommand: (command: Command) => AuthorityHostCommand | undefined;
+  readonly authorityIngressFor: (kind: string) => AuthorityIngressAdapter | undefined;
+  readonly actorAttribution: (
+    actor: Actor,
+    command: Command,
+    executor: TaskHolderExecutor | null
+  ) => AuthorityHostAttribution;
+  readonly migrationWriteAttribution: (attribution: WriteAttribution, evidenceRef: string) => WriteAttribution;
+  readonly isActorAttributionError: (error: unknown) => boolean;
+  readonly isDryRunAction: (command: Command) => boolean;
+  readonly executeCommand: (command: Command, options: DaemonHostCommandExecutionOptions) => Promise<Result>;
+  readonly materializerCommandResult: (report: MaterializerCommandReport) => Result;
+  readonly toReceipt: (result: DaemonHostCommandResult) => import("../command-receipt.ts").CommandReceiptEnvelope;
+  readonly toErrorReceipt: (input: {
+    readonly command: string;
+    readonly error: DaemonCommandHostError;
+  }) => import("../command-receipt.ts").CommandReceiptEnvelope;
+}
+
+export type DaemonControlHostError =
+  | { readonly code: "daemon_refresh_build_failed"; readonly context: { readonly cause: string } }
+  | { readonly code: "daemon_queue_drain_timeout"; readonly context: { readonly kind: "restart" | "refresh" } };
+
+/** CLI presents structured daemon errors; the shared contract carries no hint text. */
+export interface DaemonControlErrorHostServices<PresentedError> {
+  readonly present: (error: DaemonControlHostError) => PresentedError;
+}
+
+export interface DaemonDocSyncHostServices {
+  readonly resolveManagedSectionPolicy: (
+    rootInput: HarnessLayoutInput,
+    relativePath: string
+  ) => SemanticDiffDocumentPolicy | null;
+}
+
+export interface DaemonServiceHostServices<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult,
+  Actor,
+  Runtime,
+  Identity,
+  PresentedControlError = unknown
+> {
+  readonly command: DaemonCommandHostServices<Command, Result, Actor>;
+  readonly errors: DaemonControlErrorHostServices<PresentedControlError>;
+  readonly docSync: DaemonDocSyncHostServices;
+  readonly loadDaemonIdentity: (
+    rootDir: string,
+    layoutOverrides: { readonly authoredRoot?: string } | undefined,
+    endpoint?: string,
+    userRoot?: string
+  ) => Identity;
+  readonly daemonActorAttribution: (
+    actor: Actor,
+    executor: TaskHolderExecutor | null
+  ) => AuthorityHostAttribution;
+  readonly makeGuiControllerOptions: (
+    runtime: Runtime,
+    rootInput: Exclude<HarnessLayoutInput, string>,
+    commandOptions: { readonly onCommandStart: () => void; readonly onCommandSettled: () => void }
+  ) => Pick<LocalControllerServiceOptions, "catalogSnapshotReader" | "decisionMutationPort">;
+  readonly leaseEnforcementEnabled: (rootInput: HarnessLayoutInput) => boolean;
+  readonly version: () => string;
+}
+
+/** CLI-owned launch persistence/projection and authority composition injected into the daemon serve root. */
+export interface DaemonServeHostServices<LaunchConfiguration, AuthorityLifecycle> {
+  readonly persistLaunchConfiguration: (
+    userRoot: string,
+    configuration: LaunchConfiguration,
+    effectiveOptions: { readonly authorityManifest?: string; readonly authoredRoot?: string }
+  ) => void;
+  readonly createAuthorityLifecycle: (input: {
+    readonly manifestPath: string;
+    readonly daemonLogService: DaemonLogService;
+    readonly backgroundRecovery: true;
+    readonly layoutOverrides?: HarnessLayoutOverrides;
+  }) => AuthorityLifecycle;
+  readonly projectStartedStatus: (status: DaemonStatusResultV2) => Record<string, unknown>;
 }

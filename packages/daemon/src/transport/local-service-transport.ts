@@ -5,18 +5,20 @@ import os from "node:os";
 import path from "node:path";
 import {
   createNamedPipeTransportServer,
+  type NamedPipeTransportServer
+} from "./named-pipe.ts";
+import {
   createUnixSocketTransportServer,
   ensurePrivateUnixSocketDirectory,
-  type AcceptedConnectionBinding,
-  type AuthorityWireIngressHandler,
-  type DaemonAuthenticationContext,
-  type JsonRpcNotification,
-  type DaemonTransportConnection,
-  type JsonRpcProtocolServer,
-  type NamedPipeTransportServer,
-  type SshAuthenticatedBootstrapFrame,
   type UnixSocketTransportServer
-} from "@harness-anything/daemon";
+} from "./unix-socket.ts";
+import type { DaemonTransportConnection } from "./json-rpc-stream.ts";
+import type { SshAuthenticatedBootstrapFrame } from "./ssh-forced-command.ts";
+import type { AuthorityWireIngressHandler } from "./authority-wire-ingress.ts";
+import type { DaemonAuthenticationContext } from "./auth-context.ts";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
+import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 interface DaemonSocketOwnerRecord {
   readonly schema: "daemon-socket-owner/v1";

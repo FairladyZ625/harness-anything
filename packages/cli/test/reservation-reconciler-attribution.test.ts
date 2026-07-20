@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reservationReconciliationAttribution } from "../src/composition/reservation-reconciler.ts";
+import { reservationReconciliationAttribution } from "@harness-anything/daemon";
 
 test("reservation reconciliation copies lease holder axes and marks its recovery evidence", () => {
   const attribution = reservationReconciliationAttribution("exe_original", {

@@ -1,74 +1,73 @@
 import {
   makeDaemonLogService,
-  makeLocalControllerService
+  makeLocalControllerService,
+  type DaemonHostCommand,
+  type DaemonHostCommandResult,
+  type DaemonServiceHostServices
 } from "@harness-anything/application";
 import type { DaemonLogService } from "@harness-anything/application";
-import {
-  createPtyTerminalSessionService,
-  createJsonRpcProtocolServer,
-  calculateDaemonArtifactIdentity,
-  canonicalRootIdentity,
-  createDaemonReconcileState,
-  createAuthorityWireIngressHandler,
-  drainDaemonRuntime,
-  isDaemonDrainTimeout,
-  makeDaemonQueuedWriteCoordinator,
-  makeLocalAgentHolderServices,
-  makeDaemonLogFileStore,
-  reconcileDaemonRepoRegistry,
-  requireAuthoritySubmissionForDispatch,
-  type AcceptedConnectionBinding,
-  type AuthorityWireIngressHandler,
-  type DaemonActiveControlStatus,
-  type DaemonControlService,
-  type DaemonStatusResultV2,
-  type DaemonAuthenticationContext,
-  type JsonRpcNotification,
-  type DaemonRepoAvailabilityFailure,
-  type DaemonRepoNamespace,
-  type DaemonReconcileState,
-  type AuthorityRepoComponent,
-  type AuthorityRepoLifecycleController
-} from "@harness-anything/daemon";
+import { createPtyTerminalSessionService } from "../terminal/pty-host.ts";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
+import type { AuthorityWireIngressHandler } from "../transport/authority-wire-ingress.ts";
+import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
+import type { DaemonRepoAvailabilityFailure, DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
+import type { AuthorityRepoComponent, AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
+import type { AuthenticatedActor, IdentityAdminSnapshot, IdentityProvider, PersonRegistry } from "../identity/types.ts";
+import type { DaemonActiveControlStatus, DaemonControlService, DaemonStatusResultV2 } from "@harness-anything/application/daemon-status-contract";
 import {
   makeMarkdownArtifactStore,
   readDaemonRegistry,
 } from "@harness-anything/kernel";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
-import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
-import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-controller-options.ts";
-import {
-  daemonStatusPayload,
-  type DaemonConnectionStats
-} from "../commands/daemon/status-payload.ts";
-import { leaseEnforcementEnabled } from "../commands/settings.ts";
-import {
-  selectCliAdapterProvider,
-  type CliCompositionAdapterProvider
-} from "../composition/adapter-registry.ts";
-import { daemonActorAttribution } from "../composition/actor-attribution.ts";
-import { failClosedReservationReconcilerCoordinator } from "../composition/reservation-reconciler.ts";
-import { createCliCommandService } from "./command-service.ts";
+import type { HarnessDaemonRuntime, MultiRepoHarnessDaemonRuntime } from "@harness-anything/kernel/store/index";
+import { makeLocalLifecycleEngine } from "@harness-anything/adapter-local";
+import { createDaemonCommandService, type DaemonCommandServiceOptions } from "./command-service.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";
 import {
   createDaemonControlService,
   type DaemonLaunchConfiguration
-} from "./daemon-control-service.ts";
-
-export { bindAuthoritySubmissionForDispatch } from "@harness-anything/daemon";
+} from "../lifecycle/daemon-control-service.ts";
+import { failClosedReservationReconcilerCoordinator } from "../lifecycle/reservation-reconciler.ts";
+import { makeDaemonLogFileStore } from "../lifecycle/daemon-log-file-store.ts";
+import { drainDaemonRuntime, isDaemonDrainTimeout } from "../lifecycle/daemon-drain.ts";
+import { makeDaemonQueuedWriteCoordinator } from "../lifecycle/queued-write-coordinator.ts";
+import { makeLocalAgentHolderServices } from "../agent-runtime/holder-projection-host.ts";
+import { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
+import { calculateDaemonArtifactIdentity } from "../protocol/daemon-artifact-identity.ts";
+import { canonicalRootIdentity } from "../runtime/canonical-root.ts";
+import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonReconcileState } from "../runtime/registry-reconciler.ts";
+import { createAuthorityWireIngressHandler } from "../authority/authority-wire-service.ts";
+import { requireAuthoritySubmissionForDispatch } from "../authority/authority-submission-dispatch.ts";
+import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
   | { readonly reason: "control"; readonly kind: "restart" | "refresh"; readonly operationId: string };
 
-export type { DaemonLaunchConfiguration } from "./daemon-control-service.ts";
+export type { DaemonLaunchConfiguration } from "../lifecycle/daemon-control-service.ts";
 
-type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
-type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
-type RepoServiceBinding = ReturnType<typeof createRepoServiceBinding>;
-type RepoIdentity = ReturnType<typeof loadDaemonIdentity> & { readonly loadError?: string };
+interface RepoIdentity {
+  readonly mode: "local" | "remote";
+  readonly personRegistry?: PersonRegistry;
+  readonly identityProvider?: IdentityProvider;
+  readonly identityAdminSnapshot?: IdentityAdminSnapshot;
+  readonly appendRuntimeEvent?: (input: Parameters<ReturnType<typeof makeLocalAgentHolderServices>["appendRuntimeEvent"]>[0]) => Promise<void>;
+  readonly loadError?: string;
+}
 
-export async function createDaemonServiceHost(
+interface RepoServiceBinding {
+  readonly repo: DaemonRepoNamespace;
+  readonly identity: RepoIdentity;
+  readonly services: Parameters<typeof createJsonRpcProtocolServer>[0]["services"];
+  readonly appendRuntimeEvent: ReturnType<typeof makeLocalAgentHolderServices>["appendRuntimeEvent"];
+}
+
+export async function createDaemonServiceHost<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult,
+  Identity extends RepoIdentity,
+  PresentedControlError extends object
+>(
   runtime: MultiRepoHarnessDaemonRuntime,
   repos: ReadonlyArray<DaemonRepoNamespace>,
   defaultRepoId: string,
@@ -84,6 +83,7 @@ export async function createDaemonServiceHost(
     readonly launchConfiguration: DaemonLaunchConfiguration;
     readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   },
+  hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity, PresentedControlError>,
   authorityLifecycle?: AuthorityRepoLifecycleController,
   providedDaemonLogService?: DaemonLogService
 ): Promise<{
@@ -137,10 +137,10 @@ export async function createDaemonServiceHost(
         activeControl = {
           ...activeControl,
           phase: "failed",
-          failure: cliError(
-            CliErrorCode.DaemonQueueDrainTimeout,
-            `Daemon ${activeControl.kind} requires the write queue to drain within the deadline, but in-flight operations failed to settle in time. Run \`ha daemon status --json\`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request.`
-          ) as NonNullable<DaemonActiveControlStatus["failure"]>
+          failure: hostServices.errors.present({
+            code: "daemon_queue_drain_timeout",
+            context: { kind: activeControl.kind }
+          }) as NonNullable<DaemonActiveControlStatus["failure"]>
         };
         return await remainWedgedAfterFailedDrain();
       }
@@ -176,7 +176,7 @@ export async function createDaemonServiceHost(
     setActiveControl: (active) => { activeControl = active; },
     setDrainTimeout: (timeoutMs) => { drainTimeoutMs = timeoutMs; },
     requestStop: (request) => requestStop?.(request)
-  });
+  }, hostServices.errors);
   const repoBindings = new Map<string, RepoServiceBinding>();
   for (const repo of repos) {
     const repoRuntime = runtime.getRepoRuntime(repo.repoId);
@@ -196,6 +196,7 @@ export async function createDaemonServiceHost(
       layoutOverrides,
       commandOptions,
       { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
+      hostServices,
       authorityComponent
     ));
   }
@@ -215,7 +216,7 @@ export async function createDaemonServiceHost(
         repo,
         authorityLifecycle?.unavailableReason(repo.repoId)
       ),
-      leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
+      leaseEnforcementEnabled: (repo) => hostServices.leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
       ...(acceptedConnection ? { acceptedConnection } : {}),
       ...(authorityLifecycle ? { authorityPeerPolicy: localAuthorityPeerPolicy } : {}),
@@ -324,6 +325,7 @@ export async function createDaemonServiceHost(
           layoutOverrides,
           commandOptions,
           { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
+          hostServices,
           authorityComponent
         ));
       },
@@ -351,6 +353,7 @@ export async function createDaemonServiceHost(
       userRoot,
       startedAt: build.startedAt,
       loadedIdentity: build.loadedIdentity,
+      version: hostServices.version(),
       readInstalledIdentity: () => calculateDaemonArtifactIdentity(build.entrypoint).identity,
       activeControl,
       runtimeStatus: runtime.status(),
@@ -364,13 +367,17 @@ function remainWedgedAfterFailedDrain(): Promise<never> {
   return new Promise(() => undefined);
 }
 
-function createRepoServiceBinding(
+function createRepoServiceBinding<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult,
+  Identity extends RepoIdentity
+>(
   repo: DaemonRepoNamespace,
   runtime: HarnessDaemonRuntime,
   managerRuntime: MultiRepoHarnessDaemonRuntime,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
-  commandOptions: { readonly onCommandStart: () => void; readonly onCommandSettled: () => void },
-  statusOptions?: {
+  commandOptions: DaemonCommandServiceOptions & { readonly onCommandStart: () => void; readonly onCommandSettled: () => void },
+  statusOptions: {
     readonly daemonId?: string;
     readonly endpoint?: string;
     readonly connections?: DaemonConnectionStats;
@@ -385,7 +392,8 @@ function createRepoServiceBinding(
     readonly controlService?: DaemonControlService;
     readonly daemonLogService?: DaemonLogService;
     readonly activeControl?: () => DaemonActiveControlStatus | null;
-  },
+  } | undefined,
+  hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity>,
   authorityComponent?: AuthorityRepoComponent
 ): {
   readonly repo: DaemonRepoNamespace;
@@ -394,8 +402,8 @@ function createRepoServiceBinding(
   readonly appendRuntimeEvent: ReturnType<typeof makeLocalAgentHolderServices>["appendRuntimeEvent"];
 } {
   const rootDir = repo.canonicalRoot;
-  const identity = loadRepoIdentity(rootDir, layoutOverrides, statusOptions?.endpoint, statusOptions?.userRoot);
-  const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
+  const identity = loadRepoIdentity(rootDir, layoutOverrides, statusOptions?.endpoint, statusOptions?.userRoot, hostServices);
+  const taskWriter = makeLocalLifecycleEngine({
     rootDir,
     layoutOverrides,
     coordinator: failClosedReservationReconcilerCoordinator()
@@ -407,7 +415,7 @@ function createRepoServiceBinding(
     layoutOverrides,
     taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides }),
-    ...makeDaemonGuiControllerOptions(runtime, { rootDir, layoutOverrides }, commandOptions),
+    ...hostServices.makeGuiControllerOptions(runtime, { rootDir, layoutOverrides }, commandOptions),
     projectionQueries: {
       getExecutionEvidencePage: async (payload) => ({
         ok: true,
@@ -420,7 +428,7 @@ function createRepoServiceBinding(
     ...agentRuntimeControllerOptions,
     agentHolderProjection
   });
-  const cliCommandService = createCliCommandService(runtime, {
+  const daemonCommandService = createDaemonCommandService(runtime, hostServices.command, {
     ...commandOptions,
     ...(authorityComponent ? { authorityCutoverControl: authorityComponent.cutoverControl } : {}),
     ...(authorityComponent ? {
@@ -450,6 +458,7 @@ function createRepoServiceBinding(
             userRoot: statusOptions?.userRoot ?? rootDir,
             startedAt: statusOptions?.build?.startedAt ?? new Date(0).toISOString(),
             loadedIdentity: statusOptions?.build?.loadedIdentity ?? "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            version: hostServices.version(),
             readInstalledIdentity: () => statusOptions?.build
               ? calculateDaemonArtifactIdentity(statusOptions.build.entrypoint).identity
               : "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -471,14 +480,15 @@ function createRepoServiceBinding(
           })
         }
       } : {}),
-      CliCommandService: cliCommandService,
+      CliCommandService: daemonCommandService,
       DocSyncService: {
         submit: (request, context) => {
           const actor = context?.actor;
-          const attribution = actor ? daemonActorAttribution(actor, context?.executor) : undefined;
+          const attribution = actor ? hostServices.daemonActorAttribution(actor, context?.executor ?? null) : undefined;
           const docSyncService = makeDocSyncService({
             rootDir,
             layoutOverrides,
+            hostServices: hostServices.docSync,
             ...(attribution ? {
               coordinator: makeDaemonQueuedWriteCoordinator(runtime, `doc-sync-submit:${request.payload.intentId}`, {
                 attribution: attribution.writeAttribution,
@@ -495,14 +505,19 @@ function createRepoServiceBinding(
   };
 }
 
-function loadRepoIdentity(
+function loadRepoIdentity<
+  Command extends DaemonHostCommand,
+  Result extends DaemonHostCommandResult,
+  Identity extends RepoIdentity
+>(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   endpoint: string | undefined,
-  userRoot: string | undefined
+  userRoot: string | undefined,
+  hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity>
 ): RepoIdentity {
   try {
-    return loadDaemonIdentity(rootDir, layoutOverrides, endpoint, userRoot);
+    return hostServices.loadDaemonIdentity(rootDir, layoutOverrides, endpoint, userRoot);
   } catch (error) {
     return {
       mode: "local",

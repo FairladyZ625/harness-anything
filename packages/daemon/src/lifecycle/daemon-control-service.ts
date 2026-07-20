@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
 import {
   daemonControlInProgressError,
+  type DaemonControlErrorHostServices,
   type DaemonActiveControlStatus,
+  type DaemonControlErrorV1,
   type DaemonControlService,
   type DaemonStatusResultV2
 } from "@harness-anything/application";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
-import type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
+import type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
-export type { DaemonLaunchConfiguration } from "./daemon-launch-spec.ts";
+export type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
-export function createDaemonControlService(input: {
+export function createDaemonControlService<
+  PresentedError extends object
+>(input: {
   readonly launchConfiguration: DaemonLaunchConfiguration;
   readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   readonly status: () => DaemonStatusResultV2;
@@ -22,7 +25,7 @@ export function createDaemonControlService(input: {
     readonly kind: "restart" | "refresh";
     readonly operationId: string;
   }) => void;
-}): DaemonControlService {
+}, hostServices: DaemonControlErrorHostServices<PresentedError>): DaemonControlService {
   return {
     requestControl: async (kind, request) => {
       const activeControl = input.activeControl();
@@ -34,13 +37,12 @@ export function createDaemonControlService(input: {
           return {
             ok: false,
             error: {
-              ...cliError(
-                CliErrorCode.DaemonRefreshBuildFailed,
-                `Daemon refresh replacement preflight failed before the running daemon was changed: ${error instanceof Error ? error.message : String(error)}`
-              ),
-              code: CliErrorCode.DaemonRefreshBuildFailed,
+              ...hostServices.present({
+                code: "daemon_refresh_build_failed",
+                context: { cause: error instanceof Error ? error.message : String(error) }
+              }),
               operationId: null
-            }
+            } as unknown as DaemonControlErrorV1
           };
         }
       }

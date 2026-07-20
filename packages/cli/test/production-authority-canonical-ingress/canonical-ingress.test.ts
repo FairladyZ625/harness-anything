@@ -22,11 +22,13 @@ import type { ParsedCommand } from "../../src/cli/types.ts";
 import { daemonActorAttribution } from "../../src/composition/actor-attribution.ts";
 import { parseRecordArgs } from "../../src/cli/parsers/record.ts";
 import { parseNewTaskArgs } from "../../src/cli/parsers/new-task.ts";
-import { createCliCommandService } from "../../src/daemon/command-service.ts";
+import { createDaemonCommandService } from "@harness-anything/daemon";
+import { cliDaemonCommandHostServices } from "../../src/composition/daemon-command-host-services.ts";
 import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import {
   createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
 } from "../../src/composition/production-authority-lifecycle.ts";
+
 import {
   defaultDaemonUserRoot,
   pollUntil,
@@ -575,7 +577,7 @@ test("production generic canonical ingress accepts and journals one write for ev
         .trim().split("\n").filter(Boolean);
       assert.equal(eventFiles.some((eventPath) => readFileSync(eventPath, "utf8").includes(sessionId)), true, `${fixtureCase.kind}:real-session-axis`);
     }
-    const commandService = createCliCommandService(runtime, {
+    const commandService = createDaemonCommandService(runtime, cliDaemonCommandHostServices, {
       resolveAuthoritySubmissionV2: () => submission
     });
     const commandActor = { ...actor, roles: ["owner"] };

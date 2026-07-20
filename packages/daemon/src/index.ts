@@ -66,6 +66,14 @@ export * from "./lifecycle/compound-receipt-runner.ts";
 export * from "./lifecycle/daemon-drain.ts";
 export * from "./lifecycle/durable-compound-receipt-store.ts";
 export * from "./lifecycle/queued-write-coordinator.ts";
+export * from "./lifecycle/daemon-control-service.ts";
+export * from "./lifecycle/reservation-reconciler.ts";
+export * from "./lifecycle/run-daemon-serve.ts";
+export * from "./service/command-service.ts";
+export * from "./service/doc-sync-service.ts";
+export * from "./service/service-host.ts";
+export * from "./service/status-payload.ts";
+export * from "./transport/local-service-transport.ts";
 export * from "./agent-runtime/holder-projection-host.ts";
 export {
   actorGitCommitAuthor,
