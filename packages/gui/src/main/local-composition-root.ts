@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon } from "../api/service-bridge.ts";
 import type { ApiRouteContract } from "../api/api-contract-registry.ts";
@@ -33,7 +33,6 @@ interface HarnessLayoutOverrides {
 }
 
 interface LocalDaemonClientModule {
-  readonly daemonUserRoot: (env?: NodeJS.ProcessEnv) => string;
   readonly daemonIdFromEnv: (env?: NodeJS.ProcessEnv) => string;
   readonly resolveLocalDaemonTarget: (input: {
     readonly rootDir: string;
@@ -61,6 +60,9 @@ interface LocalDaemonClientModule {
 }
 
 let daemonClientModulePromise: Promise<LocalDaemonClientModule> | undefined;
+let daemonSettingsModulePromise: Promise<{
+  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+}> | undefined;
 
 interface GuiDaemonBridgeState {
   layoutOverrideDaemonStarted: boolean;
@@ -76,11 +78,12 @@ export function createLocalGuiServiceBridge(rootDir: string, layoutOverrides?: H
 export async function resolveGuiDaemonNotificationTarget(rootDir: string): Promise<GuiDaemonNotificationTarget> {
   const resolvedRootDir = path.resolve(rootDir);
   validateProjectPath(resolvedRootDir, ".");
-  const daemonClient = await loadDaemonClientModule();
+  const [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
+  const userRoot = daemonSettings.readDaemonUserRoot(process.env, resolvedRootDir);
   const target = daemonClient.resolveLocalDaemonTarget({
     rootDir: resolvedRootDir,
     repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID,
-    userRoot: daemonClient.daemonUserRoot(),
+    userRoot,
     daemonId: daemonClient.daemonIdFromEnv(),
     autoRegisterSingleRepo: true
   });
@@ -95,8 +98,8 @@ async function requestGuiRouteViaDaemon(
   payload: unknown
 ): Promise<JsonObject> {
   try {
-    const daemonClient = await loadDaemonClientModule();
-    const userRoot = daemonClient.daemonUserRoot();
+    const [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
+    const userRoot = daemonSettings.readDaemonUserRoot(process.env, rootDir);
     const daemonId = daemonClient.daemonIdFromEnv();
     const target = daemonClient.resolveLocalDaemonTarget({
       rootDir,
@@ -200,6 +203,27 @@ async function loadDaemonClientModule(): Promise<LocalDaemonClientModule> {
 
 function daemonClientModuleUrl(): string {
   return new URL("../../../daemon/src/client/local-json-rpc-client.ts", import.meta.url).href;
+}
+
+async function loadDaemonSettingsModule(): Promise<{
+  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+}> {
+  daemonSettingsModulePromise ??= import(daemonSettingsModuleUrl()) as Promise<{
+    readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+  }>;
+  return daemonSettingsModulePromise;
+}
+
+function daemonSettingsModuleUrl(): string {
+  const resourcesPath = electronResourcesPath();
+  const candidates = [
+    ...(resourcesPath ? [path.join(resourcesPath, "app/packages/cli/dist/cli/src/daemon/client.js")] : []),
+    fileURLToPath(new URL("../../../cli/src/daemon/client.ts", import.meta.url)),
+    fileURLToPath(new URL("../../../cli/dist/cli/src/daemon/client.js", import.meta.url))
+  ];
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) throw new Error(`Harness daemon client module not found; checked ${candidates.join(", ")}`);
+  return pathToFileURL(realpathSync(found)).href;
 }
 
 function cliEntrypointPath(): string {

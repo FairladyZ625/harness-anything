@@ -91,7 +91,7 @@ export async function runDaemonControl(
     control.params,
     5_000,
     {
-      userRoot: daemonUserRootOption(input.args),
+      userRoot: lifecycle.target.userRoot,
       socketPath: readOption(input.args, "--socket"),
       allowLegacySocket: false
     }

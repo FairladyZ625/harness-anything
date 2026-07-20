@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -17,7 +18,7 @@ import {
   JsonRpcLineClient,
   currentDaemonProtocolVersion,
   requestLocalDaemonJsonRpcForTarget,
-  resolveLocalDaemonTarget,
+  resolveLocalDaemonTarget as resolveDaemonTarget,
   type JsonObject,
   type LocalDaemonTarget
 } from "@harness-anything/daemon";
@@ -47,7 +48,7 @@ export {
   localUserDaemonEndpoint,
   localUserDaemonSocketPath,
   requestLocalDaemonJsonRpc,
-  resolveLocalDaemonTarget,
+  requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
 } from "@harness-anything/daemon";
 
@@ -86,9 +87,10 @@ export function readDaemonClientConfig(
     ...(modeOverride ? { HARNESS_DAEMON_MODE: modeOverride } : {}),
     ...(profileOverride ? { HARNESS_DAEMON_PROFILE: profileOverride } : {})
   };
-  const projectMode = readProjectDaemonMode(rootDir);
+  const projectSettings = readProjectDaemonSettings(rootDir);
+  const projectMode = projectSettings?.identity?.mode;
   const mode = readMode(env.HARNESS_DAEMON_MODE ?? projectMode);
-  const userRoot = daemonUserRootForRepo(rootDir, env);
+  const userRoot = resolveDaemonUserRoot(env, rootDir, projectSettings);
   const directWriteReason = readDirectWriteReason(env.HARNESS_DIRECT_WRITE_REASON);
   return {
     mode,
@@ -102,13 +104,58 @@ export function readDaemonClientConfig(
   };
 }
 
-function readProjectDaemonMode(rootDir: string): "local" | "remote" | undefined {
+export function readDaemonUserRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  rootDir = process.cwd()
+): string {
+  return resolveDaemonUserRoot(env, rootDir, readProjectDaemonSettings(rootDir));
+}
+
+function resolveDaemonUserRoot(
+  env: NodeJS.ProcessEnv,
+  rootDir: string,
+  projectSettings: ReturnType<typeof readProjectDaemonSettings>
+): string {
+  const projectUserRoot = projectSettings?.daemon?.userRoot;
+  const projectRoot = resolveHarnessLayout(rootDir).rootDir;
+  return daemonUserRootForRepo(
+    projectRoot,
+    env,
+    projectUserRoot ? resolveProjectDaemonUserRoot(projectRoot, projectUserRoot, env) : undefined
+  );
+}
+
+function readProjectDaemonSettings(rootDir: string) {
   try {
     const settings = readProjectHarnessSettings(rootDir, "daemon-client-mode");
-    return settings.ok ? settings.settings.identity?.mode : undefined;
+    return settings.ok ? settings.settings : undefined;
   } catch {
     return undefined;
   }
+}
+
+function resolveProjectDaemonUserRoot(rootDir: string, configured: string, env: NodeJS.ProcessEnv): string {
+  if (configured === "~" || /^~[\\/]/u.test(configured)) {
+    const home = typeof env.HOME === "string" && env.HOME.trim() ? env.HOME.trim() : os.homedir();
+    return path.resolve(home, configured.slice(1).replace(/^[\\/]+/u, ""));
+  }
+  return path.resolve(rootDir, configured);
+}
+
+export function resolveLocalDaemonTarget(input: {
+  readonly rootDir: string;
+  readonly repoIdOverride?: string;
+  readonly userRoot?: string;
+  readonly daemonId?: string;
+  readonly autoRegisterSingleRepo?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+}): LocalDaemonTarget {
+  const env = input.env ?? process.env;
+  return resolveDaemonTarget({
+    ...input,
+    userRoot: input.userRoot ?? readDaemonUserRoot(env, input.rootDir),
+    env
+  });
 }
 
 export async function runCommandThroughDaemon(

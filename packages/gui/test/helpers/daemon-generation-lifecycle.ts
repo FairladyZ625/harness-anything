@@ -12,12 +12,16 @@ import {
 export async function withGuiDaemonEnv<T>(
   rootDir: string,
   run: () => Promise<T>,
-  options: { readonly idleMs?: string } = {}
+  options: { readonly idleMs?: string; readonly userRoot?: string | false } = {}
 ): Promise<T> {
   const previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
   const previousIdleMs = process.env.HARNESS_DAEMON_IDLE_MS;
   const previousAutostartTimeout = process.env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS;
-  process.env.HARNESS_DAEMON_USER_ROOT = path.join(rootDir, "user-daemon");
+  if (options.userRoot === false) {
+    delete process.env.HARNESS_DAEMON_USER_ROOT;
+  } else {
+    process.env.HARNESS_DAEMON_USER_ROOT = options.userRoot ?? path.join(rootDir, "user-daemon");
+  }
   process.env.HARNESS_DAEMON_IDLE_MS = options.idleMs ?? "250";
   // Cold daemon spawn on a loaded CI runner regularly exceeds the 6s
   // interactive default; the hermetic tests care about correctness, not
