@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned production authority admission to CLI composition consumers.
 import type {
   AuthorityCutoverControlService,
   AuthoritySubmissionService

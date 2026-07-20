@@ -33,8 +33,10 @@ import {
   openAuthorityProductionKeyMaterial
 } from "../src/daemon/authority-production-state.ts";
 import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
-import { createAuthorityProductionScanner } from "../src/daemon/authority-production-scanner.ts";
-import { openDurableAuthorityServiceState } from "../src/daemon/authority-service-state.ts";
+import {
+  createAuthorityProductionScanner,
+  openDurableAuthorityServiceState
+} from "@harness-anything/daemon";
 
 test("production lifecycle uses external Ed25519 material, durable state, live context and the X V2 event log", async () => {
   const fixture = createFixture();

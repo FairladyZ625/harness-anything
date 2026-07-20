@@ -1353,7 +1353,7 @@
           "command": "git"
         },
         {
-          "file": "packages/cli/src/daemon/authority-publication-evidence.ts",
+          "file": "packages/daemon/src/authority/production/publication-evidence.ts",
           "command": "git"
         },
         {
@@ -1674,15 +1674,15 @@
       ],
       "directWrites": [
         {
-          "file": "packages/cli/src/daemon/authority-service-state.ts"
+          "file": "packages/daemon/src/authority/production/service-state.ts"
         },
         {
-          "file": "packages/cli/src/daemon/production-authority-recovery.ts"
+          "file": "packages/daemon/src/authority/production/recovery.ts"
         }
       ],
       "evidence": [
-        "packages/cli/src/daemon/authority-service-state.ts:167",
-        "packages/cli/src/daemon/production-authority-recovery.ts:199"
+        "packages/daemon/src/authority/production/service-state.ts:168",
+        "packages/daemon/src/authority/production/recovery.ts:200"
       ],
       "freshness": "append-only-state-plus-fsync-atomic-recovery-watermark"
     },

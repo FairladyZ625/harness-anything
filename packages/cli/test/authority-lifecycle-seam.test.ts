@@ -16,7 +16,7 @@ import {
 import {
   assertPublicationMatchesMutationSet,
   createGitCanonicalPublicationInspector
-} from "../src/daemon/authority-publication-evidence.ts";
+} from "@harness-anything/daemon";
 import {
   createAuthorityRepoLifecycleController,
   makeHeldLockAttributedCoordinatorFactory,
@@ -25,7 +25,7 @@ import {
   type AuthorityRepoLifecycleHooks,
   type AuthorityLifecycleRuntime
 } from "../src/daemon/authority-lifecycle.ts";
-import { openDurableAuthorityServiceState } from "../src/daemon/authority-service-state.ts";
+import { openDurableAuthorityServiceState } from "@harness-anything/daemon";
 import {
   bindAuthoritySubmissionForDispatch,
   createDaemonServiceHost,

@@ -1,8 +1,9 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned production authority scanning to CLI composition consumers.
 import { createHash, type Hash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import path from "node:path";
 import type { AuthorityProductionRepoScan } from "@harness-anything/application";
-import { readAuthorityGitBytes } from "./authority-publication-evidence.ts";
+import { readAuthorityGitBytes } from "./publication-evidence.ts";
 
 export function createAuthorityProductionScanner(input: {
   readonly authoredRoot: string;
@@ -64,7 +65,7 @@ function rawLocalObservation(authoredRoot: string): AuthorityProductionRepoScan[
       treeDigest: selectedPathInventoryDigest(authoredRoot, Buffer.from("raw-local\0", "utf8"), "ha/authority-cutover-raw-local-tree/v1\0")
     };
   } catch (error) {
-    if (isMissing(error)) return { kind: "missing", mode: null, targetDigest: null, treeDigest: null };
+    if (isMissingProductionScannerPath(error)) return { kind: "missing", mode: null, targetDigest: null, treeDigest: null };
     throw error;
   }
 }
@@ -85,7 +86,7 @@ function updateInventoryEntry(hash: Hash, root: string, relativePath: string): v
   try {
     stat = lstatSync(absolutePath);
   } catch (error) {
-    if (isMissing(error)) {
+    if (isMissingProductionScannerPath(error)) {
       updateFramed(hash, Buffer.from(relativePath, "utf8"));
       updateFramed(hash, Buffer.from("missing", "utf8"));
       return;
@@ -130,7 +131,7 @@ function bytesDigest(domain: string, values: ReadonlyArray<Uint8Array>): string 
   return hash.digest("hex");
 }
 
-function isMissing(error: unknown): boolean {
+function isMissingProductionScannerPath(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error
     && (error as { readonly code?: unknown }).code === "ENOENT";
 }

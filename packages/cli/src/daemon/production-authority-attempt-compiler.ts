@@ -41,7 +41,10 @@ import {
   productionAuthorityIngressFor,
   productionAuthorityUnsupportedHint
 } from "../cli/command-spec/index.ts";
-import type { AuthorityConnectionContext } from "@harness-anything/daemon";
+import {
+  hostedSnapshot,
+  type AuthorityConnectionContext
+} from "@harness-anything/daemon";
 import type { DaemonAuthorityAttemptCompilerV2 } from "./authority-command-submission.ts";
 import {
   openAuthorityProductionKeyMaterial,
@@ -59,8 +62,7 @@ import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } 
 import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
 import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
-import { hostedSnapshot } from "./production-authority-semantic-state.ts";
-export { createProductionCanonicalSemanticState } from "./production-authority-semantic-state.ts";
+export { createProductionCanonicalSemanticState } from "@harness-anything/daemon";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 

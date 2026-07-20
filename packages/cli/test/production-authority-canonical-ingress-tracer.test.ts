@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createGitCanonicalPublicationInspector } from "../src/daemon/authority-publication-evidence.ts";
+import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import {
   defaultDaemonUserRoot,
   pollUntil,

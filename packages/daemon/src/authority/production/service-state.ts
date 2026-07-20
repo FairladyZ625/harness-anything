@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned production authority durable state to CLI composition consumers.
 import {
   closeSync,
   existsSync,
@@ -181,13 +182,13 @@ function openLog(
       } finally {
         closeSync(fd);
       }
-      syncDirectory(stateDirectory);
+      syncAuthorityServiceStateDirectory(stateDirectory);
       values.set(key, value);
     }
   };
 }
 
-function syncDirectory(directory: string): void {
+function syncAuthorityServiceStateDirectory(directory: string): void {
   if (process.platform === "win32") return;
   const fd = openSync(directory, "r");
   try {

@@ -13,8 +13,8 @@ import {
   type WriteOp
 } from "@harness-anything/kernel";
 import type { ParsedCommand } from "../cli/types.ts";
+import { resolveHostedDocument } from "@harness-anything/daemon";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
-import { resolveHostedDocument } from "./production-authority-semantic-state.ts";
 
 export function productionObservedWriteAttemptIntent(
   command: ParsedCommand,

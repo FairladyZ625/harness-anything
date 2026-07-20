@@ -24,7 +24,7 @@ import { daemonActorAttribution } from "../../src/composition/actor-attribution.
 import { parseRecordArgs } from "../../src/cli/parsers/record.ts";
 import { parseNewTaskArgs } from "../../src/cli/parsers/new-task.ts";
 import { createCliCommandService } from "../../src/daemon/command-service.ts";
-import { createGitCanonicalPublicationInspector } from "../../src/daemon/authority-publication-evidence.ts";
+import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import { createProductionAuthorityLifecycle } from "../../src/daemon/production-authority-lifecycle.ts";
 import {
   defaultDaemonUserRoot,

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { openDurableAuthorityServiceState } from "../src/daemon/authority-service-state.ts";
+import { openDurableAuthorityServiceState } from "@harness-anything/daemon";
 import {
   defaultDaemonUserRoot,
   pollUntil,

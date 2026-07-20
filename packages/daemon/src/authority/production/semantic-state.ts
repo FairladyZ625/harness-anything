@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned production authority semantic state to CLI composition consumers.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { sha256Text, taskPackagePath } from "@harness-anything/kernel";

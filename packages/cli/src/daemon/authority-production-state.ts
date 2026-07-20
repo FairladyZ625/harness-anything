@@ -19,12 +19,12 @@ import {
 } from "@harness-anything/application";
 import {
   openLocalAuthorityKeyStore,
+  type DurableAuthorityStateTable,
   type LocalAuthorityKeyStore
 } from "@harness-anything/daemon";
 import type { WriteAttribution } from "@harness-anything/kernel";
 import { stableStringify } from "@harness-anything/kernel";
 import { authorityDurableAdapterMarker, type AuthorityDurableAdapterMarker } from "./authority-lifecycle.ts";
-import type { DurableAuthorityStateTable } from "./authority-service-state.ts";
 
 const productionManifestSchema = "authority-production-composition/v1" as const;
 const bindingStateSchema = "authority-binding-state/v1" as const;
