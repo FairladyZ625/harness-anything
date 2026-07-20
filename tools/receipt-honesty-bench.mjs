@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { Effect } from "effect";
-import { makeJournaledWriteCoordinator } from "../packages/kernel/src/store/write-journal-coordinator.ts";
+import { makeJournaledWriteCoordinator } from "../packages/kernel/src/write-coordination/journal/coordinator.ts";
 
 const defaultWriters = 4;
 const writesPerWriter = 4;

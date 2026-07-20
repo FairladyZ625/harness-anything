@@ -5,7 +5,7 @@ export * from "./ledger-materializer.ts";
 export * from "../persistence/local/local-lock-registry.ts";
 export * from "../persistence/git/local-version-control-system.ts";
 export * from "../persistence/markdown/markdown-artifact-store.ts";
-export * from "./write-journal-coordinator.ts";
+export * from "../write-coordination/journal/coordinator.ts";
 export * from "../write-coordination/attribution/legacy-attribution-event-store.ts";
 export * from "../write-coordination/attribution/authority-attribution-event-v2-log.ts";
 export * from "../write-coordination/attribution/authority-attribution-event-v2-recovery.ts";

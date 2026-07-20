@@ -17,7 +17,7 @@ import type { WriteOp } from "../../src/ports/write-coordinator.ts";
 import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
 import { createTaskPackagePath, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../src/layout/index.ts";
-import { applyWriteOp, documentWritesForWriteOp, writeOpTouchedPaths } from "../../src/store/write-journal-operations.ts";
+import { applyWriteOp, documentWritesForWriteOp, writeOpTouchedPaths } from "../../src/write-coordination/journal/operations/transaction-plan.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 

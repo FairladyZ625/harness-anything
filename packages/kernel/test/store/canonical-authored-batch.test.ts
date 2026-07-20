@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WriteOp } from "../../src/index.ts";
-import { canonicalAuthoredBatchWrites } from "../../src/store/canonical-authored-batch.ts";
+import { canonicalAuthoredBatchWrites } from "../../src/write-coordination/journal/operations/canonical-authored-batch.ts";
 
 const reservedPaths = [
   "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/INDEX.md",

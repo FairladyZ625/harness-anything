@@ -4,7 +4,7 @@ import path from "node:path";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
-const coordinatorPath = "packages/kernel/src/store/write-journal-coordinator.ts";
+const coordinatorPath = "packages/kernel/src/write-coordination/journal/coordinator.ts";
 const coordinatorFile = path.join(root, coordinatorPath);
 const findings = [];
 

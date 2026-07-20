@@ -226,7 +226,7 @@
       "evidence": [
         "packages/cli/src/commands/core/task-lifecycle.ts:49",
         "packages/adapters/local/src/task-writes.ts:54",
-        "packages/kernel/src/store/write-journal-operations.ts:256"
+        "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:256"
       ],
       "freshness": "append-delta"
     },
@@ -395,7 +395,7 @@
           "file": "packages/kernel/src/write-coordination/journal/locks.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-operations.ts"
+          "file": "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts"
         }
       ],
       "evidence": [
@@ -565,7 +565,7 @@
       ],
       "evidence": [
         "packages/cli/src/commands/retired-attribution-field-migration.ts:99",
-        "packages/kernel/src/store/write-journal-operations.ts:54"
+        "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:54"
       ],
       "freshness": "confirmed-plan-sha256-cas-key-only-delete"
     },
@@ -631,7 +631,7 @@
       "evidence": [
         "packages/application/src/fact-write-service.ts:128",
         "packages/application/src/fact-write-service.ts:151",
-        "packages/kernel/src/store/write-journal-operations.ts:296"
+        "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:296"
       ],
       "freshness": "append-relation-delta-with-required-facts"
     },
@@ -885,7 +885,7 @@
       ],
       "evidence": [
         "packages/cli/src/commands/extensions/module.ts:71",
-        "packages/kernel/src/store/write-journal-operations.ts:394"
+        "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts:394"
       ],
       "freshness": "scaffold-template-write"
     },

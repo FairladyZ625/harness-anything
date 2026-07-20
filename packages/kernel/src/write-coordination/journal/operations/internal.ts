@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
-import type { MachineArtifactBoundary } from "./write-journal-operations.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import type { EntityId, EntityRelationRecord, FactRecord, TaskId } from "../domain/index.ts";
+import type { DocumentWrite } from "../../../ports/artifact-store-writer.ts";
+import type { MachineArtifactBoundary } from "./transaction-plan.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import type { EntityId, EntityRelationRecord, FactRecord, TaskId } from "../../../domain/index.ts";
 import {
   formatFactFlowRecord,
   formatRelationFlowRecord,
@@ -13,25 +13,25 @@ import {
   moduleKeyFromEntityId,
   parseFactFlowRecords,
   taskEntityId
-} from "../domain/index.ts";
+} from "../../../domain/index.ts";
 import {
   isContentAddressedBlobRef,
   readContentAddressedTextBlob,
   type ContentAddressedBlobRef
-} from "../persistence/blob/content-addressed-blob-store.ts";
+} from "../../../persistence/blob/content-addressed-blob-store.ts";
 import {
   createTaskPackagePath,
   type HarnessLayoutInput,
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   taskPackagePath
-} from "../layout/index.ts";
-import { evaluateEntityDisposition } from "../entity/disposition.ts";
-import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { writeDocument } from "../persistence/markdown/markdown-artifact-store.ts";
-import { writeFileDurably } from "../write-coordination/journal/durable.ts";
-import { rejectTaskWrite, rejectWrite } from "../write-coordination/journal/rejection.ts";
-import { taskIdForWriteOp } from "../write-coordination/journal/operations/entity.ts";
+} from "../../../layout/index.ts";
+import { evaluateEntityDisposition } from "../../../entity/disposition.ts";
+import { readFrontmatter, readScalar } from "../../../markdown/frontmatter.ts";
+import { writeDocument } from "../../../persistence/markdown/markdown-artifact-store.ts";
+import { writeFileDurably } from "../durable.ts";
+import { rejectTaskWrite, rejectWrite } from "../rejection.ts";
+import { taskIdForWriteOp } from "./entity.ts";
 function readHardDeletePayload(op: WriteOp): { readonly reason: string } {
   const payload = op.payload;
   const payloadRecord = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : null;

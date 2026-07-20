@@ -2127,7 +2127,7 @@
         "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
       ],
       "consumerScope": [
-        "packages/kernel/src/store/write-journal-coordinator.ts imports and local calls",
+        "packages/kernel/src/write-coordination/journal/coordinator.ts imports and local calls",
         "metabolic write-admissibility policy modules named by ADR-0022 F6"
       ],
       "githubContext": {

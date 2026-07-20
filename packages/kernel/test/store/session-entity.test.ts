@@ -17,7 +17,7 @@ import {
 import { getEntityRegistration } from "../../src/entity/registry.ts";
 import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
+import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
 import { withTempStore } from "./helpers.ts";
 
 test("session manifests coordinate compact state, immutable transcript bodies, and rebuildable projections", () => {

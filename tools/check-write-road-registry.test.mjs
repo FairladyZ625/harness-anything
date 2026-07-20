@@ -182,7 +182,7 @@ function writeFixture(root, overrides = {}) {
     "export type MachineArtifactWriteOpKind = 'machine_artifact_write';",
     "export type WriteOpKind = TaskWriteOpKind | MachineArtifactWriteOpKind;"
   ]);
-  writeLines(root, "packages/kernel/src/store/write-journal-operations.ts", [
+  writeLines(root, "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts", [
     `type MachineArtifactBoundary = ${boundary};`
   ]);
   writeLines(root, "packages/application/src/fixture.ts", [

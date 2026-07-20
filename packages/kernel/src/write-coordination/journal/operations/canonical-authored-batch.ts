@@ -1,10 +1,10 @@
 import path from "node:path";
-import type { EntityId } from "../domain/index.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { durableFileExists, readFileBytes, removeFileDurably, writeFileDurably } from "../write-coordination/journal/durable.ts";
-import { rejectWrite } from "../write-coordination/journal/rejection.ts";
+import type { EntityId } from "../../../domain/index.ts";
+import { sha256Text } from "../../../integrity/stable-hash.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../layout/index.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import { durableFileExists, readFileBytes, removeFileDurably, writeFileDurably } from "../durable.ts";
+import { rejectWrite } from "../rejection.ts";
 
 export interface CanonicalAuthoredWrite {
   readonly path: string;
