@@ -13,6 +13,7 @@ export async function runDaemonLogsCommand(input: DaemonCommandInput): Promise<n
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: readOption(input.args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID,
+    layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
   const levels = readOption(input.args, "--levels")?.split(",").filter((value): value is DaemonLogLevel => value.length > 0);

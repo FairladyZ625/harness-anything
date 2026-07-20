@@ -76,7 +76,7 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     if (action === "refresh") return await controlDaemon(input, "refresh");
     if (action === "bootstrap-server") return await bootstrapServer(input);
     if (action === "install-templates") return installTemplates(input);
-    if (action === "repo") return runDaemonRepoCommand({ rootDir: input.rootDir, args: input.args, json: input.json });
+    if (action === "repo") return runDaemonRepoCommand({ rootDir: input.rootDir, layoutOverrides: input.layoutOverrides, args: input.args, json: input.json });
     emitDaemonError(
       CliErrorCode.UnknownCommand,
       `Unknown daemon command: ${action}. Run 'ha daemon --help' to inspect valid daemon subcommands.`,
@@ -104,6 +104,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
     rootDir: launchOptions.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
     userRoot: launchOptions.userRoot,
+    layoutOverrides,
     autoRegisterSingleRepo: true
   });
   const socketPath = launchOptions.socketPath ?? target.socketPath;
@@ -152,6 +153,7 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
+    layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
@@ -185,6 +187,7 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
   const target = resolveLocalDaemonTarget({
     rootDir: input.rootDir,
     repoIdOverride: daemonRepoIdOverride(input.args),
+    layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));

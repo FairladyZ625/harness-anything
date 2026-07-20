@@ -8,7 +8,12 @@ import { readOption, stripGlobalOptions } from "../cli/parse-options.ts";
 import { daemonClientCliEntrypointPath, readDaemonClientConfig } from "../daemon/client.ts";
 
 type Receipt = CommandReceipt | CommandFailureReceipt;
-type AgentRuntimeRequester = (method: string, payload: JsonObject | undefined, rootDir: string) => Promise<Receipt>;
+type AgentRuntimeRequester = (
+  method: string,
+  payload: JsonObject | undefined,
+  rootDir: string,
+  layoutOverrides?: { readonly authoredRoot?: string }
+) => Promise<Receipt>;
 
 export async function runAgentRuntimeCommand(
   argv: ReadonlyArray<string>,
@@ -53,11 +58,17 @@ export async function runAgentRuntimeCommand(
   } else {
     return { receipt: failure("agent", "unknown_agent_command", agentHelp()), json: stripped.json };
   }
-  return { receipt: await request(method, payload, stripped.rootDir), json: stripped.json };
+  const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
+  return { receipt: await request(method, payload, stripped.rootDir, layoutOverrides), json: stripped.json };
 }
 
-async function requestAgentRuntimeDaemon(method: string, payload: JsonObject | undefined, rootDir: string): Promise<Receipt> {
-  const config = readDaemonClientConfig(process.env, rootDir);
+async function requestAgentRuntimeDaemon(
+  method: string,
+  payload: JsonObject | undefined,
+  rootDir: string,
+  layoutOverrides?: { readonly authoredRoot?: string }
+): Promise<Receipt> {
+  const config = readDaemonClientConfig(process.env, rootDir, undefined, undefined, layoutOverrides);
   if (config.mode !== "local") return failure("agent", "agent_runtime_requires_local_daemon", "Agent runtime commands require the local daemon; omit HARNESS_DAEMON_MODE=direct or remote.");
   const target = resolveLocalDaemonTarget({
     rootDir,
@@ -71,7 +82,8 @@ async function requestAgentRuntimeDaemon(method: string, payload: JsonObject | u
   }, 200, {
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
-    timeoutMs: config.autostartTimeoutMs
+    timeoutMs: config.autostartTimeoutMs,
+    layoutOverrides
   });
   if (isReceipt(response)) return response;
   return failure("agent", "agent_runtime_response_invalid", `${method} did not return command-receipt/v2.`);

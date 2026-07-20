@@ -18,6 +18,10 @@ export interface ProjectHarnessTaskSettings {
   readonly leaseTtlMs?: number;
 }
 
+export interface ProjectHarnessDaemonSettings {
+  readonly userRoot: string;
+}
+
 export interface ProjectHarnessSettings {
   readonly present: boolean;
   readonly locale?: HarnessLocale;
@@ -25,6 +29,7 @@ export interface ProjectHarnessSettings {
   readonly defaultPreset?: string;
   readonly defaultProfile?: string;
   readonly identity?: ProjectHarnessIdentity;
+  readonly daemon?: ProjectHarnessDaemonSettings;
   readonly tasks: ProjectHarnessTaskSettings;
   readonly customVerticalsEnabled: boolean;
 }
@@ -59,9 +64,15 @@ const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
 const DEFAULT_TASK_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 
-export function readProjectHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): SettingsResult {
+export function readProjectHarnessSettings(
+  rootInput: HarnessLayoutInput,
+  command = "settings",
+  options: { readonly preferAuthoredRootConfig?: boolean } = {}
+): SettingsResult {
   const layout = resolveHarnessLayout(rootInput);
-  const configPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
+  const configPath = options.preferAuthoredRootConfig
+    ? path.join(layout.authoredRoot, "harness.yaml")
+    : layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_SETTINGS };
 
   try {
@@ -214,6 +225,7 @@ function parseSettingsDocument(body: string): { readonly present: boolean; reado
       defaultPreset: fromSettings.defaultPreset ?? decoded.presets?.default,
       defaultProfile: fromSettings.defaultProfile,
       identity: fromSettings.identity,
+      daemon: fromSettings.daemon,
       tasks: fromSettings.tasks,
       customVerticals: fromSettings.customVerticals
     };
@@ -232,6 +244,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inSettings = false;
   let inCustomVerticals = false;
   let inIdentity = false;
+  let inDaemon = false;
   let inTasks = false;
   let foundSettings = false;
 
@@ -244,6 +257,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inSettings = topLevel[1] === "settings";
       inCustomVerticals = false;
       inIdentity = false;
+      inDaemon = false;
       inTasks = false;
       foundSettings ||= inSettings;
       if (inSettings && topLevel[2]?.trim()) {
@@ -261,6 +275,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       const value = rawValue.trim();
       inCustomVerticals = key === "customVerticals";
       inIdentity = key === "identity";
+      inDaemon = key === "daemon";
       inTasks = key === "tasks";
       if (inCustomVerticals) {
         if (value) throw new Error("settings.customVerticals must be a mapping.");
@@ -270,6 +285,11 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       if (inIdentity) {
         if (value) throw new Error("settings.identity must be a mapping.");
         settings.identity = {};
+        continue;
+      }
+      if (inDaemon) {
+        if (value) throw new Error("settings.daemon must be a mapping.");
+        settings.daemon = {};
         continue;
       }
       if (inTasks) {
@@ -298,6 +318,14 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       const value = rawValue.trim();
       if (!value) throw new Error(`settings.identity.${key} must be a scalar value.`);
       settings.identity = { ...(isRecord(settings.identity) ? settings.identity : {}), [key]: unquoteScalar(value) };
+      continue;
+    }
+    if (inDaemon && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "userRoot") throw new Error(`Unknown settings.daemon key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.daemon.userRoot must be a scalar value.");
+      settings.daemon = { userRoot: unquoteScalar(value) };
       continue;
     }
     if (inTasks && customNested) {
@@ -333,6 +361,8 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
   if (!defaultProfile.ok) return invalid(command, defaultProfile.message);
   const identity = validateIdentity(command, raw.identity);
   if (!identity.ok) return identity;
+  const daemon = validateDaemon(command, raw.daemon);
+  if (!daemon.ok) return daemon;
   const tasks = raw.tasks;
   let leaseTtlMs: number | undefined;
   if (tasks !== undefined) {
@@ -371,6 +401,7 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       defaultPreset: normalizeDefaultSentinel(defaultPreset.value),
       defaultProfile: normalizeDefaultSentinel(defaultProfile.value),
       ...(identity.value ? { identity: identity.value } : {}),
+      ...(daemon.value ? { daemon: daemon.value } : {}),
       tasks: {
         leaseEnforcement: isRecord(tasks) && tasks.leaseEnforcement === true,
         ...(leaseTtlMs !== undefined ? { leaseTtlMs } : {})
@@ -378,6 +409,24 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       customVerticalsEnabled: isRecord(customVerticals) ? customVerticals.enabled === true : false
     }
   };
+}
+
+function validateDaemon(command: string, value: unknown):
+  | { readonly ok: true; readonly value?: ProjectHarnessDaemonSettings }
+  | Extract<SettingsResult, { readonly ok: false }> {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value)) return invalid(command, "settings.daemon must be a mapping.");
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== "userRoot") {
+    return invalid(command, "settings.daemon supports only userRoot.");
+  }
+  if (typeof value.userRoot !== "string" || !value.userRoot.trim() || value.userRoot.includes("\0")) {
+    return invalid(command, "settings.daemon.userRoot must be a non-empty path scalar.");
+  }
+  if (value.userRoot.startsWith("~") && value.userRoot !== "~" && !/^~[\\/]/u.test(value.userRoot)) {
+    return invalid(command, "settings.daemon.userRoot supports only ~ or ~/... home-relative paths.");
+  }
+  return { ok: true, value: { userRoot: value.userRoot.trim() } };
 }
 
 function validateIdentity(command: string, value: unknown):

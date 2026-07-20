@@ -1,9 +1,11 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
-import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import {
+  createLocalGuiServiceBridge,
+  type HarnessLayoutOverrides
+} from "./local-composition-root.ts";
 import { createLocalGuiProjectionNotifications } from "./projection-notifications.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
@@ -68,8 +70,9 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot();
-  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir);
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), {
+  const layoutOverrides = resolveGuiLayoutOverrides();
+  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir, layoutOverrides);
+  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, layoutOverrides), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),

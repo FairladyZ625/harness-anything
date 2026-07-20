@@ -117,9 +117,14 @@ export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(home, ".harness"));
 }
 
-export function daemonUserRootForRepo(rootDir: string, env: NodeJS.ProcessEnv = process.env): string {
+export function daemonUserRootForRepo(
+  rootDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+  projectUserRoot?: string
+): string {
   const explicit = readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT");
   if (explicit) return path.resolve(explicit);
+  if (projectUserRoot) return path.resolve(projectUserRoot);
   const profile = readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_PROFILE") ?? "default";
   if (profile === "default") return daemonUserRoot(env);
   if (profile === "isolated") return path.resolve(rootDir, ".harness", "daemon-profile");

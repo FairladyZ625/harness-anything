@@ -4,12 +4,13 @@ import {
   unregisterDaemonRepo,
   type DaemonRegistryRepo
 } from "@harness-anything/kernel";
-import { daemonUserRootForRepo } from "@harness-anything/daemon";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
+import { readDaemonUserRoot } from "../../daemon/client.ts";
 
 export interface DaemonRepoCommandInput {
   readonly rootDir: string;
+  readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly args: ReadonlyArray<string>;
   readonly json: boolean;
 }
@@ -20,7 +21,7 @@ export function runDaemonRepoCommand(input: DaemonRepoCommandInput): number {
     console.log(renderDaemonRepoHelp());
     return 0;
   }
-  const userRoot = readOption(input.args, "--user-root") ?? daemonUserRootForRepo(input.rootDir, process.env);
+  const userRoot = readOption(input.args, "--user-root") ?? readDaemonUserRoot(process.env, input.rootDir, input.layoutOverrides);
   const options = {
     userRoot,
     createConvenienceLinks: !input.args.includes("--no-link")

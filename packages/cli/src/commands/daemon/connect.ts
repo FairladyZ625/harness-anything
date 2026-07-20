@@ -3,7 +3,6 @@ import path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import {
   daemonIdFromEnv,
-  daemonUserRoot,
   encodeJsonLineFrame,
   localUserDaemonEndpoint,
   sshAuthorityWireBootstrapFrame,
@@ -11,6 +10,7 @@ import {
   type SshForcedCommandBootstrapInput
 } from "@harness-anything/daemon";
 import { readOption } from "../../cli/parse-options.ts";
+import { readDaemonUserRoot } from "../../daemon/client.ts";
 import { verifyCurrentProcessHasPrivilegedSshdAncestor } from "./sshd-witness.ts";
 
 export interface DaemonConnectStreams {
@@ -27,6 +27,7 @@ export async function runDaemonConnect(
     readonly env?: NodeJS.ProcessEnv;
     readonly platform?: NodeJS.Platform;
     readonly rootDir?: string;
+    readonly layoutOverrides?: { readonly authoredRoot?: string };
     readonly streams?: DaemonConnectStreams;
     readonly verifySshdContext?: () => boolean;
   } = {}
@@ -54,7 +55,7 @@ export async function runDaemonConnect(
     streams.error.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
-  const userRoot = readOption(args, "--user-root") ?? daemonUserRoot(env);
+  const userRoot = readOption(args, "--user-root") ?? readDaemonUserRoot(env, options.rootDir ?? process.cwd(), options.layoutOverrides);
   const endpoint = readOption(args, "--socket")
     ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv(env), options.platform ?? process.platform);
   const streamProtocol: DaemonConnectStreamProtocol = args.includes("--authority-wire")

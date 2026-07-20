@@ -91,7 +91,7 @@ export async function runDaemonControl(
     control.params,
     5_000,
     {
-      userRoot: daemonUserRootOption(input.args),
+      userRoot: lifecycle.target.userRoot,
       socketPath: readOption(input.args, "--socket"),
       allowLegacySocket: false
     }
@@ -290,6 +290,7 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     rootDir: input.rootDir,
     repoIdOverride: readOption(input.args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID,
     userRoot: daemonUserRootOption(input.args),
+    layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
   const socketPath = readOption(input.args, "--socket");

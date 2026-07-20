@@ -4,7 +4,10 @@ import type {
   HarnessProjectionNotificationSource
 } from "./ipc-handlers.ts";
 import type { RendererProjectionNotification } from "../preload/allowlist.ts";
-import { resolveGuiDaemonNotificationTarget } from "./local-composition-root.ts";
+import {
+  resolveGuiDaemonNotificationTarget,
+  type HarnessLayoutOverrides
+} from "./local-composition-root.ts";
 
 const daemonConnectionTimeoutMs = 6_000;
 const projectionSubscriptionTimeoutMs = 1_000;
@@ -14,7 +17,10 @@ export interface LocalGuiProjectionNotifications {
   readonly dispose: () => Promise<void>;
 }
 
-export function createLocalGuiProjectionNotifications(rootDir: string): LocalGuiProjectionNotifications {
+export function createLocalGuiProjectionNotifications(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides
+): LocalGuiProjectionNotifications {
   let client: PersistentDaemonClient | undefined;
   let clientEvents: Disposable | undefined;
   let clientState: Disposable | undefined;
@@ -59,7 +65,7 @@ export function createLocalGuiProjectionNotifications(rootDir: string): LocalGui
 
   async function ensureClient(): Promise<PersistentDaemonClient> {
     if (client) return client;
-    const target = await resolveGuiDaemonNotificationTarget(rootDir);
+    const target = await resolveGuiDaemonNotificationTarget(rootDir, layoutOverrides);
     client = new PersistentDaemonClient({
       endpoint: target.socketPath,
       transport: new JsonLineSocketTransport(),
