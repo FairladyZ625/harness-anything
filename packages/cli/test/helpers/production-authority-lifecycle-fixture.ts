@@ -10,7 +10,7 @@ import {
 import { openLocalAuthorityKeyStore } from "../../../daemon/src/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
 import { defaultCliAdapterProvider } from "../../src/composition/adapter-registry.ts";
-import { authorityNamespaceProofBytes } from "../../src/daemon/authority-production-state.ts";
+import { authorityNamespaceProofBytes } from "@harness-anything/daemon";
 
 export interface ProductionAuthorityLifecycleFixture {
   readonly root: string;

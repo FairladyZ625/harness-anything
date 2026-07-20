@@ -6,6 +6,17 @@ export * from "./authority/production/publication-evidence.ts";
 export * from "./authority/production/recovery.ts";
 export * from "./authority/production/semantic-state.ts";
 export * from "./authority/production/service-state.ts";
+export * from "./authority/production/authority-attribution-event-v2-production-recovery.ts";
+export * from "./authority/production/authority-manifest-registry.ts";
+export * from "./authority/production/authority-production-state.ts";
+export * from "./authority/production/production-authority-attempt-compiler.ts";
+export * from "./authority/production/production-authority-lifecycle-intents.ts";
+export * from "./authority/production/production-authority-lifecycle.ts";
+export * from "./authority/production/production-authority-observed-write-intents.ts";
+export * from "./authority/production/production-authority-provenance-session-intent.ts";
+export * from "./authority/production/production-authority-script-ingest.ts";
+export * from "./authority/production/production-authority-semantic-compiler.ts";
+export * from "./authority/production/production-authority-task-claim-intent.ts";
 export {
   ensureMachinePeopleRoster
 } from "./identity/machine-people.ts";

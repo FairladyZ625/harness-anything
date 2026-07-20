@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports the daemon-owned authority manifest projection to CLI serve composition.
 import {
   projectDaemonRepoRegistration,
   readDaemonRegistry,

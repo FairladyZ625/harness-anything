@@ -4,8 +4,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { executionDeclaration, taskEntityId, taskHolderActor, type ExecutionRecord, type WriteOp } from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
-import { makeDaemonAuthorityWriteCoordinator } from "@harness-anything/daemon";
-import { taskClaimAttemptIntent } from "../src/daemon/production-authority-task-claim-intent.ts";
+import { makeDaemonAuthorityWriteCoordinator, taskClaimAttemptIntent } from "@harness-anything/daemon";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime

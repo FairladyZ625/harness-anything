@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports the daemon-owned production authority lifecycle to CLI host composition.
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import {
@@ -13,29 +14,37 @@ import {
 import { createAuthoritySubmissionService } from "@harness-anything/application/authority/service";
 import {
   answerAttestationChallenge,
-  assertPublicationMatchesMutationSet,
-  createAuthorityProductionScanner,
   createAttestationChallenge,
-  createGitAuthorityAttributionEvidenceCommitterV2,
-  createGitCanonicalPublicationInspector,
-  createTransportObservedAttestationAdapter,
+  verifyAttestationAssertion
+} from "../../attestation/handshake.ts";
+import { createTransportObservedAttestationAdapter } from "../../attestation/transport-observed-adapter.ts";
+import type { PersonRegistry } from "../../identity/types.ts";
+import { createProductionCompoundReceiptComposition } from "../../lifecycle/compound-receipt-composition.ts";
+import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
+import {
   createDaemonAuthorityCommandSubmissionV2,
+  gateAuthoritySubmissionForRecovery
+} from "../authority-command-submission.ts";
+import {
   createAuthorityRepoLifecycleController,
-  createProductionCompoundReceiptComposition,
-  gateAuthoritySubmissionForRecovery,
-  gateCutoverAdmission,
-  recoverPendingProductionEvents,
-  recoveryErrorCode,
-  recoveryErrorSummary,
-  verifyAttestationAssertion,
-  type AuthorityConnectionContext,
   type AuthorityRepoComponent,
   type AuthorityRepoConnectionBinding,
   type AuthorityRepoLifecycleController,
-  type AuthorityRepoLifecycleHooks,
-  type PersonRegistry
-} from "@harness-anything/daemon";
-import { serveAuthorityForcedCommand } from "@harness-anything/daemon/authority/forced-command-session";
+  type AuthorityRepoLifecycleHooks
+} from "../authority-lifecycle.ts";
+import { serveAuthorityForcedCommand } from "../forced-command-session.ts";
+import { gateCutoverAdmission } from "./cutover-admission.ts";
+import {
+  assertPublicationMatchesMutationSet,
+  createGitAuthorityAttributionEvidenceCommitterV2,
+  createGitCanonicalPublicationInspector
+} from "./publication-evidence.ts";
+import { createAuthorityProductionScanner } from "./production-scanner.ts";
+import {
+  recoverPendingProductionEvents,
+  recoveryErrorCode,
+  recoveryErrorSummary
+} from "./recovery.ts";
 import {
   entityRegistry,
   entityRegistryKinds,
@@ -54,7 +63,7 @@ import {
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
-export { recoverPendingProductionEvents } from "@harness-anything/daemon";
+export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
   readonly config: AuthorityProductionRepoConfigV1;

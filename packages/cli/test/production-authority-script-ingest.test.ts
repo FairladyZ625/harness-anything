@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ParsedCommand } from "../src/cli/types.ts";
-import { productionScriptIngestAttemptIntent } from "../src/daemon/production-authority-script-ingest.ts";
+import { productionScriptIngestAttemptIntent } from "@harness-anything/daemon";
 
 const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4";
 const command: ParsedCommand = {

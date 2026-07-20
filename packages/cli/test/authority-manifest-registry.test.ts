@@ -11,7 +11,7 @@ import {
 import {
   authorityManifestServeRepos,
   persistAuthorityManifestPointer
-} from "../src/daemon/authority-manifest-registry.ts";
+} from "@harness-anything/daemon";
 import { initializeHarness } from "../src/commands/init.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
 

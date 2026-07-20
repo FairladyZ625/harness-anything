@@ -11,7 +11,7 @@ import {
 } from "../../../application/src/index.ts";
 import { openLocalAuthorityKeyStore } from "../../../daemon/src/index.ts";
 import { executionDeclaration, type ExecutionRecord } from "../../../kernel/src/index.ts";
-import { authorityNamespaceProofBytes } from "../../src/daemon/authority-production-state.ts";
+import { authorityNamespaceProofBytes } from "@harness-anything/daemon";
 
 export type ProductionCanonicalIngressFixture = ReturnType<typeof createFixture>;
 

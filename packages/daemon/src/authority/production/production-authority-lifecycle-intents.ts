@@ -24,7 +24,7 @@ import {
   type ExecutionRecord,
   type RegistryEntityRefV2
 } from "@harness-anything/kernel";
-import type { DaemonAuthorityAttemptCompilerV2 } from "@harness-anything/daemon";
+import type { DaemonAuthorityAttemptCompilerV2 } from "../authority-command-submission.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 type CompileInput = Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
