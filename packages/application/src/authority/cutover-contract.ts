@@ -210,6 +210,31 @@ export interface AuthorityCutoverControlService {
   readonly reEnable: (input: { readonly boundaryId: string; readonly expectedFreezeReceiptDigest: string; readonly equalityReceiptId: string; readonly forwardFixRef: string }) => AuthorityCutoverReenableReceipt;
 }
 
+export type AuthorityCutoverCommandAction =
+  | { readonly kind: "authority-cutover-status" }
+  | { readonly kind: "authority-cutover-drain"; readonly classifications: ReadonlyArray<AuthorityPendingClassification> }
+  | { readonly kind: "authority-cutover-scan"; readonly profileId: "production-final-scan/v1" }
+  | { readonly kind: "authority-cutover-confirm"; readonly firstScanId: string; readonly secondScanId: string }
+  | { readonly kind: "authority-cutover-boundary"; readonly boundaryId: string; readonly equalityReceiptId: string; readonly expectedSelectedSchemaTupleDigest: string }
+  | { readonly kind: "authority-cutover-freeze"; readonly reason: string; readonly expectedBoundaryReceiptDigest: string }
+  | { readonly kind: "authority-cutover-re-enable"; readonly boundaryId: string; readonly expectedFreezeReceiptDigest: string; readonly equalityReceiptId: string; readonly forwardFixRef: string };
+
+export type AuthorityCutoverCommandReport =
+  | AuthorityCutoverControlState
+  | AuthorityCutoverDrainReceipt
+  | AuthorityCutoverScanReceipt
+  | AuthorityCutoverEqualityReceipt
+  | AuthorityCutoverBoundaryReceipt
+  | AuthorityCutoverFreezeReceipt
+  | AuthorityCutoverReenableReceipt;
+
+export type AuthorityCutoverCommandErrorCode = "AuthMissing" | "EngineNotEnabled" | "write_rejected";
+
+export type AuthorityCutoverCommandResult =
+  | { readonly ok: true; readonly command: AuthorityCutoverCommandAction["kind"]; readonly report: AuthorityCutoverCommandReport }
+  | { readonly ok: false; readonly command: AuthorityCutoverCommandAction["kind"]; readonly report: AuthorityCutoverCommandReport; readonly error: { readonly code: "write_rejected"; readonly hint: string } }
+  | { readonly ok: false; readonly command: AuthorityCutoverCommandAction["kind"]; readonly error: { readonly code: AuthorityCutoverCommandErrorCode; readonly hint: string } };
+
 export function protocolSchemaTupleDigest(tuple: ProtocolSchemaTupleV2): string {
   return cutoverContractCborDigest("ha/protocol-schema-tuple/v2\0", tuple as unknown as CanonicalCborValue);
 }

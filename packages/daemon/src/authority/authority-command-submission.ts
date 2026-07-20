@@ -5,6 +5,9 @@ import {
   operationIdDiagnosticV2,
   semanticRequestDigestV2,
   type AuthorityOperationReceipt,
+  type AuthorityHostAttribution,
+  type AuthorityHostCommand,
+  type AuthorityIngressAdapter,
   type AuthoritySubmissionService,
   type AuthorizedOperationAttemptV2
 } from "@harness-anything/application";
@@ -18,8 +21,6 @@ import type {
   WriteOp
 } from "@harness-anything/kernel";
 import { taskEntityId } from "@harness-anything/kernel";
-import { productionAuthorityIngressFor } from "@harness-anything/application";
-import type { CommandActorAttribution as CliActorAttribution, ParsedCommand } from "./command-contract.ts";
 
 export interface DaemonAuthorityAttemptCompilerV2 {
   /**
@@ -27,38 +28,38 @@ export interface DaemonAuthorityAttemptCompilerV2 {
    * intent. Raw WriteOps are deliberately absent from this boundary.
    */
   readonly compile: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly canonicalEntityId: WriteOp["entityId"];
   }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileProvenanceSession?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileDecisionTransition?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileTaskClaim?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileObservedWrite?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
   readonly compileScriptIngest?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorizedOperationAttemptV2>;
@@ -66,38 +67,38 @@ export interface DaemonAuthorityAttemptCompilerV2 {
 
 export interface DaemonAuthorityCommandSubmissionV2 {
   readonly submit: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly canonicalEntityId: WriteOp["entityId"];
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitProvenanceSession?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitDecisionTransition?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitTaskClaim?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitObservedWrite?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
   readonly submitScriptIngest?: (input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
     readonly operation: WriteOp;
   }) => Promise<AuthorityOperationReceipt>;
@@ -190,9 +191,10 @@ export function gateAuthoritySubmissionForRecovery(
 export function makeDaemonAuthorityWriteCoordinator(
   submission: DaemonAuthorityCommandSubmissionV2,
   input: {
-    readonly command: ParsedCommand;
-    readonly attribution: CliActorAttribution;
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
     readonly currentSession: CurrentSessionRef;
+    readonly ingressAdapter?: AuthorityIngressAdapter;
   }
 ): WriteCoordinator {
   let pending: WriteOp | undefined;
@@ -229,8 +231,7 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (provenanceSession && !submission.submitProvenanceSession) {
           throw authorityWriteRejected("AUTHORITY_PROVENANCE_SESSION_SUBMISSION_UNAVAILABLE");
         }
-        const ingress = productionAuthorityIngressFor(input.command.action.kind);
-        const ingressAdapter = ingress?.status === "typed-v2" ? ingress.adapter : undefined;
+        const ingressAdapter = input.ingressAdapter;
         const decisionTransition = ingressAdapter === "decision-transition";
         if (decisionTransition && !submission.submitDecisionTransition) {
           throw authorityWriteRejected("AUTHORITY_DECISION_TRANSITION_SUBMISSION_UNAVAILABLE");
@@ -278,11 +279,11 @@ export function makeDaemonAuthorityWriteCoordinator(
   };
 }
 
-function isAuthorityCoveredTaskTreeStage(command: ParsedCommand, operation: WriteOp): boolean {
+function isAuthorityCoveredTaskTreeStage(command: AuthorityHostCommand, operation: WriteOp): boolean {
   return command.action.kind === "task-complete" && operation.kind === "task_tree_stage";
 }
 
-function authorityCommandCoversLocalWritePhases(command: ParsedCommand): boolean {
+function authorityCommandCoversLocalWritePhases(command: AuthorityHostCommand): boolean {
   const action = command.action;
   return action.kind === "status-set"
     || action.kind === "task-complete"
@@ -290,7 +291,7 @@ function authorityCommandCoversLocalWritePhases(command: ParsedCommand): boolean
 }
 
 function isProvenanceSessionOperation(
-  input: { readonly command: ParsedCommand; readonly currentSession: CurrentSessionRef },
+  input: { readonly command: AuthorityHostCommand; readonly currentSession: CurrentSessionRef },
   operation: WriteOp
 ): boolean {
   const action = input.command.action;
@@ -304,7 +305,7 @@ function isProvenanceSessionOperation(
   ) && operation.entityId === `entity/session/${sessionId}`;
 }
 
-function commandMainEntityId(command: ParsedCommand): WriteOp["entityId"] | undefined {
+function commandMainEntityId(command: AuthorityHostCommand): WriteOp["entityId"] | undefined {
   const action = command.action;
   if (action.kind === "new-task" && action.taskId) return taskEntityId(action.taskId);
   if (action.kind === "status-set" && action.executionSubmission?.executionId) {

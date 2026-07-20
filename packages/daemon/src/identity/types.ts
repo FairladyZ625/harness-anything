@@ -1,5 +1,6 @@
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import type { VcsCommitAuthor } from "@harness-anything/kernel";
 
 export type PersonId = string;
 export type RoleId = string;
@@ -167,11 +168,6 @@ export interface IdentityAdminSnapshot {
   readonly roles: ReadonlyArray<RolePolicy>;
 }
 
-export interface GitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
-}
-
 export function credentialKey(credential: CredentialRef): string {
   return `${credential.kind}\0${credential.issuer}\0${credential.subject}`;
 }
@@ -201,7 +197,7 @@ export function actorStampJson(actor: AuthenticatedActor): JsonObject {
   };
 }
 
-export function actorGitCommitAuthor(actor: AuthenticatedActor): GitCommitAuthor {
+export function actorGitCommitAuthor(actor: AuthenticatedActor): VcsCommitAuthor {
   const email = actor.primaryEmail?.trim();
   if (!email) throw new Error(`Actor ${actor.personId} requires primaryEmail for git author attribution.`);
   return {

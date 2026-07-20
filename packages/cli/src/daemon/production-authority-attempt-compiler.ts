@@ -204,35 +204,41 @@ export function createProductionCanonicalAttemptCompiler(input: {
   };
   return {
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const disposition = productionAuthorityIngressFor(command.action.kind);
+      const cliCommand = command as ParsedCommand;
+      const disposition = productionAuthorityIngressFor(cliCommand.action.kind);
       const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
-        ? await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor)
+        ? await canonicalAttemptIntent(cliCommand, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor)
         : null;
-      return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
+      return compileIntent(cliCommand, attribution, currentSession, canonicalEntityId, intent);
     },
     compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "generic");
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        provenanceSessionAttemptIntent(command, currentSession, operation));
+      const cliCommand = command as ParsedCommand;
+      assertTypedIngressAdapter(cliCommand.action.kind, "generic");
+      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
+        provenanceSessionAttemptIntent(cliCommand, currentSession, operation));
     },
     compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "decision-transition");
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        decisionTransitionAttemptIntent(command, operation, input.authoredRoot));
+      const cliCommand = command as ParsedCommand;
+      assertTypedIngressAdapter(cliCommand.action.kind, "decision-transition");
+      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
+        decisionTransitionAttemptIntent(cliCommand, operation, input.authoredRoot));
     },
     compileTaskClaim: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "task-claim");
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        taskClaimAttemptIntent(command, attribution, currentSession, operation));
+      const cliCommand = command as ParsedCommand;
+      assertTypedIngressAdapter(cliCommand.action.kind, "task-claim");
+      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
+        taskClaimAttemptIntent(cliCommand, attribution, currentSession, operation));
     },
     compileObservedWrite: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "observed-write");
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        productionObservedWriteAttemptIntent(command, operation, input.authoredRoot));
+      const cliCommand = command as ParsedCommand;
+      assertTypedIngressAdapter(cliCommand.action.kind, "observed-write");
+      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
+        productionObservedWriteAttemptIntent(cliCommand, operation, input.authoredRoot));
     },
     compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        productionScriptIngestAttemptIntent(command, operation, input.authoredRoot));
+      const cliCommand = command as ParsedCommand;
+      return compileIntent(cliCommand, attribution, currentSession, operation.entityId,
+        productionScriptIngestAttemptIntent(cliCommand, operation, input.authoredRoot));
     }
   };
 }

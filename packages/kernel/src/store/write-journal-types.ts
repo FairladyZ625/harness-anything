@@ -1,6 +1,6 @@
 import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import type { AttributionEventStore } from "./write-journal-attribution-events.ts";
 import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
@@ -23,7 +23,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly heldGlobalLock?: OwnedLock;
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
-  readonly commitAuthor?: GitCommitAuthor;
+  readonly commitAuthor?: VcsCommitAuthor;
   readonly versionControlSystem?: VersionControlSystem;
   readonly attributionEventStore?: AttributionEventStore;
   readonly onProjectionChange?: (event: ProjectionChangeEvent) => void;
@@ -43,11 +43,6 @@ export interface LockConflictRetryOptions {
 export interface JournalActor {
   readonly kind: "agent" | "human" | "system";
   readonly id: string;
-}
-
-export interface GitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
 }
 
 export interface PayloadRef {

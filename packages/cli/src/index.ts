@@ -17,9 +17,9 @@ import {
   makeDaemonLogFileStore,
   recordDaemonStarted,
   recordDaemonTerminated,
-  runCompoundReceiptExitCommand,
   type DaemonRepoNamespace
 } from "@harness-anything/daemon";
+import { runCompoundReceiptExitCommand } from "./receipt/compound-exit-command.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";

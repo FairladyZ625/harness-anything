@@ -41,7 +41,6 @@ export * from "./authority/authority-cutover-command.ts";
 export * from "./authority/authority-lifecycle.ts";
 export * from "./authority/authority-submission-dispatch.ts";
 export * from "./authority/authority-wire-service.ts";
-export * from "./authority/command-contract.ts";
 // TW-06 fence
 export * from "./fence/index.ts";
 export * from "./broker/index.ts";
@@ -70,7 +69,6 @@ export {
   type CredentialKind,
   type CredentialRef,
   type DaemonCommandClass,
-  type GitCommitAuthor,
   type IdentityAdminSnapshot,
   type IdentityAuthenticationResult,
   type IdentityAuthenticationSuccess,

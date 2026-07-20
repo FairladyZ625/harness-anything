@@ -2,14 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
-import type { CliGitCommitAuthor } from "../composition/actor-attribution.ts";
+import type { VcsCommitAuthor } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { resolveActiveVertical } from "./extensions/active-vertical.ts";
 import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.ts";
 
-export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string, commitAuthor?: CliGitCommitAuthor): CliResult {
+export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string, commitAuthor?: VcsCommitAuthor): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const warnings: unknown[] = [];
@@ -94,7 +94,7 @@ interface HarnessIsolationReport {
   readonly nextSteps: readonly string[];
 }
 
-function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string, commitAuthor?: CliGitCommitAuthor): HarnessIsolationResult {
+function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string, commitAuthor?: VcsCommitAuthor): HarnessIsolationResult {
   const warnings: unknown[] = [];
   const authoredRootRelative = initRelativeLayoutPath(rootDir, authoredRoot);
   const innerGitDir = path.join(authoredRoot, ".git");
@@ -168,7 +168,7 @@ function ensureOuterGitignoreIsolation(rootDir: string, outerGit: boolean, autho
   }
 }
 
-function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, commitAuthor?: CliGitCommitAuthor): {
+function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, commitAuthor?: VcsCommitAuthor): {
   readonly report: HarnessIsolationReport["innerRepository"];
   readonly warnings: ReadonlyArray<unknown>;
 } {
@@ -239,7 +239,7 @@ function readGitText(rootDir: string, args: ReadonlyArray<string>): string | und
   }
 }
 
-function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: CliGitCommitAuthor): void {
+function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: VcsCommitAuthor): void {
   execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

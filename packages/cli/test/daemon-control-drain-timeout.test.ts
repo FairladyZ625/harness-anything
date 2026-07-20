@@ -1,10 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDaemonServiceHost } from "../src/daemon/service-host.ts";
+
+const batch4Golden = JSON.parse(readFileSync(new URL("../../daemon/test/fixtures/batch4-equivalence-golden.json", import.meta.url), "utf8")) as Record<string, string>;
 
 test("daemon control reports a stuck drain and does not run transport shutdown", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-drain-timeout-"));
@@ -76,6 +78,7 @@ test("daemon control reports a stuck drain and does not run transport shutdown",
     assert.equal(activeControl?.phase, "failed");
     assert.equal(activeControl?.failure?.code, "daemon_queue_drain_timeout");
     assert.match(activeControl?.failure?.hint ?? "", /in-flight operations failed to settle in time/u);
+    assert.equal(JSON.stringify({ phase: activeControl?.phase, failure: activeControl?.failure }), batch4Golden.ownerExitReceipt);
     assert.deepEqual(events, ["runtime:stop-stuck"]);
     assert.equal(stopSettled, false);
   } finally {

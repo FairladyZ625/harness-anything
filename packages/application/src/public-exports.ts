@@ -64,6 +64,10 @@ export type {
   ReplicaChangeRecord
 } from "./authority/index.ts";
 export type {
+  AuthorityCutoverCommandAction,
+  AuthorityCutoverCommandErrorCode,
+  AuthorityCutoverCommandReport,
+  AuthorityCutoverCommandResult,
   AuthorityCutoverControlService,
   AuthorityProductionRepoScan
 } from "./authority/cutover-control.ts";
@@ -72,12 +76,12 @@ export * from "./authority/key-registry-v1.ts";
 export * from "./authority/key-lifecycle-v1.ts";
 export * from "./authority/canonical-cbor.ts";
 export * from "./authority/semantic-mutation-envelope-v2.ts";
+export * from "./authority/daemon-host-contract.ts";
 export * from "./authority/fact-relation-semantic-compiler-v2.ts";
 export * from "./authority/task-decision-module-semantic-compiler-v2.ts";
 export * from "./authority/session-execution-review-semantic-compiler-v2.ts";
 export * from "./authority/consent-semantic-compiler-v2.ts";
 export * from "./authority/transparent-semantic-diff-compiler-v2.ts";
-export * from "./authority/production-authority-ingress.ts";
 export { compileManagedCandidateTreeV2 } from "./authority/semantic-authority-helpers-v2.ts";
 export * from "./authority/committed-attribution-event-v2.ts";
 export type { AuthoritySubmissionV2Options } from "./authority/service.ts";
@@ -99,7 +103,6 @@ export {
   createCompoundReceiptService,
   isCompoundOperationReceipt
 } from "./receipt/index.ts";
-export { renderCompoundCliExit } from "./receipt/index.ts";
 export * from "./receipt/witness-v1.ts";
 export * from "./receipt/v2-integrity.ts";
 export * from "./receipt/v2-service.ts";
@@ -118,7 +121,6 @@ export type {
   CompoundReceiptService,
   CompoundReceiptServiceOptions,
   CompoundReceiptStore,
-  CompoundCliExit,
   CurrentLeaseState,
   ImmutableReceiptAcknowledgement,
   LocalConflictOrigin,

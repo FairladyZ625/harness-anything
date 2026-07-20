@@ -1,10 +1,10 @@
 import {
   classifyCompoundExit,
   type CompoundExitDefinition,
-  type CompoundExitInput
-} from "./exit-contract.ts";
-import type { CompoundOperationReceipt } from "./types.ts";
-import type { CompoundOperationReceiptV2 } from "./v2-types.ts";
+  type CompoundExitInput,
+  type CompoundOperationReceipt,
+  type CompoundOperationReceiptV2
+} from "@harness-anything/application";
 
 type RenderableCompoundReceipt = CompoundOperationReceipt | CompoundOperationReceiptV2;
 

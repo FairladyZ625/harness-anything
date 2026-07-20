@@ -6,8 +6,6 @@ export type {
   CompoundExitInput,
   CompoundExitSymbol
 } from "./exit-contract.ts";
-export { renderCompoundCliExit } from "./cli-exit.ts";
-export type { CompoundCliExit } from "./cli-exit.ts";
 export { createCompoundReceiptService } from "./service.ts";
 export type { CompoundReceiptServiceOptions } from "./service.ts";
 export { isCompoundOperationReceipt } from "./validation.ts";

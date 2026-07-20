@@ -108,7 +108,8 @@ test("task claim submits the observed execution write through its narrow typed i
       sessionId: "session-task-claim",
       source: "runtime",
       detectedAt: "2026-07-18T00:00:00.000Z"
-    }
+    },
+    ingressAdapter: "task-claim"
   });
   const operation = {
     opId: "observed-task-claim-op",

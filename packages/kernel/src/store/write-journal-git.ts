@@ -1,9 +1,8 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
-import type { GitCommitAuthor } from "./write-journal-types.ts";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
 const authoredRootNotIsolatedMessage = "authored root is not isolated from the outer code repository; run harness-anything init so the authored root is an independent Git repository and the outer .gitignore isolates it";
@@ -17,7 +16,7 @@ export function commitTouchedPaths(
   sessionId?: string,
   options: {
     readonly forceAddPaths?: ReadonlyArray<string>;
-    readonly author?: GitCommitAuthor;
+    readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
   } = {}
 ): string {

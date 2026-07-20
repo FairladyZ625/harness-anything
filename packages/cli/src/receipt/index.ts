@@ -3,5 +3,5 @@ export { createDurableCompoundReceiptStore } from "./durable-store.ts";
 export type { DurableCompoundReceiptStoreOptions } from "./durable-store.ts";
 export { createDurableCompoundReceiptStoreV2 } from "@harness-anything/daemon";
 export type { DurableCompoundReceiptStoreV2Options } from "@harness-anything/daemon";
-export { renderCompoundCliExit } from "@harness-anything/application";
-export type { CompoundCliExit } from "@harness-anything/application";
+export { renderCompoundCliExit } from "./exit.ts";
+export type { CompoundCliExit } from "./exit.ts";
