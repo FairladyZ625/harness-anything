@@ -1,0 +1,23 @@
+name: nightly-integration
+
+on:
+  schedule:
+    - cron: "43 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-integration
+  cancel-in-progress: false
+
+jobs:
+  production-authority-perf-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run startup performance and canonical ingress matrices
+        run: npm run test:nightly

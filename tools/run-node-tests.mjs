@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path, { resolve } from "node:path";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
+import { formatTestWeightDriftWarnings, parseJunitTestFileDurations } from "./test-weight-drift.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
 import {
   collectSlowTests,
@@ -13,7 +16,7 @@ import {
   resolveTestConcurrency,
   selectTestFiles
 } from "./node-test-runner-lib.mjs";
-import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -39,11 +42,14 @@ try {
 const testTierManifest = discoverTestTierManifest(repoRoot);
 const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
+if (options.tier === "all") {
+  selection.files = defaultTestTierNames.flatMap((tier) => testTierManifest[tier]).sort();
+}
 
 // Default CLI integration subprocesses preload a test-only fixture composition.
 // Daemon-focused tests opt into HARNESS_DAEMON_MODE=local with isolated roots;
 // no test re-enables the retired direct product writer.
-if (options.tier === "integration" || options.tier === "all") {
+if (options.tier === "integration" || options.tier === "nightly" || options.tier === "all") {
   const fixturePreload = `--import=${resolve(repoRoot, "tools/cli-test-fixture-register.mjs")}`;
   process.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD = "1";
   process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, fixturePreload].filter(Boolean).join(" ");
@@ -84,11 +90,17 @@ const concurrency = resolveTestConcurrency({
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
 const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
+const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
+const timingPath = path.join(timingRoot, "results.xml");
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, [
     "--test",
+    "--test-reporter=spec",
+    "--test-reporter-destination=stdout",
+    "--test-reporter=junit",
+    `--test-reporter-destination=${timingPath}`,
     ...concurrencyArgs,
     ...timeoutArgs,
     ...selection.files
@@ -116,10 +128,19 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     child.once("error", (error) => {
       console.error(error.message);
       testEnvironment.cleanup();
+      rmSync(timingRoot, { recursive: true, force: true });
       resolveExitCode(1);
     });
     child.once("close", (code, signal) => {
       testEnvironment.cleanup();
+      try {
+        const measured = parseJunitTestFileDurations(readFileSync(timingPath, "utf8"), repoRoot);
+        for (const warning of formatTestWeightDriftWarnings(measured)) console.warn(warning);
+      } catch (error) {
+        console.warn(`Unable to inspect test weight drift: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        rmSync(timingRoot, { recursive: true, force: true });
+      }
       if (signal !== null) {
         console.error(`node --test terminated by signal ${signal}`);
         resolveExitCode(1);

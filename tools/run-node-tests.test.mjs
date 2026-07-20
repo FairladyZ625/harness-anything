@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
-import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
+import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -153,7 +153,8 @@ test("inline test tier markers derive the manifest", () => {
   assert.deepEqual(manifest, {
     fast: ["fast.test.ts"],
     contract: ["contract.test.ts"],
-    integration: ["new.test.ts"]
+    integration: ["new.test.ts"],
+    nightly: []
   });
 });
 
@@ -185,6 +186,25 @@ test("integration discovery equals the files executed by the CI runner", () => {
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
+});
+
+test("nightly tests run only when explicitly selected", () => {
+  const manifest = discoverTestTierManifest(repoRoot);
+  const nightly = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "nightly", "--list"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(nightly.status, 0, nightly.stderr);
+  assert.deepEqual(nightly.stdout.trim().split(/\r?\n/u), manifest.nightly);
+
+  const defaultRun = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--list"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(defaultRun.status, 0, defaultRun.stderr);
+  const expected = defaultTestTierNames.flatMap((tier) => manifest[tier]).sort();
+  assert.deepEqual(defaultRun.stdout.trim().split(/\r?\n/u), expected);
+  assert.equal(expected.some((file) => manifest.nightly.includes(file)), false);
 });
 
 test("selectTestFiles returns sorted tier files from the derived repository manifest", () => {

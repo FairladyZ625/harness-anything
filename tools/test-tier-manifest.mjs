@@ -5,7 +5,8 @@ const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 
-export const testTierNames = Object.freeze(["fast", "contract", "integration"]);
+export const testTierNames = Object.freeze(["fast", "contract", "integration", "nightly"]);
+export const defaultTestTierNames = Object.freeze(["fast", "contract", "integration"]);
 
 export function parseTestTierMarker(source, file = "test file") {
   const lines = source.split(/\r?\n/u);
