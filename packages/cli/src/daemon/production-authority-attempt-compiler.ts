@@ -91,7 +91,7 @@ export function createProductionCanonicalAttemptCompiler(input: {
   ) => {
       if (!intent) {
         throw new Error(
-          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${input.hostServices.productionAuthorityUnsupportedHint(command.action.kind)}`
+          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED:${command.action.kind}`
         );
       }
       if (canonicalEntityId !== intent.physicalEntityId) {
@@ -194,41 +194,35 @@ export function createProductionCanonicalAttemptCompiler(input: {
   };
   return {
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      const disposition = input.hostServices.productionAuthorityIngressFor(productionCommand.action.kind);
+      const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
       const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
-        ? await canonicalAttemptIntent(productionCommand, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor, input.hostServices)
+        ? await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor, input.hostServices)
         : null;
-      return compileIntent(productionCommand, attribution, currentSession, canonicalEntityId, intent);
+      return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
     },
     compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      assertTypedIngressAdapter(productionCommand.action.kind, "generic", input.hostServices);
-      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
-        provenanceSessionAttemptIntent(productionCommand, currentSession, operation));
+      assertTypedIngressAdapter(command.action.kind, "generic", input.hostServices);
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        provenanceSessionAttemptIntent(command, currentSession, operation));
     },
     compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      assertTypedIngressAdapter(productionCommand.action.kind, "decision-transition", input.hostServices);
-      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
-        decisionTransitionAttemptIntent(productionCommand, operation, input.authoredRoot));
+      assertTypedIngressAdapter(command.action.kind, "decision-transition", input.hostServices);
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        decisionTransitionAttemptIntent(command, operation, input.authoredRoot));
     },
     compileTaskClaim: async ({ command, attribution, currentSession, operation }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      assertTypedIngressAdapter(productionCommand.action.kind, "task-claim", input.hostServices);
-      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
-        taskClaimAttemptIntent(productionCommand, attribution, currentSession, operation));
+      assertTypedIngressAdapter(command.action.kind, "task-claim", input.hostServices);
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        taskClaimAttemptIntent(command, attribution, currentSession, operation));
     },
     compileObservedWrite: async ({ command, attribution, currentSession, operation }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      assertTypedIngressAdapter(productionCommand.action.kind, "observed-write", input.hostServices);
-      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
-        productionObservedWriteAttemptIntent(productionCommand, operation, input.authoredRoot));
+      assertTypedIngressAdapter(command.action.kind, "observed-write", input.hostServices);
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        productionObservedWriteAttemptIntent(command, operation, input.authoredRoot));
     },
     compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
-      const productionCommand = command as ProductionAuthorityCommand;
-      return compileIntent(productionCommand, attribution, currentSession, operation.entityId,
-        productionScriptIngestAttemptIntent(productionCommand, operation, input.authoredRoot));
+      return compileIntent(command, attribution, currentSession, operation.entityId,
+        productionScriptIngestAttemptIntent(command, operation, input.authoredRoot));
     }
   };
 }

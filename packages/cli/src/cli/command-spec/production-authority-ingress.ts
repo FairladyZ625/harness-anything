@@ -1,9 +1,10 @@
+import type { AuthorityIngressAdapter } from "@harness-anything/application";
 import type { CommandSpecDefinition } from "./types.ts";
 
 export const productionAuthorityIngressDecisionRef =
   "decision/dec_01KXSWKWTEXB751A30TRRCQWDG" as const;
 
-export type ProductionAuthorityIngressAdapter = "generic" | "decision-transition" | "task-claim" | "observed-write";
+export type ProductionAuthorityIngressAdapter = AuthorityIngressAdapter;
 
 export type ProductionAuthorityIngressDisposition =
   | {

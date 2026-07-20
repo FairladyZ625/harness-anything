@@ -5,8 +5,7 @@ import type {
 import { normalizeDecisionProposeAction } from "../cli/decision-propose-normalizer.ts";
 import { normalizedFactSource } from "../cli/command-semantic-normalizer.ts";
 import {
-  productionAuthorityIngressFor,
-  productionAuthorityUnsupportedHint
+  productionAuthorityIngressFor
 } from "../cli/command-spec/index.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { decisionRelationRecord } from "../commands/core/decision-relation-record.ts";
@@ -37,7 +36,6 @@ void cliProductionActionsSatisfyHostContract;
 
 export const productionAuthorityHostServices = {
   productionAuthorityIngressFor,
-  productionAuthorityUnsupportedHint,
   normalizeDecisionProposeAction,
   normalizedFactSource,
   buildTaskCreateWrites: ({ rootInput, action, createdAt, provenance }) => {

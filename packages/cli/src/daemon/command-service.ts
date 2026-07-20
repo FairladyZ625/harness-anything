@@ -5,7 +5,7 @@ import {
   type AuthorityConnectionDispatch,
   type JsonObject
 } from "@harness-anything/daemon";
-import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverCommandAction, type AuthorityCutoverControlService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
+import { makeHumanFallbackSessionProbe, makeTaskHolderService, type AuthorityCutoverCommandAction, type AuthorityCutoverControlService, type AuthorityHostCommand, type AuthorityHostCommandAction, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "@harness-anything/application";
 import type { CurrentSessionRef, WriteCoordinator } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isDryRunAction } from "../cli/dry-run-preview.ts";
@@ -80,9 +80,12 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
           && (commandClass === "repo-write" || commandClass === "arbiter")
           ? options.resolveAuthoritySubmissionV2?.(context?.authorityConnection)
           : undefined;
-        const authorityCoordinator = attribution && authoritySubmissionV2
+        const productionAuthorityCommand = isProductionAuthorityCommand(parsedCommand)
+          ? parsedCommand
+          : undefined;
+        const authorityCoordinator = attribution && authoritySubmissionV2 && productionAuthorityCommand
           ? makeDaemonAuthorityWriteCoordinator(authoritySubmissionV2, {
-            command: parsedCommand,
+            command: productionAuthorityCommand,
             attribution,
             currentSession,
             ingressAdapter: typedAuthorityIngressAdapter(parsedCommand.action.kind)
@@ -159,6 +162,22 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
 function typedAuthorityIngressAdapter(kind: string) {
   const ingress = productionAuthorityIngressFor(kind);
   return ingress?.status === "typed-v2" ? ingress.adapter : undefined;
+}
+
+type CliProductionAuthorityCommand = Extract<
+  ParsedCommand,
+  { readonly action: { readonly kind: AuthorityHostCommandAction["kind"] } }
+>;
+
+const cliProductionCommandsSatisfyAuthorityHostContract = true satisfies
+  CliProductionAuthorityCommand extends AuthorityHostCommand ? true : never;
+void cliProductionCommandsSatisfyAuthorityHostContract;
+
+function isProductionAuthorityCommand(command: ParsedCommand): command is CliProductionAuthorityCommand {
+  const ingress = productionAuthorityIngressFor(command.action.kind);
+  return ingress?.status === "typed-v2"
+    || command.action.kind === "preset-entrypoint"
+    || command.action.kind === "script-run";
 }
 
 export function materializeExportedSession(
