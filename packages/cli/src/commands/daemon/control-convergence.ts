@@ -13,9 +13,9 @@ export function daemonControlFailure(
   operationId: string
 ): string | undefined {
   if (!status || status.schema !== "daemon-status/v2") return undefined;
-  const service = isRecord(status.service) ? status.service : undefined;
-  const activeControl = isRecord(service?.activeControl) ? service.activeControl : undefined;
-  const failure = isRecord(activeControl?.failure) ? activeControl.failure : undefined;
+  const service = isDaemonLifecycleRecord(status.service) ? status.service : undefined;
+  const activeControl = isDaemonLifecycleRecord(service?.activeControl) ? service.activeControl : undefined;
+  const failure = isDaemonLifecycleRecord(activeControl?.failure) ? activeControl.failure : undefined;
   if (activeControl?.operationId !== operationId
     || activeControl.phase !== "failed"
     || typeof failure?.hint !== "string") return undefined;
@@ -29,12 +29,12 @@ export function normalizeDaemonLifecycleStatus(
 ): DaemonLifecycleStatus | undefined {
   const isV2 = status.schema === "daemon-status/v2";
   const lifecycle = isV2
-    ? (isRecord(status.service) ? status.service : undefined)
+    ? (isDaemonLifecycleRecord(status.service) ? status.service : undefined)
     : status.schema === "daemon-status/v1" ? status : undefined;
-  if (lifecycle?.started !== true || !isPositivePid(lifecycle.pid)) return undefined;
+  if (lifecycle?.started !== true || !isDaemonLifecyclePositivePid(lifecycle.pid)) return undefined;
   if (!isV2) return { schema: "daemon-status/v1", started: true, pid: lifecycle.pid };
-  const build = isRecord(lifecycle.build) ? lifecycle.build : {};
-  const activeControl = isRecord(lifecycle.activeControl) ? lifecycle.activeControl : undefined;
+  const build = isDaemonLifecycleRecord(lifecycle.build) ? lifecycle.build : {};
+  const activeControl = isDaemonLifecycleRecord(lifecycle.activeControl) ? lifecycle.activeControl : undefined;
   return {
     schema: "daemon-status/v2",
     started: true,
@@ -94,10 +94,10 @@ export function incompleteReplacementReason(
   return "did not satisfy replacement criteria";
 }
 
-function isPositivePid(value: unknown): value is number {
+function isDaemonLifecyclePositivePid(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isDaemonLifecycleRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
