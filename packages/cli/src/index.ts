@@ -314,14 +314,6 @@ function helpReport(report: unknown): { readonly kind: "global" | "command" | "p
   return { kind: candidate.kind, prefix: candidate.prefix };
 }
 
-function realpathOrResolve(rootDir: string): string {
-  try {
-    return realpathSync(rootDir);
-  } catch {
-    return rootDir;
-  }
-}
-
 function isCliEntrypoint(): boolean {
   const invokedPath = process.argv[1];
   if (!invokedPath) return false;

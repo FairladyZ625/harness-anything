@@ -9,7 +9,6 @@ import {
   makeHumanFallbackSessionProbe,
   type AuthorityCutoverCommandAction,
   type AuthorityCutoverControlService,
-  type AuthorityHostCommand,
   type CommandReceiptEnvelope,
   type DaemonCommandHostServices,
   type DaemonHostCommand,

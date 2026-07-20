@@ -1,7 +1,6 @@
 import {
   makeDaemonLogService,
   makeLocalControllerService,
-  type AuthorityHostAttribution,
   type DaemonHostCommand,
   type DaemonHostCommandResult,
   type DaemonServiceHostServices

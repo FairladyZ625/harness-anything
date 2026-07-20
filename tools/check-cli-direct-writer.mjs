@@ -195,11 +195,6 @@ function compareFindings(left, right) {
   return left.file.localeCompare(right.file) || left.line - right.line || left.column - right.column || left.kind.localeCompare(right.kind);
 }
 
-function enclosingFunctionName(node) {
-  const declaration = ancestor(node, (candidate) => ts.isFunctionDeclaration(candidate) || ts.isMethodDeclaration(candidate));
-  return declaration?.name?.getText();
-}
-
 function ancestor(node, predicate) {
   let current = node.parent;
   while (current) {
