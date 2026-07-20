@@ -28,7 +28,7 @@ export interface GuiDaemonNotificationTarget {
   readonly socketPath: string;
 }
 
-interface HarnessLayoutOverrides {
+export interface HarnessLayoutOverrides {
   readonly authoredRoot?: string;
 }
 

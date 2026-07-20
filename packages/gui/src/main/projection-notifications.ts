@@ -1,11 +1,13 @@
 import type { Disposable, ProjectionChangeNotification, Subscription } from "@harness-anything/api-contracts";
 import { JsonLineSocketTransport, PersistentDaemonClient } from "@harness-anything/daemon-client";
-import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type {
   HarnessProjectionNotificationSource
 } from "./ipc-handlers.ts";
 import type { RendererProjectionNotification } from "../preload/allowlist.ts";
-import { resolveGuiDaemonNotificationTarget } from "./local-composition-root.ts";
+import {
+  resolveGuiDaemonNotificationTarget,
+  type HarnessLayoutOverrides
+} from "./local-composition-root.ts";
 
 const daemonConnectionTimeoutMs = 6_000;
 const projectionSubscriptionTimeoutMs = 1_000;
