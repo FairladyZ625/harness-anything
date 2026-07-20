@@ -405,7 +405,7 @@ for (const file of files) {
     record(`${rel}: controller document paths must import kernel normalizeRelativeDocumentPath`);
   }
 
-  const isKernelWriteImplementation = /packages\/kernel\/src\/(?:store|persistence|write-coordination)\//.test(rel);
+  const isKernelWriteImplementation = /packages\/kernel\/src\/(?:store|persistence|write-coordination\/(?:attribution|journal|materialization))\//.test(rel);
   if (!isKernelWriteImplementation && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
     record(`${rel}: authored writes must go through WriteCoordinator.enqueue; the ArtifactStoreWriter seam is flusher-only inside kernel/src/store/`);
   }

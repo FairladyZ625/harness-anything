@@ -4387,7 +4387,8 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/implementation-contract-daemon-protocol.test.mjs"
+          "tools/implementation-contract-daemon-protocol.test.mjs",
+          "tools/check-implementation-contracts.test.mjs"
         ]
       }
     },
