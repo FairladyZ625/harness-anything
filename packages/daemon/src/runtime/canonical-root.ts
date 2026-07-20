@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned canonical root identity to host consumers.
 import { realpathSync } from "node:fs";
 import path from "node:path";
 

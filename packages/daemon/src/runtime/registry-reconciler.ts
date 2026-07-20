@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned registry reconciliation to the service host.
 import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 
 export interface DaemonReconcileError {

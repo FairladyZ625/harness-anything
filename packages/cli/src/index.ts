@@ -14,6 +14,9 @@ import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-even
 import {
   calculateDaemonArtifactIdentity,
   createDaemonLaunchConfiguration,
+  makeDaemonLogFileStore,
+  recordDaemonStarted,
+  recordDaemonTerminated,
   type DaemonRepoNamespace
 } from "@harness-anything/daemon";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
@@ -43,8 +46,6 @@ import {
 import { daemonRuntimeLayoutOverrides } from "./daemon/daemon-serve-launch-options.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
-import { makeDaemonLogFileStore } from "./daemon/daemon-log-file-store.ts";
-import { recordDaemonStarted, recordDaemonTerminated } from "./daemon/daemon-lifecycle.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import {
   authorityManifestServeRepos,

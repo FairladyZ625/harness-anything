@@ -12,7 +12,9 @@ import {
 import {
   createDaemonLaunchConfiguration,
   currentDaemonProtocolVersion,
-  daemonServerHostEnvironment
+  daemonServerHostEnvironment,
+  makeDaemonLogFileStore,
+  observeDaemonLifecycle
 } from "@harness-anything/daemon";
 import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
@@ -27,8 +29,6 @@ import {
   runDaemonControl,
   type DaemonControlKind
 } from "./control.ts";
-import { observeDaemonLifecycle } from "../../daemon/daemon-lifecycle.ts";
-import { makeDaemonLogFileStore } from "../../daemon/daemon-log-file-store.ts";
 import { makeDaemonLogService } from "@harness-anything/application";
 import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.ts";
 import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";

@@ -1728,12 +1728,12 @@
       ],
       "directWrites": [
         {
-          "file": "packages/cli/src/daemon/daemon-log-file-store.ts"
+          "file": "packages/daemon/src/lifecycle/daemon-log-file-store.ts"
         }
       ],
       "evidence": [
-        "packages/cli/src/daemon/daemon-log-file-store.ts:29",
-        "packages/cli/src/daemon/daemon-log-file-store.ts:67"
+        "packages/daemon/src/lifecycle/daemon-log-file-store.ts:29",
+        "packages/daemon/src/lifecycle/daemon-log-file-store.ts:67"
       ],
       "freshness": "append-jsonl-daily-rotate-retain-14d-10-segments"
     },

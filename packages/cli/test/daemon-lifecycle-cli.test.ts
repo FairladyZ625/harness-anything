@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { makeDaemonLogService } from "../../application/src/index.ts";
-import { makeDaemonLogFileStore } from "../src/daemon/daemon-log-file-store.ts";
+import { makeDaemonLogFileStore } from "@harness-anything/daemon";
 import {
   defaultDaemonUserRoot,
   pollUntil,

@@ -1,5 +1,6 @@
 import {
   createJsonRpcProtocolServer,
+  canonicalRootIdentity,
   resolveAuthorityConnectionForRequest,
   type AuthorityWireIngressHandler,
   type DaemonRepoNamespace,
@@ -7,7 +8,6 @@ import {
   type PersonRegistry
 } from "@harness-anything/daemon";
 import type { AuthorityRepoLifecycleController } from "./authority-lifecycle.ts";
-import { canonicalRootIdentity } from "./canonical-root.ts";
 
 export interface AuthorityWireRepoBinding {
   readonly repo: DaemonRepoNamespace;

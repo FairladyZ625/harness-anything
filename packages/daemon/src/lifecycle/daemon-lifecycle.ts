@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary W2 exports daemon-owned lifecycle recording to serve and status consumers.
 import {
   decodeDaemonLogEntry,
   type DaemonLogEntryV1,
