@@ -41,6 +41,7 @@ interface LocalDaemonClientModule {
     readonly daemonId?: string;
     readonly autoRegisterSingleRepo?: boolean;
     readonly env?: NodeJS.ProcessEnv;
+    readonly layoutOverrides?: HarnessLayoutOverrides;
   }) => LocalDaemonTarget;
   readonly requestLocalDaemonJsonRpcForTarget: (
     target: LocalDaemonTarget,
@@ -61,7 +62,7 @@ interface LocalDaemonClientModule {
 
 let daemonClientModulePromise: Promise<LocalDaemonClientModule> | undefined;
 let daemonSettingsModulePromise: Promise<{
-  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
 }> | undefined;
 
 interface GuiDaemonBridgeState {
@@ -75,17 +76,21 @@ export function createLocalGuiServiceBridge(rootDir: string, layoutOverrides?: H
   return createGuiServiceBridgeForDaemon(async (route, payload) => requestGuiRouteViaDaemon(resolvedRootDir, layoutOverrides, state, route, payload));
 }
 
-export async function resolveGuiDaemonNotificationTarget(rootDir: string): Promise<GuiDaemonNotificationTarget> {
+export async function resolveGuiDaemonNotificationTarget(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides
+): Promise<GuiDaemonNotificationTarget> {
   const resolvedRootDir = path.resolve(rootDir);
   validateProjectPath(resolvedRootDir, ".");
   const [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
-  const userRoot = daemonSettings.readDaemonUserRoot(process.env, resolvedRootDir);
+  const userRoot = daemonSettings.readDaemonUserRoot(process.env, resolvedRootDir, layoutOverrides);
   const target = daemonClient.resolveLocalDaemonTarget({
     rootDir: resolvedRootDir,
     repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID,
     userRoot,
     daemonId: daemonClient.daemonIdFromEnv(),
-    autoRegisterSingleRepo: true
+    autoRegisterSingleRepo: true,
+    layoutOverrides
   });
   return { repoId: target.repoId, socketPath: target.socketPath };
 }
@@ -99,14 +104,15 @@ async function requestGuiRouteViaDaemon(
 ): Promise<JsonObject> {
   try {
     const [daemonClient, daemonSettings] = await Promise.all([loadDaemonClientModule(), loadDaemonSettingsModule()]);
-    const userRoot = daemonSettings.readDaemonUserRoot(process.env, rootDir);
+    const userRoot = daemonSettings.readDaemonUserRoot(process.env, rootDir, layoutOverrides);
     const daemonId = daemonClient.daemonIdFromEnv();
     const target = daemonClient.resolveLocalDaemonTarget({
       rootDir,
       repoIdOverride: process.env.HARNESS_DAEMON_REPO_ID,
       userRoot,
       daemonId,
-      autoRegisterSingleRepo: true
+      autoRegisterSingleRepo: true,
+      layoutOverrides
     });
     const customLayout = hasLayoutOverride(layoutOverrides);
     if (customLayout && !state.layoutOverrideDaemonStarted && await daemonAlreadyRunning(daemonClient, target)) {
@@ -206,10 +212,10 @@ function daemonClientModuleUrl(): string {
 }
 
 async function loadDaemonSettingsModule(): Promise<{
-  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
 }> {
   daemonSettingsModulePromise ??= import(daemonSettingsModuleUrl()) as Promise<{
-    readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string) => string;
+    readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
   }>;
   return daemonSettingsModulePromise;
 }

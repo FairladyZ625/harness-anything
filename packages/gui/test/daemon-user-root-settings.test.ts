@@ -1,17 +1,26 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { withGuiDaemonEnv } from "./helpers/daemon-generation-lifecycle.ts";
 
-test("GUI daemon bridge honors the project daemon user root", async () => {
+test("GUI daemon bridge honors daemon user root from an authored-root override", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-settings-daemon-"));
-  const authoredRoot = path.join(rootDir, "harness");
+  const authoredRootOverride = "authority/config";
+  const authoredRoot = path.join(rootDir, authoredRootOverride);
   const configuredUserRoot = path.join(rootDir, "project-daemon");
   try {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  daemon:",
+      "    userRoot: default-daemon",
+      ""
+    ].join("\n"), "utf8");
     mkdirSync(path.join(authoredRoot, "tasks", "task-1"), { recursive: true });
     writeFileSync(path.join(authoredRoot, "harness.yaml"), [
       "schema: harness-anything/v1",
@@ -42,7 +51,7 @@ test("GUI daemon bridge honors the project daemon user root", async () => {
     ].join("\n"), "utf8");
 
     const list = await withGuiDaemonEnv(rootDir, async () => {
-      return createLocalGuiServiceBridge(rootDir).invoke("getTasks", null) as Promise<{
+      return createLocalGuiServiceBridge(rootDir, { authoredRoot: authoredRootOverride }).invoke("getTasks", null) as Promise<{
         readonly ok: boolean;
         readonly tasks: readonly unknown[];
       }>;
@@ -50,8 +59,14 @@ test("GUI daemon bridge honors the project daemon user root", async () => {
 
     assert.equal(list.ok, true);
     assert.equal(list.tasks.length, 1);
-    assert.equal(existsSync(path.join(configuredUserRoot, "registry.json")), true);
-    assert.equal(existsSync(path.join(rootDir, ".harness", "registry.json")), false);
+    assert.equal(
+      readdirSync(configuredUserRoot).some((name) => name.startsWith("daemon-launch-spec.")),
+      true
+    );
+    assert.equal(
+      readdirSync(path.join(rootDir, ".harness")).some((name) => name.startsWith("daemon-launch-spec.")),
+      false
+    );
   } finally {
     await new Promise((resolve) => setTimeout(resolve, 700));
     rmSync(rootDir, { recursive: true, force: true });

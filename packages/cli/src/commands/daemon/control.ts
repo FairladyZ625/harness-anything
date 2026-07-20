@@ -290,6 +290,7 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     rootDir: input.rootDir,
     repoIdOverride: readOption(input.args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID,
     userRoot: daemonUserRootOption(input.args),
+    layoutOverrides: input.layoutOverrides,
     autoRegisterSingleRepo: false
   });
   const socketPath = readOption(input.args, "--socket");

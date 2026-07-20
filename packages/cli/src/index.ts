@@ -127,7 +127,8 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     : undefined;
   const daemonArgs = stripped.daemonRepoId ? [...stripped.args, "--repo", stripped.daemonRepoId] : stripped.args;
   if (action === "connect") return runDaemonConnect(stripped.args, {
-    ...(readOption(argv, "--root") ? { rootDir: stripped.rootDir } : {})
+    ...(readOption(argv, "--root") ? { rootDir: stripped.rootDir } : {}),
+    ...(layoutOverrides ? { layoutOverrides } : {})
   });
   if (action === "serve") {
     let launchOptions: ParsedDaemonLaunchArgv;

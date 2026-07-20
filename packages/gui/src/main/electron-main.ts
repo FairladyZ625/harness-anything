@@ -68,8 +68,9 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot();
-  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir);
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()), {
+  const layoutOverrides = resolveGuiLayoutOverrides();
+  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir, layoutOverrides);
+  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, layoutOverrides), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),

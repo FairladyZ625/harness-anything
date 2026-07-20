@@ -66,7 +66,11 @@ const DEFAULT_TASK_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 
 export function readProjectHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): SettingsResult {
   const layout = resolveHarnessLayout(rootInput);
-  const configPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
+  const authoredRootOverridden = typeof rootInput !== "string"
+    && rootInput.layoutOverrides?.authoredRoot !== undefined;
+  const configPath = authoredRootOverridden
+    ? path.join(layout.authoredRoot, "harness.yaml")
+    : layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_SETTINGS };
 
   try {

@@ -1,5 +1,6 @@
 import type { Disposable, ProjectionChangeNotification, Subscription } from "@harness-anything/api-contracts";
 import { JsonLineSocketTransport, PersistentDaemonClient } from "@harness-anything/daemon-client";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type {
   HarnessProjectionNotificationSource
 } from "./ipc-handlers.ts";
@@ -14,7 +15,10 @@ export interface LocalGuiProjectionNotifications {
   readonly dispose: () => Promise<void>;
 }
 
-export function createLocalGuiProjectionNotifications(rootDir: string): LocalGuiProjectionNotifications {
+export function createLocalGuiProjectionNotifications(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides
+): LocalGuiProjectionNotifications {
   let client: PersistentDaemonClient | undefined;
   let clientEvents: Disposable | undefined;
   let clientState: Disposable | undefined;
@@ -59,7 +63,7 @@ export function createLocalGuiProjectionNotifications(rootDir: string): LocalGui
 
   async function ensureClient(): Promise<PersistentDaemonClient> {
     if (client) return client;
-    const target = await resolveGuiDaemonNotificationTarget(rootDir);
+    const target = await resolveGuiDaemonNotificationTarget(rootDir, layoutOverrides);
     client = new PersistentDaemonClient({
       endpoint: target.socketPath,
       transport: new JsonLineSocketTransport(),

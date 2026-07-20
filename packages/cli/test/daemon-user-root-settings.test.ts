@@ -114,6 +114,38 @@ test("settings daemon userRoot validates path-shaped scalar input", () => {
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.match(result.result.error?.hint ?? "", /supports only ~ or ~\//u);
+    assert.throws(
+      () => readDaemonClientConfig(cleanDaemonEnv({ HOME: path.join(rootDir, "home") }), rootDir),
+      /settings\.daemon\.userRoot supports only ~ or ~\//u
+    );
+  });
+});
+
+test("daemon user root reads settings through an authored-root override", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  daemon:",
+      "    userRoot: state/default-daemon",
+      ""
+    ]);
+    const authoredRoot = "authority/config";
+    const authoredRootPath = path.join(rootDir, authoredRoot);
+    mkdirSync(authoredRootPath, { recursive: true });
+    writeFileSync(path.join(authoredRootPath, "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  daemon:",
+      "    userRoot: state/authority-daemon",
+      ""
+    ].join("\n"), "utf8");
+
+    const env = cleanDaemonEnv({ HOME: path.join(rootDir, "home") });
+    const layoutOverrides = { authoredRoot };
+    const expected = path.join(rootDir, "state/authority-daemon");
+    assert.equal(readDaemonClientConfig(env, rootDir, undefined, undefined, layoutOverrides).userRoot, expected);
+    assert.equal(resolveLocalDaemonTarget({ rootDir, env, layoutOverrides }).userRoot, expected);
   });
 });
 
