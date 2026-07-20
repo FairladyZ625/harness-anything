@@ -1,10 +1,10 @@
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
-import type { LockLease, LockRegistry, LockRegistryError, LockRequest } from "../ports/lock-registry.ts";
+import { stablePayloadHash } from "../../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../layout/index.ts";
+import { resolveHarnessLayout } from "../../layout/index.ts";
+import type { LockLease, LockRegistry, LockRegistryError, LockRequest } from "../../ports/lock-registry.ts";
 
 export function makeLocalLockRegistry(rootInput: HarnessLayoutInput): LockRegistry {
   return {

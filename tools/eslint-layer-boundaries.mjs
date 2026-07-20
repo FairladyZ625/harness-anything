@@ -14,7 +14,7 @@ export const eslintLayerBoundaries = Object.freeze({
             "@harness-anything/kernel",
             "@harness-anything/kernel/index.*",
             "**/kernel/src/index.*",
-            "**/kernel/src/store/markdown-artifact-store.*"
+            "**/kernel/src/persistence/markdown/markdown-artifact-store.*"
           ]),
           importNames: Object.freeze(["ArtifactStore", "readAuthoredDocument"]),
           allowTypeImports: true,
@@ -35,7 +35,9 @@ export const eslintLayerBoundaries = Object.freeze({
             "@harness-anything/kernel/store",
             "@harness-anything/kernel/store/**",
             "**/kernel/src/store",
-            "**/kernel/src/store/**"
+            "**/kernel/src/store/**",
+            "**/kernel/src/persistence",
+            "**/kernel/src/persistence/**"
           ]),
           message: rendererStorageBoundaryMessage
         })

@@ -163,7 +163,7 @@ if (!existsSync(portablePathCollisionTestPath)) {
 
 const hasGuiImplementation = files.some((file) => /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)));
 const hasDaemonImplementation = files.some((file) => relative(file).startsWith("packages/daemon/src/"));
-const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
+const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/(?:store|persistence|write-coordination)\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
 const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
   && !readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8").trim().startsWith("export {}");
@@ -220,7 +220,7 @@ if (hasDaemonImplementation) {
 
 if (hasStoreImplementation) {
   const coordinatorText = files
-    .filter((file) => relative(file).startsWith("packages/kernel/src/store/"))
+    .filter((file) => /packages\/kernel\/src\/(?:store|persistence|write-coordination)\//.test(relative(file)))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
   for (const requiredSnippet of storeRequiredSnippets) {
@@ -405,18 +405,19 @@ for (const file of files) {
     record(`${rel}: controller document paths must import kernel normalizeRelativeDocumentPath`);
   }
 
-  if (!rel.startsWith("packages/kernel/src/store/") && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
+  const isKernelWriteImplementation = /packages\/kernel\/src\/(?:store|persistence|write-coordination)\//.test(rel);
+  if (!isKernelWriteImplementation && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
     record(`${rel}: authored writes must go through WriteCoordinator.enqueue; the ArtifactStoreWriter seam is flusher-only inside kernel/src/store/`);
   }
 
-  if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
+  if (isKernelWriteImplementation && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
     record(`${rel}: store must not import engine adapter implementations`);
   }
   const allowedGitProcessImplementations = new Set([
-    "packages/kernel/src/store/local-version-control-system.ts"
+    "packages/kernel/src/persistence/git/local-version-control-system.ts"
   ]);
   if (
-    rel.startsWith("packages/kernel/src/store/") &&
+    isKernelWriteImplementation &&
     !allowedGitProcessImplementations.has(rel) &&
     (/\bfrom\s+["']node:child_process["']/.test(text) || /\brunGit\s*\(/.test(text))
   ) {

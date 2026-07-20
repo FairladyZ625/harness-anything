@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
-import { VcsCommandError } from "../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
+import { VcsCommandError } from "../../ports/version-control-system.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 

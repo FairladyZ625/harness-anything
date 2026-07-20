@@ -28,7 +28,7 @@ import {
   assertWritableEntityRegistry
 } from "../../src/entity/registry-compiler.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
-import { writeContentAddressedBlob } from "../../src/store/content-addressed-blob-store.ts";
+import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
 import { withTempStore } from "./helpers.ts";
 

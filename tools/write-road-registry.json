@@ -380,10 +380,10 @@
       ],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/local-lock-registry.ts"
+          "file": "packages/kernel/src/persistence/local/local-lock-registry.ts"
         },
         {
-          "file": "packages/kernel/src/store/markdown-artifact-store.ts"
+          "file": "packages/kernel/src/persistence/markdown/markdown-artifact-store.ts"
         },
         {
           "file": "packages/kernel/src/store/write-journal-decision-documents.ts"
@@ -1369,7 +1369,7 @@
           "command": "git"
         },
         {
-          "file": "packages/kernel/src/store/local-version-control-system.ts",
+          "file": "packages/kernel/src/persistence/git/local-version-control-system.ts",
           "command": "git"
         }
       ],
@@ -1377,7 +1377,7 @@
         "packages/adapters/local/src/projection-source-fence.ts:219",
         "packages/cli/src/commands/core/worktree.ts:183",
         "packages/cli/src/commands/extensions/script-repository-context.ts:37",
-        "packages/kernel/src/store/local-version-control-system.ts:21"
+        "packages/kernel/src/persistence/git/local-version-control-system.ts:21"
       ],
       "freshness": "git-ref"
     },

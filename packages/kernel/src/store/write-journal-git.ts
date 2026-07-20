@@ -2,7 +2,7 @@ import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
-import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
 const authoredRootNotIsolatedMessage = "authored root is not isolated from the outer code repository; run harness-anything init so the authored root is an independent Git repository and the outer .gitignore isolates it";

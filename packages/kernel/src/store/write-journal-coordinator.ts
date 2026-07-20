@@ -13,7 +13,7 @@ import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-con
 import type { EntityId, WriteError } from "../domain/index.ts";
 import { taskIdFromEntityId } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
-import { assertDocumentWritePathsDoNotCollide } from "./markdown-artifact-store.ts";
+import { assertDocumentWritePathsDoNotCollide } from "../persistence/markdown/markdown-artifact-store.ts";
 import {
   createHarnessRuntimeContext,
   type HarnessLayoutInput,
@@ -23,7 +23,7 @@ import type { ProjectionChangeEvent } from "../projection/projection-change-even
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
-import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./write-journal-commit-summary.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";

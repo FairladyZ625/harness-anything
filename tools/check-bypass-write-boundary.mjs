@@ -8,6 +8,7 @@ import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allo
 
 const targetRoots = [
   "packages/kernel/src/store",
+  "packages/kernel/src/persistence",
   "packages/adapters/local/src",
   "packages/daemon/src",
   "packages/cli/src/commands"

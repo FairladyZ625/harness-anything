@@ -46,7 +46,7 @@ test("ESLint preserves precise file-level physical I/O exemptions", async () => 
   const [result] = await eslint.lintText(
     'import { execFileSync } from "node:child_process";\nexport const value = execFileSync;\n',
     {
-      filePath: path.join(repoRoot, "packages/kernel/src/store/local-version-control-system.ts")
+      filePath: path.join(repoRoot, "packages/kernel/src/persistence/git/local-version-control-system.ts")
     }
   );
 

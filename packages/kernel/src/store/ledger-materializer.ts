@@ -6,7 +6,7 @@ import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-inc
 import { countAttributionProjectionRows } from "../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
-import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import { makeLocalVersionControlSystem } from "../persistence/git/local-version-control-system.ts";
 import {
   materializerCommitter,
   recoverScriptIngestArtifactConflicts,

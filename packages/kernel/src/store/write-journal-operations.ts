@@ -19,7 +19,7 @@ import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import {
   resolveContentAddressedBlobPath,
   writeContentAddressedBlob
-} from "./content-addressed-blob-store.ts";
+} from "../persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
@@ -32,7 +32,7 @@ import {
   canonicalAuthoredBatchPaths,
   validateCanonicalAuthoredBatch
 } from "./canonical-authored-batch.ts";
-import { writeDocument } from "./markdown-artifact-store.ts";
+import { writeDocument } from "../persistence/markdown/markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
   applyProgressAppendDelta,

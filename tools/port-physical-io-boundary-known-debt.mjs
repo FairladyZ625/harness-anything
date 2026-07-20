@@ -70,17 +70,17 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing projection helper centralizes TOCTOU-safe filesystem reads for projection builders."
   },
   {
-    file: "packages/kernel/src/store/local-lock-registry.ts",
+    file: "packages/kernel/src/persistence/local/local-lock-registry.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing local lock registry implementation owns filesystem-backed lock cleanup."
   },
   {
-    file: "packages/kernel/src/store/local-version-control-system.ts",
+    file: "packages/kernel/src/persistence/git/local-version-control-system.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing local VersionControlSystem port implementation shells out to git; W3 allows only this precise git implementation file."
   },
   {
-    file: "packages/kernel/src/store/markdown-artifact-store.ts",
+    file: "packages/kernel/src/persistence/markdown/markdown-artifact-store.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing markdown artifact store implementation owns local package document reads and writes."
   },

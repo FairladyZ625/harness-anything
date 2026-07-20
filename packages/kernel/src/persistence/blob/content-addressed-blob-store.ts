@@ -1,7 +1,7 @@
 import path from "node:path";
-import { sha256Bytes } from "../integrity/stable-hash.ts";
-import { type HarnessLayoutInput, resolveHarnessLayout } from "../layout/index.ts";
-import { durableFileExists, readFileBytes, writeFileDurably } from "./write-journal-durable.ts";
+import { sha256Bytes } from "../../integrity/stable-hash.ts";
+import { type HarnessLayoutInput, resolveHarnessLayout } from "../../layout/index.ts";
+import { durableFileExists, readFileBytes, writeFileDurably } from "../../store/write-journal-durable.ts";
 
 export interface ContentAddressedBlobRef {
   readonly ref: string;

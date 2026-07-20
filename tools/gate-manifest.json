@@ -2206,7 +2206,7 @@
         "tools/migrate-bypass-write-anchors.mjs"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/kernel/src/store, packages/adapters/local/src, and packages/cli/src/commands",
+        "AST-classified fs write calls in packages/kernel/src/store, packages/kernel/src/persistence, packages/adapters/local/src, and packages/cli/src/commands",
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
