@@ -7,9 +7,9 @@ import {
 } from "@harness-anything/application";
 import {
   assertPublicationMatchesMutationSet,
-  type DurableAuthorityServiceState,
   type GitCanonicalPublicationInspector
-} from "@harness-anything/daemon";
+} from "./publication-evidence.ts";
+import type { DurableAuthorityServiceState } from "./service-state.ts";
 import {
   actorAxesBindingCoreDigestV2,
   makeLocalAuthorityAttributionEventV2Log,

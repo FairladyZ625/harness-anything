@@ -102,7 +102,7 @@
         "packages/adapters/local/src/index.ts:310",
         "packages/application/src/local-controller-service.ts:95",
         "packages/cli/src/commands/core/task-submit-facade.ts:15",
-        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
+        "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "coordinator-conditional-task-state"
     },
@@ -335,7 +335,7 @@
         "packages/application/src/task-lifecycle-orchestrator.ts:115",
         "packages/cli/src/commands/core/task-gates.ts:93",
         "packages/cli/src/daemon/doc-sync-service.ts:166",
-        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
+        "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
@@ -733,7 +733,7 @@
       "evidence": [
         "packages/application/src/decision-write-service.ts:119",
         "packages/application/src/decision-write-service.ts:267",
-        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
+        "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -801,7 +801,7 @@
       "evidence": [
         "packages/application/src/decision-write-service.ts:134",
         "packages/application/src/decision-write-service.ts:267",
-        "packages/cli/src/daemon/production-authority-observed-write-intents.ts:1"
+        "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "decision-watermark-cas"
     },
@@ -832,7 +832,7 @@
       "evidence": [
         "packages/cli/src/commands/extensions/module.ts:43",
         "packages/cli/src/commands/extensions/state.ts:380",
-        "packages/cli/src/daemon/production-authority-attempt-compiler.ts:1"
+        "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts:74"
       ],
       "freshness": "coordinator-registry-replace"
     },
@@ -1466,7 +1466,7 @@
       "evidence": [
         "packages/cli/src/commands/extensions/script-staging.ts:32",
         "packages/cli/src/commands/core/extension.ts:10",
-        "packages/cli/src/daemon/production-authority-script-ingest.ts:35",
+        "packages/daemon/src/authority/production/production-authority-script-ingest.ts:43",
         "packages/daemon/src/authority/authority-command-submission.ts:227"
       ],
       "freshness": "staging-mirror-ingest"
@@ -1765,7 +1765,7 @@
       ],
       "evidence": [
         "packages/cli/src/index.ts:272",
-        "packages/cli/src/daemon/authority-manifest-registry.ts:62",
+        "packages/daemon/src/authority/production/authority-manifest-registry.ts:28",
         "packages/cli/src/daemon/daemon-launch-spec.ts:87",
         "packages/cli/src/daemon/daemon-launch-spec.ts:134",
         "packages/kernel/src/daemon/registry.ts:85"

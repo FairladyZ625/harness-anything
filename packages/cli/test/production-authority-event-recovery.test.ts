@@ -11,12 +11,12 @@ import type {
   AuthorityStoredOperationRecord
 } from "../../application/src/index.ts";
 import type { makeLocalAuthorityAttributionEventV2Log } from "../../kernel/src/index.ts";
-import { recoverPendingProductionEvents } from "../src/daemon/production-authority-lifecycle.ts";
 import {
   AuthorityCanonicalPublicationNotFoundError,
   AuthorityRecoveryWatermarkInvalidError,
   assertPublicationMatchesMutationSet,
-  createGitCanonicalPublicationInspector
+  createGitCanonicalPublicationInspector,
+  recoverPendingProductionEvents
 } from "@harness-anything/daemon";
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {

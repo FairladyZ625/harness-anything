@@ -13,7 +13,7 @@ import {
   type RegistryEntityRefV2,
   type WriteOp
 } from "@harness-anything/kernel";
-import { resolveHostedDocument } from "@harness-anything/daemon";
+import { resolveHostedDocument } from "./semantic-state.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 
 export function productionObservedWriteAttemptIntent(

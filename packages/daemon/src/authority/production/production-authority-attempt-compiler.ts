@@ -36,11 +36,9 @@ import {
   type RegistryEntityRefV2,
   type WriteOp
 } from "@harness-anything/kernel";
-import {
-  hostedSnapshot,
-  type AuthorityConnectionContext,
-  type DaemonAuthorityAttemptCompilerV2
-} from "@harness-anything/daemon";
+import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
+import type { DaemonAuthorityAttemptCompilerV2 } from "../authority-command-submission.ts";
+import { hostedSnapshot } from "./semantic-state.ts";
 import {
   openAuthorityProductionKeyMaterial,
   type AuthorityProductionRepoConfigV1,
@@ -51,7 +49,7 @@ import { provenanceSessionAttemptIntent } from "./production-authority-provenanc
 import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent.ts";
 import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
-export { createProductionCanonicalSemanticState } from "@harness-anything/daemon";
+export { createProductionCanonicalSemanticState } from "./semantic-state.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 

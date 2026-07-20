@@ -19,11 +19,13 @@ import {
 } from "@harness-anything/application";
 import {
   authorityDurableAdapterMarker,
+  type AuthorityDurableAdapterMarker
+} from "../authority-lifecycle.ts";
+import {
   openLocalAuthorityKeyStore,
-  type AuthorityDurableAdapterMarker,
-  type DurableAuthorityStateTable,
   type LocalAuthorityKeyStore
-} from "@harness-anything/daemon";
+} from "../local-key-store.ts";
+import type { DurableAuthorityStateTable } from "./service-state.ts";
 import type { WriteAttribution } from "@harness-anything/kernel";
 import { stableStringify } from "@harness-anything/kernel";
 
@@ -104,7 +106,7 @@ export function loadAuthorityProductionManifest(manifestPath: string): Authority
   const repos = root.repos.map((value, index) => parseRepo(value, index, path.dirname(absoluteManifest)));
   const ids = new Set(repos.map((repo) => repo.repoId));
   if (ids.size !== repos.length) throw new Error("AUTHORITY_PRODUCTION_MANIFEST_DUPLICATE_REPO");
-  if (repos.some((repo) => pathsOverlap(serviceStateRoot, repo.canonicalRoot))) {
+  if (repos.some((repo) => productionPathsOverlap(serviceStateRoot, repo.canonicalRoot))) {
     throw new Error("AUTHORITY_PRODUCTION_SERVICE_STATE_MUST_BE_EXTERNAL");
   }
   return { schema: productionManifestSchema, serviceStateRoot, repos };
@@ -510,7 +512,7 @@ function namespaceKey(namespaceId: string): string {
   return `namespace:${requiredText(namespaceId, "namespaceId")}`;
 }
 
-function pathsOverlap(left: string, right: string): boolean {
+function productionPathsOverlap(left: string, right: string): boolean {
   return containsPath(left, right) || containsPath(right, left);
 }
 

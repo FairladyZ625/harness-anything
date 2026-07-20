@@ -1,6 +1,6 @@
 import {
   createProductionAuthorityLifecycle as createProductionAuthorityLifecycleCore
-} from "../daemon/production-authority-lifecycle.ts";
+} from "@harness-anything/daemon";
 import { productionAuthorityHostServices } from "./production-authority-host-services.ts";
 
 type ProductionAuthorityLifecycleInput = Omit<

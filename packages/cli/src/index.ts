@@ -14,7 +14,10 @@ import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-even
 import {
   calculateDaemonArtifactIdentity,
   createDaemonLaunchConfiguration,
+  authorityManifestServeRepos,
+  loadAuthorityProductionManifest,
   makeDaemonLogFileStore,
+  persistAuthorityManifestPointer,
   recordDaemonStarted,
   recordDaemonTerminated,
   type DaemonRepoNamespace
@@ -49,11 +52,6 @@ import { makeDaemonReservationReconciler } from "./composition/reservation-recon
 import {
   createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
 } from "./composition/production-authority-lifecycle.ts";
-import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
-import {
-  authorityManifestServeRepos,
-  persistAuthorityManifestPointer
-} from "./daemon/authority-manifest-registry.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
 import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";

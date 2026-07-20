@@ -31,7 +31,7 @@ import { daemonActorAttribution } from "../src/composition/actor-attribution.ts"
 import {
   loadAuthorityProductionManifest,
   openAuthorityProductionKeyMaterial
-} from "../src/daemon/authority-production-state.ts";
+} from "@harness-anything/daemon";
 import {
   createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
 } from "../src/composition/production-authority-lifecycle.ts";
