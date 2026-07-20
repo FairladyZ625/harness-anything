@@ -1,3 +1,4 @@
+// @slice-activation PLT-Boundary S1 daemon generation axes exported for daemon and client consumers.
 export type MachineId = string & { readonly __brand: "machine-id" };
 export type DaemonGeneration = number & { readonly __brand: "daemon-generation" };
 export type RuntimeRegistrationId = string & { readonly __brand: "runtime-registration-id" };
