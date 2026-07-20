@@ -49,6 +49,8 @@ interface PersistedDaemonLaunchSpec {
   readonly schema: typeof daemonLaunchSpecSchema;
   readonly endpoint: string;
   readonly launchConfiguration: DaemonLaunchConfiguration;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
 }
 
 interface LegacyPersistedDaemonLaunchSpec {
@@ -153,7 +155,9 @@ function writeDaemonLaunchResolution(
     const document: PersistedDaemonLaunchSpec = {
       schema: daemonLaunchSpecSchema,
       endpoint,
-      launchConfiguration: cloneDaemonLaunchConfiguration(launchConfiguration)
+      launchConfiguration: cloneDaemonLaunchConfiguration(launchConfiguration),
+      ...(launchConfiguration.machineId !== undefined ? { machineId: launchConfiguration.machineId } : {}),
+      ...(launchConfiguration.daemonGeneration !== undefined ? { daemonGeneration: launchConfiguration.daemonGeneration } : {})
     };
     // Owner-only mode. The spec contains paths, never credentials or key material.
     writeFileSync(temporary, `${JSON.stringify(document, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -210,7 +214,10 @@ export function readPersistedDaemonLaunchSpec(
     throw incompatibleDaemonLaunchSpecError(source, "endpoint-mismatch");
   }
   if (isLegacyPersistedDaemonLaunchSpec(decoded)) return cloneDaemonLaunchOptions(decoded.options);
-  if (decoded.schema !== daemonLaunchSpecSchema || !isDaemonLaunchConfiguration(decoded.launchConfiguration)) {
+  if (decoded.schema !== daemonLaunchSpecSchema || !isDaemonLaunchConfiguration(decoded.launchConfiguration)
+    || !optionalNonEmptyString(decoded.machineId) || !optionalPositiveSafeInteger(decoded.daemonGeneration)
+    || (decoded.machineId !== undefined && decoded.machineId !== decoded.launchConfiguration.machineId)
+    || (decoded.daemonGeneration !== undefined && decoded.daemonGeneration !== decoded.launchConfiguration.daemonGeneration)) {
     throw incompatibleDaemonLaunchSpecError(source, "invalid-document");
   }
   const configuration = cloneDaemonLaunchConfiguration(decoded.launchConfiguration);
@@ -321,7 +328,9 @@ function isDaemonLaunchConfiguration(value: unknown): value is DaemonLaunchConfi
     && typeof value.entrypoint === "string"
     && value.entrypoint.length > 0
     && Array.isArray(value.args)
-    && value.args.every((arg) => typeof arg === "string");
+    && value.args.every((arg) => typeof arg === "string")
+    && optionalNonEmptyString(value.machineId)
+    && optionalPositiveSafeInteger(value.daemonGeneration);
 }
 
 function isLegacyPersistedDaemonLaunchSpec(
@@ -384,8 +393,18 @@ function cloneDaemonLaunchConfiguration(configuration: DaemonLaunchConfiguration
     execPath: configuration.execPath,
     execArgv: [...configuration.execArgv],
     entrypoint: configuration.entrypoint,
-    args: [...configuration.args]
+    args: [...configuration.args],
+    ...(configuration.machineId !== undefined ? { machineId: configuration.machineId } : {}),
+    ...(configuration.daemonGeneration !== undefined ? { daemonGeneration: configuration.daemonGeneration } : {})
   };
+}
+
+function optionalNonEmptyString(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && value.length > 0);
+}
+
+function optionalPositiveSafeInteger(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isSafeInteger(value) && value >= 1);
 }
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {

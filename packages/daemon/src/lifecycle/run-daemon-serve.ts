@@ -26,6 +26,7 @@ import { createDaemonLocalTransport, withDaemonSocketOwnership } from "../transp
 import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import { makeDaemonReservationReconciler } from "./reservation-reconciler.ts";
 import { recordDaemonStarted, recordDaemonTerminated } from "./daemon-lifecycle.ts";
+import { publishNextDaemonGeneration, readOrCreateDaemonMachineId } from "./daemon-generation.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -65,18 +66,27 @@ export async function runDaemonServe<
 ): Promise<void> {
   const { rootDir, layoutOverrides, userRoot, endpoint } = input;
   const { serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = resolveDaemonServeConfiguration(input);
-  const launchConfiguration = createDaemonLaunchConfiguration({
-    target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
-    entrypoint: input.entrypoint,
-    idleExitMs: input.idleMs,
-    ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
-    ...(authorityManifest ? { authorityManifest } : {}),
-    launchOptionsResolved: true
-  });
   const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
   const startedAt = new Date().toISOString();
 
   return withDaemonSocketOwnership(endpoint, async () => {
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    const generationRecord = publishNextDaemonGeneration({
+      userRoot,
+      endpointIdentity: endpoint,
+      machineId,
+      daemonInstanceId: `ha-${process.pid}`
+    });
+    const launchConfiguration = createDaemonLaunchConfiguration({
+      target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
+      entrypoint: input.entrypoint,
+      idleExitMs: input.idleMs,
+      ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
+      ...(authorityManifest ? { authorityManifest } : {}),
+      launchOptionsResolved: true,
+      machineId,
+      daemonGeneration: generationRecord.daemonGeneration
+    });
     let runtime: ReturnType<typeof createMultiRepoDaemonRuntime> | undefined;
     let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost<Command, Result, Identity, PresentedControlError>>> | undefined;
     let lifecycleStarted = false;
@@ -127,7 +137,9 @@ export async function runDaemonServe<
           loadedIdentity: loadedBuild.identity,
           startedAt,
           launchConfiguration,
-          preflightReplacement: input.preflightReplacement
+          preflightReplacement: input.preflightReplacement,
+          machineId,
+          daemonGeneration: generationRecord.daemonGeneration
         },
         serviceHostServices,
         authorityLifecycle,

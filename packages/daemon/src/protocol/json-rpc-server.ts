@@ -351,8 +351,14 @@ async function callServiceMethod(
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
     try {
-      validateDaemonStatusRequest(params);
-      const status = validateDaemonStatusResult(await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
+      const request = validateDaemonStatusRequest(params);
+      const produced = await services.DaemonStatusService.getStatus(repo ? {
+        repo,
+        ...(request.includeGenerationAxes ? { includeGenerationAxes: true as const } : {})
+      } : undefined);
+      const status = validateDaemonStatusResult(request.includeGenerationAxes && options.acceptedConnection
+        ? { ...produced, connectionId: options.acceptedConnection.connectionId }
+        : produced);
       return successReceipt(contract.method, "read daemon status", status);
     } catch (error) {
       return daemonStatusValidationFailure(contract.method, error);

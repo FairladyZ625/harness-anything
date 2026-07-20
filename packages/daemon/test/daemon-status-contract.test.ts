@@ -199,3 +199,44 @@ test("daemon status v2 schema fixtures prove request and result boundaries", () 
     assert.throws(() => decode(JSON.parse(readFileSync(path.join(fixtureRoot, fixture, "invalid.json"), "utf8"))), fixture);
   }
 });
+
+test("daemon status generation capability preserves legacy bytes and validates the full projection", () => {
+  const fixturePath = path.resolve("packages/daemon/fixtures/api-schemas/daemon.status-result__v2/valid.json");
+  const legacy = JSON.parse(readFileSync(fixturePath, "utf8")) as DaemonStatusResultV2;
+  const before = Buffer.from(JSON.stringify(legacy));
+  assert.doesNotThrow(() => decodeDaemonStatusResultV2(legacy));
+  const after = Buffer.from(JSON.stringify(legacy));
+  assert.equal(after.equals(before), true, "legacy daemon status fixture bytes drifted");
+
+  assert.deepEqual(decodeDaemonStatusRequestV2({ repo: { repoId: "canonical" } }), {
+    repo: { repoId: "canonical" }
+  });
+  assert.deepEqual(decodeDaemonStatusRequestV2({
+    repo: { repoId: "canonical" },
+    includeGenerationAxes: true
+  }), {
+    repo: { repoId: "canonical" },
+    includeGenerationAxes: true
+  });
+  assert.throws(() => decodeDaemonStatusRequestV2({
+    repo: { repoId: "canonical" },
+    includeGenerationAxes: false
+  }));
+
+  const full: DaemonStatusResultV2 = {
+    ...legacy,
+    connectionId: "connection-a",
+    service: {
+      ...legacy.service,
+      machineId: "machine-installation-a",
+      daemonGeneration: 3
+    },
+    requestedRepo: {
+      ...legacy.requestedRepo,
+      runtimeRegistrationId: "runtime-a",
+      daemonGeneration: 3
+    },
+    repos: legacy.repos.map((repo) => ({ ...repo, daemonGeneration: 3 }))
+  };
+  assert.doesNotThrow(() => decodeDaemonStatusResultV2(full));
+});

@@ -1,6 +1,7 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 export interface DaemonStatusRequestV2 {
   readonly repo: { readonly repoId: string };
+  readonly includeGenerationAxes?: true;
 }
 
 export interface DaemonQueueStatus {
@@ -44,6 +45,8 @@ export interface DaemonActiveControlStatus {
   readonly phase: "accepted" | "draining" | "building" | "replacing" | "failed";
   readonly requestedAt: string;
   readonly failure?: Pick<DaemonControlErrorV1, "code" | "hint">;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface DaemonBuildStatus {
@@ -69,6 +72,8 @@ export interface DaemonRepoStatus {
   readonly lastError: string | null;
   readonly lastMaterializerError: string | null;
   readonly lastReconcileError: DaemonReconcileErrorStatus | null;
+  readonly runtimeRegistrationId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface DaemonStatusResultV2 {
@@ -89,6 +94,7 @@ export interface DaemonStatusResultV2 {
   readonly lastReconcileError: DaemonReconcileErrorStatus | null;
   readonly lastRecovery: unknown;
   readonly projectionGeneration: unknown;
+  readonly connectionId?: string;
   readonly service: {
     readonly daemonId: string;
     readonly pid: number;
@@ -106,6 +112,8 @@ export interface DaemonStatusResultV2 {
     readonly lastReconcileAt: string | null;
     readonly lastReconcileError: DaemonReconcileErrorStatus | null;
     readonly activeControl: DaemonActiveControlStatus | null;
+    readonly machineId?: string;
+    readonly daemonGeneration?: number;
   };
   readonly requestedRepo: DaemonRepoStatus;
   readonly repos: ReadonlyArray<DaemonRepoStatus>;
@@ -125,11 +133,15 @@ export class DaemonStatusContractError extends Error {
 export function decodeDaemonStatusRequestV2(value: unknown): DaemonStatusRequestV2 {
   try {
     const request = object(value, "request");
-    keys(request, ["repo"], "request");
+    keys(request, ["repo", "includeGenerationAxes"], "request", ["includeGenerationAxes"]);
     const repo = object(request.repo, "request.repo");
     keys(repo, ["repoId"], "request.repo");
     string(repo.repoId, "request.repo.repoId");
-    return { repo: { repoId: repo.repoId as string } };
+    if (request.includeGenerationAxes !== undefined) literal(request.includeGenerationAxes, true, "request.includeGenerationAxes");
+    return {
+      repo: { repoId: repo.repoId as string },
+      ...(request.includeGenerationAxes === true ? { includeGenerationAxes: true as const } : {})
+    };
   } catch (error) {
     if (error instanceof DaemonStatusContractError) {
       throw new DaemonStatusContractError("invalid_daemon_status_request", error.message);
@@ -142,8 +154,8 @@ export function decodeDaemonStatusResultV2(value: unknown): DaemonStatusResultV2
   const result = object(value, "result");
   keys(result, [
     "schema", "daemonId", "pid", "started", "rootDir", "repoId", "endpoint", "version", "protocolVersion", "queue", "queueDepth",
-    "connections", "lastReconcileAt", "lastReconcileError", "lastRecovery", "projectionGeneration", "service", "requestedRepo", "repos"
-  ], "result");
+    "connections", "lastReconcileAt", "lastReconcileError", "lastRecovery", "projectionGeneration", "service", "requestedRepo", "repos", "connectionId"
+  ], "result", ["connectionId"]);
   literal(result.schema, "daemon-status/v2", "result.schema");
   for (const field of ["daemonId", "rootDir", "repoId", "endpoint", "version"] as const) string(result[field], `result.${field}`);
   nonNegativeStatusInteger(result.pid, "result.pid");
@@ -154,6 +166,7 @@ export function decodeDaemonStatusResultV2(value: unknown): DaemonStatusResultV2
   connections(result.connections, "result.connections");
   nullableTimestamp(result.lastReconcileAt, "result.lastReconcileAt");
   nullableReconcileError(result.lastReconcileError, "result.lastReconcileError");
+  if (result.connectionId !== undefined) string(result.connectionId, "result.connectionId");
   service(result.service);
   repo(result.requestedRepo, "result.requestedRepo");
   if (!Array.isArray(result.repos)) invalidStatusShape("result.repos must be an array");
@@ -169,8 +182,8 @@ function service(value: unknown): void {
   const record = object(value, "result.service");
   keys(record, [
     "daemonId", "pid", "endpoint", "userRoot", "started", "startedAt", "uptimeMs", "build", "queue", "connections", "repoCount",
-    "attachedCount", "unavailableCount", "lastReconcileAt", "lastReconcileError", "activeControl"
-  ], "result.service");
+    "attachedCount", "unavailableCount", "lastReconcileAt", "lastReconcileError", "activeControl", "machineId", "daemonGeneration"
+  ], "result.service", ["machineId", "daemonGeneration"]);
   for (const field of ["daemonId", "endpoint", "userRoot"] as const) string(record[field], `result.service.${field}`);
   nonNegativeStatusInteger(record.pid, "result.service.pid");
   boolean(record.started, "result.service.started");
@@ -187,11 +200,13 @@ function service(value: unknown): void {
   nullableTimestamp(record.lastReconcileAt, "result.service.lastReconcileAt");
   nullableReconcileError(record.lastReconcileError, "result.service.lastReconcileError");
   if (record.activeControl !== null) activeControl(record.activeControl);
+  if (record.machineId !== undefined) string(record.machineId, "result.service.machineId");
+  if (record.daemonGeneration !== undefined) positiveStatusInteger(record.daemonGeneration, "result.service.daemonGeneration");
 }
 
 function repo(value: unknown, label: string): void {
   const record = object(value, label);
-  keys(record, ["repoId", "canonicalRoot", "displayName", "state", "lock", "queue", "lastRecovery", "projectionGeneration", "lastError", "lastMaterializerError", "lastReconcileError"], label, ["displayName"]);
+  keys(record, ["repoId", "canonicalRoot", "displayName", "state", "lock", "queue", "lastRecovery", "projectionGeneration", "lastError", "lastMaterializerError", "lastReconcileError", "runtimeRegistrationId", "daemonGeneration"], label, ["displayName", "runtimeRegistrationId", "daemonGeneration"]);
   string(record.repoId, `${label}.repoId`);
   string(record.canonicalRoot, `${label}.canonicalRoot`);
   if (record.displayName !== undefined) string(record.displayName, `${label}.displayName`);
@@ -204,6 +219,8 @@ function repo(value: unknown, label: string): void {
   nullableString(record.lastError, `${label}.lastError`);
   nullableString(record.lastMaterializerError, `${label}.lastMaterializerError`);
   nullableReconcileError(record.lastReconcileError, `${label}.lastReconcileError`);
+  if (record.runtimeRegistrationId !== undefined) string(record.runtimeRegistrationId, `${label}.runtimeRegistrationId`);
+  if (record.daemonGeneration !== undefined) positiveStatusInteger(record.daemonGeneration, `${label}.daemonGeneration`);
 }
 
 function queue(value: unknown, label: string): void {
@@ -238,11 +255,13 @@ function connections(value: unknown, label: string): void {
 
 function activeControl(value: unknown): void {
   const record = object(value, "result.service.activeControl");
-  keys(record, ["operationId", "kind", "phase", "requestedAt", "failure"], "result.service.activeControl");
+  keys(record, ["operationId", "kind", "phase", "requestedAt", "failure", "machineId", "daemonGeneration"], "result.service.activeControl", ["failure", "machineId", "daemonGeneration"]);
   string(record.operationId, "result.service.activeControl.operationId");
   oneOf(record.kind, ["restart", "refresh"], "result.service.activeControl.kind");
   oneOf(record.phase, ["accepted", "draining", "building", "replacing", "failed"], "result.service.activeControl.phase");
   timestamp(record.requestedAt, "result.service.activeControl.requestedAt");
+  if (record.machineId !== undefined) string(record.machineId, "result.service.activeControl.machineId");
+  if (record.daemonGeneration !== undefined) positiveStatusInteger(record.daemonGeneration, "result.service.activeControl.daemonGeneration");
   if (record.failure !== undefined) {
     const failure = object(record.failure, "result.service.activeControl.failure");
     keys(failure, ["code", "hint"], "result.service.activeControl.failure");
@@ -277,7 +296,8 @@ function string(value: unknown, label: string): asserts value is string { if (ty
 function nullableString(value: unknown, label: string): void { if (value !== null && typeof value !== "string") invalidStatusShape(`${label} must be null or a string`); }
 function boolean(value: unknown, label: string): void { if (typeof value !== "boolean") invalidStatusShape(`${label} must be a boolean`); }
 function nonNegativeStatusInteger(value: unknown, label: string): void { if (!Number.isInteger(value) || Number(value) < 0) invalidStatusShape(`${label} must be a non-negative integer`); }
-function literal(value: unknown, expected: string | number, label: string): void { if (value !== expected) invalidStatusShape(`${label} must be ${String(expected)}`); }
+function positiveStatusInteger(value: unknown, label: string): void { if (!Number.isSafeInteger(value) || Number(value) < 1) invalidStatusShape(`${label} must be a positive safe integer`); }
+function literal(value: unknown, expected: string | number | boolean, label: string): void { if (value !== expected) invalidStatusShape(`${label} must be ${String(expected)}`); }
 function oneOf(value: unknown, expected: ReadonlyArray<string>, label: string): void { if (typeof value !== "string" || !expected.includes(value)) invalidStatusShape(`${label} is unsupported`); }
 function timestamp(value: unknown, label: string): void { if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) invalidStatusShape(`${label} must be an ISO timestamp`); }
 function nullableTimestamp(value: unknown, label: string): void { if (value !== null) timestamp(value, label); }
@@ -305,7 +325,10 @@ function projectRepo(repo: DaemonRepoStatus): DaemonRendererRepoStatus {
 }
 
 export interface DaemonStatusService {
-  readonly getStatus: (context?: { readonly repo: { readonly repoId: string; readonly canonicalRoot: string } }) =>
+  readonly getStatus: (context?: {
+    readonly repo: { readonly repoId: string; readonly canonicalRoot: string };
+    readonly includeGenerationAxes?: true;
+  }) =>
     DaemonStatusResultV2 | Promise<DaemonStatusResultV2>;
 }
 
@@ -316,6 +339,8 @@ export interface DaemonControlRequestV1 {
   readonly reason: string;
   readonly drainTimeoutMs: number;
   readonly trigger?: DaemonRefreshTrigger;
+  readonly daemonGeneration?: number;
+  readonly connectionId?: string;
 }
 
 export interface DaemonControlAcceptedV1 {
@@ -325,11 +350,15 @@ export interface DaemonControlAcceptedV1 {
   readonly kind: DaemonControlKind;
   readonly scope: "service";
   readonly requestedAt: string;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
+  readonly connectionId?: string;
   readonly before: {
     readonly pid: number;
     readonly loadedIdentity: string;
     readonly repoCount: number;
     readonly queueDepth: number;
+    readonly daemonGeneration?: number;
   };
 }
 
@@ -341,6 +370,7 @@ export interface DaemonControlErrorV1 {
     | "daemon_queue_drain_timeout"
     | "daemon_refresh_wrong_checkout"
     | "daemon_refresh_build_failed"
+    | "daemon_control_generation_mismatch"
     | "daemon_restart_failed";
   readonly hint: string;
   readonly operationId: string | null;

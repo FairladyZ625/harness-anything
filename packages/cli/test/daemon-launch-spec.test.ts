@@ -40,6 +40,35 @@ test("persisted daemon launch spec round-trips the RPC launch configuration stru
   }
 });
 
+test("legacy launch persistence remains byte-identical and generation projections round-trip", () => {
+  const legacyRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-bytes-"));
+  const projectedRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-launch-axes-"));
+  try {
+    resolveDaemonLaunchSpec(legacyRoot, endpoint, persisted).persist(legacyRoot, persistedConfiguration);
+    const expectedLegacy = Buffer.from(`${JSON.stringify({
+      schema: "daemon-launch-spec/v3",
+      endpoint,
+      launchConfiguration: persistedConfiguration
+    }, null, 2)}\n`);
+    const actualLegacy = readFileSync(daemonLaunchSpecPath(legacyRoot, endpoint));
+    assert.equal(actualLegacy.equals(expectedLegacy), true, "legacy launch spec bytes drifted");
+
+    const projected = {
+      ...persistedConfiguration,
+      machineId: "machine-installation-a",
+      daemonGeneration: 7
+    };
+    resolveDaemonLaunchSpec(projectedRoot, endpoint, persisted).persist(projectedRoot, projected);
+    assert.deepEqual(readPersistedDaemonLaunchSpec(projectedRoot, endpoint), projected);
+    const document = JSON.parse(readFileSync(daemonLaunchSpecPath(projectedRoot, endpoint), "utf8")) as Record<string, unknown>;
+    assert.equal(document.machineId, projected.machineId);
+    assert.equal(document.daemonGeneration, projected.daemonGeneration);
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
+    rmSync(projectedRoot, { recursive: true, force: true });
+  }
+});
+
 test("cold start restores the omitted authority manifest and authored root from structured fields", () => {
   const restored = resolveRestoredLaunchOptions(persisted, {});
   assert.deepEqual(restored, persisted);

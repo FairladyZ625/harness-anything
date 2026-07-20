@@ -18,7 +18,10 @@ export function isCompoundOperationReceiptV2(value: unknown): value is CompoundO
     || !exactKeys(value, [
       "schema", "workspaceId", "viewId", "opId", "waiterId", "resultTokenDigest", "phase",
       "delivery", "pinReleaseEligible", "currentLease", "sequence", "updatedAt"
-    ], ["authority", "origin", "originPin", "terminalLSN", "acknowledgement"])
+    ], [
+      "authority", "origin", "originPin", "terminalLSN", "acknowledgement",
+      "machineId", "daemonGeneration", "runtimeRegistrationId", "connectionId", "leaseGeneration", "errorCode"
+    ])
     || value.schema !== compoundReceiptV2Schema
     || !requiredStringsV2(value, ["workspaceId", "viewId", "opId", "waiterId", "resultTokenDigest", "updatedAt"])
     || !hexDigest(value.resultTokenDigest)
@@ -26,7 +29,8 @@ export function isCompoundOperationReceiptV2(value: unknown): value is CompoundO
     || !includes(deliveryStates, value.delivery)
     || !includes(leaseStates, value.currentLease)
     || typeof value.pinReleaseEligible !== "boolean"
-    || !uintReceiptV2(value.sequence)) return false;
+    || !uintReceiptV2(value.sequence)
+    || !validTerminalGenerationAxesV2(value)) return false;
   if (value.authority !== undefined && !validAuthorityV2(value.authority, value)) return false;
   if (value.origin !== undefined && !validOriginV2(value.origin, value)) return false;
   if (value.originPin !== undefined && !validOriginPin(value.originPin, value.origin)) return false;
@@ -179,4 +183,14 @@ function exactKeys(
 
 function stringArrayV2(value: unknown): boolean {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.length > 0);
+}
+
+function validTerminalGenerationAxesV2(value: Record<string, unknown>): boolean {
+  for (const field of ["machineId", "runtimeRegistrationId", "connectionId", "errorCode"] as const) {
+    if (value[field] !== undefined && (typeof value[field] !== "string" || value[field].length === 0)) return false;
+  }
+  for (const field of ["daemonGeneration", "leaseGeneration"] as const) {
+    if (value[field] !== undefined && (!uintReceiptV2(value[field]) || Number(value[field]) < 1)) return false;
+  }
+  return true;
 }

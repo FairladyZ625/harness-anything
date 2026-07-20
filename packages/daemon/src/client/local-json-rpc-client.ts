@@ -49,6 +49,8 @@ export interface DaemonLaunchConfiguration {
   readonly execArgv: ReadonlyArray<string>;
   readonly entrypoint: string;
   readonly args: ReadonlyArray<string>;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface DaemonLaunchConfigurationInput {
@@ -61,6 +63,8 @@ export interface DaemonLaunchConfigurationInput {
   readonly authoredRoot?: string;
   readonly authorityManifest?: string;
   readonly launchOptionsResolved?: boolean;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
 }
 
 interface HarnessLayoutOverrides {
@@ -296,7 +300,9 @@ export function createDaemonLaunchConfiguration(
       "--idle-ms", String(input.idleExitMs),
       ...(authorityManifest !== undefined ? ["--authority-manifest", authorityManifest] : []),
       ...(input.launchOptionsResolved ? [daemonLaunchOptionsResolvedFlag] : [])
-    ]
+    ],
+    ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+    ...(input.daemonGeneration !== undefined ? { daemonGeneration: input.daemonGeneration } : {})
   };
 }
 

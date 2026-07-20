@@ -8,6 +8,13 @@ export interface DaemonRegistryRepo {
   readonly state: DaemonRepoState;
   readonly registeredAt: string;
   readonly authorityManifestPath?: string;
+  readonly runtimeRegistrationId?: string;
+  readonly daemonGeneration?: number;
+}
+
+export interface DaemonRegistryGenerationProjectionV1 {
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface DaemonRegistryLookupOptions {

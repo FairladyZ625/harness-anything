@@ -18,12 +18,22 @@ export function daemonControlRequest(
     && payload.trigger !== "dist-watcher") {
     return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.trigger explicit|post-merge|dist-watcher. Retry with \`ha daemon refresh --trigger explicit\`.` };
   }
+  if (payload.daemonGeneration !== undefined
+    && (!Number.isSafeInteger(payload.daemonGeneration) || Number(payload.daemonGeneration) < 1)) {
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.daemonGeneration to be a positive safe integer.` };
+  }
+  if (payload.connectionId !== undefined
+    && (typeof payload.connectionId !== "string" || payload.connectionId.length === 0)) {
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.connectionId to be a non-empty string.` };
+  }
   return {
     ok: true,
     value: {
       reason: payload.reason,
       drainTimeoutMs: Number(payload.drainTimeoutMs),
-      ...(method === "admin.daemon.refresh" ? { trigger: payload.trigger as DaemonControlRequestV1["trigger"] } : {})
+      ...(method === "admin.daemon.refresh" ? { trigger: payload.trigger as DaemonControlRequestV1["trigger"] } : {}),
+      ...(payload.daemonGeneration !== undefined ? { daemonGeneration: Number(payload.daemonGeneration) } : {}),
+      ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId as string } : {})
     }
   };
 }
