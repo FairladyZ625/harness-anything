@@ -50,6 +50,7 @@ import {
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
+import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
 import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
@@ -82,7 +83,11 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   const output = parsed.value.action.kind === "task-submit"
     ? await runTaskSubmitFacade(parsed.value, runParsedCommand)
-    : await runParsedCommand(parsed.value);
+    : parsed.value.action.kind === "task-start"
+      ? await runTaskStartFacade(parsed.value, runParsedCommand)
+      : parsed.value.action.kind === "task-closeout"
+        ? await runTaskCloseoutFacade(parsed.value, runParsedCommand)
+        : await runParsedCommand(parsed.value);
 
   const receipt = "schema" in output ? output : toCommandReceipt(output);
   emit(receipt, parsed.value.json);

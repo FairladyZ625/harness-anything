@@ -15,6 +15,7 @@ import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
 import { rejectDaemonTaskSubmitFacade } from "../../commands/core/task-submit-facade.ts";
+import { rejectDaemonTaskLifecycleFacade } from "../../commands/core/task-lifecycle-facade.ts";
 
 export const coreCommandSpecs = defineCommandSpecs([
   {
@@ -148,6 +149,29 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "task-start",
+    "usage": "task start <id> [--execution-id <execution-id>] [--ttl-ms <ms>] [--dry-run] [--json]",
+    "options": [{"flag":"--execution-id","description":"Resume a selected active Execution when legacy state is ambiguous."},{"flag":"--ttl-ms","description":"Set the Holder V2 lease duration in milliseconds."},{"flag":"--dry-run","description":"List the separately admitted lifecycle steps without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Claim an Execution lease and move a planned task to active without entering review.",
+    "examples": ["harness-anything task start task_01ABC --json"],
+    "parse": parseCoreTaskArgs,
+    "run": rejectDaemonTaskLifecycleFacade,
+    "receiptContract": {
+      "data": ["taskId", "executionId", "status", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    },
+    "admission": {
+      "nounOwnership": "Task lifecycle start facade; it adds no top-level noun and cannot enter review.",
+      "lifecycle": "permanent",
+      "decisionRef": "decision/dec_01KXWRC9CH70HN61B5FYPQP3XV",
+      "chain": { "stepCount": 2, "submissionFieldCount": 0, "structuredInput": false }
+    }
+  },
+  {
     "kind": "task-holder",
     "usage": "task holder <id> [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
@@ -202,6 +226,29 @@ export const coreCommandSpecs = defineCommandSpecs([
       "lifecycle": "permanent",
       "decisionRef": "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
       "chain": { "stepCount": 7, "submissionFieldCount": 6, "structuredInput": true }
+    }
+  },
+  {
+    "kind": "task-closeout",
+    "usage": "task closeout <id> --from-file <closeout.json> [--execution-id <execution-id>] [--lease-token <token>] [--commit <git-ref>] [--reviewer <id>] [--dry-run] [--json]",
+    "options": [{"flag":"--from-file","description":"Read the human completion claim, Review judgment and consent, CI result, and optional evidence fields."},{"flag":"--execution-id","description":"Select the active Execution; otherwise use Holder V2 and the sole submitted round."},{"flag":"--lease-token","description":"Authenticate the active Holder V2 lease when it is not available implicitly."},{"flag":"--commit","description":"Resolve this git ref to a full 40-character commit SHA; defaults to HEAD."},{"flag":"--reviewer","description":"Set the completion reviewer id recorded by the existing completion gate."},{"flag":"--dry-run","description":"Resolve the commit and list the separately admitted gate steps without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Explicitly submit an active Execution, record its human Review and consent, reconcile code-doc anchors, and complete after the declared CI result.",
+    "examples": ["harness-anything task closeout task_01ABC --from-file closeout.json --json"],
+    "parse": parseCoreTaskArgs,
+    "run": rejectDaemonTaskLifecycleFacade,
+    "receiptContract": {
+      "data": ["taskId", "executionId", "status", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    },
+    "admission": {
+      "nounOwnership": "Task lifecycle closeout facade; a human must invoke it after work is active.",
+      "lifecycle": "permanent",
+      "decisionRef": "decision/dec_01KXWRC9CH70HN61B5FYPQP3XV",
+      "chain": { "stepCount": 4, "submissionFieldCount": 6, "structuredInput": true }
     }
   },
   {

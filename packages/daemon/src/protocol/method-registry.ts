@@ -308,6 +308,8 @@ const repoWriteCliActionKinds = new Set<string>([
   "session-export",
   "session-sync",
   "task-submit",
+  "task-start",
+  "task-closeout",
   "worktree-create"
 ]);
 
