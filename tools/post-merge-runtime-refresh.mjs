@@ -76,6 +76,11 @@ export function executePostMergeRuntimeRefresh(input) {
     wrapped("git-hook-dependency-sync", "npm", ["ci"]);
   }
   if (input.plan.buildCli) {
+    // kernel dist/index.d.ts is a git-ignored declaration artifact that the CLI
+    // build resolves through the package "types" condition; it must be
+    // regenerated first or a changed kernel public surface fails every
+    // downstream tsc build against stale declarations.
+    wrapped("git-hook-kernel-decls", "npx", ["tsc", "-p", "packages/kernel/tsconfig.json"]);
     wrapped("git-hook-cli-build", "npm", ["run", "build", "-w", "@harness-anything/cli"]);
   }
   if (input.plan.buildGui) {
