@@ -22,7 +22,17 @@ export async function runAuthorityCutoverControlCommand(input: {
     const report = await executeAuthorityCutoverAction(input.control, input.action);
     const rejected = isRejectedCutoverReport(report);
     return rejected
-      ? { ok: false, command: input.action.kind, report, error: { code: "write_rejected", hint: cutoverRejectionMessage(report) } }
+      ? {
+        ok: false,
+        command: input.action.kind,
+        report,
+        error: {
+          code: "write_rejected",
+          hint: report.schema === "authority-cutover-equality-receipt/v1"
+            ? "Authority cutover was rejected because the independent production final scans do not match; the boundary remains closed. Run `ha authority cutover scan --json` twice, then run `ha authority cutover confirm --first-scan <id> --second-scan <id> --json` with the new scan IDs."
+            : "Authority drain was rejected because non-terminal operations remain unclassified. Run `ha authority cutover drain --classify <op-id|disposition|tuple-digest|evidence-ref> --json` for each unclassified operation, then retry."
+        }
+      }
       : { ok: true, command: input.action.kind, report };
   } catch (error) {
     return cutoverCommandFailure(input.action.kind, "write_rejected", error instanceof Error ? error.message : String(error));
@@ -54,12 +64,6 @@ async function executeAuthorityCutoverAction(control: AuthorityCutoverControlSer
 function isRejectedCutoverReport(report: AuthorityCutoverCommandReport): boolean {
   return (report.schema === "authority-cutover-drain-receipt/v1" && report.status === "BLOCKED_UNCLASSIFIED_OPERATIONS")
     || (report.schema === "authority-cutover-equality-receipt/v1" && report.status === "FINAL_SCAN_MISMATCH");
-}
-
-function cutoverRejectionMessage(report: AuthorityCutoverCommandReport): string {
-  return report.schema === "authority-cutover-equality-receipt/v1"
-    ? "Independent production final scans do not match; the cutover boundary remains closed."
-    : "Authority drain has unclassified non-terminal operations; admission remains closed."
 }
 
 function cutoverCommandFailure(command: string, code: AuthorityCutoverCommandErrorCode, message: string): AuthorityCutoverCommandResult {
