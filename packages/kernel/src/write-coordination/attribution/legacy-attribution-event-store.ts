@@ -6,9 +6,9 @@ import { sha256Text, stableStringify } from "../../integrity/stable-hash.ts";
 import { readAttributionEvents } from "../../local/attribution-event-source.ts";
 import type { VersionControlSystem } from "../../ports/version-control-system.ts";
 import { AttributionEventSchema, type AttributionEvent } from "../../schemas/attribution-event.ts";
-import { resolveCommitPlan } from "../../store/write-journal-git.ts";
-import type { JournalRecordV2 } from "../../store/write-journal-types.ts";
-import { appendImmutableJsonLineDurably, durableFileExists, readFileBytes } from "../../store/write-journal-durable.ts";
+import { resolveCommitPlan } from "../journal/publication/git.ts";
+import type { JournalRecordV2 } from "../journal/types.ts";
+import { appendImmutableJsonLineDurably, durableFileExists, readFileBytes } from "../journal/durable.ts";
 
 export interface AttributionEventStoreContext {
   readonly rootDir: string;

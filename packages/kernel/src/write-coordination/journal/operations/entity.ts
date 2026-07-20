@@ -1,7 +1,7 @@
-import type { EntityId, TaskId } from "../domain/index.ts";
-import { taskIdFromEntityId } from "../domain/index.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import type { JournalRecord } from "./write-journal-types.ts";
+import type { EntityId, TaskId } from "../../../domain/index.ts";
+import { taskIdFromEntityId } from "../../../domain/index.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import type { JournalRecord } from "../types.ts";
 
 export class NonTaskWriteEntityError extends Error {
   readonly _tag = "NonTaskWriteEntityError";

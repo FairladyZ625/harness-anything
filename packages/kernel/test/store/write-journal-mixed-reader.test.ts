@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha256Text, stablePayloadHash } from "../../src/integrity/stable-hash.ts";
-import { readJournal } from "../../src/store/write-journal-durable.ts";
+import { readJournal } from "../../src/write-coordination/journal/durable.ts";
 
 test("mixed write-journal/v1 and v2 lines decode with honest legacy normalization", () => {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "harness-mixed-journal-"));

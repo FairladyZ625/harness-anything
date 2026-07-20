@@ -15,7 +15,7 @@ import {
   appendImmutableBytesDurably,
   durableFileExists,
   readFileBytes
-} from "../../store/write-journal-durable.ts";
+} from "../journal/durable.ts";
 import {
   recoverAuthorityAttributionEventV2FromOperationRecord,
   type RecoverableAuthorityOperationRecordV2,

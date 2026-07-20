@@ -1,8 +1,8 @@
-import type { FlushReport, RecoveryReport } from "../ports/write-coordinator.ts";
-import { readDurableState } from "./write-journal-durable.ts";
-import { uniquePendingRecords } from "./write-journal-records.ts";
-import type { ReadableJournalRecord } from "./write-journal-types.ts";
-import { writeIntegrityDomain, writeIntegrityDomainsInOrder } from "./write-integrity-domain.ts";
+import type { FlushReport, RecoveryReport } from "../../../ports/write-coordinator.ts";
+import { readDurableState } from "../durable.ts";
+import { uniquePendingRecords } from "../records.ts";
+import type { ReadableJournalRecord } from "../types.ts";
+import { writeIntegrityDomain, writeIntegrityDomainsInOrder } from "../integrity-domain.ts";
 
 type DurableState = ReturnType<typeof readDurableState>;
 

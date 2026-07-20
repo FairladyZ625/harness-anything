@@ -61,7 +61,7 @@ verdict（依据 `dec_mrg3z1we/CH3`、ADR-0027 D6）。
 
 ## 落盘的原子性:先写临时文件,再改名
 
-单个文件的写入绝不会留下一个写了一半的文件。这个原语是 `packages/kernel/src/store/write-journal-durable.ts` 里的 `writeFileDurably`:它把完整内容写进一个唯一命名的临时文件(`.<pid>.<时间戳>.tmp`),`fsync`,然后用 `renameSync` 把临时文件盖到真实路径上,再 `fsync` 所在目录。因为 rename 是原子的,读取者要么看到旧文件、要么看到新文件——永远不会看到被截断的那种。journal 的追加本身用的是带 `fsync` 的追加(`appendJsonLineDurably`),所以一条记录在被算作意图之前,已经落到了稳定存储上。
+单个文件的写入绝不会留下一个写了一半的文件。这个原语是 `packages/kernel/src/write-coordination/journal/durable.ts` 里的 `writeFileDurably`:它把完整内容写进一个唯一命名的临时文件(`.<pid>.<时间戳>.tmp`),`fsync`,然后用 `renameSync` 把临时文件盖到真实路径上,再 `fsync` 所在目录。因为 rename 是原子的,读取者要么看到旧文件、要么看到新文件——永远不会看到被截断的那种。journal 的追加本身用的是带 `fsync` 的追加(`appendJsonLineDurably`),所以一条记录在被算作意图之前,已经落到了稳定存储上。
 
 同样的"先临时、后改名"模式,在任何"一次性整体替换某个工件"的地方都会重现——包括 SQLite 投影(见 [03 · 投影:从 Markdown 到 SQLite](03-projection.md)),它也是先构建进临时文件,再改名到位。
 

@@ -1,5 +1,5 @@
-import { taskEntityId, taskIdFromEntityId } from "../domain/index.ts";
-import type { EntityId, TaskId } from "../domain/index.ts";
+import { taskEntityId, taskIdFromEntityId } from "../../domain/index.ts";
+import type { EntityId, TaskId } from "../../domain/index.ts";
 
 export class WriteRejectedError extends Error {
   readonly _tag = "WriteRejectedError";

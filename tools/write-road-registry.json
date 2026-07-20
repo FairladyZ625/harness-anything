@@ -386,13 +386,13 @@
           "file": "packages/kernel/src/persistence/markdown/markdown-artifact-store.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-decision-documents.ts"
+          "file": "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         },
         {
-          "file": "packages/kernel/src/store/write-journal-locks.ts"
+          "file": "packages/kernel/src/write-coordination/journal/locks.ts"
         },
         {
           "file": "packages/kernel/src/store/write-journal-operations.ts"
@@ -401,8 +401,8 @@
       "evidence": [
         "packages/kernel/src/daemon/admission-budget.ts:62",
         "packages/kernel/src/write-coordination/write-helpers.ts:20",
-        "packages/kernel/src/store/write-journal-durable.ts:109",
-        "packages/kernel/src/store/write-journal-locks.ts:125"
+        "packages/kernel/src/write-coordination/journal/durable.ts:109",
+        "packages/kernel/src/write-coordination/journal/locks.ts:125"
       ],
       "freshness": "wal-lock-and-atomic-flush"
     },
@@ -425,12 +425,12 @@
       "cliActions": [],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         }
       ],
       "evidence": [
         "packages/kernel/src/write-coordination/attribution/legacy-attribution-event-store.ts:28",
-        "packages/kernel/src/store/write-journal-durable.ts:117"
+        "packages/kernel/src/write-coordination/journal/durable.ts:117"
       ],
       "freshness": "append-only-op-id-shard"
     },
@@ -455,7 +455,7 @@
       "cliActions": [],
       "directWrites": [
         {
-          "file": "packages/kernel/src/store/write-journal-durable.ts"
+          "file": "packages/kernel/src/write-coordination/journal/durable.ts"
         }
       ],
       "retentionPaths": [
@@ -766,7 +766,7 @@
       "evidence": [
         "packages/application/src/decision-write-service.ts:56",
         "packages/application/src/decision-write-service.ts:124",
-        "packages/kernel/src/store/write-journal-decision-documents.ts:61"
+        "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts:61"
       ],
       "freshness": "append-relation"
     },

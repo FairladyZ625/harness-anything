@@ -5,11 +5,11 @@ import {
   taskIdFromEntityId,
   type EntityId,
   type RetiredAttributionDocumentKind
-} from "../domain/index.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput } from "../layout/index.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { rejectWrite } from "./write-journal-rejection.ts";
+} from "../../../domain/index.ts";
+import { sha256Text } from "../../../integrity/stable-hash.ts";
+import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput } from "../../../layout/index.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import { rejectWrite } from "../rejection.ts";
 
 interface RetiredAttributionFieldCleanupPayload {
   readonly schema: "retired-attribution-field-cleanup/v1";

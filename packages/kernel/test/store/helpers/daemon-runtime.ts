@@ -7,7 +7,7 @@ export async function spawnJournalOnlyDaemon(rootDir: string): Promise<void> {
   const childScript = `
     import { Effect } from "effect";
     import { makeJournaledWriteCoordinator } from "./packages/kernel/src/store/index.ts";
-    import { acquireDaemonGlobalLock } from "./packages/kernel/src/store/write-journal-locks.ts";
+    import { acquireDaemonGlobalLock } from "./packages/kernel/src/write-coordination/journal/locks.ts";
     import { createHarnessRuntimeContext, resolveHarnessLayout, taskEntityId } from "./packages/kernel/src/index.ts";
     const rootDir = ${JSON.stringify(rootDir)};
     const runtimeContext = createHarnessRuntimeContext(rootDir);

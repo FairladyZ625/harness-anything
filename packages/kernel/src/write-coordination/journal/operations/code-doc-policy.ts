@@ -1,10 +1,10 @@
-import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
-import type { VersionControlSystem } from "../ports/version-control-system.ts";
-import type { WriteOp } from "../ports/write-coordinator.ts";
-import { normalizeRelativeDocumentPath } from "../layout/index.ts";
-import { makeCodeDocGitEvidenceResolver } from "../git/code-doc-git-evidence.ts";
-import { rejectWrite } from "./write-journal-rejection.ts";
-import { taskIdForWriteOp } from "./write-journal-entity.ts";
+import type { DocumentWrite } from "../../../ports/artifact-store-writer.ts";
+import type { VersionControlSystem } from "../../../ports/version-control-system.ts";
+import type { WriteOp } from "../../../ports/write-coordinator.ts";
+import { normalizeRelativeDocumentPath } from "../../../layout/index.ts";
+import { makeCodeDocGitEvidenceResolver } from "../../../git/code-doc-git-evidence.ts";
+import { rejectWrite } from "../rejection.ts";
+import { taskIdForWriteOp } from "./entity.ts";
 
 export const CODE_DOC_RECONCILIATION_PATH = "code-doc-anchors.json";
 

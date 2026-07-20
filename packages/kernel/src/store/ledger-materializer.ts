@@ -12,10 +12,10 @@ import {
   recoverScriptIngestArtifactConflicts,
   type PreservedMachineArtifact
 } from "./ledger-materializer-machine-recovery.ts";
-import { resolveTrunkBranch, sessionBranchName } from "./write-journal-git.ts";
-import { withRepoLocks } from "./write-journal-locks.ts";
-import type { OwnedLock } from "./write-journal-types.ts";
-import { durableFileExists } from "./write-journal-durable.ts";
+import { resolveTrunkBranch, sessionBranchName } from "../write-coordination/journal/publication/git.ts";
+import { withRepoLocks } from "../write-coordination/journal/locks.ts";
+import type { OwnedLock } from "../write-coordination/journal/types.ts";
+import { durableFileExists } from "../write-coordination/journal/durable.ts";
 
 export interface LedgerMaterializerBranchReport {
   readonly branch: string;

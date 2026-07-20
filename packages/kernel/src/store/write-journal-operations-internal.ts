@@ -29,9 +29,9 @@ import {
 import { evaluateEntityDisposition } from "../entity/disposition.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { writeDocument } from "../persistence/markdown/markdown-artifact-store.ts";
-import { writeFileDurably } from "./write-journal-durable.ts";
-import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
-import { taskIdForWriteOp } from "./write-journal-entity.ts";
+import { writeFileDurably } from "../write-coordination/journal/durable.ts";
+import { rejectTaskWrite, rejectWrite } from "../write-coordination/journal/rejection.ts";
+import { taskIdForWriteOp } from "../write-coordination/journal/operations/entity.ts";
 function readHardDeletePayload(op: WriteOp): { readonly reason: string } {
   const payload = op.payload;
   const payloadRecord = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : null;

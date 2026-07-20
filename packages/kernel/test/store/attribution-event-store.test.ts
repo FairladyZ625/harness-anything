@@ -13,7 +13,7 @@ import { readAttributionProjection } from "../../src/projection/sqlite-attributi
 import type { AttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
 import { makeLocalGitAttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
 import { readAttributionEvents } from "../../src/local/attribution-event-source.ts";
-import { readJournal } from "../../src/store/write-journal-durable.ts";
+import { readJournal } from "../../src/write-coordination/journal/durable.ts";
 import { testWriteAttribution } from "../test-attribution.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 

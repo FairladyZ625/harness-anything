@@ -103,7 +103,7 @@ Review verdict from those checks (dec_mrg3z1we/CH3; ADR-0027 D6).
 ## Atomic on disk: temp file, then rename
 
 Individual file writes never leave a half-written file behind. The primitive is
-`writeFileDurably` in `packages/kernel/src/store/write-journal-durable.ts`: it
+`writeFileDurably` in `packages/kernel/src/write-coordination/journal/durable.ts`: it
 writes the full body to a uniquely-named temp file (`.<pid>.<timestamp>.tmp`),
 `fsync`s it, then `renameSync`s the temp file over the real path and `fsync`s
 the containing directory. Because rename is atomic, a reader either sees the old

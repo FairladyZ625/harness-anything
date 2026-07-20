@@ -90,17 +90,17 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing write coordinator still performs local recovery/disposition filesystem checks; W3 records this implementation exception without migrating behavior."
   },
   {
-    file: "packages/kernel/src/store/write-journal-decision-documents.ts",
+    file: "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing decision document write helper owns directory creation for authored decision documents."
   },
   {
-    file: "packages/kernel/src/store/write-journal-durable.ts",
+    file: "packages/kernel/src/write-coordination/journal/durable.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing durable journal writer owns atomic filesystem writes for the journal implementation."
   },
   {
-    file: "packages/kernel/src/store/write-journal-locks.ts",
+    file: "packages/kernel/src/write-coordination/journal/locks.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing journal lock implementation owns filesystem lock files and host metadata."
   },

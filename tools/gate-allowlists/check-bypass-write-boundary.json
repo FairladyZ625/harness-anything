@@ -39,217 +39,217 @@
         "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim release; callers release through the LockRegistry lease."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-decision-documents.ts#mkdirSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/operations/decision-documents.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#closeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#closeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#closeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@4",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#closeSync@4",
         "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
         "reason": "ADR-0028 P5 coordinator-owned immutable attribution event append closes its exclusive shard descriptor after fsync; this permanent trail is not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@4",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@4",
         "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
         "reason": "ADR-0028 P5 coordinator-owned immutable attribution event append fsyncs each exclusive shard before the event can confirm WAL compaction safety."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#mkdirSync@3",
         "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
         "reason": "ADR-0028 P5 coordinator-owned immutable attribution event store creates its Git-authored shard directory before exclusive append."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#openSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#openSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#openSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@4",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#openSync@4",
         "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
         "reason": "ADR-0028 P5 coordinator-owned immutable attribution event store uses exclusive create so an opId shard can never be overwritten or compacted."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#renameSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#renameSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#rmSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#rmSync@1",
         "ref": "task_01KXBBTQAWARR3A1B2RY8T7C0F",
         "reason": "P4 coordinator transaction rollback removes newly created canonical files durably after a failed batch apply; this is coordinator-owned recovery, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#writeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#writeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#writeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@4",
+        "value": "packages/kernel/src/write-coordination/journal/durable.ts#writeSync@4",
         "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
         "reason": "ADR-0028 P5 coordinator-owned immutable attribution event store writes one permanent event line to an exclusive Git-authored shard."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#closeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#closeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#closeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#fsyncSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#fsyncSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#fsyncSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#mkdirSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#openSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#openSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#openSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#renameSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#renameSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#renameSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#rmSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#rmSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#rmSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@4",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#rmSync@4",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#unlinkSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#unlinkSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@1",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#writeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@2",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#writeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@3",
+        "value": "packages/kernel/src/write-coordination/journal/locks.ts#writeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
