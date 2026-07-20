@@ -131,7 +131,7 @@ function readMachineId(source: string): string {
 }
 
 function isDaemonGenerationRecord(value: unknown): value is DaemonGenerationRecordV1 {
-  if (!record(value) || Object.keys(value).length !== 6) return false;
+  if (!isJsonRecord(value) || Object.keys(value).length !== 6) return false;
   return value.schema === daemonGenerationRecordSchema
     && typeof value.machineId === "string" && value.machineId.length > 0
     && typeof value.endpointIdentity === "string" && value.endpointIdentity.length > 0
@@ -161,7 +161,7 @@ function isAlreadyExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
-function record(value: unknown): value is Record<string, unknown> {
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
