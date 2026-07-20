@@ -99,6 +99,9 @@ export function runCliPackageSmoke(root = process.cwd()) {
 export function buildCliPackageArtifact(root, options = {}) {
   const exec = options.execFileSync ?? execFileSync;
   const exists = options.existsSync ?? existsSync;
+  const remove = options.rmSync ?? rmSync;
+  const distPath = path.join(root, "packages/cli/dist");
+  remove(distPath, { recursive: true, force: true });
   exec("npm", ["run", "build", "--workspace", "@harness-anything/cli"], {
     cwd: root,
     stdio: "inherit",
@@ -110,6 +113,15 @@ export function buildCliPackageArtifact(root, options = {}) {
   const binPath = path.join(root, "packages/cli/dist/cli/src/index.js");
   if (!exists(binPath)) {
     throw new Error(`explicit CLI package build did not produce ${binPath}`);
+  }
+  const stdout = exec(process.execPath, [binPath, "--json", "version"], {
+    cwd: root,
+    encoding: "utf8",
+    env: process.env
+  });
+  const result = JSON.parse(stdout);
+  if (result.ok !== true || result.schema !== "command-receipt/v2" || result.command !== "version") {
+    throw new Error(`clean CLI package build produced an unusable bin: ${stdout}`);
   }
 }
 
