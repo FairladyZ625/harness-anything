@@ -17,6 +17,7 @@ export function checkPackageBoundaryContract(root) {
   const contract = loadPackageBoundaryContract(root);
   const findings = [];
   const realEdges = new Map(packageEntries(contract).map((pkg) => [pkg.id, new Set()]));
+  const violationCounts = new Map();
 
   for (const pkg of packageEntries(contract)) {
     const manifestPath = path.join(root, pkg.root, "package.json");
@@ -43,7 +44,13 @@ export function checkPackageBoundaryContract(root) {
       const target = specifier.startsWith(".")
         ? resolveRelativePackage(contract, file, specifier)
         : packageForSpecifier(contract, specifier);
-      if (source && target && source.id !== target.id) realEdges.get(source.id).add(target.id);
+      if (source && target && source.id !== target.id) {
+        realEdges.get(source.id).add(target.id);
+        if (!source.allowedDependencies.includes(target.id)) {
+          const key = violationKey({ file, source: source.id, target: target.id });
+          violationCounts.set(key, (violationCounts.get(key) ?? 0) + 1);
+        }
+      }
     }
   }
 
@@ -58,7 +65,54 @@ export function checkPackageBoundaryContract(root) {
     }
   }
 
-  return { contract, findings, realEdges };
+  const baseline = loadViolationBaseline(root, contract);
+  const baselineCounts = new Map(baseline.violations.map((entry) => [violationKey(entry), entry.count]));
+  for (const key of new Set([...baselineCounts.keys(), ...violationCounts.keys()])) {
+    const expected = baselineCounts.get(key) ?? 0;
+    const current = violationCounts.get(key) ?? 0;
+    if (current > expected) findings.push(`package boundary violation exceeds baseline: ${displayViolation(key)} current=${current} baseline=${expected}`);
+    if (current < expected) findings.push(`package boundary violation baseline must ratchet down: ${displayViolation(key)} current=${current} baseline=${expected}`);
+  }
+
+  return { contract, findings, realEdges, violationCounts };
+}
+
+function loadViolationBaseline(root, contract) {
+  const relativePath = "tools/package-boundary-violations.json";
+  const baseline = JSON.parse(readFileSync(path.join(root, relativePath), "utf8"));
+  if (baseline.schema !== "harness-anything/package-boundary-violations/v1" || !Array.isArray(baseline.violations)) {
+    throw new Error(`${relativePath} must use package-boundary-violations/v1 with a violations array`);
+  }
+  const seen = new Set();
+  let total = 0;
+  for (const entry of baseline.violations) {
+    const source = contract.packages[entry.source];
+    const target = contract.packages[entry.target];
+    if (!source || !target || typeof entry.file !== "string" || !Number.isInteger(entry.count) || entry.count <= 0) {
+      throw new Error(`${relativePath} contains an invalid violation entry`);
+    }
+    if (source.allowedDependencies.includes(entry.target)) {
+      throw new Error(`${relativePath} may only baseline forbidden package edges: ${entry.source} -> ${entry.target}`);
+    }
+    if (ownerForFile(contract, entry.file)?.id !== entry.source) {
+      throw new Error(`${relativePath} file ${entry.file} is not owned by ${entry.source}`);
+    }
+    const key = violationKey(entry);
+    if (seen.has(key)) throw new Error(`${relativePath} contains duplicate violation entry: ${displayViolation(key)}`);
+    seen.add(key);
+    total += entry.count;
+  }
+  if (baseline.total !== total) throw new Error(`${relativePath} total must equal enumerated violation count ${total}`);
+  return baseline;
+}
+
+function violationKey({ file, source, target }) {
+  return JSON.stringify([file, source, target]);
+}
+
+function displayViolation(key) {
+  const [file, source, target] = JSON.parse(key);
+  return `${file} (${source} -> ${target})`;
 }
 
 function hasRootExport(exportsField) {

@@ -13,6 +13,11 @@ export interface DaemonRegistryResolverOptions {
 }
 
 export function createDaemonRegistryResolver(options: DaemonRegistryResolverOptions): (rootDir: string) => RegistryWorkspaceRoute | undefined {
+  // W1 dependency inversion makes the resolver explicit: restoring the former
+  // kernel-backed default would recreate daemon-client -> kernel.
+  if (typeof options.resolveRepoByRoot !== "function") {
+    throw new TypeError("createDaemonRegistryResolver requires resolveRepoByRoot after PLT-Boundary W1");
+  }
   return (rootDir) => {
     try {
       const repo = options.resolveRepoByRoot(rootDir, { userRoot: options.userRoot });

@@ -841,6 +841,7 @@
       "tierReason": null,
       "authoritySource": [
         "tools/package-boundaries.json",
+        "tools/package-boundary-violations.json",
         "package.json:workspaces",
         "packages/*/package.json",
         "packages/adapters/*/package.json"
@@ -866,6 +867,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/package-boundaries.json",
+          "tools/package-boundary-violations.json",
           "tools/package-boundary-contract.mjs",
           "tools/check-package-boundary-contract.mjs",
           "tools/eslint-package-boundaries.mjs",

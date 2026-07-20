@@ -68,7 +68,12 @@ export function createPackageBoundaryPlugin(root) {
               if (node.callee?.type === "Identifier" && node.callee.name === "require") inspectModule(node, node.arguments?.[0]);
             },
             TSImportType(node) {
-              inspectModule(node, node.parameter ?? node.argument?.literal ?? node.argument);
+              const literal = node.source ?? node.argument?.literal ?? node.argument;
+              // Parser AST variants without a literal source cannot identify a
+              // package edge, so they are intentionally skipped rather than
+              // allowing a non-literal parameter node to mask node.source.
+              if (!literal) return;
+              inspectModule(node, literal);
             },
             Literal(node) {
               if (moduleLiterals.has(node) || typeof node.value !== "string" || !node.value.startsWith(".") || !node.value.includes("/src/")) return;

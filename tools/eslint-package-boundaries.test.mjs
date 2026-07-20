@@ -36,3 +36,20 @@ test("package boundary ESLint rule accepts allowed roots and registered subpaths
   ].join("\n"), { filePath: path.join(root, "packages/application/src/fixture.ts") });
   assert.equal(result.messages.filter((message) => message.ruleId === ruleId).length, 0);
 });
+
+test("package boundary ESLint rule inspects every module-bearing handler", async () => {
+  const cases = [
+    ["export named", "export { value } from '@harness-anything/kernel/private';"],
+    ["export all", "export * from '@harness-anything/kernel/private';"],
+    ["dynamic import", "void import('@harness-anything/kernel/private');"],
+    ["require", "require('@harness-anything/kernel/private');"],
+    ["TypeScript import type", "type Private = import('@harness-anything/kernel/private').Private;"]
+  ];
+  for (const [label, source] of cases) {
+    const [result] = await eslint.lintText(source, { filePath: path.join(root, "packages/application/src/fixture.ts") });
+    assert.ok(
+      result.messages.some((message) => message.ruleId === ruleId && message.messageId === packageBoundaryMessageIds.unregisteredDeepSubpath),
+      `${label} positive control`
+    );
+  }
+});
