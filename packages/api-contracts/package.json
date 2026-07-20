@@ -8,7 +8,6 @@
     ".": "./src/index.ts",
     "./api-contract-registry": "./src/api-contract-registry.ts",
     "./api-contract-types": "./src/api-contract-types.ts",
-    "./daemon-generation": "./src/daemon-generation.ts",
     "./daemon-protocol": "./src/daemon-protocol.ts",
     "./renderer-safe-state": "./src/renderer-safe-state.ts"
   },
