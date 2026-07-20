@@ -66,7 +66,8 @@ interface RepoServiceBinding {
 export async function createDaemonServiceHost<
   Command extends DaemonHostCommand,
   Result extends DaemonHostCommandResult,
-  Identity extends RepoIdentity
+  Identity extends RepoIdentity,
+  PresentedControlError extends object
 >(
   runtime: MultiRepoHarnessDaemonRuntime,
   repos: ReadonlyArray<DaemonRepoNamespace>,
@@ -83,7 +84,7 @@ export async function createDaemonServiceHost<
     readonly launchConfiguration: DaemonLaunchConfiguration;
     readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   },
-  hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity>,
+  hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity, PresentedControlError>,
   authorityLifecycle?: AuthorityRepoLifecycleController,
   providedDaemonLogService?: DaemonLogService
 ): Promise<{
@@ -137,7 +138,10 @@ export async function createDaemonServiceHost<
         activeControl = {
           ...activeControl,
           phase: "failed",
-          failure: hostServices.errors.queueDrainTimeout({ kind: activeControl.kind }) as NonNullable<DaemonActiveControlStatus["failure"]>
+          failure: hostServices.errors.present({
+            code: "daemon_queue_drain_timeout",
+            context: { kind: activeControl.kind }
+          }) as NonNullable<DaemonActiveControlStatus["failure"]>
         };
         return await remainWedgedAfterFailedDrain();
       }

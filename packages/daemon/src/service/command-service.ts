@@ -102,9 +102,7 @@ export function createDaemonCommandService<
           : undefined;
         const result = await hostServices.executeCommand(parsedCommand, {
           requireProvidedActorAttribution: true,
-          ...(attribution ? { actorAttribution: attribution } : {
-            missingActorAttributionMessage: "Daemon writes require a per-request authenticated actor from harness/people.yaml."
-          }),
+          ...(attribution ? { actorAttribution: attribution } : {}),
           ...(currentSession ? { currentSession } : {}),
           ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
           syncExportedSession: dryRun
@@ -143,17 +141,18 @@ export function createDaemonCommandService<
         return hostServices.toReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices));
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
-          return hostServices.toReceipt({
-            ok: false,
+          return hostServices.toErrorReceipt({
             command: command?.action.kind ?? "repo.command.run",
-            error: hostServices.invalidSessionError(error.message)
+            error: { code: "invalid_session", context: { cause: error.message } }
           });
         }
         if (hostServices.isActorAttributionError(error)) {
-          return hostServices.toReceipt({
-            ok: false,
+          return hostServices.toErrorReceipt({
             command: command?.action.kind ?? "repo.command.run",
-            error: hostServices.authMissingError(error instanceof Error ? error.message : String(error))
+            error: {
+              code: "auth_missing",
+              context: { cause: error instanceof Error ? error.message : String(error) }
+            }
           });
         }
         throw error;

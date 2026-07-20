@@ -53,11 +53,20 @@ export const cliDaemonCommandHostServices = {
   migrationWriteAttribution,
   isActorAttributionError: (error) => error instanceof CliActorAttributionError,
   isDryRunAction: (command) => isDryRunAction(command.action),
-  executeCommand: runRegisteredCommandWithCliComposition,
+  executeCommand: (command, options) => runRegisteredCommandWithCliComposition(command, {
+    ...options,
+    missingActorAttributionMessage: "Daemon writes require a per-request authenticated actor from harness/people.yaml."
+  }),
   materializerCommandResult,
   toReceipt: (result) => toCommandReceipt(result as CliResult),
-  invalidSessionError: (message) => cliError(CliErrorCode.InvalidSession, message),
-  authMissingError: (message) => cliError(CliErrorCode.AuthMissing, message)
+  toErrorReceipt: ({ command, error }) => toCommandReceipt({
+    ok: false,
+    command,
+    error: cliError(
+      error.code === "invalid_session" ? CliErrorCode.InvalidSession : CliErrorCode.AuthMissing,
+      error.context.cause
+    )
+  })
 } satisfies DaemonCommandHostServices<ParsedCommand, CliResult, AuthenticatedActor>;
 
 function isProductionAuthorityCommand(command: ParsedCommand): command is CliProductionAuthorityCommand {

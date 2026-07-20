@@ -50,6 +50,7 @@ export interface DaemonServeInput {
 export async function runDaemonServe<
   Command extends DaemonHostCommand,
   Result extends DaemonHostCommandResult,
+  PresentedControlError extends object,
   Identity extends {
     readonly mode: "local" | "remote";
     readonly personRegistry?: import("../identity/types.ts").PersonRegistry;
@@ -58,7 +59,7 @@ export async function runDaemonServe<
   }
 >(
   input: DaemonServeInput,
-  serviceHostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity>,
+  serviceHostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity, PresentedControlError>,
   serveHostServices: DaemonServeHostServices<DaemonLaunchConfiguration, AuthorityRepoLifecycleController>,
   hooks: DaemonServeHooks = {}
 ): Promise<void> {
@@ -77,7 +78,7 @@ export async function runDaemonServe<
 
   return withDaemonSocketOwnership(endpoint, async () => {
     let runtime: ReturnType<typeof createMultiRepoDaemonRuntime> | undefined;
-    let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost<Command, Result, Identity>>> | undefined;
+    let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost<Command, Result, Identity, PresentedControlError>>> | undefined;
     let lifecycleStarted = false;
     let terminalReason: string | undefined;
     let terminalClean = false;
@@ -150,7 +151,9 @@ export async function runDaemonServe<
       });
       await transport.start();
       serviceHost.onStop(() => transport.stop());
-      if (authorityManifest) persistAuthorityManifestPointer(authorityManifest, userRoot);
+      if (input.requestedAuthorityManifest) {
+        persistAuthorityManifestPointer(input.requestedAuthorityManifest, userRoot);
+      }
       serveHostServices.persistLaunchConfiguration(userRoot, launchConfiguration, {
         ...(authorityManifest ? { authorityManifest } : {}),
         ...(input.authoredRoot ? { authoredRoot: input.authoredRoot } : {})

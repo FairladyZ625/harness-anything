@@ -199,7 +199,6 @@ export interface DaemonHostCommandResult {
 export interface DaemonHostCommandExecutionOptions {
   readonly requireProvidedActorAttribution: true;
   readonly actorAttribution?: AuthorityHostAttribution;
-  readonly missingActorAttributionMessage?: string;
   readonly currentSession?: CurrentSessionRef;
   readonly inlineCreateProvenanceOnly?: true;
   readonly syncExportedSession: (
@@ -214,6 +213,10 @@ export interface DaemonHostCommandExecutionOptions {
     actor: OperationalActor
   ) => WriteCoordinator;
 }
+
+export type DaemonCommandHostError =
+  | { readonly code: "invalid_session"; readonly context: { readonly cause: string } }
+  | { readonly code: "auth_missing"; readonly context: { readonly cause: string } };
 
 /** CLI-owned parser/executor/error/receipt adapters consumed by the daemon command service. */
 export interface DaemonCommandHostServices<
@@ -235,19 +238,20 @@ export interface DaemonCommandHostServices<
   readonly isDryRunAction: (command: Command) => boolean;
   readonly executeCommand: (command: Command, options: DaemonHostCommandExecutionOptions) => Promise<Result>;
   readonly materializerCommandResult: (report: MaterializerCommandReport) => Result;
-  readonly toReceipt: (result: DaemonHostCommandResult & {
-    readonly ok: boolean;
+  readonly toReceipt: (result: DaemonHostCommandResult) => import("../command-receipt.ts").CommandReceiptEnvelope;
+  readonly toErrorReceipt: (input: {
     readonly command: string;
-    readonly error?: { readonly code: string; readonly hint: string };
+    readonly error: DaemonCommandHostError;
   }) => import("../command-receipt.ts").CommandReceiptEnvelope;
-  readonly invalidSessionError: (message: string) => { readonly code: string; readonly hint: string };
-  readonly authMissingError: (message: string) => { readonly code: string; readonly hint: string };
 }
 
-/** CLI-owned structured error construction; no renderer text is carried by the contract. */
-export interface DaemonControlErrorHostServices {
-  readonly refreshBuildFailed: (input: { readonly cause: string }) => { readonly code: "daemon_refresh_build_failed"; readonly hint: string };
-  readonly queueDrainTimeout: (input: { readonly kind: "restart" | "refresh" }) => { readonly code: "daemon_queue_drain_timeout"; readonly hint: string };
+export type DaemonControlHostError =
+  | { readonly code: "daemon_refresh_build_failed"; readonly context: { readonly cause: string } }
+  | { readonly code: "daemon_queue_drain_timeout"; readonly context: { readonly kind: "restart" | "refresh" } };
+
+/** CLI presents structured daemon errors; the shared contract carries no hint text. */
+export interface DaemonControlErrorHostServices<PresentedError> {
+  readonly present: (error: DaemonControlHostError) => PresentedError;
 }
 
 export interface DaemonDocSyncHostServices {
@@ -262,10 +266,11 @@ export interface DaemonServiceHostServices<
   Result extends DaemonHostCommandResult,
   Actor,
   Runtime,
-  Identity
+  Identity,
+  PresentedControlError = unknown
 > {
   readonly command: DaemonCommandHostServices<Command, Result, Actor>;
-  readonly errors: DaemonControlErrorHostServices;
+  readonly errors: DaemonControlErrorHostServices<PresentedControlError>;
   readonly docSync: DaemonDocSyncHostServices;
   readonly loadDaemonIdentity: (
     rootDir: string,

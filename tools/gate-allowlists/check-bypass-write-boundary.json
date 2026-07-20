@@ -721,6 +721,488 @@
       }
     ],
     "daemonTransportLifecycle": [
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#rmSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#openSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#writeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#fsyncSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#closeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#renameSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#renameSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/local-service-transport.ts#rmSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/unix-socket.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/unix-socket.ts#rmSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      },
+      {
+        "value": "packages/daemon/src/transport/unix-socket.ts#rmSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned transport bootstrap and socket lifecycle state; these writes claim, publish, and release local endpoints and cannot be routed through the canonical entity WriteCoordinator."
+      }
+    ],
+    "daemonOwnedState": [
+      {
+        "value": "packages/daemon/src/agent-runtime/session-store.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned agent runtime session persistence; stores local resumable runtime state outside canonical authored entity truth."
+      },
+      {
+        "value": "packages/daemon/src/agent-runtime/session-store.ts#writeFile@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned agent runtime session persistence; stores local resumable runtime state outside canonical authored entity truth."
+      },
+      {
+        "value": "packages/daemon/src/agent-runtime/session-store.ts#rename@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned agent runtime session persistence; stores local resumable runtime state outside canonical authored entity truth."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#unlinkSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#unlinkSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#renameSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#rmSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#openSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#writeFileSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#fsyncSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#closeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#openSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#closeSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#openSync@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#closeSync@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#openSync@4",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#fsyncSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/local-key-store.ts#closeSync@4",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority private-key store durability and permission enforcement; cryptographic host state is not canonical entity data."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#openSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#writeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#fsyncSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#closeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#renameSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#openSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#fsyncSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/recovery.ts#closeSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority recovery writes its durable recovery journal/state atomically; this is governed authority recovery infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#openSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#writeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#fsyncSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#closeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#openSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#fsyncSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/service-state.ts#closeSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Frozen production-authority service-state store performs durable atomic state publication; this is governed authority infrastructure, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/broker/cas-store.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/conflict-store.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@4",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@5",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#mkdir@6",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#open@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#rename@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#rm@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/durable-state-store.ts#open@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#rename@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#mkdir@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#rename@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#rename@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/broker/native-applier.ts#open@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned broker CAS/conflict/durable transaction state; these writes implement the broker persistence boundary beneath coordinated authority execution."
+      },
+      {
+        "value": "packages/daemon/src/fence/authority-fence.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/authority-fence.ts#rm@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/authority-fence.ts#open@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/authority-fence.ts#rm@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/authority-fence.ts#open@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/durability.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/durability.ts#open@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/fence/durability.ts#open@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned authority fence durability; these writes implement cross-process exclusion and fencing rather than canonical entity mutation."
+      },
+      {
+        "value": "packages/daemon/src/identity/machine-people.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon bootstrap writes the machine-owned people roster used for local authenticated identity; this is an explicit bootstrap host action."
+      },
+      {
+        "value": "packages/daemon/src/identity/machine-people.ts#writeFileSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon bootstrap writes the machine-owned people roster used for local authenticated identity; this is an explicit bootstrap host action."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/compound-receipt-composition.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon compound-receipt composition creates its local durable receipt directory before delegating receipt persistence."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#openSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#writeFileSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#fsyncSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#closeSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#renameSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#closeSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#openSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#fsyncSync@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#closeSync@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/platform/semantic-probe.ts#mkdir@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
+      },
+      {
+        "value": "packages/daemon/src/platform/semantic-probe.ts#open@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
+      },
+      {
+        "value": "packages/daemon/src/platform/semantic-probe.ts#open@2",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
+      },
+      {
+        "value": "packages/daemon/src/platform/semantic-probe.ts#open@3",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
+      },
+      {
+        "value": "packages/daemon/src/platform/semantic-probe.ts#rm@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
+      },
+      {
+        "value": "packages/daemon/src/service/doc-sync-service.ts#rmSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Doc-sync rollback restores its pre-submit file snapshot after a coordinated submit failure; these writes are compensating recovery inside the governed service."
+      },
+      {
+        "value": "packages/daemon/src/service/doc-sync-service.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Doc-sync rollback restores its pre-submit file snapshot after a coordinated submit failure; these writes are compensating recovery inside the governed service."
+      },
+      {
+        "value": "packages/daemon/src/service/doc-sync-service.ts#writeFileSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Doc-sync rollback restores its pre-submit file snapshot after a coordinated submit failure; these writes are compensating recovery inside the governed service."
+      },
+      {
+        "value": "packages/daemon/src/terminal/session-store.ts#mkdirSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned terminal session persistence; stores local terminal lifecycle state outside canonical authored entity truth."
+      },
+      {
+        "value": "packages/daemon/src/terminal/session-store.ts#writeFileSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned terminal session persistence; stores local terminal lifecycle state outside canonical authored entity truth."
+      },
+      {
+        "value": "packages/daemon/src/terminal/session-store.ts#renameSync@1",
+        "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
+        "reason": "Daemon-owned terminal session persistence; stores local terminal lifecycle state outside canonical authored entity truth."
+      }
     ]
   }
 }

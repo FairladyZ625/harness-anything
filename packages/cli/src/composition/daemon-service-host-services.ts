@@ -1,4 +1,4 @@
-import type { DaemonServiceHostServices } from "@harness-anything/application";
+import type { DaemonControlErrorV1, DaemonServiceHostServices } from "@harness-anything/application";
 import type { AuthenticatedActor, CliDaemonRuntime } from "@harness-anything/daemon";
 import type { HarnessDaemonRuntime } from "@harness-anything/kernel/store/index";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
@@ -16,14 +16,15 @@ type LoadedDaemonIdentity = ReturnType<typeof loadDaemonIdentity>;
 export const cliDaemonServiceHostServices = {
   command: cliDaemonCommandHostServices,
   errors: {
-    refreshBuildFailed: ({ cause }) => ({
-      ...cliError(CliErrorCode.DaemonRefreshBuildFailed, `Daemon refresh replacement preflight failed before the running daemon was changed: ${cause}`),
-      code: "daemon_refresh_build_failed" as const
-    }),
-    queueDrainTimeout: ({ kind }) => ({
-      ...cliError(CliErrorCode.DaemonQueueDrainTimeout, `Daemon ${kind} requires the write queue to drain within the deadline, but in-flight operations failed to settle in time. Run \`ha daemon status --json\`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request.`),
-      code: "daemon_queue_drain_timeout" as const
-    })
+    present: (error) => error.code === "daemon_refresh_build_failed"
+      ? {
+        ...cliError(CliErrorCode.DaemonRefreshBuildFailed, `Daemon refresh replacement preflight failed before the running daemon was changed: ${error.context.cause}`),
+        code: "daemon_refresh_build_failed" as const
+      }
+      : {
+        ...cliError(CliErrorCode.DaemonQueueDrainTimeout, `Daemon ${error.context.kind} requires the write queue to drain within the deadline, but in-flight operations failed to settle in time. Run \`ha daemon status --json\`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request.`),
+        code: "daemon_queue_drain_timeout" as const
+      }
   },
   docSync: { resolveManagedSectionPolicy },
   loadDaemonIdentity,
@@ -41,5 +42,6 @@ export const cliDaemonServiceHostServices = {
   CliResult,
   AuthenticatedActor,
   HarnessDaemonRuntime,
-  LoadedDaemonIdentity
+  LoadedDaemonIdentity,
+  Pick<DaemonControlErrorV1, "code" | "hint">
 >;
