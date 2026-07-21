@@ -23,6 +23,7 @@ concurrency:
 jobs:
   metadata-source-proof:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 5
     permissions:
       statuses: read
     runs-on: ubuntu-latest
@@ -61,6 +62,7 @@ jobs:
 
   pr-body-lint:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -87,6 +89,7 @@ jobs:
 
   full-check:
     if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -109,6 +112,7 @@ jobs:
 
   typecheck:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     strategy:
@@ -133,6 +137,7 @@ jobs:
 
   fast-contract:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -155,6 +160,7 @@ jobs:
 
   integration-shard:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -180,6 +186,7 @@ jobs:
 
   boundaries:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     permissions:
       contents: read
@@ -206,6 +213,7 @@ jobs:
 
   package-policy:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -226,6 +234,7 @@ jobs:
 
   supply-chain:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -246,6 +255,7 @@ jobs:
 
   gui-build:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -282,6 +292,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build --exclude mergify-queue-metadata-edit-noop
   node26-compatibility:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
@@ -304,6 +315,7 @@ jobs:
 
   windows-local-check:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 30
     needs: metadata-source-proof
     runs-on: windows-latest
     steps:
@@ -330,6 +342,7 @@ jobs:
 
   source-validation-proof:
     if: github.event_name == 'pull_request' && needs.metadata-source-proof.outputs.reuse_source != 'true'
+    timeout-minutes: 5
     needs:
       - metadata-source-proof
       - pr-body-lint

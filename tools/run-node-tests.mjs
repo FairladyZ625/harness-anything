@@ -20,6 +20,7 @@ import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from ".
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const PROCESS_TREE_KILL_GRACE_MS = 2_000;
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -101,6 +102,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
+    "--test-force-exit",
     ...concurrencyArgs,
     ...timeoutArgs,
     ...selection.files
@@ -109,19 +111,29 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   const child = spawn(invocation.command, invocation.args, {
     cwd: repoRoot,
     stdio: ["inherit", "pipe", "pipe"],
-    env: testEnvironment.env
+    env: testEnvironment.env,
+    detached: process.platform !== "win32"
   });
 
   let output = "";
+  let windowsTreeTerminationStarted = false;
+  const terminateTimedOutWindowsTree = () => {
+    if (process.platform !== "win32" || windowsTreeTerminationStarted || !/test timed out after \d+ms/u.test(output)) return;
+    windowsTreeTerminationStarted = true;
+    console.error("node --test reported a timeout; terminating its process tree");
+    terminateWindowsProcessTree(child);
+  };
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     output += text;
     process.stdout.write(text);
+    terminateTimedOutWindowsTree();
   });
   child.stderr.on("data", (chunk) => {
     const text = chunk.toString();
     output += text;
     process.stderr.write(text);
+    terminateTimedOutWindowsTree();
   });
 
   return new Promise((resolveExitCode) => {
@@ -131,7 +143,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       rmSync(timingRoot, { recursive: true, force: true });
       resolveExitCode(1);
     });
-    child.once("close", (code, signal) => {
+    child.once("close", async (code, signal) => {
+      const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
       testEnvironment.cleanup();
       try {
         const measured = parseJunitTestFileDurations(readFileSync(timingPath, "utf8"), repoRoot);
@@ -143,10 +156,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       }
       if (signal !== null) {
         console.error(`node --test terminated by signal ${signal}`);
-        resolveExitCode(1);
-        return;
       }
-      if (code !== 0) {
+      if (code !== 0 || signal !== null) {
         const timeoutGuidance = formatTestTimeoutGuidance(output, options.testTimeoutMs);
         if (timeoutGuidance !== null) console.error(`\n${timeoutGuidance}`);
         const guidance = gitFixtureIdentityGuidance(output);
@@ -154,7 +165,31 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       }
       const slowTests = collectSlowTests(output, options.slowThresholdMs);
       console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-      resolveExitCode(code ?? 1);
+      resolveExitCode(signal === null && !leakedDescendants ? (code ?? 1) : 1);
     });
   });
 });
+
+function terminateWindowsProcessTree(child) {
+  if (child.pid === undefined) return;
+  const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  killer.once("error", () => child.kill("SIGKILL"));
+}
+
+async function terminateLingeringPosixProcessGroup(pid) {
+  if (process.platform === "win32" || pid === undefined || !signalProcessGroup(pid, "SIGTERM")) return false;
+  console.error("node --test completed with lingering descendants; terminating its process tree");
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
+  signalProcessGroup(pid, "SIGKILL");
+  return true;
+}
+
+function signalProcessGroup(pid, signal) {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+    return false;
+  }
+}
