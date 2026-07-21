@@ -45,6 +45,7 @@ import {
   validateLegacyTokenEnvelopeClaims
 } from "./legacy-admission.ts";
 import { createAuthorityOperationRecordPersistence } from "./operation-record-persistence.ts";
+import { persistAuthorityIntentWhileGenerationCurrent } from "./intent-record-persistence.ts";
 import { canonicalAuthorityRequestDigest, runWithAuthorityAdmission } from "./admission.ts";
 import {
   authorityPublicationBatchSize,
@@ -64,7 +65,6 @@ import {
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
-
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
     ? createWritableEntityRegistry(options.v2.entityRegistrations)
@@ -177,7 +177,12 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
     }
-    await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
+    const intentRejection = await persistAuthorityIntentWhileGenerationCurrent({
+      generationFence: options.generationFenceWitness,
+      identity,
+      persist: () => put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope)
+    });
+    if (intentRejection) return terminal(generationFencedReceipt(identity, semanticDigest, intentRejection));
     let computedIntegrity: AuthorityOperationIntegrity | undefined;
     try {
       if (!sameProtocolSchemaTupleV2(envelope.schemaTuple, v2.schemaTuple)) {
@@ -274,7 +279,12 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(envelope, semanticDigest, `operation remains ${known.state}`));
     }
-    await put(envelope, semanticDigest, "RECEIVED");
+    const intentRejection = await persistAuthorityIntentWhileGenerationCurrent({
+      generationFence: options.generationFenceWitness,
+      identity: envelope,
+      persist: () => put(envelope, semanticDigest, "RECEIVED")
+    });
+    if (intentRejection) return terminal(generationFencedReceipt(envelope, semanticDigest, intentRejection));
     if (options.v2 && (envelope.operation.kind === "doc_sync_submit" || envelope.operation.kind === "script_ingest")) {
       return terminal(await persistTerminal(
         envelope,
@@ -360,24 +370,26 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
-    for (const entry of prepared) {
-      try {
-        await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
-        await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
-        candidates.push(entry);
-      } catch (error) {
-        receipts.set(entry, await persistTerminal(
-          entry,
-          entry.semanticDigest,
-          "REJECTED",
-          rejected(entry, entry.semanticDigest, `ADMISSION_REJECTED:${describe(error)}`)
-        ));
-      }
-    }
-    if (candidates.length === 0) return batchReceipts(admissions, receipts);
-
     let canonicalFlushCommitted = false;
     const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
+      for (const entry of prepared) {
+        try {
+          await options.generationFenceWitness?.assertHeld("before-prepare", entry);
+          await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+          await options.generationFenceWitness?.assertHeld("before-prepare", entry);
+          await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+          candidates.push(entry);
+        } catch (error) {
+          if (isDaemonGenerationFenced(error)) throw error;
+          receipts.set(entry, await persistTerminal(
+            entry,
+            entry.semanticDigest,
+            "REJECTED",
+            rejected(entry, entry.semanticDigest, `ADMISSION_REJECTED:${describe(error)}`)
+          ));
+        }
+      }
+      if (candidates.length === 0) return batchReceipts(admissions, receipts);
       try {
       await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
       const flush = await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
@@ -516,13 +528,14 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       return options.generationFenceWitness
         ? await options.generationFenceWitness.runExclusive(
           "before-canonical-publish",
-          candidates[0],
+          prepared[0],
           publishWhileGenerationCurrent
         )
         : await publishWhileGenerationCurrent();
     } catch (error) {
       if (!isDaemonGenerationFenced(error)) throw error;
-      for (const entry of candidates) {
+      for (const entry of prepared) {
+        if (receipts.has(entry)) continue;
         receipts.set(entry, canonicalFlushCommitted
           ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error)
           : generationFencedReceipt(entry, entry.semanticDigest, error));
