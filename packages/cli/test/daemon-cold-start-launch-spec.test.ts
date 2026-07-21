@@ -319,11 +319,15 @@ test("registry-inferred authority cold start preserves disabled manifest reposit
   }
 });
 
-test("occupied daemon socket does not persist a new authority manifest registry pointer", async () => {
+test("occupied daemon socket does not persist a new authority manifest registry pointer", { timeout: 30_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const endpoint = localUserDaemonEndpoint(userRoot);
-  const owner = net.createServer();
+  const ownerSockets = new Set<net.Socket>();
+  const owner = net.createServer((socket) => {
+    ownerSockets.add(socket);
+    socket.once("close", () => ownerSockets.delete(socket));
+  });
   try {
     mkdirSync(userRoot, { recursive: true });
     const registryBefore = readDaemonRegistry({ userRoot });
@@ -345,11 +349,17 @@ test("occupied daemon socket does not persist a new authority manifest registry 
       "--socket", endpoint,
       "--user-root", userRoot,
       "--authority-manifest", fixture.manifestPath
-    ], { encoding: "utf8", env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }) }), /already owned/u);
+    ], {
+      encoding: "utf8",
+      env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }),
+      timeout: 10_000,
+      killSignal: "SIGKILL"
+    }), /already owned/u);
 
     assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
   } finally {
-    await new Promise<void>((resolve) => owner.close(() => resolve()));
+    for (const socket of ownerSockets) socket.destroy();
+    if (owner.listening) await new Promise<void>((resolve) => owner.close(() => resolve()));
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -374,7 +384,12 @@ test("transport bind failure after socket ownership does not persist any registr
       "--socket", endpoint,
       "--user-root", userRoot,
       "--authority-manifest", fixture.manifestPath
-    ], { encoding: "utf8", env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }) }), /EISDIR|Path is a directory/u);
+    ], {
+      encoding: "utf8",
+      env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }),
+      timeout: 10_000,
+      killSignal: "SIGKILL"
+    }), /EISDIR|Path is a directory/u);
 
     assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
     assert.equal(existsSync(`${endpoint}.owner`), false);

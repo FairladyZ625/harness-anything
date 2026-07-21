@@ -39,7 +39,7 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   const startedAt = Date.now();
   const childEnv = {
     ...process.env,
-    HARNESS_RUNNER_TIMEOUT_FIXTURE: "hang",
+    HARNESS_RUNNER_TIMEOUT_FIXTURE: "child",
     HARNESS_TEST_CONCURRENCY: "1"
   };
   delete childEnv.NODE_TEST_CONTEXT;
@@ -66,6 +66,10 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   assert.match(output, /ps -axo pid,ppid,etime,command/u);
   assert.match(output, /HARNESS_DAEMON_PROFILE=isolated/u);
   assert.match(output, /--test-timeout=1000/u);
+  assert.match(output, /terminating its process tree/u);
+  const fixtureChildPid = Number(output.match(/runner timeout fixture child pid: (\d+)/u)?.[1]);
+  assert.equal(Number.isSafeInteger(fixtureChildPid), true, output);
+  assert.throws(() => process.kill(fixtureChildPid, 0), { code: "ESRCH" });
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
