@@ -85,7 +85,7 @@ export interface DaemonServiceHost {
   readonly DaemonLogService?: DaemonLogService;
   readonly DaemonControlService?: DaemonControlService;
   readonly DaemonLaunchSpecService?: {
-    readonly getLaunchSpec: () => JsonObject | Promise<JsonObject>;
+    readonly getLaunchSpec: (capability?: { readonly includeGenerationAxes?: true }) => JsonObject | Promise<JsonObject>;
   };
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject, context?: {
@@ -351,8 +351,14 @@ async function callServiceMethod(
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
     try {
-      validateDaemonStatusRequest(params);
-      const status = validateDaemonStatusResult(await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
+      const request = validateDaemonStatusRequest(params);
+      const produced = await services.DaemonStatusService.getStatus(repo ? {
+        repo,
+        ...(request.includeGenerationAxes ? { includeGenerationAxes: true as const } : {})
+      } : undefined);
+      const status = validateDaemonStatusResult(request.includeGenerationAxes && options.acceptedConnection
+        ? { ...produced, connectionId: options.acceptedConnection.connectionId }
+        : produced);
       return successReceipt(contract.method, "read daemon status", status);
     } catch (error) {
       return daemonStatusValidationFailure(contract.method, error);
@@ -489,7 +495,13 @@ async function handleAdminMethod(
     if (!options.services.DaemonLaunchSpecService) {
       return failureReceipt(contract.method, "daemon_launch_spec_unavailable", "The running daemon predates the launch-spec protocol and cannot describe a safe replacement configuration. Leave it running until you can manually restart with `ha daemon stop && ha daemon start --service --authority-manifest <path>`.");
     }
-    return successReceipt(contract.method, "read daemon launch specification", await options.services.DaemonLaunchSpecService.getLaunchSpec());
+    return successReceipt(
+      contract.method,
+      "read daemon launch specification",
+      await options.services.DaemonLaunchSpecService.getLaunchSpec(params.includeGenerationAxes === true
+        ? { includeGenerationAxes: true }
+        : undefined)
+    );
   }
   if (contract.method === "admin.daemon.restart" || contract.method === "admin.daemon.refresh") {
     if (!options.services.DaemonControlService) {

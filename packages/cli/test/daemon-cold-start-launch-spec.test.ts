@@ -56,12 +56,22 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     );
     const persistedLaunchSpec = JSON.parse(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8")) as {
       readonly endpoint: string;
-      readonly launchConfiguration: { readonly args: ReadonlyArray<string> };
+      readonly launchConfiguration: {
+        readonly execPath: string;
+        readonly execArgv: ReadonlyArray<string>;
+        readonly entrypoint: string;
+        readonly args: ReadonlyArray<string>;
+      };
     };
     assert.equal(persistedLaunchSpec.endpoint, endpoint);
     assert.equal(optionValue(persistedLaunchSpec.launchConfiguration.args, "--authority-manifest"), fixture.manifestPath);
     const runningLaunchSpec = await readRunningLaunchSpec(fixture.repoRoot, userRoot);
-    assert.deepEqual(persistedLaunchSpec.launchConfiguration, runningLaunchSpec);
+    assert.deepEqual({
+      execPath: persistedLaunchSpec.launchConfiguration.execPath,
+      execArgv: persistedLaunchSpec.launchConfiguration.execArgv,
+      entrypoint: persistedLaunchSpec.launchConfiguration.entrypoint,
+      args: persistedLaunchSpec.launchConfiguration.args
+    }, runningLaunchSpec);
     assert.equal(runningLaunchSpec.args.includes(daemonLaunchOptionsResolvedFlag), true);
 
     mkdirSync(classicRoot, { recursive: true });
@@ -112,6 +122,28 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
       }
     );
     assert.equal(optionValue(launchSpecArgs(autostartedSpec), "--authority-manifest"), fixture.manifestPath);
+    const legacyRpcData = launchSpecData(autostartedSpec);
+    const expectedLegacyRpc = Buffer.from(JSON.stringify({
+      execPath: legacyRpcData.execPath,
+      execArgv: legacyRpcData.execArgv,
+      entrypoint: legacyRpcData.entrypoint,
+      args: legacyRpcData.args
+    }));
+    assert.equal(
+      Buffer.from(JSON.stringify(legacyRpcData)).equals(expectedLegacyRpc),
+      true,
+      "legacy launch-spec RPC producer bytes drifted"
+    );
+    const capableSpec = await requestLocalDaemonJsonRpc(
+      fixture.repoRoot,
+      "admin.daemon.launch-spec",
+      { includeGenerationAxes: true },
+      1_000,
+      { userRoot, allowLegacySocket: false }
+    );
+    const capableData = launchSpecData(capableSpec);
+    assert.equal(typeof capableData.machineId, "string");
+    assert.equal(typeof capableData.daemonGeneration, "number");
     assert.match(readFileSync(daemonLaunchSpecPath(userRoot, endpoint), "utf8"), new RegExp(escapeRegExp(fixture.manifestPath), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
 
@@ -476,6 +508,12 @@ async function readRunningLaunchSpec(
     entrypoint: data.entrypoint as string,
     args: data.args as ReadonlyArray<string>
   };
+}
+
+function launchSpecData(receipt: Record<string, unknown>): Record<string, unknown> {
+  const details = receipt.details as { readonly data?: unknown };
+  assert.equal(isRecord(details.data), true, JSON.stringify(receipt));
+  return details.data as Record<string, unknown>;
 }
 
 function optionValue(args: ReadonlyArray<string>, option: string): string | undefined {

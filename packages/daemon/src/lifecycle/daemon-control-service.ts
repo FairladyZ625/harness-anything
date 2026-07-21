@@ -7,7 +7,10 @@ import {
   type DaemonControlService,
   type DaemonStatusResultV2
 } from "@harness-anything/application";
-import type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
+import {
+  projectDaemonLaunchConfiguration,
+  type DaemonLaunchConfiguration
+} from "../client/local-json-rpc-client.ts";
 
 export type { DaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
@@ -49,7 +52,16 @@ export function createDaemonControlService<
       const before = input.status();
       const operationId = `control_${randomUUID()}`;
       const requestedAt = new Date().toISOString();
-      input.setActiveControl({ operationId, kind, phase: "accepted", requestedAt });
+      const generationCapability = request.daemonGeneration !== undefined || request.connectionId !== undefined;
+      const generationAxes = generationCapability
+        && input.launchConfiguration.machineId !== undefined
+        && input.launchConfiguration.daemonGeneration !== undefined
+        ? {
+            machineId: input.launchConfiguration.machineId,
+            daemonGeneration: input.launchConfiguration.daemonGeneration
+          }
+        : {};
+      input.setActiveControl({ operationId, kind, phase: "accepted", requestedAt, ...generationAxes });
       return {
         ok: true,
         accepted: {
@@ -59,17 +71,21 @@ export function createDaemonControlService<
           kind,
           scope: "service",
           requestedAt,
+          ...generationAxes,
+          ...(request.connectionId !== undefined ? { connectionId: request.connectionId } : {}),
           before: {
             pid: before.service.pid,
             loadedIdentity: before.service.build.loadedIdentity,
             repoCount: before.service.repoCount,
             queueDepth: before.service.queue.depth,
-            launchConfiguration: input.launchConfiguration
+            launchConfiguration: projectDaemonLaunchConfiguration(input.launchConfiguration, generationCapability),
+            ...(generationCapability && input.launchConfiguration.daemonGeneration !== undefined
+              ? { daemonGeneration: input.launchConfiguration.daemonGeneration } : {})
           }
         },
         afterResponse: () => {
           if (input.activeControl()?.operationId !== operationId) return;
-          input.setActiveControl({ operationId, kind, phase: "draining", requestedAt });
+          input.setActiveControl({ operationId, kind, phase: "draining", requestedAt, ...generationAxes });
           input.setDrainTimeout(request.drainTimeoutMs);
           input.requestStop({ reason: "control", kind, operationId });
         }

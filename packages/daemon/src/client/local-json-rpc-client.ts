@@ -19,10 +19,21 @@ import { type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "../p
 import { encodeJsonLineFrame } from "../transport/frame-codec.ts";
 import { defaultNamedPipePath } from "../transport/named-pipe.ts";
 import { defaultUnixSocketPath, type UnixSocketPathOptions } from "../transport/unix-socket.ts";
+import {
+  createDaemonLaunchConfiguration,
+  type DaemonLaunchConfiguration
+} from "./daemon-launch-configuration.ts";
+
+export {
+  createDaemonLaunchConfiguration,
+  daemonLaunchOptionsResolvedFlag,
+  projectDaemonLaunchConfiguration,
+  type DaemonLaunchConfiguration,
+  type DaemonLaunchConfigurationInput
+} from "./daemon-launch-configuration.ts";
 
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
-export const daemonLaunchOptionsResolvedFlag = "--launch-options-resolved";
 
 export class DaemonJsonRpcResponseError extends Error {
   readonly code: number;
@@ -42,25 +53,6 @@ export interface LocalDaemonTarget {
   readonly socketPath: string;
   readonly legacySocketPath: string;
   readonly registered: boolean;
-}
-
-export interface DaemonLaunchConfiguration {
-  readonly execPath: string;
-  readonly execArgv: ReadonlyArray<string>;
-  readonly entrypoint: string;
-  readonly args: ReadonlyArray<string>;
-}
-
-export interface DaemonLaunchConfigurationInput {
-  readonly target: Pick<LocalDaemonTarget, "canonicalRoot" | "repoId" | "socketPath" | "userRoot">;
-  readonly entrypoint: string;
-  readonly idleExitMs: number;
-  readonly execPath?: string;
-  readonly execArgv?: ReadonlyArray<string>;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly authoredRoot?: string;
-  readonly authorityManifest?: string;
-  readonly launchOptionsResolved?: boolean;
 }
 
 interface HarnessLayoutOverrides {
@@ -271,35 +263,6 @@ export function spawnLocalDaemon(target: LocalDaemonTarget, options: LocalDaemon
   spawnLocalDaemonImplementation(target, options);
 }
 
-export function createDaemonLaunchConfiguration(
-  input: DaemonLaunchConfigurationInput
-): DaemonLaunchConfiguration {
-  const environmentAuthorityManifest = nonEmptyEnvironmentValue(input.env?.HARNESS_AUTHORITY_MANIFEST)
-    ?? (input.env === undefined ? nonEmptyEnvironmentValue(process.env.HARNESS_AUTHORITY_MANIFEST) : undefined);
-  const environmentAuthoredRoot = nonEmptyEnvironmentValue(input.env?.HARNESS_AUTHORED_ROOT)
-    ?? (input.env === undefined ? nonEmptyEnvironmentValue(process.env.HARNESS_AUTHORED_ROOT) : undefined);
-  const authorityManifest = input.authorityManifest
-    ?? (environmentAuthorityManifest ? path.resolve(environmentAuthorityManifest) : undefined);
-  const authoredRoot = input.authoredRoot
-    ?? (environmentAuthoredRoot ? path.resolve(input.target.canonicalRoot, environmentAuthoredRoot) : undefined);
-  return {
-    execPath: input.execPath ?? process.execPath,
-    execArgv: [...(input.execArgv ?? process.execArgv)],
-    entrypoint: input.entrypoint,
-    args: [
-      "--root", input.target.canonicalRoot,
-      ...(authoredRoot !== undefined ? ["--authored-root", authoredRoot] : []),
-      "daemon", "serve",
-      "--repo", input.target.repoId,
-      "--socket", input.target.socketPath,
-      "--user-root", input.target.userRoot,
-      "--idle-ms", String(input.idleExitMs),
-      ...(authorityManifest !== undefined ? ["--authority-manifest", authorityManifest] : []),
-      ...(input.launchOptionsResolved ? [daemonLaunchOptionsResolvedFlag] : [])
-    ]
-  };
-}
-
 export function daemonServerHostEnvironment(
   base: NodeJS.ProcessEnv,
   target: Pick<LocalDaemonTarget, "userRoot" | "daemonId">
@@ -343,11 +306,6 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
     env: daemonServerHostEnvironment(options.env ?? process.env, target)
   });
   child.unref();
-}
-
-function nonEmptyEnvironmentValue(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
 }
 
 export class JsonRpcLineClient {

@@ -36,6 +36,7 @@ export {
   localUserDaemonEndpoint,
   localUserDaemonSocketPath,
   createDaemonLaunchConfiguration,
+  projectDaemonLaunchConfiguration,
   requestLocalDaemonJsonRpc,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,
@@ -60,6 +61,7 @@ export * from "./runtime/canonical-harness-root.ts";
 export * from "./runtime/canonical-root.ts";
 export * from "./runtime/registry-reconciler.ts";
 export * from "./lifecycle/daemon-lifecycle.ts";
+export * from "./lifecycle/daemon-generation.ts";
 export * from "./lifecycle/daemon-log-file-store.ts";
 export * from "./lifecycle/compound-receipt-composition.ts";
 export * from "./lifecycle/compound-receipt-runner.ts";

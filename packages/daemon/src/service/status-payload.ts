@@ -32,6 +32,8 @@ export interface DaemonStatusRuntimeRepo {
   readonly lastError?: string;
   readonly lastMaterializerError?: string;
   readonly projectionGeneration?: unknown;
+  readonly runtimeRegistrationId?: string;
+  readonly daemonGeneration?: number;
 }
 
 const emptyDaemonQueue = { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false } as const;
@@ -67,10 +69,12 @@ export function daemonStatusPayload(input: {
     readonly repos?: ReadonlyArray<DaemonStatusRuntimeRepo>;
   };
   readonly connections: DaemonConnectionStats;
+  readonly generationAxes?: { readonly machineId: string; readonly daemonGeneration: number };
+  readonly includeGenerationAxes?: true;
   readonly reconcileStatus?: Pick<DaemonReconcileState, "lastReconcileAt" | "lastReconcileError" | "repoErrors">;
 }): DaemonStatusResultV2 {
   const runtimeRepos = input.runtimeStatus.repos ?? [];
-  const repos = runtimeRepos.map((repo) => repoStatus(repo, input.reconcileStatus));
+  const repos = runtimeRepos.map((repo) => repoStatus(repo, input.reconcileStatus, input));
   const selectedRepo = repos.find((repo) => repo.repoId === input.repoId) ?? repoStatus({
     repoId: input.repoId,
     canonicalRoot: input.rootDir,
@@ -79,7 +83,7 @@ export function daemonStatusPayload(input: {
     lockOwnerToken: input.runtimeStatus.lockOwnerToken,
     queue: input.runtimeStatus.queue ?? emptyDaemonQueue,
     lastRecovery: input.runtimeStatus.lastRecovery
-  }, input.reconcileStatus);
+  }, input.reconcileStatus, input);
   const aggregateQueue = aggregateQueues(repos.length > 0 ? repos.map((repo) => repo.queue) : [selectedRepo.queue]);
   const installedIdentity = input.readInstalledIdentity();
   return {
@@ -127,16 +131,34 @@ export function daemonStatusPayload(input: {
       unavailableCount: repos.filter((repo) => repo.state === "unavailable").length,
       lastReconcileAt: input.reconcileStatus?.lastReconcileAt ?? null,
       lastReconcileError: reconcileErrorPayload(input.reconcileStatus?.lastReconcileError ?? null),
-      activeControl: input.activeControl
+      activeControl: projectActiveControl(input.activeControl, input.includeGenerationAxes === true),
+      ...(input.includeGenerationAxes && input.generationAxes ? {
+        machineId: input.generationAxes.machineId,
+        daemonGeneration: input.generationAxes.daemonGeneration
+      } : {})
     },
     requestedRepo: selectedRepo,
     repos
   };
 }
 
+function projectActiveControl(
+  activeControl: DaemonActiveControlStatus | null,
+  includeGenerationAxes: boolean
+): DaemonActiveControlStatus | null {
+  if (!activeControl || includeGenerationAxes
+    || (activeControl.machineId === undefined && activeControl.daemonGeneration === undefined)) return activeControl;
+  const { machineId: _machineId, daemonGeneration: _daemonGeneration, ...legacy } = activeControl;
+  return legacy;
+}
+
 function repoStatus(
   repo: DaemonStatusRuntimeRepo,
-  reconcileStatus: Pick<DaemonReconcileState, "lastReconcileAt" | "lastReconcileError" | "repoErrors"> | undefined
+  reconcileStatus: Pick<DaemonReconcileState, "lastReconcileAt" | "lastReconcileError" | "repoErrors"> | undefined,
+  projection: {
+    readonly includeGenerationAxes?: true;
+    readonly generationAxes?: { readonly daemonGeneration: number };
+  }
 ): DaemonRepoStatus {
   const state = repo.state === "attached" || repo.state === "unavailable" || repo.state === "detaching" || repo.state === "detached"
     ? repo.state
@@ -152,7 +174,11 @@ function repoStatus(
     projectionGeneration: toStatusJsonValue(repo.projectionGeneration ?? null),
     lastError: repo.lastError ?? null,
     lastMaterializerError: repo.lastMaterializerError ?? null,
-    lastReconcileError: reconcileErrorPayload(reconcileStatus?.repoErrors.get(repo.repoId) ?? null)
+    lastReconcileError: reconcileErrorPayload(reconcileStatus?.repoErrors.get(repo.repoId) ?? null),
+    ...(projection.includeGenerationAxes && repo.runtimeRegistrationId !== undefined
+      ? { runtimeRegistrationId: repo.runtimeRegistrationId } : {}),
+    ...(projection.includeGenerationAxes && (repo.daemonGeneration ?? projection.generationAxes?.daemonGeneration) !== undefined
+      ? { daemonGeneration: (repo.daemonGeneration ?? projection.generationAxes?.daemonGeneration)! } : {})
   };
 }
 

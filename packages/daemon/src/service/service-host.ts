@@ -10,7 +10,7 @@ import { createPtyTerminalSessionService } from "../terminal/pty-host.ts";
 import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { AuthorityWireIngressHandler } from "../transport/authority-wire-ingress.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
+import type { JsonObject, JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { DaemonRepoAvailabilityFailure, DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
 import type { AuthorityRepoComponent, AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 import type { AuthenticatedActor, IdentityAdminSnapshot, IdentityProvider, PersonRegistry } from "../identity/types.ts";
@@ -39,6 +39,7 @@ import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonRec
 import { createAuthorityWireIngressHandler } from "../authority/authority-wire-service.ts";
 import { requireAuthoritySubmissionForDispatch } from "../authority/authority-submission-dispatch.ts";
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
+import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
@@ -82,6 +83,8 @@ export async function createDaemonServiceHost<
     readonly startedAt: string;
     readonly launchConfiguration: DaemonLaunchConfiguration;
     readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
+    readonly machineId?: string;
+    readonly daemonGeneration?: number;
   },
   hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity, PresentedControlError>,
   authorityLifecycle?: AuthorityRepoLifecycleController,
@@ -343,7 +346,7 @@ export async function createDaemonServiceHost<
     }, reconcileState);
   }
 
-  function serviceStatus(repoId: string): DaemonStatusResultV2 {
+  function serviceStatus(repoId: string, includeGenerationAxes = false): DaemonStatusResultV2 {
     const target = reposById.get(repoId) ?? defaultRepoBinding().repo;
     return daemonStatusPayload({
       daemonId,
@@ -358,7 +361,11 @@ export async function createDaemonServiceHost<
       activeControl,
       runtimeStatus: runtime.status(),
       connections,
-      reconcileStatus: reconcileState
+      reconcileStatus: reconcileState,
+      ...(build.machineId !== undefined && build.daemonGeneration !== undefined ? {
+        generationAxes: { machineId: build.machineId, daemonGeneration: build.daemonGeneration }
+      } : {}),
+      ...(includeGenerationAxes ? { includeGenerationAxes: true as const } : {})
     });
   }
 }
@@ -388,6 +395,8 @@ function createRepoServiceBinding<
       readonly loadedIdentity: string;
       readonly startedAt: string;
       readonly launchConfiguration?: DaemonLaunchConfiguration;
+      readonly machineId?: string;
+      readonly daemonGeneration?: number;
     };
     readonly controlService?: DaemonControlService;
     readonly daemonLogService?: DaemonLogService;
@@ -465,6 +474,13 @@ function createRepoServiceBinding<
             activeControl: statusOptions?.activeControl?.() ?? null,
             runtimeStatus: managerRuntime.status(),
             connections: statusOptions?.connections ?? { active: 0, total: 0 },
+            ...(statusOptions?.build?.machineId !== undefined && statusOptions.build.daemonGeneration !== undefined ? {
+              generationAxes: {
+                machineId: statusOptions.build.machineId,
+                daemonGeneration: statusOptions.build.daemonGeneration
+              }
+            } : {}),
+            ...(context?.includeGenerationAxes ? { includeGenerationAxes: true as const } : {}),
             ...(statusOptions?.reconcileStatus ? { reconcileStatus: statusOptions.reconcileStatus } : {})
           });
         }
@@ -472,12 +488,10 @@ function createRepoServiceBinding<
       ...(statusOptions?.controlService ? { DaemonControlService: statusOptions.controlService } : {}),
       ...(statusOptions?.build?.launchConfiguration ? {
         DaemonLaunchSpecService: {
-          getLaunchSpec: () => ({
-            execPath: statusOptions.build!.launchConfiguration!.execPath,
-            execArgv: [...statusOptions.build!.launchConfiguration!.execArgv],
-            entrypoint: statusOptions.build!.launchConfiguration!.entrypoint,
-            args: [...statusOptions.build!.launchConfiguration!.args]
-          })
+          getLaunchSpec: (capability) => projectDaemonLaunchConfiguration(
+            statusOptions.build!.launchConfiguration!,
+            capability?.includeGenerationAxes === true
+          ) as unknown as JsonObject
         }
       } : {}),
       CliCommandService: daemonCommandService,

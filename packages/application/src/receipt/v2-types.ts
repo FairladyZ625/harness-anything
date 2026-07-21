@@ -78,6 +78,12 @@ export interface CompoundOperationReceiptV2 extends ReceiptIdentityV2 {
   readonly currentLease: CurrentLeaseState;
   readonly sequence: number;
   readonly updatedAt: string;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
+  readonly runtimeRegistrationId?: string;
+  readonly connectionId?: string;
+  /** Reserved for S4; S1 neither generates nor enforces this value. */
+  readonly leaseGeneration?: number;
 }
 
 export interface OpenedCompoundWaiterV2 {
@@ -105,6 +111,12 @@ export interface CompoundTerminalJournalEntry {
   readonly preparedSequence?: number;
   readonly preparedReceiptDigest?: string;
   readonly reason?: string;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
+  readonly runtimeRegistrationId?: string;
+  readonly connectionId?: string;
+  /** Reserved for S4; S1 neither generates nor enforces this value. */
+  readonly leaseGeneration?: number;
 }
 
 export type CompoundTerminalJournalDraft = Omit<CompoundTerminalJournalEntry, "terminalLSN" | "receiptSequence">;

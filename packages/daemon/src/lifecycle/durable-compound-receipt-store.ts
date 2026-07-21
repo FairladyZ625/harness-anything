@@ -124,12 +124,16 @@ function isState(value: unknown): value is DurableCompoundReceiptStateV2 {
     if (!record(entry) || !exactKeys(entry, [
       "schema", "terminalLSN", "workspaceId", "viewId", "opId", "waiterId", "kind",
       "pinReleaseEligible", "receiptSequence", "recordedAt"
-    ], ["preparedSequence", "preparedReceiptDigest", "reason"])
+    ], [
+      "preparedSequence", "preparedReceiptDigest", "reason", "machineId", "daemonGeneration",
+      "runtimeRegistrationId", "connectionId", "leaseGeneration"
+    ])
       || entry.schema !== compoundTerminalJournalSchema || !uint(entry.terminalLSN)
       || entry.terminalLSN <= priorLSN || !uint(entry.receiptSequence)
       || entry.pinReleaseEligible !== true
       || !strings(entry, ["workspaceId", "viewId", "opId", "waiterId", "recordedAt"])
-      || (entry.kind !== "ACK_COMMITTED" && entry.kind !== "DETACHED")) return false;
+      || (entry.kind !== "ACK_COMMITTED" && entry.kind !== "DETACHED")
+      || !validTerminalGenerationAxes(entry)) return false;
     if (entry.kind === "ACK_COMMITTED") {
       if (!uint(entry.preparedSequence) || typeof entry.preparedReceiptDigest !== "string"
         || !/^[a-f0-9]{64}$/u.test(entry.preparedReceiptDigest) || entry.reason !== undefined) return false;
@@ -212,4 +216,14 @@ function exactKeys(
 
 function strings(value: Record<string, unknown>, keys: ReadonlyArray<string>): boolean {
   return keys.every((key) => typeof value[key] === "string" && (value[key] as string).length > 0);
+}
+
+function validTerminalGenerationAxes(value: Record<string, unknown>): boolean {
+  for (const field of ["machineId", "runtimeRegistrationId", "connectionId"] as const) {
+    if (value[field] !== undefined && (typeof value[field] !== "string" || value[field].length === 0)) return false;
+  }
+  for (const field of ["daemonGeneration", "leaseGeneration"] as const) {
+    if (value[field] !== undefined && (!uint(value[field]) || Number(value[field]) < 1)) return false;
+  }
+  return true;
 }

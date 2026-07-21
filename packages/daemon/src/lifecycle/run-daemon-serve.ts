@@ -26,6 +26,7 @@ import { createDaemonLocalTransport, withDaemonSocketOwnership } from "../transp
 import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import { makeDaemonReservationReconciler } from "./reservation-reconciler.ts";
 import { recordDaemonStarted, recordDaemonTerminated } from "./daemon-lifecycle.ts";
+import { prepareDaemonGenerationForServe } from "./daemon-generation.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -45,6 +46,7 @@ export interface DaemonServeInput {
   readonly entrypoint: string;
   readonly idleMs: number;
   readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
+  readonly platform?: NodeJS.Platform;
 }
 
 export async function runDaemonServe<
@@ -65,18 +67,44 @@ export async function runDaemonServe<
 ): Promise<void> {
   const { rootDir, layoutOverrides, userRoot, endpoint } = input;
   const { serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = resolveDaemonServeConfiguration(input);
-  const launchConfiguration = createDaemonLaunchConfiguration({
-    target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
-    entrypoint: input.entrypoint,
-    idleExitMs: input.idleMs,
-    ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
-    ...(authorityManifest ? { authorityManifest } : {}),
-    launchOptionsResolved: true
-  });
   const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
   const startedAt = new Date().toISOString();
 
   return withDaemonSocketOwnership(endpoint, async () => {
+    const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
+    const generation = prepareDaemonGenerationForServe({
+      userRoot,
+      endpointIdentity: endpoint,
+      daemonInstanceId: `ha-${process.pid}`,
+      ...(input.platform ? { platform: input.platform } : {})
+    });
+    if (generation.mode === "legacy") {
+      try {
+        await daemonLogService.append({
+          level: "warn",
+          source: "daemon",
+          component: "daemon.generation",
+          event: "daemon.generation.legacy-mode",
+          message: "Durable daemon generation publication is unavailable; continuing with legacy daemon semantics.",
+          errorCode: generation.diagnostic,
+          hint: "Generation-aware status, control, and terminal receipt fencing remain unavailable on this platform."
+        }, { repo: lifecycleRepo });
+      } catch {
+        // Operational diagnostics must not block legacy-compatible daemon startup.
+      }
+    }
+    const launchConfiguration = createDaemonLaunchConfiguration({
+      target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
+      entrypoint: input.entrypoint,
+      idleExitMs: input.idleMs,
+      ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
+      ...(authorityManifest ? { authorityManifest } : {}),
+      launchOptionsResolved: true,
+      ...(generation.mode === "generation" ? {
+        machineId: generation.machineId,
+        daemonGeneration: generation.daemonGeneration
+      } : {})
+    });
     let runtime: ReturnType<typeof createMultiRepoDaemonRuntime> | undefined;
     let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost<Command, Result, Identity, PresentedControlError>>> | undefined;
     let lifecycleStarted = false;
@@ -84,7 +112,6 @@ export async function runDaemonServe<
     let terminalClean = false;
     let terminalMessage: string | undefined;
     let failure: unknown;
-    const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
     try {
       runtime = createMultiRepoDaemonRuntime({
         materializerPollMs: 5_000,
@@ -127,7 +154,11 @@ export async function runDaemonServe<
           loadedIdentity: loadedBuild.identity,
           startedAt,
           launchConfiguration,
-          preflightReplacement: input.preflightReplacement
+          preflightReplacement: input.preflightReplacement,
+          ...(generation.mode === "generation" ? {
+            machineId: generation.machineId,
+            daemonGeneration: generation.daemonGeneration
+          } : {})
         },
         serviceHostServices,
         authorityLifecycle,

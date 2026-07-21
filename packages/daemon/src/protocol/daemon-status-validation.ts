@@ -2,13 +2,14 @@ import {
   decodeDaemonStatusRequestV2,
   decodeDaemonStatusResultV2
 } from "@harness-anything/application";
+import type { DaemonStatusRequestV2 } from "@harness-anything/application";
 import type { JsonObject } from "./json-rpc-types.ts";
 
 import { failureReceipt } from "./receipt-envelope.ts";
 
 /** Runtime codecs used by the JSON-RPC handler before it emits a success receipt. */
-export function validateDaemonStatusRequest(params: JsonObject): void {
-  decodeDaemonStatusRequestV2(params);
+export function validateDaemonStatusRequest(params: JsonObject): DaemonStatusRequestV2 {
+  return decodeDaemonStatusRequestV2(params);
 }
 
 export function validateDaemonStatusResult(status: unknown): JsonObject {

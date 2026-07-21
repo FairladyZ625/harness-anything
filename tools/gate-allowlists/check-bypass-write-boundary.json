@@ -1203,6 +1203,98 @@
         "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
         "reason": "Daemon-owned terminal session persistence; stores local terminal lifecycle state outside canonical authored entity truth."
       }
+    ],
+    "daemonGenerationRecord": [
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@3",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@4",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@5",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#fsyncSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#fsyncSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#fsyncSync@3",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#mkdirSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#mkdirSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@3",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#writeFileSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#writeFileSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      }
     ]
   }
 }
