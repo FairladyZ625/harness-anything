@@ -31,3 +31,26 @@ test("journal failures always retain their cause and teach a concrete diagnostic
     hint: "Journal is unavailable: publisher observation mismatched. Run 'ha doctor --json' to inspect journal and daemon health, then retry the command."
   });
 });
+
+test("daemon generation rejection preserves its stable code and structured context", () => {
+  const context = {
+    schema: "daemon-generation-write-rejection/v1",
+    machineId: "machine-a",
+    attemptedDaemonGeneration: 7,
+    currentDaemonGeneration: 8,
+    workspaceId: "workspace-a",
+    opId: "op-a",
+    stage: "before-terminal-journal"
+  };
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "DAEMON_GENERATION_FENCED",
+    reason: "The daemon generation is stale.",
+    retryable: true,
+    context
+  }), {
+    code: "DAEMON_GENERATION_FENCED",
+    hint: "The daemon generation is stale.",
+    context
+  });
+});

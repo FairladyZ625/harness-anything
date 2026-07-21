@@ -37,7 +37,8 @@ export function failureReceipt(
   command: string,
   code: string,
   hint: string,
-  details: JsonObject = {}
+  details: JsonObject = {},
+  errorContext?: JsonObject
 ): CommandFailureReceipt {
   const next = failureReceiptNextActions(code, details);
   return {
@@ -46,7 +47,7 @@ export function failureReceipt(
     command,
     action: actionFromMethod(command),
     summary: hint,
-    error: { code, hint },
+    error: { code, hint, ...(errorContext ? { context: errorContext } : {}) },
     ...(next ? { next } : {}),
     ...(Object.keys(details).length > 0 ? { details } : {}),
     meta: {
@@ -63,7 +64,10 @@ export function serviceResultReceipt(command: string, result: JsonObject): Comma
       : {};
     const code = typeof error.code === "string" ? error.code : "service_rejected";
     const hint = typeof error.hint === "string" ? error.hint : `Service method ${command} rejected the request.`;
-    return failureReceipt(command, code, hint, { data: result });
+    const context = error.context && typeof error.context === "object" && !Array.isArray(error.context)
+      ? error.context as JsonObject
+      : undefined;
+    return failureReceipt(command, code, hint, { data: result }, context);
   }
   return successReceipt(command, `completed ${command}`, result);
 }

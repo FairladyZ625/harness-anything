@@ -6,7 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-// eslint-disable-next-line no-restricted-imports -- The daemon client must not import the kernel barrel because GUI dynamically loads this module and the barrel exports sqlite projection code.
 import {
   readDaemonRegistry,
   registerDaemonRepo,

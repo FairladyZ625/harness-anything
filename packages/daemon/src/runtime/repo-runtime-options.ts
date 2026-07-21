@@ -23,6 +23,7 @@ import type {
   InteractiveWriteReceipt,
   InteractiveWriteRequest
 } from "./write-queue.ts";
+import type { DaemonGenerationWitness } from "../lifecycle/daemon-generation.ts";
 import type { DaemonProjectionGenerationSnapshot } from "./projection-generation-manager.ts";
 
 export interface DaemonMaterializerBatchOptions {
@@ -57,6 +58,12 @@ export interface DaemonRuntimeOptions {
     readonly machineId: string;
     readonly daemonGeneration: number;
   };
+  readonly generationWitness?: DaemonGenerationWitness;
+  readonly generationCapability?: {
+    readonly mode: "legacy";
+    readonly platform: "win32";
+    readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED";
+  };
 }
 
 export interface DaemonRuntimeStatus {
@@ -87,6 +94,16 @@ export interface HarnessDaemonRuntime {
     readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
+  readonly daemonGenerationContext?: () => {
+    readonly witness: DaemonGenerationWitness;
+    readonly machineId: string;
+    readonly daemonGeneration: number;
+    readonly runtimeRegistrationId?: string;
+  } | undefined;
+  readonly daemonGenerationCapability?: () =>
+    | { readonly mode: "generation" }
+    | { readonly mode: "legacy"; readonly platform: "win32"; readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" }
+    | { readonly mode: "unconfigured" };
   readonly admissionBudget: DaemonAdmissionBudget;
   readonly subscribeProjectionChanges: (listener: (event: ProjectionChangeEvent) => void) => () => void;
 }

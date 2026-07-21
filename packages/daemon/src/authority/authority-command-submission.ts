@@ -337,12 +337,25 @@ export function assertAuthorityReceiptOperation(
   }
 }
 
-function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushReason): FlushReport {
+export function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushReason): FlushReport {
   switch (receipt.tag) {
     case "COMMITTED": return { reason, opCount: 1, committed: true, watermark: receipt.opId };
     case "REJECTED": throw authorityWriteRejected(receipt.reason, false, "authority_ingress_rejected");
-    case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(receipt.reason, true);
-    case "INDETERMINATE": throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+    case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(
+      receipt.reason,
+      true,
+      receipt.errorCode,
+      receipt.errorContext ? { ...receipt.errorContext } : undefined
+    );
+    case "INDETERMINATE": {
+      if (receipt.errorCode) throw authorityWriteRejected(
+        receipt.reason,
+        false,
+        receipt.errorCode,
+        receipt.errorContext ? { ...receipt.errorContext } : undefined
+      );
+      throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+    }
   }
 }
 
@@ -366,11 +379,17 @@ function authorityJournalFailureCause(cause: unknown): unknown {
   };
 }
 
-function authorityWriteRejected(reason: string, retryable = false, code?: string): WriteError {
+function authorityWriteRejected(
+  reason: string,
+  retryable = false,
+  code?: string,
+  context?: Readonly<Record<string, unknown>>
+): WriteError {
   return {
     _tag: "WriteRejected",
     reason,
     ...(code ? { code } : {}),
+    ...(context ? { context } : {}),
     ...(retryable ? { retryable: true } : {})
   };
 }

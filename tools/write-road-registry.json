@@ -1530,10 +1530,10 @@
       ],
       "evidence": [
         "packages/cli/src/receipt/durable-store.ts:76",
-        "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts:143",
+        "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts:238",
         "packages/application/src/receipt/service.ts:1"
       ],
-      "freshness": "fsync-atomic-rename"
+      "freshness": "fsync-atomic-rename-and-terminal-lsn-exclusive-link"
     },
     {
       "id": "broker.local-view.native-apply",

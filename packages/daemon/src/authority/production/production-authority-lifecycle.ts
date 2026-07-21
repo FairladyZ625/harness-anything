@@ -5,7 +5,6 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
-  type ActorAxesBindingRuntimeV2,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
@@ -19,7 +18,15 @@ import {
 } from "../../attestation/handshake.ts";
 import { createTransportObservedAttestationAdapter } from "../../attestation/transport-observed-adapter.ts";
 import type { PersonRegistry } from "../../identity/types.ts";
-import { createProductionCompoundReceiptComposition } from "../../lifecycle/compound-receipt-composition.ts";
+import {
+  createProductionCompoundReceiptComposition,
+  createProductionCompoundReceiptGenerationFence
+} from "../../lifecycle/compound-receipt-composition.ts";
+import {
+  createRuntimeDaemonGenerationAuthorityFence,
+  createRuntimeDaemonGenerationWitnessFence,
+  daemonGenerationAxes
+} from "../../fence/daemon-generation-fence.ts";
 import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
 import {
   createDaemonAuthorityCommandSubmissionV2,
@@ -63,6 +70,7 @@ import {
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
+import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -104,7 +112,7 @@ export function createProductionAuthorityLifecycle(input: {
   return createAuthorityRepoLifecycleController({
     hooks,
     serviceStateRoot: manifest.serviceStateRoot,
-    resolveCompositionData: async (repo, state) => {
+    resolveCompositionData: async (repo, state, runtime) => {
       const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
       if (!config || canonicalRoot(config.canonicalRoot) !== canonicalRoot(repo.canonicalRoot)) {
         throw new Error("AUTHORITY_PRODUCTION_REPO_NOT_CONFIGURED");
@@ -140,6 +148,11 @@ export function createProductionAuthorityLifecycle(input: {
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       }).authoredRoot;
       const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
+      const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
+        runtime,
+        workspaceId: config.workspaceId,
+        repo: { repoId: config.repoId, canonicalRoot: config.canonicalRoot }
+      });
       const evidenceCommitter = createGitAuthorityAttributionEvidenceCommitterV2({
         rootDir: repo.canonicalRoot,
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
@@ -213,6 +226,7 @@ export function createProductionAuthorityLifecycle(input: {
         eventLog,
         publicationInspector,
         recover: committedEventPublisher.recoverCommittedReceipt,
+        ...(recoveryGenerationFence ? { generationFence: recoveryGenerationFence } : {}),
         watermarkPath: `${state.stateDirectory}/recovery-watermark.json`,
         ...(input.daemonLogService ? {
           onDeferred: (record: import("@harness-anything/application").AuthorityStoredOperationRecord, error: unknown) =>
@@ -295,6 +309,12 @@ function createRepoComponent(
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
+  const repoGenerationFence = createRuntimeDaemonGenerationAuthorityFence({
+    runtime: input.runtime,
+    authorityFence: input.fenceWitness,
+    workspaceId: material.config.workspaceId,
+    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot }
+  });
   const cutoverControl = createAuthorityCutoverControlService({
     repoId: material.config.repoId,
     workspaceId: material.config.workspaceId,
@@ -322,7 +342,7 @@ function createRepoComponent(
         })
       ),
       enabledV2WriterKinds: productionAuthorityV2EntityKinds,
-      assertWriteFenceHeld: input.fenceWitness.assertHeld
+      assertWriteFenceHeld: (repoGenerationFence ?? input.fenceWitness).assertHeld
     }
   });
   let serving = false;
@@ -337,7 +357,13 @@ function createRepoComponent(
     viewId: material.config.viewId,
     canonicalRoot: material.config.canonicalRoot,
     stateDirectory: `${material.serviceStateRoot}/compound-receipts/${Buffer.from(material.config.repoId, "utf8").toString("base64url")}`,
-    replicaChangeLog: input.replicaChangeLog
+    replicaChangeLog: input.replicaChangeLog,
+    ...(repoGenerationFence ? {
+      generationFence: createProductionCompoundReceiptGenerationFence(
+        repoGenerationFence,
+        daemonGenerationAxes(input.runtime)
+      )
+    } : {})
   });
   return {
     commandSubmissionV2: unbound,
@@ -352,7 +378,12 @@ function createRepoComponent(
       assertConnectionContext(input, material.config, context);
       const authorityService = gateAuthoritySubmissionForRecovery(
         gateCutoverAdmission(
-          attestSubmissionService(createConnectionAuthorityService(input, material, context, publicationExecutor), context),
+          attestSubmissionService(createConnectionAuthorityService(
+            input,
+            material,
+            context,
+            publicationExecutor
+          ), context),
           cutoverControl
         ),
         () => recoveryUnavailableReason(material)
@@ -444,6 +475,12 @@ function createConnectionAuthorityService(
   }
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
+  const generationFence = createRuntimeDaemonGenerationWitnessFence({
+    runtime: input.runtime,
+    workspaceId: material.config.workspaceId,
+    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot },
+    connectionId: context.connectionId
+  });
   return createAuthoritySubmissionService({
     workspaceId: material.config.workspaceId,
     coordinatorFactory: input.attributedCoordinatorFactory,
@@ -453,6 +490,7 @@ function createConnectionAuthorityService(
     publicationInspector,
     publicationExecutor,
     fenceWitness: input.fenceWitness,
+    ...(generationFence ? { generationFenceWitness: generationFence } : {}),
     admissionBudget: input.admissionBudget,
     v2: {
       schemaTuple: material.config.schemaTuple,
@@ -480,26 +518,6 @@ function createSerialPublicationExecutor(): {
       const result = tail.then(publication, publication);
       tail = result.then(() => undefined, () => undefined);
       return result;
-    }
-  };
-}
-
-function connectionBoundRuntime(
-  runtime: DurableAuthorityBindingRuntimeV2,
-  config: AuthorityProductionRepoConfigV1,
-  context: AuthorityConnectionContext
-): ActorAxesBindingRuntimeV2 {
-  return {
-    ...runtime,
-    getBinding: async (bindingId) => {
-      const record = await runtime.getBinding(bindingId);
-      if (!record) return undefined;
-      if (record.principalPersonId !== context.actor.personId
-        || record.workspaceId !== config.workspaceId
-        || record.deviceId !== config.deviceId
-        || record.viewId !== config.viewId
-        || record.attribution.actor.principal.personId !== context.actor.personId) return undefined;
-      return record;
     }
   };
 }

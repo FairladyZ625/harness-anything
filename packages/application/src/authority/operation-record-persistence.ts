@@ -1,6 +1,7 @@
 import type { AuthorityOperationIntegrity } from "@harness-anything/kernel";
 import type {
   AuthorityOperationEnvelope,
+  AuthorityGenerationFence,
   AuthorityOperationReceipt,
   AuthorityOperationRegistry,
   AuthorityOperationState,
@@ -12,7 +13,19 @@ type OperationIdentity = Pick<AuthorityOperationEnvelope, "workspaceId" | "opId"
   readonly recordedProtocol?: RecordedAuthorityProtocol;
 };
 
-export function createAuthorityOperationRecordPersistence(operationRegistry: AuthorityOperationRegistry): {
+export type PersistAuthorityTerminal = (
+  envelope: OperationIdentity,
+  digest: string,
+  state: Extract<AuthorityOperationState, "COMMITTED" | "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
+  receipt: AuthorityOperationReceipt,
+  authorityIntegrity?: AuthorityOperationIntegrity,
+  canonicalRequestEnvelope?: string
+) => Promise<AuthorityOperationReceipt>;
+
+export function createAuthorityOperationRecordPersistence(
+  operationRegistry: AuthorityOperationRegistry,
+  generationFence?: AuthorityGenerationFence
+): {
   readonly put: (
     envelope: OperationIdentity,
     semanticDigest: string,
@@ -22,14 +35,7 @@ export function createAuthorityOperationRecordPersistence(operationRegistry: Aut
     authorityIntegrity?: AuthorityOperationIntegrity,
     canonicalRequestEnvelope?: string
   ) => Promise<void>;
-  readonly persistTerminal: (
-    envelope: OperationIdentity,
-    digest: string,
-    state: Extract<AuthorityOperationState, "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
-    receipt: AuthorityOperationReceipt,
-    authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string
-  ) => Promise<AuthorityOperationReceipt>;
+  readonly persistTerminal: PersistAuthorityTerminal;
 } {
   const put = (
     envelope: OperationIdentity,
@@ -57,8 +63,13 @@ export function createAuthorityOperationRecordPersistence(operationRegistry: Aut
   return {
     put,
     persistTerminal: async (envelope, digest, state, receipt, authorityIntegrity, canonicalRequestEnvelope) => {
-      await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined, authorityIntegrity, canonicalRequestEnvelope);
-      return receipt;
+      const persist = async () => {
+        await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined, authorityIntegrity, canonicalRequestEnvelope);
+        return receipt;
+      };
+      return generationFence
+        ? generationFence.runExclusive("before-terminal-journal", envelope, persist)
+        : persist();
     }
   };
 }

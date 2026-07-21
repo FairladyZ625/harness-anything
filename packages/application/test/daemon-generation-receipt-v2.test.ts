@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isCompoundOperationReceiptV2, type CompoundOperationReceiptV2 } from "../src/index.ts";
+import { persistTerminalOrRejectGeneration } from "../src/authority/generation-fence-enforcement.ts";
 
 function pending(overrides: Partial<CompoundOperationReceiptV2> = {}): CompoundOperationReceiptV2 {
   return {
@@ -40,4 +41,65 @@ test("legacy compound receipt JSON remains byte-identical through decode and enc
   assert.equal(isCompoundOperationReceiptV2(decoded), true);
   const after = Buffer.from(`${JSON.stringify(decoded)}\n`);
   assert.equal(after.equals(before), true, "legacy compound receipt bytes drifted");
+});
+
+test("generation fence rejection code and context are an explicit validated pair", () => {
+  const authority = {
+    tag: "RETRYABLE_NOT_COMMITTED" as const,
+    workspaceId: "workspace-a",
+    opId: "op-a",
+    semanticDigest: "b".repeat(64),
+    reason: "The daemon generation is stale.",
+    errorCode: "DAEMON_GENERATION_FENCED" as const,
+    errorContext: {
+      schema: "daemon-generation-write-rejection/v1" as const,
+      machineId: "machine-a",
+      attemptedDaemonGeneration: 7,
+      currentDaemonGeneration: 8,
+      runtimeRegistrationId: "runtime-a",
+      connectionId: "connection-a",
+      workspaceId: "workspace-a",
+      opId: "op-a",
+      stage: "before-terminal-journal" as const
+    }
+  };
+  assert.equal(isCompoundOperationReceiptV2(pending({ authority })), true);
+  assert.equal(isCompoundOperationReceiptV2(pending({
+    authority: { ...authority, errorContext: undefined }
+  } as never)), false);
+  assert.equal(isCompoundOperationReceiptV2(pending({
+    authority: { ...authority, errorContext: { ...authority.errorContext, attemptedDaemonGeneration: 0 } }
+  })), false);
+});
+
+test("a fenced indeterminate persistence attempt retains explicit rejection fields", async () => {
+  const context = {
+    schema: "daemon-generation-write-rejection/v1" as const,
+    machineId: "machine-a",
+    attemptedDaemonGeneration: 7,
+    currentDaemonGeneration: 8,
+    workspaceId: "workspace-a",
+    opId: "op-a",
+    stage: "before-terminal-journal" as const
+  };
+  const error = Object.assign(new Error("The daemon generation is stale."), {
+    code: "DAEMON_GENERATION_FENCED" as const,
+    context
+  });
+  const receipt = await persistTerminalOrRejectGeneration(
+    async () => { throw error; },
+    [{ workspaceId: "workspace-a", opId: "op-a" }, "b".repeat(64), "INDETERMINATE", {
+      tag: "INDETERMINATE",
+      workspaceId: "workspace-a",
+      opId: "op-a",
+      semanticDigest: "b".repeat(64),
+      reason: "publication outcome unknown",
+      commitSha: "c".repeat(40)
+    }]
+  );
+
+  assert.equal(receipt.tag, "INDETERMINATE");
+  assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorCode : undefined, "DAEMON_GENERATION_FENCED");
+  assert.deepEqual(receipt.tag === "INDETERMINATE" ? receipt.errorContext : undefined, context);
+  assert.equal(receipt.tag === "INDETERMINATE" ? receipt.commitSha : undefined, "c".repeat(40));
 });

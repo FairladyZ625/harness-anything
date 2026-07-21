@@ -153,11 +153,15 @@ export async function runDaemonServe<
       runtime = createMultiRepoDaemonRuntime({
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         materializerPollMs: 5_000,
+        ...(generation.mode === "legacy" ? {
+          generationCapability: { mode: "legacy", platform: "win32", diagnostic: generation.diagnostic }
+        } : {}),
         ...(generation.mode === "generation" ? {
           generationAxes: {
             machineId: generation.machineId,
             daemonGeneration: generation.daemonGeneration
-          }
+          },
+          generationWitness: generation.witness
         } : {}),
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;
