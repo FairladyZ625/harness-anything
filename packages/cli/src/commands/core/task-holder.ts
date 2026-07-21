@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import {
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionSagaService,
+  readTaskLifecyclePolicy,
   type TaskHolderPrincipal
 } from "@harness-anything/application";
 import { readSessionEntityDocument, type WriteError } from "@harness-anything/kernel";
@@ -10,6 +11,7 @@ import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
+import { plannedTaskClaimGuidance } from "./task-lifecycle-facade-guidance.ts";
 import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
@@ -157,24 +159,32 @@ export function runTaskClaim(
   return Effect.gen(function* () {
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return principal.result;
-    if (action.execution || action.executionId) return yield* runExecutionClaim(context, action, principal.value);
+    const policy = yield* readTaskLifecyclePolicy(context.artifactStore, action.taskId);
     const session = yield* context.currentSessionProbe.currentSession;
-    if (session.runtime !== "human") return yield* runExecutionClaim(context, action, principal.value);
-    return yield* Effect.tryPromise({
-      try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
-      catch: taskHolderCommandFailure
-    }).pipe(Effect.match({
-      onFailure: (result): CliResult => resultForTaskHolderFailure("task-claim", action.taskId, result),
-      onSuccess: (result): CliResult => ({
-        ok: true,
-        command: "task-claim",
-        taskId: action.taskId,
-        report: {
-          schema: "task-holder-claim-result/v1",
-          ...result
-        }
-      })
-    }));
+    const claimed = action.execution || action.executionId || session.runtime !== "human"
+      ? yield* runExecutionClaim(context, action, principal.value)
+      : yield* Effect.tryPromise({
+        try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
+        catch: taskHolderCommandFailure
+      }).pipe(Effect.match({
+        onFailure: (result): CliResult => resultForTaskHolderFailure("task-claim", action.taskId, result),
+        onSuccess: (result): CliResult => ({
+          ok: true,
+          command: "task-claim",
+          taskId: action.taskId,
+          report: {
+            schema: "task-holder-claim-result/v1",
+            ...result
+          }
+        })
+      }));
+    if (!claimed.ok || policy?.status === null || policy?.status === undefined) return claimed;
+    const guidance = policy.status === "planned" ? plannedTaskClaimGuidance(action.taskId) : undefined;
+    return {
+      ...claimed,
+      status: policy.status,
+      ...(guidance ? { warnings: [...(claimed.warnings ?? []), guidance] } : {})
+    };
   });
 }
 

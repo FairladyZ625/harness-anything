@@ -65,6 +65,25 @@ test("command receipts fail closed on missing declared success data", () => {
   }
 });
 
+test("task closeout dry-run uses its declared receipt variant while real closeout stays strict", () => {
+  const dryRun = toCommandReceipt({
+    ok: true,
+    command: "task-closeout",
+    taskId: "task_1",
+    report: { schema: "task-closeout-dry-run/v1", dryRun: true }
+  });
+  assert.equal(dryRun.ok, true, JSON.stringify(dryRun));
+
+  const realCloseout = toCommandReceipt({
+    ok: true,
+    command: "task-closeout",
+    taskId: "task_1",
+    report: { schema: "task-closeout-result/v1" }
+  });
+  assert.equal(realCloseout.ok, false);
+  if (!realCloseout.ok) assert.match(realCloseout.error?.hint ?? "", /data\.executionId, data\.status/u);
+});
+
 test("command receipts fail closed on missing declared paths", () => {
   const receipt = toCommandReceipt({
     ok: true,

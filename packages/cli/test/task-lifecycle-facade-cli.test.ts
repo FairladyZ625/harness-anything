@@ -62,6 +62,28 @@ test("approved closeout without consent is rejected before any lifecycle write",
   });
 });
 
+test("closeout dry-run satisfies its receipt contract without inventing execution state", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "Dry Run Contract");
+    const packet = writeCloseoutPacket(rootDir);
+    const taskRoot = path.join(rootDir, fixture.packagePath);
+    const indexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
+
+    const previewed = runJson(rootDir, ["task", "closeout", fixture.taskId, "--from-file", packet, "--dry-run"], true, fixture.env);
+
+    assert.equal(previewed.ok, true);
+    assert.equal(previewed.command, "task-closeout");
+    assert.equal(previewed.taskId, fixture.taskId);
+    assert.equal(previewed.executionId, undefined);
+    assert.equal(previewed.status, undefined);
+    assert.equal(previewed.report.schema, "task-closeout-dry-run/v1");
+    assert.equal(previewed.report.dryRun, true);
+    assert.equal(previewed.report.preview.schema, "command-dry-run-preview/v1");
+    assert.deepEqual(previewed.report.steps, ["status-set", "task-review-execution", "task-code-doc-reconcile", "task-complete"]);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
+  });
+});
+
 test("closeout held by another worker recommends waiting or contacting the holder, never claim", () => {
   withTempRoot((leaseRoot) => {
     const fixture = prepareActiveTask(leaseRoot, "Lost Lease");

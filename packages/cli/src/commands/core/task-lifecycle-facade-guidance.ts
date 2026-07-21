@@ -1,6 +1,23 @@
 import type { CommandFailureReceipt, CommandReceipt } from "../../cli/receipt.ts";
 import type { ParsedCommand } from "../../cli/types.ts";
 
+export interface PlannedTaskClaimGuidance {
+  readonly severity: "warning";
+  readonly code: "task_still_planned";
+  readonly message: string;
+  readonly nextCommand: string;
+}
+
+export function plannedTaskClaimGuidance(taskId: string): PlannedTaskClaimGuidance {
+  const nextCommand = joinLifecycleCommand("ha", "task", "start", taskId);
+  return {
+    severity: "warning",
+    code: "task_still_planned",
+    message: `Task ${taskId} remains planned after claim; move it to active before writing facts or closing out.`,
+    nextCommand
+  };
+}
+
 export function guidedLifecycleFacadeFailure(
   failure: CommandFailureReceipt,
   completedSteps: ReadonlyArray<CommandReceipt>,

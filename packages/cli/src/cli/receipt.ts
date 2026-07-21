@@ -219,8 +219,12 @@ function setPath(paths: Record<string, string>, key: string, value: unknown): vo
 }
 
 function validateReceiptContract(receipt: LegacyCommandReceipt): string | undefined {
-  const contract: CommandReceiptContract | undefined = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
-  if (!contract) return `missing receipt contract for command ${receipt.command}`;
+  const declaredContract: CommandReceiptContract | undefined = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
+  if (!declaredContract) return `missing receipt contract for command ${receipt.command}`;
+  const report = receipt.data?.report;
+  const dryRun = report !== null && typeof report === "object" && !Array.isArray(report)
+    && (report as { readonly dryRun?: unknown }).dryRun === true;
+  const contract = dryRun && declaredContract.dryRun ? declaredContract.dryRun : declaredContract;
   const allowedData: ReadonlySet<string> = new Set([...contract.data, ...Object.keys(contract.optionalData ?? {})]);
   const allowedPaths: ReadonlySet<string> = new Set([...contract.paths, ...Object.keys(contract.optionalPaths ?? {})]);
   const dataKeys = Object.keys(receipt.data ?? {});

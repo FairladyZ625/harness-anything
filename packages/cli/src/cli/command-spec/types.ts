@@ -26,6 +26,7 @@ export interface CommandReceiptContract {
   readonly paths: ReadonlyArray<string>;
   readonly optionalData?: Readonly<Record<string, string>>;
   readonly optionalPaths?: Readonly<Record<string, string>>;
+  readonly dryRun?: Omit<CommandReceiptContract, "dryRun">;
 }
 
 export interface CommandEventPolicySpec {
