@@ -294,25 +294,18 @@ function withDaemonGenerationMutationLock<Result>(
 ): Result {
   const lockPath = `${daemonGenerationRecordPath(input.userRoot, input.endpointIdentity)}.lock`;
   const ownerToken = acquireDaemonGenerationMutationLock(lockPath);
-  let operationFailed = false;
-  let operationError: unknown;
   let result: Result | undefined;
   try {
     result = operation(() => assertDaemonGenerationMutationLockOwner(lockPath, ownerToken));
-  } catch (error) {
-    operationFailed = true;
-    operationError = error;
+  } catch (operationError) {
+    try {
+      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    } catch {
+      // The operation failure is authoritative; cleanup must never replace it.
+    }
+    throw operationError;
   }
-  let releaseFailed = false;
-  let releaseError: unknown;
-  try {
-    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-  } catch (error) {
-    releaseFailed = true;
-    releaseError = error;
-  }
-  if (operationFailed) throw operationError;
-  if (releaseFailed) throw releaseError;
+  releaseDaemonGenerationMutationLock(lockPath, ownerToken);
   return result as Result;
 }
 
@@ -329,26 +322,20 @@ async function withDaemonGenerationMutationLockAsync<Result>(
     heldLocks: new Map([...(parent?.active ? parent.heldLocks : []), [lockPath, ownerToken] as const]),
     active: true
   };
-  let operationFailed = false;
-  let operationError: unknown;
   let result: Result | undefined;
   try {
     result = await daemonGenerationLockContext.run(context, operation);
-  } catch (error) {
-    operationFailed = true;
-    operationError = error;
+  } catch (operationError) {
+    context.active = false;
+    try {
+      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    } catch {
+      // The operation failure is authoritative; cleanup must never replace it.
+    }
+    throw operationError;
   }
   context.active = false;
-  let releaseFailed = false;
-  let releaseError: unknown;
-  try {
-    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-  } catch (error) {
-    releaseFailed = true;
-    releaseError = error;
-  }
-  if (operationFailed) throw operationError;
-  if (releaseFailed) throw releaseError;
+  releaseDaemonGenerationMutationLock(lockPath, ownerToken);
   return result as Result;
 }
 

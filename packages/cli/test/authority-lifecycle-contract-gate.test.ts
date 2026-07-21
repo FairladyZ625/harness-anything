@@ -75,7 +75,7 @@ test("approved authority lifecycle seam keeps all 19 fixture and production-comp
   const lifecycle = read("packages/daemon/src/authority/authority-lifecycle.ts");
   assert.ok(
     lifecycle.indexOf("state = openDurableAuthorityServiceState")
-      < lifecycle.indexOf("input.resolveCompositionData(repo, state)"),
+      < lifecycle.indexOf("input.resolveCompositionData(repo, state"),
     "durable state must replay before production composition resolves"
   );
   assert.match(lifecycle, /makeHeldLockAttributedCoordinatorFactory\(runtime\)/u);

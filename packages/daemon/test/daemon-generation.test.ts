@@ -94,7 +94,7 @@ test("generation publication fails closed on corrupt or exhausted state", {
 
 test("generation witness observes its record and loses currency after replacement", {
   skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
-}, () => {
+}, async () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-witness-"));
   const endpointIdentity = "/tmp/witness.sock";
   try {
@@ -107,6 +107,13 @@ test("generation witness observes its record and loses currency after replacemen
       daemonGeneration: first.daemonGeneration
     });
     assert.doesNotThrow(() => witness.assertCurrent());
+    const lockPath = `${daemonGenerationRecordPath(userRoot, endpointIdentity)}.lock`;
+    const result = await witness.runExclusive(async () => {
+      assert.equal(existsSync(lockPath), true);
+      return "operation-complete";
+    });
+    assert.equal(result, "operation-complete");
+    assert.equal(existsSync(lockPath), false, "runExclusive resolved before releasing its lock");
     publishNextDaemonGeneration({ userRoot, endpointIdentity, machineId, daemonInstanceId: "daemon-b" });
     assert.throws(() => witness.assertCurrent(), /daemon generation witness lost.*observed .*\/2/u);
   } finally {
