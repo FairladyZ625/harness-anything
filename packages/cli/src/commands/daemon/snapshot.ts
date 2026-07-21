@@ -66,10 +66,10 @@ export function installDaemonSnapshot(input: DaemonSnapshotInstallInput): Instal
     throw new Error("--ref requires a Git source checkout; an installed npm CLI can snapshot only its current release.");
   }
   const sourceCommit = source.kind === "repository"
-    ? gitOutput(source.root, ["rev-parse", `${sourceRef}^{commit}`])
+    ? snapshotGitOutput(source.root, ["rev-parse", `${sourceRef}^{commit}`])
     : installedSourceCommit(source.distRoot);
   const sourceDirty = source.kind === "repository" && input.ref === undefined
-    ? gitOutput(source.root, ["status", "--porcelain"]).length > 0
+    ? snapshotGitOutput(source.root, ["status", "--porcelain"]).length > 0
     : false;
   const sourceFingerprint = sourceDirty
     ? calculateDaemonArtifactIdentity(input.sourceEntrypoint).identity
@@ -318,6 +318,6 @@ function validatedSnapshotVersion(value: string): string {
   return value;
 }
 
-function gitOutput(cwd: string, args: ReadonlyArray<string>): string {
+function snapshotGitOutput(cwd: string, args: ReadonlyArray<string>): string {
   return execFileSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true }).trim();
 }

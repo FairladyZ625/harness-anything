@@ -11,7 +11,7 @@ export function installSnapshotCommand(
 ): Record<string, unknown> {
   const subcommand = input.args[2] ?? "install";
   if (subcommand !== "install") throw new Error("Use ha daemon snapshot install [--ref <git-ref>] [--version <version>].");
-  return snapshotResult(installSnapshotForCommand(input, sourceEntrypoint));
+  return daemonSnapshotResult(installSnapshotForCommand(input, sourceEntrypoint));
 }
 
 export async function upgradeDaemonSnapshot(
@@ -24,7 +24,7 @@ export async function upgradeDaemonSnapshot(
     daemonEntryPath: sourceEntrypoint,
     replacementEntrypoint: snapshot.entrypoint
   }, "refresh");
-  return { snapshot: snapshotResult(snapshot), ...result };
+  return { snapshot: daemonSnapshotResult(snapshot), ...result };
 }
 
 function installSnapshotForCommand(
@@ -36,13 +36,13 @@ function installSnapshotForCommand(
   const version = readOption(input.args, "--version");
   return installer({
     sourceEntrypoint: (input.daemonSourceEntrypoint ?? sourceEntrypoint)(),
-    userRoot: path.resolve(readDaemonUserRootOption(input.args) ?? daemonUserRoot()),
+    userRoot: path.resolve(readSnapshotUserRootOption(input.args) ?? daemonUserRoot()),
     ...(ref ? { ref } : {}),
     ...(version ? { version } : {})
   });
 }
 
-function snapshotResult(snapshot: InstalledDaemonSnapshot): Record<string, unknown> {
+function daemonSnapshotResult(snapshot: InstalledDaemonSnapshot): Record<string, unknown> {
   return {
     installed: snapshot.installed,
     snapshotDir: snapshot.snapshotDir,
@@ -52,6 +52,6 @@ function snapshotResult(snapshot: InstalledDaemonSnapshot): Record<string, unkno
   };
 }
 
-function readDaemonUserRootOption(args: ReadonlyArray<string>): string | undefined {
+function readSnapshotUserRootOption(args: ReadonlyArray<string>): string | undefined {
   return readOption(args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT;
 }

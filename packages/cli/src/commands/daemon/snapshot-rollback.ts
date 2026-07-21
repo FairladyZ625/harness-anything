@@ -23,7 +23,7 @@ export async function rollbackDaemonReplacement(input: {
   );
   if (occupied) {
     throw new Error(
-      `${errorMessage(input.replacementFailure)}; previous snapshot rollback was not started because the endpoint is still owned`
+      `${rollbackErrorMessage(input.replacementFailure)}; previous snapshot rollback was not started because the endpoint is still owned`
     );
   }
   try {
@@ -46,11 +46,11 @@ export async function rollbackDaemonReplacement(input: {
     }
   } catch (rollbackError) {
     throw new Error(
-      `${errorMessage(input.replacementFailure)}; previous snapshot rollback failed: ${errorMessage(rollbackError)}. `
+      `${rollbackErrorMessage(input.replacementFailure)}; previous snapshot rollback failed: ${rollbackErrorMessage(rollbackError)}. `
       + `Restore the daemon with: ${daemonRecoveryCommand(input.launchConfiguration)}`
     );
   }
-  throw new Error(`${errorMessage(input.replacementFailure)}; previous snapshot restored and authority converged`);
+  throw new Error(`${rollbackErrorMessage(input.replacementFailure)}; previous snapshot restored and authority converged`);
 }
 
 export function daemonRecoveryCommand(configuration: DaemonLaunchConfiguration): string {
@@ -64,6 +64,6 @@ export function quoteDaemonRecoveryArgument(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function errorMessage(error: unknown): string {
+function rollbackErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

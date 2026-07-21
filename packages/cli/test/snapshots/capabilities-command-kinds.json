@@ -25,7 +25,8 @@
     "daemon-restart",
     "daemon-start",
     "daemon-status",
-    "daemon-stop"
+    "daemon-stop",
+    "daemon-upgrade"
   ],
   "decision": [
     "decision-amend",
