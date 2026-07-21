@@ -17,7 +17,7 @@ import {
   RiskTierBadge,
   UrgencyBadge,
 } from "../components/badges";
-import { coverageOf, sortDecisionQueue } from "../model/triadic";
+import { coverageOf } from "../model/triadic";
 import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
 import { DecisionProposeForm } from "./DecisionProposeForm";
 import { ClaimList } from "./decisions-verdict";
@@ -29,6 +29,7 @@ import {
   formatActorAxes,
   groupRows,
   relationSummary,
+  sortDecisionPoolRowsByRecency,
   tabForState,
   withinRange,
   type GroupBy,
@@ -222,7 +223,7 @@ export function DecisionPoolView({
   };
 
   const rows = useMemo(() => {
-    return sortDecisionQueue(decisions)
+    return sortDecisionPoolRowsByRecency(decisions)
       .filter((decision) => decision.state === tab)
       .filter((decision) => {
         if (riskFilter === "all") return true;
