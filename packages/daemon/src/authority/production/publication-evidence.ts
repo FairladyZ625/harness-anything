@@ -41,6 +41,8 @@ export interface GitCanonicalPublicationInspector extends CanonicalPublicationIn
   readonly scanFirstParentOperationAnchors: (input: {
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
+    readonly progressBatchSize?: number;
+    readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
   }) => Promise<FirstParentOperationAnchorScan>;
 }
 
@@ -52,6 +54,13 @@ export interface FirstParentOperationAnchor {
 
 export interface FirstParentOperationAnchorScan {
   readonly headCommit: string | null;
+  readonly scannedCommitCount: number;
+  readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
+}
+
+export interface FirstParentOperationAnchorScanProgress {
+  /** The newest commit in a fully inspected, oldest-to-newest scan batch. */
+  readonly commitSha: string;
   readonly scannedCommitCount: number;
   readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
 }
@@ -140,6 +149,8 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
   const scanFirstParentOperationAnchors = async (input: {
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
+    readonly progressBatchSize?: number;
+    readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
   }): Promise<FirstParentOperationAnchorScan> => {
     const headCommit = await currentHead();
     if (!headCommit) return { headCommit: null, scannedCommitCount: 0, anchors: [] };
@@ -173,16 +184,33 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         throw new AuthorityRecoveryWatermarkInvalidError(recoveryWatermark);
       }
     }
-    const anchors: FirstParentOperationAnchor[] = [];
-    for (const commitSha of commits) {
-      const parents = (await publicationGitTextAsync(rootDir, "rev-list", "--parents", "-n", "1", commitSha)).split(" ").slice(1);
-      if (parents.length !== 2) continue;
-      const sessionSubject = await publicationGitTextAsync(rootDir, "show", "-s", "--format=%s", parents[1]!);
-      const opIds = commitSubjectOpIds(sessionSubject);
-      if (!opIds.some((opId) => input.interestedOpIds.has(opId))) continue;
-      anchors.push({ commitSha, previousCommit: parents[0]!, opIds });
+    const progressBatchSize = input.progressBatchSize ?? 128;
+    if (!Number.isInteger(progressBatchSize) || progressBatchSize <= 0) {
+      throw new Error("AUTHORITY_RECOVERY_PROGRESS_BATCH_SIZE_INVALID");
     }
-    return { headCommit, scannedCommitCount: commits.length, anchors };
+    const anchors: FirstParentOperationAnchor[] = [];
+    let batchAnchors: FirstParentOperationAnchor[] = [];
+    let scannedCommitCount = 0;
+    // A watermark may advance only from the old boundary toward HEAD. Scanning
+    // oldest-to-newest makes every reported commit a complete prefix.
+    for (const commitSha of [...commits].reverse()) {
+      const parents = (await publicationGitTextAsync(rootDir, "rev-list", "--parents", "-n", "1", commitSha)).split(" ").slice(1);
+      if (parents.length === 2) {
+        const sessionSubject = await publicationGitTextAsync(rootDir, "show", "-s", "--format=%s", parents[1]!);
+        const opIds = commitSubjectOpIds(sessionSubject);
+        if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
+          const anchor = { commitSha, previousCommit: parents[0]!, opIds };
+          anchors.push(anchor);
+          batchAnchors.push(anchor);
+        }
+      }
+      scannedCommitCount += 1;
+      if (input.onProgress && (scannedCommitCount % progressBatchSize === 0 || scannedCommitCount === commits.length)) {
+        await input.onProgress({ commitSha, scannedCommitCount, anchors: batchAnchors });
+        batchAnchors = [];
+      }
+    }
+    return { headCommit, scannedCommitCount, anchors };
   };
   const inspectPublication = async (
     expectedPreviousHead: string | null,
