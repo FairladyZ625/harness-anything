@@ -43,6 +43,7 @@ export {
   spawnLocalDaemon,
   type DaemonLaunchConfiguration,
   type DaemonLaunchConfigurationInput,
+  type LocalDaemonAutostartPhase,
   type LocalDaemonAutostartOptions,
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget

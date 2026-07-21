@@ -21,6 +21,7 @@ import {
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget as resolveDaemonTarget,
   type JsonObject,
+  type LocalDaemonAutostartPhase,
   type LocalDaemonTarget
 } from "@harness-anything/daemon";
 import {
@@ -42,6 +43,7 @@ import { resolveManagedSectionPolicy } from "../commands/extensions/managed-sect
 const docSyncHostServices = { resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
+import { startCliTimingPhase, type CliTimingPhase } from "../cli/timing.ts";
 
 export {
   daemonIdForRoot,
@@ -175,10 +177,13 @@ export async function runCommandThroughDaemon(
   command: ParsedCommand,
   config?: DaemonClientConfig
 ): Promise<CommandReceipt | CommandFailureReceipt | undefined> {
+  const finishConfig = startCliTimingPhase("daemon_config");
   try {
     config ??= readDaemonClientConfig(process.env, command.rootDir, command.daemonModeOverride, command.daemonProfileOverride, command.layoutOverrides);
   } catch (error) {
     return daemonUnavailableReceipt(command, error);
+  } finally {
+    finishConfig();
   }
   if (config.mode !== "remote" && command.action.kind === "init" && !isInitializedHarness(command)) return undefined;
   if (config.mode !== "remote" && isDeclaredLocalMigrationCommand(command.action)) return undefined;
@@ -188,7 +193,7 @@ export async function runCommandThroughDaemon(
   }
   try {
     return config.mode === "remote" && config.remote
-      ? await runRemoteCommand(command, config.remote)
+      ? await runTimedRemoteCommand(command, config.remote)
       : await runLocalCommand(command, config);
   } catch (error) {
     if (command.action.kind === "materializer-run" && config.mode === "local" && !(error instanceof DaemonJsonRpcResponseError)) {
@@ -205,6 +210,7 @@ export async function runCommandThroughDaemon(
 }
 
 async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfig): Promise<CommandReceipt | CommandFailureReceipt> {
+  const finishTarget = startCliTimingPhase("daemon_target");
   command = commandForCanonicalHarness(command);
   const target = resolveLocalDaemonTarget({
     rootDir: command.rootDir,
@@ -214,55 +220,98 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
     autoRegisterSingleRepo: true,
     layoutOverrides: command.layoutOverrides
   });
-  if (isDocSyncSubmitCommand(command)) {
-    let request: ReturnType<typeof buildDocSyncSubmitRequest>;
-    try {
-      request = buildDocSyncSubmitRequest(
-        { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
-        target.repoId,
-        docSyncSubmitPaths(command),
-        commandExecutor(command),
-        docSyncHostServices
-      );
-    } catch (error) {
-      return docSyncSubmitPreviewRejected(error);
+  finishTarget();
+  const timing = daemonTimingObserver();
+  const autostart = daemonAutostartOptions(command, config, timing.observe);
+  try {
+    if (isDocSyncSubmitCommand(command)) {
+      let request: ReturnType<typeof buildDocSyncSubmitRequest>;
+      try {
+        request = buildDocSyncSubmitRequest(
+          { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
+          target.repoId,
+          docSyncSubmitPaths(command),
+          commandExecutor(command),
+          docSyncHostServices
+        );
+      } catch (error) {
+        return docSyncSubmitPreviewRejected(error);
+      }
+      const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.doc.sync.submit", request as unknown as JsonObject, 200, autostart);
+      if (isCommandReceipt(response)) return normalizeDocSyncSubmitReceipt(response);
+      throw new Error("repo.doc.sync.submit did not return command-receipt/v2");
     }
-    const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.doc.sync.submit", request as unknown as JsonObject, 200, {
-      entryPath: daemonClientCliEntrypointPath(),
-      idleExitMs: config.idleExitMs,
-      timeoutMs: config.autostartTimeoutMs,
-      layoutOverrides: command.layoutOverrides
-    });
-    if (isCommandReceipt(response)) return normalizeDocSyncSubmitReceipt(response);
-    throw new Error("repo.doc.sync.submit did not return command-receipt/v2");
-  }
-  if (isTaskHolderCommand(command)) {
-    const response = await requestLocalDaemonJsonRpcForTarget(target, taskHolderMethod(command), {
+    if (isTaskHolderCommand(command)) {
+      const response = await requestLocalDaemonJsonRpcForTarget(target, taskHolderMethod(command), {
+        repo: { repoId: target.repoId },
+        payload: taskHolderPayload(command)
+      }, 200, autostart);
+      if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
+      throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
+    }
+    const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.command.run", {
       repo: { repoId: target.repoId },
-      payload: taskHolderPayload(command)
-    }, 200, {
-      entryPath: daemonClientCliEntrypointPath(),
-      idleExitMs: config.idleExitMs,
-      timeoutMs: config.autostartTimeoutMs,
-      layoutOverrides: command.layoutOverrides
-    });
-    if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
-    throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
+      payload: commandRunPayload(
+        commandForTarget(command, target),
+        Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
+      )
+    }, 200, command.action.kind === "materializer-run" ? undefined : autostart);
+    if (isCommandReceipt(response)) return response as unknown as CommandReceipt | CommandFailureReceipt;
+    throw new Error("daemon command.run did not return command-receipt/v2");
+  } finally {
+    timing.finish();
   }
-  const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.command.run", {
-    repo: { repoId: target.repoId },
-    payload: commandRunPayload(
-      commandForTarget(command, target),
-      Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
-    )
-  }, 200, command.action.kind === "materializer-run" ? undefined : {
+}
+
+function daemonAutostartOptions(
+  command: ParsedCommand,
+  config: DaemonClientConfig,
+  onPhase: (phase: LocalDaemonAutostartPhase) => void
+) {
+  return {
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
     timeoutMs: config.autostartTimeoutMs,
-    layoutOverrides: command.layoutOverrides
-  });
-  if (isCommandReceipt(response)) return response as unknown as CommandReceipt | CommandFailureReceipt;
-  throw new Error("daemon command.run did not return command-receipt/v2");
+    layoutOverrides: command.layoutOverrides,
+    onPhase
+  };
+}
+
+function daemonTimingObserver(): {
+  readonly observe: (event: LocalDaemonAutostartPhase) => void;
+  readonly finish: () => void;
+} {
+  let finishPhase: (() => void) | undefined;
+  let launchReported = false;
+  const transition = (phase?: CliTimingPhase) => {
+    finishPhase?.();
+    finishPhase = phase ? startCliTimingPhase(phase) : undefined;
+  };
+  return {
+    observe: (event) => {
+      if (event === "connect-start") transition("daemon_connect");
+      if (event === "launch-start") {
+        transition("daemon_launch_authority_ready");
+        if (!launchReported && process.env.HA_PROGRESS !== "0") {
+          launchReported = true;
+          console.error("[ha] Starting local daemon; waiting for authority readiness.");
+        }
+      }
+      if (event === "ready") transition();
+      if (event === "request-start") transition("command_execute");
+      if (event === "request-end") transition();
+    },
+    finish: () => transition()
+  };
+}
+
+async function runTimedRemoteCommand(command: ParsedCommand, remote: RemoteDaemonConfig): Promise<CommandReceipt | CommandFailureReceipt> {
+  const finish = startCliTimingPhase("command_execute");
+  try {
+    return await runRemoteCommand(command, remote);
+  } finally {
+    finish();
+  }
 }
 
 async function runRemoteCommand(command: ParsedCommand, remote: RemoteDaemonConfig): Promise<CommandReceipt | CommandFailureReceipt> {

@@ -1,18 +1,21 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const registryPath = "packages/cli/src/cli/command-registry.ts";
 const commandSpecDirPath = "packages/cli/src/cli/command-spec";
 const receiptPath = "packages/cli/src/cli/receipt.ts";
-const entrypointPath = "packages/cli/src/index.ts";
+const entrypointPaths = ["packages/cli/src/index.ts", "packages/cli/src/main.ts"];
 const defaultMinimumCommands = 20;
 
 export function findCliHelpContractViolations(rootDir = process.cwd(), options = {}) {
   const minimumCommands = options.minimumCommands ?? defaultMinimumCommands;
   const registrySource = readFileSync(path.join(rootDir, registryPath), "utf8");
   const receiptSource = readFileSync(path.join(rootDir, receiptPath), "utf8");
-  const entrypointSource = readFileSync(path.join(rootDir, entrypointPath), "utf8");
+  const entrypointSource = entrypointPaths
+    .filter((entrypointPath) => existsSync(path.join(rootDir, entrypointPath)))
+    .map((entrypointPath) => readFileSync(path.join(rootDir, entrypointPath), "utf8"))
+    .join("\n");
   const specSources = readdirSync(path.join(rootDir, commandSpecDirPath))
     .filter((name) => name.startsWith("command-spec-") && name.endsWith(".ts"))
     .sort()
