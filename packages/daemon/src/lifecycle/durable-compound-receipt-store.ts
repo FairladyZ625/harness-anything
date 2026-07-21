@@ -1,5 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import path from "node:path";
 import {
   compoundTerminalJournalSchema,
@@ -12,6 +23,16 @@ import {
 
 const durableStateSchema = "compound-receipt-broker-state/v2" as const;
 const durableStateFile = "compound-receipt-broker-state-v2.json";
+const durableTerminalStatePrefix = "compound-receipt-terminal-state-v2";
+
+class CompoundTerminalSequenceConflictError extends Error {
+  readonly code = "COMPOUND_TERMINAL_SEQUENCE_CONFLICT";
+
+  constructor(terminalLSN: number) {
+    super(`compound terminal sequence ${terminalLSN} was already published`);
+    this.name = "CompoundTerminalSequenceConflictError";
+  }
+}
 
 interface DurableCompoundReceiptStateV2 {
   readonly schema: typeof durableStateSchema;
@@ -103,13 +124,12 @@ export function createDurableCompoundReceiptStoreV2(
           terminalLSN,
           receiptSequence: receipt.sequence
         };
-        await options.generationFence?.assertCurrent(draft);
-        writeState(options.directory, statePath, {
+        await publishTerminalState(options.directory, terminalLSN, {
           ...state,
           nextTerminalLSN: terminalLSN + 1,
           receipts: { ...state.receipts, [key]: receipt },
           terminalJournal: [...state.terminalJournal, entry]
-        });
+        }, options.generationFence ? () => options.generationFence!.assertCurrent(draft) : undefined);
         return receipt;
       }))
   };
@@ -131,15 +151,50 @@ export function createDurableCompoundReceiptStoreV2(
 }
 
 function readState(statePath: string): DurableCompoundReceiptStateV2 {
-  if (!existsSync(statePath)) return {
+  let state = existsSync(statePath) ? readStateFile(statePath) : {
     schema: durableStateSchema,
     nextTerminalLSN: 1,
     receipts: {},
     terminalJournal: []
   };
+  while (true) {
+    const terminalStatePath = durableTerminalStatePath(path.dirname(statePath), state.nextTerminalLSN);
+    if (!existsSync(terminalStatePath)) return state;
+    const successor = readStateFile(terminalStatePath);
+    assertTerminalStateSuccessor(state, successor, state.nextTerminalLSN);
+    state = successor;
+  }
+}
+
+function readStateFile(statePath: string): DurableCompoundReceiptStateV2 {
   const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
   if (!isState(parsed)) throw new Error(`invalid durable compound receipt state: ${statePath}`);
   return parsed;
+}
+
+function assertTerminalStateSuccessor(
+  current: DurableCompoundReceiptStateV2,
+  successor: DurableCompoundReceiptStateV2,
+  terminalLSN: number
+): void {
+  const entry = successor.terminalJournal.at(-1);
+  if (successor.nextTerminalLSN !== terminalLSN + 1
+    || successor.terminalJournal.length !== current.terminalJournal.length + 1
+    || entry?.terminalLSN !== terminalLSN
+    || JSON.stringify(successor.terminalJournal.slice(0, -1)) !== JSON.stringify(current.terminalJournal)) {
+    throw new Error(`invalid durable compound terminal successor: ${terminalLSN}`);
+  }
+  const key = receiptIdentityKeyV2(entry);
+  const priorReceipt = current.receipts[key];
+  const terminalReceipt = successor.receipts[key];
+  if (!priorReceipt || !terminalReceipt
+    || terminalReceipt.sequence !== priorReceipt.sequence + 1
+    || terminalReceipt.terminalLSN !== terminalLSN
+    || Object.keys(successor.receipts).length !== Object.keys(current.receipts).length
+    || Object.entries(current.receipts).some(([receiptKey, receipt]) => receiptKey !== key
+      && JSON.stringify(successor.receipts[receiptKey]) !== JSON.stringify(receipt))) {
+    throw new Error(`invalid durable compound terminal receipt successor: ${terminalLSN}`);
+  }
 }
 
 function isState(value: unknown): value is DurableCompoundReceiptStateV2 {
@@ -175,6 +230,39 @@ function isState(value: unknown): value is DurableCompoundReceiptStateV2 {
 
 function writeState(directory: string, target: string, state: DurableCompoundReceiptStateV2): void {
   if (!isState(state)) throw new Error("refusing to persist invalid compound receipt state");
+  const temporary = writeStateTemporary(directory, target, state);
+  renameSync(temporary, target);
+  fsyncReceiptStateDirectoryV2(directory);
+}
+
+async function publishTerminalState(
+  directory: string,
+  terminalLSN: number,
+  state: DurableCompoundReceiptStateV2,
+  assertCurrent?: () => Promise<void>
+): Promise<void> {
+  if (!isState(state)) throw new Error("refusing to persist invalid compound terminal state");
+  const target = durableTerminalStatePath(directory, terminalLSN);
+  const temporary = writeStateTemporary(directory, target, state);
+  try {
+    await assertCurrent?.();
+    try {
+      linkSync(temporary, target);
+    } catch (error) {
+      if (!existsSync(target)) throw error;
+      throw new CompoundTerminalSequenceConflictError(terminalLSN);
+    }
+    fsyncReceiptStateDirectoryV2(directory);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+function writeStateTemporary(
+  directory: string,
+  target: string,
+  state: DurableCompoundReceiptStateV2
+): string {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporary = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   let descriptor: number | undefined;
@@ -184,11 +272,14 @@ function writeState(directory: string, target: string, state: DurableCompoundRec
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = undefined;
-    renameSync(temporary, target);
-    fsyncReceiptStateDirectoryV2(directory);
+    return temporary;
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
+}
+
+function durableTerminalStatePath(directory: string, terminalLSN: number): string {
+  return path.join(directory, `${durableTerminalStatePrefix}.${terminalLSN}.json`);
 }
 
 function receiptIdentityKeyV2(identity: ReceiptIdentityV2): string {

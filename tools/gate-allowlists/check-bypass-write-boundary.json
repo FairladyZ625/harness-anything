@@ -1149,6 +1149,11 @@
         "reason": "Daemon-owned durable compound-receipt store atomically persists lifecycle receipts; this is the receipt persistence implementation, not a bypass caller."
       },
       {
+        "value": "packages/daemon/src/lifecycle/durable-compound-receipt-store.ts#rmSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 terminal receipt fencing removes only the unpublished temporary hard-link source after atomic terminalLSN publication."
+      },
+      {
         "value": "packages/daemon/src/platform/semantic-probe.ts#mkdir@1",
         "ref": "task_01KXW7ZNZ2218R9SWYPGVMAFN3",
         "reason": "Daemon platform qualification writes isolated temporary probe state and removes it after capability measurement."
