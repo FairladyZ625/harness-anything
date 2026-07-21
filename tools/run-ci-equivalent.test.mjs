@@ -78,20 +78,20 @@ test("skipped jobs are visible in the final summary and JSON receipt", () => {
 
 test("explicit shard parallelism narrows fan-out but can never spend the interactive core reservation", () => {
   assert.deepEqual(resolveShardParallelism({
-    raw: "2", shardCount: 6, localSlots: 6, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
+    raw: "2", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
   }), {
     parallelism: 2,
     source: "explicit",
     requested: 2,
     usableCores: 12,
     reservedCores: 4,
-    coreCap: 6,
-    localSlots: 6,
+    coreCap: 3,
+    localSlots: 3,
     perShardConcurrency: 2
   });
   assert.equal(resolveShardParallelism({
-    raw: "99", shardCount: 6, localSlots: 6, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
-  }).parallelism, 6);
+    raw: "99", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
+  }).parallelism, 3);
   assert.throws(() => resolveShardParallelism({
     raw: "many", shardCount: 2, localSlots: 3, perShardConcurrency: 2, cpuCount: 8, reservationRaw: ""
   }), /HARNESS_SHARD_PARALLELISM must be a positive integer/u);
@@ -99,11 +99,11 @@ test("explicit shard parallelism narrows fan-out but can never spend the interac
 
 test("default shard parallelism spends the whole core budget and shrinks as the reservation grows", () => {
   assert.equal(resolveShardParallelism({
-    raw: "", shardCount: 6, localSlots: 6, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
-  }).parallelism, 6);
+    raw: "", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
+  }).parallelism, 3);
   assert.equal(resolveShardParallelism({
-    raw: "", shardCount: 6, localSlots: 6, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "12"
-  }).parallelism, 2);
+    raw: "", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "12"
+  }).parallelism, 1);
   assert.equal(resolveShardParallelism({
     raw: "", shardCount: 6, localSlots: 2, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "0"
   }).parallelism, 2, "an explicit slot budget still bounds fan-out");
@@ -111,10 +111,10 @@ test("default shard parallelism spends the whole core budget and shrinks as the 
 
 test("machine load never shrinks the declared core budget", () => {
   const busy = resolveShardParallelism({
-    raw: "", shardCount: 6, localSlots: 6, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
+    raw: "", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: "4"
   });
   assert.equal(busy.source, "core-budget");
-  assert.equal(busy.parallelism, 6, "self-inflicted load must not self-throttle the runner");
+  assert.equal(busy.parallelism, 3, "self-inflicted load must not self-throttle the runner");
 });
 
 test("parallelism two overlaps two shard child processes and preserves a failing exit code", async (context) => {
@@ -122,7 +122,7 @@ test("parallelism two overlaps two shard child processes and preserves a failing
   context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
   const plan = [["integration-shard", 1], ["integration-shard", 2]];
   const resolution = resolveShardParallelism({
-    raw: "2", shardCount: 2, localSlots: 3, perShardConcurrency: 2, cpuCount: 8, reservationRaw: ""
+    raw: "2", shardCount: 2, localSlots: 3, perShardConcurrency: 2, cpuCount: 16, reservationRaw: ""
   });
   const receipts = await runCiPlan(
     plan,

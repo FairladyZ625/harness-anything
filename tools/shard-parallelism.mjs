@@ -1,12 +1,17 @@
 import { availableParallelism } from "node:os";
 
-import { resolveLocalCoreBudget } from "./local-resource-governance.mjs";
+import {
+  DEFAULT_CORES_PER_TEST_PROCESS,
+  resolveLocalCoreBudget
+} from "./local-resource-governance.mjs";
 
 export const SHARD_PARALLELISM_ENV = "HARNESS_SHARD_PARALLELISM";
 
-// 并行度按「可用核心预算 ÷ 每 shard 并发」算，不看 loadavg。loadavg 分不清负载是用户的
-// 还是我们自己的，一旦把自己的负载算进去就会自我节流(实测 requested 5 掉到 3)；
-// 真正的动态让路交给 QoS(taskpolicy -c utility)，静态预算只负责封顶要多少。
+// 并行度 = 可用核心预算 ÷ (每 shard 并发 × 每个测试文件实测占用的核心数)，不看 loadavg。
+// loadavg 分不清负载是用户的还是我们自己的，一旦把自己的负载算进去就会自我节流
+// (实测 requested 5 掉到 3)；动态让路交给 QoS(taskpolicy -c utility)，静态预算只封顶。
+// 系数来自实测而非估算，理由见 DEFAULT_CORES_PER_TEST_PROCESS：把 fan-out 从 3 拉到 6
+// 只买到 1% 墙钟却多花 70% 机器时间，说明超过预算继续加并行是纯负和。
 export function resolveShardParallelism({
   raw = process.env[SHARD_PARALLELISM_ENV],
   shardCount,
@@ -24,7 +29,8 @@ export function resolveShardParallelism({
     cpuCount,
     ...(reservationRaw === undefined ? {} : { raw: reservationRaw })
   });
-  const coreCap = Math.max(1, Math.floor(budget.usableCores / perShardConcurrency));
+  const coresPerShard = perShardConcurrency * DEFAULT_CORES_PER_TEST_PROCESS;
+  const coreCap = Math.max(1, Math.floor(budget.usableCores / coresPerShard));
   const explicit = parseExplicitParallelism(raw);
   const requested = explicit ?? coreCap;
   const parallelism = Math.min(requested, shardCount, localSlots, coreCap);

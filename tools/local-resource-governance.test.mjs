@@ -38,8 +38,8 @@ test("the interactive core reservation is the first-class knob and the rest of t
 
 test("local slot capacity derives from the core budget and rejects invalid overrides", () => {
   assert.equal(LOCAL_SLOT_ROOT, path.join(homedir(), ".harness", "locks", "local-heavy-v1"));
-  assert.equal(resolveLocalSlotCount("", { cpuCount: 16, reservationRaw: "4" }), 6);
-  assert.equal(resolveLocalSlotCount("", { cpuCount: 8, reservationRaw: "4" }), 2);
+  assert.equal(resolveLocalSlotCount("", { cpuCount: 16, reservationRaw: "4" }), 3);
+  assert.equal(resolveLocalSlotCount("", { cpuCount: 8, reservationRaw: "4" }), 1);
   assert.equal(resolveLocalSlotCount("2", { cpuCount: 16 }), 2);
   assert.throws(() => resolveLocalSlotCount("0"), /positive integer/u);
   assert.throws(() => resolveLocalSlotCount("many"), /positive integer/u);
