@@ -29,10 +29,35 @@ export type DaemonGenerationServePreparation = {
   readonly mode: "generation";
   readonly machineId: string;
   readonly daemonGeneration: number;
+  readonly witness: DaemonGenerationWitness;
 } | {
   readonly mode: "legacy";
   readonly diagnostic: typeof daemonGenerationDurabilityUnsupportedCode;
 };
+
+export interface DaemonGenerationWitness {
+  readonly machineId: string;
+  readonly daemonGeneration: number;
+  readonly assertCurrent: () => void;
+}
+
+export class DaemonGenerationWitnessLostError extends Error {
+  readonly expected: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration">;
+  readonly observed: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration"> | undefined;
+
+  constructor(
+    expected: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration">,
+    observed: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration"> | undefined
+  ) {
+    super(
+      `daemon generation witness lost: expected ${expected.machineId}/${expected.daemonGeneration}, `
+      + `observed ${observed ? `${observed.machineId}/${observed.daemonGeneration}` : "missing"}`
+    );
+    this.name = "DaemonGenerationWitnessLostError";
+    this.expected = expected;
+    this.observed = observed;
+  }
+}
 
 export function daemonMachineIdPath(installationRoot: string): string {
   return path.join(path.resolve(installationRoot), "machine-id");
@@ -65,7 +90,43 @@ export function prepareDaemonGenerationForServe(input: {
   return {
     mode: "generation",
     machineId,
-    daemonGeneration: generationRecord.daemonGeneration
+    daemonGeneration: generationRecord.daemonGeneration,
+    witness: createDaemonGenerationWitness({
+      userRoot: input.userRoot,
+      endpointIdentity: input.endpointIdentity,
+      machineId,
+      daemonGeneration: generationRecord.daemonGeneration,
+      platform
+    })
+  };
+}
+
+/** A narrow durable-current witness. S1.3 composes it with the repo authority fence. */
+export function createDaemonGenerationWitness(input: {
+  readonly userRoot: string;
+  readonly endpointIdentity: string;
+  readonly machineId: string;
+  readonly daemonGeneration: number;
+  readonly platform?: NodeJS.Platform;
+}): DaemonGenerationWitness {
+  assertDurableGenerationPlatform(input.platform ?? process.platform);
+  const source = daemonGenerationRecordPath(input.userRoot, input.endpointIdentity);
+  const expected = { machineId: input.machineId, daemonGeneration: input.daemonGeneration };
+  return {
+    ...expected,
+    assertCurrent: () => {
+      let observed: DaemonGenerationRecordV1 | undefined;
+      try {
+        observed = readDaemonGenerationRecord(source);
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+      }
+      if (observed?.machineId !== expected.machineId
+        || observed.daemonGeneration !== expected.daemonGeneration
+        || observed.endpointIdentity !== input.endpointIdentity) {
+        throw new DaemonGenerationWitnessLostError(expected, observed);
+      }
+    }
   };
 }
 
@@ -195,6 +256,10 @@ function assertDurableGenerationPlatform(platform: NodeJS.Platform): void {
 
 function isAlreadyExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
+function isMissingFile(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {

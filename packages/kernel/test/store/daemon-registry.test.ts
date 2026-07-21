@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   daemonRegistryPaths,
   daemonRegistrySchema,
+  publishDaemonRegistryRuntimeProjection,
   readDaemonRegistry,
   registerDaemonRepo,
   resolveDaemonRepoByRoot,
@@ -47,6 +48,26 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).registryPath), true);
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).reposRoot), false);
     assert.equal(resolveDaemonRepoByRoot(aliasRoot, { userRoot })?.repoId, "brain");
+  });
+});
+
+test("legacy registry re-registration preserves the producer bytes", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    const input = {
+      userRoot,
+      canonicalRoot,
+      repoId: "canonical",
+      displayName: "Project",
+      createConvenienceLinks: false,
+      now: () => new Date("2026-07-21T00:00:00.000Z")
+    } as const;
+    registerDaemonRepo(input);
+    const before = readFileSync(daemonRegistryPaths({ userRoot }).registryPath);
+    registerDaemonRepo(input);
+    const after = readFileSync(daemonRegistryPaths({ userRoot }).registryPath);
+    assert.equal(after.equals(before), true, "legacy registry producer bytes drifted");
   });
 });
 
@@ -122,6 +143,44 @@ test("daemon registry unregister disables a repo without deleting registry histo
     assert.equal(result.changed, true);
     assert.equal(result.repo.state, "disabled");
     assert.deepEqual(readDaemonRegistry({ userRoot }).repos.map((repo) => [repo.repoId, repo.state]), [["canonical", "disabled"]]);
+  });
+});
+
+test("daemon registry replaces the operational runtime registration snapshot", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const firstRoot = createHarnessRepo(path.join(root, "first"));
+    const secondRoot = createHarnessRepo(path.join(root, "second"));
+    registerDaemonRepo({ userRoot, canonicalRoot: firstRoot, repoId: "first", createConvenienceLinks: false });
+    registerDaemonRepo({ userRoot, canonicalRoot: secondRoot, repoId: "second", createConvenienceLinks: false });
+
+    publishDaemonRegistryRuntimeProjection({
+      userRoot,
+      machineId: "machine-installation-a",
+      daemonGeneration: 4,
+      registrations: [
+        { repoId: "first", runtimeRegistrationId: "registration-first", daemonGeneration: 4 },
+        { repoId: "second", runtimeRegistrationId: "registration-second", daemonGeneration: 4 }
+      ]
+    });
+    publishDaemonRegistryRuntimeProjection({
+      userRoot,
+      machineId: "machine-installation-a",
+      daemonGeneration: 5,
+      registrations: [{ repoId: "first", runtimeRegistrationId: "registration-replacement", daemonGeneration: 5 }]
+    });
+
+    const registry = readDaemonRegistry({ userRoot });
+    assert.equal(registry.machineId, "machine-installation-a");
+    assert.equal(registry.daemonGeneration, 5);
+    assert.deepEqual(registry.repos.map((repo) => ({
+      repoId: repo.repoId,
+      runtimeRegistrationId: repo.runtimeRegistrationId,
+      daemonGeneration: repo.daemonGeneration
+    })), [
+      { repoId: "first", runtimeRegistrationId: "registration-replacement", daemonGeneration: 5 },
+      { repoId: "second", runtimeRegistrationId: undefined, daemonGeneration: undefined }
+    ]);
   });
 });
 

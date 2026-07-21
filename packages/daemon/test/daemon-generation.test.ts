@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   daemonGenerationRecordPath,
   daemonMachineIdPath,
+  createDaemonGenerationWitness,
   prepareDaemonGenerationForServe,
   publishNextDaemonGeneration,
   readOrCreateDaemonMachineId
@@ -86,6 +87,44 @@ test("generation publication fails closed on corrupt or exhausted state", {
       publishedAt: "2026-07-21T00:00:00.000Z"
     })}\n`, "utf8");
     assert.throws(() => publishNextDaemonGeneration({ userRoot, endpointIdentity, machineId, daemonInstanceId: "daemon" }), /space exhausted/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("generation witness observes its record and loses currency after replacement", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-witness-"));
+  const endpointIdentity = "/tmp/witness.sock";
+  try {
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    const first = publishNextDaemonGeneration({ userRoot, endpointIdentity, machineId, daemonInstanceId: "daemon-a" });
+    const witness = createDaemonGenerationWitness({
+      userRoot,
+      endpointIdentity,
+      machineId,
+      daemonGeneration: first.daemonGeneration
+    });
+    assert.doesNotThrow(() => witness.assertCurrent());
+    publishNextDaemonGeneration({ userRoot, endpointIdentity, machineId, daemonInstanceId: "daemon-b" });
+    assert.throws(() => witness.assertCurrent(), /daemon generation witness lost.*observed .*\/2/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit Windows generation witness creation fails closed without publishing", () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-witness-win32-"));
+  try {
+    assert.throws(() => createDaemonGenerationWitness({
+      userRoot,
+      endpointIdentity: "pipe:witness",
+      machineId: "machine-a",
+      daemonGeneration: 1,
+      platform: "win32"
+    }), /DAEMON_GENERATION_DURABILITY_UNSUPPORTED/u);
+    assert.equal(existsSync(daemonGenerationRecordPath(userRoot, "pipe:witness")), false);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

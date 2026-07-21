@@ -197,6 +197,7 @@ const publicRuntimeSurface = [
   "priorityTiers",
   "privateTextScannerVersion",
   "projectDaemonRepoRegistration",
+  "publishDaemonRegistryRuntimeProjection",
   "queryConsentsBySourceStrength",
   "queryDecisionProjection",
   "queryExecutionEvidencePage",

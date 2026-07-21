@@ -116,6 +116,12 @@ export async function runDaemonServe<
       runtime = createMultiRepoDaemonRuntime({
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         materializerPollMs: 5_000,
+        ...(generation.mode === "generation" ? {
+          generationAxes: {
+            machineId: generation.machineId,
+            daemonGeneration: generation.daemonGeneration
+          }
+        } : {}),
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;
           const repoId = serveRepos.find((repo) => repo.canonicalRoot === canonicalRoot)?.repoId;

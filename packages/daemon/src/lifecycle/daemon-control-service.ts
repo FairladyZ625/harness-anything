@@ -33,6 +33,21 @@ export function createDaemonControlService<
     requestControl: async (kind, request) => {
       const activeControl = input.activeControl();
       if (activeControl) return { ok: false, error: daemonControlInProgressError(activeControl) };
+      if (request.daemonGeneration !== undefined
+        && (input.launchConfiguration.machineId === undefined
+          || input.launchConfiguration.daemonGeneration === undefined
+          || request.daemonGeneration !== input.launchConfiguration.daemonGeneration)) {
+        return {
+          ok: false,
+          error: {
+            code: "daemon_control_generation_mismatch",
+            hint: input.launchConfiguration.daemonGeneration === undefined
+              ? "Generation-aware daemon control requires durable generation publication, but this daemon is running in legacy mode. Omit payload.daemonGeneration to use legacy control, or retry on a supported POSIX host."
+              : `Requested daemon generation ${request.daemonGeneration} is invalid because it does not match current generation ${input.launchConfiguration.daemonGeneration}. Retry the control request with payload.daemonGeneration=${input.launchConfiguration.daemonGeneration}.`,
+            operationId: null
+          }
+        };
+      }
       if (kind === "refresh") {
         try {
           await input.preflightReplacement(input.launchConfiguration);

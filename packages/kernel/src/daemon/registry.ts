@@ -26,11 +26,21 @@ export interface DaemonRegistryRepo {
   readonly state: DaemonRepoState;
   readonly registeredAt: string;
   readonly authorityManifestPath?: string;
+  readonly runtimeRegistrationId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface DaemonRegistry {
   readonly schema: typeof daemonRegistrySchema;
   readonly repos: ReadonlyArray<DaemonRegistryRepo>;
+  readonly machineId?: string;
+  readonly daemonGeneration?: number;
+}
+
+export interface DaemonRegistryRuntimeProjection {
+  readonly repoId: string;
+  readonly runtimeRegistrationId: string;
+  readonly daemonGeneration: number;
 }
 
 export interface DaemonRegistryPaths {
@@ -90,6 +100,44 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRe
   if (projected.changed) writeDaemonRegistry(projected.registry, input);
   const warnings = syncConvenienceLink(projected.repo, input);
   return { ...projected, registryPath: paths.registryPath, warnings };
+}
+
+/** Replace the current operational registration snapshot; the generation record remains authoritative. */
+export function publishDaemonRegistryRuntimeProjection(input: {
+  readonly userRoot: string;
+  readonly machineId: string;
+  readonly daemonGeneration: number;
+  readonly registrations: ReadonlyArray<DaemonRegistryRuntimeProjection>;
+}): DaemonRegistry {
+  if (input.machineId.length === 0 || !Number.isSafeInteger(input.daemonGeneration) || input.daemonGeneration < 1) {
+    throw new Error("invalid daemon registry runtime projection generation axes");
+  }
+  const seenRepoIds = new Set<string>();
+  for (const registration of input.registrations) {
+    if (registration.repoId.length === 0 || registration.runtimeRegistrationId.length === 0
+      || registration.daemonGeneration !== input.daemonGeneration || seenRepoIds.has(registration.repoId)) {
+      throw new Error("invalid daemon registry runtime registration projection");
+    }
+    seenRepoIds.add(registration.repoId);
+  }
+  const current = readDaemonRegistry(input);
+  const registrations = new Map(input.registrations.map((entry) => [entry.repoId, entry]));
+  const next = sortDaemonRegistry({
+    schema: daemonRegistrySchema,
+    machineId: input.machineId,
+    daemonGeneration: input.daemonGeneration,
+    repos: current.repos.map((repo) => {
+      const registration = repo.state === "enabled" ? registrations.get(repo.repoId) : undefined;
+      const { runtimeRegistrationId: _runtimeRegistrationId, daemonGeneration: _daemonGeneration, ...stable } = repo;
+      return registration ? {
+        ...stable,
+        runtimeRegistrationId: registration.runtimeRegistrationId,
+        daemonGeneration: registration.daemonGeneration
+      } : stable;
+    })
+  });
+  if (JSON.stringify(current) !== JSON.stringify(next)) writeDaemonRegistry(next, input);
+  return next;
 }
 
 export function projectDaemonRepoRegistration(
@@ -161,9 +209,23 @@ function decodeDaemonRegistry(value: unknown, source: string): DaemonRegistry {
   if (!isDaemonRegistryRecord(value) || value.schema !== daemonRegistrySchema || !Array.isArray(value.repos)) {
     throw new Error(`invalid daemon registry at ${source}`);
   }
+  const machineId = value.machineId === undefined
+    ? undefined
+    : typeof value.machineId === "string" && value.machineId.length > 0 ? value.machineId : null;
+  const daemonGeneration = value.daemonGeneration === undefined
+    ? undefined
+    : typeof value.daemonGeneration === "number" && Number.isSafeInteger(value.daemonGeneration) && value.daemonGeneration > 0
+      ? value.daemonGeneration
+      : null;
+  if (machineId === null || daemonGeneration === null
+    || (machineId === undefined) !== (daemonGeneration === undefined)) {
+    throw new Error(`invalid daemon registry at ${source}`);
+  }
   return sortDaemonRegistry({
     schema: daemonRegistrySchema,
-    repos: value.repos.map((entry) => decodeDaemonRegistryRepo(entry, source))
+    repos: value.repos.map((entry) => decodeDaemonRegistryRepo(entry, source)),
+    ...(machineId ? { machineId } : {}),
+    ...(daemonGeneration ? { daemonGeneration } : {})
   });
 }
 
@@ -179,10 +241,31 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
     : typeof value.authorityManifestPath === "string" && path.isAbsolute(value.authorityManifestPath)
       ? value.authorityManifestPath
       : null;
-  if (!repoId || !canonicalRoot || !displayName || !state || !registeredAt || authorityManifestPath === null) {
+  const runtimeRegistrationId = value.runtimeRegistrationId === undefined
+    ? undefined
+    : typeof value.runtimeRegistrationId === "string" && value.runtimeRegistrationId.length > 0
+      ? value.runtimeRegistrationId
+      : null;
+  const daemonGeneration = value.daemonGeneration === undefined
+    ? undefined
+    : typeof value.daemonGeneration === "number" && Number.isSafeInteger(value.daemonGeneration) && value.daemonGeneration > 0
+      ? value.daemonGeneration
+      : null;
+  if (!repoId || !canonicalRoot || !displayName || !state || !registeredAt || authorityManifestPath === null
+    || runtimeRegistrationId === null || daemonGeneration === null
+    || (runtimeRegistrationId === undefined) !== (daemonGeneration === undefined)) {
     throw new Error(`invalid daemon registry repo entry at ${source}`);
   }
-  return { repoId, canonicalRoot, displayName, state, registeredAt, ...(authorityManifestPath ? { authorityManifestPath } : {}) };
+  return {
+    repoId,
+    canonicalRoot,
+    displayName,
+    state,
+    registeredAt,
+    ...(authorityManifestPath ? { authorityManifestPath } : {}),
+    ...(runtimeRegistrationId ? { runtimeRegistrationId } : {}),
+    ...(daemonGeneration ? { daemonGeneration } : {})
+  };
 }
 
 function canonicalAuthorityManifestPath(manifestPath: string): string {
@@ -236,6 +319,8 @@ function safeRepoId(value: string): string {
 function sortDaemonRegistry(registry: DaemonRegistry): DaemonRegistry {
   return {
     schema: daemonRegistrySchema,
+    ...(registry.machineId !== undefined ? { machineId: registry.machineId } : {}),
+    ...(registry.daemonGeneration !== undefined ? { daemonGeneration: registry.daemonGeneration } : {}),
     repos: [...registry.repos].sort((left, right) =>
       left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot))
   };
@@ -289,7 +374,9 @@ function daemonRepoEquals(left: DaemonRegistryRepo, right: DaemonRegistryRepo): 
     && left.displayName === right.displayName
     && left.state === right.state
     && left.registeredAt === right.registeredAt
-    && left.authorityManifestPath === right.authorityManifestPath;
+    && left.authorityManifestPath === right.authorityManifestPath
+    && left.runtimeRegistrationId === right.runtimeRegistrationId
+    && left.daemonGeneration === right.daemonGeneration;
 }
 
 function isDaemonRegistryRecord(value: unknown): value is Record<string, unknown> {

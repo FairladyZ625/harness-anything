@@ -20,6 +20,7 @@ import {
   isCompleteReplacement,
   normalizeDaemonLifecycleStatus,
   replacementIdentityIsInvalid,
+  type DaemonGenerationConvergenceExpectation,
   type DaemonLifecycleStatus
 } from "./control-convergence.ts";
 
@@ -33,13 +34,17 @@ export interface DaemonControlRequest {
 
 export interface DaemonControlLifecycle {
   readonly target: LocalDaemonTarget;
-  readonly probeStatus: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
+  readonly probeStatus: (
+    target: LocalDaemonTarget,
+    capability?: { readonly includeGenerationAxes: true }
+  ) => Promise<Record<string, unknown> | undefined>;
   readonly ownerIsAlive: (pid: number) => boolean;
   readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonLaunchConfiguration>;
   readonly startReplacement: (
     target: LocalDaemonTarget,
     timeoutMs: number,
-    launchConfiguration: DaemonLaunchConfiguration
+    launchConfiguration: DaemonLaunchConfiguration,
+    capability?: { readonly includeGenerationAxes: true }
   ) => Promise<Record<string, unknown>>;
   readonly stopReplacement?: (target: LocalDaemonTarget, pid: number, timeoutMs: number) => Promise<void>;
   readonly wait: (ms: number) => Promise<void>;
@@ -106,6 +111,7 @@ export async function runDaemonControl(
   const receipt = controlPayloadFromRpcReceipt(rpcReceipt, method);
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
+  const expectedGeneration = acceptedGenerationExpectation(receipt, before);
   const launchConfiguration = preparedLaunchConfiguration
     ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
   const expectedIdentity = kind === "refresh"
@@ -120,7 +126,8 @@ export async function runDaemonControl(
     kind,
     method,
     launchConfiguration,
-    expectedIdentity
+    expectedIdentity,
+    expectedGeneration
   );
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
@@ -177,6 +184,23 @@ function validateAcceptedControlReceipt(
   }
 }
 
+function acceptedGenerationExpectation(
+  receipt: Record<string, unknown>,
+  before: Record<string, unknown>
+): DaemonGenerationConvergenceExpectation | undefined {
+  const hasGenerationCapability = receipt.machineId !== undefined
+    || receipt.daemonGeneration !== undefined
+    || before.daemonGeneration !== undefined;
+  if (!hasGenerationCapability) return undefined;
+  if (typeof receipt.machineId !== "string" || receipt.machineId.length === 0
+    || !isPositivePid(receipt.daemonGeneration)
+    || !isPositivePid(before.daemonGeneration)
+    || receipt.daemonGeneration !== before.daemonGeneration) {
+    throw new Error("daemon control accepted receipt exposed an incomplete or inconsistent generation capability");
+  }
+  return { machineId: receipt.machineId, daemonGeneration: receipt.daemonGeneration };
+}
+
 async function completeDaemonReplacement(
   lifecycle: DaemonControlLifecycle,
   beforePid: unknown,
@@ -186,7 +210,8 @@ async function completeDaemonReplacement(
   kind: DaemonControlKind,
   method: DaemonControlRequest["method"],
   launchConfiguration: DaemonLaunchConfiguration,
-  expectedIdentity: string | undefined
+  expectedIdentity: string | undefined,
+  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
 ): Promise<Record<string, unknown>> {
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
@@ -194,14 +219,19 @@ async function completeDaemonReplacement(
   if (typeof beforeLoadedIdentity !== "string" || typeof operationId !== "string") {
     throw new Error(`${method} accepted receipt did not identify the loaded build and operation`);
   }
-  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, operationId, timeoutMs, expectedIdentity);
+  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, operationId, timeoutMs, expectedIdentity, expectedGeneration);
   if (handoff.kind === "adopt") return handoff.status;
   if (handoff.kind === "reject") {
-    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, operationId, timeoutMs, kind, expectedIdentity);
+    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
   }
   let replacement: Record<string, unknown>;
   try {
-    replacement = await lifecycle.startReplacement(lifecycle.target, timeoutMs, launchConfiguration);
+    replacement = await lifecycle.startReplacement(
+      lifecycle.target,
+      timeoutMs,
+      launchConfiguration,
+      expectedGeneration ? { includeGenerationAxes: true } : undefined
+    );
   } catch (error) {
     throw new Error(
       `DAEMON_${kind.toUpperCase()}_REPLACEMENT_FAILED_AFTER_HANDOFF: ${error instanceof Error ? error.message : String(error)}. `
@@ -223,7 +253,8 @@ async function completeDaemonReplacement(
     operationId,
     timeoutMs,
     kind,
-    expectedIdentity
+    expectedIdentity,
+    expectedGeneration
   );
 }
 
@@ -235,7 +266,8 @@ async function waitForStartedReplacement(
   operationId: string,
   timeoutMs: number,
   kind: DaemonControlKind,
-  expectedIdentity: string | undefined
+  expectedIdentity: string | undefined,
+  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
 ): Promise<Record<string, unknown>> {
   let status = initialStatus;
   let replacement = initialLifecycle;
@@ -246,12 +278,15 @@ async function waitForStartedReplacement(
       throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacement.pid)}; replacement was not signaled`);
     }
     if (replacementIdentityIsInvalid(replacement, expectedIdentity)) {
-      await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity);
+      await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
     }
-    if (isCompleteReplacement(replacement, beforePid, operationId, expectedIdentity)) return status;
+    if (isCompleteReplacement(replacement, beforePid, operationId, expectedIdentity, expectedGeneration)) return status;
     if (attempt + 1 < attempts) {
       await lifecycle.wait(pollIntervalMs);
-      const observed = await lifecycle.probeStatus(lifecycle.target);
+      const observed = await lifecycle.probeStatus(
+        lifecycle.target,
+        expectedGeneration ? { includeGenerationAxes: true } : undefined
+      );
       const observedLifecycle = observed ? normalizeDaemonLifecycleStatus(observed) : undefined;
       if (observed && observedLifecycle) {
         status = observed;
@@ -266,7 +301,7 @@ async function waitForStartedReplacement(
       + `${replacement.activeOperationId}; replacement was left running`
     );
   }
-  return await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity);
+  return await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
 }
 
 async function rejectIncompleteReplacement(
@@ -276,9 +311,10 @@ async function rejectIncompleteReplacement(
   operationId: string,
   timeoutMs: number,
   kind: DaemonControlKind,
-  expectedIdentity: string | undefined
+  expectedIdentity: string | undefined,
+  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
 ): Promise<never> {
-  const failure = incompleteReplacementReason(replacement, beforePid, operationId, expectedIdentity);
+  const failure = incompleteReplacementReason(replacement, beforePid, operationId, expectedIdentity, expectedGeneration);
   if (replacement.pid === beforePid) {
     throw new Error(`daemon ${kind} replacement ${failure}; replacement was not signaled`);
   }
@@ -319,11 +355,12 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
       }
       return daemonReplacementLaunchConfiguration(statusFromReceipt(receipt));
     },
-    startReplacement: (candidate, timeoutMs, launchConfiguration) => startDaemonReplacement(
+    startReplacement: (candidate, timeoutMs, launchConfiguration, capability) => startDaemonReplacement(
       candidate,
       input.layoutOverrides,
       timeoutMs,
-      launchConfiguration
+      launchConfiguration,
+      capability
     ),
     stopReplacement: (candidate, pid, timeoutMs) => stopDaemonReplacement(
       candidate,
@@ -361,13 +398,17 @@ async function waitForDaemonControlHandoff(
   beforePid: number,
   operationId: string,
   timeoutMs: number,
-  expectedIdentity: string | undefined
+  expectedIdentity: string | undefined,
+  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
 ): Promise<DaemonControlHandoff> {
   const pollIntervalMs = 100;
   const attempts = Math.ceil(timeoutMs / pollIntervalMs) + 1;
   let pendingReplacement: DaemonLifecycleStatus | undefined;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const status = await lifecycle.probeStatus(lifecycle.target);
+    const status = await lifecycle.probeStatus(
+      lifecycle.target,
+      expectedGeneration ? { includeGenerationAxes: true } : undefined
+    );
     const ownerAlive = lifecycle.ownerIsAlive(beforePid);
     const controlFailure = daemonControlFailure(status, operationId);
     if (controlFailure) throw new Error(controlFailure);
@@ -379,7 +420,7 @@ async function waitForDaemonControlHandoff(
       // that permits the existing autostart primitive to run.
       if (!status) return { kind: "autostart" };
       const observedLifecycle = normalizeDaemonLifecycleStatus(status);
-      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, operationId, expectedIdentity)) {
+      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, operationId, expectedIdentity, expectedGeneration)) {
         return { kind: "adopt", status };
       }
       if (observedLifecycle && observedLifecycle.pid !== beforePid && replacementIdentityIsInvalid(observedLifecycle, expectedIdentity)) {
@@ -403,7 +444,10 @@ async function waitForDaemonControlHandoff(
       if (status) {
         for (let finalAttempt = 0; finalAttempt < 5; finalAttempt += 1) {
           await lifecycle.wait(pollIntervalMs);
-          const finalStatus = await lifecycle.probeStatus(lifecycle.target);
+          const finalStatus = await lifecycle.probeStatus(
+            lifecycle.target,
+            expectedGeneration ? { includeGenerationAxes: true } : undefined
+          );
           const finalControlFailure = daemonControlFailure(finalStatus, operationId);
           if (finalControlFailure) throw new Error(finalControlFailure);
         }
@@ -416,10 +460,14 @@ async function waitForDaemonControlHandoff(
   throw new Error(`daemon control handoff exhausted without a safe decision (pid ${beforePid})`);
 }
 
-async function probeExactDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {
+async function probeExactDaemonStatus(
+  target: LocalDaemonTarget,
+  capability?: { readonly includeGenerationAxes: true }
+): Promise<Record<string, unknown> | undefined> {
   try {
     const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
-      repo: { repoId: target.repoId }
+      repo: { repoId: target.repoId },
+      ...(capability ? { includeGenerationAxes: true } : {})
     }, 100, {
       userRoot: target.userRoot,
       daemonId: target.daemonId,
@@ -436,10 +484,12 @@ async function startDaemonReplacement(
   target: LocalDaemonTarget,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   timeoutMs: number,
-  launchConfiguration: DaemonLaunchConfiguration
+  launchConfiguration: DaemonLaunchConfiguration,
+  capability?: { readonly includeGenerationAxes: true }
 ): Promise<Record<string, unknown>> {
   const receipt = await requestLocalDaemonJsonRpcForTarget(target, "repo.daemon.status", {
-    repo: { repoId: target.repoId }
+    repo: { repoId: target.repoId },
+    ...(capability ? { includeGenerationAxes: true } : {})
   }, 1_000, {
     entryPath: launchConfiguration.entrypoint,
     idleExitMs: 0,
