@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
@@ -21,6 +21,7 @@ import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./tes
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const PROCESS_TREE_KILL_GRACE_MS = 2_000;
+const DEFAULT_STALL_DIAGNOSTIC_MS = 90_000;
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -93,6 +94,13 @@ const concurrencyArgs =
 const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
 const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
 const timingPath = path.join(timingRoot, "results.xml");
+const diagnosticReportArgs = process.platform === "win32"
+  ? []
+  : ["--report-on-signal", "--report-signal=SIGUSR2", `--report-directory=${timingRoot}`];
+const stallDiagnosticMs = positiveIntegerOrDefault(
+  process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
+  DEFAULT_STALL_DIAGNOSTIC_MS
+);
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
@@ -102,6 +110,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
+    ...diagnosticReportArgs,
     "--test-force-exit",
     ...concurrencyArgs,
     ...timeoutArgs,
@@ -116,6 +125,18 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   });
 
   let output = "";
+  let lastOutputAt = Date.now();
+  const seenDiagnosticReports = new Set();
+  const noteOutput = () => {
+    lastOutputAt = Date.now();
+  };
+  const stallDiagnosticTimer = setInterval(() => {
+    const silentForMs = Date.now() - lastOutputAt;
+    if (silentForMs < stallDiagnosticMs) return;
+    lastOutputAt = Date.now();
+    emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports });
+  }, stallDiagnosticMs);
+  stallDiagnosticTimer.unref();
   let windowsTreeTerminationStarted = false;
   const terminateTimedOutWindowsTree = () => {
     if (process.platform !== "win32" || windowsTreeTerminationStarted || !/test timed out after \d+ms/u.test(output)) return;
@@ -124,12 +145,14 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     terminateWindowsProcessTree(child);
   };
   child.stdout.on("data", (chunk) => {
+    noteOutput();
     const text = chunk.toString();
     output += text;
     process.stdout.write(text);
     terminateTimedOutWindowsTree();
   });
   child.stderr.on("data", (chunk) => {
+    noteOutput();
     const text = chunk.toString();
     output += text;
     process.stderr.write(text);
@@ -138,12 +161,15 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
 
   return new Promise((resolveExitCode) => {
     child.once("error", (error) => {
+      clearInterval(stallDiagnosticTimer);
       console.error(error.message);
       testEnvironment.cleanup();
       rmSync(timingRoot, { recursive: true, force: true });
       resolveExitCode(1);
     });
     child.once("close", async (code, signal) => {
+      clearInterval(stallDiagnosticTimer);
+      emitNewDiagnosticReports(timingRoot, seenDiagnosticReports);
       const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
       testEnvironment.cleanup();
       try {
@@ -169,6 +195,88 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     });
   });
 });
+
+function positiveIntegerOrDefault(value, fallback) {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports }) {
+  console.error(`\n[node-test-stall] no test output for ${silentForMs}ms; test host pid=${child.pid ?? "unknown"}`);
+  console.error(`[node-test-stall] runner active resources: ${JSON.stringify(process.getActiveResourcesInfo())}`);
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    child.kill("SIGUSR2");
+    dumpPosixProcessGroup(child.pid);
+  }
+  setTimeout(() => emitNewDiagnosticReports(timingRoot, seenDiagnosticReports), 1_000).unref();
+}
+
+function dumpPosixProcessGroup(processGroupId) {
+  const psColumns = process.platform === "darwin"
+    ? "pid=,ppid=,pgid=,stat=,etime=,command="
+    : "pid=,ppid=,pgid=,stat=,etime=,wchan:32=,args=";
+  const ps = spawn("ps", ["-eo", psColumns], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  ps.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  ps.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  ps.once("error", (error) => console.error(`[node-test-stall] unable to inspect process group: ${error.message}`));
+  ps.once("close", (code) => {
+    if (code !== 0) {
+      console.error(`[node-test-stall] ps exited ${code}: ${stderr.trim()}`);
+      return;
+    }
+    const groupLines = stdout.split(/\r?\n/u).filter((line) => {
+      const match = /^\s*\d+\s+\d+\s+(\d+)\s+/u.exec(line);
+      return match?.[1] === String(processGroupId);
+    });
+    const columnDescription = process.platform === "darwin"
+      ? "pid ppid pgid stat elapsed argv"
+      : "pid ppid pgid stat elapsed wait-channel argv";
+    console.error(`[node-test-stall] process group (${columnDescription}):`);
+    console.error(groupLines.length > 0 ? groupLines.join("\n") : `[node-test-stall] no processes found for pgid ${processGroupId}`);
+  });
+}
+
+function emitNewDiagnosticReports(timingRoot, seenDiagnosticReports) {
+  let reportNames;
+  try {
+    reportNames = readdirSync(timingRoot).filter((name) => /^report\..+\.json$/u.test(name));
+  } catch {
+    return;
+  }
+  for (const reportName of reportNames) {
+    if (seenDiagnosticReports.has(reportName)) continue;
+    seenDiagnosticReports.add(reportName);
+    try {
+      const report = JSON.parse(readFileSync(path.join(timingRoot, reportName), "utf8"));
+      const activeLibuv = Array.isArray(report.libuv)
+        ? report.libuv.filter((handle) => handle?.is_active || handle?.is_referenced)
+          .map((handle) => ({
+            type: handle.type,
+            isActive: handle.is_active,
+            isReferenced: handle.is_referenced,
+            pid: handle.pid,
+            fd: handle.fd,
+            signal: handle.signal,
+            firesInMsFromNow: handle.firesInMsFromNow
+          }))
+        : [];
+      console.error(`[node-test-stall] diagnostic report ${reportName}`);
+      console.error(`[node-test-stall] javascript stack: ${report.javascriptStack?.message ?? "unavailable"}`);
+      console.error(`[node-test-stall] active libuv handles: ${JSON.stringify(activeLibuv)}`);
+    } catch (error) {
+      console.error(`[node-test-stall] unable to read ${reportName}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
 
 function terminateWindowsProcessTree(child) {
   if (child.pid === undefined) return;
