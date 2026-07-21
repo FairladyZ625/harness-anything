@@ -9,7 +9,7 @@ const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 const allowlist = loadGateAllowlist("check-import-boundaries", {
-  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "kernelWriteInternalConsumers", "cliAdapterKnownDebt"]
+  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "kernelWriteInternalConsumers", "daemonRuntimeSupportConsumers", "cliAdapterKnownDebt"]
 });
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
@@ -18,7 +18,14 @@ const kernelWriteInternalEdges = new Set(
   entryPairs(allowlist.kernelWriteInternalConsumers, "source", "target")
     .map(([source, target]) => `${source}\0${target}`)
 );
+const daemonRuntimeSupportConsumers = entryValues(allowlist.daemonRuntimeSupportConsumers);
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
+
+const daemonRuntimeSupportSpecifier = "@harness-anything/kernel/daemon-runtime-support";
+
+function isAllowedDaemonRuntimeSupportConsumer(source) {
+  return daemonRuntimeSupportConsumers.some((prefix) => source.startsWith(prefix));
+}
 
 function isKernelWriteCoordinationInternalPath(target) {
   return target.startsWith("packages/kernel/src/write-coordination/");
@@ -246,6 +253,11 @@ for (const file of packageSourceFiles) {
     }
 
     const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+    for (const specifier of imports) {
+      if (specifier === daemonRuntimeSupportSpecifier && !isAllowedDaemonRuntimeSupportConsumer(rel)) {
+        record(file, `${daemonRuntimeSupportSpecifier} is restricted to the daemon runtime owner`);
+      }
+    }
     if (rel.startsWith("packages/kernel/src/domain/")) {
       for (const specifier of imports) {
         if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {

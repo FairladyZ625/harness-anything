@@ -1,4 +1,4 @@
-import type { DaemonRepoRuntimeStatus, DaemonRuntimeStatus } from "./daemon-runtime.ts";
+import type { DaemonRepoRuntimeStatus, DaemonRuntimeStatus } from "./repo-runtime-options.ts";
 
 export function toDaemonRuntimeStatus(status: DaemonRepoRuntimeStatus): DaemonRuntimeStatus {
   return {

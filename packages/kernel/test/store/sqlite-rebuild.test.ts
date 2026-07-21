@@ -9,7 +9,7 @@ import { Effect, Option } from "effect";
 import { auditTaskProvenance, checkTaskProjection, hashTaskProjectionRows, queryDecisionProjection, queryTaskExecutionTrace, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
 import { replaceAttributionProjectionRows } from "../../src/projection/sqlite-attribution-projection.ts";
 import { writeProjectionDatabase } from "../../src/projection/sqlite-projection-store.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../src/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("markdown artifact store remains the rebuildable source of truth without SQLite", () => {

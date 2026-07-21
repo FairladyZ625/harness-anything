@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import type { ProjectionSourceFence } from "../../src/ports/projection-source-fence.ts";
-import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
-import { createDaemonProjectionGenerationManager } from "../../src/store/daemon-projection-generation-manager.ts";
-import { createDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { withTempStoreAsync } from "./helpers.ts";
+import { makeLocalProjectionSourceFenceReader } from "@harness-anything/adapter-local";
+import { rebuildTaskProjection, type ProjectionSourceFence } from "@harness-anything/kernel";
+import { createDaemonProjectionGenerationManager } from "../../src/runtime/projection-generation-manager.ts";
+import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
 import {
   commitAuthoredFixture,
   git,
@@ -94,7 +94,11 @@ test("local source fencing falls back conservatively for assume-unchanged author
     initAuthoredGit(rootDir);
     commitAuthoredFixture(rootDir);
     rebuildTaskProjection({ rootDir });
-    const runtime = createDaemonRuntime({ rootDir, materializerPollMs: false });
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader
+    });
     await runtime.start();
     await runtime.queryExecutionEvidencePage({ limit: 1 });
 

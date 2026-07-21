@@ -2,10 +2,9 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import type { ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
-import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
-import { createDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { docWrite, withTempStoreAsync } from "./helpers.ts";
+import { rebuildTaskProjection, type ProjectionSourceFenceFactory } from "@harness-anything/kernel";
+import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,

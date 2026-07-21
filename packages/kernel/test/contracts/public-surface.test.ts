@@ -242,6 +242,7 @@ const publicRuntimeSurface = [
   "reviewArtifactStatuses",
   "reviewDeclaration",
   "reviewVerdicts",
+  "runLedgerMaterializer",
   "runPostMergeChecks",
   "runtimeCapabilityNames",
   "runtimeEventActorFromTaskHolderPrincipal",

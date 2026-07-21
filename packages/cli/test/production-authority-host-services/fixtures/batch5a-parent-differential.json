@@ -11,7 +11,7 @@
     "packages/cli/src/commands/daemon/productization.ts": "0b2633e856c6be5aa42d3bac727c0b287c2b4033",
     "packages/cli/src/commands/preset-task.ts": "e425389b163993d17ce37c11c60ab088e2d46258",
     "packages/cli/src/commands/settings.ts": "640579058ad11b952ed8212d4de6e7835e2d670e",
-    "packages/cli/src/composition/adapter-registry.ts": "dbf9fdbb2f3e2aa4c5efaa9440fcb85400b6ffb9"
+    "packages/cli/src/composition/adapter-registry.ts": "8c0be49785f847e0e26e8f0c1a5e661f5c5d17df"
   },
   "adapterE2E": {
     "generic": {

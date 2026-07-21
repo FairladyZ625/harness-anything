@@ -4,19 +4,23 @@ import { existsSync, mkdirSync, readFileSync, statSync, utimesSync } from "node:
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
-import { makeTaskHolderService, taskHolderActor } from "../../src/local/task-holder-state.ts";
-import type { ProjectionSourceFence, ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
-import { queryExecutionEvidencePage } from "../../src/projection/sqlite-execution-evidence-reader.ts";
-import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
-import { createDaemonProjectionGenerationManager } from "../../src/store/daemon-projection-generation-manager.ts";
-import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
+import {
+  createHarnessRuntimeContext,
+  makeJournaledWriteCoordinator,
+  makeTaskHolderService,
+  queryExecutionEvidencePage,
+  rebuildTaskProjection,
+  resolveHarnessLayout,
+  taskHolderActor,
+  type ProjectionSourceFence,
+  type ProjectionSourceFenceFactory
+} from "@harness-anything/kernel";
+import { createDaemonProjectionGenerationManager } from "../../src/runtime/projection-generation-manager.ts";
 import {
   createDaemonRuntime,
   createMultiRepoDaemonRuntime
-} from "../../../adapters/local/src/index.ts";
-import { acquireDaemonGlobalLock } from "../../src/write-coordination/journal/locks.ts";
-import { docWrite, withTempStoreAsync } from "./helpers.ts";
+} from "../../src/runtime/repo-runtime.ts";
+import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,
@@ -563,15 +567,8 @@ test("authority attributed coordinator is backed by the current daemon held-lock
 test("multi-repo daemon isolates attach lock failures by repo", async () => {
   await withTempStoreAsync(async (lockedRoot) => {
     await withTempStoreAsync(async (availableRoot) => {
-      const lockedContext = createHarnessRuntimeContext(lockedRoot);
-      const lockedLayout = resolveHarnessLayout(lockedContext);
-      const externalLock = acquireDaemonGlobalLock(
-        lockedRoot,
-        lockedContext,
-        lockedLayout.journalPath,
-        { scope: "operational", kind: "system", id: "other-daemon" },
-        60_000
-      );
+      const lockOwner = createDaemonRuntime({ rootDir: lockedRoot, materializerPollMs: false });
+      await lockOwner.start();
       const runtime = createMultiRepoDaemonRuntime({
         materializerPollMs: false,
         interactiveMicroBatchMs: 0,
@@ -612,7 +609,7 @@ test("multi-repo daemon isolates attach lock failures by repo", async () => {
         );
       } finally {
         await runtime.stop();
-        externalLock.release();
+        await lockOwner.stop();
       }
     });
   });

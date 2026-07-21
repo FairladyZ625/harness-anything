@@ -10,6 +10,6 @@
       "default": "./src/index.ts"
     },
     "./daemon/registry": "./src/daemon/registry.ts",
-    "./store/index": "./src/store/index.ts"
+    "./daemon-runtime-support": "./src/daemon-runtime-support.ts"
   }
 }

@@ -5,7 +5,7 @@ import test from "node:test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { progressAppendDelta, progressAppendSnapshot, withTempStore } from "./helpers.ts";
 
 // ADR-0016 D2 / 37-write-coordination-contract §10.2 focused tests.

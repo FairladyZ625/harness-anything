@@ -6,7 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { sha256Text, stablePayloadHash, taskEntityId } from "../../src/index.ts";
-import { makeJournaledWriteCoordinator, recoverJournaledWrites } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { recoverJournaledWrites } from "../../src/write-coordination/journal/coordinator.ts";
 import { testWriteAttribution } from "../test-attribution.ts";
 import { withTempStore } from "./helpers.ts";
 

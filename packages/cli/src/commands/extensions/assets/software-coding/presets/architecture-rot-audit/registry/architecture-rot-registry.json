@@ -304,17 +304,18 @@
       "category": "layer-misalignment",
       "title": "Daemon process runtime belongs to the daemon package",
       "mechanism": {
-        "mustBeTrue": "packages/daemon exports and owns single- and multi-repository daemon runtime lifecycle; kernel/store exposes only repository write-session capabilities and does not own process hosting.",
+        "mustBeTrue": "packages/daemon exports and owns single- and multi-repository daemon runtime lifecycle; the kernel root does not export runtime, the retired kernel store barrel is absent, and the sole daemon-runtime-support subpath remains a documented narrow coupling.",
         "scope": [
-          "packages/daemon/src/**",
-          "packages/kernel/src/store/daemon-runtime.ts",
+          "packages/daemon/src/runtime/repo-runtime.ts",
+          "packages/daemon/src/index.ts",
+          "packages/kernel/src/index.ts",
           "packages/adapters/local/src/index.ts",
           "packages/cli/src/index.ts"
         ]
       },
       "detection": {
         "detector": "ROT-007",
-        "command": "node --input-type=module -e 'import * as daemon from \"./packages/daemon/src/index.ts\"; import * as store from \"./packages/kernel/src/store/index.ts\"; const result={daemonOwnsRuntime:typeof daemon.createDaemonRuntime===\"function\"&&typeof daemon.createMultiRepoDaemonRuntime===\"function\",kernelStoreOwnsRuntime:typeof store.createDaemonRuntime===\"function\"||typeof store.createMultiRepoDaemonRuntime===\"function\"}; console.log(JSON.stringify(result)); process.exit(result.daemonOwnsRuntime&&!result.kernelStoreOwnsRuntime?0:1);'",
+        "command": "node --input-type=module -e 'import { existsSync } from \"node:fs\"; import * as daemon from \"./packages/daemon/src/index.ts\"; import * as kernel from \"./packages/kernel/src/index.ts\"; const storeBarrel=[\"packages\",\"kernel\",\"src\",\"store\",\"index.ts\"].join(\"/\"); const result={daemonOwnsRuntime:typeof daemon.createDaemonRuntime===\"function\"&&typeof daemon.createMultiRepoDaemonRuntime===\"function\",kernelRootOwnsRuntime:typeof kernel.createDaemonRuntime===\"function\"||typeof kernel.createMultiRepoDaemonRuntime===\"function\",kernelStoreBarrelExists:existsSync(storeBarrel)}; console.log(JSON.stringify(result)); process.exit(result.daemonOwnsRuntime&&!result.kernelRootOwnsRuntime&&!result.kernelStoreBarrelExists?0:1);'",
         "cwd": ".",
         "successExitCodes": [
           0
@@ -326,9 +327,9 @@
           "report": "architecture-review-A-fable-4way-20260710.html",
           "card": "A#7 / #c7",
           "evidence": [
-            "packages/kernel/src/store/daemon-runtime.ts:37-379",
-            "packages/kernel/src/store/daemon-runtime-queue.ts",
-            "packages/adapters/local/src/index.ts:12,40-41",
+            "packages/daemon/src/runtime/repo-runtime.ts",
+            "packages/daemon/src/runtime/write-queue.ts",
+            "packages/kernel/src/daemon-runtime-support.ts",
             "packages/cli/src/index.ts:91-138"
           ]
         }

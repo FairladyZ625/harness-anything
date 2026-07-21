@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createMultiRepoDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { withTempStoreAsync } from "./helpers.ts";
+import { createMultiRepoDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
 import { git, initAuthoredGit } from "./helpers/daemon-runtime.ts";
 
 test("daemon status exposes materializer merge conflicts", async () => {

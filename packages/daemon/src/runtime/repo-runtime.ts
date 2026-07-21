@@ -1,18 +1,32 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { DaemonAdmissionBudget } from "../daemon/admission-budget.ts";
-import { createRuntimeAdmissionBudget } from "../daemon/runtime-admission.ts";
-import type { RecoveryReport, WriteCoordinator } from "../ports/write-coordinator.ts";
-import type { WriteAttribution } from "../schemas/actor-attribution.ts";
-import type { ProjectionSourceFenceFactory } from "../ports/projection-source-fence.ts";
-import type { WriteError } from "../domain/index.ts";
 import {
   createHarnessRuntimeContext,
-  type HarnessLayoutOverrides,
+  makeJournaledWriteCoordinator,
+  makeOperationalJournaledWriteCoordinator,
+  runLedgerMaterializer,
+  type DaemonAdmissionBudget,
+  type LedgerMaterializerReport,
+  type OperationalActor,
+  type RecoveryReport,
+  type WriteAttribution,
+  type WriteCoordinator,
+  type WriteError,
   resolveHarnessLayout
-} from "../layout/index.ts";
-import { runLedgerMaterializer, type LedgerMaterializerReport } from "../write-coordination/materialization/ledger-materializer.ts";
-import { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
+} from "@harness-anything/kernel";
+import {
+  acquireDaemonGlobalLock,
+  assertDaemonGlobalLockHeld,
+  createProjectionChangePublisher,
+  createRuntimeAdmissionBudget,
+  recoverJournaledWrites,
+  writeOpTouchedPaths,
+  type ExecutionEvidencePage,
+  type ExecutionEvidencePageQuery,
+  type DaemonGlobalLock,
+  type ProjectionChangeEvent
+} from "@harness-anything/kernel/daemon-runtime-support";
+import { DaemonWriteQueue } from "./write-queue.ts";
 import {
   type BackgroundBatchRequest,
   type DaemonQueueSnapshot,
@@ -20,32 +34,45 @@ import {
   type InteractiveWriteReceipt,
   type InteractiveWriteAttribution,
   type InteractiveWriteRequest
-} from "./daemon-runtime-queue.ts";
-import { waitForDaemonQueueIdle } from "./daemon-drain.ts";
-import { makeDeferredAuthorityCoordinator } from "./daemon-runtime-authority-coordinator.ts";
+} from "./write-queue.ts";
+import { waitForDaemonQueueIdle } from "./repo-runtime-drain.ts";
+import { makeDeferredAuthorityCoordinator } from "./authority-write-coordinator.ts";
 import {
   enqueueDaemonAuthorityPublication,
   type DaemonAuthorityPublicationOptions,
   type DaemonAuthorityPublicationReport
-} from "./daemon-runtime-authority-publication.ts";
-import type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
-export type { DaemonDrainOptions, DaemonMaterializerBatchOptions } from "./daemon-runtime-options.ts";
-import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "../write-coordination/journal/locks.ts";
-import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "../write-coordination/journal/coordinator.ts";
-import type { OperationalActor } from "../write-coordination/journal/types.ts";
-import { writeOpTouchedPaths } from "../write-coordination/journal/operations/transaction-plan.ts";
+} from "./authority-publication.ts";
+import type {
+  DaemonDrainOptions,
+  DaemonMaterializerBatchOptions,
+  DaemonRepoRuntimeOptions,
+  DaemonRepoRuntimeState,
+  DaemonRepoRuntimeStatus,
+  DaemonRuntimeOptions,
+  DaemonRuntimeStatus,
+  HarnessDaemonRuntime,
+  MultiRepoDaemonRuntimeOptions,
+  MultiRepoDaemonRuntimeStatus,
+  MultiRepoHarnessDaemonRuntime
+} from "./repo-runtime-options.ts";
+export type {
+  DaemonDrainOptions,
+  DaemonMaterializerBatchOptions,
+  DaemonRepoRuntimeOptions,
+  DaemonRepoRuntimeState,
+  DaemonRepoRuntimeStatus,
+  DaemonRuntimeOptions,
+  DaemonRuntimeStatus,
+  HarnessDaemonRuntime,
+  MultiRepoDaemonRuntimeOptions,
+  MultiRepoDaemonRuntimeStatus,
+  MultiRepoHarnessDaemonRuntime
+} from "./repo-runtime-options.ts";
 import {
   createDaemonProjectionGenerationManager,
-  type DaemonProjectionGenerationManager,
-  type DaemonProjectionGenerationSnapshot
-} from "./daemon-projection-generation-manager.ts";
-import type {
-  ExecutionEvidencePage,
-  ExecutionEvidencePageQuery
-} from "../projection/sqlite-execution-evidence-reader.ts";
-import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
-import { createProjectionChangePublisher } from "../projection/projection-change-publisher.ts";
-import { toDaemonRuntimeStatus } from "./daemon-runtime-status.ts";
+  type DaemonProjectionGenerationManager
+} from "./projection-generation-manager.ts";
+import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 const defaultLockTtlMs = 60_000;
@@ -60,97 +87,6 @@ export type {
   InteractiveWriteReceipt,
   InteractiveWriteRequest
 };
-export interface DaemonRuntimeOptions {
-  readonly rootDir: string;
-  readonly layoutOverrides?: HarnessLayoutOverrides;
-  readonly operationalActor?: OperationalActor;
-  readonly lockTtlMs?: number;
-  readonly interactiveMicroBatchMs?: number;
-  readonly maxInteractiveOpsPerCommit?: number;
-  readonly materializerPollMs?: number | false;
-  readonly materializerMaxBranchesPerBatch?: number;
-  readonly admissionMaxOperations?: number;
-  readonly admissionMaxBytes?: number;
-  readonly admissionReservedOperationsPerPlane?: number;
-  readonly admissionReservedBytesPerPlane?: number;
-  readonly projectionSourceFenceFactory?: ProjectionSourceFenceFactory;
-  readonly reservationReconciler?: (input: {
-    readonly rootDir: string;
-    readonly layoutOverrides?: HarnessLayoutOverrides;
-  }) => Promise<void>;
-}
-
-export interface DaemonRuntimeStatus {
-  readonly started: boolean;
-  readonly rootDir: string;
-  readonly lockPath?: string;
-  readonly lockOwnerToken?: string;
-  readonly queue: DaemonQueueSnapshot;
-  readonly lastRecovery?: RecoveryReport;
-  readonly projectionGeneration: DaemonProjectionGenerationSnapshot;
-}
-
-export interface HarnessDaemonRuntime {
-  readonly start: () => Promise<DaemonRuntimeStatus>;
-  readonly stop: (options?: DaemonDrainOptions) => Promise<void>;
-  readonly status: () => DaemonRuntimeStatus;
-  readonly enqueueInteractiveWrite: (request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
-  readonly enqueueBackgroundBatch: <Result>(request: BackgroundBatchRequest<Result>) => Promise<Result>;
-  readonly enqueueMaterializerBatch: (options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
-  readonly enqueueAuthorityPublication: (options: DaemonAuthorityPublicationOptions) => Promise<DaemonAuthorityPublicationReport>;
-  readonly queryExecutionEvidencePage: (query: ExecutionEvidencePageQuery) => Promise<ExecutionEvidencePage>;
-  /** Authority/application port backed by this runtime's current held global lock. */
-  readonly createAttributedCoordinator: (input: {
-    readonly attribution: WriteAttribution;
-    readonly sessionId: string;
-    readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
-  }) => WriteCoordinator;
-  readonly assertWriteFenceHeld: () => Promise<void>;
-  readonly admissionBudget: DaemonAdmissionBudget;
-  readonly subscribeProjectionChanges: (listener: (event: ProjectionChangeEvent) => void) => () => void;
-}
-
-export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
-
-export interface DaemonRepoRuntimeOptions extends DaemonRuntimeOptions {
-  readonly repoId: string;
-  readonly displayName?: string;
-}
-
-export interface DaemonRepoRuntimeStatus extends DaemonRuntimeStatus {
-  readonly repoId: string;
-  readonly canonicalRoot: string;
-  readonly displayName?: string;
-  readonly state: DaemonRepoRuntimeState;
-  readonly lastError?: string;
-  readonly lastMaterializerError?: string;
-}
-
-export interface MultiRepoDaemonRuntimeOptions extends Omit<DaemonRuntimeOptions, "rootDir" | "layoutOverrides"> {
-  readonly repos: ReadonlyArray<DaemonRepoRuntimeOptions>;
-}
-
-export interface MultiRepoDaemonRuntimeStatus {
-  readonly started: boolean;
-  readonly repoCount: number;
-  readonly attachedCount: number;
-  readonly unavailableCount: number;
-  readonly repos: ReadonlyArray<DaemonRepoRuntimeStatus>;
-}
-
-export interface MultiRepoHarnessDaemonRuntime {
-  readonly start: () => Promise<MultiRepoDaemonRuntimeStatus>;
-  readonly stop: (options?: DaemonDrainOptions) => Promise<void>;
-  readonly status: () => MultiRepoDaemonRuntimeStatus;
-  readonly attachRepo: (repo: DaemonRepoRuntimeOptions) => Promise<DaemonRepoRuntimeStatus>;
-  readonly detachRepo: (repoId: string) => Promise<DaemonRepoRuntimeStatus>;
-  readonly retryUnavailableRepos: () => Promise<ReadonlyArray<DaemonRepoRuntimeStatus>>;
-  readonly getRepoRuntime: (repoId: string) => HarnessDaemonRuntime | undefined;
-  readonly enqueueInteractiveWrite: (repoId: string, request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
-  readonly enqueueBackgroundBatch: <Result>(repoId: string, request: BackgroundBatchRequest<Result>) => Promise<Result>;
-  readonly enqueueMaterializerBatch: (repoId: string, options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
-}
-
 export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemonRuntime {
   const context = new DaemonRepoRuntimeContext({ ...options, repoId: "canonical" });
   return {
@@ -320,7 +256,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     } catch (error) {
       await this.releaseStartedParts();
       this.state = "unavailable";
-      this.lastError = describeError(error);
+      this.lastError = describeRepoRuntimeError(error);
       if (input.failOnError) throw error;
       return this.status();
     }
@@ -333,7 +269,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     try {
       await waitForDaemonQueueIdle(this.queue, this.rootDir, options?.drainTimeoutMs);
     } catch (error) {
-      this.lastError = describeError(error);
+      this.lastError = describeRepoRuntimeError(error);
       throw error;
     }
     let projectionCloseError: unknown;
@@ -347,7 +283,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       if (projectionCloseError !== undefined) throw projectionCloseError;
       this.lastError = undefined;
     } catch (error) {
-      this.lastError = describeError(error);
+      this.lastError = describeRepoRuntimeError(error);
       throw error;
     } finally {
       this.lock = undefined;
@@ -378,13 +314,13 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     try {
       touchedPaths = request.ops.flatMap((op) => writeOpTouchedPaths(this.runtimeContext, op));
     } catch (error) {
-      this.lastError = describeError(error);
+      this.lastError = describeRepoRuntimeError(error);
       return Promise.reject(error);
     }
     const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
     return this.queue.enqueueInteractive(request, (batch) => this.makeStartedCoordinator(started, batch))
       .catch((error: unknown) => {
-        this.lastError = describeError(error);
+        this.lastError = describeRepoRuntimeError(error);
         throw error;
       })
       .finally(() => projectionWrite.settle());
@@ -394,7 +330,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.requireAttached();
     return this.queue.enqueueBackground(request)
       .catch((error: unknown) => {
-        this.lastError = describeError(error);
+        this.lastError = describeRepoRuntimeError(error);
         throw error;
       });
   }
@@ -405,7 +341,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       priority: "background",
       run: () => this.runMaterializerBatch(batchOptions)
     }).catch((error: unknown) => {
-      this.lastMaterializerError = describeError(error);
+      this.lastMaterializerError = describeRepoRuntimeError(error);
       this.projectionGeneration.invalidate();
       throw error;
     });
@@ -418,7 +354,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       options,
       (sessionId) => this.runMaterializerBatch({ sessionId })
     ).catch((error: unknown) => {
-      this.lastError = describeError(error);
+      this.lastError = describeRepoRuntimeError(error);
       throw error;
     });
   }
@@ -588,10 +524,10 @@ function requireContext(contexts: Map<string, DaemonRepoRuntimeContext>, repoId:
   return context;
 }
 
-function describeError(error: unknown): string {
+function describeRepoRuntimeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error !== null && "cause" in error) {
-    return describeError((error as { readonly cause?: unknown }).cause);
+    return describeRepoRuntimeError((error as { readonly cause?: unknown }).cause);
   }
   return String(error);
 }

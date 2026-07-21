@@ -4,10 +4,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { createDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { moduleEntityId } from "../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../../src/store/index.ts";
-import { docWrite, runEffect, withTempStoreAsync } from "./helpers.ts";
+import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import {
+  makeJournaledWriteCoordinator,
+  makeOperationalJournaledWriteCoordinator,
+  moduleEntityId
+} from "@harness-anything/kernel";
+import { docWrite, runEffect, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
 import { daemonAttribution, git, initAuthoredGit } from "./helpers/daemon-runtime.ts";
 
 const testAttribution = daemonAttribution("person_test", "test", "credential-test");

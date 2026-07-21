@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { withTempStore } from "./helpers.ts";
 

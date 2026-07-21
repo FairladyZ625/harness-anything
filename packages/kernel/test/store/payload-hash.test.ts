@@ -18,7 +18,7 @@ import { writeContentAddressedBlob } from "../../src/persistence/blob/content-ad
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
 import { createTaskPackagePath, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../src/layout/index.ts";
 import { applyWriteOp, documentWritesForWriteOp, writeOpTouchedPaths } from "../../src/write-coordination/journal/operations/transaction-plan.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("payload hashes are stable across object key order", () => {

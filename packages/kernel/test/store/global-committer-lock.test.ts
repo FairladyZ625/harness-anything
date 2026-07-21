@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import type { VersionControlSystem } from "../../src/ports/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { docWrite, runEffect, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
@@ -508,7 +508,7 @@ test("double stale lock takeover race keeps a single committer", async () => {
 
     const childScript = `
       import { Effect } from "effect";
-      import { makeJournaledWriteCoordinator } from "./packages/kernel/src/store/index.ts";
+      import { makeJournaledWriteCoordinator } from "./packages/kernel/src/index.ts";
       const coordinator = makeJournaledWriteCoordinator({
         attribution: {
           actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },

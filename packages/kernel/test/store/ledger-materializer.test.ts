@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../src/index.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 

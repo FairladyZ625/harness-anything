@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { Effect } from "effect";
 import { decisionEntityId, taskEntityId } from "../../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator } from "../../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../../src/index.ts";
 
 const [rootDir, barrierPath, writerId] = process.argv.slice(2);
 while (!existsSync(barrierPath)) await new Promise((resolve) => setTimeout(resolve, 2));
