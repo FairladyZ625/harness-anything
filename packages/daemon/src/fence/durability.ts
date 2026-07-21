@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { mkdir, open, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AuthorityFenceWitness } from "@harness-anything/application";
@@ -150,7 +151,8 @@ async function appendDurabilityRecord(
   }
   const directory = path.dirname(ledgerPath);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const handle = await open(ledgerPath, "a+", 0o600);
+  // Windows 上 append 模式句柄不允许 ftruncate(EPERM),所以用读写模式打开并显式按偏移写尾。
+  const handle = await open(ledgerPath, constants.O_RDWR | constants.O_CREAT, 0o600);
   try {
     const scan = scanSingleAuthorityDurabilityLedger(await handle.readFile());
     if (scan.repairRequired) {
@@ -158,7 +160,7 @@ async function appendDurabilityRecord(
       await handle.sync();
       await fsyncSingleAuthorityDurabilityDirectory(directory);
     }
-    await handle.writeFile(`${JSON.stringify(record)}\n`, "utf8");
+    await handle.write(`${JSON.stringify(record)}\n`, scan.validByteLength, "utf8");
     await handle.sync();
   } finally {
     await handle.close();
