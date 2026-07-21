@@ -1,34 +1,47 @@
-import { availableParallelism, loadavg } from "node:os";
+import { availableParallelism } from "node:os";
+
+import {
+  DEFAULT_CORES_PER_TEST_PROCESS,
+  resolveLocalCoreBudget
+} from "./local-resource-governance.mjs";
 
 export const SHARD_PARALLELISM_ENV = "HARNESS_SHARD_PARALLELISM";
 
+// 并行度 = 可用核心预算 ÷ (每 shard 并发 × 每个测试文件实测占用的核心数)，不看 loadavg。
+// loadavg 分不清负载是用户的还是我们自己的，一旦把自己的负载算进去就会自我节流
+// (实测 requested 5 掉到 3)；动态让路交给 QoS(taskpolicy -c utility)，静态预算只封顶。
+// 系数来自实测而非估算，理由见 DEFAULT_CORES_PER_TEST_PROCESS：把 fan-out 从 3 拉到 6
+// 只买到 1% 墙钟却多花 70% 机器时间，说明超过预算继续加并行是纯负和。
 export function resolveShardParallelism({
   raw = process.env[SHARD_PARALLELISM_ENV],
   shardCount,
   localSlots,
   perShardConcurrency,
   cpuCount = availableParallelism(),
-  loadOne = loadavg()[0]
+  reservationRaw
 }) {
   assertPositiveInteger(shardCount, "shard count");
   assertPositiveInteger(localSlots, "local slot count");
   assertPositiveInteger(perShardConcurrency, "per-shard concurrency");
   assertPositiveInteger(cpuCount, "CPU count");
 
-  const normalizedLoad = Number.isFinite(loadOne) && loadOne >= 0 ? loadOne : cpuCount;
-  const freeCores = Math.max(1, Math.floor(cpuCount - normalizedLoad));
-  const adaptive = Math.max(1, Math.floor(freeCores / perShardConcurrency));
+  const budget = resolveLocalCoreBudget({
+    cpuCount,
+    ...(reservationRaw === undefined ? {} : { raw: reservationRaw })
+  });
+  const coresPerShard = perShardConcurrency * DEFAULT_CORES_PER_TEST_PROCESS;
+  const coreCap = Math.max(1, Math.floor(budget.usableCores / coresPerShard));
   const explicit = parseExplicitParallelism(raw);
-  const requested = explicit ?? adaptive;
-  const cpuCap = Math.max(1, Math.floor(cpuCount / perShardConcurrency));
-  const parallelism = Math.min(requested, shardCount, localSlots, cpuCap);
+  const requested = explicit ?? coreCap;
+  const parallelism = Math.min(requested, shardCount, localSlots, coreCap);
 
   return {
     parallelism,
-    source: explicit === null ? "adaptive" : "explicit",
+    source: explicit === null ? "core-budget" : "explicit",
     requested,
-    freeCores,
-    cpuCap,
+    usableCores: budget.usableCores,
+    reservedCores: budget.reserved,
+    coreCap,
     localSlots,
     perShardConcurrency
   };

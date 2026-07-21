@@ -36,6 +36,6 @@ If this task is not a CI/gate/governance task but requires modifying CI/gate aut
 
 ## Verification
 
-- **Stop point = `npm run check:ci` green + a local commit.** It derives *every* job CI runs on a pull request from `tools/gate-manifest.json` and runs them all. Do not hand-copy a list of gates here: lists rot (`check:local` is only a fast-tier subset, and the `boundaries` job alone carries 35 gates), whereas this command grows with the manifest. Paste the `--json <path>` receipt into this section verbatim rather than writing "all green" — a receipt is an artifact, an assertion is not.
+- **Stop point = targeted tests for the surface you touched, green, plus a local commit. The full gate matrix is GitHub CI's job, not this machine's.** Name the specific test files or `--tier` selection this task's surface requires, and paste the real runner output rather than writing "all green" — output is an artifact, an assertion is not. Do not run the whole local matrix serially to feel safe: one machine running every job in sequence is strictly slower than CI running them in parallel, and it blocks every other worker on the same machine behind the shared slot budget. `npm run check:ci` remains available for deliberately reproducing a CI failure locally; it is not the stop point.
 - List any review and human acceptance conditions this task additionally requires.
 - Per `dec_mrg3z1we/CH4`, Facts are explicit `0..N` promotions, not a review or completion quantity gate; verify delivery through Execution outputs, review, closeout, and the applicable completion gates.

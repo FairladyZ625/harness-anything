@@ -11,12 +11,47 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { availableParallelism, homedir, hostname } from "node:os";
 import path from "node:path";
 
-export const DEFAULT_LOCAL_SLOTS = 3;
+// 本机治理的第一性参数是「留给人的核心数」，不是槽数。槽数、shard 并行度都从它派生，
+// 这样一台机器上所有 harness 进程对容量的判断天然一致，不会各算各的。
+export const DEFAULT_INTERACTIVE_CORE_RESERVATION = 4;
 export const DEFAULT_LOCAL_TEST_CONCURRENCY = 2;
+
+// 一个「并发测试文件」不等于一个核:集成测试会自己 spawn daemon 与 CLI 子进程。
+// 2026-07-21 在 M3 Max(16 核/128 GB)上对完整 check:ci 做 A/B 实测:
+//   3 路 shard → shard 阶段墙钟 625s,进程时间合计 1774s,单 shard 均值 295s
+//   6 路 shard → shard 阶段墙钟 618s,进程时间合计 3012s,单 shard 均值 502s
+// 并行翻倍只换来 1% 墙钟,机器时间却多花 70% —— 说明 3 路时吞吐已经到顶,再加只是把
+// 同样的吞吐切得更碎,还会挤掉同机其他 worker。反推出的系数≈每个并发测试文件 2 个核。
+export const DEFAULT_CORES_PER_TEST_PROCESS = 2;
+export const INTERACTIVE_CORE_RESERVATION_ENV = "HARNESS_INTERACTIVE_CORE_RESERVATION";
 export const LOCAL_SLOT_ROOT = path.join(homedir(), ".harness", "locks", "local-heavy-v1");
+
+export function resolveInteractiveCoreReservation(
+  raw = process.env[INTERACTIVE_CORE_RESERVATION_ENV]
+) {
+  if (raw === undefined || raw === "") return DEFAULT_INTERACTIVE_CORE_RESERVATION;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(
+      `${INTERACTIVE_CORE_RESERVATION_ENV} must be a non-negative integer; received ${JSON.stringify(raw)}`
+    );
+  }
+  return parsed;
+}
+
+export function resolveLocalCoreBudget({
+  raw = process.env[INTERACTIVE_CORE_RESERVATION_ENV],
+  cpuCount = availableParallelism()
+} = {}) {
+  if (!Number.isSafeInteger(cpuCount) || cpuCount <= 0) {
+    throw new Error("CPU count must be a positive integer");
+  }
+  const reserved = resolveInteractiveCoreReservation(raw);
+  return { cpuCount, reserved, usableCores: Math.max(1, cpuCount - reserved) };
+}
 
 const OWNER_FILE = "owner.json";
 const REAPER_DIR = ".reaper";
@@ -24,13 +59,26 @@ const SLOT_PATH_ENV = "HARNESS_LOCAL_SLOT_PATH";
 const SLOT_TOKEN_ENV = "HARNESS_LOCAL_SLOT_TOKEN";
 const INITIALIZATION_GRACE_MS = 30_000;
 
-export function resolveLocalSlotCount(raw = process.env.HARNESS_LOCAL_SLOTS) {
-  if (raw === undefined || raw === "") return DEFAULT_LOCAL_SLOTS;
-  const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`HARNESS_LOCAL_SLOTS must be a positive integer; received ${JSON.stringify(raw)}`);
+export function resolveLocalSlotCount(
+  raw = process.env.HARNESS_LOCAL_SLOTS,
+  {
+    cpuCount,
+    reservationRaw,
+    perSlotCores = DEFAULT_LOCAL_TEST_CONCURRENCY * DEFAULT_CORES_PER_TEST_PROCESS
+  } = {}
+) {
+  if (raw !== undefined && raw !== "") {
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(`HARNESS_LOCAL_SLOTS must be a positive integer; received ${JSON.stringify(raw)}`);
+    }
+    return parsed;
   }
-  return parsed;
+  const { usableCores } = resolveLocalCoreBudget({
+    ...(reservationRaw === undefined ? {} : { raw: reservationRaw }),
+    ...(cpuCount === undefined ? {} : { cpuCount })
+  });
+  return Math.max(1, Math.floor(usableCores / perSlotCores));
 }
 
 export function selectQosPrefix({ platform, hasTaskpolicy, hasNice }) {
