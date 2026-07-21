@@ -13,7 +13,6 @@ import type {
   AuthorityOperationState,
   AuthoritySubmissionService,
   DelegationTokenVerification,
-  DelegationTokenVerifier,
 } from "./types.ts";
 import {
   actorAxesBindingDigestV2,

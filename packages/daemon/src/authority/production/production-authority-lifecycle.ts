@@ -279,7 +279,7 @@ export function createProductionAuthorityLifecycle(input: {
         publicationObservers.set(startInput.repo.repoId, startInput.inspectPublication);
         const material = options.materials.get(startInput.repo.repoId);
         if (!material) throw new Error("AUTHORITY_PRODUCTION_MATERIAL_UNAVAILABLE");
-        return createRepoComponent(startInput, material, input.hostServices, input.daemonLogService);
+        return createRepoComponent(startInput, material, input.hostServices);
       },
       serve: async ({ component }) => {
         (component as ProductionAuthorityRepoComponent).setServing(true);
@@ -305,8 +305,7 @@ interface ProductionAuthorityRepoComponent extends AuthorityRepoComponent {
 function createRepoComponent(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
-  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>,
-  daemonLogService?: DaemonLogService
+  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
@@ -383,8 +382,7 @@ function createRepoComponent(
             input,
             material,
             context,
-            publicationExecutor,
-            daemonLogService
+            publicationExecutor
           ), context),
           cutoverControl
         ),
@@ -474,8 +472,7 @@ function createConnectionAuthorityService(
   context: AuthorityConnectionContext,
   publicationExecutor: {
     readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
-  },
-  daemonLogService?: DaemonLogService
+  }
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
   const generationFence = createRuntimeDaemonGenerationWitnessFence({

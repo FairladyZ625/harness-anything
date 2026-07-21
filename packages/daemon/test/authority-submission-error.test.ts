@@ -1,12 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Effect } from "effect";
 import {
   authoritySubmissionWriteError,
-  gateAuthoritySubmissionForRecovery,
-  makeDaemonAuthorityWriteCoordinator
+  gateAuthoritySubmissionForRecovery
 } from "../src/index.ts";
+import { receiptToFlushReport } from "../src/authority/authority-command-submission.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
@@ -61,45 +60,31 @@ test("recovery gate returns retryable receipts on both legacy and V2 authority i
   assert.equal(submissions, 0);
 });
 
-test("stale daemon generation receipts expose a stable retryable write error code", async () => {
-  const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async () => ({
-      tag: "RETRYABLE_NOT_COMMITTED",
-      workspaceId: "workspace-generation-fence",
-      opId: "op-generation-fence",
-      semanticDigest: "a".repeat(64),
-      reason: "The daemon generation is stale.",
-      errorCode: "DAEMON_GENERATION_FENCED",
-      errorContext: {
-        schema: "daemon-generation-write-rejection/v1",
-        machineId: "machine-generation",
-        attemptedDaemonGeneration: 1,
-        currentDaemonGeneration: 2,
+test("stale daemon generation receipts expose a stable retryable write error code", () => {
+  const failure = (() => {
+    try {
+      receiptToFlushReport({
+        tag: "RETRYABLE_NOT_COMMITTED",
         workspaceId: "workspace-generation-fence",
         opId: "op-generation-fence",
-        stage: "before-terminal-journal"
-      }
-    })
-  }, {
-    command: {
-      action: {
-        kind: "progress-append",
-        taskId: "task_GENERATION_FENCE",
-        text: "must not commit",
-        dryRun: false
-      }
-    },
-    attribution: {},
-    currentSession: {}
-  } as Parameters<typeof makeDaemonAuthorityWriteCoordinator>[1]);
-  await Effect.runPromise(coordinator.enqueue({
-    opId: "op-generation-fence",
-    entityId: "task/task_GENERATION_FENCE",
-    kind: "progress_append",
-    payload: { path: "progress.md", append: "must not commit\n" }
-  }));
-
-  const failure = await Effect.runPromise(Effect.flip(coordinator.flush("explicit")));
+        semanticDigest: "a".repeat(64),
+        reason: "The daemon generation is stale.",
+        errorCode: "DAEMON_GENERATION_FENCED",
+        errorContext: {
+          schema: "daemon-generation-write-rejection/v1",
+          machineId: "machine-generation",
+          attemptedDaemonGeneration: 1,
+          currentDaemonGeneration: 2,
+          workspaceId: "workspace-generation-fence",
+          opId: "op-generation-fence",
+          stage: "before-terminal-journal"
+        }
+      }, "explicit");
+    } catch (error) {
+      return error;
+    }
+    throw new Error("receiptToFlushReport must reject a retryable fenced receipt");
+  })();
 
   assert.deepEqual(failure, {
     _tag: "WriteRejected",
@@ -118,42 +103,34 @@ test("stale daemon generation receipts expose a stable retryable write error cod
   });
 });
 
-test("post-publish generation loss preserves code and context without claiming retryability", async () => {
-  const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async () => ({
-      tag: "INDETERMINATE",
-      workspaceId: "workspace-generation-fence",
-      opId: "op-generation-indeterminate",
-      semanticDigest: "b".repeat(64),
-      commitSha: "c".repeat(40),
-      reason: "Canonical outcome requires current-generation reconciliation.",
-      errorCode: "DAEMON_GENERATION_FENCED",
-      errorContext: {
-        schema: "daemon-generation-write-rejection/v1",
-        machineId: "machine-generation",
-        attemptedDaemonGeneration: 1,
-        currentDaemonGeneration: 2,
+test("post-publish generation loss preserves code and context without claiming retryability", () => {
+  const failure = (() => {
+    try {
+      receiptToFlushReport({
+        tag: "INDETERMINATE",
         workspaceId: "workspace-generation-fence",
         opId: "op-generation-indeterminate",
-        stage: "before-terminal-visibility"
-      }
-    })
-  }, {
-    command: { action: { kind: "progress-append", taskId: "task_GENERATION_FENCE", text: "unknown", dryRun: false } },
-    attribution: {},
-    currentSession: {}
-  } as Parameters<typeof makeDaemonAuthorityWriteCoordinator>[1]);
-  await Effect.runPromise(coordinator.enqueue({
-    opId: "op-generation-indeterminate",
-    entityId: "task/task_GENERATION_FENCE",
-    kind: "progress_append",
-    payload: { path: "progress.md", append: "unknown\n" }
-  }));
-
-  const failure = await Effect.runPromise(Effect.flip(coordinator.flush("explicit")));
+        semanticDigest: "b".repeat(64),
+        commitSha: "c".repeat(40),
+        reason: "Canonical outcome requires current-generation reconciliation.",
+        errorCode: "DAEMON_GENERATION_FENCED",
+        errorContext: {
+          schema: "daemon-generation-write-rejection/v1",
+          machineId: "machine-generation",
+          attemptedDaemonGeneration: 1,
+          currentDaemonGeneration: 2,
+          workspaceId: "workspace-generation-fence",
+          opId: "op-generation-indeterminate",
+          stage: "before-terminal-visibility"
+        }
+      }, "explicit");
+    } catch (error) {
+      return error;
+    }
+    throw new Error("receiptToFlushReport must reject a fenced indeterminate receipt");
+  })() as { _tag?: string; code?: string; retryable?: boolean; context?: { stage?: string } };
 
   assert.equal(failure._tag, "WriteRejected");
-  if (failure._tag !== "WriteRejected") return;
   assert.equal(failure.code, "DAEMON_GENERATION_FENCED");
   assert.equal(failure.retryable, undefined);
   assert.equal(failure.context?.stage, "before-terminal-visibility");
