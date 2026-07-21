@@ -52,6 +52,11 @@ export interface DaemonRuntimeOptions {
     readonly rootDir: string;
     readonly layoutOverrides?: HarnessLayoutOverrides;
   }) => Promise<void>;
+  /** Present only when this runtime is owned by a durable daemon generation. */
+  readonly generationAxes?: {
+    readonly machineId: string;
+    readonly daemonGeneration: number;
+  };
 }
 
 export interface DaemonRuntimeStatus {
@@ -100,6 +105,8 @@ export interface DaemonRepoRuntimeStatus extends DaemonRuntimeStatus {
   readonly state: DaemonRepoRuntimeState;
   readonly lastError?: string;
   readonly lastMaterializerError?: string;
+  readonly runtimeRegistrationId?: string;
+  readonly daemonGeneration?: number;
 }
 
 export interface MultiRepoDaemonRuntimeOptions extends Omit<DaemonRuntimeOptions, "rootDir" | "layoutOverrides"> {

@@ -45,10 +45,34 @@ test("control producer keeps legacy launch configuration bytes and gates generat
   assert.equal(capableLaunch.daemonGeneration, 5);
 });
 
-function control() {
+test("explicit generation control fails closed for legacy platform startup and stale generation", async () => {
+  const legacyControl = control({
+    execPath: launchConfiguration.execPath,
+    execArgv: launchConfiguration.execArgv,
+    entrypoint: launchConfiguration.entrypoint,
+    args: launchConfiguration.args
+  });
+  const unavailable = await legacyControl.requestControl("restart", {
+    reason: "explicit generation on Windows legacy mode",
+    drainTimeoutMs: 5_000,
+    daemonGeneration: 5
+  });
+  assert.equal(unavailable.ok, false);
+  if (!unavailable.ok) assert.equal(unavailable.error.code, "daemon_control_generation_mismatch");
+
+  const stale = await control().requestControl("restart", {
+    reason: "stale generation",
+    drainTimeoutMs: 5_000,
+    daemonGeneration: 4
+  });
+  assert.equal(stale.ok, false);
+  if (!stale.ok) assert.match(stale.error.hint, /does not match current generation 5/u);
+});
+
+function control(configuration: DaemonLaunchConfiguration = launchConfiguration) {
   let active: DaemonActiveControlStatus | null = null;
   return createDaemonControlService({
-    launchConfiguration,
+    launchConfiguration: configuration,
     preflightReplacement: async () => undefined,
     status: statusFixture,
     activeControl: () => active,

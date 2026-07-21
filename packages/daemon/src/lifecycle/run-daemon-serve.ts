@@ -72,50 +72,93 @@ export async function runDaemonServe<
 
   return withDaemonSocketOwnership(endpoint, async () => {
     const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
-    const generation = prepareDaemonGenerationForServe({
-      userRoot,
-      endpointIdentity: endpoint,
-      daemonInstanceId: `ha-${process.pid}`,
-      ...(input.platform ? { platform: input.platform } : {})
-    });
-    if (generation.mode === "legacy") {
-      try {
-        await daemonLogService.append({
-          level: "warn",
-          source: "daemon",
-          component: "daemon.generation",
-          event: "daemon.generation.legacy-mode",
-          message: "Durable daemon generation publication is unavailable; continuing with legacy daemon semantics.",
-          errorCode: generation.diagnostic,
-          hint: "Generation-aware status, control, and terminal receipt fencing remain unavailable on this platform."
-        }, { repo: lifecycleRepo });
-      } catch {
-        // Operational diagnostics must not block legacy-compatible daemon startup.
-      }
-    }
-    const launchConfiguration = createDaemonLaunchConfiguration({
-      target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
-      entrypoint: input.entrypoint,
-      idleExitMs: input.idleMs,
-      ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
-      ...(authorityManifest ? { authorityManifest } : {}),
-      launchOptionsResolved: true,
-      ...(generation.mode === "generation" ? {
-        machineId: generation.machineId,
-        daemonGeneration: generation.daemonGeneration
-      } : {})
-    });
     let runtime: ReturnType<typeof createMultiRepoDaemonRuntime> | undefined;
     let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost<Command, Result, Identity, PresentedControlError>>> | undefined;
+    let transport: ReturnType<typeof createDaemonLocalTransport> | undefined;
+    let transportStarted = false;
     let lifecycleStarted = false;
     let terminalReason: string | undefined;
     let terminalClean = false;
     let terminalMessage: string | undefined;
     let failure: unknown;
     try {
+      const connections = { active: 0, total: 0 };
+      const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
+        ? serveHostServices.createAuthorityLifecycle({
+          manifestPath: authorityManifest,
+          daemonLogService,
+          backgroundRecovery: true,
+          ...(layoutOverrides ? { layoutOverrides } : {})
+        })
+        : undefined);
+      transport = createDaemonLocalTransport({
+        daemonId: `ha-${process.pid}`,
+        endpoint,
+        acceptSshForcedCommand: (frame) => serviceHost?.acceptsSshForcedCommand(frame.canonicalRoot) ?? false,
+        ...(authorityLifecycle ? {
+          authorityWireIngress: (request) => {
+            if (!serviceHost) throw new Error("daemon service host is not ready");
+            return serviceHost.authorityWireIngress(request);
+          }
+        } : {}),
+        createProtocolServer: (authContext, acceptedConnection, notificationSink) => {
+          if (!serviceHost) throw new Error("daemon service host is not ready");
+          return serviceHost.createProtocolServer(authContext, acceptedConnection, notificationSink);
+        },
+        onConnection: () => {
+          connections.active += 1;
+          connections.total += 1;
+          serviceHost?.onConnectionStart();
+        },
+        onConnectionClosed: () => {
+          connections.active = Math.max(0, connections.active - 1);
+          serviceHost?.onConnectionSettled();
+        }
+      });
+      await transport.start();
+      transportStarted = true;
+      const generation = prepareDaemonGenerationForServe({
+        userRoot,
+        endpointIdentity: endpoint,
+        daemonInstanceId: `ha-${process.pid}`,
+        ...(input.platform ? { platform: input.platform } : {})
+      });
+      if (generation.mode === "legacy") {
+        try {
+          await daemonLogService.append({
+            level: "warn",
+            source: "daemon",
+            component: "daemon.generation",
+            event: "daemon.generation.legacy-mode",
+            message: "Durable daemon generation publication is unavailable; continuing with legacy daemon semantics.",
+            errorCode: generation.diagnostic,
+            hint: "Generation-aware status, control, and terminal receipt fencing remain unavailable on this platform."
+          }, { repo: lifecycleRepo });
+        } catch {
+          // Operational diagnostics must not block legacy-compatible daemon startup.
+        }
+      }
+      const launchConfiguration = createDaemonLaunchConfiguration({
+        target: { canonicalRoot: rootDir, repoId: defaultRepoId, socketPath: endpoint, userRoot },
+        entrypoint: input.entrypoint,
+        idleExitMs: input.idleMs,
+        ...(input.authoredRoot !== undefined ? { authoredRoot: input.authoredRoot } : {}),
+        ...(authorityManifest ? { authorityManifest } : {}),
+        launchOptionsResolved: true,
+        ...(generation.mode === "generation" ? {
+          machineId: generation.machineId,
+          daemonGeneration: generation.daemonGeneration
+        } : {})
+      });
       runtime = createMultiRepoDaemonRuntime({
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         materializerPollMs: 5_000,
+        ...(generation.mode === "generation" ? {
+          generationAxes: {
+            machineId: generation.machineId,
+            daemonGeneration: generation.daemonGeneration
+          }
+        } : {}),
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;
           const repoId = serveRepos.find((repo) => repo.canonicalRoot === canonicalRoot)?.repoId;
@@ -132,15 +175,6 @@ export async function runDaemonServe<
       if (startStatus.repoCount > 0 && startStatus.attachedCount === 0 && startStatus.unavailableCount > 0) {
         throw new Error(`daemon did not attach any registered repo: ${startStatus.repos.map((repo) => `${repo.repoId}:${repo.lastError ?? repo.state}`).join("; ")}`);
       }
-      const connections = { active: 0, total: 0 };
-      const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
-        ? serveHostServices.createAuthorityLifecycle({
-          manifestPath: authorityManifest,
-          daemonLogService,
-          backgroundRecovery: true,
-          ...(layoutOverrides ? { layoutOverrides } : {})
-        })
-        : undefined);
       serviceHost = await createDaemonServiceHost(
         runtime,
         serveRepos,
@@ -165,24 +199,11 @@ export async function runDaemonServe<
         authorityLifecycle,
         daemonLogService
       );
-      const transport = createDaemonLocalTransport({
-        daemonId: serviceHost.daemonId,
-        endpoint,
-        acceptSshForcedCommand: (frame) => serviceHost?.acceptsSshForcedCommand(frame.canonicalRoot) ?? false,
-        ...(authorityLifecycle ? { authorityWireIngress: serviceHost.authorityWireIngress } : {}),
-        createProtocolServer: serviceHost.createProtocolServer,
-        onConnection: () => {
-          connections.active += 1;
-          connections.total += 1;
-          serviceHost?.onConnectionStart();
-        },
-        onConnectionClosed: () => {
-          connections.active = Math.max(0, connections.active - 1);
-          serviceHost?.onConnectionSettled();
-        }
+      serviceHost.onStop(async () => {
+        if (!transportStarted || !transport) return;
+        transportStarted = false;
+        await transport.stop();
       });
-      await transport.start();
-      serviceHost.onStop(() => transport.stop());
       if (input.requestedAuthorityManifest) {
         persistAuthorityManifestPointer(input.requestedAuthorityManifest, userRoot);
       }
@@ -225,6 +246,10 @@ export async function runDaemonServe<
         }
       } finally {
         if (!stoppedByHost && serviceHost && runtime) await runtime.stop();
+        if (transportStarted && transport) {
+          transportStarted = false;
+          await transport.stop();
+        }
       }
     } catch (error) {
       failure ??= error;

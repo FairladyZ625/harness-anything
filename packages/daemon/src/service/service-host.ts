@@ -36,6 +36,7 @@ import { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 import { calculateDaemonArtifactIdentity } from "../protocol/daemon-artifact-identity.ts";
 import { canonicalRootIdentity } from "../runtime/canonical-root.ts";
 import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonReconcileState } from "../runtime/registry-reconciler.ts";
+import { publishRuntimeRegistrationSnapshot } from "../runtime/runtime-registration-projection.ts";
 import { createAuthorityWireIngressHandler } from "../authority/authority-wire-service.ts";
 import { requireAuthoritySubmissionForDispatch } from "../authority/authority-submission-dispatch.ts";
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
@@ -180,6 +181,7 @@ export async function createDaemonServiceHost<
     setDrainTimeout: (timeoutMs) => { drainTimeoutMs = timeoutMs; },
     requestStop: (request) => requestStop?.(request)
   }, hostServices.errors);
+  publishRuntimeRegistrationSnapshot({ userRoot, ...build, runtimeStatus: runtime.status() });
   const repoBindings = new Map<string, RepoServiceBinding>();
   for (const repo of repos) {
     const repoRuntime = runtime.getRepoRuntime(repo.repoId);
@@ -344,6 +346,7 @@ export async function createDaemonServiceHost<
         reposById.delete(repoId);
       }
     }, reconcileState);
+    publishRuntimeRegistrationSnapshot({ userRoot, ...build, runtimeStatus: runtime.status() });
   }
 
   function serviceStatus(repoId: string, includeGenerationAxes = false): DaemonStatusResultV2 {

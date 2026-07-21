@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import {
   createHarnessRuntimeContext,
@@ -206,6 +207,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private lastError: string | undefined;
   private lastMaterializerError: string | undefined;
   private materializerTimer: ReturnType<typeof setInterval> | undefined;
+  private runtimeRegistrationId: string | undefined;
 
   constructor(options: DaemonRepoRuntimeOptions) {
     this.options = options;
@@ -251,9 +253,11 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.lastMaterializerError = undefined;
       this.state = "attached";
       await this.enqueueReservationReconciler();
+      if (this.options.generationAxes) this.runtimeRegistrationId = randomUUID();
       this.startMaterializerTimer();
       return this.status();
     } catch (error) {
+      this.runtimeRegistrationId = undefined;
       await this.releaseStartedParts();
       this.state = "unavailable";
       this.lastError = describeRepoRuntimeError(error);
@@ -264,6 +268,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   async stop(options?: DaemonDrainOptions): Promise<void> {
     this.state = "detaching";
+    this.runtimeRegistrationId = undefined;
     this.projectionGeneration.reset();
     this.stopMaterializerTimer();
     try {
@@ -304,7 +309,11 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       projectionGeneration: this.projectionGeneration.snapshot(),
       ...(this.lastRecovery ? { lastRecovery: this.lastRecovery } : {}),
       ...(this.lastError ? { lastError: this.lastError } : {}),
-      ...(this.lastMaterializerError ? { lastMaterializerError: this.lastMaterializerError } : {})
+      ...(this.lastMaterializerError ? { lastMaterializerError: this.lastMaterializerError } : {}),
+      ...(this.runtimeRegistrationId && this.options.generationAxes ? {
+        runtimeRegistrationId: this.runtimeRegistrationId,
+        daemonGeneration: this.options.generationAxes.daemonGeneration
+      } : {})
     };
   }
 
@@ -506,7 +515,8 @@ function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDae
     ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),
     ...(repo.materializerPollMs !== undefined ? {} : options.materializerPollMs !== undefined ? { materializerPollMs: options.materializerPollMs } : {}),
     ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {}),
-    ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {})
+    ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {}),
+    ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {})
   };
 }
 
