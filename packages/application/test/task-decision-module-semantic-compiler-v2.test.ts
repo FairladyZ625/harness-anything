@@ -140,6 +140,32 @@ test("managed heading regions fail closed on undeclared, duplicate, machine-writ
   ), /SEMANTIC_DIFF_REQUIRED:forbidden section changed/u);
 });
 
+test("host-prose policies allow undeclared sections without weakening their declared skeleton", () => {
+  const taskId = "task_T";
+  const documentPath = `tasks/${taskId}-folder/task_plan.md`;
+  const index = { path: `tasks/${taskId}-folder/INDEX.md`, body: taskIndex(taskId, "active") };
+  const policy = {
+    ...freeProsePolicy(documentPath, "## Goal"),
+    undeclaredSections: "allow" as const
+  };
+
+  assert.doesNotThrow(() => compileManagedCandidateTreeV2({
+    documents: [index, { path: documentPath, body: managedBody("Plan", "## Goal", "Old") }]
+  }, {
+    documents: [index, {
+      path: documentPath,
+      body: `${managedBody("Plan", "## Goal", "Old")}\n## Review Addendum\n\nNew context.\n`
+    }]
+  }, [policy], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]));
+
+  assert.throws(() => compileManagedCandidateTreeV2({
+    documents: [index, { path: documentPath, body: managedBody("Plan", "## Goal", "Old") }]
+  }, {
+    documents: [index, { path: documentPath, body: managedBody("Plan", "## Purpose", "Old") }]
+  }, [policy], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]),
+  /SEMANTIC_DIFF_AMBIGUOUS:section identity changed/u);
+});
+
 test("all task actions compile to one exact package-hosted StoragePlan", async () => {
   const taskId = "task_T";
   const taskRef = ref("task", `task/${taskId}`);

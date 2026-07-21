@@ -75,6 +75,7 @@ export interface SemanticDiffSectionPolicy {
 export interface SemanticDiffDocumentPolicy {
   readonly path: string;
   readonly sections: ReadonlyArray<SemanticDiffSectionPolicy>;
+  readonly undeclaredSections?: "allow" | "reject";
 }
 
 export interface SemanticDiffCandidateDocument {

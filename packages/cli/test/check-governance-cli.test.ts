@@ -82,6 +82,13 @@ test("CLI metadata check validates software coding preset task documents", () =>
     assert.equal(result.report.summary.hardFailCount, 0);
     assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "visual_map_missing"), false);
     assert.equal(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8").includes("Task Contract: harness-task v1"), true);
+
+    const taskPlanPath = path.join(rootDir, created.packagePath, "task_plan.md");
+    writeFileSync(taskPlanPath, `${readFileSync(taskPlanPath, "utf8")}\n## Review Addendum\n\nNew context.\n`, "utf8");
+    const withAddendum = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+    assert.equal(withAddendum.ok, true);
+    assert.equal(withAddendum.warnings.some((warning: Record<string, unknown>) =>
+      warning.code === "metadata_section_permission_missing" && warning.message.includes("task_plan.md")), false);
   });
 });
 

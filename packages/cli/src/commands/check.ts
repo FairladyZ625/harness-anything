@@ -19,6 +19,7 @@ import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings 
 import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
 import { discoverScriptEntries } from "./extensions/script.ts";
 import { runScriptHost } from "./extensions/script-host.ts";
+import { undeclaredSectionsForTaskDocument } from "./extensions/managed-section-policy.ts";
 import { validateInReviewExecutionConsistency } from "./task-execution-consistency.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
@@ -443,15 +444,17 @@ function validateMetadataDrivenTaskPackage(
       continue;
     }
     const permissions = new Map(liveDocument.sectionPermissions.map((permission) => [permission.anchor, permission]));
-    for (const section of markdownHeadingSections(body)) {
-      if (permissions.has(section.anchor)) continue;
-      issues.push(profileIssue(
-        "metadata-template",
-        "metadata_section_permission_missing",
-        "hard-fail",
-        `${relativeDocumentPath} contains undeclared section ${section.anchor}.`,
-        "Declare the heading in the selected template sectionPermissions before canonical writes are allowed."
-      ));
+    if (undeclaredSectionsForTaskDocument(liveDocument.sectionPermissions) === "reject") {
+      for (const section of markdownHeadingSections(body)) {
+        if (permissions.has(section.anchor)) continue;
+        issues.push(profileIssue(
+          "metadata-template",
+          "metadata_section_permission_missing",
+          "hard-fail",
+          `${relativeDocumentPath} contains undeclared section ${section.anchor}.`,
+          "Declare the heading in the selected template sectionPermissions before canonical writes are allowed."
+        ));
+      }
     }
     for (const permission of liveDocument.sectionPermissions) {
       if (permission.writeMode !== "forbidden") continue;

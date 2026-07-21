@@ -115,6 +115,61 @@ test("doc sync submit accepts pure task prose and commits with hermetic author",
   });
 });
 
+test("doc sync submit accepts undeclared sections in task host prose", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
+    const service = makeDocSyncService({ rootDir, coordinator: attributedCoordinator(rootDir) });
+    const base = planBody("Original prose.");
+    const next = `${base}\n## 2026-07-21 Review Addendum\n\nNewly discovered requirement.\n`;
+    const result = await service.submit(submitRequest({
+      baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+      intentId: "intent-task-plan-addendum",
+      changes: [inlineChange(`tasks/${taskId}/task_plan.md`, base, next)]
+    }));
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.match(readFileSync(path.join(harnessRoot, "tasks", taskId, "task_plan.md"), "utf8"), /Review Addendum/u);
+  });
+});
+
+test("doc sync rejects renamed task host-prose skeleton sections", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
+    const base = planBody("Original prose.");
+    const validation = validateDocSyncSubmitRequest({
+      rootInput: rootDir,
+      request: submitRequest({
+        baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+        intentId: "intent-task-plan-renamed-skeleton",
+        changes: [inlineChange(`tasks/${taskId}/task_plan.md`, base, base.replace("## Goal", "## Purpose"))]
+      })
+    });
+
+    assert.equal(validation.ok, false);
+    assert.match(validation.unresolvedTouches[0]?.reason ?? "", /SEMANTIC_DIFF_AMBIGUOUS:section identity changed/u);
+  });
+});
+
+test("doc sync keeps decision documents strict about undeclared sections", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
+    const decisionPath = "decisions/decision-dec_TEST/decision.md";
+    const decisionBase = "# Decision\n\n## Rationale\n\nOriginal rationale.\n";
+    mkdirSync(path.join(harnessRoot, "decisions", "decision-dec_TEST"), { recursive: true });
+    writeFileSync(path.join(harnessRoot, decisionPath), decisionBase, "utf8");
+    git(harnessRoot, "add", decisionPath);
+    gitCommit(harnessRoot, "seed canonical decision");
+    const validation = validateDocSyncSubmitRequest({
+      rootInput: rootDir,
+      request: submitRequest({
+        baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+        intentId: "intent-decision-addendum",
+        changes: [inlineChange(decisionPath, decisionBase, `${decisionBase}\n## Addendum\n\nUndeclared.\n`)]
+      })
+    });
+
+    assert.equal(validation.ok, false);
+    assert.match(validation.unresolvedTouches[0]?.reason ?? "", /SEMANTIC_DIFF_REQUIRED:undeclared section/u);
+  });
+});
+
 test("doc sync candidate tree compiles prose plus hosted facts and relation in one save", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {
     writeFileSync(path.join(taskRoot, "facts.md"), factsBody(""), "utf8");
@@ -255,7 +310,7 @@ test("doc sync submit rejects disguised prose edits to task fact records", async
   });
 });
 
-test("doc sync rejects undeclared, machine-written, forbidden, and non-heading module regions before apply", async () => {
+test("doc sync allows task host-prose additions but rejects machine-written, forbidden, and non-heading module regions", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {
     const progressBase = progressBody("Original log.");
     const reviewBase = reviewBody("pending");
@@ -282,7 +337,7 @@ test("doc sync rejects undeclared, machine-written, forbidden, and non-heading m
 
     assert.equal(validation.ok, false);
     const reasons = validation.unresolvedTouches.map((touch) => touch.reason).join("\n");
-    assert.match(reasons, /SEMANTIC_DIFF_REQUIRED:undeclared section/u);
+    assert.doesNotMatch(reasons, /task_plan\.md.*undeclared section/u);
     assert.match(reasons, /SEMANTIC_DIFF_REQUIRED:machine-written section requires typed command/u);
     assert.match(reasons, /SEMANTIC_DIFF_REQUIRED:forbidden section changed/u);
     assert.match(reasons, /modules\.json has no registered markdown heading region/u);

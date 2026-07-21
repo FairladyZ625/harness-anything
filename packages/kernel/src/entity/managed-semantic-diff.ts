@@ -88,12 +88,15 @@ function changedRegions(
     assertUniqueHeadings(baseBody, filePath);
     assertUniqueHeadings(candidateBody, filePath);
     const declared = new Map(policy!.sections.map((section) => [section.anchor, section]));
+    const allowsUndeclaredSections = policy!.undeclaredSections === "allow";
     const actualAnchors = new Set([
       ...markdownHeadingSections(baseBody).map((section) => section.anchor),
       ...markdownHeadingSections(candidateBody).map((section) => section.anchor)
     ]);
     for (const anchor of actualAnchors) {
-      if (!declared.has(anchor)) semanticDiffError("SEMANTIC_DIFF_REQUIRED", `undeclared section ${anchor} in ${filePath}`);
+      if (!allowsUndeclaredSections && !declared.has(anchor)) {
+        semanticDiffError("SEMANTIC_DIFF_REQUIRED", `undeclared section ${anchor} in ${filePath}`);
+      }
     }
     for (const section of policy!.sections) {
       const baseHas = hasHeading(baseBody, section.anchor);
@@ -119,7 +122,8 @@ function changedRegions(
         candidateSection
       });
     }
-    if (maskDeclaredSections(baseBody, policy!.sections) !== maskDeclaredSections(candidateBody, policy!.sections)) {
+    if (!allowsUndeclaredSections
+      && maskDeclaredSections(baseBody, policy!.sections) !== maskDeclaredSections(candidateBody, policy!.sections)) {
       semanticDiffError("SEMANTIC_DIFF_REQUIRED", `bytes outside declared sections changed: ${filePath}`);
     }
   }
