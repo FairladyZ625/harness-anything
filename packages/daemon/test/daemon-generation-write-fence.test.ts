@@ -397,9 +397,7 @@ test("generation exclusion spans canonical flush through the corresponding termi
     get: memory.get,
     list: memory.list,
     put: async (record: Parameters<typeof memory.put>[0]) => {
-      if (record.state === "PUBLISHED" || record.state === "INDEXED" || record.state === "COMMITTED") {
-        assert.equal(generationLockDepth > 0, true, `${record.state} escaped the generation exclusion`);
-      }
+      assert.equal(generationLockDepth > 0, true, `${record.state} escaped the generation exclusion`);
       await memory.put(record);
     }
   };
