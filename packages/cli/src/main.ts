@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./cli/parse-args.ts";
 import { deprecationWarning } from "./cli/command-deprecations.ts";
@@ -126,7 +127,8 @@ function isDaemonIndependentCommand(command: { readonly action: { readonly kind:
     || command.action.kind === "version"
     || command.action.kind === "entity-list"
     || command.action.kind === "capabilities"
-    || command.action.kind === "completion";
+    || command.action.kind === "completion"
+    || command.action.kind === "git-diff";
 }
 
 async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {
@@ -206,7 +208,8 @@ async function runDaemonServe(
   hooks: DaemonServeHooks = {},
   parsedLaunchOptions = parseDaemonLaunchArgv(args)
 ): Promise<void> {
-  const entrypoint = fileURLToPath(import.meta.url);
+  const implementationPath = fileURLToPath(import.meta.url);
+  const entrypoint = path.join(path.dirname(implementationPath), `index${path.extname(implementationPath)}`);
   const requestedUserRoot = parsedLaunchOptions.userRoot ?? daemonUserRoot();
   const requestedEndpoint = parsedLaunchOptions.socketPath ?? localUserDaemonEndpoint(requestedUserRoot, daemonIdFromEnv());
   const explicit = {
