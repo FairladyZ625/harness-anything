@@ -9,6 +9,11 @@ import {
 const root = process.cwd();
 const errors = [];
 const policy = harnessSupplyChainReleaseReadiness;
+const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
+const commandTimeoutMs = shorterPositiveTimeout(
+  process.env.HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS,
+  DEFAULT_COMMAND_TIMEOUT_MS
+);
 const manifestGateRunner = "node tools/run-manifest-gates.mjs";
 const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
   ? readJson("tools/gate-manifest.json")
@@ -36,9 +41,23 @@ function run(command) {
   const result = spawnSync(binary, args, {
     cwd: root,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: commandTimeoutMs,
+    killSignal: "SIGKILL"
   });
 
+  if (result.error?.code === "ETIMEDOUT") {
+    record(`${command} timed out after ${commandTimeoutMs}ms`);
+    return "";
+  }
+  if (result.error) {
+    record(`${command} failed to start: ${result.error.message}`);
+    return "";
+  }
+  if (result.signal !== null) {
+    record(`${command} terminated by signal ${result.signal}`);
+    return "";
+  }
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
     record(`${command} failed${output ? `:\n${output}` : ""}`);
@@ -46,6 +65,13 @@ function run(command) {
   }
 
   return result.stdout;
+}
+
+function shorterPositiveTimeout(value, fallback) {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, fallback);
 }
 
 const policyValidation = validateSupplyChainReleaseReadiness(policy);
