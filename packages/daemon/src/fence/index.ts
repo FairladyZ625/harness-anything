@@ -1,5 +1,14 @@
 export { acquireSingleHostAuthorityFence } from "./authority-fence.ts";
 export {
+  createDaemonGenerationAuthorityFence,
+  createRuntimeDaemonGenerationAuthorityFence,
+  daemonGenerationAxes,
+  daemonGenerationFencedCode,
+  daemonGenerationWriteRejectionSchema,
+  DaemonGenerationFencedError,
+  type DaemonGenerationWriteRejectionV1
+} from "./daemon-generation-fence.ts";
+export {
   DurabilityBoundUnsatisfiedError,
   SingleAuthorityDurabilityLedger,
   readSingleAuthorityDurabilityLedger,

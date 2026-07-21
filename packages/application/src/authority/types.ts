@@ -203,8 +203,18 @@ export interface CanonicalPublicationInspector {
 }
 
 export interface AuthorityFenceWitness {
-  readonly assertHeld: () => Promise<void>;
+  readonly assertHeld: (
+    stage?: AuthorityFenceStage,
+    context?: { readonly workspaceId: string; readonly opId: string }
+  ) => Promise<void>;
 }
+
+export type AuthorityFenceStage =
+  | "before-prepare"
+  | "before-canonical-publish"
+  | "after-canonical-publish"
+  | "before-terminal-visibility"
+  | "before-terminal-journal";
 
 export interface AttributedCoordinatorFactory {
   readonly create: (input: {

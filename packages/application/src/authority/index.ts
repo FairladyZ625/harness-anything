@@ -41,6 +41,7 @@ export type {
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
   AuthorityFenceWitness,
+  AuthorityFenceStage,
   AuthorityIndeterminateReceipt,
   AuthorityIntegrityTupleV2,
   AuthorityOperationEnvelope,

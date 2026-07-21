@@ -157,7 +157,8 @@ export async function runDaemonServe<
           generationAxes: {
             machineId: generation.machineId,
             daemonGeneration: generation.daemonGeneration
-          }
+          },
+          generationWitness: generation.witness
         } : {}),
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;

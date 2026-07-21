@@ -29,6 +29,7 @@ import {
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import type { ProductionCompoundReceiptComposition } from "../lifecycle/compound-receipt-composition.ts";
+import type { DaemonGenerationWitness } from "../lifecycle/daemon-generation.ts";
 import type { AuthorityForcedCommandSession } from "@harness-anything/daemon";
 import type { Readable, Writable } from "node:stream";
 
@@ -105,6 +106,12 @@ export interface AuthorityLifecycleRuntime {
     readonly commitAuthor?: { readonly name: string; readonly email: string };
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
+  readonly daemonGenerationContext?: () => {
+    readonly witness: DaemonGenerationWitness;
+    readonly machineId: string;
+    readonly daemonGeneration: number;
+    readonly runtimeRegistrationId?: string;
+  } | undefined;
   readonly enqueueMaterializerBatch: (options: { readonly sessionId: string }) => Promise<{
     readonly branches: ReadonlyArray<{
       readonly branch: string;

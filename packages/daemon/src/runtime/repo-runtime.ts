@@ -393,6 +393,21 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     assertDaemonGlobalLockHeld(lock);
   }
 
+  daemonGenerationContext(): {
+    readonly witness: NonNullable<DaemonRuntimeOptions["generationWitness"]>;
+    readonly machineId: string;
+    readonly daemonGeneration: number;
+    readonly runtimeRegistrationId?: string;
+  } | undefined {
+    if (!this.options.generationAxes || !this.options.generationWitness) return undefined;
+    return {
+      witness: this.options.generationWitness,
+      machineId: this.options.generationAxes.machineId,
+      daemonGeneration: this.options.generationAxes.daemonGeneration,
+      ...(this.runtimeRegistrationId ? { runtimeRegistrationId: this.runtimeRegistrationId } : {})
+    };
+  }
+
   subscribeProjectionChanges(listener: (event: ProjectionChangeEvent) => void): () => void {
     return this.projectionChanges.subscribe(listener);
   }
@@ -516,7 +531,8 @@ function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDae
     ...(repo.materializerPollMs !== undefined ? {} : options.materializerPollMs !== undefined ? { materializerPollMs: options.materializerPollMs } : {}),
     ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {}),
     ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {}),
-    ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {})
+    ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {}),
+    ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {})
   };
 }
 

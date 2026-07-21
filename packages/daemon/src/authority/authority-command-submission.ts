@@ -341,7 +341,11 @@ function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushR
   switch (receipt.tag) {
     case "COMMITTED": return { reason, opCount: 1, committed: true, watermark: receipt.opId };
     case "REJECTED": throw authorityWriteRejected(receipt.reason, false, "authority_ingress_rejected");
-    case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(receipt.reason, true);
+    case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(
+      receipt.reason,
+      true,
+      receipt.reason.startsWith("DAEMON_GENERATION_FENCED:") ? "DAEMON_GENERATION_FENCED" : undefined
+    );
     case "INDETERMINATE": throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
   }
 }

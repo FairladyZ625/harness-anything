@@ -1,9 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Effect } from "effect";
 import {
   authoritySubmissionWriteError,
-  gateAuthoritySubmissionForRecovery
+  gateAuthoritySubmissionForRecovery,
+  makeDaemonAuthorityWriteCoordinator
 } from "../src/index.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
@@ -57,6 +59,44 @@ test("recovery gate returns retryable receipts on both legacy and V2 authority i
   assert.equal(v2.tag, "RETRYABLE_NOT_COMMITTED");
   assert.equal(v2.opId, fixture.expectedOpId);
   assert.equal(submissions, 0);
+});
+
+test("stale daemon generation receipts expose a stable retryable write error code", async () => {
+  const coordinator = makeDaemonAuthorityWriteCoordinator({
+    submit: async () => ({
+      tag: "RETRYABLE_NOT_COMMITTED",
+      workspaceId: "workspace-generation-fence",
+      opId: "op-generation-fence",
+      semanticDigest: "a".repeat(64),
+      reason: "DAEMON_GENERATION_FENCED:stale daemon generation"
+    })
+  }, {
+    command: {
+      action: {
+        kind: "progress-append",
+        taskId: "task_GENERATION_FENCE",
+        text: "must not commit",
+        dryRun: false
+      }
+    },
+    attribution: {},
+    currentSession: {}
+  } as Parameters<typeof makeDaemonAuthorityWriteCoordinator>[1]);
+  await Effect.runPromise(coordinator.enqueue({
+    opId: "op-generation-fence",
+    entityId: "task/task_GENERATION_FENCE",
+    kind: "progress_append",
+    payload: { path: "progress.md", append: "must not commit\n" }
+  }));
+
+  const failure = await Effect.runPromise(Effect.flip(coordinator.flush("explicit")));
+
+  assert.deepEqual(failure, {
+    _tag: "WriteRejected",
+    code: "DAEMON_GENERATION_FENCED",
+    reason: "DAEMON_GENERATION_FENCED:stale daemon generation",
+    retryable: true
+  });
 });
 
 function authorityCommandAttemptFixture() {

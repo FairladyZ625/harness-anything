@@ -7,14 +7,11 @@ import {
   type WriteOp
 } from "@harness-anything/kernel";
 import type {
-  AuthorityIndeterminateReceipt,
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationState,
-  AuthorityRejectedReceipt,
-  AuthorityRetryableReceipt,
   AuthoritySubmissionService,
   AttributedCoordinatorFactory,
   AuthorityFenceWitness,
@@ -68,6 +65,13 @@ import {
   type PreparedAuthoritySubmission,
   type TerminalAuthoritySubmission
 } from "./service-admission-types.ts";
+import {
+  daemonGenerationFenceReason,
+  isDaemonGenerationFenced,
+  rejectGenerationFencedBatch,
+  rejectStaleGeneration
+} from "./generation-fence-enforcement.ts";
+import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
 
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
@@ -80,6 +84,8 @@ export interface AuthoritySubmissionServiceOptions {
     readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
   };
   readonly fenceWitness: AuthorityFenceWitness;
+  /** Optional so legacy and Windows-degraded daemon paths retain their prior byte and write behavior. */
+  readonly generationFenceWitness?: AuthorityFenceWitness;
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
   readonly v2?: AuthoritySubmissionV2Options;
@@ -192,6 +198,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
     }
+    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, identity, semanticDigest);
+    if (generationRejection) return terminal(generationRejection);
     await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
     let computedIntegrity: AuthorityOperationIntegrity | undefined;
     try {
@@ -238,7 +246,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       computedIntegrity = authorityIntegrity;
       await consumeActorAxesBindingOperationV2(verified, v2.bindingRuntime);
       try {
-        await options.fenceWitness.assertHeld();
+        await options.fenceWitness.assertHeld("before-prepare", identity);
       } catch (error) {
         return terminal(await persistTerminal(
           identity,
@@ -288,6 +296,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       return terminal(indeterminate(envelope, semanticDigest, `operation remains ${known.state}`));
     }
 
+    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, envelope, semanticDigest);
+    if (generationRejection) return terminal(generationRejection);
+
     await put(envelope, semanticDigest, "RECEIVED");
     if (options.v2 && (envelope.operation.kind === "doc_sync_submit" || envelope.operation.kind === "script_ingest")) {
       return terminal(await persistTerminal(
@@ -311,7 +322,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     if (claimFailure) return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", claimFailure));
 
     try {
-      await options.fenceWitness.assertHeld();
+      await options.fenceWitness.assertHeld("before-prepare", envelope);
     } catch (error) {
       return terminal(await persistTerminal(envelope, semanticDigest, "INDETERMINATE", indeterminate(envelope, semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`)));
     }
@@ -361,11 +372,15 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
 
     let previousHead: string | null;
     try {
-      await options.fenceWitness.assertHeld();
+      await options.fenceWitness.assertHeld("before-canonical-publish", prepared[0]);
       previousHead = await options.publicationInspector.currentHead();
     } catch (error) {
       await settlePrepared(prepared, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`));
+      return batchReceipts(admissions, receipts);
+    }
+
+    if (await rejectGenerationFencedBatch(options.generationFenceWitness, prepared, receipts)) {
       return batchReceipts(admissions, receipts);
     }
 
@@ -386,6 +401,10 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
     if (candidates.length === 0) return batchReceipts(admissions, receipts);
 
+    if (await rejectGenerationFencedBatch(options.generationFenceWitness, candidates, receipts)) {
+      return batchReceipts(admissions, receipts);
+    }
+
     try {
       const flush = await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
       if (!flush.committed || flush.opCount !== candidates.length) {
@@ -403,7 +422,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
 
     let commitSha: string;
     try {
-      await options.fenceWitness.assertHeld();
+      await options.fenceWitness.assertHeld("after-canonical-publish", candidates[0]);
       const publication = await options.publicationInspector.inspectPublishedHead(
         previousHead,
         candidates.map((entry) => entry.opId)
@@ -466,6 +485,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
       };
       let receipt: AuthorityOperationReceipt = baseReceipt;
+      try {
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
+      } catch (error) {
+        receipt = await persistPostCommitIntegrityFailure(
+          entry,
+          isDaemonGenerationFenced(error)
+            ? `${daemonGenerationFenceReason(error)}:CANONICAL_OUTCOME_REQUIRES_RECONCILIATION`
+            : `AUTHORITY_FENCE_LOST:${describe(error)}`,
+          commitSha
+        );
+        receipts.set(entry, receipt);
+        continue;
+      }
       if (entry.authorityIntegrity) {
         if (!entry.actorAxesBinding) {
           receipt = await persistPostCommitIntegrityFailure(entry, "PROTOCOL_DAMAGED:ACTOR_AXES_BINDING_CORE_REQUIRED", commitSha);
@@ -526,48 +558,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
 
 }
 
-function terminal(receipt: AuthorityOperationReceipt): TerminalAuthoritySubmission {
-  return { kind: "terminal", receipt };
-}
-
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
-}
-
-function batchReceipts(
-  admissions: ReadonlyArray<AuthorityAdmission>,
-  receipts: ReadonlyMap<PreparedAuthoritySubmission, AuthorityOperationReceipt>
-): ReadonlyArray<AuthorityOperationReceipt> {
-  return admissions.map((admission) => {
-    if (admission.kind === "terminal") return admission.receipt;
-    const receipt = receipts.get(admission);
-    if (!receipt) throw new Error(`authority batch did not settle operation ${admission.opId}`);
-    return receipt;
-  });
-}
-
-function rejected(envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">, digest: string, reason: string): AuthorityRejectedReceipt {
-  return { tag: "REJECTED", workspaceId: envelope.workspaceId, opId: envelope.opId, semanticDigest: digest, reason };
-}
-
-function retryable(envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">, digest: string, reason: string): AuthorityRetryableReceipt {
-  return { tag: "RETRYABLE_NOT_COMMITTED", workspaceId: envelope.workspaceId, opId: envelope.opId, semanticDigest: digest, reason };
-}
-
-function indeterminate(
-  envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
-  digest: string,
-  reason: string,
-  commitSha?: string
-): AuthorityIndeterminateReceipt {
-  return {
-    tag: "INDETERMINATE",
-    workspaceId: envelope.workspaceId,
-    opId: envelope.opId,
-    semanticDigest: digest,
-    reason,
-    ...(commitSha ? { commitSha } : {})
-  };
 }
 
 function describe(error: unknown): string {

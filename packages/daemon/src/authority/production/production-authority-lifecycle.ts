@@ -5,7 +5,6 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createDurableAuthorityCommittedEventPublisherV2,
-  type ActorAxesBindingRuntimeV2,
   type AuthoritySubmissionV2Options,
   type AuthoritySubmissionService,
   type DaemonLogService,
@@ -20,6 +19,11 @@ import {
 import { createTransportObservedAttestationAdapter } from "../../attestation/transport-observed-adapter.ts";
 import type { PersonRegistry } from "../../identity/types.ts";
 import { createProductionCompoundReceiptComposition } from "../../lifecycle/compound-receipt-composition.ts";
+import {
+  createRuntimeDaemonGenerationAuthorityFence,
+  createRuntimeDaemonGenerationWitnessFence,
+  daemonGenerationAxes
+} from "../../fence/daemon-generation-fence.ts";
 import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
 import {
   createDaemonAuthorityCommandSubmissionV2,
@@ -63,6 +67,7 @@ import {
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
+import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -265,7 +270,7 @@ export function createProductionAuthorityLifecycle(input: {
         publicationObservers.set(startInput.repo.repoId, startInput.inspectPublication);
         const material = options.materials.get(startInput.repo.repoId);
         if (!material) throw new Error("AUTHORITY_PRODUCTION_MATERIAL_UNAVAILABLE");
-        return createRepoComponent(startInput, material, input.hostServices);
+        return createRepoComponent(startInput, material, input.hostServices, input.daemonLogService);
       },
       serve: async ({ component }) => {
         (component as ProductionAuthorityRepoComponent).setServing(true);
@@ -291,10 +296,18 @@ interface ProductionAuthorityRepoComponent extends AuthorityRepoComponent {
 function createRepoComponent(
   input: Parameters<AuthorityRepoLifecycleHooks["start"]>[0],
   material: RepoProductionMaterial,
-  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
+  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>,
+  daemonLogService?: DaemonLogService
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
+  const repoGenerationFence = createRuntimeDaemonGenerationAuthorityFence({
+    runtime: input.runtime,
+    authorityFence: input.fenceWitness,
+    workspaceId: material.config.workspaceId,
+    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot },
+    ...(daemonLogService ? { logService: daemonLogService } : {})
+  });
   const cutoverControl = createAuthorityCutoverControlService({
     repoId: material.config.repoId,
     workspaceId: material.config.workspaceId,
@@ -322,7 +335,7 @@ function createRepoComponent(
         })
       ),
       enabledV2WriterKinds: productionAuthorityV2EntityKinds,
-      assertWriteFenceHeld: input.fenceWitness.assertHeld
+      assertWriteFenceHeld: (repoGenerationFence ?? input.fenceWitness).assertHeld
     }
   });
   let serving = false;
@@ -337,7 +350,16 @@ function createRepoComponent(
     viewId: material.config.viewId,
     canonicalRoot: material.config.canonicalRoot,
     stateDirectory: `${material.serviceStateRoot}/compound-receipts/${Buffer.from(material.config.repoId, "utf8").toString("base64url")}`,
-    replicaChangeLog: input.replicaChangeLog
+    replicaChangeLog: input.replicaChangeLog,
+    ...(repoGenerationFence ? {
+      generationFence: {
+        assertCurrent: ({ workspaceId, opId }) => repoGenerationFence.assertHeld(
+          "before-terminal-journal",
+          { workspaceId, opId }
+        ),
+        axes: daemonGenerationAxes(input.runtime)
+      }
+    } : {})
   });
   return {
     commandSubmissionV2: unbound,
@@ -352,7 +374,13 @@ function createRepoComponent(
       assertConnectionContext(input, material.config, context);
       const authorityService = gateAuthoritySubmissionForRecovery(
         gateCutoverAdmission(
-          attestSubmissionService(createConnectionAuthorityService(input, material, context, publicationExecutor), context),
+          attestSubmissionService(createConnectionAuthorityService(
+            input,
+            material,
+            context,
+            publicationExecutor,
+            daemonLogService
+          ), context),
           cutoverControl
         ),
         () => recoveryUnavailableReason(material)
@@ -441,9 +469,17 @@ function createConnectionAuthorityService(
   context: AuthorityConnectionContext,
   publicationExecutor: {
     readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
-  }
+  },
+  daemonLogService?: DaemonLogService
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
+  const generationFence = createRuntimeDaemonGenerationWitnessFence({
+    runtime: input.runtime,
+    workspaceId: material.config.workspaceId,
+    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot },
+    connectionId: context.connectionId,
+    ...(daemonLogService ? { logService: daemonLogService } : {})
+  });
   return createAuthoritySubmissionService({
     workspaceId: material.config.workspaceId,
     coordinatorFactory: input.attributedCoordinatorFactory,
@@ -453,6 +489,7 @@ function createConnectionAuthorityService(
     publicationInspector,
     publicationExecutor,
     fenceWitness: input.fenceWitness,
+    ...(generationFence ? { generationFenceWitness: generationFence } : {}),
     admissionBudget: input.admissionBudget,
     v2: {
       schemaTuple: material.config.schemaTuple,
@@ -480,26 +517,6 @@ function createSerialPublicationExecutor(): {
       const result = tail.then(publication, publication);
       tail = result.then(() => undefined, () => undefined);
       return result;
-    }
-  };
-}
-
-function connectionBoundRuntime(
-  runtime: DurableAuthorityBindingRuntimeV2,
-  config: AuthorityProductionRepoConfigV1,
-  context: AuthorityConnectionContext
-): ActorAxesBindingRuntimeV2 {
-  return {
-    ...runtime,
-    getBinding: async (bindingId) => {
-      const record = await runtime.getBinding(bindingId);
-      if (!record) return undefined;
-      if (record.principalPersonId !== context.actor.personId
-        || record.workspaceId !== config.workspaceId
-        || record.deviceId !== config.deviceId
-        || record.viewId !== config.viewId
-        || record.attribution.actor.principal.personId !== context.actor.personId) return undefined;
-      return record;
     }
   };
 }

@@ -22,6 +22,15 @@ interface DurableCompoundReceiptStateV2 {
 
 export interface DurableCompoundReceiptStoreV2Options {
   readonly directory: string;
+  readonly generationFence?: {
+    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
+    readonly axes: {
+      readonly machineId: string;
+      readonly daemonGeneration: number;
+      readonly runtimeRegistrationId?: string;
+      readonly connectionId?: string;
+    };
+  };
 }
 
 /**
@@ -65,15 +74,19 @@ export function createDurableCompoundReceiptStoreV2(
       });
       return true;
     }),
-    commitTerminal: (identity, expectedSequence, draft, buildReceipt) => serialized(() => {
+    commitTerminal: (identity, expectedSequence, draft, buildReceipt) => serialized(async () => {
       const state = readState(statePath);
       const key = receiptIdentityKeyV2(identity);
       const current = state.receipts[key];
       if (!current || current.sequence !== expectedSequence) return undefined;
       assertDraftIdentity(draft, identity);
+      await options.generationFence?.assertCurrent({ workspaceId: draft.workspaceId, opId: draft.opId });
       const terminalLSN = state.nextTerminalLSN;
       if (terminalLSN >= Number.MAX_SAFE_INTEGER) throw new Error("compound terminalLSN space exhausted");
-      const receipt = buildReceipt(terminalLSN);
+      const receipt = {
+        ...buildReceipt(terminalLSN),
+        ...(options.generationFence ? options.generationFence.axes : {})
+      };
       assertSameReceiptIdentityV2(current, receipt);
       if (receipt.sequence !== expectedSequence + 1 || receipt.terminalLSN !== terminalLSN) {
         throw new Error("terminal receipt sequence/LSN is inconsistent");
@@ -81,6 +94,7 @@ export function createDurableCompoundReceiptStoreV2(
       assertReceipt(receipt);
       const entry: CompoundTerminalJournalEntry = {
         ...draft,
+        ...(options.generationFence ? options.generationFence.axes : {}),
         terminalLSN,
         receiptSequence: receipt.sequence
       };
@@ -94,10 +108,10 @@ export function createDurableCompoundReceiptStoreV2(
     })
   };
 
-  function serialized<Result>(operation: () => Result): Promise<Result> {
+  function serialized<Result>(operation: () => Result): Promise<Awaited<Result>> {
     const result = serial.then(operation, operation);
     serial = result.then(() => undefined, () => undefined);
-    return result;
+    return result as Promise<Awaited<Result>>;
   }
 }
 

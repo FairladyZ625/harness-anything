@@ -40,10 +40,22 @@ export function createProductionCompoundReceiptComposition(input: {
   readonly canonicalRoot: string;
   readonly stateDirectory: string;
   readonly replicaChangeLog: ReplicaChangeLog;
+  readonly generationFence?: {
+    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
+    readonly axes: {
+      readonly machineId: string;
+      readonly daemonGeneration: number;
+      readonly runtimeRegistrationId?: string;
+      readonly connectionId?: string;
+    };
+  };
 }): ProductionCompoundReceiptComposition {
   mkdirSync(input.stateDirectory, { recursive: true, mode: 0o700 });
   const receipts = createCompoundReceiptServiceV2({
-    store: createDurableCompoundReceiptStoreV2({ directory: path.join(input.stateDirectory, "receipts") })
+    store: createDurableCompoundReceiptStoreV2({
+      directory: path.join(input.stateDirectory, "receipts"),
+      ...(input.generationFence ? { generationFence: input.generationFence } : {})
+    })
   });
   const coordinator = createBrokerCompoundReceiptCoordinatorV2({
     receipts,
