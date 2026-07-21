@@ -1,5 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   LOCAL_EQUIVALENCE_NOTICE,
@@ -7,8 +11,10 @@ import {
   buildCiPlan,
   createReceipt,
   formatSummary,
-  parseIntegrationShardMatrix
+  parseIntegrationShardMatrix,
+  runCiPlan
 } from "./run-ci-equivalent.mjs";
+import { resolveShardParallelism } from "./shard-parallelism.mjs";
 
 test("check:ci applies the shared QoS prefix to each manifest job", () => {
   assert.deepEqual(buildCiJobInvocation(["taskpolicy", "-c", "utility"], ["tools/run-manifest-gates.mjs"]), {
@@ -69,6 +75,76 @@ test("skipped jobs are visible in the final summary and JSON receipt", () => {
   assert.match(summary, /ALL GREEN \(locally runnable jobs only; 1 skipped\)/u);
   assert.match(summary, /本地绿 ≠ 完整 CI 等价/u);
 });
+
+test("explicit shard parallelism wins over load adaptation but keeps slot and CPU safety caps", () => {
+  assert.deepEqual(resolveShardParallelism({
+    raw: "2", shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 12, loadOne: 11
+  }), {
+    parallelism: 2,
+    source: "explicit",
+    requested: 2,
+    freeCores: 1,
+    cpuCap: 6,
+    localSlots: 3,
+    perShardConcurrency: 2
+  });
+  assert.equal(resolveShardParallelism({
+    raw: "9", shardCount: 6, localSlots: 3, perShardConcurrency: 4, cpuCount: 8, loadOne: 0
+  }).parallelism, 2);
+  assert.throws(() => resolveShardParallelism({
+    raw: "many", shardCount: 2, localSlots: 3, perShardConcurrency: 2, cpuCount: 8, loadOne: 0
+  }), /HARNESS_SHARD_PARALLELISM must be a positive integer/u);
+});
+
+test("adaptive shard parallelism derives from free cores and never exceeds the machine slot budget", () => {
+  assert.equal(resolveShardParallelism({
+    shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 12, loadOne: 4
+  }).parallelism, 3);
+  assert.equal(resolveShardParallelism({
+    shardCount: 6, localSlots: 3, perShardConcurrency: 2, cpuCount: 12, loadOne: 11
+  }).parallelism, 1);
+});
+
+test("parallelism two overlaps two shard child processes and preserves a failing exit code", async (context) => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-shard-parallelism-"));
+  context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const plan = [["integration-shard", 1], ["integration-shard", 2]];
+  const resolution = resolveShardParallelism({
+    raw: "2", shardCount: 2, localSlots: 3, perShardConcurrency: 2, cpuCount: 8, loadOne: 7
+  });
+  const receipts = await runCiPlan(
+    plan,
+    resolution.parallelism,
+    (_job, shard) => runFixtureShard(fixtureRoot, shard),
+    () => {}
+  );
+
+  assert.equal(resolution.source, "explicit");
+  assert.equal(resolution.parallelism, 2);
+  assert.deepEqual(receipts.map(({ job, exitCode }) => ({ job, exitCode })), [
+    { job: "integration-shard (1)", exitCode: 0 },
+    { job: "integration-shard (2)", exitCode: 7 }
+  ]);
+  assert.equal(createReceipt(receipts, []).ok, false);
+});
+
+function runFixtureShard(root, shard) {
+  const peer = shard === 1 ? 2 : 1;
+  const expectedExitCode = shard === 2 ? 7 : 0;
+  const started = Date.now();
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [
+      path.join(import.meta.dirname, "test-fixtures/shard-parallelism/worker.mjs"),
+      root, String(shard), String(peer), String(expectedExitCode)
+    ], { stdio: "ignore" });
+    child.once("error", () => resolve({ job: `integration-shard (${shard})`, exitCode: 1, seconds: 0 }));
+    child.once("close", (code) => resolve({
+      job: `integration-shard (${shard})`,
+      exitCode: code ?? 1,
+      seconds: Math.round((Date.now() - started) / 1000)
+    }));
+  });
+}
 
 function makeManifest() {
   return {

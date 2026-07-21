@@ -15,10 +15,12 @@
 //   npm run check:ci                      跑全部可本地执行的 job
 //   npm run check:ci -- --job boundaries  只跑指定 job(可重复)
 //   npm run check:ci -- --json             额外吐一份机器可读回执(贴进 PR / worker 报告)
+//   HARNESS_SHARD_PARALLELISM=2 npm run check:ci  显式控制本地 integration shard fan-out
 //
 // 回执是产物,不是断言:每个 job 的真实 exit code 都在里面。CEO 会重跑并比对数字。
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -26,8 +28,15 @@ import {
   getEnforcementConstant,
   resolveEnforcementConstant
 } from "./enforcement-constants.mjs";
-import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
+import {
+  discoverQosPrefix,
+  prefixCommand,
+  resolveLocalSlotCount,
+  withLocalHeavySlot
+} from "./local-resource-governance.mjs";
 import { clearIncrementalArtifacts } from "./clear-incremental-artifacts.mjs";
+import { resolveTestConcurrency } from "./node-test-runner-lib.mjs";
+import { mapWithConcurrency, resolveShardParallelism } from "./shard-parallelism.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "tools/gate-manifest.json");
@@ -124,18 +133,62 @@ export function buildCiJobInvocation(qosPrefix, args) {
   return prefixCommand(qosPrefix, process.execPath, args);
 }
 
-function runJob(job, shard, { qosPrefix, env }) {
-  clearIncrementalArtifacts(root);
-  const args = ["tools/run-manifest-gates.mjs", "--workflow-job", job, "--exclude", "mergify-queue-metadata-edit-noop"];
-  if (shard !== undefined) args.push("--shard", String(shard));
-  const invocation = buildCiJobInvocation(qosPrefix, args);
-  const started = Date.now();
-  const result = spawnSync(invocation.command, invocation.args, { cwd: root, stdio: "inherit", env });
-  return {
-    job: shard === undefined ? job : `${job} (${shard})`,
-    exitCode: result.status ?? 1,
-    seconds: Math.round((Date.now() - started) / 1000)
-  };
+async function runJob(job, shard) {
+  const label = shard === undefined ? job : `${job}:${shard}`;
+  return withLocalHeavySlot({ label: `check:ci:${label}` }, async (lease) => {
+    const qosPrefix = discoverQosPrefix();
+    const args = ["tools/run-manifest-gates.mjs", "--workflow-job", job, "--exclude", "mergify-queue-metadata-edit-noop"];
+    if (shard !== undefined) args.push("--shard", String(shard));
+    const invocation = buildCiJobInvocation(qosPrefix, args);
+    const started = Date.now();
+    const exitCode = await runChild(invocation, lease.childEnv);
+    return {
+      job: shard === undefined ? job : `${job} (${shard})`,
+      exitCode,
+      seconds: Math.round((Date.now() - started) / 1000)
+    };
+  });
+}
+
+function runChild(invocation, env) {
+  return new Promise((resolveExitCode) => {
+    const child = spawn(invocation.command, invocation.args, { cwd: root, stdio: "inherit", env });
+    let settled = false;
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      console.error(`[check:ci] ${error.message}`);
+      resolveExitCode(1);
+    });
+    child.once("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (signal !== null) console.error(`[check:ci] job terminated by signal ${signal}`);
+      resolveExitCode(signal === null ? (code ?? 1) : 1);
+    });
+  });
+}
+
+export async function runCiPlan(plan, shardParallelism, run = runJob, beforeBatch = () => clearIncrementalArtifacts(root)) {
+  const receipts = [];
+  for (let index = 0; index < plan.length;) {
+    const [job] = plan[index];
+    if (job !== INTEGRATION_SHARD_JOB) {
+      await beforeBatch();
+      receipts.push(await run(...plan[index]));
+      index += 1;
+      continue;
+    }
+
+    const shardBatch = [];
+    while (index < plan.length && plan[index][0] === INTEGRATION_SHARD_JOB) {
+      shardBatch.push(plan[index]);
+      index += 1;
+    }
+    await beforeBatch();
+    receipts.push(...await mapWithConcurrency(shardBatch, shardParallelism, ([shardJob, shard]) => run(shardJob, shard)));
+  }
+  return receipts;
 }
 
 function parseArgs(argv) {
@@ -152,40 +205,56 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  await withLocalHeavySlot({ label: "check:ci" }, async (lease) => {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const shardDeclaration = getEnforcementConstant(manifest, "ci-integration-shard-sequence");
-    const workflowPath = path.join(root, shardDeclaration.authority.path);
-    const workflowText = readFileSync(workflowPath, "utf8");
-    const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
-    const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);
-    const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
-    if (missingCredentials.length > 0) {
-      console.error(
-        `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
-        `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
-        `           reasons, not code reasons. Set them first:\n\n` +
-        `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
-        `             export GITHUB_TOKEN=$(gh auth token)\n`
-      );
-    }
-
-    const qosPrefix = discoverQosPrefix();
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const shardDeclaration = getEnforcementConstant(manifest, "ci-integration-shard-sequence");
+  const workflowPath = path.join(root, shardDeclaration.authority.path);
+  const workflowText = readFileSync(workflowPath, "utf8");
+  const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
+  const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);
+  const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
+  if (missingCredentials.length > 0) {
     console.error(
-      `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
-      `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")}); ` +
-      `QoS=${qosPrefix.join(" ") || "none"}; slot=${path.basename(lease.slotPath)}\n`
+      `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
+      `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
+      `           reasons, not code reasons. Set them first:\n\n` +
+      `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
+      `             export GITHUB_TOKEN=$(gh auth token)\n`
     );
-    const receipts = [];
-    for (const [job, shard] of plan) receipts.push(runJob(job, shard, { qosPrefix, env: lease.childEnv }));
+  }
 
-    console.error(formatSummary(receipts, skipped));
-    if (receiptPath !== null) {
-      writeFileSync(receiptPath, `${JSON.stringify(createReceipt(receipts, skipped), null, 2)}\n`);
-      console.error(`  receipt → ${receiptPath}\n`);
-    }
-    process.exitCode = receipts.some((receipt) => receipt.exitCode !== 0) ? 1 : 0;
+  const localSlots = resolveLocalSlotCount(process.env.HARNESS_LOCAL_SLOTS);
+  const cpuCount = availableParallelism();
+  const resolvedTestConcurrency = resolveTestConcurrency({
+    flagConcurrency: undefined,
+    envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
+    isCi: Boolean(process.env.CI)
   });
+  const perShardConcurrency = resolvedTestConcurrency ?? cpuCount;
+  const shardCount = plan.filter(([job]) => job === INTEGRATION_SHARD_JOB).length;
+  const shardResolution = shardCount === 0
+    ? { parallelism: 1, source: "not-selected", requested: 0, freeCores: 0, perShardConcurrency }
+    : resolveShardParallelism({
+      shardCount,
+      localSlots,
+      perShardConcurrency,
+      cpuCount
+    });
+  const qosPrefix = discoverQosPrefix();
+  console.error(
+    `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
+    `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")}); ` +
+    `QoS=${qosPrefix.join(" ") || "none"}; slots=${localSlots}; ` +
+    `shard-parallelism=${shardResolution.parallelism} (${shardResolution.source}, requested=${shardResolution.requested}, ` +
+    `free-cores=${shardResolution.freeCores}, per-shard=${shardResolution.perShardConcurrency})\n`
+  );
+  const receipts = await runCiPlan(plan, shardResolution.parallelism);
+
+  console.error(formatSummary(receipts, skipped));
+  if (receiptPath !== null) {
+    writeFileSync(receiptPath, `${JSON.stringify(createReceipt(receipts, skipped), null, 2)}\n`);
+    console.error(`  receipt → ${receiptPath}\n`);
+  }
+  process.exitCode = receipts.some((receipt) => receipt.exitCode !== 0) ? 1 : 0;
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
