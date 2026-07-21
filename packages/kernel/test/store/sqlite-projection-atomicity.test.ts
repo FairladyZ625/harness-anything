@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -180,7 +180,7 @@ function writeCacheTask(rootDir: string, title: "Task A" | "Task B"): string {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(taskRoot, { recursive: true });
   const taskPath = path.join(taskRoot, "INDEX.md");
-  writeFileSync(taskPath, [
+  atomicWriteFile(taskPath, [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,
@@ -234,7 +234,7 @@ function writeCacheAttribution(rootDir: string, personId: "person_alpha" | "pers
   const eventRoot = path.join(rootDir, "harness/attribution-events");
   mkdirSync(eventRoot, { recursive: true });
   const eventPath = path.join(eventRoot, "event-cache-race.jsonl");
-  writeFileSync(eventPath, `${JSON.stringify({
+  atomicWriteFile(eventPath, `${JSON.stringify({
     schema: "attribution-event/v1",
     eventId: "event-cache-race",
     opId: "op-event-cache-race",
@@ -260,6 +260,12 @@ function writeCacheAttribution(rootDir: string, personId: "person_alpha" | "pers
     }
   })}\n`);
   return eventPath;
+}
+
+function atomicWriteFile(filePath: string, body: string): void {
+  const replacementPath = `${filePath}.replacement`;
+  writeFileSync(replacementPath, body);
+  renameSync(replacementPath, filePath);
 }
 
 function seedAtomicProjectionTask(rootDir: string, executionCount: number): string {

@@ -5,6 +5,7 @@ import {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness
 } from "../packages/gui/src/distribution/runtime-release-readiness.ts";
+import { smokeCliWriteEnv } from "./smoke-cli-package.mjs";
 
 const root = process.cwd();
 const errors = [];
@@ -152,7 +153,11 @@ function executeSourceRunSmoke() {
   const [binary, ...args] = sourceRun.command.split(" ");
   const executable = binary === "node" ? process.execPath : binary;
   try {
-    const stdout = execFileSync(executable, args, { cwd: root, encoding: "utf8" });
+    const stdout = execFileSync(executable, args, {
+      cwd: root,
+      encoding: "utf8",
+      env: smokeCliWriteEnv()
+    });
     const result = JSON.parse(stdout);
     if (result.ok !== true || result.schema !== "command-receipt/v2" || result.command !== "doctor" || result.details?.data?.report?.readOnly !== true) {
       record(`source-run command returned unexpected output: ${stdout}`);

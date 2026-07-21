@@ -125,7 +125,7 @@ export function buildCliPackageArtifact(root, options = {}) {
   const stdout = exec(process.execPath, [binPath, "--json", "version"], {
     cwd: root,
     encoding: "utf8",
-    env: process.env
+    env: smokeCliWriteEnv()
   });
   const result = JSON.parse(stdout);
   if (result.ok !== true || result.schema !== "command-receipt/v2" || result.command !== "version") {
@@ -141,7 +141,7 @@ function runJson(command, args, cwd) {
   })));
 }
 
-function smokeCliWriteEnv() {
+export function smokeCliWriteEnv() {
   return {
     ...process.env,
     // Package smoke verifies the packaged command surface while using the
