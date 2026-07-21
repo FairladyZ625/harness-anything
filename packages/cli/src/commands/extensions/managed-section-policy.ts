@@ -39,7 +39,7 @@ export function resolveManagedSectionPolicy(
     const declaration = materialized.ok
       ? materialized.documents.find((document) => document.materializeAs === taskMatch[2])
       : undefined;
-    if (declaration) return { path: normalized, sections: declaration.sectionPermissions };
+    if (declaration) return taskDocumentPolicy(normalized, declaration.sectionPermissions);
   }
   const documentAbsolutePath = path.join(layout.authoredRoot, normalized);
   if (!existsSync(documentAbsolutePath)) return null;
@@ -47,8 +47,30 @@ export function resolveManagedSectionPolicy(
   const headings = markdownHeadingSections(documentBody).map((section) => section.anchor);
   const matches = (bundledTemplateCatalog("software/coding")?.documents ?? [])
     .filter((document) => document.materializeAs === taskMatch[2])
-    .filter((document) => headings.every((heading) => document.sectionPermissions.some((permission) => permission.anchor === heading)))
+    .filter((document) => undeclaredSectionsForTaskDocument(document.sectionPermissions) === "allow"
+      ? document.sectionPermissions.every((permission) => headings.includes(permission.anchor))
+      : headings.every((heading) => document.sectionPermissions.some((permission) => permission.anchor === heading)))
     .sort((left, right) => left.sectionPermissions.length - right.sectionPermissions.length || left.id.localeCompare(right.id));
   if (!matches[0] || (matches[1] && matches[1].sectionPermissions.length === matches[0].sectionPermissions.length)) return null;
-  return { path: normalized, sections: matches[0].sectionPermissions };
+  return taskDocumentPolicy(normalized, matches[0].sectionPermissions);
+}
+
+export function undeclaredSectionsForTaskDocument(
+  sections: SemanticDiffDocumentPolicy["sections"]
+): "allow" | "reject" {
+  return sections.length > 0 && sections.every((section) =>
+    section.writeMode === "free-prose" && section.semanticClass === "host-prose-only")
+    ? "allow"
+    : "reject";
+}
+
+function taskDocumentPolicy(
+  documentPath: string,
+  sections: SemanticDiffDocumentPolicy["sections"]
+): SemanticDiffDocumentPolicy {
+  return {
+    path: documentPath,
+    sections,
+    undeclaredSections: undeclaredSectionsForTaskDocument(sections)
+  };
 }

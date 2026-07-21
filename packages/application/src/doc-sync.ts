@@ -300,11 +300,15 @@ function managedSectionFailure(
   if (baseBody === candidateBody) return null;
   if (!filePath.endsWith(".md")) return null;
   if (!policy) return `SEMANTIC_DIFF_REQUIRED: no section permission declaration for ${filePath}`;
+  const effectivePolicy: SemanticDiffDocumentPolicy = {
+    ...policy,
+    undeclaredSections: policy.undeclaredSections ?? "reject"
+  };
   try {
     assertManagedSemanticRegions(
       { documents: [{ path: filePath, body: baseBody }] },
       { documents: [{ path: filePath, body: candidateBody }] },
-      { documentPolicies: [policy] }
+      { documentPolicies: [effectivePolicy] }
     );
     return null;
   } catch (error) {
