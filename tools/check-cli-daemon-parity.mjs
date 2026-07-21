@@ -96,9 +96,9 @@ export async function checkCliDaemonParity() {
       }
     }
 
-    const bodyProbe = parseArgs(["--root", rootDir, "decision", "amend", missingDecision, "--body", "undeclared body"]);
-    if (bodyProbe.ok) {
-      findings.push("decision-amend: --body is accepted by the CLI but body is not an amendable DecisionPackage field");
+    const bodyProbe = parseArgs(["--root", rootDir, "decision", "amend", missingDecision, "--body", "typed body amendment"]);
+    if (!bodyProbe.ok) {
+      findings.push(`decision-amend: --body must parse as the typed body amend road (task_01KY297QCMY1K3TFPFHQB0S4QA); got ${bodyProbe.error?.code ?? "unknown"}`);
     }
 
     const ordinary = await runParsed(service, rootDir, ["decision", "amend", missingDecision, "--title", "Parity amendment"]);
