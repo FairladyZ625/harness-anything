@@ -264,6 +264,27 @@ test("all decision actions compile exact decision mutations; relation also creat
   }
 });
 
+test("body-only decision amend compiles while a no-op amend without body stays rejected", async () => {
+  const active = decisionPackage("dec_W3", "active");
+  const activeSnapshot = snapshot(decisionDocument(active));
+  const decisionRef = ref("decision", "decision/dec_W3");
+  const state = authorityState(new Map([[key(decisionRef), base("decision-v2")]]), new Map([[decisionPath(), activeSnapshot]]));
+  const compiler = makeTaskDecisionModuleSemanticCompilerV2({ state });
+
+  const bodyOnly = await compiler.compile(envelope(
+    { schema: "decision.amend/v1", decision: active, body: "## Rationale\n\nRewritten prose after propose." } as const,
+    [present(decisionRef, "decision-v2")],
+    [cas(decisionPath(), activeSnapshot)]
+  ));
+  assert.equal(bodyOnly.operation.kind, "decision_amend");
+
+  await assert.rejects(compiler.compile(envelope(
+    { schema: "decision.amend/v1", decision: active } as const,
+    [present(decisionRef, "decision-v2")],
+    [cas(decisionPath(), activeSnapshot)]
+  )), (error: Error) => /DECISION_AMEND_FIELD_INVALID/u.test(error.message));
+});
+
 test("module register/unregister/step compile canonical modules.json snapshots", async () => {
   const module = moduleRecord();
   const moduleRef = ref("module", "module/kernel");
