@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
@@ -209,7 +210,7 @@ test("list output survives stdout backpressure", () => {
     ...process.env,
     NODE_OPTIONS: [
       process.env.NODE_OPTIONS,
-      `--import=${path.join(repoRoot, "tools/test-fixtures/delayed-stdout.mjs")}`
+      `--import=${pathToFileURL(path.join(repoRoot, "tools/test-fixtures/delayed-stdout.mjs")).href}`
     ].filter(Boolean).join(" ")
   };
   delete childEnv.NODE_TEST_CONTEXT;
