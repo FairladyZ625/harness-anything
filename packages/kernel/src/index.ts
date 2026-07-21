@@ -169,7 +169,6 @@ export {
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/submit.ts";
 export {
   projectDaemonRepoRegistration,
-  publishDaemonRegistryRuntimeProjection,
   readDaemonRegistry,
   resolveDaemonRepoByRoot,
   registerDaemonRepo,

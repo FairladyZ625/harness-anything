@@ -23,6 +23,10 @@ import {
   type DaemonGenerationConvergenceExpectation,
   type DaemonLifecycleStatus
 } from "./control-convergence.ts";
+import {
+  acceptedGenerationExpectation,
+  generationExpectationFromCapabilityStatus
+} from "./control-generation-capability.ts";
 
 export type DaemonControlKind = "restart" | "refresh";
 type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
@@ -34,6 +38,7 @@ export interface DaemonControlRequest {
 
 export interface DaemonControlLifecycle {
   readonly target: LocalDaemonTarget;
+  readonly probeGenerationStatus?: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
   readonly probeStatus: (
     target: LocalDaemonTarget,
     capability?: { readonly includeGenerationAxes: true }
@@ -58,6 +63,7 @@ export interface DaemonControlCommandInput {
   readonly daemonControlLifecycle?: DaemonControlLifecycle;
   readonly daemonEntryPath: () => string;
   readonly calculateInstalledIdentity?: (entrypoint: string) => string;
+  readonly platform?: NodeJS.Platform;
 }
 
 type DaemonControlHandoff =
@@ -79,13 +85,6 @@ export async function runDaemonControl(
   if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
   const trigger = kind === "refresh" ? daemonRefreshTrigger(input.args) : undefined;
-  const params = {
-    payload: {
-      reason: readOption(input.args, "--reason") ?? `${trigger ?? "explicit"} daemon ${kind} request`,
-      drainTimeoutMs,
-      ...(trigger ? { trigger } : {})
-    }
-  };
   const method: DaemonControlRequest["method"] = kind === "restart"
     ? "admin.daemon.restart"
     : "admin.daemon.refresh";
@@ -101,6 +100,20 @@ export async function runDaemonControl(
       allowLegacySocket: false
     }
   ));
+  const probedGeneration = lifecycle.probeGenerationStatus
+    ? generationExpectationFromCapabilityStatus(
+      await lifecycle.probeGenerationStatus(lifecycle.target),
+      input.platform ?? process.platform
+    )
+    : undefined;
+  const params = {
+    payload: {
+      reason: readOption(input.args, "--reason") ?? `${trigger ?? "explicit"} daemon ${kind} request`,
+      drainTimeoutMs,
+      ...(trigger ? { trigger } : {}),
+      ...(probedGeneration ? { daemonGeneration: probedGeneration.daemonGeneration } : {})
+    }
+  };
   const preparedLaunchConfiguration = kind === "refresh"
     ? await lifecycle.prepareReplacement?.(lifecycle.target)
     : undefined;
@@ -111,7 +124,7 @@ export async function runDaemonControl(
   const receipt = controlPayloadFromRpcReceipt(rpcReceipt, method);
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
-  const expectedGeneration = acceptedGenerationExpectation(receipt, before);
+  const expectedGeneration = acceptedGenerationExpectation(receipt, before, probedGeneration);
   const launchConfiguration = preparedLaunchConfiguration
     ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
   const expectedIdentity = kind === "refresh"
@@ -182,23 +195,6 @@ function validateAcceptedControlReceipt(
     || receipt.operationId.length === 0) {
     throw new Error(`${method} did not return daemon-control-accepted/v1`);
   }
-}
-
-function acceptedGenerationExpectation(
-  receipt: Record<string, unknown>,
-  before: Record<string, unknown>
-): DaemonGenerationConvergenceExpectation | undefined {
-  const hasGenerationCapability = receipt.machineId !== undefined
-    || receipt.daemonGeneration !== undefined
-    || before.daemonGeneration !== undefined;
-  if (!hasGenerationCapability) return undefined;
-  if (typeof receipt.machineId !== "string" || receipt.machineId.length === 0
-    || !isPositivePid(receipt.daemonGeneration)
-    || !isPositivePid(before.daemonGeneration)
-    || receipt.daemonGeneration !== before.daemonGeneration) {
-    throw new Error("daemon control accepted receipt exposed an incomplete or inconsistent generation capability");
-  }
-  return { machineId: receipt.machineId, daemonGeneration: receipt.daemonGeneration };
 }
 
 async function completeDaemonReplacement(
@@ -344,6 +340,7 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
   const target = socketPath ? { ...resolvedTarget, socketPath } : resolvedTarget;
   return {
     target,
+    probeGenerationStatus: (candidate) => probeExactDaemonStatus(candidate, { includeGenerationAxes: true }),
     probeStatus: probeExactDaemonStatus,
     ownerIsAlive: daemonProcessIsAlive,
     prepareReplacement: async (candidate) => {

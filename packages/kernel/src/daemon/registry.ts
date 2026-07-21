@@ -8,6 +8,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from "node:fs";
@@ -95,9 +96,12 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
 
 export function registerDaemonRepo(input: DaemonRegistryRegisterInput): DaemonRegistryMutationResult {
   const paths = daemonRegistryPaths(input);
-  const registry = readDaemonRegistry(input);
-  const projected = projectDaemonRepoRegistration(registry, input);
-  if (projected.changed) writeDaemonRegistry(projected.registry, input);
+  const projected = withDaemonRegistryMutationLock(input, () => {
+    const registry = readDaemonRegistry(input);
+    const next = projectDaemonRepoRegistration(registry, input);
+    if (next.changed) writeDaemonRegistry(next.registry, input);
+    return next;
+  });
   const warnings = syncConvenienceLink(projected.repo, input);
   return { ...projected, registryPath: paths.registryPath, warnings };
 }
@@ -114,30 +118,37 @@ export function publishDaemonRegistryRuntimeProjection(input: {
   }
   const seenRepoIds = new Set<string>();
   for (const registration of input.registrations) {
-    if (registration.repoId.length === 0 || registration.runtimeRegistrationId.length === 0
+    if (registration.repoId.length === 0 || !isUuid(registration.runtimeRegistrationId)
       || registration.daemonGeneration !== input.daemonGeneration || seenRepoIds.has(registration.repoId)) {
       throw new Error("invalid daemon registry runtime registration projection");
     }
     seenRepoIds.add(registration.repoId);
   }
-  const current = readDaemonRegistry(input);
-  const registrations = new Map(input.registrations.map((entry) => [entry.repoId, entry]));
-  const next = sortDaemonRegistry({
-    schema: daemonRegistrySchema,
-    machineId: input.machineId,
-    daemonGeneration: input.daemonGeneration,
-    repos: current.repos.map((repo) => {
-      const registration = repo.state === "enabled" ? registrations.get(repo.repoId) : undefined;
-      const { runtimeRegistrationId: _runtimeRegistrationId, daemonGeneration: _daemonGeneration, ...stable } = repo;
-      return registration ? {
-        ...stable,
-        runtimeRegistrationId: registration.runtimeRegistrationId,
-        daemonGeneration: registration.daemonGeneration
-      } : stable;
-    })
+  return withDaemonRegistryMutationLock(input, () => {
+    const current = readDaemonRegistry(input);
+    if (current.daemonGeneration !== undefined && current.daemonGeneration > input.daemonGeneration) return current;
+    if (current.daemonGeneration === input.daemonGeneration
+      && current.machineId !== undefined && current.machineId !== input.machineId) {
+      throw new Error("daemon registry runtime projection machine identity changed within one generation");
+    }
+    const registrations = new Map(input.registrations.map((entry) => [entry.repoId, entry]));
+    const next = sortDaemonRegistry({
+      schema: daemonRegistrySchema,
+      machineId: input.machineId,
+      daemonGeneration: input.daemonGeneration,
+      repos: current.repos.map((repo) => {
+        const registration = repo.state === "enabled" ? registrations.get(repo.repoId) : undefined;
+        const { runtimeRegistrationId: _runtimeRegistrationId, daemonGeneration: _daemonGeneration, ...stable } = repo;
+        return registration ? {
+          ...stable,
+          runtimeRegistrationId: registration.runtimeRegistrationId,
+          daemonGeneration: registration.daemonGeneration
+        } : stable;
+      })
+    });
+    if (JSON.stringify(current) !== JSON.stringify(next)) writeDaemonRegistry(next, input);
+    return next;
   });
-  if (JSON.stringify(current) !== JSON.stringify(next)) writeDaemonRegistry(next, input);
-  return next;
 }
 
 export function projectDaemonRepoRegistration(
@@ -178,22 +189,26 @@ export function projectDaemonRepoRegistration(
     registeredAt: (input.now ?? (() => new Date()))().toISOString(),
     ...(input.authorityManifestPath ? { authorityManifestPath: canonicalAuthorityManifestPath(input.authorityManifestPath) } : {})
   };
-  const next = sortDaemonRegistry({ schema: daemonRegistrySchema, repos: [...registry.repos, repo] });
+  const next = sortDaemonRegistry({ ...registry, repos: [...registry.repos, repo] });
   return { registry: next, repo, changed: true };
 }
 
 export function unregisterDaemonRepo(repoId: string, options: DaemonRegistryOptions = {}): DaemonRegistryMutationResult {
   const paths = daemonRegistryPaths(options);
-  const registry = readDaemonRegistry(options);
-  const normalizedRepoId = normalizeExplicitRepoId(repoId);
-  const existing = registry.repos.find((repo) => repo.repoId === normalizedRepoId);
-  if (!existing) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
-  const repo = { ...existing, state: "disabled" as const };
-  const next = replaceRepo(registry, repo);
-  const changed = !daemonRepoEquals(existing, repo);
-  if (changed) writeDaemonRegistry(next, options);
+  const mutation = withDaemonRegistryMutationLock(options, () => {
+    const registry = readDaemonRegistry(options);
+    const normalizedRepoId = normalizeExplicitRepoId(repoId);
+    const existing = registry.repos.find((repo) => repo.repoId === normalizedRepoId);
+    if (!existing) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
+    const repo = { ...existing, state: "disabled" as const };
+    const next = replaceRepo(registry, repo);
+    const changed = !daemonRepoEquals(existing, repo);
+    if (changed) writeDaemonRegistry(next, options);
+    return { registry: next, repo, changed };
+  });
+  const { registry, repo, changed } = mutation;
   const warnings = removeConvenienceLink(repo, options);
-  return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
+  return { registry, repo, registryPath: paths.registryPath, changed, warnings };
 }
 
 export function resolveDaemonRepoByRoot(rootDir: string, options: DaemonRegistryOptions = {}): DaemonRegistryRepo | undefined {
@@ -221,9 +236,18 @@ function decodeDaemonRegistry(value: unknown, source: string): DaemonRegistry {
     || (machineId === undefined) !== (daemonGeneration === undefined)) {
     throw new Error(`invalid daemon registry at ${source}`);
   }
+  const repos = value.repos.map((entry) => decodeDaemonRegistryRepo(entry, source));
+  if (repos.some((repo) => repo.runtimeRegistrationId !== undefined)
+    && (machineId === undefined || daemonGeneration === undefined)) {
+    throw new Error(`invalid daemon registry at ${source}`);
+  }
+  if (daemonGeneration !== undefined
+    && repos.some((repo) => repo.daemonGeneration !== undefined && repo.daemonGeneration !== daemonGeneration)) {
+    throw new Error(`invalid daemon registry at ${source}`);
+  }
   return sortDaemonRegistry({
     schema: daemonRegistrySchema,
-    repos: value.repos.map((entry) => decodeDaemonRegistryRepo(entry, source)),
+    repos,
     ...(machineId ? { machineId } : {}),
     ...(daemonGeneration ? { daemonGeneration } : {})
   });
@@ -243,7 +267,7 @@ function decodeDaemonRegistryRepo(value: unknown, source: string): DaemonRegistr
       : null;
   const runtimeRegistrationId = value.runtimeRegistrationId === undefined
     ? undefined
-    : typeof value.runtimeRegistrationId === "string" && value.runtimeRegistrationId.length > 0
+    : typeof value.runtimeRegistrationId === "string" && isUuid(value.runtimeRegistrationId)
       ? value.runtimeRegistrationId
       : null;
   const daemonGeneration = value.daemonGeneration === undefined
@@ -328,9 +352,57 @@ function sortDaemonRegistry(registry: DaemonRegistry): DaemonRegistry {
 
 function replaceRepo(registry: DaemonRegistry, replacement: DaemonRegistryRepo): DaemonRegistry {
   return sortDaemonRegistry({
-    schema: daemonRegistrySchema,
+    ...registry,
     repos: registry.repos.map((repo) => repo.repoId === replacement.repoId ? replacement : repo)
   });
+}
+
+function withDaemonRegistryMutationLock<T>(options: DaemonRegistryOptions, mutate: () => T): T {
+  const { userRoot, registryPath } = daemonRegistryPaths(options);
+  const lockPath = `${registryPath}.lock`;
+  mkdirSync(userRoot, { recursive: true });
+  const deadline = Date.now() + 5_000;
+  while (true) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch (error) {
+      if (!isRegistryLockCollision(error, lockPath)) throw error;
+      if (registryLockIsStale(lockPath)) {
+        try {
+          rmSync(lockPath, { recursive: true });
+        } catch {
+          // Another contender recovered or replaced the stale lock.
+        }
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error(`timed out acquiring daemon registry mutation lock: ${lockPath}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    return mutate();
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
+  }
+}
+
+function isRegistryLockCollision(error: unknown, lockPath: string): boolean {
+  if (!(error instanceof Error) || !("code" in error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EEXIST" || ((code === "EPERM" || code === "EACCES") && existsSync(lockPath));
+}
+
+function registryLockIsStale(lockPath: string): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > 30_000;
+  } catch {
+    return false;
+  }
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
 }
 
 function syncConvenienceLink(repo: DaemonRegistryRepo, options: DaemonRegistryOptions): ReadonlyArray<string> {

@@ -1,4 +1,4 @@
-import { publishDaemonRegistryRuntimeProjection } from "@harness-anything/kernel";
+import { publishDaemonRegistryRuntimeProjection } from "@harness-anything/kernel/daemon/registry";
 import type { MultiRepoDaemonRuntimeStatus } from "./repo-runtime-options.ts";
 
 export function publishRuntimeRegistrationSnapshot(input: {
