@@ -139,7 +139,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "parse": parseCoreTaskArgs,
     "run": runTaskLifecycleCommand,
     "receiptContract": {
-      "data": ["taskId", "report"],
+      "data": ["taskId", "status", "report"],
       "optionalData": { "executionId": "Only emitted when a work claim opens a Holder V2 Execution round." },
       "paths": []
     },
@@ -158,7 +158,11 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": rejectDaemonTaskLifecycleFacade,
     "receiptContract": {
       "data": ["taskId", "executionId", "status", "report"],
-      "paths": []
+      "paths": [],
+      "dryRun": {
+        "data": ["taskId", "report"],
+        "paths": []
+      }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -238,7 +242,11 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": rejectDaemonTaskLifecycleFacade,
     "receiptContract": {
       "data": ["taskId", "executionId", "status", "report"],
-      "paths": []
+      "paths": [],
+      "dryRun": {
+        "data": ["taskId", "report"],
+        "paths": []
+      }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,

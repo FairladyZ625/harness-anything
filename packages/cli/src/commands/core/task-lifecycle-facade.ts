@@ -140,6 +140,7 @@ function dryRun(
     taskId: command.action.taskId,
     report: {
       schema: `${command.action.kind}-dry-run/v1`,
+      dryRun: true,
       ...extra,
       steps: steps.map((step) => step.action.kind)
     }

@@ -106,6 +106,10 @@ test("task claim defaults to a 24 hour lease when no TTL setting is present", ()
     const claimed = runJson(rootDir, ["task", "claim", created.taskId]);
 
     assert.equal(leaseDurationMs(claimed.report), 86_400_000);
+    assert.equal(claimed.status, "planned");
+    const guidance = claimed.warnings.find((warning: Record<string, unknown>) => warning.code === "task_still_planned");
+    assert.match(String(guidance?.message), /remains planned after claim.+before writing facts or closing out/iu);
+    assert.equal(guidance?.nextCommand, `ha task start ${created.taskId}`);
   });
 });
 
