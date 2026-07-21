@@ -624,6 +624,8 @@ test("daemon help exposes logs, restart, refresh, and refresh trigger selection"
   assert.match(help, /restart/u);
   assert.match(help, /refresh/u);
   assert.match(help, /explicit\|post-merge\|dist-watcher/u);
+  assert.match(help, /snapshot install/u);
+  assert.match(help, /upgrade/u);
 });
 
 async function runCapturedControl(

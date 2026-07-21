@@ -33,6 +33,7 @@ import { makeDaemonLogService } from "@harness-anything/application";
 import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.ts";
 import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonCommandInput } from "./command-types.ts";
+import { installSnapshotCommand, upgradeDaemonSnapshot } from "./snapshot-command.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 export type { DaemonCommandInput, DaemonServeHooks } from "./command-types.ts";
@@ -78,6 +79,14 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     if (action === "stop") return await stopDaemon(input);
     if (action === "restart") return await controlDaemon(input, "restart");
     if (action === "refresh") return await controlDaemon(input, "refresh");
+    if (action === "upgrade") {
+      emitDaemonResult("daemon-upgrade", await upgradeDaemonSnapshot(input, productizationCliEntrypointPath), input.json);
+      return 0;
+    }
+    if (action === "snapshot") {
+      emitDaemonResult("daemon-snapshot-install", installSnapshotCommand(input, productizationCliEntrypointPath), input.json);
+      return 0;
+    }
     if (action === "bootstrap-server") return await bootstrapServer(input);
     if (action === "install-templates") return installTemplates(input);
     if (action === "repo") return runDaemonRepoCommand({ rootDir: input.rootDir, layoutOverrides: input.layoutOverrides, args: input.args, json: input.json });
@@ -515,7 +524,7 @@ function emitDaemonResult(command: string, result: Record<string, unknown>, json
     return;
   }
   const parts = [`ok`, `command=${command}`];
-  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "rootDir", "repoId", "endpoint", "drained", "stopped", "accepted", "operationId", "kind", "reportPath", "outputDir"] as const) {
+  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "rootDir", "repoId", "endpoint", "drained", "stopped", "accepted", "operationId", "kind", "reportPath", "outputDir", "installed", "snapshotDir", "entrypoint", "manifestPath"] as const) {
     if (result[key] !== undefined) parts.push(`${key}=${JSON.stringify(result[key])}`);
   }
   if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);

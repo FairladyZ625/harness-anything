@@ -640,6 +640,56 @@
     ],
     "freshGateRegistry": [
       {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#mkdirSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; creates the non-SoT immutable runtime artifact root."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#cpSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; copies built runtime bytes into isolated staging."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#writeFileSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; records the source and content fingerprint manifest."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#renameSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; atomically publishes staged immutable runtime bytes."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#rmSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized daemon.snapshot.install cleanup removes only its repository-external unpublished staging directory."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#rmSync@2",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized daemon.snapshot.install prepares its isolated temporary Git worktree path before Git owns it."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#symlinkSync@1",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized daemon.snapshot.install links existing dependencies only inside its isolated temporary Git worktree for an explicit-ref build."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#rmSync@3",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized daemon.snapshot.install fallback cleanup removes only its isolated temporary Git worktree after Git cleanup fails."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#mkdirSync@2",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; creates runtime dependency parent directories in staging."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#cpSync@2",
+        "ref": "task_01KY2WBYH520GMVJK5K76SH1WJ",
+        "reason": "Decision-authorized repository-external daemon snapshot install registered as daemon.snapshot.install; copies the runtime dependency closure into staging."
+      },
+      {
         "value": "packages/cli/src/commands/core/worktree.ts#mkdirSync@1",
         "ref": "task_01KWY3Z4VEVP6FNT28ZFA809GW",
         "reason": "C11 generated worktree binding registry write; stores rebuildable local .harness/generated binding state, not authored task truth."

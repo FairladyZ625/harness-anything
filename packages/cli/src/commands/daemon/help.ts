@@ -37,12 +37,17 @@ export const daemonCapabilityOperations = [
     "refresh",
     "ha daemon refresh --json",
     "Request a service-wide daemon refresh and wait for the replacement daemon."
+  ),
+  daemonCapabilityOperation(
+    "upgrade",
+    "ha daemon upgrade --json",
+    "Install a versioned daemon snapshot and gracefully switch the service to it."
   )
 ] as const;
 
 export function renderDaemonHelp(): string {
   return [
-    "Usage: harness-anything daemon <start|status|logs|stop|restart|refresh|connect|repo|bootstrap-server|install-templates> [options]",
+    "Usage: harness-anything daemon <start|status|logs|stop|restart|refresh|upgrade|snapshot|connect|repo|bootstrap-server|install-templates> [options]",
     "Alias: ha daemon <subcommand> [options]",
     "",
     daemonGroup.summary,
@@ -68,6 +73,10 @@ export function renderDaemonHelp(): string {
     "                               Classify the refresh caller (default: explicit).",
     "    --timeout-ms <ms>          Set the aggregate queue drain timeout (100-120000).",
     "    --reason <text>            Record the operator or automation reason.",
+    "  upgrade [options]            Install a snapshot, drain, switch, start, and verify authority convergence.",
+    "  snapshot install [options]   Install an immutable daemon artifact snapshot without switching.",
+    "    --ref <git-ref>            Build a specific Git ref (default: current checkout).",
+    "    --version <version>        Override the snapshot directory version.",
     "  connect --stdio              Relay stdin/stdout to an already-running daemon.",
     "  repo <subcommand>            Register, list, or unregister daemon repositories.",
     "  bootstrap-server             Initialize a canonical team server repository.",
