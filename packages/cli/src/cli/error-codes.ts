@@ -267,7 +267,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.DecisionBodyFileReadFailed]: { category: "parse", defaultHint: "Decision body file could not be read." },
   [CliErrorCode.DecisionReckonUncovered]: { category: "command", defaultHint: "Decision reckon found uncovered load-bearing claims." },
   [CliErrorCode.DecisionWriteRejected]: { category: "command", defaultHint: "Decision write was rejected." },
-  [CliErrorCode.DaemonGenerationFenced]: { category: "domain", defaultHint: "The daemon generation is stale; query the current daemon for the durable outcome." },
+  [CliErrorCode.DaemonGenerationFenced]: { category: "domain", defaultHint: "The write was rejected because this daemon's generation is stale (a newer daemon replaced it). Run `ha daemon status --json --include-generation-axes` to confirm the current generation, then retry the command against the current daemon; the durable outcome, if any, is recorded in its terminal journal." },
   [CliErrorCode.DeleteConfirmMismatch]: { category: "command", defaultHint: "Delete confirmation does not match the task id." },
   [CliErrorCode.DeleteConfirmRequired]: { category: "command", defaultHint: "Delete confirmation is required." },
   [CliErrorCode.DuplicateAdoptClaim]: { category: "domain", defaultHint: "Adopt claim already exists." },

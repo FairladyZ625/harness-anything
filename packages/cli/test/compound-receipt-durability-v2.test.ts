@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,8 +41,12 @@ test("durable v2 store atomically recovers ACK journal state without raw capabil
     assert.equal(acknowledged.terminalLSN, 1);
     assert.equal((await restarted.getWaiter({ ...opened.identity, resultToken: token }))?.terminalLSN, 1);
 
-    const durableBody = readFileSync(path.join(directory, "compound-receipt-broker-state-v2.json"), "utf8");
-    assert.equal(durableBody.includes(token), false, "raw result token must stay outside broker durable state");
+    const durableBodies = readdirSync(directory)
+      .map((name) => [name, readFileSync(path.join(directory, name), "utf8")] as const);
+    for (const [name, body] of durableBodies) {
+      assert.equal(body.includes(token), false, `raw result token must stay outside durable state file ${name}`);
+    }
+    const durableBody = durableBodies.map(([, body]) => body).join("\n");
     assert.match(durableBody, /"kind":"ACK_COMMITTED"/u);
     assert.match(durableBody, /"terminalLSN":1/u);
     assert.equal(durableBody.includes("resultTokenDigest"), true);
