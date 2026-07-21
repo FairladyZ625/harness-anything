@@ -70,6 +70,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/preset-script-imports-cli.test.ts": 20400,
   "packages/cli/test/preset-script-staging-boundary.test.ts": 25400,
   "packages/cli/test/preset-uninstall-safety-cli.test.ts": 28900,
+  "packages/cli/test/perf/cli-latency-budget.test.ts": 16500,
   "packages/cli/test/progress-evidence-cli.test.ts": 700.0,
   "packages/cli/test/preset-subtask-expansion-cli.test.ts": 17807.0,
   "packages/cli/test/projection-freshness-cli.test.ts": 1723.3,

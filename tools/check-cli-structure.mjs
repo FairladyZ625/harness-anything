@@ -107,7 +107,8 @@ function checkCliCommandDescriptorization() {
   const parserRegistry = readSource("packages/cli/src/cli/parser-registry.ts");
   const runnerRegistryPath = "packages/cli/src/cli/runner-registry.ts";
   const runnerRegistry = existsSync(path.join(root, runnerRegistryPath)) ? readSource(runnerRegistryPath) : "";
-  const cliEntrypoint = readSource("packages/cli/src/index.ts");
+  const cliEntrypointPaths = existingFiles(["packages/cli/src/index.ts", "packages/cli/src/main.ts"]);
+  const cliEntrypoint = cliEntrypointPaths.map(readSource).join("\n");
   const lifecycleExecutorPath = "packages/cli/src/commands/lifecycle.ts";
   const lifecycleExecutor = existsSync(path.join(root, lifecycleExecutorPath)) ? readSource(lifecycleExecutorPath) : "";
 
@@ -162,10 +163,10 @@ function checkCliCommandDescriptorization() {
     violations.push("packages/cli/src/cli/runner-registry.ts: runner registry must not use string runner ids");
   }
   if (!/\brunRegisteredCommand\b/u.test(cliEntrypoint)) {
-    violations.push("packages/cli/src/index.ts: entrypoint must dispatch through runRegisteredCommand");
+    violations.push("packages/cli/src/{index,main}.ts: entrypoint must dispatch through runRegisteredCommand");
   }
   if (/\bif\s*\(\s*runnerId\s*===/u.test(cliEntrypoint)) {
-    violations.push("packages/cli/src/index.ts: entrypoint must not hand-dispatch runner ids");
+    violations.push("packages/cli/src/{index,main}.ts: entrypoint must not hand-dispatch runner ids");
   }
   if (/\bfunction\s+runCommand\b/u.test(lifecycleExecutor)) {
     violations.push("packages/cli/src/commands/lifecycle.ts: lifecycle.ts must not contain catch-all runCommand dispatcher");

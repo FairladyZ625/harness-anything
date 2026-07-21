@@ -67,7 +67,15 @@ export interface LocalDaemonAutostartOptions {
   readonly execPath?: string;
   readonly execArgv?: ReadonlyArray<string>;
   readonly launchConfiguration?: DaemonLaunchConfiguration;
+  readonly onPhase?: (phase: LocalDaemonAutostartPhase) => void;
 }
+
+export type LocalDaemonAutostartPhase =
+  | "connect-start"
+  | "launch-start"
+  | "ready"
+  | "request-start"
+  | "request-end";
 
 export interface LocalDaemonJsonRpcOptions {
   readonly userRoot?: string;
@@ -338,11 +346,15 @@ export class JsonRpcLineClient {
   private async readResponse(id: number): Promise<JsonRpcResponse> {
     const lines = createInterface({ input: this.input });
     const iterator = lines[Symbol.asyncIterator]();
-    while (true) {
-      const next = await iterator.next();
-      if (next.done) throw new Error(`daemon closed before JSON-RPC response ${id}`);
-      const response = JSON.parse(next.value) as JsonRpcResponse;
-      if (response.id === id) return response;
+    try {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) throw new Error(`daemon closed before JSON-RPC response ${id}`);
+        const response = JSON.parse(next.value) as JsonRpcResponse;
+        if (response.id === id) return response;
+      }
+    } finally {
+      lines.close();
     }
   }
 }
@@ -359,6 +371,7 @@ async function requestLocalDaemonJsonRpcWithAutostart(
   while (Date.now() <= deadline) {
     let socket: net.Socket;
     try {
+      autostart.onPhase?.("connect-start");
       socket = await connectUnixSocket(target.socketPath, boundedConnectTimeout(connectTimeoutMs, deadline));
     } catch (error) {
       lastError = error;
@@ -366,11 +379,14 @@ async function requestLocalDaemonJsonRpcWithAutostart(
       continue;
     }
     try {
+      autostart.onPhase?.("request-start");
       return await requestWithSocket(socket, method, params);
     } catch (error) {
       if (error instanceof DaemonJsonRpcResponseError) throw error;
       lastError = error;
       await delay(Math.min(100, Math.max(1, deadline - Date.now())));
+    } finally {
+      autostart.onPhase?.("request-end");
     }
   }
   throw lastError ?? new Error("local daemon did not become reachable");
@@ -412,10 +428,12 @@ async function spawnAndWaitForLocalDaemon(
   connectTimeoutMs: number,
   flight: DaemonStartupFlight
 ): Promise<void> {
+  autostart.onPhase?.("launch-start");
   spawnLocalDaemon(target, autostart);
   while (Date.now() <= flight.deadline) {
     try {
       await probeLocalDaemonReady(target.socketPath, boundedConnectTimeout(connectTimeoutMs, flight.deadline));
+      autostart.onPhase?.("ready");
       return;
     } catch (error) {
       flight.lastError = error;
@@ -432,13 +450,22 @@ async function waitForDaemonStartupFlight(socketPath: string, flight: DaemonStar
     if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
     throw flight.lastError ?? new Error("local daemon did not become reachable");
   }
-  return Promise.race([
-    flight.promise,
-    delay(remainingMs).then(() => {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
       if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-      throw flight.lastError ?? new Error("local daemon did not become reachable");
-    })
-  ]);
+      reject(flight.lastError ?? new Error("local daemon did not become reachable"));
+    }, remainingMs);
+    flight.promise.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function clearDaemonStartupFlight(socketPath: string, flight: DaemonStartupFlight): void {
@@ -451,7 +478,7 @@ async function probeLocalDaemonReady(socketPath: string, timeoutMs: number): Pro
   try {
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
   } finally {
-    client.close();
+    socket.destroy();
   }
 }
 
@@ -461,7 +488,7 @@ async function requestWithSocket(socket: net.Socket, method: string, params: Jso
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
     return await client.request(method, params);
   } finally {
-    client.close();
+    socket.destroy();
   }
 }
 

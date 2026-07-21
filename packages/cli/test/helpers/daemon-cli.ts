@@ -62,7 +62,7 @@ export function runRawJsonMaybeFail(
 export function stderrWithoutDeprecationWarnings(stderr: string): string {
   return stderr
     .split("\n")
-    .filter((line) => !line.startsWith("Deprecation warning: "))
+    .filter((line) => !line.startsWith("Deprecation warning: ") && !line.startsWith("[ha] ") && !line.startsWith("[ha timing] "))
     .join("\n")
     .trim();
 }

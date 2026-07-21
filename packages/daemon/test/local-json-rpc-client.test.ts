@@ -119,6 +119,43 @@ test("autostart coalesces concurrent requests to one spawn per socket path", asy
   assert.deepEqual(results[0], { ok: true, method: "repo.tasks.list" });
 });
 
+test("autostart reports connect, launch, readiness, and request phases", async (t) => {
+  if (process.platform === "win32") return;
+  const socketPath = uniqueSocketPath("ha-daemon-autostart-phases");
+  const target = makeTarget(socketPath);
+  const phases: string[] = [];
+  const timeoutResourcesBefore = process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
+  let server: net.Server | undefined;
+  const restoreSpawn = replaceSpawnLocalDaemonForTest(() => {
+    setTimeout(() => {
+      void startJsonRpcServer(socketPath).then((started) => {
+        server = started;
+      });
+    }, 50);
+  });
+  t.after(async () => {
+    restoreSpawn();
+    await closeServer(server);
+    rmSync(socketPath, { force: true });
+  });
+
+  const result = await requestLocalDaemonJsonRpcForTarget(
+    target,
+    "repo.tasks.list",
+    {},
+    20,
+    { entryPath: "/unused", timeoutMs: 1_000, onPhase: (phase) => phases.push(phase) }
+  );
+
+  assert.deepEqual(result, { ok: true, method: "repo.tasks.list" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(phases.filter((phase) => phase === "launch-start").length, 1);
+  assert.deepEqual(phases.slice(-3), ["connect-start", "request-start", "request-end"]);
+  assert.equal(phases.indexOf("launch-start") < phases.indexOf("ready"), true);
+  const timeoutResourcesAfter = process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
+  assert.equal(timeoutResourcesAfter <= timeoutResourcesBefore, true, "settled startup flight must cancel its deadline timer");
+});
+
 test("autostart clears failed single-flight so a later request can spawn again", async (t) => {
   if (process.platform === "win32") return;
   const socketPath = uniqueSocketPath("ha-daemon-singleflight-retry");
