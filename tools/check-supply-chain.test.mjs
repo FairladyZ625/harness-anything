@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-supply-chain.mjs");
+const CHECK_PROCESS_TIMEOUT_MS = 90_000;
 
 test("supply-chain check accepts the expected release gate contract", async () => {
   await withFixtureRepo((root) => {
@@ -227,15 +228,17 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root);
 
-    const result = spawnSync(process.execPath, [scriptPath], {
+    const result = requireCompletedSpawn(spawnSync(process.execPath, [scriptPath], {
       cwd: root,
       encoding: "utf8",
+      timeout: CHECK_PROCESS_TIMEOUT_MS,
+      killSignal: "SIGKILL",
       env: {
         ...process.env,
         PATH: "/nonexistent",
         HARNESS_SUPPLY_CHAIN_FIXTURE_OUTPUT_DIR: path.join(root, ".supply-chain-command-output")
       }
-    });
+    }), "node tools/check-supply-chain.mjs", CHECK_PROCESS_TIMEOUT_MS);
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /npm audit --audit-level=high failed/u);
@@ -255,15 +258,45 @@ test("supply-chain check rejects Dependabot directory under wrong ecosystem", as
   });
 });
 
-function runCheck(root) {
-  return spawnSync(process.execPath, [scriptPath], {
+test("supply-chain check reports a bounded npm command timeout", async (t) => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { hangNpmCommand: "sbom --sbom-format=cyclonedx --sbom-type=application" });
+    const startedAt = Date.now();
+
+    const result = runCheck(root, {
+      env: { HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS: "2000" },
+      timeoutMs: 10_000
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /npm sbom --sbom-format=cyclonedx --sbom-type=application timed out after 2000ms/u);
+    assert.doesNotMatch(result.stderr, /npm audit .* timed out/u);
+    assert.equal(elapsedMs < 9_000, true, `bounded supply-chain check took ${elapsedMs}ms\n${result.stderr}`);
+    t.diagnostic(`timeout control completed in ${elapsedMs}ms: ${result.stderr.trim()}`);
+  });
+});
+
+function runCheck(root, options = {}) {
+  const timeoutMs = options.timeoutMs ?? CHECK_PROCESS_TIMEOUT_MS;
+  return requireCompletedSpawn(spawnSync(process.execPath, [scriptPath], {
     cwd: root,
     encoding: "utf8",
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
     env: {
       ...process.env,
+      ...(options.env ?? {}),
       PATH: `${path.join(root, ".mock-bin")}${path.delimiter}${process.env.PATH ?? ""}`
     }
-  });
+  }), "node tools/check-supply-chain.mjs", timeoutMs);
+}
+
+function requireCompletedSpawn(result, command, timeoutMs) {
+  if (result.error?.code === "ETIMEDOUT") throw new Error(`${command} timed out after ${timeoutMs}ms`);
+  if (result.error) throw new Error(`${command} failed to start: ${result.error.message}`);
+  if (result.signal !== null) throw new Error(`${command} terminated by signal ${result.signal}`);
+  return result;
 }
 
 async function withFixtureRepo(fn) {
@@ -356,7 +389,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator);
+  writeMockNpm(root, options.sbomMutator, options.hangNpmCommand);
 }
 
 function validReadme() {
@@ -406,7 +439,7 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root, sbomMutator) {
+function writeMockNpm(root, sbomMutator, hangNpmCommand) {
   const mockPath = path.join(root, ".mock-bin/npm");
   const sbomValue = validSbom();
   sbomMutator?.(sbomValue);
@@ -414,6 +447,7 @@ function writeMockNpm(root, sbomMutator) {
   writeFile(root, ".mock-bin/npm", [
     "#!/usr/bin/env node",
     "const args = process.argv.slice(2).join(' ');",
+    `if (args === ${JSON.stringify(hangNpmCommand)}) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); }`,
     "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
     "  console.log('found 0 vulnerabilities');",
     "  process.exit(0);",

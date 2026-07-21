@@ -9,6 +9,7 @@ import test from "node:test";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-import-boundaries.mjs");
+const CHECKER_TIMEOUT_MS = 30_000;
 
 test("import boundary check rejects application imports from adapters", () => {
   const root = makeFixtureRoot();
@@ -550,12 +551,20 @@ function writeLocalAdapter(root) {
 }
 
 function runChecker(cwd, options = {}) {
-  return spawnSync(process.execPath, [checkerPath], {
+  const result = spawnSync(process.execPath, [checkerPath], {
     cwd,
     encoding: "utf8",
+    timeout: CHECKER_TIMEOUT_MS,
+    killSignal: "SIGKILL",
     env: {
       ...process.env,
       ...(options.env ?? {})
     }
   });
+  if (result.error?.code === "ETIMEDOUT") {
+    throw new Error(`node tools/check-import-boundaries.mjs timed out after ${CHECKER_TIMEOUT_MS}ms`);
+  }
+  if (result.error) throw new Error(`node tools/check-import-boundaries.mjs failed to start: ${result.error.message}`);
+  if (result.signal !== null) throw new Error(`node tools/check-import-boundaries.mjs terminated by signal ${result.signal}`);
+  return result;
 }
