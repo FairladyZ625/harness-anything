@@ -42,7 +42,10 @@ export async function compileDecisionAmendV2(
   const current = decodeIngressDecision(parseDecisionDocument(snapshot.body).decision);
   if (current.decision_id !== next.decision_id) throw admission("DECISION_ID_MISMATCH");
   const changed = changedFields(current, next);
-  if (changed.length === 0 || changed.some((field) => field !== "contentPins" && decisionFieldContracts[field].mutability !== "amendable")
+  // body-only amend 合法:正文不是 DecisionPackage 结构字段,changed 为空但 payload.body 承载改写。
+  const bodyOnlyAmend = changed.length === 0 && payload.body !== undefined;
+  if ((changed.length === 0 && !bodyOnlyAmend)
+    || changed.some((field) => field !== "contentPins" && decisionFieldContracts[field].mutability !== "amendable")
     || (changed.includes("contentPins") && !validContentPinAppend(current, next))) {
     throw admission("DECISION_AMEND_FIELD_INVALID");
   }
