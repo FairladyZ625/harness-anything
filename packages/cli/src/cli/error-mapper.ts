@@ -35,7 +35,10 @@ const cliErrorMappers = {
     `Operation timed out after ${error.ms}ms. Retry the command; if it repeats, run 'ha doctor --json' and inspect engine or daemon connectivity.`
   ),
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
-  GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
+  GlobalWriteConflict: (error) => cliError(
+    CliErrorCode.WriteConflict,
+    `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying.`
+  ),
   WriteRejected: (error) => error.code && isCliErrorCode(error.code)
     ? cliError(error.code, authorityIngressPresentation(error.reason), error.context)
     : error.reason.includes("authored root is not isolated from the outer code repository")

@@ -52,6 +52,7 @@
   },
   "tierDefinitions": {
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
+    "pr-advisory": "Runs for pull requests but is intentionally not yet a GitHub branch-protection required context; promotion to required is a separate governed change.",
     "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
     "nightly-only": "Runs only on scheduled full-check.",
     "local-only": "Produces an applicable verdict only for a declared self-hosted layout. Public CI may execute the local runner but receives an explicit not-applicable result because no private layout is declared.",
@@ -162,7 +163,8 @@
         "check-legacy-intake-readiness",
         "check-supply-chain",
         "smoke-legacy-intake",
-        "smoke-cli-package"
+        "smoke-cli-package",
+        "smoke-direct-recovery"
       ],
       "checkPr": [
         "typecheck",
@@ -213,7 +215,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 47
+      "harnessLeafGateCount": 48
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -224,6 +226,7 @@
         "boundaries",
         "package-policy",
         "supply-chain",
+        "direct-recovery",
         "gui-build",
         "node26-compatibility"
       ],
@@ -4999,6 +5002,81 @@
         "status": "covered",
         "evidence": [
           "tools/smoke-cli-package.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "smoke-direct-recovery",
+      "command": "npm run harness:smoke-direct-recovery",
+      "category": "smoke",
+      "tier": "pr-advisory",
+      "tierReason": "dec_01KY2PJRGWXEJDH3E622553HZK CH3 requires the direct escape hatch to run continuously in CI while required-context promotion remains a separate governed step.",
+      "authoritySource": [
+        "dec_01KY2PJRGWXEJDH3E622553HZK#CH3",
+        "task_01KY36N9FN7XQ06TM49HHBYZFF",
+        "tools/smoke-direct-recovery.mjs"
+      ],
+      "consumerScope": [
+        "Hermetic daemon-absent direct recovery task creation and CLI read-back"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "direct-recovery",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The smoke path is fixed and failures are blocking within the job; no exception or continue-on-error path exists."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/smoke-direct-recovery.mjs",
+          "package.json:scripts.harness:smoke-direct-recovery",
+          ".github/workflows/rewrite-ci.yml:jobs.direct-recovery",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "harness:smoke-direct-recovery"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "direct-recovery"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/smoke-direct-recovery.mjs",
+          "packages/cli/test/direct-mode-fail-close.test.ts"
         ]
       }
     },

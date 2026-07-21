@@ -11,7 +11,7 @@ import {
   maxErrorHintLength
 } from "./check-error-next-steps.mjs";
 
-const goodDirectWriteHint = "Direct CLI execution is retired. Remove HARNESS_DAEMON_MODE=direct and use the daemon-backed CLI path. Only pre-initialization bootstrap and explicit operator recovery remain local; recovery requires HARNESS_DIRECT_WRITE_REASON=recovery.";
+const goodDirectWriteHint = "Direct CLI execution is reserved for operator recovery when the daemon is unavailable or stuck. For the normal single-writer path, remove HARNESS_DAEMON_MODE=direct. To run this command through the recovery escape hatch, use 'HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha task create --title Example'.";
 
 test("next-step semantics accept the direct-write sample and reject a dead-end hint", () => {
   assert.deepEqual(assessErrorHint(goodDirectWriteHint), { overload: [], nextStep: [] });

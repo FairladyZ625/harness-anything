@@ -14,6 +14,7 @@
     "task_01KXZTWY17ZVH5FWRCRV86J16C",
     "task_01KY2WBYH520GMVJK5K76SH1WJ",
     "dec_01KY2PJRGWXEJDH3E622553HZK",
+    "task_01KY36N9FN7XQ06TM49HHBYZFF",
     "ADR-0022"
   ],
   "rowCountReconciliation": {
@@ -36,7 +37,8 @@
       "entry": [
         "cli",
         "daemon-rpc",
-        "preset-internal"
+        "preset-internal",
+        "ci-direct-recovery-smoke"
       ],
       "writeKinds": [
         "package_create"
@@ -47,7 +49,8 @@
       "evidence": [
         "packages/adapters/local/src/index.ts:122",
         "packages/cli/src/commands/preset-task.ts:208",
-        "packages/cli/src/commands/legacy-rebuild.ts:74"
+        "packages/cli/src/commands/legacy-rebuild.ts:74",
+        "tools/smoke-direct-recovery.mjs:18"
       ],
       "freshness": "coordinator-batch-document"
     },
