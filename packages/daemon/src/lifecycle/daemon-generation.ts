@@ -390,7 +390,7 @@ export function recoverAbandonedDaemonGenerationMutationLock(
   }
   const ageMs = Date.now() - Date.parse(record.acquiredAt);
   const abandoned = record.schema === "daemon-generation-mutation-lock/v1"
-    && (record.hostname === hostname() ? !processIsAlive(record.pid) : Number.isFinite(ageMs) && ageMs > 30_000);
+    && (record.hostname === hostname() ? !generationLockHolderProcessIsAlive(record.pid) : Number.isFinite(ageMs) && ageMs > 30_000);
   if (!abandoned) return;
   afterObservation?.(observed);
   quarantineDaemonGenerationMutationLockIfUnchanged(lockPath, observed, "stale");
@@ -469,7 +469,7 @@ function assertDaemonGenerationMutationLockOwner(lockPath: string, ownerToken: s
   }
 }
 
-function processIsAlive(pid: number): boolean {
+function generationLockHolderProcessIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
