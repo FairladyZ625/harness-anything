@@ -161,6 +161,8 @@ export interface AuthorityRepoLifecycleController {
   readonly stopAll: (reason: AuthorityRepoStopReason) => Promise<void>;
   readonly component: (repoId: string) => AuthorityRepoComponent | undefined;
   readonly unavailableReason: (repoId: string) => string | undefined;
+  /** Background authority work that must keep an on-demand daemon alive. */
+  readonly hasActiveWork?: () => boolean;
 }
 
 export type AuthorityRepoStartResult =

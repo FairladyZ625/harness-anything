@@ -109,7 +109,7 @@ export function createProductionAuthorityLifecycle(input: {
   const materials = new Map<string, RepoProductionMaterial>();
   const publicationObservers = new Map<string, Parameters<AuthorityRepoLifecycleHooks["start"]>[0]["inspectPublication"]>();
   const hooks = createProductionAuthorityRepoLifecycleHooks({ materials });
-  return createAuthorityRepoLifecycleController({
+  const controller = createAuthorityRepoLifecycleController({
     hooks,
     serviceStateRoot: manifest.serviceStateRoot,
     resolveCompositionData: async (repo, state, runtime) => {
@@ -270,6 +270,10 @@ export function createProductionAuthorityLifecycle(input: {
       };
     }
   });
+  return {
+    ...controller,
+    hasActiveWork: () => [...materials.values()].some((material) => material.recovery.status === "recovering")
+  };
 
   function createProductionAuthorityRepoLifecycleHooks(options: {
     readonly materials: ReadonlyMap<string, RepoProductionMaterial>;

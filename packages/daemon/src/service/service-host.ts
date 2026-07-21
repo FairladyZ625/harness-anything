@@ -41,6 +41,7 @@ import { createAuthorityWireIngressHandler } from "../authority/authority-wire-s
 import { requireAuthoritySubmissionForDispatch } from "../authority/authority-submission-dispatch.ts";
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
 import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
+import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
@@ -119,16 +120,22 @@ export async function createDaemonServiceHost<
   const stopRequested = new Promise<DaemonServiceStopRequest>((resolve) => {
     requestStop = resolve;
   });
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let reconcileTimer: ReturnType<typeof setInterval> | undefined;
   let reconciling = false;
   let stopping = false;
   let drainTimeoutMs: number | undefined;
   let activeControl: DaemonActiveControlStatus | null = null;
+  const idleExit = createDaemonIdleExitScheduler({
+    idleMs,
+    isStopping: () => stopping,
+    activeConnections: () => connections.active,
+    hasActiveWork: () => authorityLifecycle?.hasActiveWork?.() ?? false,
+    requestIdleStop: () => requestStop?.({ reason: "idle-timeout" })
+  });
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    if (idleTimer) clearTimeout(idleTimer);
+    idleExit.disarm();
     if (reconcileTimer) clearInterval(reconcileTimer);
     try {
       await drainDaemonRuntime({
@@ -154,20 +161,13 @@ export async function createDaemonServiceHost<
       await handler();
     }
   };
-  const scheduleIdleExit = () => {
-    if (idleMs <= 0 || stopping || connections.active !== 0) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      requestStop?.({ reason: "idle-timeout" });
-    }, idleMs);
-    idleTimer.unref();
-  };
+  const scheduleIdleExit = idleExit.schedule;
   const commandOptions = {
     onCommandStart: () => {
       if (activeControl) {
         throw new Error(`DAEMON_DRAINING_ADMISSION_CLOSED: daemon ${activeControl.kind} operation ${activeControl.operationId} is draining. Run \`ha daemon status --json\` and wait for it to complete or report its timeout before retrying.`);
       }
-      if (idleTimer) clearTimeout(idleTimer);
+      idleExit.disarm();
     },
     onCommandSettled: scheduleIdleExit
   };
@@ -247,10 +247,7 @@ export async function createDaemonServiceHost<
     }),
     status: () => serviceStatus(defaultRepoBinding().repo.repoId),
     requestControl: controlService.requestControl,
-    onConnectionStart: () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = undefined;
-    },
+    onConnectionStart: idleExit.disarm,
     onConnectionSettled: scheduleIdleExit,
     scheduleIdleExit,
     waitForStopRequest: () => stopRequested,

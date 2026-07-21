@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
   AuthorityCommittedReceipt,
   AuthorityOperationRegistry,
@@ -406,7 +407,9 @@ test("incremental recovery advances its watermark only after an absent indetermi
         list: async () => [durable],
         put: async (next) => {
           if (next.state === "REJECTED") {
-            assert.equal(existsSync(watermarkPath), false, "watermark must not precede terminalization");
+            const checkpoint = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
+            assert.equal(checkpoint.schema, "authority-recovery-watermark/v2");
+            assert.equal(checkpoint.phase, "partial", "complete watermark must not precede terminalization");
             terminalized = true;
           }
           durable = next;
@@ -466,7 +469,57 @@ test("recovery watermark falls back on missing or corrupt state and then scans o
   }
 });
 
-test("recovery watermark never advances past an unresolved indexed operation", async () => {
+test("SIGKILL during a scan resumes from the last fully checkpointed commit", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-kill-resume-"));
+  const watermarkPath = path.join(root, "recovery-watermark.json");
+  const readyPath = path.join(root, "checkpoint-ready");
+  const fixturePath = path.resolve("packages/daemon/test/fixtures/recovery-watermark-kill-target.ts");
+  const child = spawn(process.execPath, [fixturePath, watermarkPath, readyPath], { stdio: "inherit" });
+  try {
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(readyPath) && Date.now() < deadline) await delay(10);
+    assert.equal(existsSync(readyPath), true, "fixture did not persist its incremental checkpoint");
+    child.kill("SIGKILL");
+    await new Promise<void>((resolve, reject) => {
+      child.once("exit", (_code, signal) => signal === "SIGKILL"
+        ? resolve()
+        : reject(new Error(`expected SIGKILL, received ${signal ?? "clean exit"}`)));
+      child.once("error", reject);
+    });
+    const partial = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
+    assert.equal(partial.schema, "authority-recovery-watermark/v2");
+    assert.equal(partial.phase, "partial");
+    assert.equal(partial.commitSha, "a".repeat(40));
+
+    const scanInputs: Array<string | undefined> = [];
+    await recoverPendingProductionEvents({
+      workspaceId: "workspace-production",
+      operationRegistry: {
+        get: async () => undefined,
+        list: async () => [],
+        put: async () => undefined
+      },
+      replicaChangeLog: {} as import("../../application/src/index.ts").ReplicaChangeLog,
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: {
+        scanFirstParentOperationAnchors: async ({ exclusiveCommit }: { readonly exclusiveCommit?: string }) => {
+          scanInputs.push(exclusiveCommit);
+          return { headCommit: "b".repeat(40), scannedCommitCount: 1, anchors: [] };
+        }
+      } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+      recover: async () => { throw new Error("no pending operation should recover"); },
+      watermarkPath
+    });
+
+    assert.deepEqual(scanInputs, ["a".repeat(40)]);
+    assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, "b".repeat(40));
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("recovery watermark remains partial while an indexed operation is unresolved", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-unsettled-"));
   const watermarkPath = path.join(root, "recovery-watermark.json");
   const record: AuthorityStoredOperationRecord = {
@@ -501,7 +554,10 @@ test("recovery watermark never advances past an unresolved indexed operation", a
       recover: async () => { throw new Error("unanchored operation must not recover"); },
       watermarkPath
     });
-    assert.equal(existsSync(watermarkPath), false);
+    const checkpoint = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
+    assert.equal(checkpoint.schema, "authority-recovery-watermark/v2");
+    assert.equal(checkpoint.phase, "partial");
+    assert.equal(checkpoint.commitSha, "b".repeat(40));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -541,8 +597,15 @@ test("first-parent scanner rejects a watermark that exists only on a side branch
       inspector.scanFirstParentOperationAnchors({ exclusiveCommit: "f".repeat(40), interestedOpIds: new Set() }),
       (error: unknown) => error instanceof AuthorityRecoveryWatermarkInvalidError
     );
-    const valid = await inspector.scanFirstParentOperationAnchors({ exclusiveCommit: base, interestedOpIds: new Set() });
+    const progressCommits: string[] = [];
+    const valid = await inspector.scanFirstParentOperationAnchors({
+      exclusiveCommit: base,
+      interestedOpIds: new Set(),
+      progressBatchSize: 1,
+      onProgress: async (progress) => { progressCommits.push(progress.commitSha); }
+    });
     assert.equal(valid.scannedCommitCount, 1);
+    assert.deepEqual(progressCommits, [valid.headCommit]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

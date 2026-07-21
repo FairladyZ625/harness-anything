@@ -1,7 +1,7 @@
 // @slice-activation PLT-Boundary W2 exports daemon-owned production authority recovery to CLI composition consumers.
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   AuthorityCommittedReceipt,
   AuthorityGenerationFence,
@@ -41,30 +41,68 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
   const records = await input.operationRegistry.list(input.workspaceId);
   const pending = records.filter(isRecoverablePendingRecord);
   const interestedOpIds = new Set(pending.map((record) => record.opId));
-  const storedWatermark = readRecoveryWatermark(watermarkPath, input.workspaceId);
-  let scan;
-  try {
-    scan = await input.publicationInspector.scanFirstParentOperationAnchors({
-      ...(storedWatermark ? { exclusiveCommit: storedWatermark } : {}),
-      interestedOpIds
+  const interestedOpIdsDigest = recoveryInterestDigest(interestedOpIds);
+  const storedCheckpoint = readRecoveryWatermark(watermarkPath, input.workspaceId);
+  const resumePartial = storedCheckpoint?.phase === "partial"
+    && storedCheckpoint.interestedOpIdsDigest === interestedOpIdsDigest;
+  const baseCommitSha = storedCheckpoint?.phase === "partial"
+    ? storedCheckpoint.baseCommitSha
+    : storedCheckpoint?.commitSha;
+  const preferredCommitSha = resumePartial ? storedCheckpoint.commitSha : baseCommitSha;
+  const attempts = [...new Set([preferredCommitSha, baseCommitSha, undefined])];
+  let scan: Awaited<ReturnType<GitCanonicalPublicationInspector["scanFirstParentOperationAnchors"]>> | undefined;
+  let retainedAnchors: ReadonlyArray<RecoveryWatermarkAnchor> = [];
+  let retainedBaseCommitSha: string | undefined;
+  for (const exclusiveCommit of attempts) {
+    const priorAnchors = resumePartial && exclusiveCommit === preferredCommitSha
+      ? storedCheckpoint.anchors
+      : [];
+    const progressAnchors = [...priorAnchors];
+    const attemptBaseCommitSha = exclusiveCommit === undefined ? undefined : baseCommitSha;
+    try {
+      scan = await input.publicationInspector.scanFirstParentOperationAnchors({
+        ...(exclusiveCommit ? { exclusiveCommit } : {}),
+        interestedOpIds,
+        onProgress: async (progress) => {
+          progressAnchors.push(...progress.anchors);
+          await persistPartialRecoveryWatermark(input, watermarkPath, {
+            commitSha: progress.commitSha,
+            ...(attemptBaseCommitSha ? { baseCommitSha: attemptBaseCommitSha } : {}),
+            interestedOpIdsDigest,
+            anchors: progressAnchors
+          });
+        }
+      });
+      retainedAnchors = priorAnchors;
+      retainedBaseCommitSha = attemptBaseCommitSha;
+      break;
+    } catch (error) {
+      if (!(error instanceof AuthorityRecoveryWatermarkInvalidError)) throw error;
+    }
+  }
+  if (!scan) throw new Error("AUTHORITY_RECOVERY_SCAN_UNAVAILABLE");
+  const allAnchors = [...retainedAnchors, ...scan.anchors];
+  if (scan.headCommit) {
+    await persistPartialRecoveryWatermark(input, watermarkPath, {
+      commitSha: scan.headCommit,
+      ...(retainedBaseCommitSha ? { baseCommitSha: retainedBaseCommitSha } : {}),
+      interestedOpIdsDigest,
+      anchors: allAnchors
     });
-  } catch (error) {
-    if (!(error instanceof AuthorityRecoveryWatermarkInvalidError)) throw error;
-    scan = await input.publicationInspector.scanFirstParentOperationAnchors({ interestedOpIds });
   }
   const anchorsByOpId = new Map<string, typeof scan.anchors>();
-  for (const anchor of scan.anchors) {
+  for (const anchor of allAnchors) {
     for (const opId of anchor.opIds) {
       if (!interestedOpIds.has(opId)) continue;
       const known = anchorsByOpId.get(opId) ?? [];
       anchorsByOpId.set(opId, [...known, anchor]);
     }
   }
-  const scanOrder = new Map(scan.anchors.map((anchor, index) => [anchor.commitSha, index]));
+  const scanOrder = new Map(allAnchors.map((anchor, index) => [anchor.commitSha, index]));
   const ordered = [...pending].sort((left, right) => {
     const leftIndex = scanOrder.get(anchorsByOpId.get(left.opId)?.[0]?.commitSha ?? "") ?? -1;
     const rightIndex = scanOrder.get(anchorsByOpId.get(right.opId)?.[0]?.commitSha ?? "") ?? -1;
-    return rightIndex - leftIndex || left.opId.localeCompare(right.opId);
+    return leftIndex - rightIndex || left.opId.localeCompare(right.opId);
   });
   for (const record of ordered) {
     const anchors = anchorsByOpId.get(record.opId) ?? [];
@@ -102,7 +140,7 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
       opId: "authority-recovery-watermark"
     }, async () => {
       await assertRecoveryGeneration(input, { workspaceId: input.workspaceId, opId: "authority-recovery-watermark" });
-      writeRecoveryWatermark(watermarkPath, input.workspaceId, headCommit);
+      writeCompleteRecoveryWatermark(watermarkPath, input.workspaceId, headCommit);
     });
   }
 }
@@ -226,27 +264,108 @@ function isUnsettledV2Record(record: AuthorityStoredOperationRecord): boolean {
     && record.state !== "RETRYABLE_NOT_COMMITTED";
 }
 
-function readRecoveryWatermark(filePath: string, workspaceId: string): string | undefined {
+interface RecoveryWatermarkAnchor {
+  readonly commitSha: string;
+  readonly previousCommit: string;
+  readonly opIds: ReadonlyArray<string>;
+}
+
+type RecoveryWatermark =
+  | { readonly phase: "complete"; readonly commitSha: string }
+  | {
+    readonly phase: "partial";
+    readonly commitSha: string;
+    readonly baseCommitSha?: string;
+    readonly interestedOpIdsDigest: string;
+    readonly anchors: ReadonlyArray<RecoveryWatermarkAnchor>;
+  };
+
+function readRecoveryWatermark(filePath: string, workspaceId: string): RecoveryWatermark | undefined {
   try {
     const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
-    return parsed.schema === "authority-recovery-watermark/v1"
+    if (parsed.schema === "authority-recovery-watermark/v1"
       && parsed.workspaceId === workspaceId
       && typeof parsed.commitSha === "string"
-      && /^[a-f0-9]{40}$/u.test(parsed.commitSha)
-      ? parsed.commitSha
-      : undefined;
+      && isCommitSha(parsed.commitSha)) {
+      return { phase: "complete", commitSha: parsed.commitSha };
+    }
+    if (parsed.schema !== "authority-recovery-watermark/v2"
+      || parsed.workspaceId !== workspaceId
+      || parsed.phase !== "partial"
+      || typeof parsed.commitSha !== "string"
+      || !isCommitSha(parsed.commitSha)
+      || (parsed.baseCommitSha !== undefined && (typeof parsed.baseCommitSha !== "string" || !isCommitSha(parsed.baseCommitSha)))
+      || typeof parsed.interestedOpIdsDigest !== "string"
+      || !/^[a-f0-9]{64}$/u.test(parsed.interestedOpIdsDigest)
+      || !Array.isArray(parsed.anchors)) return undefined;
+    const anchors = parsed.anchors.map(parseRecoveryWatermarkAnchor);
+    if (anchors.some((anchor) => !anchor)) return undefined;
+    return {
+      phase: "partial",
+      commitSha: parsed.commitSha,
+      ...(typeof parsed.baseCommitSha === "string" ? { baseCommitSha: parsed.baseCommitSha } : {}),
+      interestedOpIdsDigest: parsed.interestedOpIdsDigest,
+      anchors: anchors as RecoveryWatermarkAnchor[]
+    };
   } catch {
     return undefined;
   }
 }
 
-function writeRecoveryWatermark(filePath: string, workspaceId: string, commitSha: string): void {
-  const body = `${JSON.stringify({
+function parseRecoveryWatermarkAnchor(value: unknown): RecoveryWatermarkAnchor | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const anchor = value as Record<string, unknown>;
+  return typeof anchor.commitSha === "string"
+    && isCommitSha(anchor.commitSha)
+    && typeof anchor.previousCommit === "string"
+    && isCommitSha(anchor.previousCommit)
+    && Array.isArray(anchor.opIds)
+    && anchor.opIds.every((opId) => typeof opId === "string")
+    ? {
+      commitSha: anchor.commitSha,
+      previousCommit: anchor.previousCommit,
+      opIds: anchor.opIds as string[]
+    }
+    : undefined;
+}
+
+function isCommitSha(value: string): boolean {
+  return /^[a-f0-9]{40}$/u.test(value);
+}
+
+function recoveryInterestDigest(opIds: ReadonlySet<string>): string {
+  return createHash("sha256").update([...opIds].sort().join("\0")).digest("hex");
+}
+
+function persistPartialRecoveryWatermark(
+  input: ProductionRecoveryInput,
+  filePath: string,
+  watermark: Omit<Extract<RecoveryWatermark, { readonly phase: "partial" }>, "phase">
+): Promise<void> {
+  return runTerminalRecovery(input, {
+    workspaceId: input.workspaceId,
+    opId: "authority-recovery-watermark"
+  }, async () => {
+    await assertRecoveryGeneration(input, { workspaceId: input.workspaceId, opId: "authority-recovery-watermark" });
+    writeRecoveryWatermark(filePath, {
+      schema: "authority-recovery-watermark/v2",
+      phase: "partial",
+      workspaceId: input.workspaceId,
+      ...watermark
+    });
+  });
+}
+
+function writeCompleteRecoveryWatermark(filePath: string, workspaceId: string, commitSha: string): void {
+  writeRecoveryWatermark(filePath, {
     schema: "authority-recovery-watermark/v1",
     workspaceId,
-    commitSha,
-    scannedAt: new Date().toISOString()
-  })}\n`;
+    commitSha
+  });
+}
+
+function writeRecoveryWatermark(filePath: string, watermark: Record<string, unknown>): void {
+  const body = `${JSON.stringify({ ...watermark, scannedAt: new Date().toISOString() })}\n`;
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   const file = openSync(temporaryPath, "wx", 0o600);
   try {
