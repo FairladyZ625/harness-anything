@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { rebuildTaskProjection, type ProjectionSourceFenceFactory } from "@harness-anything/kernel";
 import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
-import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,

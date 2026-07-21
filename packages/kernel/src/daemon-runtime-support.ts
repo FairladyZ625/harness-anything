@@ -31,8 +31,7 @@ export {
   type ExecutionEvidencePageQuery
 } from "./projection/sqlite-execution-evidence-reader.ts";
 export {
-  createProjectionChangePublisher,
-  type ProjectionChangePublisher
+  createProjectionChangePublisher
 } from "./projection/projection-change-publisher.ts";
 export type { ProjectionChangeEvent } from "./projection/projection-change-event.ts";
 export type {

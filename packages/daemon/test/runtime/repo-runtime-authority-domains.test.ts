@@ -10,7 +10,7 @@ import {
   makeOperationalJournaledWriteCoordinator,
   moduleEntityId
 } from "@harness-anything/kernel";
-import { docWrite, runEffect, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { docWrite, runEffect, withTempStoreAsync } from "./helpers/store.ts";
 import { daemonAttribution, git, initAuthoredGit } from "./helpers/daemon-runtime.ts";
 
 const testAttribution = daemonAttribution("person_test", "test", "credential-test");

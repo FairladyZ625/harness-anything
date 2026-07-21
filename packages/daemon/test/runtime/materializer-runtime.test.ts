@@ -1,16 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
+  createHarnessRuntimeContext,
   makeJournaledWriteCoordinator,
   rebuildTaskProjection,
+  resolveHarnessLayout,
   type ProjectionSourceFenceFactory
 } from "@harness-anything/kernel";
 import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
-import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,
@@ -131,11 +133,32 @@ test("daemon no-op materializer preserves the ready projection generation", asyn
     });
     await runtime.start();
     await runtime.queryExecutionEvidencePage({ limit: 1 });
+    const projectionPath = resolveHarnessLayout(createHarnessRuntimeContext(rootDir)).executionEvidenceProjectionPath;
+    const before = physicalProjectionSignature(projectionPath);
     const report = await runtime.enqueueMaterializerBatch();
 
     assert.equal(report.merged, 0);
+    assert.equal(physicalProjectionSignature(projectionPath), before);
     assert.equal(runtime.status().projectionGeneration.invalidations, 0);
     assert.equal(runtime.status().projectionGeneration.state, "ready");
     await runtime.stop();
   });
 });
+
+function physicalProjectionSignature(projectionPath: string): string {
+  return JSON.stringify({
+    database: statSignature(projectionPath),
+    rollbackJournal: statSignature(`${projectionPath}-journal`, true),
+    writeAheadLog: statSignature(`${projectionPath}-wal`, true)
+  });
+}
+
+function statSignature(inputPath: string, requireNonEmpty = false): string | null {
+  try {
+    const stats = statSync(inputPath, { bigint: true });
+    if (requireNonEmpty && stats.size === 0n) return null;
+    return [stats.dev, stats.ino, stats.mode, stats.size, stats.mtimeNs, stats.ctimeNs].join(":");
+  } catch {
+    return null;
+  }
+}

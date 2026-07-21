@@ -6,7 +6,7 @@ import { makeLocalProjectionSourceFenceReader } from "@harness-anything/adapter-
 import { rebuildTaskProjection, type ProjectionSourceFence } from "@harness-anything/kernel";
 import { createDaemonProjectionGenerationManager } from "../../src/runtime/projection-generation-manager.ts";
 import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
-import { withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
   git,

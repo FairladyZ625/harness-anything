@@ -22,9 +22,15 @@ const daemonRuntimeSupportConsumers = entryValues(allowlist.daemonRuntimeSupport
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 
 const daemonRuntimeSupportSpecifier = "@harness-anything/kernel/daemon-runtime-support";
+const daemonRuntimeSupportTarget = "packages/kernel/src/daemon-runtime-support.ts";
 
 function isAllowedDaemonRuntimeSupportConsumer(source) {
   return daemonRuntimeSupportConsumers.some((prefix) => source.startsWith(prefix));
+}
+
+function resolvedDaemonRuntimeSupportTarget(file, specifier, knownFiles) {
+  if (specifier === daemonRuntimeSupportSpecifier) return daemonRuntimeSupportTarget;
+  return resolveImportFile(file, specifier, knownFiles);
 }
 
 function isKernelWriteCoordinationInternalPath(target) {
@@ -238,8 +244,25 @@ async function checkOrphanPackageModules(packageFiles, importEdges) {
 
 const packageSourceFiles = (await Promise.all(sourceRoots.map((sourceRoot) => walk(sourceRoot)))).flat();
 const toolSourceFiles = await walk(path.join(root, "tools"));
-const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
-const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
+const scannedSourceFiles = [...packageSourceFiles, ...toolSourceFiles];
+const knownImportFiles = new Set(scannedSourceFiles.map(relative));
+const importEdges = await collectImportEdges(scannedSourceFiles, knownImportFiles);
+
+for (const file of scannedSourceFiles) {
+  const text = await readFile(file, "utf8");
+  const rel = relative(file);
+  const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+  for (const specifier of imports) {
+    const resolvedTarget = resolvedDaemonRuntimeSupportTarget(file, specifier, knownImportFiles);
+    if (specifier !== daemonRuntimeSupportSpecifier && resolvedTarget !== daemonRuntimeSupportTarget) continue;
+    if (specifier !== daemonRuntimeSupportSpecifier) {
+      record(file, `${daemonRuntimeSupportTarget} must be imported through the governed ${daemonRuntimeSupportSpecifier} specifier`);
+    }
+    if (!isAllowedDaemonRuntimeSupportConsumer(rel)) {
+      record(file, `${daemonRuntimeSupportSpecifier} is restricted to the daemon runtime owner`);
+    }
+  }
+}
 
 for (const file of packageSourceFiles) {
     const text = await readFile(file, "utf8");
@@ -253,11 +276,6 @@ for (const file of packageSourceFiles) {
     }
 
     const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
-    for (const specifier of imports) {
-      if (specifier === daemonRuntimeSupportSpecifier && !isAllowedDaemonRuntimeSupportConsumer(rel)) {
-        record(file, `${daemonRuntimeSupportSpecifier} is restricted to the daemon runtime owner`);
-      }
-    }
     if (rel.startsWith("packages/kernel/src/domain/")) {
       for (const specifier of imports) {
         if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {

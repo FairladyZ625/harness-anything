@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
-import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import { daemonAttribution } from "./helpers/daemon-runtime.ts";
 
 const admissionAttribution = daemonAttribution("person_admission", "agent_admission", "credential-admission");

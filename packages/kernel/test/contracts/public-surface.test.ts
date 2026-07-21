@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as kernel from "../../src/index.ts";
+import type { LedgerMaterializerReport } from "../../src/index.ts";
 
 // Golden snapshot of the kernel's public runtime surface. A diff here is a
 // deliberate interface change: update this list in the same commit and say
@@ -293,6 +294,18 @@ const publicRuntimeSurface = [
   "writeSessionEntity"
 ];
 
+type PublicTypeContracts = {
+  readonly LedgerMaterializerReport: LedgerMaterializerReport;
+};
+
+const publicTypeSurface = [
+  "LedgerMaterializerReport"
+] as const satisfies ReadonlyArray<keyof PublicTypeContracts>;
+
 test("kernel public runtime surface matches the golden snapshot", () => {
   assert.deepEqual(Object.keys(kernel).sort(), publicRuntimeSurface);
+});
+
+test("kernel public type surface declares the materializer return contract", () => {
+  assert.deepEqual(publicTypeSurface, ["LedgerMaterializerReport"]);
 });

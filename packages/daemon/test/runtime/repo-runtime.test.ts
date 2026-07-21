@@ -20,7 +20,7 @@ import {
   createDaemonRuntime,
   createMultiRepoDaemonRuntime
 } from "../../src/runtime/repo-runtime.ts";
-import { docWrite, withTempStoreAsync } from "../../../kernel/test/store/helpers.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,

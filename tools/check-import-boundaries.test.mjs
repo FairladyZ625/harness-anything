@@ -135,7 +135,7 @@ test("import boundary check allows the documented daemon runtime support couplin
   try {
     mkdirSync(path.join(root, "packages/daemon/src/runtime"), { recursive: true });
     writeFileSync(path.join(root, "packages/daemon/src/runtime/repo-runtime.ts"), [
-      "import { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
+      "im" + "port { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
       "export const support = runtimeSupport;"
     ].join("\n"), "utf8");
 
@@ -151,7 +151,7 @@ test("import boundary check rejects daemon runtime support imports from other pa
   const root = makeFixtureRoot();
   try {
     writeFileSync(path.join(root, "packages/application/src/index.ts"), [
-      "import { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
+      "im" + "port { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
       "export const leaked = runtimeSupport;"
     ].join("\n"), "utf8");
 
@@ -164,12 +164,51 @@ test("import boundary check rejects daemon runtime support imports from other pa
   }
 });
 
+test("import boundary check rejects daemon runtime support imports from tools", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "tools"), { recursive: true });
+    writeFileSync(path.join(root, "tools/runtime-support-consumer.mjs"), [
+      "im" + "port { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
+      "export const leaked = runtimeSupport;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`daemon-runtime-support tools control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /restricted to the daemon runtime owner/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects relative imports of the daemon runtime support target", (t) => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/daemon/src/runtime"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/daemon-runtime-support.ts"), [
+      "export const runtimeSupport = true;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/daemon/src/runtime/repo-runtime.ts"), [
+      "im" + "port { runtimeSupport } from '../../../kernel/src/daemon-runtime-support.ts';",
+      "export const leaked = runtimeSupport;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    t.diagnostic(`daemon-runtime-support relative-target control exit=${result.status}`);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must be imported through the governed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check rejects daemon runtime support imports from unrelated daemon modules", (t) => {
   const root = makeFixtureRoot();
   try {
     mkdirSync(path.join(root, "packages/daemon/src/service"), { recursive: true });
     writeFileSync(path.join(root, "packages/daemon/src/service/unrelated.ts"), [
-      "import { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
+      "im" + "port { runtimeSupport } from '@harness-anything/kernel/daemon-runtime-support';",
       "export const leaked = runtimeSupport;"
     ].join("\n"), "utf8");
 
