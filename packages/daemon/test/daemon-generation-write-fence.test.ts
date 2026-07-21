@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { fork, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,8 @@ import {
   createRuntimeDaemonGenerationWitnessFence,
   createDaemonGenerationWitness,
   createDurableCompoundReceiptStoreV2,
+  DaemonGenerationFencedError,
+  daemonGenerationRecordPath,
   daemonGenerationFencedCode,
   publishNextDaemonGeneration,
   readOrCreateDaemonMachineId
@@ -204,6 +206,57 @@ test("disease B: stale daemon cannot win compound terminal CAS after replacement
   }
 });
 
+test("two abandoned-lock contenders cannot quarantine the newly acquired winner", {
+  skip: posixOnly
+}, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-generation-lock-recovery-"));
+  const children: ChildProcess[] = [];
+  try {
+    const endpointIdentity = path.join(root, "daemon.sock");
+    const machineId = readOrCreateDaemonMachineId(root);
+    const generation = publishNextDaemonGeneration({
+      userRoot: root,
+      endpointIdentity,
+      machineId,
+      daemonInstanceId: "daemon-lock-base"
+    });
+    const lockPath = `${daemonGenerationRecordPath(root, endpointIdentity)}.lock`;
+    writeFileSync(lockPath, JSON.stringify({
+      schema: "daemon-generation-mutation-lock/v1",
+      pid: 2_147_483_647,
+      hostname: os.hostname(),
+      acquiredAt: "2000-01-01T00:00:00.000Z",
+      ownerToken: "abandoned-owner"
+    }));
+    const markerA = path.join(root, "observed-a");
+    const markerB = path.join(root, "observed-b");
+    const releaseA = path.join(root, "release-a");
+    const releaseB = path.join(root, "release-b");
+    const contenderA = startLockContender(children, [
+      root, endpointIdentity, machineId, String(generation.daemonGeneration), markerA, releaseA, "a"
+    ]);
+    const contenderB = startLockContender(children, [
+      root, endpointIdentity, machineId, String(generation.daemonGeneration), markerB, releaseB, "b"
+    ]);
+    await Promise.all([waitForPath(markerA), waitForPath(markerB)]);
+
+    writeFileSync(releaseA, "release", "utf8");
+    assert.deepEqual(await nextChildMessage(contenderA), { type: "acquired", contenderId: "a" });
+    writeFileSync(releaseB, "release", "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(JSON.parse(readFileSync(lockPath, "utf8")).pid, contenderA.pid);
+
+    contenderA.send("release");
+    assert.deepEqual(await nextChildMessage(contenderA), { type: "done", contenderId: "a" });
+    assert.deepEqual(await nextChildMessage(contenderB), { type: "acquired", contenderId: "b" });
+    contenderB.send("release");
+    assert.deepEqual(await nextChildMessage(contenderB), { type: "done", contenderId: "b" });
+  } finally {
+    for (const child of children) child.kill("SIGKILL");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("authority replacement between prepare and flush is fenced without a canonical effect", {
   skip: posixOnly
 }, async () => {
@@ -269,27 +322,82 @@ test("authority replacement between prepare and flush is fenced without a canoni
   }
 });
 
-test("a process that observes post-publish staleness authors no terminal or later durable record", {
-  skip: posixOnly
-}, async () => {
+test("generation exclusion spans canonical flush through the corresponding terminal record", async () => {
+  const memory = createInMemoryAuthorityOperationRegistry();
+  const changeLog = createInMemoryReplicaChangeLog();
+  let generationLockDepth = 0;
+  const registry = {
+    get: memory.get,
+    list: memory.list,
+    put: async (record: Parameters<typeof memory.put>[0]) => {
+      if (record.state === "PUBLISHED" || record.state === "INDEXED" || record.state === "COMMITTED") {
+        assert.equal(generationLockDepth > 0, true, `${record.state} escaped the generation exclusion`);
+      }
+      await memory.put(record);
+    }
+  };
+  const service = createAuthoritySubmissionService({
+    workspaceId: "workspace-flush-lock",
+    coordinatorFactory: {
+      create: () => ({
+        enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
+        flush: () => {
+          assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
+          return Effect.succeed({ reason: "explicit" as const, opCount: 1, committed: true });
+        },
+        recover: Effect.succeed({ replayedOps: 0 })
+      })
+    },
+    tokenVerifier: validLegacyVerifier("workspace-flush-lock"),
+    operationRegistry: registry,
+    replicaChangeLog: {
+      ...changeLog,
+      append: async (change) => {
+        assert.equal(generationLockDepth > 0, true, "replica append escaped the generation exclusion");
+        await changeLog.append(change);
+      }
+    },
+    publicationInspector: {
+      currentHead: async () => "head-before",
+      inspectPublishedHead: async () => ({ commitSha: "head-after", parentCommits: ["head-before"] })
+    },
+    fenceWitness: { assertHeld: async () => undefined },
+    generationFenceWitness: {
+      assertHeld: async () => undefined,
+      runExclusive: async (_stage, _context, operation) => {
+        generationLockDepth += 1;
+        try {
+          return await operation();
+        } finally {
+          generationLockDepth -= 1;
+        }
+      }
+    }
+  });
+
+  const receipt = await service.submit(legacyEnvelope("workspace-flush-lock", "op-flush-lock"));
+  assert.equal(receipt.tag, "COMMITTED");
+  assert.equal(generationLockDepth, 0);
+});
+
+test("a process that observes post-publish staleness leaves PREPARED for current-owner recovery", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-generation-post-publish-"));
   try {
-    const endpointIdentity = path.join(root, "daemon.sock");
-    const machineId = readOrCreateDaemonMachineId(root);
-    const first = publishNextDaemonGeneration({ userRoot: root, endpointIdentity, machineId, daemonInstanceId: "daemon-a" });
-    const generationFence = createDaemonGenerationAuthorityFence({
-      authorityFence: { assertHeld: async () => undefined },
-      generationWitness: createDaemonGenerationWitness({
-        userRoot: root,
-        endpointIdentity,
-        machineId,
-        daemonGeneration: first.daemonGeneration
-      }),
+    let staleObserved = false;
+    const stale = new DaemonGenerationFencedError({
+      schema: "daemon-generation-write-rejection/v1",
+      machineId: "machine-post-publish",
+      attemptedDaemonGeneration: 1,
+      currentDaemonGeneration: 2,
       workspaceId: "workspace-post-publish",
-      repo: { repoId: "repo-post-publish", canonicalRoot: root }
+      opId: "op-post-publish",
+      stage: "after-canonical-publish"
     });
     const memory = createInMemoryAuthorityOperationRegistry();
     const writes: string[] = [];
+    const replicaWrites: string[] = [];
+    const shadowWrites: string[] = [];
+    const replica = createInMemoryReplicaChangeLog();
     const registry = {
       get: memory.get,
       list: memory.list,
@@ -309,24 +417,40 @@ test("a process that observes post-publish staleness authors no terminal or late
       },
       tokenVerifier: validLegacyVerifier("workspace-post-publish"),
       operationRegistry: registry,
-      replicaChangeLog: createInMemoryReplicaChangeLog(),
+      replicaChangeLog: {
+        ...replica,
+        append: async (change) => {
+          replicaWrites.push(change.opId);
+          await replica.append(change);
+        }
+      },
+      shadowPublicationLog: {
+        list: async () => [],
+        append: async (entry) => { shadowWrites.push(...entry.opIds); }
+      },
       publicationInspector: {
         currentHead: async () => "head-before",
         inspectPublishedHead: async () => {
-          publishNextDaemonGeneration({ userRoot: root, endpointIdentity, machineId, daemonInstanceId: "daemon-b" });
+          staleObserved = true;
           return { commitSha: "head-after", parentCommits: ["head-before"] };
         }
       },
       fenceWitness: { assertHeld: async () => undefined },
-      generationFenceWitness: generationFence
+      generationFenceWitness: {
+        assertHeld: async () => { if (staleObserved) throw stale; },
+        runExclusive: async (_stage, _context, operation) => operation()
+      }
     });
     const firstEnvelope = legacyEnvelope("workspace-post-publish", "op-post-publish");
     const receipt = await service.submit(firstEnvelope);
 
     assert.equal(receipt.tag, "INDETERMINATE");
     assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorCode : undefined, daemonGenerationFencedCode);
-    assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorContext?.stage : undefined, "before-terminal-visibility");
-    assert.equal((await registry.get(firstEnvelope.workspaceId, firstEnvelope.opId))?.state, "INDEXED");
+    assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorContext?.stage : undefined, "after-canonical-publish");
+    assert.equal((await registry.get(firstEnvelope.workspaceId, firstEnvelope.opId))?.state, "PREPARED");
+    assert.deepEqual(writes, ["RECEIVED", "PREPARED"]);
+    assert.deepEqual(replicaWrites, []);
+    assert.deepEqual(shadowWrites, []);
     assert.equal(writes.includes("COMMITTED"), false);
     assert.equal(writes.includes("INDETERMINATE"), false);
     const writesAfterObservation = writes.length;
@@ -347,6 +471,23 @@ function startGenerationRacer(children: ChildProcess[], args: ReadonlyArray<stri
   });
   children.push(child);
   return child;
+}
+
+function startLockContender(children: ChildProcess[], args: ReadonlyArray<string>): ChildProcess {
+  const child = fork(fileURLToPath(new URL("./fixtures/generation-lock-contender.ts", import.meta.url)), [...args], {
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    execArgv: process.execArgv.filter((argument) => argument !== "--test-force-exit")
+  });
+  children.push(child);
+  return child;
+}
+
+async function waitForPath(target: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(target)) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${target}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function nextChildMessage(child: ChildProcess): Promise<Record<string, unknown>> {

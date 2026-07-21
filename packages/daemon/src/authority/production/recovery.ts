@@ -159,6 +159,20 @@ async function recoverPublishedRecord(
     || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
     throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
   }
+  if (!change) {
+    const latest = await input.replicaChangeLog.latest(record.workspaceId);
+    await input.replicaChangeLog.append({
+      schema: "replica-change/v1",
+      workspaceId: record.workspaceId,
+      revision: (latest?.revision ?? 0) + 1,
+      opId: record.opId,
+      semanticDigest: record.semanticDigest,
+      commitSha: evidence.commitSha,
+      previousCommit: evidence.previousCommit,
+      changedAt: new Date().toISOString(),
+      authorityIntegrity: record.authorityIntegrity!
+    });
+  }
   const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
   await input.operationRegistry.put(indexed);
   const receipt = await input.recover(indexed);
@@ -183,7 +197,8 @@ async function terminalizeConfirmedAbsent(
 }
 
 function isRecoverablePendingRecord(record: AuthorityStoredOperationRecord): boolean {
-  return (record.state === "INDEXED" || record.state === "INDETERMINATE")
+  return (record.state === "PREPARED" || record.state === "PUBLISHED"
+      || record.state === "INDEXED" || record.state === "INDETERMINATE")
     && record.recordedProtocol?.kind === "semantic-mutation-envelope/v2"
     && Boolean(record.authorityIntegrity)
     && Boolean(record.canonicalRequestEnvelope);

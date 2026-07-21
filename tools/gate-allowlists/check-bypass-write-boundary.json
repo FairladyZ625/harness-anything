@@ -1238,7 +1238,12 @@
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@7",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock closes its exclusive lock descriptor during exceptional cleanup; this is the generation publication/terminal persistence exclusion implementation, not a bypass caller."
+        "reason": "S1.3 abandoned-lock recovery closes the descriptor used to capture one inode/body/owner-token snapshot before ownership-preserving quarantine."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@8",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication closes the directory descriptor after fsync."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#fsyncSync@1",
@@ -1283,7 +1288,12 @@
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@4",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock uses exclusive create to serialize generation publication with terminal persistence across processes."
+        "reason": "S1.3 abandoned-lock recovery opens the current lock for an inode/body/owner-token snapshot before ownership-preserving quarantine."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@5",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1 daemon generation/machine-id operational record publication opens the containing directory for durability fsync."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@1",
@@ -1293,12 +1303,7 @@
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@2",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock quarantines a malformed abandoned lock after its publication grace period."
-      },
-      {
-        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@3",
-        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock atomically claims an abandoned owner record before cleanup."
+        "reason": "S1.3 endpoint-scoped generation mutation lock quarantines only after inode/body/owner-token revalidation proves the abandoned owner is unchanged."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@1",
@@ -1313,22 +1318,17 @@
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@3",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock removes quarantined malformed lock metadata after atomic claim."
+        "reason": "S1.3 endpoint-scoped generation mutation lock removes the fully-written temporary owner record after atomic hard-link claim or contention."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@4",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock removes quarantined abandoned-owner metadata after atomic claim."
+        "reason": "S1.3 endpoint-scoped generation mutation lock removes quarantined abandoned-owner metadata after ownership-preserving revalidation."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@5",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
         "reason": "S1.3 endpoint-scoped generation mutation lock releases only the caller's owner-token-verified lock."
-      },
-      {
-        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@6",
-        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
-        "reason": "S1.3 endpoint-scoped generation mutation lock removes the fully-written temporary owner record after atomic hard-link claim or contention."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#writeSync@1",

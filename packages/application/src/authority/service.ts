@@ -7,28 +7,19 @@ import {
   type WriteOp
 } from "@harness-anything/kernel";
 import type {
-  AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationState,
   AuthoritySubmissionService,
-  AttributedCoordinatorFactory,
-  AuthorityFenceWitness,
-  AuthorityGenerationFence,
-  AuthorityOperationRegistry,
-  CanonicalPublicationInspector,
   DelegationTokenVerification,
   DelegationTokenVerifier,
-  ReplicaChangeLog
 } from "./types.ts";
 import {
   actorAxesBindingDigestV2,
   consumeActorAxesBindingOperationV2,
   sameProtocolSchemaTupleV2,
   validateActorAxesBindingPresentationV2,
-  type ActorAxesBindingRuntimeV2,
-  type ProtocolSchemaTupleV2,
   type VerifiedActorAxesBindingV2
 } from "./actor-axes-binding-v2.ts";
 import {
@@ -40,17 +31,14 @@ import {
   semanticRequestDigestV2,
   SemanticAdmissionErrorV2,
   validateEnvelopeBindingV2,
-  type AuthoritySemanticCompilerV2,
   type AuthorizedOperationAttemptV2,
-  type OperationNamespaceVerifierV2,
   type SemanticMutationEnvelopeV2
 } from "./semantic-mutation-envelope-v2.ts";
 import { BoundedAuthorityBatcher, KeyedSerialAuthorityExecutor } from "./authority-batcher.ts";
 import {
-  authorizeSemanticCompilationV2,
-  type EntityRefPrefixMatcherV2
+  authorizeSemanticCompilationV2
 } from "./semantic-authorizer-v2.ts";
-import { shadowPublicationSchema, type ShadowPublicationLog } from "./shadow.ts";
+import { shadowPublicationSchema } from "./shadow.ts";
 import { actorAxesBindingCoreFromVerifiedV2, completeAuthorityCommittedReceiptV2 } from "./committed-event-publication-v2.ts";
 import { recoverKnownAuthorityOperationV2 } from "./authority-attribution-event-v2-operation-recovery.ts";
 import {
@@ -75,37 +63,8 @@ import {
   rejectStaleGeneration
 } from "./generation-fence-enforcement.ts";
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
-
-export interface AuthoritySubmissionServiceOptions {
-  readonly workspaceId: string;
-  readonly coordinatorFactory: AttributedCoordinatorFactory;
-  readonly tokenVerifier: DelegationTokenVerifier;
-  readonly operationRegistry: AuthorityOperationRegistry;
-  readonly replicaChangeLog: ReplicaChangeLog;
-  readonly publicationInspector: CanonicalPublicationInspector;
-  readonly publicationExecutor?: {
-    readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
-  };
-  readonly fenceWitness: AuthorityFenceWitness;
-  /** Optional so legacy and Windows-degraded daemon paths retain their prior byte and write behavior. */
-  readonly generationFenceWitness?: AuthorityGenerationFence;
-  readonly shadowPublicationLog?: ShadowPublicationLog;
-  readonly now?: () => string;
-  readonly v2?: AuthoritySubmissionV2Options;
-  readonly admissionBudget?: import("@harness-anything/kernel").DaemonAdmissionBudget;
-}
-
-export interface AuthoritySubmissionV2Options {
-  readonly schemaTuple: ProtocolSchemaTupleV2;
-  readonly channelNonceDigest: Uint8Array;
-  readonly bindingRuntime: ActorAxesBindingRuntimeV2;
-  readonly entityRegistrations: Parameters<typeof createWritableEntityRegistry>[0];
-  readonly semanticCompiler: AuthoritySemanticCompilerV2;
-  readonly operationNamespaceVerifier: OperationNamespaceVerifierV2;
-  readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
-  readonly recoverCommittedReceipt?: (record: import("./types.ts").AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
-  readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
-}
+import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
+export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
@@ -415,11 +374,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
     if (candidates.length === 0) return batchReceipts(admissions, receipts);
 
-    if (await rejectGenerationFencedBatch(options.generationFenceWitness, candidates, receipts)) {
-      return batchReceipts(admissions, receipts);
-    }
-
-    try {
+    let canonicalFlushCommitted = false;
+    const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
+      try {
       const flush = await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
       if (!flush.committed || flush.opCount !== candidates.length) {
         // Keep the v1 wire reason stable; the invariant now means exactly the
@@ -428,7 +385,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           retryable(entry, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
         return batchReceipts(admissions, receipts);
       }
+      canonicalFlushCommitted = true;
     } catch (error) {
+      if (isDaemonGenerationFenced(error)) throw error;
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
       return batchReceipts(admissions, receipts);
@@ -443,9 +402,11 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       );
       commitSha = publication.commitSha;
       for (const entry of candidates) {
+        await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
         await put(entry, entry.semanticDigest, "PUBLISHED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       }
     } catch (error) {
+      if (isDaemonGenerationFenced(error)) throw error;
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
       return batchReceipts(admissions, receipts);
@@ -464,9 +425,13 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
     }));
     try {
-      for (const change of changes) await options.replicaChangeLog.append(change);
+      for (const [index, change] of changes.entries()) {
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[index]);
+        await options.replicaChangeLog.append(change);
+      }
       if (options.shadowPublicationLog) {
         const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
         await options.shadowPublicationLog.append({
           schema: shadowPublicationSchema,
           workspaceId: candidates[0]!.workspaceId,
@@ -478,9 +443,11 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         });
       }
       for (const entry of candidates) {
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
         await put(entry, entry.semanticDigest, "INDEXED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       }
     } catch (error) {
+      if (isDaemonGenerationFenced(error)) throw error;
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));
       return batchReceipts(admissions, receipts);
@@ -539,6 +506,24 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
+    };
+    try {
+      return options.generationFenceWitness
+        ? await options.generationFenceWitness.runExclusive(
+          "before-canonical-publish",
+          candidates[0],
+          publishWhileGenerationCurrent
+        )
+        : await publishWhileGenerationCurrent();
+    } catch (error) {
+      if (!isDaemonGenerationFenced(error)) throw error;
+      for (const entry of candidates) {
+        receipts.set(entry, canonicalFlushCommitted
+          ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error)
+          : generationFencedReceipt(entry, entry.semanticDigest, error));
+      }
+      return batchReceipts(admissions, receipts);
+    }
   }
 
   async function persistPostCommitIntegrityFailure(

@@ -160,6 +160,95 @@ test("restart recovery publishes one missing event for a committed effect withou
   assert.deepEqual(durable.receipt, receipt);
 });
 
+test("current generation recovers a PREPARED operation left by a post-publish stale process", async () => {
+  let durable: AuthorityStoredOperationRecord = {
+    workspaceId: "workspace-production",
+    opId: "namespace-production:prepared-stale-owner",
+    semanticDigest: "a".repeat(64),
+    state: "PREPARED",
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "a".repeat(64),
+      semanticMutationSetDigest: "c".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "d".repeat(64),
+      canonicalMutationSet: {
+        registryVersion: 1,
+        mutations: [{
+          entity: { registryVersion: 1, entityKind: "task", canonicalRef: "task/task_RECOVERY" },
+          action: { registryVersion: 1, action: "append" }
+        }]
+      }
+    },
+    recordedProtocol: {
+      kind: "semantic-mutation-envelope/v2",
+      schemaTuple: {
+        wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+        commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
+      }
+    },
+    canonicalRequestEnvelope: "durable-envelope"
+  };
+  let change: import("../../application/src/index.ts").ReplicaChangeRecord | undefined;
+  let insideGenerationLock = false;
+  const receipt: AuthorityCommittedReceipt = {
+    tag: "COMMITTED",
+    workspaceId: durable.workspaceId,
+    opId: durable.opId,
+    semanticDigest: durable.semanticDigest,
+    revision: 1,
+    commitSha: "b".repeat(40),
+    previousCommit: "a".repeat(40),
+    authorityIntegrity: durable.authorityIntegrity
+  };
+
+  await recoverPendingProductionEvents({
+    workspaceId: durable.workspaceId,
+    operationRegistry: {
+      get: async () => durable,
+      list: async () => [durable],
+      put: async (next) => {
+        assert.equal(insideGenerationLock, true);
+        durable = next;
+      }
+    },
+    replicaChangeLog: {
+      append: async (next) => {
+        assert.equal(insideGenerationLock, true);
+        change = next;
+      },
+      latest: async () => change,
+      getByOperation: async () => change,
+      changesAfter: async () => change ? [change] : []
+    },
+    eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+    publicationInspector: {
+      findPublicationForOperation: async () => publicationEvidence()
+    } as ReturnType<typeof createGitCanonicalPublicationInspector>,
+    recover: async (indexed) => {
+      assert.equal(insideGenerationLock, true);
+      assert.equal(indexed.state, "INDEXED");
+      assert.equal(indexed.commitSha, receipt.commitSha);
+      return receipt;
+    },
+    generationFence: {
+      assertHeld: async () => undefined,
+      runExclusive: async (_stage, _identity, operation) => {
+        insideGenerationLock = true;
+        try {
+          return await operation();
+        } finally {
+          insideGenerationLock = false;
+        }
+      }
+    }
+  });
+
+  assert.equal(change?.commitSha, receipt.commitSha);
+  assert.equal(durable.state, "COMMITTED");
+  assert.deepEqual(durable.receipt, receipt);
+});
+
 test("restart recovery reports the opId and exception when fail-closed recovery is deferred", async () => {
   const record: AuthorityStoredOperationRecord = {
     workspaceId: "workspace-production",
