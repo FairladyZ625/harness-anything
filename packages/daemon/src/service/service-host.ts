@@ -135,7 +135,7 @@ export async function createDaemonServiceHost<
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    idleExit.cancel();
+    idleExit.disarm();
     if (reconcileTimer) clearInterval(reconcileTimer);
     try {
       await drainDaemonRuntime({
@@ -167,7 +167,7 @@ export async function createDaemonServiceHost<
       if (activeControl) {
         throw new Error(`DAEMON_DRAINING_ADMISSION_CLOSED: daemon ${activeControl.kind} operation ${activeControl.operationId} is draining. Run \`ha daemon status --json\` and wait for it to complete or report its timeout before retrying.`);
       }
-      idleExit.cancel();
+      idleExit.disarm();
     },
     onCommandSettled: scheduleIdleExit
   };
@@ -247,7 +247,7 @@ export async function createDaemonServiceHost<
     }),
     status: () => serviceStatus(defaultRepoBinding().repo.repoId),
     requestControl: controlService.requestControl,
-    onConnectionStart: idleExit.cancel,
+    onConnectionStart: idleExit.disarm,
     onConnectionSettled: scheduleIdleExit,
     scheduleIdleExit,
     waitForStopRequest: () => stopRequested,

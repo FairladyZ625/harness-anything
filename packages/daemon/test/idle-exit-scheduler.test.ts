@@ -24,6 +24,6 @@ test("background authority recovery keeps an idle daemon alive until recovery se
     while (idleStops === 0 && Date.now() < deadline) await delay(5);
     assert.equal(idleStops, 1);
   } finally {
-    scheduler.cancel();
+    scheduler.disarm();
   }
 });

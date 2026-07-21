@@ -4,15 +4,15 @@ export function createDaemonIdleExitScheduler(input: {
   readonly activeConnections: () => number;
   readonly hasActiveWork: () => boolean;
   readonly requestIdleStop: () => void;
-}): { readonly schedule: () => void; readonly cancel: () => void } {
+}): { readonly schedule: () => void; readonly disarm: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const cancel = () => {
+  const disarm = () => {
     if (timer) clearTimeout(timer);
     timer = undefined;
   };
   const schedule = () => {
     if (input.idleMs <= 0 || input.isStopping() || input.activeConnections() !== 0) return;
-    cancel();
+    disarm();
     timer = setTimeout(() => {
       timer = undefined;
       if (input.hasActiveWork()) {
@@ -23,5 +23,5 @@ export function createDaemonIdleExitScheduler(input: {
     }, input.idleMs);
     timer.unref();
   };
-  return { schedule, cancel };
+  return { schedule, disarm };
 }
