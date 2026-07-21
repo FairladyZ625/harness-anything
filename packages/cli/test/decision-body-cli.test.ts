@@ -10,7 +10,7 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
-test("CLI decision propose loads authored markdown from --body-file and amend refuses it", () => {
+test("CLI decision propose and amend load authored markdown from --body-file", () => {
   withTempRoot((rootDir) => {
     const proposedBodyPath = path.join(rootDir, "proposed-body.md");
     const amendedBodyPath = path.join(rootDir, "amended-body.md");
@@ -29,19 +29,55 @@ test("CLI decision propose loads authored markdown from --body-file and amend re
     ]);
 
     const proposedPath = path.join(rootDir, "harness/decisions/decision-dec_BODY_FILE/decision.md");
-    assert.match(decisionBody(readFileSync(proposedPath, "utf8")), /The proposal needs prose\./u);
+    const proposed = readFileSync(proposedPath, "utf8");
+    assert.match(decisionBody(proposed), /The proposal needs prose\./u);
 
-    // body is not an amendable DecisionPackage field (dec_01KXVFNKCS75CB3YDM0QNMYZ00):
-    // the declaration surface converges to the field contract instead of widening it.
-    const amended = runJson(rootDir, ["decision", "amend", "dec_BODY_FILE", "--body-file", amendedBodyPath], false);
-    assert.equal(amended.ok, false);
-    const body = decisionBody(readFileSync(proposedPath, "utf8"));
-    assert.match(body, /The proposal needs prose\./u);
-    assert.doesNotMatch(body, /The amended decision is clearer\./u);
+    const amended = runJson(rootDir, ["decision", "amend", "dec_BODY_FILE", "--body-file", amendedBodyPath]);
+    assert.equal(amended.ok, true);
+    const after = readFileSync(proposedPath, "utf8");
+    assert.equal(
+      decisionFrontmatter(after).replace(/^_coordinatorWatermark:.*$/mu, ""),
+      decisionFrontmatter(proposed).replace(/^_coordinatorWatermark:.*$/mu, "")
+    );
+    const body = decisionBody(after);
+    assert.doesNotMatch(body, /The proposal needs prose\./u);
+    assert.match(body, /The amended decision is clearer\./u);
   });
 });
 
-test("CLI decision body inputs reject --body and --body-file together", () => {
+test("CLI decision body amend preserves an active decision content pin", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_PINNED_BODY",
+      "--title", "Pinned body input",
+      "--question", "Can prose change without changing structured decision content?",
+      "--chosen", "Keep machine fields pinned",
+      "--rejected", "Treat prose as a schema field",
+      "--why-not", "The prose and schema write surfaces remain distinct"
+    ]);
+    runJson(rootDir, [
+      "decision", "accept", "dec_PINNED_BODY",
+      "--judgment-only", "The human arbiter accepts this content-pin fixture."
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_PINNED_BODY/decision.md");
+    const before = readFileSync(decisionPath, "utf8");
+
+    runJson(rootDir, [
+      "decision", "amend", "dec_PINNED_BODY",
+      "--body", "## Background\n\nClarified narrative without structured-field changes."
+    ]);
+
+    const after = readFileSync(decisionPath, "utf8");
+    const verified = runJson(rootDir, ["decision", "verify", "dec_PINNED_BODY"]);
+    assert.notEqual(contentPinsBlock(before), "");
+    assert.equal(contentPinsBlock(after), contentPinsBlock(before));
+    assert.equal(verified.report.matchCount, 1);
+    assert.equal(verified.report.mismatchCount, 0);
+  });
+});
+
+test("CLI decision body inputs reject --body and --body-file together for propose and amend", () => {
   withTempRoot((rootDir) => {
     const bodyPath = path.join(rootDir, "body.md");
     writeFileSync(bodyPath, "File body", "utf8");
@@ -60,6 +96,23 @@ test("CLI decision body inputs reject --body and --body-file together", () => {
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "conflicting_decision_body_input");
     assert.match(result.error?.hint ?? "", /only one of --body or --body-file/u);
+
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_AMEND_CONFLICT",
+      "--title", "Conflicting amend body inputs",
+      "--question", "Should amend body inputs be mutually exclusive?",
+      "--chosen", "Reject the conflict",
+      "--rejected", "Guess which body wins",
+      "--why-not", "Silent precedence loses authored prose"
+    ]);
+    const amended = runJson(rootDir, [
+      "decision", "amend", "dec_AMEND_CONFLICT",
+      "--body", "Inline body",
+      "--body-file", bodyPath
+    ], false);
+    assert.equal(amended.ok, false);
+    assert.equal(amended.error?.code, "conflicting_decision_body_input");
   });
 });
 
@@ -163,4 +216,12 @@ function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyA
 
 function decisionBody(document: string): string {
   return document.replace(/^---\r?\n[\s\S]*?\r?\n---/u, "");
+}
+
+function decisionFrontmatter(document: string): string {
+  return /^---\r?\n[\s\S]*?\r?\n---/u.exec(document)?.[0] ?? "";
+}
+
+function contentPinsBlock(document: string): string {
+  return /^contentPins:\r?\n(?:  - .*\r?\n?)+/mu.exec(document)?.[0] ?? "";
 }
