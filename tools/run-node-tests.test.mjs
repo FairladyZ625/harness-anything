@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
@@ -199,6 +200,26 @@ test("integration discovery equals the files executed by the CI runner", () => {
     cwd: repoRoot,
     encoding: "utf8"
   });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
+});
+
+test("list output survives stdout backpressure", () => {
+  const manifest = discoverTestTierManifest(repoRoot);
+  const childEnv = {
+    ...process.env,
+    NODE_OPTIONS: [
+      process.env.NODE_OPTIONS,
+      `--import=${pathToFileURL(path.join(repoRoot, "tools/test-fixtures/delayed-stdout.mjs")).href}`
+    ].filter(Boolean).join(" ")
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "integration", "--list"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv
+  });
+
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
 });

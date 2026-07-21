@@ -38,7 +38,7 @@ try {
   options = parseRunnerArgs(process.argv.slice(2), testTierNames);
 } catch (error) {
   console.error(error.message);
-  process.exit(2);
+  await exitAfterStreamFlush(2);
 }
 
 const testTierManifest = discoverTestTierManifest(repoRoot);
@@ -61,7 +61,7 @@ if (selection.errors.length > 0) {
   for (const error of selection.errors) {
     console.error(error);
   }
-  process.exit(1);
+  await exitAfterStreamFlush(1);
 }
 
 if (options.shard !== undefined) {
@@ -71,14 +71,14 @@ selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
 
 if (selection.files.length === 0) {
   console.log(`No node test files found for tier ${options.tier}.`);
-  process.exit(0);
+  await exitAfterStreamFlush(0);
 }
 
 if (options.list) {
   for (const file of selection.files) {
     console.log(file);
   }
-  process.exit(0);
+  await exitAfterStreamFlush(0);
 }
 
 // Cap process fan-out so full runs don't exhaust memory on developer laptops.
@@ -200,6 +200,15 @@ function positiveIntegerOrDefault(value, fallback) {
   if (value === undefined || value === "") return fallback;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function exitAfterStreamFlush(code) {
+  await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+  process.exit(code);
+}
+
+function flushStream(stream) {
+  return new Promise((resolveFlush) => stream.write("", resolveFlush));
 }
 
 function emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports }) {
