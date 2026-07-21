@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -100,6 +100,8 @@ export function buildCliPackageArtifact(root, options = {}) {
   const exec = options.execFileSync ?? execFileSync;
   const exists = options.existsSync ?? existsSync;
   const remove = options.rmSync ?? rmSync;
+  const stat = options.statSync ?? statSync;
+  const platform = options.platform ?? process.platform;
   const distPath = path.join(root, "packages/cli/dist");
   remove(distPath, { recursive: true, force: true });
   exec("npm", ["run", "build", "--workspace", "@harness-anything/cli"], {
@@ -113,6 +115,12 @@ export function buildCliPackageArtifact(root, options = {}) {
   const binPath = path.join(root, "packages/cli/dist/cli/src/index.js");
   if (!exists(binPath)) {
     throw new Error(`explicit CLI package build did not produce ${binPath}`);
+  }
+  // `node_modules/.bin/ha` symlinks straight to this file, so a build that
+  // emits it without the execute bit leaves `ha` unusable until the next
+  // install relinks it. Invoking it through `node` below would not notice.
+  if (platform !== "win32" && (stat(binPath).mode & 0o111) === 0) {
+    throw new Error(`clean CLI package build produced a non-executable bin: ${binPath}`);
   }
   const stdout = exec(process.execPath, [binPath, "--json", "version"], {
     cwd: root,

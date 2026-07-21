@@ -16,6 +16,7 @@ test("CLI package smoke explicitly builds the CLI artifact even when npm lifecyc
       }
     },
     existsSync: () => true,
+    statSync: () => ({ mode: 0o100755 }),
     rmSync: (...args) => removals.push(args)
   });
 
@@ -46,10 +47,34 @@ test("CLI package smoke rejects a clean build whose bin cannot execute", () => {
         ? JSON.stringify({ ok: false, schema: "command-receipt/v2", command: "version" })
         : undefined,
       existsSync: () => true,
+      statSync: () => ({ mode: 0o100755 }),
       rmSync: () => undefined
     }),
     /clean CLI package build produced an unusable bin/u
   );
+});
+
+test("CLI package smoke rejects a clean build whose bin lost its execute bit", () => {
+  assert.throws(
+    () => buildCliPackageArtifact("/repo", {
+      execFileSync: () => JSON.stringify({ ok: true, schema: "command-receipt/v2", command: "version" }),
+      existsSync: () => true,
+      statSync: () => ({ mode: 0o100644 }),
+      rmSync: () => undefined,
+      platform: "linux"
+    }),
+    new RegExp(`clean CLI package build produced a non-executable bin: ${escapeRegExp(path.join("/repo", "packages/cli/dist/cli/src/index.js"))}`, "u")
+  );
+});
+
+test("CLI package smoke does not require an execute bit on Windows", () => {
+  assert.doesNotThrow(() => buildCliPackageArtifact("/repo", {
+    execFileSync: () => JSON.stringify({ ok: true, schema: "command-receipt/v2", command: "version" }),
+    existsSync: () => true,
+    statSync: () => ({ mode: 0o100644 }),
+    rmSync: () => undefined,
+    platform: "win32"
+  }));
 });
 
 function escapeRegExp(value) {
