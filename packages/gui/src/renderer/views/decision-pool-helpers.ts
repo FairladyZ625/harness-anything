@@ -19,6 +19,15 @@ export const POOL_TABS: readonly PoolTab[] = [
   "retired",
 ] as const;
 
+/** Decision Pool is a browsing surface: newest proposals stay visible first. */
+export function sortDecisionPoolRowsByRecency(rows: DecisionRow[]): DecisionRow[] {
+  return [...rows].sort((a, b) => {
+    const proposedAt = (b.proposedAt ?? "").localeCompare(a.proposedAt ?? "");
+    if (proposedAt !== 0) return proposedAt;
+    return a.decisionId.localeCompare(b.decisionId);
+  });
+}
+
 export function withinRange(decision: DecisionRow, range: TimeRange): boolean {
   if (range === "all") return true;
   if (!decision.proposedAt) return false;
@@ -168,6 +177,13 @@ export interface MilestoneGroup {
   rows: DecisionRow[];
 }
 
+function newestDecisionPoolProposalTimestamp(rows: DecisionRow[]): string {
+  return rows.reduce(
+    (newest, row) => row.proposedAt && row.proposedAt > newest ? row.proposedAt : newest,
+    "",
+  );
+}
+
 export function groupRows(
   rows: DecisionRow[],
   groupBy: GroupBy,
@@ -201,11 +217,11 @@ export function groupRows(
     }
   }
   return [...buckets.entries()]
-    .sort(([a], [b]) => {
-      // unlinked last
-      if (a === UNLINKED_MILESTONE) return 1;
-      if (b === UNLINKED_MILESTONE) return -1;
-      return a.localeCompare(b);
+    .sort(([aKey, a], [bKey, b]) => {
+      const proposedAt = newestDecisionPoolProposalTimestamp(b.rows)
+        .localeCompare(newestDecisionPoolProposalTimestamp(a.rows));
+      if (proposedAt !== 0) return proposedAt;
+      return aKey.localeCompare(bKey);
     })
     .map(([key, value]) => ({ key, title: value.title, rows: value.rows }));
 }

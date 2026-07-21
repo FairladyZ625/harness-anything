@@ -411,6 +411,61 @@ describe("server-render smoke · approval + pool", () => {
     // no nested state <select> (dropped)
     expect(html).not.toContain("state: all");
   });
+
+  it("DecisionPoolView shows newly proposed decisions before older higher-risk rows", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionPoolView, {
+        decisions: [
+          decision({
+            decisionId: "dec_old",
+            title: "Older high-risk proposal",
+            riskTier: "high",
+            urgency: "high",
+            proposedAt: "2026-07-14T13:39:00.965Z",
+          }),
+          decision({
+            decisionId: "dec_new",
+            title: "New low-risk proposal",
+            riskTier: "low",
+            urgency: "low",
+            proposedAt: "2026-07-21T08:07:07.527Z",
+          }),
+        ],
+        facts,
+        relations: [],
+        tasks: [],
+      }),
+    );
+
+    expect(html.indexOf("dec_new")).toBeLessThan(html.indexOf("dec_old"));
+  });
+
+  it("DecisionPoolView shows a newly proposed unlinked group before older milestone groups", () => {
+    const html = renderToStaticMarkup(
+      createElement(DecisionPoolView, {
+        decisions: [
+          decision({
+            decisionId: "dec_old_linked",
+            proposedAt: "2026-07-14T13:39:00.965Z",
+          }),
+          decision({
+            decisionId: "dec_new_unlinked",
+            proposedAt: "2026-07-21T08:07:07.527Z",
+          }),
+        ],
+        facts,
+        relations: [{
+          from: "decision/dec_old_linked",
+          to: "task/task_leaf",
+          kind: "derives",
+          provenance: "local-document",
+        }],
+        tasks,
+      }),
+    );
+
+    expect(html.indexOf("dec_new_unlinked")).toBeLessThan(html.indexOf("dec_old_linked"));
+  });
 });
 
 describe("dec_01KXARBFDR · propose payload builder (camelCase → snake_case)", () => {
