@@ -295,18 +295,25 @@ function withDaemonGenerationMutationLock<Result>(
   const lockPath = `${daemonGenerationRecordPath(input.userRoot, input.endpointIdentity)}.lock`;
   const ownerToken = acquireDaemonGenerationMutationLock(lockPath);
   let operationFailed = false;
+  let operationError: unknown;
+  let result: Result | undefined;
   try {
-    return operation(() => assertDaemonGenerationMutationLockOwner(lockPath, ownerToken));
+    result = operation(() => assertDaemonGenerationMutationLockOwner(lockPath, ownerToken));
   } catch (error) {
     operationFailed = true;
-    throw error;
-  } finally {
-    try {
-      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-    } catch (error) {
-      if (!operationFailed) throw error;
-    }
+    operationError = error;
   }
+  let releaseFailed = false;
+  let releaseError: unknown;
+  try {
+    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+  } catch (error) {
+    releaseFailed = true;
+    releaseError = error;
+  }
+  if (operationFailed) throw operationError;
+  if (releaseFailed) throw releaseError;
+  return result as Result;
 }
 
 async function withDaemonGenerationMutationLockAsync<Result>(
@@ -323,19 +330,26 @@ async function withDaemonGenerationMutationLockAsync<Result>(
     active: true
   };
   let operationFailed = false;
+  let operationError: unknown;
+  let result: Result | undefined;
   try {
-    return await daemonGenerationLockContext.run(context, operation);
+    result = await daemonGenerationLockContext.run(context, operation);
   } catch (error) {
     operationFailed = true;
-    throw error;
-  } finally {
-    context.active = false;
-    try {
-      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
-    } catch (error) {
-      if (!operationFailed) throw error;
-    }
+    operationError = error;
   }
+  context.active = false;
+  let releaseFailed = false;
+  let releaseError: unknown;
+  try {
+    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+  } catch (error) {
+    releaseFailed = true;
+    releaseError = error;
+  }
+  if (operationFailed) throw operationError;
+  if (releaseFailed) throw releaseError;
+  return result as Result;
 }
 
 function acquireDaemonGenerationMutationLock(lockPath: string): string {
