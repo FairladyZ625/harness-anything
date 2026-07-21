@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import {
   daemonRegistryPaths,
   daemonRegistrySchema,
@@ -277,6 +279,43 @@ test("publish does not erase a concurrent register and stale generation cannot o
   });
 });
 
+test("cross-process publish and register serialize without losing either projection", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-registry-race-"));
+  try {
+    const { userRoot } = seedProjectedRegistry(root, 9);
+    const repoRoots = Array.from({ length: 12 }, (_, index) => createHarnessRepo(path.join(root, `repo-${index}`)));
+    const moduleUrl = pathToFileURL(path.resolve("packages/kernel/src/daemon/registry.ts")).href;
+    const registerSource = `
+      const { registerDaemonRepo } = await import(${JSON.stringify(moduleUrl)});
+      for (const [index, canonicalRoot] of ${JSON.stringify(repoRoots)}.entries()) {
+        registerDaemonRepo({ userRoot: ${JSON.stringify(userRoot)}, canonicalRoot, repoId: \`repo-\${index}\`, createConvenienceLinks: false });
+      }
+    `;
+    const publishSource = `
+      const { publishDaemonRegistryRuntimeProjection } = await import(${JSON.stringify(moduleUrl)});
+      for (let index = 0; index < 100; index += 1) {
+        publishDaemonRegistryRuntimeProjection({
+          userRoot: ${JSON.stringify(userRoot)},
+          machineId: "machine-installation-a",
+          daemonGeneration: 9,
+          registrations: [{ repoId: "first", runtimeRegistrationId: "99999999-9999-4999-8999-999999999999", daemonGeneration: 9 }]
+        });
+      }
+    `;
+
+    await Promise.all([runRegistryMutationChild(registerSource), runRegistryMutationChild(publishSource)]);
+    const registry = readDaemonRegistry({ userRoot });
+    assert.equal(registry.repos.length, 13, "periodic publish erased a concurrent register");
+    assert.equal(
+      registry.repos.find((repo) => repo.repoId === "first")?.runtimeRegistrationId,
+      "99999999-9999-4999-8999-999999999999",
+      "concurrent register erased the published snapshot"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("registry decoder rejects invalid UUIDs, mismatched generations, and orphan runtime registrations", () => {
   withTempDir((root) => {
     const userRoot = path.join(root, "user-harness");
@@ -374,4 +413,15 @@ function seedProjectedRegistry(root: string, generation = 7): { readonly userRoo
     }]
   });
   return { userRoot, firstRoot };
+}
+
+async function runRegistryMutationChild(source: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", source], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`registry mutation child exited ${String(code)}: ${stderr}`)));
+  });
 }
