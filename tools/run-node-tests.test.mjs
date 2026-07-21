@@ -203,6 +203,26 @@ test("integration discovery equals the files executed by the CI runner", () => {
   assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
 });
 
+test("list output survives stdout backpressure", () => {
+  const manifest = discoverTestTierManifest(repoRoot);
+  const childEnv = {
+    ...process.env,
+    NODE_OPTIONS: [
+      process.env.NODE_OPTIONS,
+      `--import=${path.join(repoRoot, "tools/test-fixtures/delayed-stdout.mjs")}`
+    ].filter(Boolean).join(" ")
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "integration", "--list"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
+});
+
 test("nightly tests run only when explicitly selected", () => {
   const manifest = discoverTestTierManifest(repoRoot);
   const nightly = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "nightly", "--list"], {
