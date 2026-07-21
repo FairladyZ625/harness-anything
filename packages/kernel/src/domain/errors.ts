@@ -48,6 +48,7 @@ export type WriteError =
     readonly entityId?: string;
     readonly reason: string;
     readonly code?: string;
+    readonly context?: Readonly<Record<string, unknown>>;
     readonly currentWatermark?: string | null;
     readonly expectedWatermark?: string | null;
     readonly retryable?: boolean;

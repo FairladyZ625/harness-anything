@@ -52,7 +52,18 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     const bases = new Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>();
     const changeLog = createInMemoryReplicaChangeLog();
     let failEventPublication = false;
-    const service = authority(rootDir, env, claims, secret, tokenDigest, changeLog, bases, () => failEventPublication);
+    let terminalExclusiveEntries = 0;
+    const service = authority(
+      rootDir,
+      env,
+      claims,
+      secret,
+      tokenDigest,
+      changeLog,
+      bases,
+      () => failEventPublication,
+      () => { terminalExclusiveEntries += 1; }
+    );
     const factRef = ref("fact", "fact/task_T/F-DEADBEEF");
     const factSet: SemanticMutationSetV2 = {
       registryVersion: 1,
@@ -156,12 +167,14 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     assert.equal(unpublishedReceipt.tag === "INDETERMINATE" && typeof unpublishedReceipt.commitSha === "string", true);
     assert.equal("integrityTuple" in unpublishedReceipt, false);
     failEventPublication = false;
+    const beforeKnownOperationRecovery = terminalExclusiveEntries;
     const recoveredReceipt = await service.submitV2!({
       requestId: "event-store-recovered-after-restart",
       presentationToken: token,
       envelope: encodeSemanticMutationEnvelopeV2(unpublishedEnvelope)
     });
     assert.equal(recoveredReceipt.tag, "COMMITTED", JSON.stringify(recoveredReceipt));
+    assert.equal(terminalExclusiveEntries, beforeKnownOperationRecovery + 1, "known-op recovery bypassed terminal exclusion");
     if (recoveredReceipt.tag === "COMMITTED") {
       assert.equal(recoveredReceipt.commitSha, unpublishedReceipt.tag === "INDETERMINATE" ? unpublishedReceipt.commitSha : undefined);
       assert.match(recoveredReceipt.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
@@ -177,7 +190,8 @@ function authority(
   tokenDigest: Uint8Array,
   changeLog: ReplicaChangeLog,
   bases: Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>,
-  failEventPublication: () => boolean
+  failEventPublication: () => boolean,
+  onTerminalExclusive: () => void
 ) {
   const operationRegistry = createInMemoryAuthorityOperationRegistry();
   return createAuthoritySubmissionService({
@@ -201,6 +215,13 @@ function authority(
       }
     },
     fenceWitness: { assertHeld: async () => undefined },
+    generationFenceWitness: {
+      assertHeld: async () => undefined,
+      runExclusive: async (_stage, _context, operation) => {
+        onTerminalExclusive();
+        return operation();
+      }
+    },
     v2: {
       schemaTuple,
       channelNonceDigest,

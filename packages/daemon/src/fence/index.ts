@@ -2,6 +2,7 @@ export { acquireSingleHostAuthorityFence } from "./authority-fence.ts";
 export {
   createDaemonGenerationAuthorityFence,
   createRuntimeDaemonGenerationAuthorityFence,
+  createRuntimeDaemonGenerationWitnessFence,
   daemonGenerationAxes,
   daemonGenerationFencedCode,
   daemonGenerationWriteRejectionSchema,

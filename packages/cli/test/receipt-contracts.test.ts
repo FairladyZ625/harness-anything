@@ -174,6 +174,36 @@ test("task lease write rejection preserves its specific CLI error code and hint"
   });
 });
 
+test("generation fence failure receipt keeps typed context outside presentation text", () => {
+  const context = {
+    schema: "daemon-generation-write-rejection/v1",
+    machineId: "machine-a",
+    attemptedDaemonGeneration: 7,
+    currentDaemonGeneration: 8,
+    workspaceId: "workspace-a",
+    opId: "op-a",
+    stage: "before-terminal-journal"
+  };
+  const receipt = toCommandReceipt({
+    ok: false,
+    command: "progress-append",
+    error: toCliError({
+      _tag: "WriteRejected",
+      code: "DAEMON_GENERATION_FENCED",
+      reason: "The daemon generation is stale.",
+      retryable: true,
+      context
+    })
+  });
+  assert.equal(receipt.ok, false);
+  if (receipt.ok) return;
+  assert.deepEqual(receipt.error, {
+    code: "DAEMON_GENERATION_FENCED",
+    hint: "The daemon generation is stale.",
+    context
+  });
+});
+
 test("CLI failure receipt preserves the permanent admission payload classification", () => {
   const receipt = toCommandReceipt({
     ok: false,

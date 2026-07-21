@@ -1,7 +1,8 @@
 import type {
   AuthorityFenceStage,
   AuthorityFenceWitness,
-  DaemonLogService
+  AuthorityGenerationFence,
+  DaemonGenerationWriteRejectionV1
 } from "@harness-anything/application";
 import {
   DaemonGenerationWitnessLostError,
@@ -10,79 +11,88 @@ import {
 
 export const daemonGenerationFencedCode = "DAEMON_GENERATION_FENCED" as const;
 export const daemonGenerationWriteRejectionSchema = "daemon-generation-write-rejection/v1" as const;
-
-export interface DaemonGenerationWriteRejectionV1 {
-  readonly schema: typeof daemonGenerationWriteRejectionSchema;
-  readonly machineId: string;
-  readonly attemptedDaemonGeneration: number;
-  readonly currentDaemonGeneration?: number;
-  readonly runtimeRegistrationId?: string;
-  readonly connectionId?: string;
-  readonly workspaceId: string;
-  readonly opId?: string;
-  readonly stage: AuthorityFenceStage;
-}
+export type { DaemonGenerationWriteRejectionV1 } from "@harness-anything/application";
 
 export class DaemonGenerationFencedError extends Error {
   readonly code = daemonGenerationFencedCode;
   readonly context: DaemonGenerationWriteRejectionV1;
 
   constructor(context: DaemonGenerationWriteRejectionV1, cause?: unknown) {
-    super(JSON.stringify(context), cause === undefined ? undefined : { cause });
+    super("The daemon generation is stale; query the current daemon for the durable outcome.", cause === undefined ? undefined : { cause });
     this.name = "DaemonGenerationFencedError";
     this.context = context;
   }
 }
 
-export function createDaemonGenerationAuthorityFence(input: {
-  readonly authorityFence: AuthorityFenceWitness;
+interface GenerationFenceInput {
   readonly generationWitness: DaemonGenerationWitness;
   readonly workspaceId: string;
   readonly repo: { readonly repoId: string; readonly canonicalRoot: string };
   readonly runtimeRegistrationId?: () => string | undefined;
   readonly connectionId?: string;
-  readonly logService?: DaemonLogService;
-}): AuthorityFenceWitness {
+}
+
+export function createDaemonGenerationAuthorityFence(
+  input: GenerationFenceInput & { readonly authorityFence: AuthorityFenceWitness }
+): AuthorityGenerationFence {
   const generationFence = createDaemonGenerationWitnessFence(input);
   return {
     assertHeld: async (stage, operation) => {
       await input.authorityFence.assertHeld(stage, operation);
       await generationFence.assertHeld(stage, operation);
-    }
+    },
+    runExclusive: (stage, context, operation) => generationFence.runExclusive(stage, context, async () => {
+      await input.authorityFence.assertHeld(stage, context);
+      return operation();
+    })
   };
 }
 
-function createDaemonGenerationWitnessFence(input: Omit<
-  Parameters<typeof createDaemonGenerationAuthorityFence>[0],
-  "authorityFence"
->): AuthorityFenceWitness {
+function createDaemonGenerationWitnessFence(input: GenerationFenceInput): AuthorityGenerationFence {
+  let stale: DaemonGenerationFencedError | undefined;
+  const fenced = (
+    stage: AuthorityFenceStage,
+    operation: { readonly workspaceId: string; readonly opId: string } | undefined,
+    cause: DaemonGenerationWitnessLostError
+  ): DaemonGenerationFencedError => {
+    if (stale) return stale;
+    const runtimeRegistrationId = input.runtimeRegistrationId?.();
+    stale = new DaemonGenerationFencedError({
+      schema: daemonGenerationWriteRejectionSchema,
+      machineId: input.generationWitness.machineId,
+      attemptedDaemonGeneration: input.generationWitness.daemonGeneration,
+      ...(cause.observed ? { currentDaemonGeneration: cause.observed.daemonGeneration } : {}),
+      ...(runtimeRegistrationId ? { runtimeRegistrationId } : {}),
+      ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+      workspaceId: input.workspaceId,
+      ...(operation?.opId ? { opId: operation.opId } : {}),
+      stage
+    }, cause);
+    return stale;
+  };
   return {
     assertHeld: async (stage = "before-prepare", operation) => {
+      if (stale) throw stale;
       try {
         input.generationWitness.assertCurrent();
       } catch (cause) {
-        const runtimeRegistrationId = input.runtimeRegistrationId?.();
-        const context: DaemonGenerationWriteRejectionV1 = {
-          schema: daemonGenerationWriteRejectionSchema,
-          machineId: input.generationWitness.machineId,
-          attemptedDaemonGeneration: input.generationWitness.daemonGeneration,
-          ...(cause instanceof DaemonGenerationWitnessLostError && cause.observed
-            ? { currentDaemonGeneration: cause.observed.daemonGeneration }
-            : {}),
-          ...(runtimeRegistrationId ? { runtimeRegistrationId } : {}),
-          ...(input.connectionId ? { connectionId: input.connectionId } : {}),
-          workspaceId: input.workspaceId,
-          ...(operation?.opId ? { opId: operation.opId } : {}),
-          stage
-        };
-        await recordGenerationRejection(input, context);
-        throw new DaemonGenerationFencedError(context, cause);
+        if (!(cause instanceof DaemonGenerationWitnessLostError)) throw cause;
+        throw fenced(stage, operation, cause);
+      }
+    },
+    runExclusive: async (stage, operation, persist) => {
+      if (stale) throw stale;
+      try {
+        return await input.generationWitness.runExclusive(persist);
+      } catch (cause) {
+        if (!(cause instanceof DaemonGenerationWitnessLostError)) throw cause;
+        throw fenced(stage, operation, cause);
       }
     }
   };
 }
 
-export function createRuntimeDaemonGenerationAuthorityFence(input: {
+interface RuntimeGenerationFenceInput {
   readonly runtime: {
     readonly daemonGenerationContext?: () => {
       readonly witness: DaemonGenerationWitness;
@@ -90,43 +100,56 @@ export function createRuntimeDaemonGenerationAuthorityFence(input: {
       readonly daemonGeneration: number;
       readonly runtimeRegistrationId?: string;
     } | undefined;
+    readonly daemonGenerationCapability?: () =>
+      | { readonly mode: "generation" }
+      | { readonly mode: "legacy"; readonly platform: "win32"; readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" }
+      | { readonly mode: "unconfigured" };
   };
-  readonly authorityFence: AuthorityFenceWitness;
   readonly workspaceId: string;
   readonly repo: { readonly repoId: string; readonly canonicalRoot: string };
   readonly connectionId?: string;
-  readonly logService?: DaemonLogService;
-}): AuthorityFenceWitness | undefined {
+}
+
+export function createRuntimeDaemonGenerationAuthorityFence(
+  input: RuntimeGenerationFenceInput & { readonly authorityFence: AuthorityFenceWitness }
+): AuthorityGenerationFence | undefined {
   const generation = input.runtime.daemonGenerationContext?.();
-  if (!generation) return undefined;
+  if (!generation) return missingGenerationContext(input.runtime);
   return createDaemonGenerationAuthorityFence({
     authorityFence: input.authorityFence,
     generationWitness: generation.witness,
     workspaceId: input.workspaceId,
     repo: input.repo,
     runtimeRegistrationId: () => input.runtime.daemonGenerationContext?.()?.runtimeRegistrationId,
-    ...(input.connectionId ? { connectionId: input.connectionId } : {}),
-    ...(input.logService ? { logService: input.logService } : {})
+    ...(input.connectionId ? { connectionId: input.connectionId } : {})
   });
 }
 
-export function createRuntimeDaemonGenerationWitnessFence(input: Omit<
-  Parameters<typeof createRuntimeDaemonGenerationAuthorityFence>[0],
-  "authorityFence"
->): AuthorityFenceWitness | undefined {
+export function createRuntimeDaemonGenerationWitnessFence(
+  input: RuntimeGenerationFenceInput
+): AuthorityGenerationFence | undefined {
   const generation = input.runtime.daemonGenerationContext?.();
-  if (!generation) return undefined;
+  if (!generation) return missingGenerationContext(input.runtime);
   return createDaemonGenerationWitnessFence({
     generationWitness: generation.witness,
     workspaceId: input.workspaceId,
     repo: input.repo,
     runtimeRegistrationId: () => input.runtime.daemonGenerationContext?.()?.runtimeRegistrationId,
-    ...(input.connectionId ? { connectionId: input.connectionId } : {}),
-    ...(input.logService ? { logService: input.logService } : {})
+    ...(input.connectionId ? { connectionId: input.connectionId } : {})
   });
 }
 
-export function daemonGenerationAxes(input: Parameters<typeof createRuntimeDaemonGenerationAuthorityFence>[0]["runtime"]): {
+function missingGenerationContext(
+  runtime: RuntimeGenerationFenceInput["runtime"]
+): undefined {
+  const capability = runtime.daemonGenerationCapability?.();
+  if (capability?.mode === "legacy"
+    && capability.platform === "win32"
+    && capability.diagnostic === "DAEMON_GENERATION_DURABILITY_UNSUPPORTED") return undefined;
+  throw new Error("DAEMON_GENERATION_CONTEXT_REQUIRED_FOR_PRODUCTION_AUTHORITY");
+}
+
+export function daemonGenerationAxes(input: RuntimeGenerationFenceInput["runtime"]): {
   readonly machineId: string;
   readonly daemonGeneration: number;
   readonly runtimeRegistrationId?: string;
@@ -138,25 +161,4 @@ export function daemonGenerationAxes(input: Parameters<typeof createRuntimeDaemo
     daemonGeneration: generation.daemonGeneration,
     ...(generation.runtimeRegistrationId ? { runtimeRegistrationId: generation.runtimeRegistrationId } : {})
   };
-}
-
-async function recordGenerationRejection(
-  input: Pick<Parameters<typeof createDaemonGenerationAuthorityFence>[0], "logService" | "repo">,
-  context: DaemonGenerationWriteRejectionV1
-): Promise<void> {
-  if (!input.logService) return;
-  try {
-    await input.logService.append({
-      level: "warn",
-      source: "daemon",
-      component: "daemon.generation",
-      event: "daemon.generation.write-rejected",
-      message: "Rejected a terminal write from a stale daemon generation.",
-      errorCode: daemonGenerationFencedCode,
-      hint: JSON.stringify(context),
-      ...(context.opId ? { requestId: context.opId } : {})
-    }, { repo: input.repo });
-  } catch {
-    // Logging is best effort; a logging failure must never admit the stale write.
-  }
 }

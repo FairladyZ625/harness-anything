@@ -122,22 +122,34 @@ export interface AuthorityRejectedReceipt {
   readonly reason: string;
 }
 
-export interface AuthorityRetryableReceipt {
+export type AuthorityRetryableReceipt = {
   readonly tag: "RETRYABLE_NOT_COMMITTED";
   readonly workspaceId: string;
   readonly opId: string;
   readonly semanticDigest: string;
   readonly reason: string;
-}
+} & ({
+  readonly errorCode?: undefined;
+  readonly errorContext?: undefined;
+} | {
+  readonly errorCode: "DAEMON_GENERATION_FENCED";
+  readonly errorContext: DaemonGenerationWriteRejectionV1;
+});
 
-export interface AuthorityIndeterminateReceipt {
+export type AuthorityIndeterminateReceipt = {
   readonly tag: "INDETERMINATE";
   readonly workspaceId: string;
   readonly opId: string;
   readonly semanticDigest: string;
   readonly reason: string;
   readonly commitSha?: string;
-}
+} & ({
+  readonly errorCode?: undefined;
+  readonly errorContext?: undefined;
+} | {
+  readonly errorCode: "DAEMON_GENERATION_FENCED";
+  readonly errorContext: DaemonGenerationWriteRejectionV1;
+});
 
 export type AuthorityOperationReceipt =
   | AuthorityCommittedReceipt
@@ -209,12 +221,32 @@ export interface AuthorityFenceWitness {
   ) => Promise<void>;
 }
 
+export interface AuthorityGenerationFence extends AuthorityFenceWitness {
+  readonly runExclusive: <Result>(
+    stage: AuthorityFenceStage,
+    context: { readonly workspaceId: string; readonly opId: string },
+    operation: () => Promise<Result>
+  ) => Promise<Result>;
+}
+
 export type AuthorityFenceStage =
   | "before-prepare"
   | "before-canonical-publish"
   | "after-canonical-publish"
   | "before-terminal-visibility"
   | "before-terminal-journal";
+
+export interface DaemonGenerationWriteRejectionV1 {
+  readonly schema: "daemon-generation-write-rejection/v1";
+  readonly machineId: string;
+  readonly attemptedDaemonGeneration: number;
+  readonly currentDaemonGeneration?: number;
+  readonly runtimeRegistrationId?: string;
+  readonly connectionId?: string;
+  readonly workspaceId: string;
+  readonly opId?: string;
+  readonly stage: AuthorityFenceStage;
+}
 
 export interface AttributedCoordinatorFactory {
   readonly create: (input: {

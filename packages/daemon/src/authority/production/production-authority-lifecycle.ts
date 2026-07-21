@@ -109,7 +109,7 @@ export function createProductionAuthorityLifecycle(input: {
   return createAuthorityRepoLifecycleController({
     hooks,
     serviceStateRoot: manifest.serviceStateRoot,
-    resolveCompositionData: async (repo, state) => {
+    resolveCompositionData: async (repo, state, runtime) => {
       const config = manifest.repos.find((candidate) => candidate.repoId === repo.repoId);
       if (!config || canonicalRoot(config.canonicalRoot) !== canonicalRoot(repo.canonicalRoot)) {
         throw new Error("AUTHORITY_PRODUCTION_REPO_NOT_CONFIGURED");
@@ -145,6 +145,11 @@ export function createProductionAuthorityLifecycle(input: {
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       }).authoredRoot;
       const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
+      const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
+        runtime,
+        workspaceId: config.workspaceId,
+        repo: { repoId: config.repoId, canonicalRoot: config.canonicalRoot }
+      });
       const evidenceCommitter = createGitAuthorityAttributionEvidenceCommitterV2({
         rootDir: repo.canonicalRoot,
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
@@ -218,6 +223,7 @@ export function createProductionAuthorityLifecycle(input: {
         eventLog,
         publicationInspector,
         recover: committedEventPublisher.recoverCommittedReceipt,
+        ...(recoveryGenerationFence ? { generationFence: recoveryGenerationFence } : {}),
         watermarkPath: `${state.stateDirectory}/recovery-watermark.json`,
         ...(input.daemonLogService ? {
           onDeferred: (record: import("@harness-anything/application").AuthorityStoredOperationRecord, error: unknown) =>
@@ -305,8 +311,7 @@ function createRepoComponent(
     runtime: input.runtime,
     authorityFence: input.fenceWitness,
     workspaceId: material.config.workspaceId,
-    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot },
-    ...(daemonLogService ? { logService: daemonLogService } : {})
+    repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot }
   });
   const cutoverControl = createAuthorityCutoverControlService({
     repoId: material.config.repoId,
@@ -353,9 +358,10 @@ function createRepoComponent(
     replicaChangeLog: input.replicaChangeLog,
     ...(repoGenerationFence ? {
       generationFence: {
-        assertCurrent: ({ workspaceId, opId }) => repoGenerationFence.assertHeld(
+        runExclusive: ({ workspaceId, opId }, operation) => repoGenerationFence.runExclusive(
           "before-terminal-journal",
-          { workspaceId, opId }
+          { workspaceId, opId },
+          operation
         ),
         axes: daemonGenerationAxes(input.runtime)
       }
@@ -477,8 +483,7 @@ function createConnectionAuthorityService(
     runtime: input.runtime,
     workspaceId: material.config.workspaceId,
     repo: { repoId: material.config.repoId, canonicalRoot: material.config.canonicalRoot },
-    connectionId: context.connectionId,
-    ...(daemonLogService ? { logService: daemonLogService } : {})
+    connectionId: context.connectionId
   });
   return createAuthoritySubmissionService({
     workspaceId: material.config.workspaceId,

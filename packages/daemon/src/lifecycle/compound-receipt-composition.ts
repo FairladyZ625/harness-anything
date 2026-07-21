@@ -41,7 +41,10 @@ export function createProductionCompoundReceiptComposition(input: {
   readonly stateDirectory: string;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly generationFence?: {
-    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
+    readonly runExclusive: <Result>(
+      input: { readonly workspaceId: string; readonly opId: string },
+      operation: () => Promise<Result>
+    ) => Promise<Result>;
     readonly axes: {
       readonly machineId: string;
       readonly daemonGeneration: number;

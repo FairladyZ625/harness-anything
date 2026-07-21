@@ -59,6 +59,11 @@ export interface DaemonRuntimeOptions {
     readonly daemonGeneration: number;
   };
   readonly generationWitness?: DaemonGenerationWitness;
+  readonly generationCapability?: {
+    readonly mode: "legacy";
+    readonly platform: "win32";
+    readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED";
+  };
 }
 
 export interface DaemonRuntimeStatus {
@@ -95,6 +100,10 @@ export interface HarnessDaemonRuntime {
     readonly daemonGeneration: number;
     readonly runtimeRegistrationId?: string;
   } | undefined;
+  readonly daemonGenerationCapability?: () =>
+    | { readonly mode: "generation" }
+    | { readonly mode: "legacy"; readonly platform: "win32"; readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" }
+    | { readonly mode: "unconfigured" };
   readonly admissionBudget: DaemonAdmissionBudget;
   readonly subscribeProjectionChanges: (listener: (event: ProjectionChangeEvent) => void) => () => void;
 }

@@ -37,7 +37,7 @@ const cliErrorMappers = {
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
   WriteRejected: (error) => error.code && isCliErrorCode(error.code)
-    ? cliError(error.code, authorityIngressPresentation(error.reason))
+    ? cliError(error.code, authorityIngressPresentation(error.reason), error.context)
     : error.reason.includes("authored root is not isolated from the outer code repository")
       ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
       : cliError(CliErrorCode.WriteRejected, error.reason),

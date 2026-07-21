@@ -60,7 +60,11 @@ export interface DaemonFailureReceipt {
   readonly ok: false;
   readonly schema: "command-receipt/v2";
   readonly command: string;
-  readonly error?: { readonly code: string; readonly hint: string };
+  readonly error?: {
+    readonly code: string;
+    readonly hint: string;
+    readonly context?: Readonly<Record<string, unknown>>;
+  };
   readonly summary: string;
   readonly details?: Readonly<Record<string, unknown>>;
 }

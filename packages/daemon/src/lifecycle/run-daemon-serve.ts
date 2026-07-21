@@ -153,6 +153,9 @@ export async function runDaemonServe<
       runtime = createMultiRepoDaemonRuntime({
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         materializerPollMs: 5_000,
+        ...(generation.mode === "legacy" ? {
+          generationCapability: { mode: "legacy", platform: "win32", diagnostic: generation.diagnostic }
+        } : {}),
         ...(generation.mode === "generation" ? {
           generationAxes: {
             machineId: generation.machineId,

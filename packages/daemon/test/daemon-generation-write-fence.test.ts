@@ -1,9 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { fork, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import {
   authorityProtocolTuple,
@@ -11,12 +13,12 @@ import {
   createAuthoritySubmissionService,
   createCompoundReceiptServiceV2,
   createInMemoryAuthorityOperationRegistry,
-  createInMemoryReplicaChangeLog,
-  type DaemonLogAppendInput
+  createInMemoryReplicaChangeLog
 } from "@harness-anything/application";
 import { taskEntityId, type WriteAttribution } from "@harness-anything/kernel";
 import {
   createDaemonGenerationAuthorityFence,
+  createRuntimeDaemonGenerationWitnessFence,
   createDaemonGenerationWitness,
   createDurableCompoundReceiptStoreV2,
   daemonGenerationFencedCode,
@@ -27,6 +29,34 @@ import {
 const posixOnly = process.platform === "win32"
   ? "durable generation publication is unsupported on Windows"
   : false;
+
+test("production wiring permits only generation context or explicit Windows legacy capability", () => {
+  const common = {
+    workspaceId: "workspace-production-wiring",
+    repo: { repoId: "repo-production-wiring", canonicalRoot: "/fixture/repo" }
+  };
+  assert.throws(
+    () => createRuntimeDaemonGenerationWitnessFence({ runtime: {}, ...common }),
+    /DAEMON_GENERATION_CONTEXT_REQUIRED_FOR_PRODUCTION_AUTHORITY/u
+  );
+  assert.throws(
+    () => createRuntimeDaemonGenerationWitnessFence({
+      runtime: { daemonGenerationCapability: () => ({ mode: "generation" }) },
+      ...common
+    }),
+    /DAEMON_GENERATION_CONTEXT_REQUIRED_FOR_PRODUCTION_AUTHORITY/u
+  );
+  assert.equal(createRuntimeDaemonGenerationWitnessFence({
+    runtime: {
+      daemonGenerationCapability: () => ({
+        mode: "legacy",
+        platform: "win32",
+        diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED"
+      })
+    },
+    ...common
+  }), undefined);
+});
 
 test("disease A/C: replacement rejects an old connection before canonical publication", {
   skip: posixOnly
@@ -41,7 +71,6 @@ test("disease A/C: replacement rejects an old connection before canonical public
       machineId,
       daemonInstanceId: "daemon-a"
     });
-    const logInputs: DaemonLogAppendInput[] = [];
     const oldFence = createDaemonGenerationAuthorityFence({
       authorityFence: { assertHeld: async () => undefined },
       generationWitness: createDaemonGenerationWitness({
@@ -53,14 +82,7 @@ test("disease A/C: replacement rejects an old connection before canonical public
       workspaceId: "workspace-generation-fence",
       repo: { repoId: "repo-generation-fence", canonicalRoot: root },
       runtimeRegistrationId: () => "11111111-1111-4111-8111-111111111111",
-      connectionId: "connection-old",
-      logService: {
-        append: async (input) => {
-          logInputs.push(input);
-          return {} as never;
-        },
-        list: async () => ({ schema: "daemon-log-page/v1", entries: [], nextCursor: null, truncated: false, droppedCount: 0 })
-      }
+      connectionId: "connection-old"
     });
     const registry = createInMemoryAuthorityOperationRegistry();
     let flushes = 0;
@@ -108,12 +130,10 @@ test("disease A/C: replacement rejects an old connection before canonical public
 
     assert.equal(current.daemonGeneration, first.daemonGeneration + 2);
     assert.equal(receipt.tag, "RETRYABLE_NOT_COMMITTED");
-    assert.match(receipt.tag === "RETRYABLE_NOT_COMMITTED" ? receipt.reason : "", /^DAEMON_GENERATION_FENCED:/u);
+    assert.equal(receipt.tag === "RETRYABLE_NOT_COMMITTED" ? receipt.errorCode : undefined, daemonGenerationFencedCode);
     assert.equal(flushes, 0);
     assert.deepEqual(await registry.list("workspace-generation-fence"), []);
-    assert.equal(logInputs.length, 1);
-    assert.equal(logInputs[0]?.errorCode, daemonGenerationFencedCode);
-    const context = JSON.parse(logInputs[0]?.hint ?? "null") as Record<string, unknown>;
+    const context = receipt.tag === "RETRYABLE_NOT_COMMITTED" ? receipt.errorContext : undefined;
     assert.deepEqual(context, {
       schema: "daemon-generation-write-rejection/v1",
       machineId,
@@ -134,80 +154,52 @@ test("disease B: stale daemon cannot win compound terminal CAS after replacement
   skip: posixOnly
 }, async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-generation-terminal-fence-"));
+  const children: ChildProcess[] = [];
   try {
     const endpointIdentity = path.join(root, "daemon.sock");
     const receiptDirectory = path.join(root, "receipts");
     const machineId = readOrCreateDaemonMachineId(root);
     const first = publishNextDaemonGeneration({ userRoot: root, endpointIdentity, machineId, daemonInstanceId: "daemon-a" });
-    const oldFence = createDaemonGenerationAuthorityFence({
-      authorityFence: { assertHeld: async () => undefined },
-      generationWitness: createDaemonGenerationWitness({
-        userRoot: root,
-        endpointIdentity,
-        machineId,
-        daemonGeneration: first.daemonGeneration
-      }),
-      workspaceId: "workspace-generation-fence",
-      repo: { repoId: "repo-generation-fence", canonicalRoot: root },
-      runtimeRegistrationId: () => "11111111-1111-4111-8111-111111111111"
-    });
-    const oldService = createCompoundReceiptServiceV2({
-      store: createDurableCompoundReceiptStoreV2({
-        directory: receiptDirectory,
-        generationFence: {
-          axes: {
-            machineId,
-            daemonGeneration: first.daemonGeneration,
-            runtimeRegistrationId: "11111111-1111-4111-8111-111111111111"
-          },
-          assertCurrent: (context) => oldFence.assertHeld("before-terminal-journal", context)
-        }
-      }),
+    const setupService = createCompoundReceiptServiceV2({
+      store: createDurableCompoundReceiptStoreV2({ directory: receiptDirectory }),
       createWaiterId: () => "waiter-generation",
       createResultToken: () => Buffer.alloc(32, 0x61).toString("base64url")
     });
-    const opened = await oldService.openWaiter({
+    const opened = await setupService.openWaiter({
       workspaceId: "workspace-generation-fence",
       viewId: "view-generation-fence",
       opId: "op-terminal-race"
     });
     const statePath = path.join(receiptDirectory, "compound-receipt-broker-state-v2.json");
-    const before = readFileSync(statePath);
+    const old = startGenerationRacer(children, [
+      "old", root, endpointIdentity, machineId, String(first.daemonGeneration), receiptDirectory, encodedIdentity(opened.identity)
+    ]);
+    assert.equal((await nextChildMessage(old)).type, "validated");
     const replacement = publishNextDaemonGeneration({
       userRoot: root,
       endpointIdentity,
       machineId,
       daemonInstanceId: "daemon-b"
     });
-
-    await assert.rejects(oldService.detach(opened.identity, "stale daemon detached"), (error: unknown) =>
-      error instanceof Error && "code" in error && error.code === daemonGenerationFencedCode);
-    assert.equal(readFileSync(statePath).equals(before), true, "stale terminal attempt changed durable receipt bytes");
-
-    const currentWitness = createDaemonGenerationWitness({
-      userRoot: root,
-      endpointIdentity,
-      machineId,
-      daemonGeneration: replacement.daemonGeneration
-    });
-    const currentService = createCompoundReceiptServiceV2({
-      store: createDurableCompoundReceiptStoreV2({
-        directory: receiptDirectory,
-        generationFence: {
-          axes: {
-            machineId,
-            daemonGeneration: replacement.daemonGeneration,
-            runtimeRegistrationId: "22222222-2222-4222-8222-222222222222"
-          },
-          assertCurrent: async () => currentWitness.assertCurrent()
-        }
-      })
-    });
-    const terminal = await currentService.detach(opened.identity, "replacement daemon detached");
+    const current = startGenerationRacer(children, [
+      "current", root, endpointIdentity, machineId, String(replacement.daemonGeneration), receiptDirectory, encodedIdentity(opened.identity)
+    ]);
+    const currentResult = await nextChildMessage(current);
+    assert.equal(currentResult.type, "committed");
+    const terminal = currentResult.receipt as { delivery: string; daemonGeneration: number; runtimeRegistrationId: string };
     assert.equal(terminal.delivery, "DETACHED");
     assert.equal(terminal.daemonGeneration, replacement.daemonGeneration);
     assert.equal(terminal.runtimeRegistrationId, "22222222-2222-4222-8222-222222222222");
+    const afterCurrent = readFileSync(statePath);
+
+    old.send("release");
+    const staleResult = await nextChildMessage(old);
+    assert.equal(staleResult.type, "error");
+    assert.equal(staleResult.code, daemonGenerationFencedCode);
+    assert.equal((staleResult.context as { schema?: string }).schema, "daemon-generation-write-rejection/v1");
+    assert.equal(readFileSync(statePath).equals(afterCurrent), true, "stale child overwrote current terminal bytes");
   } finally {
+    for (const child of children) child.kill("SIGKILL");
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -268,7 +260,7 @@ test("authority replacement between prepare and flush is fenced without a canoni
     const receipt = await service.submit(envelope);
 
     assert.equal(receipt.tag, "RETRYABLE_NOT_COMMITTED");
-    assert.match(receipt.tag === "RETRYABLE_NOT_COMMITTED" ? receipt.reason : "", /^DAEMON_GENERATION_FENCED:/u);
+    assert.equal(receipt.tag === "RETRYABLE_NOT_COMMITTED" ? receipt.errorCode : undefined, daemonGenerationFencedCode);
     assert.equal(enqueued, 0);
     assert.equal(flushed, 0);
     assert.equal((await registry.get(envelope.workspaceId, envelope.opId))?.state, "RECEIVED");
@@ -276,6 +268,109 @@ test("authority replacement between prepare and flush is fenced without a canoni
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a process that observes post-publish staleness authors no terminal or later durable record", {
+  skip: posixOnly
+}, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-generation-post-publish-"));
+  try {
+    const endpointIdentity = path.join(root, "daemon.sock");
+    const machineId = readOrCreateDaemonMachineId(root);
+    const first = publishNextDaemonGeneration({ userRoot: root, endpointIdentity, machineId, daemonInstanceId: "daemon-a" });
+    const generationFence = createDaemonGenerationAuthorityFence({
+      authorityFence: { assertHeld: async () => undefined },
+      generationWitness: createDaemonGenerationWitness({
+        userRoot: root,
+        endpointIdentity,
+        machineId,
+        daemonGeneration: first.daemonGeneration
+      }),
+      workspaceId: "workspace-post-publish",
+      repo: { repoId: "repo-post-publish", canonicalRoot: root }
+    });
+    const memory = createInMemoryAuthorityOperationRegistry();
+    const writes: string[] = [];
+    const registry = {
+      get: memory.get,
+      list: memory.list,
+      put: async (record: Parameters<typeof memory.put>[0]) => {
+        writes.push(record.state);
+        await memory.put(record);
+      }
+    };
+    const service = createAuthoritySubmissionService({
+      workspaceId: "workspace-post-publish",
+      coordinatorFactory: {
+        create: () => ({
+          enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
+          flush: () => Effect.succeed({ reason: "explicit" as const, opCount: 1, committed: true }),
+          recover: Effect.succeed({ replayedOps: 0 })
+        })
+      },
+      tokenVerifier: validLegacyVerifier("workspace-post-publish"),
+      operationRegistry: registry,
+      replicaChangeLog: createInMemoryReplicaChangeLog(),
+      publicationInspector: {
+        currentHead: async () => "head-before",
+        inspectPublishedHead: async () => {
+          publishNextDaemonGeneration({ userRoot: root, endpointIdentity, machineId, daemonInstanceId: "daemon-b" });
+          return { commitSha: "head-after", parentCommits: ["head-before"] };
+        }
+      },
+      fenceWitness: { assertHeld: async () => undefined },
+      generationFenceWitness: generationFence
+    });
+    const firstEnvelope = legacyEnvelope("workspace-post-publish", "op-post-publish");
+    const receipt = await service.submit(firstEnvelope);
+
+    assert.equal(receipt.tag, "INDETERMINATE");
+    assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorCode : undefined, daemonGenerationFencedCode);
+    assert.equal(receipt.tag === "INDETERMINATE" ? receipt.errorContext?.stage : undefined, "before-terminal-visibility");
+    assert.equal((await registry.get(firstEnvelope.workspaceId, firstEnvelope.opId))?.state, "INDEXED");
+    assert.equal(writes.includes("COMMITTED"), false);
+    assert.equal(writes.includes("INDETERMINATE"), false);
+    const writesAfterObservation = writes.length;
+
+    const retry = await service.submit(legacyEnvelope("workspace-post-publish", "op-after-stale-observed"));
+    assert.equal(retry.tag, "RETRYABLE_NOT_COMMITTED");
+    assert.equal(retry.tag === "RETRYABLE_NOT_COMMITTED" ? retry.errorCode : undefined, daemonGenerationFencedCode);
+    assert.equal(writes.length, writesAfterObservation);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function startGenerationRacer(children: ChildProcess[], args: ReadonlyArray<string>): ChildProcess {
+  const child = fork(fileURLToPath(new URL("./fixtures/generation-terminal-racer.ts", import.meta.url)), [...args], {
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    execArgv: process.execArgv.filter((argument) => argument !== "--test-force-exit")
+  });
+  children.push(child);
+  return child;
+}
+
+function nextChildMessage(child: ChildProcess): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (message: unknown) => {
+      cleanup();
+      resolve(message as Record<string, unknown>);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`generation racer exited before response: code=${code};signal=${signal}`));
+    };
+    const cleanup = () => {
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+    };
+    child.once("message", onMessage);
+    child.once("exit", onExit);
+  });
+}
+
+function encodedIdentity(identity: unknown): string {
+  return Buffer.from(JSON.stringify(identity), "utf8").toString("base64url");
+}
 
 function legacyEnvelope(workspaceId: string, opId: string) {
   const envelope = {

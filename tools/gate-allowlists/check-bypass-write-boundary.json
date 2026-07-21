@@ -1231,6 +1231,16 @@
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
       },
       {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@6",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock closes its exclusive lock descriptor; this is the generation publication/terminal persistence exclusion implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#closeSync@7",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock closes its exclusive lock descriptor during exceptional cleanup; this is the generation publication/terminal persistence exclusion implementation, not a bypass caller."
+      },
+      {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#fsyncSync@1",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
@@ -1271,9 +1281,24 @@
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
       },
       {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#openSync@4",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock uses exclusive create to serialize generation publication with terminal persistence across processes."
+      },
+      {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@1",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@2",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock quarantines a malformed abandoned lock after its publication grace period."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#renameSync@3",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock atomically claims an abandoned owner record before cleanup."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@1",
@@ -1284,6 +1309,31 @@
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@2",
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@3",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock removes quarantined malformed lock metadata after atomic claim."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@4",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock removes quarantined abandoned-owner metadata after atomic claim."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@5",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock releases only the caller's owner-token-verified lock."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#rmSync@6",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock removes the fully-written temporary owner record after atomic hard-link claim or contention."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-generation.ts#writeSync@1",
+        "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
+        "reason": "S1.3 endpoint-scoped generation mutation lock publishes its owner record through the exclusively created descriptor."
       },
       {
         "value": "packages/daemon/src/lifecycle/daemon-generation.ts#writeFileSync@1",

@@ -112,6 +112,10 @@ export interface AuthorityLifecycleRuntime {
     readonly daemonGeneration: number;
     readonly runtimeRegistrationId?: string;
   } | undefined;
+  readonly daemonGenerationCapability?: () =>
+    | { readonly mode: "generation" }
+    | { readonly mode: "legacy"; readonly platform: "win32"; readonly diagnostic: "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" }
+    | { readonly mode: "unconfigured" };
   readonly enqueueMaterializerBatch: (options: { readonly sessionId: string }) => Promise<{
     readonly branches: ReadonlyArray<{
       readonly branch: string;
@@ -176,7 +180,8 @@ export function createAuthorityRepoLifecycleController(input: {
   readonly serviceStateRoot: string;
   readonly resolveCompositionData: (
     repo: DaemonRepoNamespace,
-    state: DurableAuthorityServiceState
+    state: DurableAuthorityServiceState,
+    runtime: AuthorityLifecycleRuntime
   ) => Promise<AuthorityRepoCompositionData>;
   readonly resolvePublicationRoot?: (repo: DaemonRepoNamespace) => string;
   /** Test-only escape hatch; production composition must carry durable adapter markers. */
@@ -234,7 +239,7 @@ export function createAuthorityRepoLifecycleController(input: {
         serviceStateRoot: input.serviceStateRoot,
         repoId: repo.repoId
       });
-      const serverData = await input.resolveCompositionData(repo, state);
+      const serverData = await input.resolveCompositionData(repo, state, runtime);
       validateServerData(repo, serverData, input.allowInMemoryFixture === true);
       const publicationInspector = createGitCanonicalPublicationInspector(
         input.resolvePublicationRoot?.(repo) ?? resolveHarnessLayout(repo.canonicalRoot).authoredRoot

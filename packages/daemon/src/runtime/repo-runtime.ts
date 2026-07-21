@@ -408,6 +408,11 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     };
   }
 
+  daemonGenerationCapability(): ReturnType<NonNullable<HarnessDaemonRuntime["daemonGenerationCapability"]>> {
+    if (this.options.generationAxes && this.options.generationWitness) return { mode: "generation" };
+    return this.options.generationCapability ?? { mode: "unconfigured" };
+  }
+
   subscribeProjectionChanges(listener: (event: ProjectionChangeEvent) => void): () => void {
     return this.projectionChanges.subscribe(listener);
   }
@@ -532,7 +537,8 @@ function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDae
     ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {}),
     ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {}),
     ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {}),
-    ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {})
+    ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {}),
+    ...(repo.generationCapability ? {} : options.generationCapability ? { generationCapability: options.generationCapability } : {})
   };
 }
 

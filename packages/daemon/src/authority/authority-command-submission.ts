@@ -344,9 +344,18 @@ function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushR
     case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(
       receipt.reason,
       true,
-      receipt.reason.startsWith("DAEMON_GENERATION_FENCED:") ? "DAEMON_GENERATION_FENCED" : undefined
+      receipt.errorCode,
+      receipt.errorContext ? { ...receipt.errorContext } : undefined
     );
-    case "INDETERMINATE": throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+    case "INDETERMINATE": {
+      if (receipt.errorCode) throw authorityWriteRejected(
+        receipt.reason,
+        false,
+        receipt.errorCode,
+        receipt.errorContext ? { ...receipt.errorContext } : undefined
+      );
+      throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+    }
   }
 }
 
@@ -370,11 +379,17 @@ function authorityJournalFailureCause(cause: unknown): unknown {
   };
 }
 
-function authorityWriteRejected(reason: string, retryable = false, code?: string): WriteError {
+function authorityWriteRejected(
+  reason: string,
+  retryable = false,
+  code?: string,
+  context?: Readonly<Record<string, unknown>>
+): WriteError {
   return {
     _tag: "WriteRejected",
     reason,
     ...(code ? { code } : {}),
+    ...(context ? { context } : {}),
     ...(retryable ? { retryable: true } : {})
   };
 }

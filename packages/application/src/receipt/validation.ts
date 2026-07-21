@@ -10,6 +10,7 @@ import {
   type AuthorityCommittedReceipt
 } from "../authority/index.ts";
 import { isRecord } from "../record.ts";
+import { validAuthorityGenerationErrorFields } from "./generation-fence-validation.ts";
 
 const authorityTags = ["COMMITTED", "REJECTED", "RETRYABLE_NOT_COMMITTED", "INDETERMINATE"] as const;
 const originTags = ["APPLIED_EXACT_AT_CUT", "SUPERSEDED", "LOCAL_CONFLICT", "APPLY_BLOCKED", "NONQUIESCENT", "VIEW_UNAVAILABLE"] as const;
@@ -50,7 +51,8 @@ function validAuthority(authority: unknown, receipt: Record<string, unknown>): b
     && includes(authorityTags, authority.tag)
     && requiredStrings(authority, ["workspaceId", "opId", "semanticDigest"])
     && authority.workspaceId === receipt.workspaceId
-    && authority.opId === receipt.opId;
+    && authority.opId === receipt.opId
+    && validAuthorityGenerationErrorFields(authority);
 }
 
 function validOrigin(origin: unknown, receipt: Record<string, unknown>): origin is OriginResolution {

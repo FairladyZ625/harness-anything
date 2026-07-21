@@ -25,15 +25,15 @@ export async function runWithAuthorityAdmission(input: {
     const reason = admission.error._tag === "WriteRejected"
       ? admission.error.reason
       : "Shared daemon admission failed. Run 'ha daemon status --json', wait for current writes to settle, then retry the exact command.";
-    return {
-      tag: admission.error._tag === "WriteRejected" && admission.error.retryable === false
-        ? "REJECTED"
-        : "RETRYABLE_NOT_COMMITTED",
+    const receipt = {
       workspaceId: input.identity.workspaceId,
       opId: input.identity.opId,
       semanticDigest: input.semanticDigest,
       reason
     };
+    return admission.error._tag === "WriteRejected" && admission.error.retryable === false
+      ? { tag: "REJECTED", ...receipt }
+      : { tag: "RETRYABLE_NOT_COMMITTED", ...receipt };
   }
   try {
     return await input.work();

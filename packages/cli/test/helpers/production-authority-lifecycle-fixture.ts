@@ -7,7 +7,12 @@ import {
   createAuthorityKeyRegistryV1,
   firstPinAuthorityKeyV1
 } from "../../../application/src/index.ts";
-import { openLocalAuthorityKeyStore } from "../../../daemon/src/index.ts";
+import {
+  createDaemonGenerationWitness,
+  openLocalAuthorityKeyStore,
+  publishNextDaemonGeneration,
+  readOrCreateDaemonMachineId
+} from "../../../daemon/src/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
 import { defaultCliAdapterProvider } from "../../src/composition/adapter-registry.ts";
 import { authorityNamespaceProofBytes } from "@harness-anything/daemon";
@@ -133,6 +138,21 @@ export function productionTuple() {
 
 export function productionWriterRuntime(authoredRoot: string) {
   const repoRoot = path.dirname(authoredRoot);
+  const userRoot = path.join(path.dirname(repoRoot), "daemon-generation");
+  const endpointIdentity = path.join(userRoot, "authority.sock");
+  const machineId = readOrCreateDaemonMachineId(userRoot);
+  const generation = publishNextDaemonGeneration({
+    userRoot,
+    endpointIdentity,
+    machineId,
+    daemonInstanceId: `production-fixture-${process.pid}`
+  });
+  const generationWitness = createDaemonGenerationWitness({
+    userRoot,
+    endpointIdentity,
+    machineId,
+    daemonGeneration: generation.daemonGeneration
+  });
   const materialize = ({ sessionId }: { readonly sessionId: string }) =>
     defaultCliAdapterProvider().runLedgerMaterializer(repoRoot, { sessionId });
   return {
@@ -146,7 +166,14 @@ export function productionWriterRuntime(authoredRoot: string) {
       const flush = await input.publish();
       return { flush, ...(flush.committed && flush.opCount > 0 ? { materialization: materialize(input) } : {}) };
     },
-    assertWriteFenceHeld: async () => undefined
+    assertWriteFenceHeld: async () => undefined,
+    daemonGenerationCapability: () => ({ mode: "generation" as const }),
+    daemonGenerationContext: () => ({
+      witness: generationWitness,
+      machineId,
+      daemonGeneration: generation.daemonGeneration,
+      runtimeRegistrationId: "11111111-1111-4111-8111-111111111111"
+    })
   };
 }
 

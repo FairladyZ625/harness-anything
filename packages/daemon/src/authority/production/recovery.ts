@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   AuthorityCommittedReceipt,
+  AuthorityGenerationFence,
   AuthorityOperationRegistry,
   AuthorityStoredOperationRecord,
   ReplicaChangeLog
@@ -25,6 +26,7 @@ interface ProductionRecoveryInput {
   readonly recover: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
   readonly watermarkPath?: string;
   readonly onDeferred?: (record: AuthorityStoredOperationRecord, error: unknown) => Promise<void>;
+  readonly generationFence?: AuthorityGenerationFence;
 }
 
 export async function recoverPendingProductionEvents(input: ProductionRecoveryInput): Promise<void> {
@@ -68,7 +70,7 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
     const anchors = anchorsByOpId.get(record.opId) ?? [];
     if (anchors.length === 0) {
       if (record.state === "INDETERMINATE" && !record.commitSha) {
-        await terminalizeConfirmedAbsent(input.operationRegistry, record);
+        await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input.operationRegistry, record));
       } else {
         await input.onDeferred?.(record, new AuthorityCanonicalPublicationNotFoundError(record.opId));
       }
@@ -87,14 +89,18 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
         anchor.opIds,
         anchor.commitSha
       );
-      await recoverPublishedRecord(input, record, evidence);
+      await runTerminalRecovery(input, record, () => recoverPublishedRecord(input, record, evidence));
     } catch (error) {
       await input.onDeferred?.(record, error);
     }
   }
   const unsettled = (await input.operationRegistry.list(input.workspaceId)).filter(isUnsettledV2Record);
   if (unsettled.length === 0 && scan.headCommit) {
-    writeRecoveryWatermark(watermarkPath, input.workspaceId, scan.headCommit);
+    const headCommit = scan.headCommit;
+    await runTerminalRecovery(input, {
+      workspaceId: input.workspaceId,
+      opId: "authority-recovery-watermark"
+    }, async () => writeRecoveryWatermark(watermarkPath, input.workspaceId, headCommit));
   }
 }
 
@@ -107,14 +113,14 @@ async function recoverByOperationLookup(input: ProductionRecoveryInput): Promise
     for (const record of remaining) {
       try {
         const evidence = await input.publicationInspector.findPublicationForOperation(record.opId);
-        await recoverPublishedRecord(input, record, evidence);
+        await runTerminalRecovery(input, record, () => recoverPublishedRecord(input, record, evidence));
         progressed = true;
       } catch (error) {
         if (error instanceof AuthorityCanonicalPublicationNotFoundError
           && error.opId === record.opId
           && record.state === "INDETERMINATE"
           && !record.commitSha) {
-          await terminalizeConfirmedAbsent(input.operationRegistry, record);
+          await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input.operationRegistry, record));
           progressed = true;
           continue;
         }
@@ -125,6 +131,16 @@ async function recoverByOperationLookup(input: ProductionRecoveryInput): Promise
     if (!progressed) return;
     remaining = deferred;
   }
+}
+
+function runTerminalRecovery<Result>(
+  input: ProductionRecoveryInput,
+  identity: { readonly workspaceId: string; readonly opId: string },
+  recover: () => Promise<Result>
+): Promise<Result> {
+  return input.generationFence
+    ? input.generationFence.runExclusive("before-terminal-journal", identity, recover)
+    : recover();
 }
 
 async function recoverPublishedRecord(

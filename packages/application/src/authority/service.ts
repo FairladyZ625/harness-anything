@@ -15,6 +15,7 @@ import type {
   AuthoritySubmissionService,
   AttributedCoordinatorFactory,
   AuthorityFenceWitness,
+  AuthorityGenerationFence,
   AuthorityOperationRegistry,
   CanonicalPublicationInspector,
   DelegationTokenVerification,
@@ -66,8 +67,10 @@ import {
   type TerminalAuthoritySubmission
 } from "./service-admission-types.ts";
 import {
-  daemonGenerationFenceReason,
+  generationFencedReceipt,
+  generationFencedIndeterminateReceipt,
   isDaemonGenerationFenced,
+  persistTerminalOrRejectGeneration,
   rejectGenerationFencedBatch,
   rejectStaleGeneration
 } from "./generation-fence-enforcement.ts";
@@ -85,7 +88,7 @@ export interface AuthoritySubmissionServiceOptions {
   };
   readonly fenceWitness: AuthorityFenceWitness;
   /** Optional so legacy and Windows-degraded daemon paths retain their prior byte and write behavior. */
-  readonly generationFenceWitness?: AuthorityFenceWitness;
+  readonly generationFenceWitness?: AuthorityGenerationFence;
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
   readonly v2?: AuthoritySubmissionV2Options;
@@ -110,7 +113,10 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     : undefined;
   const byOperation = new KeyedSerialAuthorityExecutor();
   const now = options.now ?? (() => new Date().toISOString());
-  const { put, persistTerminal } = createAuthorityOperationRecordPersistence(options.operationRegistry);
+  const persistence = createAuthorityOperationRecordPersistence(options.operationRegistry, options.generationFenceWitness);
+  const { put } = persistence;
+  const persistTerminal = (...args: Parameters<typeof persistence.persistTerminal>) =>
+    persistTerminalOrRejectGeneration(persistence.persistTerminal, args);
   const publications = new BoundedAuthorityBatcher<AuthorityAdmission, AuthorityOperationReceipt>(
     (admissions) => options.publicationExecutor
       ? options.publicationExecutor.run(() => publishBatch(admissions))
@@ -179,27 +185,37 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     };
     const identity = { workspaceId: envelope.workspaceId, opId, recordedProtocol };
     const semanticDigest = hex(semanticRequestDigestV2(envelope));
+    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, identity, semanticDigest);
+    if (generationRejection) return terminal(generationRejection);
     const known = await options.operationRegistry.get(envelope.workspaceId, opId);
     if (known) {
       if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
       if (v2.recoverCommittedReceipt
         && (known.state === "INDEXED" || known.state === "INDETERMINATE")
         && known.recordedProtocol?.kind === "semantic-mutation-envelope/v2") {
-        const recovered = await recoverKnownAuthorityOperationV2({
-          known,
-          semanticDigest,
-          canonicalRequestEnvelope,
-          verified,
-          recover: v2.recoverCommittedReceipt,
-          persist: (receipt) => put(identity, semanticDigest, "COMMITTED", receipt, known.commitSha, known.authorityIntegrity, known.canonicalRequestEnvelope)
-        });
+        const recoverCommittedReceipt = v2.recoverCommittedReceipt;
+        const recover = () => recoverKnownAuthorityOperationV2({
+            known,
+            semanticDigest,
+            canonicalRequestEnvelope,
+            verified,
+            recover: recoverCommittedReceipt,
+            persist: (receipt) => put(identity, semanticDigest, "COMMITTED", receipt, known.commitSha, known.authorityIntegrity, known.canonicalRequestEnvelope)
+          });
+        let recovered: AuthorityCommittedReceipt | undefined;
+        try {
+          recovered = options.generationFenceWitness
+            ? await options.generationFenceWitness.runExclusive("before-terminal-journal", identity, recover)
+            : await recover();
+        } catch (error) {
+          if (!isDaemonGenerationFenced(error)) throw error;
+          return terminal(generationFencedReceipt(identity, semanticDigest, error));
+        }
         if (recovered) return terminal(recovered);
       }
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
     }
-    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, identity, semanticDigest);
-    if (generationRejection) return terminal(generationRejection);
     await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
     let computedIntegrity: AuthorityOperationIntegrity | undefined;
     try {
@@ -289,16 +305,14 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
 
   async function prepare(envelope: AuthorityOperationEnvelope): Promise<AuthorityAdmission> {
     const semanticDigest = canonicalAuthorityRequestDigest(envelope);
+    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, envelope, semanticDigest);
+    if (generationRejection) return terminal(generationRejection);
     const known = await options.operationRegistry.get(envelope.workspaceId, envelope.opId);
     if (known) {
       if (known.semanticDigest !== semanticDigest) return terminal(rejected(envelope, semanticDigest, "OP_ID_REUSE"));
       if (known.receipt) return terminal(known.receipt);
       return terminal(indeterminate(envelope, semanticDigest, `operation remains ${known.state}`));
     }
-
-    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, envelope, semanticDigest);
-    if (generationRejection) return terminal(generationRejection);
-
     await put(envelope, semanticDigest, "RECEIVED");
     if (options.v2 && (envelope.operation.kind === "doc_sync_submit" || envelope.operation.kind === "script_ingest")) {
       return terminal(await persistTerminal(
@@ -488,13 +502,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       try {
         await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
       } catch (error) {
-        receipt = await persistPostCommitIntegrityFailure(
-          entry,
-          isDaemonGenerationFenced(error)
-            ? `${daemonGenerationFenceReason(error)}:CANONICAL_OUTCOME_REQUIRES_RECONCILIATION`
-            : `AUTHORITY_FENCE_LOST:${describe(error)}`,
-          commitSha
-        );
+        receipt = isDaemonGenerationFenced(error)
+          ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
+          : await persistPostCommitIntegrityFailure(entry, `AUTHORITY_FENCE_LOST:${describe(error)}`, commitSha);
         receipts.set(entry, receipt);
         continue;
       }
@@ -504,38 +514,52 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           receipts.set(entry, receipt);
           continue;
         }
-        try {
-          receipt = await completeAuthorityCommittedReceiptV2({
-            publisher: options.v2!.committedEventPublisher,
-            receipt: baseReceipt,
-            actorAxesBinding: entry.actorAxesBinding,
-            occurredAt: changes[index]!.changedAt
-          });
-        } catch (error) {
-          receipt = await persistPostCommitIntegrityFailure(entry, `PROTOCOL_DAMAGED:V2_EVENT_PUBLICATION_FAILED:${describe(error)}`, commitSha);
-          receipts.set(entry, receipt);
-          continue;
-        }
       }
-      await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+      try {
+        const persistCommitted = async () => {
+          if (entry.authorityIntegrity) {
+            receipt = await completeAuthorityCommittedReceiptV2({
+              publisher: options.v2!.committedEventPublisher,
+              receipt: baseReceipt,
+              actorAxesBinding: entry.actorAxesBinding!,
+              occurredAt: changes[index]!.changedAt
+            });
+          }
+          await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+          return receipt;
+        };
+        receipt = options.generationFenceWitness
+          ? await options.generationFenceWitness.runExclusive("before-terminal-visibility", entry, persistCommitted)
+          : await persistCommitted();
+      } catch (error) {
+        receipt = isDaemonGenerationFenced(error)
+          ? generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha)
+          : await persistPostCommitIntegrityFailure(entry, `PROTOCOL_DAMAGED:V2_EVENT_PUBLICATION_FAILED:${describe(error)}`, commitSha);
+      }
       receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
   }
 
-  function persistPostCommitIntegrityFailure(
+  async function persistPostCommitIntegrityFailure(
     entry: PreparedAuthoritySubmission,
     reason: string,
     commitSha: string
   ): Promise<AuthorityOperationReceipt> {
-    return persistTerminal(
-      entry,
-      entry.semanticDigest,
-      "INDETERMINATE",
-      indeterminate(entry, entry.semanticDigest, reason, commitSha),
-      entry.authorityIntegrity,
-      entry.canonicalRequestEnvelope
-    );
+    const receipt = indeterminate(entry, entry.semanticDigest, reason, commitSha);
+    try {
+      return await persistence.persistTerminal(
+        entry,
+        entry.semanticDigest,
+        "INDETERMINATE",
+        receipt,
+        entry.authorityIntegrity,
+        entry.canonicalRequestEnvelope
+      );
+    } catch (error) {
+      if (!isDaemonGenerationFenced(error)) throw error;
+      return generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha);
+    }
   }
 
   async function settlePrepared(

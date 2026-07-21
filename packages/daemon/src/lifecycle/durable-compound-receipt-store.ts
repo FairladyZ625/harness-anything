@@ -23,7 +23,10 @@ interface DurableCompoundReceiptStateV2 {
 export interface DurableCompoundReceiptStoreV2Options {
   readonly directory: string;
   readonly generationFence?: {
-    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
+    readonly runExclusive: <Result>(
+      input: { readonly workspaceId: string; readonly opId: string },
+      operation: () => Promise<Result>
+    ) => Promise<Result>;
     readonly axes: {
       readonly machineId: string;
       readonly daemonGeneration: number;
@@ -45,7 +48,7 @@ export function createDurableCompoundReceiptStoreV2(
 
   return {
     get: (identity) => serialized(() => readState(statePath).receipts[receiptIdentityKeyV2(identity)]),
-    create: (receipt) => serialized(() => {
+    create: (receipt) => serialized(() => guarded(receipt, async () => {
       const state = readState(statePath);
       const key = receiptIdentityKeyV2(receipt);
       const current = state.receipts[key];
@@ -59,8 +62,8 @@ export function createDurableCompoundReceiptStoreV2(
         receipts: { ...state.receipts, [key]: receipt }
       });
       return receipt;
-    }),
-    compareAndSet: (identity, expectedSequence, receipt) => serialized(() => {
+    })),
+    compareAndSet: (identity, expectedSequence, receipt) => serialized(() => guarded(identity, async () => {
       const state = readState(statePath);
       const key = receiptIdentityKeyV2(identity);
       const current = state.receipts[key];
@@ -73,40 +76,48 @@ export function createDurableCompoundReceiptStoreV2(
         receipts: { ...state.receipts, [key]: receipt }
       });
       return true;
-    }),
-    commitTerminal: (identity, expectedSequence, draft, buildReceipt) => serialized(async () => {
-      const state = readState(statePath);
-      const key = receiptIdentityKeyV2(identity);
-      const current = state.receipts[key];
-      if (!current || current.sequence !== expectedSequence) return undefined;
-      assertDraftIdentity(draft, identity);
-      await options.generationFence?.assertCurrent({ workspaceId: draft.workspaceId, opId: draft.opId });
-      const terminalLSN = state.nextTerminalLSN;
-      if (terminalLSN >= Number.MAX_SAFE_INTEGER) throw new Error("compound terminalLSN space exhausted");
-      const receipt = {
-        ...buildReceipt(terminalLSN),
-        ...(options.generationFence ? options.generationFence.axes : {})
-      };
-      assertSameReceiptIdentityV2(current, receipt);
-      if (receipt.sequence !== expectedSequence + 1 || receipt.terminalLSN !== terminalLSN) {
-        throw new Error("terminal receipt sequence/LSN is inconsistent");
-      }
-      assertReceipt(receipt);
-      const entry: CompoundTerminalJournalEntry = {
-        ...draft,
-        ...(options.generationFence ? options.generationFence.axes : {}),
-        terminalLSN,
-        receiptSequence: receipt.sequence
-      };
-      writeState(options.directory, statePath, {
-        ...state,
-        nextTerminalLSN: terminalLSN + 1,
-        receipts: { ...state.receipts, [key]: receipt },
-        terminalJournal: [...state.terminalJournal, entry]
-      });
-      return receipt;
-    })
+    })),
+    commitTerminal: (identity, expectedSequence, draft, buildReceipt) => serialized(() => guarded(draft, async () => {
+        const state = readState(statePath);
+        const key = receiptIdentityKeyV2(identity);
+        const current = state.receipts[key];
+        if (!current || current.sequence !== expectedSequence) return undefined;
+        assertDraftIdentity(draft, identity);
+        const terminalLSN = state.nextTerminalLSN;
+        if (terminalLSN >= Number.MAX_SAFE_INTEGER) throw new Error("compound terminalLSN space exhausted");
+        const receipt = {
+          ...buildReceipt(terminalLSN),
+          ...(options.generationFence ? options.generationFence.axes : {})
+        };
+        assertSameReceiptIdentityV2(current, receipt);
+        if (receipt.sequence !== expectedSequence + 1 || receipt.terminalLSN !== terminalLSN) {
+          throw new Error("terminal receipt sequence/LSN is inconsistent");
+        }
+        assertReceipt(receipt);
+        const entry: CompoundTerminalJournalEntry = {
+          ...draft,
+          ...(options.generationFence ? options.generationFence.axes : {}),
+          terminalLSN,
+          receiptSequence: receipt.sequence
+        };
+        writeState(options.directory, statePath, {
+          ...state,
+          nextTerminalLSN: terminalLSN + 1,
+          receipts: { ...state.receipts, [key]: receipt },
+          terminalJournal: [...state.terminalJournal, entry]
+        });
+        return receipt;
+      }))
   };
+
+  function guarded<Result>(
+    identity: { readonly workspaceId: string; readonly opId: string },
+    operation: () => Promise<Result>
+  ): Promise<Result> {
+    return options.generationFence
+      ? options.generationFence.runExclusive(identity, operation)
+      : operation();
+  }
 
   function serialized<Result>(operation: () => Result): Promise<Awaited<Result>> {
     const result = serial.then(operation, operation);

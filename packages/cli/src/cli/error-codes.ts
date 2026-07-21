@@ -21,6 +21,7 @@ export const CliErrorCode = {
   CustomVerticalProjectGateRequired: "custom_vertical_project_gate_required",
   CustomVerticalUserDevModeRequired: "custom_vertical_user_dev_mode_required",
   DaemonRefreshBuildFailed: "daemon_refresh_build_failed",
+  DaemonGenerationFenced: "DAEMON_GENERATION_FENCED",
   DaemonQueueDrainTimeout: "daemon_queue_drain_timeout",
   DecodeFailed: "decode_failed",
   DecisionReadFailed: "decision_read_failed",
@@ -228,6 +229,7 @@ export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
 export interface CliError {
   readonly code: CliErrorCode;
   readonly hint: string;
+  readonly context?: Readonly<Record<string, unknown>>;
 }
 
 export interface CliErrorCodeDefinition {
@@ -265,6 +267,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.DecisionBodyFileReadFailed]: { category: "parse", defaultHint: "Decision body file could not be read." },
   [CliErrorCode.DecisionReckonUncovered]: { category: "command", defaultHint: "Decision reckon found uncovered load-bearing claims." },
   [CliErrorCode.DecisionWriteRejected]: { category: "command", defaultHint: "Decision write was rejected." },
+  [CliErrorCode.DaemonGenerationFenced]: { category: "domain", defaultHint: "The daemon generation is stale; query the current daemon for the durable outcome." },
   [CliErrorCode.DeleteConfirmMismatch]: { category: "command", defaultHint: "Delete confirmation does not match the task id." },
   [CliErrorCode.DeleteConfirmRequired]: { category: "command", defaultHint: "Delete confirmation is required." },
   [CliErrorCode.DuplicateAdoptClaim]: { category: "domain", defaultHint: "Adopt claim already exists." },
@@ -420,8 +423,8 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.Timeout]: { category: "domain", defaultHint: "Operation timed out." }
 } satisfies Record<CliErrorCode, CliErrorCodeDefinition>;
 
-export function cliError(code: CliErrorCode, hint?: string): CliError {
-  return { code, hint: hint ?? cliErrorCodeRegistry[code].defaultHint };
+export function cliError(code: CliErrorCode, hint?: string, context?: Readonly<Record<string, unknown>>): CliError {
+  return { code, hint: hint ?? cliErrorCodeRegistry[code].defaultHint, ...(context ? { context } : {}) };
 }
 
 export function isCliErrorCode(value: unknown): value is CliErrorCode {

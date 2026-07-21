@@ -2,6 +2,7 @@ import { isCompleteAuthorityCommittedReceiptV2, type AuthorityCommittedReceipt }
 import { isRecord } from "../record.ts";
 import { compoundReceiptPhases } from "./types.ts";
 import { assertHistoricalExcludedSetWitnessV1 } from "./witness-v1.ts";
+import { validAuthorityGenerationErrorFields } from "./generation-fence-validation.ts";
 import {
   compoundReceiptV2Schema,
   type CompoundOperationReceiptV2,
@@ -72,9 +73,14 @@ function validAuthorityV2(authority: unknown, receipt: Record<string, unknown>):
       && (authority.previousCommit === null || typeof authority.previousCommit === "string");
   }
   const required = ["tag", "workspaceId", "opId", "semanticDigest", "reason"];
-  const optional = authority.tag === "INDETERMINATE" ? ["commitSha"] : [];
+  const optional = authority.tag === "INDETERMINATE"
+    ? ["commitSha", "errorCode", "errorContext"]
+    : authority.tag === "RETRYABLE_NOT_COMMITTED"
+      ? ["errorCode", "errorContext"]
+      : [];
   return exactKeys(authority, required, optional) && typeof authority.reason === "string"
-    && (authority.commitSha === undefined || typeof authority.commitSha === "string");
+    && (authority.commitSha === undefined || typeof authority.commitSha === "string")
+    && validAuthorityGenerationErrorFields(authority);
 }
 
 function validOriginV2(origin: unknown, receipt: Record<string, unknown>): boolean {

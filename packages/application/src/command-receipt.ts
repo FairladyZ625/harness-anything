@@ -31,7 +31,11 @@ export interface CommandFailureReceipt<Command extends string = string> {
   readonly command: Command;
   readonly action: string;
   readonly summary: string;
-  readonly error?: { readonly code: string; readonly hint: string };
+  readonly error?: {
+    readonly code: string;
+    readonly hint: string;
+    readonly context?: Readonly<Record<string, unknown>>;
+  };
   readonly warnings?: ReadonlyArray<unknown>;
   readonly next?: ReadonlyArray<CommandReceiptNextAction>;
   readonly details?: Record<string, unknown>;
