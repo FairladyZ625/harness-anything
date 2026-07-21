@@ -4,8 +4,8 @@ set -eu
 # Installed by pointing git at this directory:
 #   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
 #
-# Keeps local build artifacts and the canonical main Daemon runtime fresh after
-# merges. Runtime installation/restart guards live in the testable Node helper.
+# Keeps local CLI and GUI build artifacts fresh after merges. Canonical main
+# also installs the rebuilt CLI; Daemon lifecycle changes remain explicit.
 
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
@@ -15,7 +15,7 @@ if [ -z "$previous_head" ]; then
   previous_head=$(git rev-parse --verify HEAD^ 2>/dev/null || true)
 fi
 if [ -z "$previous_head" ]; then
-  echo "post-merge: no previous commit is available; skipping runtime refresh."
+  echo "post-merge: no previous commit is available; skipping runtime build."
   exit 0
 fi
 
