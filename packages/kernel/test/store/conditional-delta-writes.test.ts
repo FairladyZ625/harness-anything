@@ -16,7 +16,7 @@ import {
   type WriteError
 } from "../../src/domain/index.ts";
 import { parseDecisionDocument } from "../../src/domain/decision-document.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { withTempStore } from "./helpers.ts";
 
 test("fact append deltas from the same base snapshot both survive", () => {

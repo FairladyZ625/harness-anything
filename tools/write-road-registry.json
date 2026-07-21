@@ -375,10 +375,16 @@
       ],
       "callsiteFiles": [
         "packages/cli/src/commands/core/coordinated-machine-write.ts",
-        "packages/kernel/src/store/daemon-runtime-authority-coordinator.ts",
-        "packages/kernel/src/store/daemon-runtime-queue.ts",
+        "packages/daemon/src/runtime/authority-write-coordinator.ts",
+        "packages/daemon/src/runtime/write-queue.ts",
         "packages/kernel/src/write-coordination/submit.ts"
       ],
+      "documentedCoupling": {
+        "specifier": "@harness-anything/kernel/daemon-runtime-support",
+        "consumerRoot": "packages/daemon/src/runtime/",
+        "ownerTask": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "followUp": "Extract a proper kernel port outside B7; do not widen this package subpath or its consumer root."
+      },
       "directWrites": [
         {
           "file": "packages/kernel/src/persistence/local/local-lock-registry.ts"

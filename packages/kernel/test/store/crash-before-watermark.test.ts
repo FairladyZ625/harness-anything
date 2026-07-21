@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import { checkTaskProjection, moduleEntityId } from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
 import { serializeDecisionDocument } from "../../src/domain/decision-document.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator recovers queued journal entries after crash before watermark", () => {

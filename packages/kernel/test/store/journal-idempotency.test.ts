@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator accepts duplicate op ids idempotently", () => {

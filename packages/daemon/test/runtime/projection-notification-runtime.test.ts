@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { docWrite, withTempStoreAsync } from "./helpers.ts";
+import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import { daemonAttribution, initAuthoredGit } from "./helpers/daemon-runtime.ts";
 
 const testAttribution = daemonAttribution("person_test", "test", "credential-test");

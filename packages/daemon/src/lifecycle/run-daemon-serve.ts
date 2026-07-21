@@ -8,9 +8,9 @@ import {
   type DaemonServeHostServices,
   type DaemonServiceHostServices
 } from "@harness-anything/application";
-import { createMultiRepoDaemonRuntime } from "@harness-anything/adapter-local";
+import { makeLocalProjectionSourceFenceReader } from "@harness-anything/adapter-local";
 import { readDaemonRegistry, type DaemonRegistryRepo } from "@harness-anything/kernel";
-import type { HarnessDaemonRuntime } from "@harness-anything/kernel/store/index";
+import { createMultiRepoDaemonRuntime, type HarnessDaemonRuntime } from "../runtime/repo-runtime.ts";
 import type { AuthenticatedActor } from "../identity/types.ts";
 import type { AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 import type { DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
@@ -114,6 +114,7 @@ export async function runDaemonServe<
     let failure: unknown;
     try {
       runtime = createMultiRepoDaemonRuntime({
+        projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         materializerPollMs: 5_000,
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;

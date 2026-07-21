@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { WriteCoordinator, WriteOp } from "../ports/write-coordinator.ts";
+import type { WriteCoordinator, WriteOp } from "@harness-anything/kernel";
 
 interface ProjectionWriteHandle {
   readonly settle: () => void;

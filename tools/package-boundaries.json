@@ -37,6 +37,6 @@
     { "package": "daemon", "subpath": "./authority/forced-command-session", "target": "./src/authority/forced-command-session.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
     { "package": "daemon-client", "subpath": "./connection-pool", "target": "./src/connection-pool.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API" },
     { "package": "kernel", "subpath": "./daemon/registry", "target": "./src/daemon/registry.ts", "owner": "PLT-Boundary", "sunset": "W2 moves daemon registry ownership out of kernel" },
-    { "package": "kernel", "subpath": "./store/index", "target": "./src/store/index.ts", "owner": "PLT-Boundary", "sunset": "B7 replaces the transitional kernel store barrel after daemon runtime ownership moves" }
+    { "package": "kernel", "subpath": "./daemon-runtime-support", "target": "./src/daemon-runtime-support.ts", "owner": "PLT-Boundary", "sunset": "Documented B7 coupling; replace with a proper kernel port in a follow-up task" }
   ]
 }

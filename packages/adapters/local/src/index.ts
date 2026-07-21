@@ -9,12 +9,7 @@ import { stablePayloadHash } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
-import {
-  createDaemonRuntime as createKernelDaemonRuntime,
-  createMultiRepoDaemonRuntime as createKernelMultiRepoDaemonRuntime,
-  makeJournaledWriteCoordinator,
-  runLedgerMaterializer
-} from "@harness-anything/kernel/store/index";
+import { makeJournaledWriteCoordinator } from "@harness-anything/kernel";
 import { makeLocalProjectionSourceFenceReader } from "./projection-source-fence.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
@@ -42,7 +37,6 @@ import type { AdapterProviderMetadata } from "./types.ts";
 
 export { collectGitDiffEvidence } from "./git-diff-evidence.ts";
 export type { GitDiffEvidenceFile, GitDiffEvidenceOptions, GitDiffEvidenceReport } from "./git-diff-evidence.ts";
-export { runLedgerMaterializer };
 export { makeLocalProjectionSourceFenceReader };
 export type {
   AdapterProviderMetadata,
@@ -82,20 +76,6 @@ export const localAdapterProviderMetadata = {
   writable: true,
   defaultProvider: true
 } as const satisfies AdapterProviderMetadata;
-
-export function createDaemonRuntime(options: Parameters<typeof createKernelDaemonRuntime>[0]): ReturnType<typeof createKernelDaemonRuntime> {
-  return createKernelDaemonRuntime({
-    ...options,
-    projectionSourceFenceFactory: options.projectionSourceFenceFactory ?? makeLocalProjectionSourceFenceReader
-  });
-}
-
-export function createMultiRepoDaemonRuntime(options: Parameters<typeof createKernelMultiRepoDaemonRuntime>[0]): ReturnType<typeof createKernelMultiRepoDaemonRuntime> {
-  return createKernelMultiRepoDaemonRuntime({
-    ...options,
-    projectionSourceFenceFactory: options.projectionSourceFenceFactory ?? makeLocalProjectionSourceFenceReader
-  });
-}
 
 export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
   return makeJournaledWriteCoordinator({

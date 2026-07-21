@@ -1,5 +1,5 @@
-import { DaemonDrainTimeoutError } from "../daemon/drain-timeout.ts";
-import type { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
+import { DaemonDrainTimeoutError } from "@harness-anything/kernel";
+import type { DaemonWriteQueue } from "./write-queue.ts";
 
 export async function waitForDaemonQueueIdle(
   queue: DaemonWriteQueue,

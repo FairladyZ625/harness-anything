@@ -1,13 +1,22 @@
 import { Effect } from "effect";
-import { daemonAdmissionBytes, type DaemonAdmissionBudget, type DaemonAdmissionBudgetSnapshot, type DaemonAdmissionReservation } from "../daemon/admission-budget.ts";
-import type { DaemonQueueDrainTarget } from "../daemon/drain-timeout.ts";
-import type { WriteError } from "../domain/index.ts";
-import type { FlushReport, WriteOp } from "../ports/write-coordinator.ts";
-import type { VcsCommitAuthor } from "../ports/version-control-system.ts";
-import type { WriteAttribution } from "../schemas/actor-attribution.ts";
-import type { OperationalActor } from "../write-coordination/journal/types.ts";
-import { singleWriteIntegrityDomain, type WriteIntegrityDomain } from "../write-coordination/journal/integrity-domain.ts";
-import type { makeJournaledWriteCoordinator } from "../write-coordination/journal/coordinator.ts";
+import {
+  daemonAdmissionBytes,
+  type DaemonAdmissionBudget,
+  type FlushReport,
+  type OperationalActor,
+  type VcsCommitAuthor,
+  type WriteAttribution,
+  type WriteError,
+  type WriteOp,
+  type makeJournaledWriteCoordinator
+} from "@harness-anything/kernel";
+import {
+  singleWriteIntegrityDomain,
+  type DaemonAdmissionBudgetSnapshot,
+  type DaemonAdmissionReservation,
+  type DaemonQueueDrainTarget,
+  type WriteIntegrityDomain
+} from "@harness-anything/kernel/daemon-runtime-support";
 
 export type DaemonWritePriority = "interactive" | "normal" | "background" | "maintenance";
 
@@ -45,7 +54,7 @@ export interface DaemonQueueSnapshot {
   readonly admission: DaemonAdmissionBudgetSnapshot;
 }
 
-export type { DaemonQueueDrainTarget } from "../daemon/drain-timeout.ts";
+export type { DaemonQueueDrainTarget } from "@harness-anything/kernel/daemon-runtime-support";
 
 type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly kind: "interactive";
@@ -256,7 +265,7 @@ export class DaemonWriteQueue {
     try {
       coordinator = coordinatorFor(attributionFor(batch[0]));
     } catch (error) {
-      const writeError = toWriteError(error);
+      const writeError = toDaemonQueueWriteError(error);
       for (const item of batch) {
         item.reject(writeError);
         item.admission.release();
@@ -270,7 +279,7 @@ export class DaemonWriteQueue {
         }
         accepted.push(item);
       } catch (error) {
-        item.reject(toWriteError(error));
+        item.reject(toDaemonQueueWriteError(error));
         item.admission.release();
       }
     }
@@ -291,7 +300,7 @@ export class DaemonWriteQueue {
         });
       }
     } catch (error) {
-      const writeError = toWriteError(error);
+      const writeError = toDaemonQueueWriteError(error);
       for (const item of accepted) item.reject(writeError);
     } finally {
       this.activeDrainTarget = undefined;
@@ -380,12 +389,12 @@ function sessionKey(sessionId: string | undefined): string {
   return sessionId?.trim() ?? "";
 }
 
-function toWriteError(error: unknown): WriteError {
-  if (isWriteError(error)) return error;
+function toDaemonQueueWriteError(error: unknown): WriteError {
+  if (isDaemonQueueWriteError(error)) return error;
   return { _tag: "JournalUnavailable", cause: error };
 }
 
-function isWriteError(error: unknown): error is WriteError {
+function isDaemonQueueWriteError(error: unknown): error is WriteError {
   return typeof error === "object"
     && error !== null
     && "_tag" in error

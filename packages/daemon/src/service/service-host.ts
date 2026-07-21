@@ -19,7 +19,7 @@ import {
   makeMarkdownArtifactStore,
   readDaemonRegistry,
 } from "@harness-anything/kernel";
-import type { HarnessDaemonRuntime, MultiRepoHarnessDaemonRuntime } from "@harness-anything/kernel/store/index";
+import type { HarnessDaemonRuntime, MultiRepoHarnessDaemonRuntime } from "../runtime/repo-runtime.ts";
 import { makeLocalLifecycleEngine } from "@harness-anything/adapter-local";
 import { createDaemonCommandService, type DaemonCommandServiceOptions } from "./command-service.ts";
 import { makeDocSyncService } from "./doc-sync-service.ts";

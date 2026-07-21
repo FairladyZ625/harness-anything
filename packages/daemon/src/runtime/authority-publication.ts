@@ -1,6 +1,5 @@
-import type { FlushReport } from "../ports/write-coordinator.ts";
-import type { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
-import type { LedgerMaterializerReport } from "../write-coordination/materialization/ledger-materializer.ts";
+import type { FlushReport, LedgerMaterializerReport } from "@harness-anything/kernel";
+import type { DaemonWriteQueue } from "./write-queue.ts";
 
 export interface DaemonAuthorityPublicationOptions {
   readonly sessionId: string;

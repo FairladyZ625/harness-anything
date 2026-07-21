@@ -1,12 +1,11 @@
 import {
   localAdapterProviderMetadata,
   buildLocalTaskCreateWrites,
-  createDaemonRuntime,
-  createMultiRepoDaemonRuntime,
   makeLocalLifecycleEngine,
-  makeLocalWriteCoordinator,
-  runLedgerMaterializer
+  makeLocalProjectionSourceFenceReader,
+  makeLocalWriteCoordinator
 } from "@harness-anything/adapter-local";
+import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "@harness-anything/daemon";
 import { multicaAdapterProviderMetadata } from "@harness-anything/adapter-multica";
 import {
   makeGithubIssuesLifecycleEngine,
@@ -19,7 +18,7 @@ import {
   type GithubTransportError
 } from "@harness-anything/adapter-github-issues";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
-import { makeMarkdownArtifactStore } from "@harness-anything/kernel";
+import { makeMarkdownArtifactStore, runLedgerMaterializer } from "@harness-anything/kernel";
 import type {
   LocalLifecycleOptions,
   LocalWriteCoordinatorOptions
@@ -64,8 +63,14 @@ const localProvider = {
   createLifecycleEngine: (options: LocalLifecycleOptions) => makeLocalLifecycleEngine(options),
   createArtifactStore: (options) => makeMarkdownArtifactStore(options),
   createWriteCoordinator: (options: LocalWriteCoordinatorOptions) => makeLocalWriteCoordinator(options),
-  createDaemonRuntime: (options) => createDaemonRuntime(options),
-  createMultiRepoDaemonRuntime: (options) => createMultiRepoDaemonRuntime(options),
+  createDaemonRuntime: (options) => createDaemonRuntime({
+    ...options,
+    projectionSourceFenceFactory: options.projectionSourceFenceFactory ?? makeLocalProjectionSourceFenceReader
+  }),
+  createMultiRepoDaemonRuntime: (options) => createMultiRepoDaemonRuntime({
+    ...options,
+    projectionSourceFenceFactory: options.projectionSourceFenceFactory ?? makeLocalProjectionSourceFenceReader
+  }),
   buildLocalTaskCreateWrites: (input, createdAt, provenance) => buildLocalTaskCreateWrites(input, createdAt, provenance),
   runLedgerMaterializer
 } satisfies CliCompositionAdapterProvider;

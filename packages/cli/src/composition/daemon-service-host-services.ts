@@ -1,6 +1,6 @@
 import type { DaemonControlErrorV1, DaemonServiceHostServices } from "@harness-anything/application";
 import type { AuthenticatedActor } from "@harness-anything/daemon";
-import type { HarnessDaemonRuntime } from "@harness-anything/kernel/store/index";
+import type { HarnessDaemonRuntime } from "@harness-anything/daemon";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";

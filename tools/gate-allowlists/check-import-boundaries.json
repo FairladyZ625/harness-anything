@@ -34,6 +34,43 @@
         "target": "packages/kernel/src/write-coordination/submit.ts",
         "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
         "reason": "Only this exact package-internal edge may call the submission helper; the same consumer remains forbidden from every other store, persistence, and write-coordination target."
+      },
+      {
+        "source": "packages/kernel/src/index.ts",
+        "target": "packages/kernel/src/write-coordination/materialization/ledger-materializer.ts",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 explicitly promotes runLedgerMaterializer and its consumed report type at the kernel root; no other materialization internals are re-exported."
+      },
+      {
+        "source": "packages/kernel/src/daemon-runtime-support.ts",
+        "target": "packages/kernel/src/write-coordination/journal/locks.ts",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 documented coupling exposes only the daemon runtime's existing global-lock substrate; a proper port is follow-up work."
+      },
+      {
+        "source": "packages/kernel/src/daemon-runtime-support.ts",
+        "target": "packages/kernel/src/write-coordination/journal/coordinator.ts",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 documented coupling exposes only the daemon runtime's existing recovery substrate; a proper port is follow-up work."
+      },
+      {
+        "source": "packages/kernel/src/daemon-runtime-support.ts",
+        "target": "packages/kernel/src/write-coordination/journal/integrity-domain.ts",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 documented coupling exposes only the daemon queue's existing integrity-domain classifier; a proper port is follow-up work."
+      },
+      {
+        "source": "packages/kernel/src/daemon-runtime-support.ts",
+        "target": "packages/kernel/src/write-coordination/journal/operations/transaction-plan.ts",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 documented coupling exposes only the daemon runtime's existing touched-path projection; a proper port is follow-up work."
+      }
+    ],
+    "daemonRuntimeSupportConsumers": [
+      {
+        "value": "packages/daemon/src/runtime/",
+        "ref": "task_01KXW80M803GR3EKRDV3X7T0MM",
+        "reason": "B7 documented coupling: only daemon-owned runtime modules may consume the exact kernel runtime substrate subpath; extracting a proper port is follow-up work outside B7."
       }
     ],
     "cliAdapterKnownDebt": [

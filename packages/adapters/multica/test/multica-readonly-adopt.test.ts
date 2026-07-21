@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
+import { makeJournaledWriteCoordinator } from "@harness-anything/kernel";
 import type { WriteAttribution } from "../../../kernel/src/index.ts";
 import {
   makeMulticaAdoptionService,

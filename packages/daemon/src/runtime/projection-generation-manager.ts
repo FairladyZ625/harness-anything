@@ -1,24 +1,20 @@
 import path from "node:path";
-import type { HarnessLayoutOverrides } from "../layout/index.ts";
-import type {
-  ProjectionSourceFence,
-  ProjectionSourceFenceReader,
-  StableProjectionSourceFence
-} from "../ports/projection-source-fence.ts";
 import {
-  ProjectionGenerationChangedError,
-  type ReadyProjectionGeneration
-} from "../projection/projection-generation-readiness.ts";
+  type HarnessLayoutOverrides,
+  type ProjectionSourceFence,
+  type ProjectionSourceFenceReader
+} from "@harness-anything/kernel";
 import {
   ensureExecutionEvidenceGenerationReady,
-  updateExecutionEvidenceProjectionIncrementally,
-  type EnsureExecutionEvidenceGenerationResult
-} from "../projection/sqlite-execution-evidence-store.ts";
-import {
+  ProjectionGenerationChangedError,
   queryExecutionEvidencePageFromReadyGeneration,
+  updateExecutionEvidenceProjectionIncrementally,
+  type EnsureExecutionEvidenceGenerationResult,
   type ExecutionEvidencePage,
-  type ExecutionEvidencePageQuery
-} from "../projection/sqlite-execution-evidence-reader.ts";
+  type ExecutionEvidencePageQuery,
+  type ReadyProjectionGeneration,
+  type StableProjectionSourceFence
+} from "@harness-anything/kernel/daemon-runtime-support";
 
 export type DaemonProjectionGenerationState = "unknown" | "validating" | "ready";
 

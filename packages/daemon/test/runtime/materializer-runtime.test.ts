@@ -1,16 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
-import type { ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
-import { projectionDatabaseSignature } from "../../src/projection/projection-generation-readiness.ts";
-import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
-import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
-import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../../adapters/local/src/index.ts";
-import { docWrite, withTempStoreAsync } from "./helpers.ts";
+import {
+  createHarnessRuntimeContext,
+  makeJournaledWriteCoordinator,
+  rebuildTaskProjection,
+  resolveHarnessLayout,
+  type ProjectionSourceFenceFactory
+} from "@harness-anything/kernel";
+import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
   daemonAttribution,
@@ -132,14 +134,31 @@ test("daemon no-op materializer preserves the ready projection generation", asyn
     await runtime.start();
     await runtime.queryExecutionEvidencePage({ limit: 1 });
     const projectionPath = resolveHarnessLayout(createHarnessRuntimeContext(rootDir)).executionEvidenceProjectionPath;
-    const before = projectionDatabaseSignature(projectionPath);
-
+    const before = physicalProjectionSignature(projectionPath);
     const report = await runtime.enqueueMaterializerBatch();
 
     assert.equal(report.merged, 0);
-    assert.equal(projectionDatabaseSignature(projectionPath), before);
+    assert.equal(physicalProjectionSignature(projectionPath), before);
     assert.equal(runtime.status().projectionGeneration.invalidations, 0);
     assert.equal(runtime.status().projectionGeneration.state, "ready");
     await runtime.stop();
   });
 });
+
+function physicalProjectionSignature(projectionPath: string): string {
+  return JSON.stringify({
+    database: statSignature(projectionPath),
+    rollbackJournal: statSignature(`${projectionPath}-journal`, true),
+    writeAheadLog: statSignature(`${projectionPath}-wal`, true)
+  });
+}
+
+function statSignature(inputPath: string, requireNonEmpty = false): string | null {
+  try {
+    const stats = statSync(inputPath, { bigint: true });
+    if (requireNonEmpty && stats.size === 0n) return null;
+    return [stats.dev, stats.ino, stats.mode, stats.size, stats.mtimeNs, stats.ctimeNs].join(":");
+  } catch {
+    return null;
+  }
+}
