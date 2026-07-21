@@ -1,34 +1,41 @@
-import { availableParallelism, loadavg } from "node:os";
+import { availableParallelism } from "node:os";
+
+import { resolveLocalCoreBudget } from "./local-resource-governance.mjs";
 
 export const SHARD_PARALLELISM_ENV = "HARNESS_SHARD_PARALLELISM";
 
+// 并行度按「可用核心预算 ÷ 每 shard 并发」算，不看 loadavg。loadavg 分不清负载是用户的
+// 还是我们自己的，一旦把自己的负载算进去就会自我节流(实测 requested 5 掉到 3)；
+// 真正的动态让路交给 QoS(taskpolicy -c utility)，静态预算只负责封顶要多少。
 export function resolveShardParallelism({
   raw = process.env[SHARD_PARALLELISM_ENV],
   shardCount,
   localSlots,
   perShardConcurrency,
   cpuCount = availableParallelism(),
-  loadOne = loadavg()[0]
+  reservationRaw
 }) {
   assertPositiveInteger(shardCount, "shard count");
   assertPositiveInteger(localSlots, "local slot count");
   assertPositiveInteger(perShardConcurrency, "per-shard concurrency");
   assertPositiveInteger(cpuCount, "CPU count");
 
-  const normalizedLoad = Number.isFinite(loadOne) && loadOne >= 0 ? loadOne : cpuCount;
-  const freeCores = Math.max(1, Math.floor(cpuCount - normalizedLoad));
-  const adaptive = Math.max(1, Math.floor(freeCores / perShardConcurrency));
+  const budget = resolveLocalCoreBudget({
+    cpuCount,
+    ...(reservationRaw === undefined ? {} : { raw: reservationRaw })
+  });
+  const coreCap = Math.max(1, Math.floor(budget.usableCores / perShardConcurrency));
   const explicit = parseExplicitParallelism(raw);
-  const requested = explicit ?? adaptive;
-  const cpuCap = Math.max(1, Math.floor(cpuCount / perShardConcurrency));
-  const parallelism = Math.min(requested, shardCount, localSlots, cpuCap);
+  const requested = explicit ?? coreCap;
+  const parallelism = Math.min(requested, shardCount, localSlots, coreCap);
 
   return {
     parallelism,
-    source: explicit === null ? "adaptive" : "explicit",
+    source: explicit === null ? "core-budget" : "explicit",
     requested,
-    freeCores,
-    cpuCap,
+    usableCores: budget.usableCores,
+    reservedCores: budget.reserved,
+    coreCap,
     localSlots,
     perShardConcurrency
   };

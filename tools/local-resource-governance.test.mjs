@@ -8,20 +8,39 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
   acquireLocalHeavySlot,
-  DEFAULT_LOCAL_SLOTS,
+  DEFAULT_INTERACTIVE_CORE_RESERVATION,
   discoverQosPrefix,
   LOCAL_SLOT_ROOT,
   processStartFingerprint,
   prefixCommand,
+  resolveLocalCoreBudget,
   resolveLocalSlotCount,
   selectQosPrefix
 } from "./local-resource-governance.mjs";
 
-test("local slot capacity defaults to three and rejects invalid overrides", () => {
-  assert.equal(DEFAULT_LOCAL_SLOTS, 3);
+// 这些解析器的默认参数会读进程 env(生产行为正确),所以测试一律显式传 raw:""(= 未设置),
+// 否则本机开发者 shell 里存着 HARNESS_LOCAL_SLOTS 就会看到假红,而 CI 里没有该变量照样绿。
+test("the interactive core reservation is the first-class knob and the rest of the machine is spendable", () => {
+  assert.equal(DEFAULT_INTERACTIVE_CORE_RESERVATION, 4);
+  assert.deepEqual(resolveLocalCoreBudget({ cpuCount: 16, raw: "" }), {
+    cpuCount: 16, reserved: 4, usableCores: 12
+  });
+  assert.deepEqual(resolveLocalCoreBudget({ cpuCount: 16, raw: "10" }), {
+    cpuCount: 16, reserved: 10, usableCores: 6
+  });
+  assert.equal(
+    resolveLocalCoreBudget({ cpuCount: 2, raw: "8" }).usableCores,
+    1,
+    "an over-large reservation still leaves one usable core instead of deadlocking"
+  );
+  assert.throws(() => resolveLocalCoreBudget({ cpuCount: 16, raw: "-1" }), /non-negative integer/u);
+});
+
+test("local slot capacity derives from the core budget and rejects invalid overrides", () => {
   assert.equal(LOCAL_SLOT_ROOT, path.join(homedir(), ".harness", "locks", "local-heavy-v1"));
-  assert.equal(resolveLocalSlotCount(undefined), 3);
-  assert.equal(resolveLocalSlotCount("2"), 2);
+  assert.equal(resolveLocalSlotCount("", { cpuCount: 16, reservationRaw: "4" }), 6);
+  assert.equal(resolveLocalSlotCount("", { cpuCount: 8, reservationRaw: "4" }), 2);
+  assert.equal(resolveLocalSlotCount("2", { cpuCount: 16 }), 2);
   assert.throws(() => resolveLocalSlotCount("0"), /positive integer/u);
   assert.throws(() => resolveLocalSlotCount("many"), /positive integer/u);
 });

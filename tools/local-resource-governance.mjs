@@ -11,12 +11,39 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { availableParallelism, homedir, hostname } from "node:os";
 import path from "node:path";
 
-export const DEFAULT_LOCAL_SLOTS = 3;
+// 本机治理的第一性参数是「留给人的核心数」，不是槽数。槽数、shard 并行度都从它派生，
+// 这样一台机器上所有 harness 进程对容量的判断天然一致，不会各算各的。
+export const DEFAULT_INTERACTIVE_CORE_RESERVATION = 4;
 export const DEFAULT_LOCAL_TEST_CONCURRENCY = 2;
+export const INTERACTIVE_CORE_RESERVATION_ENV = "HARNESS_INTERACTIVE_CORE_RESERVATION";
 export const LOCAL_SLOT_ROOT = path.join(homedir(), ".harness", "locks", "local-heavy-v1");
+
+export function resolveInteractiveCoreReservation(
+  raw = process.env[INTERACTIVE_CORE_RESERVATION_ENV]
+) {
+  if (raw === undefined || raw === "") return DEFAULT_INTERACTIVE_CORE_RESERVATION;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(
+      `${INTERACTIVE_CORE_RESERVATION_ENV} must be a non-negative integer; received ${JSON.stringify(raw)}`
+    );
+  }
+  return parsed;
+}
+
+export function resolveLocalCoreBudget({
+  raw = process.env[INTERACTIVE_CORE_RESERVATION_ENV],
+  cpuCount = availableParallelism()
+} = {}) {
+  if (!Number.isSafeInteger(cpuCount) || cpuCount <= 0) {
+    throw new Error("CPU count must be a positive integer");
+  }
+  const reserved = resolveInteractiveCoreReservation(raw);
+  return { cpuCount, reserved, usableCores: Math.max(1, cpuCount - reserved) };
+}
 
 const OWNER_FILE = "owner.json";
 const REAPER_DIR = ".reaper";
@@ -24,13 +51,22 @@ const SLOT_PATH_ENV = "HARNESS_LOCAL_SLOT_PATH";
 const SLOT_TOKEN_ENV = "HARNESS_LOCAL_SLOT_TOKEN";
 const INITIALIZATION_GRACE_MS = 30_000;
 
-export function resolveLocalSlotCount(raw = process.env.HARNESS_LOCAL_SLOTS) {
-  if (raw === undefined || raw === "") return DEFAULT_LOCAL_SLOTS;
-  const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`HARNESS_LOCAL_SLOTS must be a positive integer; received ${JSON.stringify(raw)}`);
+export function resolveLocalSlotCount(
+  raw = process.env.HARNESS_LOCAL_SLOTS,
+  { cpuCount, reservationRaw, perSlotCores = DEFAULT_LOCAL_TEST_CONCURRENCY } = {}
+) {
+  if (raw !== undefined && raw !== "") {
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(`HARNESS_LOCAL_SLOTS must be a positive integer; received ${JSON.stringify(raw)}`);
+    }
+    return parsed;
   }
-  return parsed;
+  const { usableCores } = resolveLocalCoreBudget({
+    ...(reservationRaw === undefined ? {} : { raw: reservationRaw }),
+    ...(cpuCount === undefined ? {} : { cpuCount })
+  });
+  return Math.max(1, Math.floor(usableCores / perSlotCores));
 }
 
 export function selectQosPrefix({ platform, hasTaskpolicy, hasNice }) {

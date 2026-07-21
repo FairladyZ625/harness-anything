@@ -36,6 +36,6 @@ Task Contract: harness-task v1
 
 ## Verification
 
-- **停止点 = `npm run check:ci` 全绿 + 本地 commit。** 它从 `tools/gate-manifest.json` 派生出 CI 在 pull_request 上跑的**全部** job 并逐个执行——不要在这里手抄一张门的清单：清单会腐烂（`check:local` 只是 fast tier 子集，光 `boundaries` 一个 job 就 35 道门），而这条命令会跟着 manifest 自动长。把 `--json <path>` 回执原样贴进本节，别只写「全绿」——回执是产物，断言不是。
+- **停止点 = 本次改动面的定向测试全绿 + 本地 commit。完整门矩阵是 GitHub CI 的活，不是这台机器的活。** 点名本任务改动面需要的具体测试文件或 `--tier` 选择，并把 runner 的真实输出贴进本节，别只写「全绿」——输出是产物，断言不是。不要为了求安心在本机串行跑全量：一台机器顺序跑完所有 job 严格慢于 CI 并行跑，而且会占住全机槽预算、把同机其他 worker 全堵在后面。`npm run check:ci` 仍然保留，用于**刻意在本地复现某个 CI 失败**，它不是停止点。
 - 列出本任务额外需要的 review 与人工验收条件。
 - 依据 `dec_mrg3z1we/CH4`，Fact 是 `0..N` 的显式晋升，不是 review 或 completion 的数量门；交付通过 Execution outputs、review、closeout 与适用的 completion gates 验证。

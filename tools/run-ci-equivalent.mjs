@@ -15,7 +15,11 @@
 //   npm run check:ci                      跑全部可本地执行的 job
 //   npm run check:ci -- --job boundaries  只跑指定 job(可重复)
 //   npm run check:ci -- --json             额外吐一份机器可读回执(贴进 PR / worker 报告)
-//   HARNESS_SHARD_PARALLELISM=2 npm run check:ci  显式控制本地 integration shard fan-out
+//   HARNESS_SHARD_PARALLELISM=2 npm run check:ci  显式收窄本地 integration shard fan-out
+//
+// 本机资源治理的第一性参数是「留给人的核心数」:HARNESS_INTERACTIVE_CORE_RESERVATION
+// (默认 4)。它之外的核心都可以被 harness 花掉,槽数与 shard 并行度都由它派生;
+// 想让本机跑得更满就调小它,想把机器还给自己就调大它。QoS 负责动态让路,预算负责封顶。
 //
 // 回执是产物,不是断言:每个 job 的真实 exit code 都在里面。CEO 会重跑并比对数字。
 
@@ -31,6 +35,7 @@ import {
 import {
   discoverQosPrefix,
   prefixCommand,
+  resolveLocalCoreBudget,
   resolveLocalSlotCount,
   withLocalHeavySlot
 } from "./local-resource-governance.mjs";
@@ -231,8 +236,16 @@ async function main() {
   });
   const perShardConcurrency = resolvedTestConcurrency ?? cpuCount;
   const shardCount = plan.filter(([job]) => job === INTEGRATION_SHARD_JOB).length;
+  const coreBudget = resolveLocalCoreBudget({ cpuCount });
   const shardResolution = shardCount === 0
-    ? { parallelism: 1, source: "not-selected", requested: 0, freeCores: 0, perShardConcurrency }
+    ? {
+      parallelism: 1,
+      source: "not-selected",
+      requested: 0,
+      usableCores: coreBudget.usableCores,
+      reservedCores: coreBudget.reserved,
+      perShardConcurrency
+    }
     : resolveShardParallelism({
       shardCount,
       localSlots,
@@ -244,8 +257,9 @@ async function main() {
     `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
     `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")}); ` +
     `QoS=${qosPrefix.join(" ") || "none"}; slots=${localSlots}; ` +
+    `cores=${cpuCount} (reserved=${shardResolution.reservedCores}, usable=${shardResolution.usableCores}); ` +
     `shard-parallelism=${shardResolution.parallelism} (${shardResolution.source}, requested=${shardResolution.requested}, ` +
-    `free-cores=${shardResolution.freeCores}, per-shard=${shardResolution.perShardConcurrency})\n`
+    `per-shard=${shardResolution.perShardConcurrency})\n`
   );
   const receipts = await runCiPlan(plan, shardResolution.parallelism);
 
