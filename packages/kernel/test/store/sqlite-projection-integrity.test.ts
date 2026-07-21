@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -369,7 +369,9 @@ function writeIntegrityDecision(rootDir: string, title: string): string {
 function writeIntegrityAttribution(rootDir: string, eventId: string, entityId: string, kind: string): void {
   const eventRoot = path.join(rootDir, "harness/attribution-events");
   mkdirSync(eventRoot, { recursive: true });
-  writeFileSync(path.join(eventRoot, `${eventId}.jsonl`), `${JSON.stringify({
+  const eventPath = path.join(eventRoot, `${eventId}.jsonl`);
+  const replacementPath = `${eventPath}.replacement`;
+  writeFileSync(replacementPath, `${JSON.stringify({
     schema: "attribution-event/v1",
     eventId,
     opId: `op-${eventId}`,
@@ -391,6 +393,7 @@ function writeIntegrityAttribution(rootDir: string, eventId: string, entityId: s
     payloadHash: `sha256:${"1".repeat(64)}`,
     payloadRef: { path: `.harness/payloads/${eventId}.json`, sha256: `sha256:${"1".repeat(64)}` }
   })}\n`);
+  renameSync(replacementPath, eventPath);
 }
 
 function writeIntegrityExecution(

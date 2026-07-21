@@ -27,6 +27,9 @@ test("CLI package smoke explicitly builds the CLI artifact even when npm lifecyc
   ]);
   assert.equal(calls[0].options.cwd, "/repo");
   assert.equal(calls[0].options.env.NPM_CONFIG_IGNORE_SCRIPTS, "false");
+  assert.equal(calls[1].options.env.HARNESS_DAEMON_MODE, "fixture");
+  assert.equal(calls[1].options.env.HARNESS_DAEMON_PROFILE, "isolated");
+  assert.equal(calls[1].options.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD, "1");
 });
 
 test("CLI package smoke reports a missing build artifact instead of packing stale dist", () => {

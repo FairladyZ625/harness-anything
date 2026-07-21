@@ -131,7 +131,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
   ].join("\n"));
   writeFile(root, "docs-release/release-posture.md", options.runtimeDocBody ?? validRuntimeDoc());
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
-  writeFile(root, "packages/cli/src/index.ts", "console.log(JSON.stringify({ ok: true, schema: \"command-receipt/v2\", command: \"doctor\", action: \"doctor\", summary: \"completed doctor\", details: { data: { report: { readOnly: true } } }, meta: { generatedAt: \"2026-07-04T00:00:00.000Z\", compatibility: { legacyReceipt: \"CommandReceipt/v1\" } } }));\n");
+  writeFile(root, "packages/cli/src/index.ts", "if (process.env.HARNESS_DAEMON_MODE !== \"fixture\" || process.env.HARNESS_DAEMON_PROFILE !== \"isolated\" || process.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD !== \"1\") process.exit(17); console.log(JSON.stringify({ ok: true, schema: \"command-receipt/v2\", command: \"doctor\", action: \"doctor\", summary: \"completed doctor\", details: { data: { report: { readOnly: true } } }, meta: { generatedAt: \"2026-07-04T00:00:00.000Z\", compatibility: { legacyReceipt: \"CommandReceipt/v1\" } } }));\n");
 }
 
 function validRuntimeDoc() {

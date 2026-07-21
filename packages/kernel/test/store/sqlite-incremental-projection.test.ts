@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -118,8 +118,10 @@ test("declared entity source cache reuses verified paths and invalidates same-si
     assert.equal(first.stats.cacheHit, false);
     assert.equal(second.stats.cacheHit, true);
 
-    writeFileSync(executionPath, "source-b\n", "utf8");
-    utimesSync(executionPath, fixedAt, fixedAt);
+    const replacementPath = `${executionPath}.replacement`;
+    writeFileSync(replacementPath, "source-b\n", "utf8");
+    utimesSync(replacementPath, fixedAt, fixedAt);
+    renameSync(replacementPath, executionPath);
     const changed = readDeclaredEntitySource(rootDir, executionDeclaration);
     assert.equal(changed.stats.cacheHit, false);
     assert.equal(changed.inputs[0]?.body, "source-b\n");
