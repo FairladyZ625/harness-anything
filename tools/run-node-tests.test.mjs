@@ -70,7 +70,14 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   assert.match(output, /terminating its process tree/u);
   assert.match(output, /\[node-test-stall\] no test output for \d+ms/u);
   assert.match(output, /\[node-test-stall\] runner active resources:/u);
-  assert.match(output, /\[node-test-stall\] process group \(pid ppid pgid stat elapsed (?:wait-channel )?argv\):/u);
+  // The process-group dump is POSIX-only; Windows keeps its existing taskkill
+  // path and prints no `ps` output, so asserting it there would fail closed on
+  // a platform the probe deliberately leaves alone.
+  if (process.platform === "win32") {
+    assert.doesNotMatch(output, /\[node-test-stall\] process group/u);
+  } else {
+    assert.match(output, /\[node-test-stall\] process group \(pid ppid pgid stat elapsed (?:wait-channel )?argv\):/u);
+  }
   const fixtureChildPid = Number(output.match(/runner timeout fixture child pid: (\d+)/u)?.[1]);
   assert.equal(Number.isSafeInteger(fixtureChildPid), true, output);
   assert.throws(() => process.kill(fixtureChildPid, 0), { code: "ESRCH" });
