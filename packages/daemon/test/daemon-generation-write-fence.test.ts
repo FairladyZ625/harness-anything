@@ -22,6 +22,7 @@ import {
   createDaemonGenerationWitness,
   createDurableCompoundReceiptStoreV2,
   DaemonGenerationFencedError,
+  DaemonGenerationWitnessLostError,
   daemonGenerationRecordPath,
   daemonGenerationFencedCode,
   publishNextDaemonGeneration,
@@ -253,6 +254,72 @@ test("two abandoned-lock contenders cannot quarantine the newly acquired winner"
     assert.deepEqual(await nextChildMessage(contenderB), { type: "done", contenderId: "b" });
   } finally {
     for (const child of children) child.kill("SIGKILL");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a holder whose lock token is replaced cannot perform its next durable write", {
+  skip: posixOnly
+}, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-generation-lock-token-"));
+  try {
+    const endpointIdentity = path.join(root, "daemon.sock");
+    const machineId = readOrCreateDaemonMachineId(root);
+    const generation = publishNextDaemonGeneration({
+      userRoot: root,
+      endpointIdentity,
+      machineId,
+      daemonInstanceId: "daemon-token-owner"
+    });
+    const witness = createDaemonGenerationWitness({
+      userRoot: root,
+      endpointIdentity,
+      machineId,
+      daemonGeneration: generation.daemonGeneration
+    });
+    const receiptDirectory = path.join(root, "receipts");
+    const setupService = createCompoundReceiptServiceV2({
+      store: createDurableCompoundReceiptStoreV2({ directory: receiptDirectory }),
+      createWaiterId: () => "waiter-lock-token",
+      createResultToken: () => Buffer.alloc(32, 0x61).toString("base64url")
+    });
+    const opened = await setupService.openWaiter({
+      workspaceId: "workspace-lock-token",
+      viewId: "view-lock-token",
+      opId: "op-lock-token"
+    });
+    const statePath = path.join(receiptDirectory, "compound-receipt-broker-state-v2.json");
+    const before = readFileSync(statePath);
+    const store = createDurableCompoundReceiptStoreV2({
+      directory: receiptDirectory,
+      generationFence: {
+        axes: { machineId, daemonGeneration: generation.daemonGeneration },
+        assertCurrent: async () => witness.assertCurrent(),
+        runExclusive: (_identity, operation) => witness.runExclusive(operation)
+      }
+    });
+    const lockPath = `${daemonGenerationRecordPath(root, endpointIdentity)}.lock`;
+
+    await assert.rejects(witness.runExclusive(async () => {
+      rmSync(lockPath);
+      writeFileSync(lockPath, JSON.stringify({
+        schema: "daemon-generation-mutation-lock/v1",
+        pid: process.pid,
+        hostname: os.hostname(),
+        acquiredAt: new Date().toISOString(),
+        ownerToken: "replacement-owner"
+      }));
+      await store.compareAndSet(opened.identity, opened.sequence, {
+        ...opened,
+        sequence: opened.sequence + 1,
+        updatedAt: new Date().toISOString()
+      });
+    }), (error: unknown) => error instanceof DaemonGenerationWitnessLostError
+      && error.reason === "exclusive-lock-lost");
+    assert.equal(readFileSync(statePath).equals(before), true, "lost holder wrote durable receipt bytes");
+    assert.throws(() => witness.assertCurrent(), (error: unknown) =>
+      error instanceof DaemonGenerationWitnessLostError && error.reason === "exclusive-lock-lost");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

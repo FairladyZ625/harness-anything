@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   createCompoundReceiptServiceV2,
   type AckCommittedFrameV1,
+  type AuthorityGenerationFence,
   type AuthorityOperationReceipt,
   type CompoundOperationReceiptV2,
   type GetWaiterFrameV1,
@@ -34,6 +35,26 @@ export interface ProductionCompoundReceiptComposition {
   readonly recover: (input: Omit<GetWaiterFrameV1, "type" | "kind">) => Promise<WaiterStateFrameV1>;
 }
 
+export function createProductionCompoundReceiptGenerationFence(
+  generationFence: AuthorityGenerationFence,
+  axes: {
+    readonly machineId: string;
+    readonly daemonGeneration: number;
+    readonly runtimeRegistrationId?: string;
+    readonly connectionId?: string;
+  }
+) {
+  return {
+    assertCurrent: ({ workspaceId, opId }: { readonly workspaceId: string; readonly opId: string }) =>
+      generationFence.assertHeld("before-terminal-journal", { workspaceId, opId }),
+    runExclusive: <Result>(
+      { workspaceId, opId }: { readonly workspaceId: string; readonly opId: string },
+      operation: () => Promise<Result>
+    ) => generationFence.runExclusive("before-terminal-journal", { workspaceId, opId }, operation),
+    axes
+  };
+}
+
 export function createProductionCompoundReceiptComposition(input: {
   readonly workspaceId: string;
   readonly viewId: string;
@@ -45,6 +66,7 @@ export function createProductionCompoundReceiptComposition(input: {
       input: { readonly workspaceId: string; readonly opId: string },
       operation: () => Promise<Result>
     ) => Promise<Result>;
+    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
     readonly axes: {
       readonly machineId: string;
       readonly daemonGeneration: number;

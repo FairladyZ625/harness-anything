@@ -70,7 +70,7 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
     const anchors = anchorsByOpId.get(record.opId) ?? [];
     if (anchors.length === 0) {
       if (record.state === "INDETERMINATE" && !record.commitSha) {
-        await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input.operationRegistry, record));
+        await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input, record));
       } else {
         await input.onDeferred?.(record, new AuthorityCanonicalPublicationNotFoundError(record.opId));
       }
@@ -100,7 +100,10 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
     await runTerminalRecovery(input, {
       workspaceId: input.workspaceId,
       opId: "authority-recovery-watermark"
-    }, async () => writeRecoveryWatermark(watermarkPath, input.workspaceId, headCommit));
+    }, async () => {
+      await assertRecoveryGeneration(input, { workspaceId: input.workspaceId, opId: "authority-recovery-watermark" });
+      writeRecoveryWatermark(watermarkPath, input.workspaceId, headCommit);
+    });
   }
 }
 
@@ -120,7 +123,7 @@ async function recoverByOperationLookup(input: ProductionRecoveryInput): Promise
           && error.opId === record.opId
           && record.state === "INDETERMINATE"
           && !record.commitSha) {
-          await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input.operationRegistry, record));
+          await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input, record));
           progressed = true;
           continue;
         }
@@ -161,6 +164,7 @@ async function recoverPublishedRecord(
   }
   if (!change) {
     const latest = await input.replicaChangeLog.latest(record.workspaceId);
+    await assertRecoveryGeneration(input, record);
     await input.replicaChangeLog.append({
       schema: "replica-change/v1",
       workspaceId: record.workspaceId,
@@ -174,13 +178,16 @@ async function recoverPublishedRecord(
     });
   }
   const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
+  await assertRecoveryGeneration(input, record);
   await input.operationRegistry.put(indexed);
+  await assertRecoveryGeneration(input, record);
   const receipt = await input.recover(indexed);
+  await assertRecoveryGeneration(input, record);
   await input.operationRegistry.put({ ...indexed, state: "COMMITTED", receipt, commitSha: receipt.commitSha });
 }
 
 async function terminalizeConfirmedAbsent(
-  operationRegistry: AuthorityOperationRegistry,
+  input: ProductionRecoveryInput,
   record: AuthorityStoredOperationRecord
 ): Promise<void> {
   const originalReason = record.receipt?.tag === "INDETERMINATE"
@@ -193,7 +200,15 @@ async function terminalizeConfirmedAbsent(
     semanticDigest: record.semanticDigest,
     reason: `AUTHORITY_RECOVERY_CONFIRMED_NOT_PUBLISHED:originalReason=${originalReason}`
   };
-  await operationRegistry.put({ ...record, state: "REJECTED", receipt });
+  await assertRecoveryGeneration(input, record);
+  await input.operationRegistry.put({ ...record, state: "REJECTED", receipt });
+}
+
+function assertRecoveryGeneration(
+  input: ProductionRecoveryInput,
+  identity: { readonly workspaceId: string; readonly opId: string }
+): Promise<void> {
+  return input.generationFence?.assertHeld("before-terminal-journal", identity) ?? Promise.resolve();
 }
 
 function isRecoverablePendingRecord(record: AuthorityStoredOperationRecord): boolean {

@@ -13,6 +13,7 @@ export async function recoverKnownAuthorityOperationV2(input: {
   readonly verified: VerifiedActorAxesBindingV2;
   readonly recover: (record: AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
   readonly persist: (receipt: AuthorityCommittedReceipt) => Promise<void>;
+  readonly assertCurrent?: () => Promise<void>;
 }): Promise<AuthorityCommittedReceipt | undefined> {
   try {
     const bindingDigest = actorBindingDigestHex(actorAxesBindingDigestV2(input.verified.token.claims));
@@ -22,6 +23,7 @@ export async function recoverKnownAuthorityOperationV2(input: {
       || integrity.actorAxesBindingDigest !== bindingDigest
       || input.known.canonicalRequestEnvelope !== input.canonicalRequestEnvelope
       || !input.known.commitSha) throw new Error("AUTHORITY_V2_RECOVERY_RECORD_INCOMPLETE");
+    await input.assertCurrent?.();
     const recovered = await input.recover(input.known);
     if (!isCompleteAuthorityCommittedReceiptV2(recovered)
       || recovered.workspaceId !== input.known.workspaceId
@@ -32,6 +34,7 @@ export async function recoverKnownAuthorityOperationV2(input: {
       || recovered.authorityIntegrity.actorAxesBindingDigest !== integrity.actorAxesBindingDigest) {
       throw new Error("AUTHORITY_V2_RECOVERY_RECEIPT_MISMATCH");
     }
+    await input.assertCurrent?.();
     await input.persist(recovered);
     return recovered;
   } catch {

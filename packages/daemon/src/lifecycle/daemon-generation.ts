@@ -20,7 +20,7 @@ import path from "node:path";
 export const daemonGenerationRecordSchema = "daemon-generation-record/v1" as const;
 export const daemonGenerationDurabilityUnsupportedCode = "DAEMON_GENERATION_DURABILITY_UNSUPPORTED" as const;
 const daemonGenerationLockContext = new AsyncLocalStorage<{
-  readonly heldLocks: ReadonlySet<string>;
+  readonly heldLocks: ReadonlyMap<string, string>;
   active: boolean;
 }>();
 
@@ -50,21 +50,31 @@ export interface DaemonGenerationWitness {
   readonly runExclusive: <Result>(operation: () => Promise<Result>) => Promise<Result>;
 }
 
+class DaemonGenerationMutationLockLostError extends Error {
+  constructor(cause?: unknown) {
+    super("daemon generation mutation lock ownership lost", cause === undefined ? undefined : { cause });
+    this.name = "DaemonGenerationMutationLockLostError";
+  }
+}
+
 export class DaemonGenerationWitnessLostError extends Error {
   readonly expected: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration">;
   readonly observed: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration"> | undefined;
+  readonly reason: "generation-record-mismatch" | "exclusive-lock-lost";
 
   constructor(
     expected: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration">,
-    observed: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration"> | undefined
+    observed: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration"> | undefined,
+    reason: "generation-record-mismatch" | "exclusive-lock-lost" = "generation-record-mismatch"
   ) {
     super(
-      `daemon generation witness lost: expected ${expected.machineId}/${expected.daemonGeneration}, `
+      `daemon generation witness lost (${reason}): expected ${expected.machineId}/${expected.daemonGeneration}, `
       + `observed ${observed ? `${observed.machineId}/${observed.daemonGeneration}` : "missing"}`
     );
     this.name = "DaemonGenerationWitnessLostError";
     this.expected = expected;
     this.observed = observed;
+    this.reason = reason;
   }
 }
 
@@ -120,8 +130,13 @@ export function createDaemonGenerationWitness(input: {
 }): DaemonGenerationWitness {
   assertDurableGenerationPlatform(input.platform ?? process.platform);
   const source = daemonGenerationRecordPath(input.userRoot, input.endpointIdentity);
+  const lockPath = `${source}.lock`;
   const expected = { machineId: input.machineId, daemonGeneration: input.daemonGeneration };
   let lost: DaemonGenerationWitnessLostError | undefined;
+  const loseExclusiveLock = (observed: DaemonGenerationRecordV1 | undefined) => {
+    lost ??= new DaemonGenerationWitnessLostError(expected, observed, "exclusive-lock-lost");
+    return lost;
+  };
   const assertCurrent = () => {
     if (lost) throw lost;
     let observed: DaemonGenerationRecordV1 | undefined;
@@ -129,6 +144,15 @@ export function createDaemonGenerationWitness(input: {
       observed = readDaemonGenerationRecord(source);
     } catch (error) {
       if (!isMissingFile(error)) throw error;
+    }
+    const lockContext = daemonGenerationLockContext.getStore();
+    const ownerToken = lockContext?.active ? lockContext.heldLocks.get(lockPath) : undefined;
+    if (ownerToken) {
+      try {
+        assertDaemonGenerationMutationLockOwner(lockPath, ownerToken);
+      } catch {
+        throw loseExclusiveLock(observed);
+      }
     }
     if (observed?.machineId !== expected.machineId
       || observed.daemonGeneration !== expected.daemonGeneration
@@ -145,6 +169,15 @@ export function createDaemonGenerationWitness(input: {
       return withDaemonGenerationMutationLockAsync(input, async () => {
         assertCurrent();
         return operation();
+      }).catch((error: unknown) => {
+        if (!(error instanceof DaemonGenerationMutationLockLostError)) throw error;
+        let observed: DaemonGenerationRecordV1 | undefined;
+        try {
+          observed = readDaemonGenerationRecord(source);
+        } catch (readError) {
+          if (!isMissingFile(readError)) throw readError;
+        }
+        throw loseExclusiveLock(observed);
       });
     }
   };
@@ -201,7 +234,7 @@ export function publishNextDaemonGeneration(input: {
   const directory = path.resolve(input.userRoot);
   const target = daemonGenerationRecordPath(directory, input.endpointIdentity);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  return withDaemonGenerationMutationLock(input, () => {
+  return withDaemonGenerationMutationLock(input, (assertLockOwner) => {
     const current = existsSync(target) ? readDaemonGenerationRecord(target) : undefined;
     if (current && (current.machineId !== input.machineId || current.endpointIdentity !== input.endpointIdentity)) {
       throw new Error("daemon generation record identity mismatch");
@@ -221,11 +254,15 @@ export function publishNextDaemonGeneration(input: {
     let descriptor: number | undefined;
     try {
       descriptor = openSync(temporary, "wx", 0o600);
+      assertLockOwner();
       writeFileSync(descriptor, `${JSON.stringify(record)}\n`, "utf8");
+      assertLockOwner();
       fsyncSync(descriptor);
       closeSync(descriptor);
       descriptor = undefined;
+      assertLockOwner();
       renameSync(temporary, target);
+      assertLockOwner();
       fsyncDirectory(directory);
     } finally {
       if (descriptor !== undefined) closeSync(descriptor);
@@ -253,14 +290,22 @@ interface DaemonGenerationMutationLockSnapshot {
 
 function withDaemonGenerationMutationLock<Result>(
   input: { readonly userRoot: string; readonly endpointIdentity: string },
-  operation: () => Result
+  operation: (assertOwner: () => void) => Result
 ): Result {
   const lockPath = `${daemonGenerationRecordPath(input.userRoot, input.endpointIdentity)}.lock`;
   const ownerToken = acquireDaemonGenerationMutationLock(lockPath);
+  let operationFailed = false;
   try {
-    return operation();
+    return operation(() => assertDaemonGenerationMutationLockOwner(lockPath, ownerToken));
+  } catch (error) {
+    operationFailed = true;
+    throw error;
   } finally {
-    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    try {
+      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    } catch (error) {
+      if (!operationFailed) throw error;
+    }
   }
 }
 
@@ -270,17 +315,26 @@ async function withDaemonGenerationMutationLockAsync<Result>(
 ): Promise<Result> {
   const lockPath = `${daemonGenerationRecordPath(input.userRoot, input.endpointIdentity)}.lock`;
   const parent = daemonGenerationLockContext.getStore();
-  if (parent?.active && parent.heldLocks.has(lockPath)) return operation();
+  const inheritedToken = parent?.active ? parent.heldLocks.get(lockPath) : undefined;
+  if (inheritedToken) return operation();
   const ownerToken = acquireDaemonGenerationMutationLock(lockPath);
   const context = {
-    heldLocks: new Set([...(parent?.active ? parent.heldLocks : []), lockPath]),
+    heldLocks: new Map([...(parent?.active ? parent.heldLocks : []), [lockPath, ownerToken] as const]),
     active: true
   };
+  let operationFailed = false;
   try {
     return await daemonGenerationLockContext.run(context, operation);
+  } catch (error) {
+    operationFailed = true;
+    throw error;
   } finally {
     context.active = false;
-    releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    try {
+      releaseDaemonGenerationMutationLock(lockPath, ownerToken);
+    } catch (error) {
+      if (!operationFailed) throw error;
+    }
   }
 }
 
@@ -395,11 +449,23 @@ function releaseDaemonGenerationMutationLock(lockPath: string, ownerToken: strin
   try {
     record = JSON.parse(readFileSync(lockPath, "utf8")) as DaemonGenerationMutationLockRecord;
   } catch (error) {
-    if (isMissingFile(error)) return;
+    if (isMissingFile(error)) throw new DaemonGenerationMutationLockLostError(error);
     throw error;
   }
-  if (record.ownerToken !== ownerToken) throw new Error("daemon generation mutation lock ownership changed");
+  if (record.ownerToken !== ownerToken) throw new DaemonGenerationMutationLockLostError();
   rmSync(lockPath);
+}
+
+function assertDaemonGenerationMutationLockOwner(lockPath: string, ownerToken: string): void {
+  let record: DaemonGenerationMutationLockRecord;
+  try {
+    record = JSON.parse(readFileSync(lockPath, "utf8")) as DaemonGenerationMutationLockRecord;
+  } catch (error) {
+    throw new DaemonGenerationMutationLockLostError(error);
+  }
+  if (record.schema !== "daemon-generation-mutation-lock/v1" || record.ownerToken !== ownerToken) {
+    throw new DaemonGenerationMutationLockLostError();
+  }
 }
 
 function processIsAlive(pid: number): boolean {

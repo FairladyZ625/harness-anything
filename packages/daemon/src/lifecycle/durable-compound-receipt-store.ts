@@ -27,6 +27,7 @@ export interface DurableCompoundReceiptStoreV2Options {
       input: { readonly workspaceId: string; readonly opId: string },
       operation: () => Promise<Result>
     ) => Promise<Result>;
+    readonly assertCurrent: (input: { readonly workspaceId: string; readonly opId: string }) => Promise<void>;
     readonly axes: {
       readonly machineId: string;
       readonly daemonGeneration: number;
@@ -57,6 +58,7 @@ export function createDurableCompoundReceiptStoreV2(
         return current;
       }
       assertReceipt(receipt);
+      await options.generationFence?.assertCurrent(receipt);
       writeState(options.directory, statePath, {
         ...state,
         receipts: { ...state.receipts, [key]: receipt }
@@ -71,6 +73,7 @@ export function createDurableCompoundReceiptStoreV2(
       assertSameReceiptIdentityV2(current, receipt);
       if (receipt.sequence !== expectedSequence + 1) throw new Error("compound receipt sequence must advance exactly once");
       assertReceipt(receipt);
+      await options.generationFence?.assertCurrent(identity);
       writeState(options.directory, statePath, {
         ...state,
         receipts: { ...state.receipts, [key]: receipt }
@@ -100,6 +103,7 @@ export function createDurableCompoundReceiptStoreV2(
           terminalLSN,
           receiptSequence: receipt.sequence
         };
+        await options.generationFence?.assertCurrent(draft);
         writeState(options.directory, statePath, {
           ...state,
           nextTerminalLSN: terminalLSN + 1,

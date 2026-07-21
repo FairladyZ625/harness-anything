@@ -159,6 +159,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             canonicalRequestEnvelope,
             verified,
             recover: recoverCommittedReceipt,
+            ...(options.generationFenceWitness ? {
+              assertCurrent: () => options.generationFenceWitness!.assertHeld("before-terminal-journal", identity)
+            } : {}),
             persist: (receipt) => put(identity, semanticDigest, "COMMITTED", receipt, known.commitSha, known.authorityIntegrity, known.canonicalRequestEnvelope)
           });
         let recovered: AuthorityCommittedReceipt | undefined;
@@ -377,6 +380,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     let canonicalFlushCommitted = false;
     const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
       try {
+      await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
       const flush = await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
       if (!flush.committed || flush.opCount !== candidates.length) {
         // Keep the v1 wire reason stable; the invariant now means exactly the
@@ -485,6 +489,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       try {
         const persistCommitted = async () => {
           if (entry.authorityIntegrity) {
+            await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
             receipt = await completeAuthorityCommittedReceiptV2({
               publisher: options.v2!.committedEventPublisher,
               receipt: baseReceipt,
@@ -492,6 +497,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
               occurredAt: changes[index]!.changedAt
             });
           }
+          await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
           await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
           return receipt;
         };

@@ -18,7 +18,10 @@ import {
 } from "../../attestation/handshake.ts";
 import { createTransportObservedAttestationAdapter } from "../../attestation/transport-observed-adapter.ts";
 import type { PersonRegistry } from "../../identity/types.ts";
-import { createProductionCompoundReceiptComposition } from "../../lifecycle/compound-receipt-composition.ts";
+import {
+  createProductionCompoundReceiptComposition,
+  createProductionCompoundReceiptGenerationFence
+} from "../../lifecycle/compound-receipt-composition.ts";
 import {
   createRuntimeDaemonGenerationAuthorityFence,
   createRuntimeDaemonGenerationWitnessFence,
@@ -357,14 +360,10 @@ function createRepoComponent(
     stateDirectory: `${material.serviceStateRoot}/compound-receipts/${Buffer.from(material.config.repoId, "utf8").toString("base64url")}`,
     replicaChangeLog: input.replicaChangeLog,
     ...(repoGenerationFence ? {
-      generationFence: {
-        runExclusive: ({ workspaceId, opId }, operation) => repoGenerationFence.runExclusive(
-          "before-terminal-journal",
-          { workspaceId, opId },
-          operation
-        ),
-        axes: daemonGenerationAxes(input.runtime)
-      }
+      generationFence: createProductionCompoundReceiptGenerationFence(
+        repoGenerationFence,
+        daemonGenerationAxes(input.runtime)
+      )
     } : {})
   });
   return {

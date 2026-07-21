@@ -35,6 +35,7 @@ const store = createDurableCompoundReceiptStoreV2({
       daemonGeneration,
       runtimeRegistrationId: mode === "old" ? "11111111-1111-4111-8111-111111111111" : "22222222-2222-4222-8222-222222222222"
     },
+    assertCurrent: (operationIdentity) => fence.assertHeld("before-terminal-journal", operationIdentity),
     runExclusive: (operationIdentity, operation) => fence.runExclusive(
       "before-terminal-journal",
       operationIdentity,
