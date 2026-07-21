@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const hookPath = fileURLToPath(new URL("./post-merge", import.meta.url));
 
-test("post-merge delegates the observed commit range to the runtime refresh helper", () => {
+test("post-merge delegates the observed commit range to the runtime build helper", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-post-merge-hook-"));
   try {
     run("git", ["init", "-q"], root);

@@ -7,145 +7,74 @@ import {
   runPostMergeRuntimeRefresh
 } from "./post-merge-runtime-refresh.mjs";
 
-test("feature worktree merges never install or restart the shared runtime", () => {
+test("feature worktree merges build without installing the shared runtime", () => {
   const plan = planPostMergeRuntimeRefresh({
     branch: "codex/example",
-    changedPaths: ["packages/daemon/src/index.ts"],
-    daemonStatus: {
-      started: true,
-      reachable: true,
-      pid: 42,
-      rootDir: "/repo"
-    },
-    repoRoot: "/repo/.worktrees/example"
+    changedPaths: ["packages/daemon/src/index.ts"]
   });
 
-  assert.equal(plan.buildCli, true);
-  assert.equal(plan.installCli, false);
-  assert.equal(plan.refreshDaemon, false);
+  assert.deepEqual(plan, {
+    buildCli: true,
+    buildGui: false,
+    installCli: false,
+    syncDependencies: false
+  });
 });
 
-test("canonical main installs daemon-only changes without starting a stopped daemon", () => {
+test("canonical main installs daemon-only changes without scheduling daemon control", () => {
   const plan = planPostMergeRuntimeRefresh({
     branch: "main",
-    changedPaths: ["packages/daemon/src/protocol/method-registry.ts"],
-    daemonStatus: {
-      started: false,
-      reachable: false,
-      rootDir: "/repo"
-    },
-    repoRoot: "/repo"
+    changedPaths: ["packages/daemon/src/protocol/method-registry.ts"]
   });
 
   assert.deepEqual(plan, {
     buildCli: true,
     buildGui: false,
     installCli: true,
-    refreshDaemon: false,
     syncDependencies: false
   });
 });
 
-test("canonical main does not restart when the old daemon PID is unknown", () => {
+test("test-only changes do not rebuild or install the runtime", () => {
   const plan = planPostMergeRuntimeRefresh({
     branch: "main",
-    changedPaths: ["packages/daemon/src/index.ts"],
-    daemonStatus: { started: true, reachable: true, rootDir: "/repo" },
-    repoRoot: "/repo"
+    changedPaths: ["packages/daemon/test/json-rpc-protocol.test.ts"]
   });
 
-  assert.equal(plan.installCli, true);
-  assert.equal(plan.refreshDaemon, false);
-});
-
-test("test-only changes do not rebuild or restart the installed runtime", () => {
-  const plan = planPostMergeRuntimeRefresh({
-    branch: "main",
-    changedPaths: ["packages/daemon/test/json-rpc-protocol.test.ts"],
-    daemonStatus: { started: true, reachable: true, pid: 42, rootDir: "/repo" },
-    repoRoot: "/repo"
+  assert.deepEqual(plan, {
+    buildCli: false,
+    buildGui: false,
+    installCli: false,
+    syncDependencies: false
   });
-
-  assert.equal(plan.buildCli, false);
-  assert.equal(plan.buildGui, false);
-  assert.equal(plan.installCli, false);
-  assert.equal(plan.refreshDaemon, false);
 });
 
 test("lockfile changes synchronize dependencies before rebuilding both workspaces", () => {
   const plan = planPostMergeRuntimeRefresh({
     branch: "main",
-    changedPaths: ["package-lock.json"],
-    daemonStatus: { started: false, reachable: false },
-    repoRoot: "/repo"
+    changedPaths: ["package-lock.json"]
   });
 
-  assert.equal(plan.syncDependencies, true);
-  assert.equal(plan.buildCli, true);
-  assert.equal(plan.buildGui, true);
-  assert.equal(plan.installCli, true);
-  assert.equal(plan.refreshDaemon, false);
+  assert.deepEqual(plan, {
+    buildCli: true,
+    buildGui: true,
+    installCli: true,
+    syncDependencies: true
+  });
 });
 
-test("canonical refresh completes every build and install before requesting canonical control", () => {
+test("post-merge execution preserves dependency, CLI, GUI, and install ordering", () => {
   const calls = [];
   const run = (command, args) => {
     calls.push([command, ...args]);
-    if (args.includes("refresh")) {
-      return JSON.stringify({
-        ok: true,
-        schema: "daemon-command/v1",
-        command: "daemon-refresh",
-        accepted: true,
-        operationId: "control-refresh",
-        kind: "refresh",
-        before: {
-          pid: 42,
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      });
-    }
-    if (args.includes("status")) {
-      return JSON.stringify({
-        ok: true,
-        started: true,
-        reachable: true,
-        pid: 84,
-        queueDepth: 0,
-        rootDir: "/repo",
-        service: {
-          pid: 84,
-          queue: { depth: 0 },
-          build: {
-            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            stale: false
-          }
-        },
-        requestedRepo: { canonicalRoot: "/repo" }
-      });
-    }
     return "";
   };
 
   executePostMergeRuntimeRefresh({
-    daemonStatus: {
-      started: true,
-      reachable: true,
-      pid: 42,
-      rootDir: "/repo",
-      service: {
-        pid: 42,
-        build: {
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      }
-    },
     plan: {
       buildCli: true,
       buildGui: true,
       installCli: true,
-      refreshDaemon: true,
       syncDependencies: true
     },
     repoRoot: "/repo",
@@ -153,20 +82,19 @@ test("canonical refresh completes every build and install before requesting cano
   });
 
   const rendered = calls.map((call) => call.join(" "));
-  const refreshIndex = rendered.findIndex((call) => call.includes("daemon refresh"));
-  assert.ok(rendered.findIndex((call) => call.includes("npm ci")) < refreshIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/cli")) < refreshIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/gui")) < refreshIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("npm install -g")) < refreshIndex);
-  assert.ok(refreshIndex >= 0);
-  assert.ok(rendered[refreshIndex].includes("--trigger post-merge"));
-  assert.equal(rendered.some((call) => call.includes("daemon stop")), false);
-  assert.equal(rendered.some((call) => call.includes("daemon start")), false);
-  assert.ok(rendered.some((call) => call.includes("daemon status --json")));
-  assert.ok(rendered.some((call) => call.includes("task list --limit 1")));
+  const dependencyIndex = rendered.findIndex((call) => call.includes("npm ci"));
+  const kernelIndex = rendered.findIndex((call) => call.includes("packages/kernel/tsconfig.json"));
+  const cliIndex = rendered.findIndex((call) => call.includes("@harness-anything/cli"));
+  const guiIndex = rendered.findIndex((call) => call.includes("@harness-anything/gui"));
+  const installIndex = rendered.findIndex((call) => call.includes("npm install -g"));
+  assert.ok(dependencyIndex < kernelIndex);
+  assert.ok(kernelIndex < cliIndex);
+  assert.ok(cliIndex < guiIndex);
+  assert.ok(guiIndex < installIndex);
+  assert.equal(rendered.some((call) => /daemon (?:status|refresh|stop|start)/u.test(call)), false);
 });
 
-test("build failure leaves the running daemon untouched", () => {
+test("build failure stops later build and install work", () => {
   const calls = [];
   const run = (command, args) => {
     calls.push([command, ...args].join(" "));
@@ -175,210 +103,45 @@ test("build failure leaves the running daemon untouched", () => {
   };
 
   assert.throws(() => executePostMergeRuntimeRefresh({
-    daemonStatus: { started: true, reachable: true, pid: 42, rootDir: "/repo" },
     plan: {
       buildCli: true,
-      buildGui: false,
+      buildGui: true,
       installCli: true,
-      refreshDaemon: true,
       syncDependencies: false
     },
     repoRoot: "/repo",
     run
   }), /build failed/u);
 
-  assert.equal(calls.some((call) => call.includes("daemon refresh")), false);
+  assert.equal(calls.some((call) => call.includes("@harness-anything/gui")), false);
+  assert.equal(calls.some((call) => call.includes("npm install -g")), false);
 });
 
-test("RPC rejection leaves post-merge verification untouched", () => {
-  const calls = [];
-  const run = (command, args) => {
-    calls.push([command, ...args].join(" "));
-    if (args.includes("refresh")) {
-      return JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon-refresh" });
-    }
-    return "";
-  };
-
-  assert.throws(() => executePostMergeRuntimeRefresh({
-    daemonStatus: { started: true, reachable: true, pid: 42, rootDir: "/repo" },
-    plan: {
-      buildCli: false,
-      buildGui: false,
-      installCli: false,
-      refreshDaemon: true,
-      syncDependencies: false
-    },
-    repoRoot: "/repo",
-    run
-  }), /refresh request was rejected/u);
-
-  assert.equal(calls.some((call) => call.includes("daemon status")), false);
-});
-
-test("refresh verification rejects an unchanged daemon PID", () => {
-  assert.throws(() => executePostMergeRuntimeRefresh({
-    daemonStatus: {
-      started: true,
-      reachable: true,
-      pid: 42,
-      rootDir: "/repo",
-      service: {
-        pid: 42,
-        build: {
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      }
-    },
-    plan: {
-      buildCli: false,
-      buildGui: false,
-      installCli: false,
-      refreshDaemon: true,
-      syncDependencies: false
-    },
-    repoRoot: "/repo",
-    statusPollAttempts: 1,
-    run: (_command, args) => args.includes("refresh")
-      ? JSON.stringify({
-        ok: true,
-        accepted: true,
-        operationId: "control-refresh",
-        kind: "refresh",
-        before: {
-          pid: 42,
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      })
-      : JSON.stringify({
-        started: true,
-        reachable: true,
-        service: {
-          pid: 42,
-          queue: { depth: 0 },
-          build: {
-            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            stale: false
-          }
-        },
-        requestedRepo: { canonicalRoot: "/repo" }
-      })
-  }), /PID did not change/u);
-});
-
-test("refresh verification rejects an unchanged loaded build identity", () => {
-  const identity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  assert.throws(() => executePostMergeRuntimeRefresh({
-    daemonStatus: {
-      started: true,
-      reachable: true,
-      pid: 42,
-      rootDir: "/repo",
-      service: { pid: 42, build: { loadedIdentity: identity } }
-    },
-    plan: {
-      buildCli: false,
-      buildGui: false,
-      installCli: false,
-      refreshDaemon: true,
-      syncDependencies: false
-    },
-    repoRoot: "/repo",
-    statusPollAttempts: 1,
-    run: (_command, args) => args.includes("refresh")
-      ? JSON.stringify({
-        ok: true,
-        accepted: true,
-        operationId: "control-refresh",
-        kind: "refresh",
-        before: { pid: 42, loadedIdentity: identity }
-      })
-      : JSON.stringify({
-        started: true,
-        reachable: true,
-        service: {
-          pid: 84,
-          queue: { depth: 0 },
-          build: { loadedIdentity: identity, installedIdentity: identity, stale: false }
-        },
-        requestedRepo: { canonicalRoot: "/repo" }
-      })
-  }), /build identity did not change/u);
-});
-
-test("post-merge discovery refreshes a running canonical daemon for daemon-only changes", () => {
+test("post-merge discovery builds and installs without issuing daemon commands", () => {
   const calls = [];
   const run = (command, args) => {
     calls.push([command, ...args]);
     if (command === "git" && args[0] === "branch") return "main\n";
     if (command === "git" && args[0] === "diff") return "packages/daemon/src/index.ts\n";
-    if (command === "ha") {
-      return JSON.stringify({
-        started: true,
-        reachable: true,
-        pid: 42,
-        rootDir: "/repo",
-        service: {
-          pid: 42,
-          build: {
-            loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          }
-        }
-      });
-    }
-    if (args.includes("refresh")) {
-      return JSON.stringify({
-        ok: true,
-        accepted: true,
-        operationId: "control-refresh",
-        kind: "refresh",
-        before: {
-          pid: 42,
-          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      });
-    }
-    if (args.includes("status")) {
-      return JSON.stringify({
-        started: true,
-        reachable: true,
-        pid: 84,
-        queueDepth: 0,
-        rootDir: "/repo",
-        service: {
-          pid: 84,
-          queue: { depth: 0 },
-          build: {
-            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            stale: false
-          }
-        },
-        requestedRepo: { canonicalRoot: "/repo" }
-      });
-    }
     return "";
   };
 
-  runPostMergeRuntimeRefresh({
+  const plan = runPostMergeRuntimeRefresh({
     currentHead: "new",
-    env: {
-      HARNESS_DAEMON_REPO_ID: "canonical",
-      HARNESS_DAEMON_USER_ROOT: "/state/user"
-    },
     previousHead: "old",
     repoRoot: "/repo",
     run
   });
 
   const rendered = calls.map((call) => call.join(" "));
+  assert.deepEqual(plan, {
+    buildCli: true,
+    buildGui: false,
+    installCli: true,
+    syncDependencies: false
+  });
   assert.ok(rendered.some((call) => call === "git diff --name-only old new --"));
-  assert.ok(rendered.some((call) => call.includes("daemon refresh") && call.includes("--trigger post-merge")));
-  const daemonCommands = rendered.filter((call) => /daemon (?:status|refresh)/u.test(call));
-  assert.ok(daemonCommands.length >= 3, JSON.stringify(daemonCommands));
-  assert.equal(daemonCommands.every((call) => call.includes("--repo canonical")), true, JSON.stringify(daemonCommands));
-  assert.equal(daemonCommands.every((call) => call.includes("--user-root /state/user")), true, JSON.stringify(daemonCommands));
-  assert.equal(rendered.some((call) => call.includes("daemon stop")), false);
-  assert.equal(rendered.some((call) => call.includes("daemon start")), false);
+  assert.ok(rendered.some((call) => call.includes("@harness-anything/cli")));
+  assert.ok(rendered.some((call) => call.includes("npm install -g")));
+  assert.equal(rendered.some((call) => /daemon (?:status|refresh|stop|start)/u.test(call)), false);
 });

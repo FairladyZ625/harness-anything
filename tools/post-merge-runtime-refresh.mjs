@@ -44,26 +44,17 @@ export function planPostMergeRuntimeRefresh(input) {
     rootBuildFiles.has(file) || guiBuildFiles.has(file) || guiBuildPrefixes.some((prefix) => file.startsWith(prefix))
   );
   const onCanonicalMain = input.branch === "main";
-  const daemon = daemonStatusView(input.daemonStatus);
-  const daemonMatchesCanonicalRoot = daemon.canonicalRoot === input.repoRoot;
 
   return {
     buildCli,
     buildGui,
     installCli: buildCli && onCanonicalMain,
-    refreshDaemon: buildCli
-      && onCanonicalMain
-      && daemonMatchesCanonicalRoot
-      && daemon.started === true
-      && daemon.reachable === true
-      && typeof daemon.pid === "number",
     syncDependencies: input.changedPaths.some(isPackageManifest)
   };
 }
 
 export function executePostMergeRuntimeRefresh(input) {
   const cliEntry = path.join(input.repoRoot, "packages/cli/dist/cli/src/index.js");
-  const daemonTarget = input.daemonTarget ?? resolvePostMergeDaemonTarget(input.repoRoot, input.env ?? {});
   const wrapped = (label, command, args) => input.run(process.execPath, [
     "tools/run-with-local-resources.mjs",
     "--label",
@@ -91,37 +82,6 @@ export function executePostMergeRuntimeRefresh(input) {
     input.run(process.execPath, [cliEntry, "--json", "version"], { print: false });
     input.run("npm", ["install", "-g", "./packages/cli"]);
   }
-  if (!input.plan.refreshDaemon) return;
-
-  const before = daemonStatusView(input.daemonStatus);
-  const control = parseJsonObject(input.run(process.execPath, [
-    cliEntry,
-    ...postMergeDaemonCommandArgs(daemonTarget, "refresh"),
-    "--trigger",
-    "post-merge",
-    "--timeout-ms",
-    "30000",
-    "--reason",
-    "post-merge runtime build installed",
-    "--json"
-  ], { print: false }), "post-merge: refresh control returned invalid JSON");
-  const accepted = acceptedRefreshControl(control, before);
-  const status = waitForRefreshedDaemon({
-    cliEntry,
-    daemonTarget,
-    input,
-    before: {
-      ...before,
-      pid: accepted.beforePid,
-      loadedIdentity: accepted.beforeLoadedIdentity ?? before.loadedIdentity
-    }
-  });
-  assertRefreshedDaemon(status, {
-    ...before,
-    pid: accepted.beforePid,
-    loadedIdentity: accepted.beforeLoadedIdentity ?? before.loadedIdentity
-  }, input.repoRoot);
-  input.run(process.execPath, [cliEntry, "--root", input.repoRoot, "task", "list", "--limit", "1"]);
 }
 
 export function runPostMergeRuntimeRefresh(input) {
@@ -133,170 +93,14 @@ export function runPostMergeRuntimeRefresh(input) {
     input.currentHead,
     "--"
   ], { print: false }).split(/\r?\n/u).filter(Boolean);
-  const initialPlan = planPostMergeRuntimeRefresh({ branch, changedPaths, repoRoot: input.repoRoot });
-  const daemonTarget = resolvePostMergeDaemonTarget(input.repoRoot, input.env);
-  let daemonStatus;
-  if (branch === "main" && initialPlan.buildCli) {
-    try {
-      daemonStatus = JSON.parse(input.run("ha", [
-        ...postMergeDaemonCommandArgs(daemonTarget, "status"),
-        "--json"
-      ], { print: false }));
-    } catch (error) {
-      input.log?.(`post-merge: unable to read the existing Daemon status; it will not be restarted: ${error instanceof Error ? error.message : String(error)}`);
-      daemonStatus = undefined;
-    }
-  }
-  const plan = planPostMergeRuntimeRefresh({ branch, changedPaths, daemonStatus, repoRoot: input.repoRoot });
-  input.log?.(`post-merge: plan dependency-sync=${plan.syncDependencies} cli-build=${plan.buildCli} gui-build=${plan.buildGui} install-cli=${plan.installCli} refresh-daemon=${plan.refreshDaemon}`);
+  const plan = planPostMergeRuntimeRefresh({ branch, changedPaths });
+  input.log?.(`post-merge: plan dependency-sync=${plan.syncDependencies} cli-build=${plan.buildCli} gui-build=${plan.buildGui} install-cli=${plan.installCli}`);
   executePostMergeRuntimeRefresh({
-    daemonStatus,
-    daemonTarget,
     plan,
     repoRoot: input.repoRoot,
     run: input.run
   });
   return plan;
-}
-
-export function resolvePostMergeDaemonTarget(repoRoot, env = process.env) {
-  const userRoot = nonEmptyEnvironmentOption(env?.HARNESS_DAEMON_USER_ROOT);
-  const repoId = nonEmptyEnvironmentOption(env?.HARNESS_DAEMON_REPO_ID);
-  return Object.freeze({ repoRoot, userRoot, repoId });
-}
-
-function postMergeDaemonCommandArgs(target, action) {
-  return [
-    "--root", target.repoRoot,
-    ...(target.repoId ? ["--repo", target.repoId] : []),
-    "daemon", action,
-    ...(target.userRoot ? ["--user-root", target.userRoot] : [])
-  ];
-}
-
-function nonEmptyEnvironmentOption(value) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function acceptedRefreshControl(control, before) {
-  if (control.ok !== true
-    || control.accepted !== true
-    || control.kind !== "refresh"
-    || typeof control.operationId !== "string"
-    || control.operationId.length === 0) {
-    throw new Error("post-merge: refresh request was rejected or returned an invalid control receipt");
-  }
-  const controlBefore = isRecord(control.before) ? control.before : {};
-  const beforePid = typeof controlBefore.pid === "number" ? controlBefore.pid : before.pid;
-  const beforeLoadedIdentity = typeof controlBefore.loadedIdentity === "string"
-    ? controlBefore.loadedIdentity
-    : before.loadedIdentity;
-  if (typeof beforePid !== "number") {
-    throw new Error("post-merge: refresh control receipt did not identify the running daemon PID");
-  }
-  if (typeof before.pid === "number" && beforePid !== before.pid) {
-    throw new Error(`post-merge: refresh control targeted unexpected daemon PID: ${String(beforePid)}`);
-  }
-  if (before.loadedIdentity && beforeLoadedIdentity !== before.loadedIdentity) {
-    throw new Error(`post-merge: refresh control targeted unexpected build identity: ${String(beforeLoadedIdentity)}`);
-  }
-  return { beforePid, beforeLoadedIdentity };
-}
-
-function waitForRefreshedDaemon({ cliEntry, daemonTarget, input, before }) {
-  const attempts = input.statusPollAttempts ?? 300;
-  const wait = input.wait ?? waitSynchronously;
-  let lastStatus;
-  let lastError;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      lastStatus = parseJsonObject(input.run(process.execPath, [
-        cliEntry,
-        ...postMergeDaemonCommandArgs(daemonTarget, "status"),
-        "--json"
-      ], { print: false }), "post-merge: daemon status returned invalid JSON");
-      if (isRefreshedDaemon(lastStatus, before, input.repoRoot)) return lastStatus;
-    } catch (error) {
-      lastError = error;
-    }
-    if (attempt + 1 < attempts) wait(100);
-  }
-  if (lastStatus) return lastStatus;
-  throw new Error(`post-merge: refreshed daemon is not reachable${lastError instanceof Error ? `: ${lastError.message}` : ""}`);
-}
-
-function isRefreshedDaemon(status, before, repoRoot) {
-  const current = daemonStatusView(status);
-  return current.reachable === true
-    && current.started === true
-    && current.canonicalRoot === repoRoot
-    && typeof current.pid === "number"
-    && current.pid !== before.pid
-    && typeof current.loadedIdentity === "string"
-    && current.loadedIdentity !== before.loadedIdentity
-    && current.loadedIdentity === current.installedIdentity
-    && current.stale === false
-    && current.queueDepth === 0;
-}
-
-function assertRefreshedDaemon(status, before, repoRoot) {
-  const current = daemonStatusView(status);
-  if (current.reachable !== true || current.started !== true) {
-    throw new Error("post-merge: refreshed daemon is not reachable");
-  }
-  if (current.canonicalRoot !== repoRoot) {
-    throw new Error(`post-merge: refreshed daemon root mismatch: ${String(current.canonicalRoot)}`);
-  }
-  if (current.pid === before.pid) {
-    throw new Error(`post-merge: daemon PID did not change: ${String(current.pid)}`);
-  }
-  if (current.loadedIdentity === before.loadedIdentity) {
-    throw new Error(`post-merge: daemon build identity did not change: ${String(current.loadedIdentity)}`);
-  }
-  if (!current.loadedIdentity || current.loadedIdentity !== current.installedIdentity || current.stale !== false) {
-    throw new Error(`post-merge: refreshed daemon did not load the installed build identity: loaded=${String(current.loadedIdentity)} installed=${String(current.installedIdentity)}`);
-  }
-  if (current.queueDepth !== 0) {
-    throw new Error(`post-merge: refreshed daemon queue is not empty: ${String(current.queueDepth)}`);
-  }
-}
-
-function daemonStatusView(status) {
-  const source = isRecord(status) ? status : {};
-  const service = isRecord(source.service) ? source.service : {};
-  const requestedRepo = isRecord(source.requestedRepo) ? source.requestedRepo : {};
-  const build = isRecord(service.build) ? service.build : {};
-  const queue = isRecord(service.queue) ? service.queue : {};
-  return {
-    started: source.started === true || service.started === true,
-    reachable: source.reachable === true,
-    pid: typeof service.pid === "number" ? service.pid : source.pid,
-    canonicalRoot: typeof requestedRepo.canonicalRoot === "string" ? requestedRepo.canonicalRoot : source.rootDir,
-    queueDepth: typeof queue.depth === "number" ? queue.depth : source.queueDepth,
-    loadedIdentity: typeof build.loadedIdentity === "string" ? build.loadedIdentity : undefined,
-    installedIdentity: typeof build.installedIdentity === "string" ? build.installedIdentity : undefined,
-    stale: typeof build.stale === "boolean" ? build.stale : undefined
-  };
-}
-
-function parseJsonObject(value, errorMessage) {
-  let parsed;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(errorMessage);
-  }
-  if (!isRecord(parsed)) throw new Error(errorMessage);
-  return parsed;
-}
-
-function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function waitSynchronously(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export function createPostMergeCommandRunner(repoRoot) {
