@@ -27,6 +27,11 @@ import {
   acceptedGenerationExpectation,
   generationExpectationFromCapabilityStatus
 } from "./control-generation-capability.ts";
+import {
+  daemonRecoveryCommand,
+  quoteDaemonRecoveryArgument,
+  rollbackDaemonReplacement
+} from "./snapshot-rollback.ts";
 
 export type DaemonControlKind = "restart" | "refresh";
 type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
@@ -64,6 +69,7 @@ export interface DaemonControlCommandInput {
   readonly daemonEntryPath: () => string;
   readonly calculateInstalledIdentity?: (entrypoint: string) => string;
   readonly platform?: NodeJS.Platform;
+  readonly replacementEntrypoint?: string;
 }
 
 type DaemonControlHandoff =
@@ -114,9 +120,12 @@ export async function runDaemonControl(
       ...(probedGeneration ? { daemonGeneration: probedGeneration.daemonGeneration } : {})
     }
   };
-  const preparedLaunchConfiguration = kind === "refresh"
+  const preparedRunningLaunchConfiguration = kind === "refresh"
     ? await lifecycle.prepareReplacement?.(lifecycle.target)
     : undefined;
+  const preparedLaunchConfiguration = preparedRunningLaunchConfiguration && input.replacementEntrypoint
+    ? { ...preparedRunningLaunchConfiguration, entrypoint: input.replacementEntrypoint }
+    : preparedRunningLaunchConfiguration;
   const preparedExpectedIdentity = preparedLaunchConfiguration
     ? calculateInstalledIdentity(input, preparedLaunchConfiguration.entrypoint)
     : undefined;
@@ -140,7 +149,8 @@ export async function runDaemonControl(
     method,
     launchConfiguration,
     expectedIdentity,
-    expectedGeneration
+    expectedGeneration,
+    input.replacementEntrypoint ? preparedRunningLaunchConfiguration : undefined
   );
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
@@ -207,7 +217,8 @@ async function completeDaemonReplacement(
   method: DaemonControlRequest["method"],
   launchConfiguration: DaemonLaunchConfiguration,
   expectedIdentity: string | undefined,
-  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
+  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined,
+  rollbackLaunchConfiguration?: DaemonLaunchConfiguration
 ): Promise<Record<string, unknown>> {
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
@@ -229,29 +240,42 @@ async function completeDaemonReplacement(
       expectedGeneration ? { includeGenerationAxes: true } : undefined
     );
   } catch (error) {
-    throw new Error(
+    const failure = new Error(
       `DAEMON_${kind.toUpperCase()}_REPLACEMENT_FAILED_AFTER_HANDOFF: ${error instanceof Error ? error.message : String(error)}. `
-      + `Restore the daemon with: ${daemonRecoveryCommand(launchConfiguration)}`
+      + `Restore the daemon with: ${daemonRecoveryCommand(rollbackLaunchConfiguration ?? launchConfiguration)}`
     );
+    if (!rollbackLaunchConfiguration) throw failure;
+    return await rollbackDaemonReplacement({
+      lifecycle, replacementFailure: failure, beforePid, beforeLoadedIdentity, operationId,
+      timeoutMs, kind, launchConfiguration: rollbackLaunchConfiguration, expectedGeneration
+    });
   }
-  const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
-  if (!replacementLifecycle) {
-    throw new Error(`daemon ${kind} replacement did not return a reachable started daemon status`);
+  try {
+    const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
+    if (!replacementLifecycle) {
+      throw new Error(`daemon ${kind} replacement did not return a reachable started daemon status`);
+    }
+    if (replacementLifecycle.pid === beforePid) {
+      throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}; replacement was not signaled`);
+    }
+    return await waitForStartedReplacement(
+      lifecycle,
+      replacement,
+      replacementLifecycle,
+      beforePid,
+      operationId,
+      timeoutMs,
+      kind,
+      expectedIdentity,
+      expectedGeneration
+    );
+  } catch (error) {
+    if (!rollbackLaunchConfiguration) throw error;
+    return await rollbackDaemonReplacement({
+      lifecycle, replacementFailure: error, beforePid, beforeLoadedIdentity, operationId,
+      timeoutMs, kind, launchConfiguration: rollbackLaunchConfiguration, expectedGeneration
+    });
   }
-  if (replacementLifecycle.pid === beforePid) {
-    throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}; replacement was not signaled`);
-  }
-  return await waitForStartedReplacement(
-    lifecycle,
-    replacement,
-    replacementLifecycle,
-    beforePid,
-    operationId,
-    timeoutMs,
-    kind,
-    expectedIdentity,
-    expectedGeneration
-  );
 }
 
 async function waitForStartedReplacement(
@@ -526,17 +550,6 @@ function daemonReplacementLaunchConfiguration(value: unknown): DaemonLaunchConfi
     entrypoint: value.entrypoint,
     args: value.args
   };
-}
-
-function daemonRecoveryCommand(configuration: DaemonLaunchConfiguration): string {
-  return [configuration.execPath, ...configuration.execArgv, configuration.entrypoint, ...configuration.args]
-    .map(quoteDaemonRecoveryArgument)
-    .join(" ");
-}
-
-function quoteDaemonRecoveryArgument(value: string): string {
-  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function statusFromReceipt(receipt: Record<string, unknown>): Record<string, unknown> | undefined {
