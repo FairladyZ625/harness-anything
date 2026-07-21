@@ -24,6 +24,7 @@ import { hasPrivilegedSshdAncestor } from "../src/commands/daemon/sshd-witness.t
 import {
   commandRunPayload,
   daemonClientCliEntrypointPath,
+  directRecoveryCommandLine,
   remoteDaemonUnavailableHint,
   remoteDaemonSshArgs,
   type RemoteDaemonConfig
@@ -38,6 +39,13 @@ test("daemon client resolves its CLI entrypoint across native path separators", 
   assert.equal(
     daemonClientCliEntrypointPath("file:///C:/workspace/packages/cli/dist/daemon/client.js"),
     fileURLToPath("file:///C:/workspace/packages/cli/dist/index.js")
+  );
+});
+
+test("daemon recovery guidance renders the current command as a copyable direct invocation", () => {
+  assert.equal(
+    directRecoveryCommandLine(["--root", "/tmp/project with spaces", "--daemon-mode", "local", "--json", "task", "create", "--title", "Recover now"]),
+    "HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha --root '/tmp/project with spaces' --json task create --title 'Recover now'"
   );
 });
 

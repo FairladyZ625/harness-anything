@@ -76,8 +76,10 @@ Each gate entry must declare:
   gates use an explicit explanation instead of inventing coverage.
 - `category`: one of `boundary`, `local-consistency`, `smoke`,
   `release-policy`, or `meta-governance`.
-- `tier`: one of `pr-required`, `main-only`, `nightly-only`, `local-only`, or
-  `manual-only`. `local-only` is reserved for automatic local-stop gates whose
+- `tier`: one of `pr-required`, `pr-advisory`, `main-only`, `nightly-only`,
+  `local-only`, or `manual-only`. `pr-advisory` runs on pull requests without
+  entering branch protection; promotion to required is a separate governance
+  change. `local-only` is reserved for automatic local-stop gates whose
   applicable verdict needs a declared private self-hosted layout. Public CI may
   execute the same local runner and must emit an explicit `not applicable`
   result when that layout declaration is structurally absent.
@@ -206,9 +208,9 @@ Release-policy gate sample:
 
 The registry records:
 
-- 64 gates: 49 deterministic and 15 non-deterministic/composite/local-authority.
-- 46 `harness:*` scripts in `package.json`, of which 45 are registered leaf
-  gates; 42 are in `check`, 40 are in `check:pr`, and 43 execute in pull-request
+- 66 gates: 51 deterministic and 15 non-deterministic/composite/local-authority.
+- 48 `harness:*` scripts in `package.json`, of which 47 are registered leaf
+  gates; 48 are in `check`, 47 are in `check:pr`, and 45 execute in pull-request
   workflow jobs. `harness:sync-runtime-skills` is an operational command, not a
   gate. The only registered `harness:*` gate outside the PR workflow is the
   non-deterministic, schedule-only `check-enforcement-debt-sunset`, plus

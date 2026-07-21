@@ -371,7 +371,7 @@ async function runWithLineClient(
 function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote?: RemoteDaemonConfig): CommandFailureReceipt {
   const unavailableHint = remote
     ? remoteDaemonUnavailableHint(remote)
-    : "Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'.";
+    : `Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'. If the daemon is stuck and this write must be recovered locally, run '${directRecoveryCommandLine()}'.`;
   const receipt = toCommandReceipt({
     ok: false,
     command: receiptCommandKind(command.action),
@@ -419,11 +419,25 @@ function directModeRejection(command: ParsedCommand): CommandFailureReceipt {
     command: receiptCommandKind(command.action),
     error: cliError(
       CliErrorCode.JournalUnavailable,
-      "Direct CLI execution is retired. Remove HARNESS_DAEMON_MODE=direct and use the daemon-backed CLI path. Only pre-initialization bootstrap and explicit operator recovery remain local; recovery requires HARNESS_DIRECT_WRITE_REASON=recovery."
+      `Direct CLI execution is reserved for operator recovery when the daemon is unavailable or stuck. For the normal single-writer path, remove HARNESS_DAEMON_MODE=direct. To run this command through the recovery escape hatch, use '${directRecoveryCommandLine()}'.`
     )
   });
   if (receipt.ok) throw new Error("direct-mode rejection unexpectedly succeeded");
   return receipt;
+}
+
+export function directRecoveryCommandLine(argv: ReadonlyArray<string> = process.argv.slice(2)): string {
+  const args = withoutOption(argv, "--daemon-mode");
+  const renderedArgs = args.map(shellQuote).join(" ");
+  return `HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha${renderedArgs ? ` ${renderedArgs}` : " <command>"}`;
+}
+
+function withoutOption(argv: ReadonlyArray<string>, option: string): ReadonlyArray<string> {
+  return argv.filter((arg, index) => arg !== option && argv[index - 1] !== option);
+}
+
+function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function isInitializedHarness(command: ParsedCommand): boolean {

@@ -32,6 +32,13 @@ test("journal failures always retain their cause and teach a concrete diagnostic
   });
 });
 
+test("global write conflicts explain that direct recovery cannot race a live daemon", () => {
+  assert.deepEqual(toCliError({ _tag: "GlobalWriteConflict", owner: ".harness/locks/global.lock" }), {
+    code: "write_conflict",
+    hint: "Global write lock is held: .harness/locks/global.lock Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying."
+  });
+});
+
 test("daemon generation rejection preserves its stable code and structured context", () => {
   const context = {
     schema: "daemon-generation-write-rejection/v1",

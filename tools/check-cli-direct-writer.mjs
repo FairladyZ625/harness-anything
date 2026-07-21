@@ -59,7 +59,7 @@ function inspectDirectConsumers(root, rel) {
   visit(sourceFile, (node) => {
     if (!isDirectModeConsumer(node, sourceFile)) return;
     if (allowedDirectConsumer(rel, node, sourceFile)) return;
-    findings.push(finding(rel, node, sourceFile, "direct-consumer", "consumes retired CLI direct/test-writer configuration outside the recovery contract test"));
+    findings.push(finding(rel, node, sourceFile, "direct-consumer", "consumes CLI direct/test-writer configuration outside the operator-recovery contract surfaces"));
   });
   return findings;
 }
@@ -103,6 +103,7 @@ function allowedFilesystemWrite(rel, api, registryRows) {
 
 function allowedDirectConsumer(rel, node, sourceFile) {
   if (rel === "packages/cli/test/direct-mode-fail-close.test.ts") return true;
+  if (rel === "tools/smoke-direct-recovery.mjs") return true;
   if (rel !== "packages/cli/src/index.ts") return false;
   const expression = ancestor(node, ts.isExpression) ?? node;
   const context = sourceFile.text.slice(Math.max(0, expression.getStart(sourceFile) - 300), Math.min(sourceFile.text.length, expression.getEnd() + 300));

@@ -253,6 +253,22 @@ jobs:
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job supply-chain --exclude mergify-queue-metadata-edit-noop
 
+  # Governance authority: dec_01KY2PJRGWXEJDH3E622553HZK CH3 and
+  # task_01KY36N9FN7XQ06TM49HHBYZFF. This advisory PR job intentionally is
+  # not added to branch protection until the separately governed required-check step.
+  direct-recovery:
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node tools/run-manifest-gates.mjs --workflow-job direct-recovery
+
   gui-build:
     if: github.event_name == 'pull_request'
     timeout-minutes: 15
