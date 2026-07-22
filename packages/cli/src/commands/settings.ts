@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import { landedSettingDefaults, type HarnessLayoutInput } from "@harness-anything/kernel";
 import type { DaemonRuntimePolicyValues } from "@harness-anything/daemon";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -63,7 +63,7 @@ const EMPTY_USER_SETTINGS: UserHarnessSettings = {
 
 const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
-const DEFAULT_TASK_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_TASK_LEASE_TTL_MS = landedSettingDefaults.taskLeaseTtlMs;
 
 export function readProjectHarnessSettings(
   rootInput: HarnessLayoutInput,

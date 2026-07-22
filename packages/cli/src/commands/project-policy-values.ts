@@ -1,3 +1,5 @@
+import { landedSettingDefaults } from "@harness-anything/kernel";
+
 export interface ProjectHarnessExecutionSettings {
   readonly consentTtlMs?: number;
 }
@@ -8,8 +10,8 @@ export interface ProjectHarnessAdapterSettings {
   };
 }
 
-export const DEFAULT_EXECUTION_CONSENT_TTL_MS = 24 * 60 * 60 * 1_000;
-export const DEFAULT_MULTICA_STALE_TTL_MS = 5 * 60 * 1_000;
+export const DEFAULT_EXECUTION_CONSENT_TTL_MS = landedSettingDefaults.executionConsentTtlMs;
+export const DEFAULT_MULTICA_STALE_TTL_MS = landedSettingDefaults.multicaStaleTtlMs;
 
 export function resolvePositiveIntegerValue(input: {
   readonly envName: string;

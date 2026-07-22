@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { Effect } from "effect";
+import { landedSettingDefaults } from "@harness-anything/kernel";
 import { makeJournaledWriteCoordinator } from "../packages/kernel/src/write-coordination/journal/coordinator.ts";
 
 const defaultWriters = 4;
@@ -159,17 +160,17 @@ export function resolveReceiptHonestyBenchPolicy(argv = process.argv, env = proc
     return parsed;
   };
   const lockConflictRetry = {
-    maxWaitMs: value("--lock-max-wait-ms", "HARNESS_BENCH_LOCK_MAX_WAIT_MS", 100, 60_000),
-    initialDelayMs: value("--lock-initial-delay-ms", "HARNESS_BENCH_LOCK_INITIAL_DELAY_MS", 5, 10_000),
-    maxDelayMs: value("--lock-max-delay-ms", "HARNESS_BENCH_LOCK_MAX_DELAY_MS", 10, 10_000)
+    maxWaitMs: value("--lock-max-wait-ms", "HARNESS_BENCH_LOCK_MAX_WAIT_MS", landedSettingDefaults.benchLockMaxWaitMs, 60_000),
+    initialDelayMs: value("--lock-initial-delay-ms", "HARNESS_BENCH_LOCK_INITIAL_DELAY_MS", landedSettingDefaults.benchLockInitialDelayMs, 10_000),
+    maxDelayMs: value("--lock-max-delay-ms", "HARNESS_BENCH_LOCK_MAX_DELAY_MS", landedSettingDefaults.benchLockMaxDelayMs, 10_000)
   };
   if (lockConflictRetry.initialDelayMs > lockConflictRetry.maxDelayMs) {
     throw new Error("benchmark lock initial delay must not exceed max delay");
   }
   return {
     lockConflictRetry,
-    barrierTimeoutMs: value("--barrier-timeout-ms", "HARNESS_BENCH_BARRIER_TIMEOUT_MS", 10_000, 120_000),
-    barrierPollMs: value("--barrier-poll-ms", "HARNESS_BENCH_BARRIER_POLL_MS", 5, 10_000)
+    barrierTimeoutMs: value("--barrier-timeout-ms", "HARNESS_BENCH_BARRIER_TIMEOUT_MS", landedSettingDefaults.benchBarrierTimeoutMs, 120_000),
+    barrierPollMs: value("--barrier-poll-ms", "HARNESS_BENCH_BARRIER_POLL_MS", landedSettingDefaults.benchBarrierPollMs, 10_000)
   };
 }
 

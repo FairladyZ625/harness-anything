@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import type { CurrentSessionRef, CurrentSessionRuntime } from "@harness-anything/kernel";
+import { landedSettingDefaults, type CurrentSessionRef, type CurrentSessionRuntime } from "@harness-anything/kernel";
 import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from "./provenance-session-exporter.ts";
 
 export interface RuntimeLogOptions {
@@ -27,7 +27,7 @@ export interface RuntimeConversation {
 
 type JsonObject = Record<string, unknown>;
 
-const defaultRuntimeLogSearchDepth = 8;
+const defaultRuntimeLogSearchDepth = landedSettingDefaults.runtimeLogSearchDepth;
 const maxRuntimeLogSearchDepth = 64;
 const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 

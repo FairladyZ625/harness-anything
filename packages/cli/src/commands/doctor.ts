@@ -4,6 +4,7 @@ import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
+import { resolveSettingsView, type ResolvedSettingRow } from "./resolved-settings-view.ts";
 
 export interface DoctorReport {
   readonly schema: "harness-doctor/v1";
@@ -38,11 +39,17 @@ export interface DoctorReport {
     readonly command: "harness-anything doctor";
     readonly json: "command-receipt/v2";
   };
+  readonly settings: {
+    readonly sourceAuthority: "@harness-anything/kernel:landed-settings-registry";
+    readonly rows: ReadonlyArray<ResolvedSettingRow>;
+  };
   readonly recommendedCommands: readonly string[];
 }
 
 export function runDoctor(rootInput: HarnessLayoutInput): CliResult {
-  const report = collectDoctorReport(rootInput);
+  const settings = resolveSettingsView(rootInput);
+  if (!settings.ok) return settings.result;
+  const report = collectDoctorReport(rootInput, settings.rows);
   return {
     ok: true,
     command: "doctor",
@@ -50,7 +57,7 @@ export function runDoctor(rootInput: HarnessLayoutInput): CliResult {
   };
 }
 
-function collectDoctorReport(rootInput: HarnessLayoutInput): DoctorReport {
+function collectDoctorReport(rootInput: HarnessLayoutInput, settingsRows: ReadonlyArray<ResolvedSettingRow>): DoctorReport {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const gitInsideWorkTree = isInsideDoctorGitWorkTree(rootDir);
@@ -78,6 +85,10 @@ function collectDoctorReport(rootInput: HarnessLayoutInput): DoctorReport {
     cli: {
       command: "harness-anything doctor",
       json: "command-receipt/v2"
+    },
+    settings: {
+      sourceAuthority: "@harness-anything/kernel:landed-settings-registry",
+      rows: settingsRows
     },
     recommendedCommands: [
       "harness-anything init",

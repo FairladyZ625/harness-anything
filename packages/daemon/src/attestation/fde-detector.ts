@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isRecord } from "@harness-anything/application/record";
+import { landedSettingDefaults } from "@harness-anything/kernel";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,8 +89,8 @@ async function detectLuks(runner: FdeCommandRunner, budget: FdeProbeBudget): Pro
 
 export function resolveFdeProbeBudget(env: NodeJS.ProcessEnv = process.env): FdeProbeBudget {
   return {
-    timeoutMs: boundedPositiveInteger("HARNESS_FDE_PROBE_TIMEOUT_MS", env.HARNESS_FDE_PROBE_TIMEOUT_MS, 10_000, 120_000),
-    maxBufferBytes: boundedPositiveInteger("HARNESS_FDE_PROBE_MAX_BUFFER_BYTES", env.HARNESS_FDE_PROBE_MAX_BUFFER_BYTES, 1024 * 1024, 64 * 1024 * 1024)
+    timeoutMs: boundedPositiveInteger("HARNESS_FDE_PROBE_TIMEOUT_MS", env.HARNESS_FDE_PROBE_TIMEOUT_MS, landedSettingDefaults.fdeProbeTimeoutMs, 120_000),
+    maxBufferBytes: boundedPositiveInteger("HARNESS_FDE_PROBE_MAX_BUFFER_BYTES", env.HARNESS_FDE_PROBE_MAX_BUFFER_BYTES, landedSettingDefaults.fdeProbeMaxBufferBytes, 64 * 1024 * 1024)
   };
 }
 

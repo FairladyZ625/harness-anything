@@ -1,0 +1,31 @@
+# GENERATED FILE: do not edit by hand.
+# Source: packages/kernel/src/config/landed-settings-registry.ts
+# Regenerate: node tools/generate-settings-examples.mjs
+
+schema: harness-anything/v1
+settings:
+  tasks:
+    # H-01 Task-holder lease lifetime; unit=milliseconds; override=default < yaml < env < flag
+    leaseTtlMs: 86400000
+  execution:
+    # H-02 Execution consent validity window; unit=milliseconds; override=default < yaml < env
+    consentTtlMs: 86400000
+  adapters:
+    multica:
+      # H-04 Multica cached-data stale threshold; unit=milliseconds; override=default < yaml < env
+      staleTtlMs: 300000
+  daemonRuntime:
+    # D-02 Daemon write-lock stale lifetime; unit=milliseconds; override=default < yaml < env
+    writeLockTtlMs: 60000
+    # D-03 Interactive write micro-batch delay; unit=milliseconds; override=default < yaml < env
+    interactiveMicroBatchMs: 10
+    # D-03 Interactive operations per commit ceiling; unit=count; override=default < yaml < env
+    maxInteractiveOpsPerCommit: 32
+    # D-04 Ledger materializer idle poll interval; unit=milliseconds; override=default < yaml < env
+    materializerPollMs: 5000
+    # D-04 Ledger branches materialized per batch; unit=count; override=default < yaml < env
+    materializerMaxBranchesPerBatch: 1
+    # D-05 Projection reconciliation interval; unit=milliseconds; override=default < yaml < env
+    projectionReconcileIntervalMs: 30000
+    # D-12 Daemon registry reconciliation interval; unit=milliseconds; override=default < yaml < env
+    registryReconcileIntervalMs: 1000

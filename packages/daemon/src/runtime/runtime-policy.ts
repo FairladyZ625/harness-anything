@@ -1,3 +1,5 @@
+import { landedSettingDefaults } from "@harness-anything/kernel";
+
 export interface DaemonRuntimePolicy {
   readonly write: {
     readonly lockTtlMs: number;
@@ -27,28 +29,35 @@ export interface DaemonRuntimePolicyValues {
 }
 
 export const defaultDaemonRuntimePolicy: DaemonRuntimePolicy = Object.freeze({
-  write: Object.freeze({ lockTtlMs: 60_000, interactiveMicroBatchMs: 10, maxInteractiveOpsPerCommit: 32 }),
-  materializer: Object.freeze({ pollMs: 5_000, maxBranchesPerBatch: 1 }),
-  projection: Object.freeze({ reconcileIntervalMs: 30_000 }),
-  registry: Object.freeze({ reconcileIntervalMs: 1_000 })
+  write: Object.freeze({
+    lockTtlMs: landedSettingDefaults.daemonWriteLockTtlMs,
+    interactiveMicroBatchMs: landedSettingDefaults.daemonInteractiveMicroBatchMs,
+    maxInteractiveOpsPerCommit: landedSettingDefaults.daemonMaxInteractiveOpsPerCommit
+  }),
+  materializer: Object.freeze({
+    pollMs: landedSettingDefaults.daemonMaterializerPollMs,
+    maxBranchesPerBatch: landedSettingDefaults.daemonMaterializerMaxBranchesPerBatch
+  }),
+  projection: Object.freeze({ reconcileIntervalMs: landedSettingDefaults.daemonProjectionReconcileIntervalMs }),
+  registry: Object.freeze({ reconcileIntervalMs: landedSettingDefaults.daemonRegistryReconcileIntervalMs })
 });
 
 export function resolveDaemonRuntimePolicy(env: NodeJS.ProcessEnv = process.env, yaml: DaemonRuntimePolicyValues = {}): DaemonRuntimePolicy {
   return Object.freeze({
     write: Object.freeze({
-      lockTtlMs: value("HARNESS_DAEMON_WRITE_LOCK_TTL_MS", env.HARNESS_DAEMON_WRITE_LOCK_TTL_MS, yaml.writeLockTtlMs ?? 60_000, 1, 24 * 60 * 60 * 1_000),
-      interactiveMicroBatchMs: value("HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS", env.HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS, yaml.interactiveMicroBatchMs ?? 10, 0, 60_000),
-      maxInteractiveOpsPerCommit: value("HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT", env.HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT, yaml.maxInteractiveOpsPerCommit ?? 32, 1, 10_000)
+      lockTtlMs: value("HARNESS_DAEMON_WRITE_LOCK_TTL_MS", env.HARNESS_DAEMON_WRITE_LOCK_TTL_MS, yaml.writeLockTtlMs ?? landedSettingDefaults.daemonWriteLockTtlMs, 1, 24 * 60 * 60 * 1_000),
+      interactiveMicroBatchMs: value("HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS", env.HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS, yaml.interactiveMicroBatchMs ?? landedSettingDefaults.daemonInteractiveMicroBatchMs, 0, 60_000),
+      maxInteractiveOpsPerCommit: value("HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT", env.HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT, yaml.maxInteractiveOpsPerCommit ?? landedSettingDefaults.daemonMaxInteractiveOpsPerCommit, 1, 10_000)
     }),
     materializer: Object.freeze({
-      pollMs: value("HARNESS_DAEMON_MATERIALIZER_POLL_MS", env.HARNESS_DAEMON_MATERIALIZER_POLL_MS, yaml.materializerPollMs ?? 5_000, 1, 60 * 60 * 1_000),
-      maxBranchesPerBatch: value("HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH", env.HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH, yaml.materializerMaxBranchesPerBatch ?? 1, 1, 10_000)
+      pollMs: value("HARNESS_DAEMON_MATERIALIZER_POLL_MS", env.HARNESS_DAEMON_MATERIALIZER_POLL_MS, yaml.materializerPollMs ?? landedSettingDefaults.daemonMaterializerPollMs, 1, 60 * 60 * 1_000),
+      maxBranchesPerBatch: value("HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH", env.HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH, yaml.materializerMaxBranchesPerBatch ?? landedSettingDefaults.daemonMaterializerMaxBranchesPerBatch, 1, 10_000)
     }),
     projection: Object.freeze({
-      reconcileIntervalMs: value("HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS", env.HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS, yaml.projectionReconcileIntervalMs ?? 30_000, 1, 60 * 60 * 1_000)
+      reconcileIntervalMs: value("HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS", env.HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS, yaml.projectionReconcileIntervalMs ?? landedSettingDefaults.daemonProjectionReconcileIntervalMs, 1, 60 * 60 * 1_000)
     }),
     registry: Object.freeze({
-      reconcileIntervalMs: value("HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS", env.HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS, yaml.registryReconcileIntervalMs ?? 1_000, 1, 60 * 60 * 1_000)
+      reconcileIntervalMs: value("HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS", env.HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS, yaml.registryReconcileIntervalMs ?? landedSettingDefaults.daemonRegistryReconcileIntervalMs, 1, 60 * 60 * 1_000)
     })
   });
 }

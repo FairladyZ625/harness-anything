@@ -191,6 +191,12 @@ export {
   taskHolderExecutorFromJournalActor,
   taskHolderPrincipalFromActor
 } from "./local/task-holder-state.ts";
+export {
+  landedSettingDefaults,
+  landedSettingsRegistry,
+  type LandedSettingDefinition,
+  type LandedSettingSource
+} from "./config/landed-settings-registry.ts";
 export type {
   TaskHolderAcquiredVia,
   ExecutionLeaseContext,

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { landedSettingDefaults } from "@harness-anything/kernel";
 import { readFrontmatter, readNestedScalar, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
 import { toSlash } from "./machine-evidence-registry.ts";
 import type { ResolvedPresetPolicy } from "./preset-policy.ts";
@@ -176,8 +177,8 @@ export function resolvePresetContextMilestoneLimits(options: {
 } = {}): { readonly maxFiles: number; readonly maxNotes: number } {
   const env = options.env ?? process.env;
   return {
-    maxFiles: contextLimit("HARNESS_PRESET_CONTEXT_MAX_MILESTONES", options.maxMilestoneFiles, env.HARNESS_PRESET_CONTEXT_MAX_MILESTONES, 20, 200),
-    maxNotes: contextLimit("HARNESS_PRESET_CONTEXT_MAX_NOTES", options.maxMilestoneNotes, env.HARNESS_PRESET_CONTEXT_MAX_NOTES, 3, 50)
+    maxFiles: contextLimit("HARNESS_PRESET_CONTEXT_MAX_MILESTONES", options.maxMilestoneFiles, env.HARNESS_PRESET_CONTEXT_MAX_MILESTONES, landedSettingDefaults.presetContextMaxMilestones, 200),
+    maxNotes: contextLimit("HARNESS_PRESET_CONTEXT_MAX_NOTES", options.maxMilestoneNotes, env.HARNESS_PRESET_CONTEXT_MAX_NOTES, landedSettingDefaults.presetContextMaxNotes, 50)
   };
 }
 

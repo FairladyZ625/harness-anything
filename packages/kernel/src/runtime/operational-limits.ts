@@ -1,11 +1,10 @@
-const DEFAULT_GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
-const DEFAULT_PROJECTION_MAX_CHANGED_PATHS = 50_000;
+import { landedSettingDefaults } from "../config/landed-settings-registry.ts";
 
 export function resolveGitMaxBufferBytes(env: NodeJS.ProcessEnv = process.env): number {
   return resolveBoundedPositiveInteger(
     "HARNESS_GIT_MAX_BUFFER_BYTES",
     env.HARNESS_GIT_MAX_BUFFER_BYTES,
-    DEFAULT_GIT_MAX_BUFFER_BYTES,
+    landedSettingDefaults.gitMaxBufferBytes,
     1024 * 1024 * 1024
   );
 }
@@ -14,7 +13,7 @@ export function resolveProjectionMaxChangedPaths(env: NodeJS.ProcessEnv = proces
   return resolveBoundedPositiveInteger(
     "HARNESS_PROJECTION_MAX_CHANGED_PATHS",
     env.HARNESS_PROJECTION_MAX_CHANGED_PATHS,
-    DEFAULT_PROJECTION_MAX_CHANGED_PATHS,
+    landedSettingDefaults.projectionMaxChangedPaths,
     1_000_000
   );
 }
