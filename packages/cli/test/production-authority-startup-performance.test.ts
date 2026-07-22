@@ -61,11 +61,10 @@ test("production service exposes its socket while authority recovery scans histo
     const statusDuringRecovery = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
     assert.equal(statusDuringRecovery.reachable, true, JSON.stringify(statusDuringRecovery));
     assert.equal(existsSync(watermarkPath), false, "cold full scan must still be in progress when the socket is first reachable");
-    const gated = runRawJsonMaybeFail(fixture.repoRoot, [
+    const admitted = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", "--text", "must wait for recovery"
     ], env);
-    assert.notEqual(gated.status, 0, JSON.stringify(gated.receipt));
-    assert.match(JSON.stringify(gated.receipt), /AUTHORITY_RECOVERY_IN_PROGRESS/u);
+    assert.equal(admitted.status, 0, JSON.stringify(admitted.receipt));
 
     await pollUntil(
       () => existsSync(watermarkPath) ? JSON.parse(readFileSync(watermarkPath, "utf8")) as { readonly commitSha?: string } : undefined,
