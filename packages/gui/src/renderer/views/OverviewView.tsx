@@ -21,6 +21,7 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
+import { OverviewLedgerSections } from "../components/overview/LedgerSections.tsx";
 import {
   buildOverviewIndex,
   countStatus,
@@ -52,6 +53,7 @@ export function OverviewView({
   onDrill,
   onOpenInbox,
   onOpenDecisionPool,
+  onOpenDecision,
   dataReady = true,
 }: {
   project: Project;
@@ -63,10 +65,11 @@ export function OverviewView({
   onDrill: (lane: string, status: SnapshotStatus, dimension: DrillDimension) => void;
   onOpenInbox: () => void;
   onOpenDecisionPool: () => void;
+  onOpenDecision: (id: string) => void;
   /** When false, show skeleton; first-usable fires only after real rows are interactive. */
   dataReady?: boolean;
 }) {
-  // coding preset 默认按 root(milestone=root task)。用户可切回 module 维度。
+  // coding preset 默认按 PLT 根任务分组。用户可切回 module 维度。
   const [dimension, setDimension] = useState<DrillDimension>("root");
   const [dimensionPage, setDimensionPage] = useState(0);
 
@@ -162,6 +165,13 @@ export function OverviewView({
       </header>
 
       <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+        <OverviewLedgerSections
+          tasks={tasks}
+          decisions={decisions}
+          onOpenTask={onSelect}
+          onOpenDecision={onOpenDecision}
+        />
+
         <Card title={t("views.overviewView.whatWillCutToday")} bodyClassName="p-3">
           <QuestionLabel>{t("views.overviewView.proposedDecisionTopNDecisionApproval")}</QuestionLabel>
           {index.proposedTop.length === 0 ? (
@@ -284,7 +294,7 @@ export function OverviewView({
                   onClick={() => setDimension(d)}
                   title={
                     d === "root"
-                      ? t("views.overviewView.groupByTaskTreeRootMilestone")
+                      ? t("views.overviewView.groupByTaskTreeRootPlt")
                       : t("views.overviewView.groupByModuleTraditional")
                   }
                   className={seg(dimension === d)}

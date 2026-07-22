@@ -3,6 +3,7 @@ import { buildLedgerOverview } from "../src/renderer/model/ledger-overview.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DecisionDetailDrawer } from "../src/renderer/components/DecisionDetailDrawer.tsx";
+import { OverviewLedgerSections } from "../src/renderer/components/overview/LedgerSections.tsx";
 import { createElement } from "react";
 
 function task(values: Partial<TaskRow> & Pick<TaskRow, "taskId" | "title">): TaskRow {
@@ -85,5 +86,39 @@ describe("ledger overview", () => {
     expect(html).toContain("person_owner");
     expect(html).toContain("Related task");
     expect(html).toContain("Related fact");
+    expect(html).toContain("decision-drawer-overlay");
+    expect(html).toContain("z-[100]");
+    expect(html).toContain("bg-bg/80");
+    expect(html).toContain("decision-drawer-panel");
+    expect(html).toContain("background-color:var(--color-surface)");
+  });
+
+  it("renders recent activity and collapsed PLT rows in the original overview card language", () => {
+    const tasks = [
+      task({ taskId: "root", title: "Fleet PLT", rootTaskId: "root", createdAt: "2026-07-03T00:00:00.000Z" }),
+      task({ taskId: "child", title: "Hidden stale task", rootTaskId: "root", liveness: "stale" }),
+      task({ taskId: "solo", title: "Inbox task", rootTaskId: "solo", liveness: "stale" }),
+    ];
+    const decisions = [{
+      decisionId: "dec_01KXTSMS1M0000000000000000",
+      title: "Recent decision",
+      proposedAt: "2026-07-04T00:00:00.000Z",
+    }] as DecisionRow[];
+    const html = renderToStaticMarkup(createElement(OverviewLedgerSections, {
+      tasks,
+      decisions,
+      onOpenTask: () => undefined,
+      onOpenDecision: () => undefined,
+    }));
+
+    expect(html).toContain("Recent activity");
+    expect(html).toContain("Recent decision");
+    expect(html).toContain("hover:border-accent/60");
+    expect(html).toContain("Fleet PLT");
+    expect(html).toContain("No PLT (1)");
+    expect(html).toContain("1 stale");
+    expect(html).toContain("aria-expanded=\"false\"");
+    expect(html).not.toContain("Hidden stale task");
+    expect(html).toContain("var(--color-status-done)");
   });
 });

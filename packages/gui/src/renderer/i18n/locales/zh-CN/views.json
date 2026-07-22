@@ -377,7 +377,7 @@
   "views.overviewView.factLivenessHint": "已被宣告失效或被取代的事实数量——承重证据是否仍可信",
   "views.overviewView.freshnessCounts": "{stale} 条过期 · {unavailable} 条不可用",
   "views.overviewView.groupByModuleTraditional": "按 module 分组(传统)",
-  "views.overviewView.groupByTaskTreeRootMilestone": "按 PLT 分组",
+  "views.overviewView.groupByTaskTreeRootPlt": "按 PLT 分组",
   "views.overviewView.inv4Watermark": "INV-4 水位标记",
   "views.overviewView.inv4WatermarkHint": "投影最后成功更新到的时间点——越新说明看板数据越新鲜",
   "views.overviewView.inv6DanglingRelations": "INV-6 悬空关系",
@@ -581,6 +581,8 @@
   "views.ledger.structure": "工作结构",
   "views.ledger.noPlt": "无 PLT",
   "views.ledger.stale": "{count} 项搁置",
+  "views.ledger.openCount": "{open}/{total} 未终态",
+  "views.ledger.noRecent": "暂无近期人工事件。",
   "views.ledger.eventDecisionCreated": "新建 Decision",
   "views.ledger.eventTaskCreated": "新建 Task",
   "views.ledger.eventTaskTerminal": "转入终态"

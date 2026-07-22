@@ -377,7 +377,7 @@
   "views.overviewView.factLivenessHint": "Count of facts marked invalidated or superseded — whether load-bearing evidence is still trustworthy",
   "views.overviewView.freshnessCounts": "{stale} stale · {unavailable} unavailable",
   "views.overviewView.groupByModuleTraditional": "Group by module (traditional)",
-  "views.overviewView.groupByTaskTreeRootMilestone": "Group by PLT",
+  "views.overviewView.groupByTaskTreeRootPlt": "Group by PLT",
   "views.overviewView.inv4Watermark": "INV-4 watermark",
   "views.overviewView.inv4WatermarkHint": "Last time the projection successfully updated — newer means fresher dashboard data",
   "views.overviewView.inv6DanglingRelations": "INV-6 dangling relations",
@@ -581,6 +581,8 @@
   "views.ledger.structure": "Work structure",
   "views.ledger.noPlt": "No PLT",
   "views.ledger.stale": "{count} stale",
+  "views.ledger.openCount": "{open}/{total} open",
+  "views.ledger.noRecent": "No authored activity yet.",
   "views.ledger.eventDecisionCreated": "Decision",
   "views.ledger.eventTaskCreated": "New task",
   "views.ledger.eventTaskTerminal": "Completed"

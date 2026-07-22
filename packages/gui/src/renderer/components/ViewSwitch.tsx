@@ -11,7 +11,7 @@ import {
 import type { CatalogRendererData } from "../catalog-data.ts";
 import { VIEW_LABEL, type ViewId } from "../shell-config.tsx";
 import { HomeView } from "../views/HomeView.tsx";
-import { LedgerOverviewView } from "../views/LedgerOverviewView.tsx";
+import { OverviewView } from "../views/OverviewView.tsx";
 import { BoardView } from "../views/BoardView.tsx";
 import { DecisionsView } from "../views/DecisionsView.tsx";
 import { DecisionPoolView } from "../views/DecisionPoolView.tsx";
@@ -63,6 +63,9 @@ export interface ViewSwitchProps {
   events: EventEntry[];
   projectName: string;
   onOpenTaskPreview: (id: string) => void;
+  onOverviewDrill: (lane: string, status: SnapshotStatus, dimension: "root" | "module") => void;
+  onOpenDecisionInbox: () => void;
+  onOpenDecisionPool: () => void;
   onUpdateTask: (id: string, patch: Partial<TaskRow>) => void;
   onSelectTask: (id: string) => void;
   /** TaskDetailView 的「返回上一层」:清空选中态(回到视图表)。 */
@@ -109,6 +112,9 @@ export function ViewSwitch(props: ViewSwitchProps) {
     events,
     projectName,
     onOpenTaskPreview,
+    onOverviewDrill,
+    onOpenDecisionInbox,
+    onOpenDecisionPool,
     onUpdateTask,
     onSelectTask,
     onClearSelection,
@@ -228,10 +234,16 @@ export function ViewSwitch(props: ViewSwitchProps) {
           onOpenProject={onOpenProject}
         />
       ) : view === "overview" ? (
-        <LedgerOverviewView
+        <OverviewView
+          project={project}
           tasks={projectTasks}
           decisions={decisions}
-          onOpenTask={onOpenTaskPreview}
+          facts={facts}
+          relations={relations}
+          onSelect={onOpenTaskPreview}
+          onDrill={onOverviewDrill}
+          onOpenInbox={onOpenDecisionInbox}
+          onOpenDecisionPool={onOpenDecisionPool}
           onOpenDecision={onNavigateDecision}
           dataReady={overviewDataReady}
         />
