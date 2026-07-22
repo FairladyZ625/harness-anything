@@ -1,0 +1,119 @@
+name: main-red-notify
+
+on:
+  workflow_run:
+    workflows: ["rewrite-ci"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  group: main-red-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open, update, or resolve the main-red advisory issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'main-red';
+            const title = '[CI] rewrite-ci is red on main';
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const clean = (value) => String(value).replace(/[\r\n]+/g, ' ').trim();
+            const shaMarker = `<!-- main-red-sha:${clean(run.head_sha)} -->`;
+            const runMarker = `<!-- main-red-run:${clean(run.id)} -->`;
+            const recordedRunId = (issue) => {
+              const match = (issue.body || '').match(/<!-- main-red-run:(\d+) -->/);
+              return match ? Number(match[1]) : null;
+            };
+            const isStale = (issue) => {
+              const recorded = recordedRunId(issue);
+              return recorded !== null && recorded > Number(run.id);
+            };
+            const listed = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: label,
+              per_page: 100
+            });
+            const openIssues = listed.filter((issue) => !issue.pull_request);
+
+            if (run.conclusion === 'success') {
+              const comment = `rewrite-ci is green again on main for \`${clean(run.head_sha)}\`: ${clean(run.html_url)}. Closing this advisory issue.`;
+              const eligibleIssues = openIssues.filter((issue) => !isStale(issue));
+              for (const issue of eligibleIssues) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: comment });
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
+              }
+              core.info(`Resolved ${eligibleIssues.length} open ${label} issue(s); ignored ${openIssues.length - eligibleIssues.length} newer failure(s).`);
+              return;
+            }
+
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner,
+              repo,
+              run_id: run.id,
+              filter: 'latest',
+              per_page: 100
+            });
+            const failedJobs = [...new Set(jobs.filter((job) => job.conclusion === 'failure').map((job) => clean(job.name)).filter(Boolean))];
+            const jobLines = failedJobs.length > 0
+              ? failedJobs.map((name) => `- ${name}`)
+              : ['- Unable to identify a failed job from the run API.'];
+            const body = [
+              '<!-- main-red-notification -->',
+              runMarker,
+              shaMarker,
+              '## rewrite-ci is red on main',
+              '',
+              `- Run: ${clean(run.html_url)}`,
+              `- Head SHA: \`${clean(run.head_sha)}\``,
+              '- Failed jobs:',
+              ...jobLines,
+              '',
+              'This issue is advisory only. It does not change required checks, branch protection, or merge enforcement.'
+            ].join('\n');
+            const current = openIssues[0];
+
+            if (!current) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'rewrite-ci is red on main' });
+              }
+              const created = await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
+              core.info(`Opened ${created.data.html_url}.`);
+              return;
+            }
+
+            if (isStale(current)) {
+              core.info(`Issue #${current.number} records a newer workflow run; stale failure ${run.id} ignored.`);
+              return;
+            }
+
+            if ((current.body || '').includes(shaMarker) && recordedRunId(current) === Number(run.id)) {
+              core.info(`Issue #${current.number} already records ${run.head_sha}; no duplicate created.`);
+              return;
+            }
+
+            if (!(current.body || '').includes(shaMarker)) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: current.number,
+                body: `rewrite-ci failed again on main: ${clean(run.html_url)} (\`${clean(run.head_sha)}\`). Updating the advisory issue.`
+              });
+            }
+            await github.rest.issues.update({ owner, repo, issue_number: current.number, title, body });
+            core.info(`Updated issue #${current.number}.`);

@@ -13,6 +13,7 @@ const registryEntryFields = Object.freeze(["testName", "file", "anchoredTask", "
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const registryPath = path.join(repoRoot, "tools/flake-registry.json");
+const transientErrorPattern = /(?:\bEOF\b|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EPIPE|connection (?:reset|refused|failed)|network is unreachable|temporary failure|TLS handshake timeout|remote end hung up|unexpected end of JSON input|HTTP (?:502|503|504)|status code (?:502|503|504))/iu;
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -99,10 +100,41 @@ function result(code, classification, runUrl = "-", failingTests = []) {
   return { code, classification, runUrl, failingTests };
 }
 
-async function classifyCompletedRun(run, registry, github) {
+function errorText(error) {
+  if (!(error instanceof Error)) return String(error);
+  const details = [error.message, error.cause, error.code, error.stderr, error.stdout];
+  return details.filter((value) => value !== undefined && value !== null).map(String).join("\n");
+}
+
+export function isTransientGithubError(error) {
+  return transientErrorPattern.test(errorText(error));
+}
+
+const defaultSleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+export async function retryTransientGithubCall(operation, {
+  attempts = 5,
+  baseDelayMs = 250,
+  sleep = defaultSleep
+} = {}) {
+  if (!Number.isInteger(attempts) || attempts < 1) throw new Error("retry attempts must be a positive integer");
+  if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new Error("retry base delay must be non-negative");
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isTransientGithubError(error) || attempt === attempts) throw error;
+      await sleep(baseDelayMs * (2 ** (attempt - 1)));
+    }
+  }
+  throw new Error("unreachable retry state");
+}
+
+async function classifyCompletedRun(run, registry, github, retryOptions) {
   if (run.conclusion === "success") return result(0, "green", run.url);
   if (run.conclusion === "cancelled") {
-    const newerRuns = await github.listNewerMainRuns();
+    const newerRuns = await retryTransientGithubCall(() => github.listNewerMainRuns(), retryOptions);
     const supersedingRun = newerRuns.find((candidate) => candidate.createdAt > run.createdAt);
     return {
       ...result(50, "superseded", run.url),
@@ -111,15 +143,13 @@ async function classifyCompletedRun(run, registry, github) {
   }
   if (run.conclusion !== "failure") return result(40, "unavailable", run.url);
 
-  const parsedLogs = parseFailedLogs(await github.readFailedLogs(run.databaseId));
+  const parsedLogs = parseFailedLogs(await retryTransientGithubCall(() => github.readFailedLogs(run.databaseId), retryOptions));
   const { failingTests } = parsedLogs;
   const registeredNames = new Set(registry.entries.map((entry) => entry.testName));
   const allRegistered = !parsedLogs.hasUnparsedFailedJob && failingTests.length > 0 &&
     failingTests.every((testName) => registeredNames.has(testName));
   return result(allRegistered ? 20 : 30, allRegistered ? "flake" : "regression", run.url, failingTests);
 }
-
-const defaultSleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export async function watchMain({
   commitSha,
@@ -129,16 +159,20 @@ export async function watchMain({
   timeoutMs = 5_400_000,
   dryRun = false,
   now = Date.now,
-  sleep = defaultSleep
+  sleep = defaultSleep,
+  retryAttempts = 5,
+  retryBaseDelayMs = 250,
+  retrySleep = defaultSleep
 }) {
   const startedAt = now();
   let lastRun;
 
   while (true) {
-    const runs = await github.listRuns(commitSha);
+    const retryOptions = { attempts: retryAttempts, baseDelayMs: retryBaseDelayMs, sleep: retrySleep };
+    const runs = await retryTransientGithubCall(() => github.listRuns(commitSha), retryOptions);
     lastRun = runs.find((candidate) => candidate.event === "push" && candidate.headSha === commitSha);
     if (lastRun?.status === "completed") {
-      return classifyCompletedRun(lastRun, registry, github);
+      return classifyCompletedRun(lastRun, registry, github, retryOptions);
     }
     if (dryRun) {
       return result(40, lastRun ? "pending" : "run-missing", lastRun?.url);
