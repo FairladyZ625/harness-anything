@@ -22,6 +22,30 @@ test("write-road registry accepts a covered fixture", () => {
   }
 });
 
+test("write-road registry rejects unified entry compilers that point to different materializers", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { splitIntentCompiler: true });
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unified entry compilers must resolve to one materializer ref/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry rejects an authored surface without a criterion item", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { omitGuiCriterionSurface: true });
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /guiBridgeMethods:registeredBridge: authored ingress surface has no intent compiler criterion item/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("write-road registry rejects an unregistered coordinated write callsite", () => {
   const root = makeFixtureRoot();
   try {
@@ -209,7 +233,9 @@ function writeFixture(root, overrides = {}) {
   writeLines(root, "packages/application/src/fixture.ts", [
     "declare const coordinator: unknown;",
     "declare const hashPayload: unknown;",
-    "writeCoordinatedPayload(coordinator, hashPayload, { entityId: 'task/t1', kind: 'registered_kind', payload: {} });"
+    "writeCoordinatedPayload(coordinator, hashPayload, { entityId: 'task/t1', kind: 'registered_kind', payload: {} });",
+    "export function compileRegisteredIntent() { return {}; }",
+    "export function compileRegisteredIntentSeparately() { return {}; }"
   ]);
   const taskCliPolicies = ["{ actionKind: 'registered-action' }"];
   if (overrides.extraTaskCliAction) taskCliPolicies.push(`{ actionKind: '${overrides.extraTaskCliAction}' }`);
@@ -240,15 +266,24 @@ function writeFixture(root, overrides = {}) {
       }
     }
   }, null, 2), "utf8");
-  writeFileSync(path.join(root, "tools/write-road-registry.json"), `${JSON.stringify(makeRegistry(), null, 2)}\n`, "utf8");
+  writeFileSync(path.join(root, "tools/write-road-registry.json"), `${JSON.stringify(makeRegistry(overrides), null, 2)}\n`, "utf8");
   for (const [rel, lines] of Object.entries(overrides.file ?? {})) {
     writeLines(root, rel, lines);
   }
 }
 
-function makeRegistry() {
+function makeRegistry(overrides = {}) {
+  const surfaces = {
+    cliActions: ["registered-action"],
+    apiRoutes: ["registered.route"],
+    guiBridgeMethods: overrides.omitGuiCriterionSurface ? [] : ["registeredBridge"]
+  };
   return {
     schema: "harness-anything/write-road-registry/v1",
+    intentCompilerCriterion: {
+      authoredSurfaceFields: ["cliActions", "apiRoutes", "guiBridgeMethods"],
+      notApplicableWhen: "no-authored-ingress-surfaces"
+    },
     rowCountReconciliation: {
       phase1FunctionalRows: 26,
       registryRows: 1
@@ -270,6 +305,20 @@ function makeRegistry() {
       cliActions: ["registered-action"],
       apiRoutes: ["registered.route"],
       guiBridgeMethods: ["registeredBridge"],
+      intentCompilers: [{
+        selector: "registered-action",
+        surfaces,
+        parity: "unified",
+        compilers: [
+          { entry: "direct", ref: "packages/application/src/fixture.ts#compileRegisteredIntent" },
+          {
+            entry: "daemon",
+            ref: overrides.splitIntentCompiler
+              ? "packages/application/src/fixture.ts#compileRegisteredIntentSeparately"
+              : "packages/application/src/fixture.ts#compileRegisteredIntent"
+          }
+        ]
+      }],
       presetWriteScopes: ["{{outputRoot}}/**"],
       presetProduces: ["{{outputRoot}}/ok.json"],
       callsiteFiles: ["packages/application/src/fixture.ts"],
