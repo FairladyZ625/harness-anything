@@ -90,7 +90,12 @@ export function sourcePathSpecifiers(file, source) {
   };
   visit(sourceFile);
   const collect = (node) => {
-    if (ts.isStringLiteral(node) && !moduleLiterals.has(node) && node.text.startsWith(".") && node.text.includes("/src/")) values.push(node.text);
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      !moduleLiterals.has(node) &&
+      node.text.startsWith(".") &&
+      node.text.includes("/src/")
+    ) values.push(node.text);
     ts.forEachChild(node, collect);
   };
   collect(sourceFile);

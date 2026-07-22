@@ -22,7 +22,8 @@ test("package boundary ESLint rule reports every governed violation class", asyn
     ["packages/kernel/src/fixture.ts", "import '@harness-anything/gui';", packageBoundaryMessageIds.forbiddenEdge],
     ["packages/application/src/fixture.ts", "import '../../kernel/src/index.ts';", packageBoundaryMessageIds.crossPackageRelative],
     ["packages/cli/src/fixture.ts", "import '@harness-anything/kernel/write-coordination/write-helpers';", packageBoundaryMessageIds.unregisteredDeepSubpath],
-    ["packages/gui/src/main/fixture.ts", "new URL('../../../daemon/src/index.ts', import.meta.url);", packageBoundaryMessageIds.crossPackageSourcePath]
+    ["packages/gui/src/main/fixture.ts", "new URL('../../../daemon/src/index.ts', import.meta.url);", packageBoundaryMessageIds.crossPackageSourcePath],
+    ["packages/gui/src/main/fixture.ts", "const target = `../../../daemon/src/index.ts`;", packageBoundaryMessageIds.crossPackageSourcePath]
   ];
   for (const [file, source, messageId] of cases) {
     const [result] = await eslint.lintText(source, { filePath: path.join(root, file) });

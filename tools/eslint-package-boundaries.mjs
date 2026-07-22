@@ -94,6 +94,14 @@ function createRule(contract, root, enabledMessageIds) {
           const targetPackage = resolveRelativePackage(contract, filename, node.value);
           if (!targetPackage || targetPackage.id === sourcePackage.id) return;
           report(packageBoundaryMessageIds.crossPackageSourcePath, { node, data: { specifier: node.value } });
+        },
+        TemplateLiteral(node) {
+          if (node.expressions.length > 0 || node.quasis.length !== 1) return;
+          const value = node.quasis[0].value.cooked;
+          if (moduleLiterals.has(node) || typeof value !== "string" || !value.startsWith(".") || !value.includes("/src/")) return;
+          const targetPackage = resolveRelativePackage(contract, filename, value);
+          if (!targetPackage || targetPackage.id === sourcePackage.id) return;
+          report(packageBoundaryMessageIds.crossPackageSourcePath, { node, data: { specifier: value } });
         }
       };
     }
