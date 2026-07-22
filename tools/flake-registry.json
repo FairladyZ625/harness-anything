@@ -7,6 +7,13 @@
       "anchoredTask": "task_01KXNQABV1XSQHPXVQQCQNGWVA",
       "firstSeen": "2026-07-16",
       "notes": "Known daemon lifecycle timing flake; observed failing main five times, including runs 29512159972 and 29513133791 on Node 24 and 26."
+    },
+    {
+      "testName": "refresh derives the explicit manifest across a mixed registry and leaves a replacement reachable",
+      "file": "packages/cli/test/daemon-refresh-preflight.test.ts",
+      "anchoredTask": "task_01KY5A2FPV8NA5YX8PBWA27YMH",
+      "firstSeen": "2026-07-22",
+      "notes": "Failed on main run 29931464923 (afc65fee) with DAEMON_JSON_RPC_REQUEST_TIMEOUT method=admin.daemon.refresh timeout=34970ms; the same-SHA rerun passed, so this is an environment-induced fixed-budget flake, not a regression. Budget conversion is tracked by the wall-clock assertion inventory task."
     }
   ]
 }
