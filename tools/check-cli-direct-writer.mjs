@@ -37,6 +37,7 @@ export function checkCliDirectWriter(root = process.cwd()) {
 function inspectWriteSinks(root, rel, registryRows) {
   const sourceFile = parseSource(root, rel);
   const fsImports = fsBindings(sourceFile);
+  const occurrences = new Map();
   const findings = [];
   visit(sourceFile, (node) => {
     if (!ts.isCallExpression(node)) return;
@@ -46,7 +47,10 @@ function inspectWriteSinks(root, rel, registryRows) {
       return;
     }
     const api = calledFsApi(node.expression, fsImports);
-    if (api && !allowedFilesystemWrite(rel, api, registryRows)) {
+    if (!api) return;
+    const occurrence = (occurrences.get(api) ?? 0) + 1;
+    occurrences.set(api, occurrence);
+    if (!allowedFilesystemWrite(rel, api, occurrence, registryRows)) {
       findings.push(finding(rel, node.expression, sourceFile, "canonical-fs", `${api} is not in a declared bootstrap/local/derived/transport scope`));
     }
   });
@@ -92,12 +96,13 @@ function findVariableDeclaration(sourceFile, name) {
   return match;
 }
 
-function allowedFilesystemWrite(rel, api, registryRows) {
+function allowedFilesystemWrite(rel, api, occurrence, registryRows) {
   if (rel.startsWith("packages/cli/src/daemon/")) return true;
   if (rel.startsWith("packages/cli/src/commands/extensions/assets/") && rel.includes("/scripts/")) return true;
+  const key = `${rel}#${api}@${occurrence}`;
   return registryRows.some((row) =>
     declaredNoncanonicalPathClasses.has(row.channel?.pathClass)
-      && (row.directWrites ?? []).some((entry) => entry.file === rel && (!entry.api || entry.api === api))
+      && (row.directWrites ?? []).some((entry) => entry.key === key)
   );
 }
 

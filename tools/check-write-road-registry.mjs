@@ -1,13 +1,15 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { childProcessApis } from "./child-process-apis.mjs";
 import { fsWriteApis } from "./fs-write-apis.mjs";
 import { discoverWorkspaceSourceRoots } from "./workspace-packages.mjs";
 
 const root = process.cwd();
 const registryPath = path.resolve(root, process.env.HARNESS_WRITE_ROAD_REGISTRY ?? "tools/write-road-registry.json");
-const sourceRoots = discoverWorkspaceSourceRoots(root);
+const sourceRoots = [...discoverWorkspaceSourceRoots(root), "tools"];
 const mutatingHttpMethods = new Set(["POST", "PUT", "DELETE"]);
 
 const registry = loadRegistry();
@@ -26,6 +28,7 @@ validateRegistryShape();
 checkCoverage();
 checkStaleRegistryEntries();
 checkInventoryReconciliation();
+checkWritePointRatchet();
 
 if (findings.length > 0) {
   console.error("Write-road registry check failed:");
@@ -34,7 +37,15 @@ if (findings.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log(`Write-road registry check passed (${sourceRoots.length} workspace source root(s), ${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
+  const writePoints = discoveries.filter((item) => item.type === "direct-write");
+  const omissionDebt = rows.flatMap((row) => asArray(row.directWrites)).filter((entry) => entry.classification === "omission-debt").length;
+  const previous = previousWritePointCounts() ?? {
+    coverage: registry.writePointRatchet.previousCoverage,
+    omissionDebt: registry.writePointRatchet.previousOmissionDebt
+  };
+  console.log(`[write-road-coverage] current=${writePoints.length} previous=${previous.coverage} delta=${writePoints.length - previous.coverage}`);
+  console.log(`[write-road-ratchet] current=${omissionDebt} previous=${previous.omissionDebt} delta=${omissionDebt - previous.omissionDebt}`);
+  console.log(`Write-road registry check passed (${sourceRoots.length} production source root(s), ${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
 }
 
 function loadRegistry() {
@@ -50,6 +61,7 @@ function loadRegistry() {
 
 function validateRegistryShape() {
   const ids = new Set();
+  const writePointKeys = new Set();
   for (const [index, row] of rows.entries()) {
     const label = `rows[${index}]`;
     if (!isObject(row)) record(`${label} must be an object`);
@@ -71,6 +83,24 @@ function validateRegistryShape() {
       }
       const evidencePath = evidence.split(":")[0];
       if (!existsSync(path.join(root, evidencePath))) record(`${row.id}: evidence path does not exist: ${evidencePath}`);
+    }
+    for (const [writeIndex, entry] of asArray(row.directWrites).entries()) {
+      const entryLabel = `${row.id}.directWrites[${writeIndex}]`;
+      if (!isObject(entry)) {
+        record(`${entryLabel} must be an object`);
+        continue;
+      }
+      if (typeof entry.key !== "string" || entry.key.trim() === "") record(`${entryLabel}.key must be non-empty`);
+      if (writePointKeys.has(entry.key)) record(`${entryLabel}.key duplicates ${entry.key}`);
+      writePointKeys.add(entry.key);
+      if (typeof entry.owner !== "string" || entry.owner.trim() === "") record(`${entryLabel}.owner must be non-empty`);
+      if (!["coordinator-owned", "design-exemption", "omission-debt"].includes(entry.classification)) {
+        record(`${entryLabel}.classification must be coordinator-owned, design-exemption, or omission-debt`);
+      }
+      if (typeof entry.ref !== "string" || !/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)/u.test(entry.ref)) {
+        record(`${entryLabel}.ref must cite an ADR, decision, or task id`);
+      }
+      if (typeof entry.reason !== "string" || entry.reason.trim().length < 20) record(`${entryLabel}.reason must explain the governance basis`);
     }
     if (row.leaseRequired === true && !String(row.bearing ?? "").startsWith("task-")) {
       record(`${row.id}: leaseRequired rows must declare task-* bearing`);
@@ -110,17 +140,12 @@ function checkStaleRegistryEntries() {
       }
     }
     for (const entry of asArray(row.directWrites)) {
-      if (!isObject(entry) || typeof entry.file !== "string") {
-        record(`${row.id}: directWrites entries must include file`);
+      if (!isObject(entry) || typeof entry.key !== "string") {
+        record(`${row.id}: directWrites entries must include key`);
         continue;
       }
-      if (!discoveries.some((discovery) =>
-        discovery.type === "direct-write" &&
-        discovery.file === entry.file &&
-        (!entry.api || discovery.api === entry.api) &&
-        (!entry.command || discovery.command === entry.command)
-      )) {
-        record(`${row.id}: stale directWrites entry ${entry.file}${entry.api ? `#${entry.api}` : ""}${entry.command ? `#${entry.command}` : ""}`);
+      if (!discoveries.some((discovery) => discovery.type === "direct-write" && discovery.key === entry.key)) {
+        record(`${row.id}: stale directWrites entry ${entry.key}`);
       }
     }
   }
@@ -143,17 +168,60 @@ function checkInventoryReconciliation() {
   }
 }
 
+function checkWritePointRatchet() {
+  if (!isObject(registry.writePointRatchet)) {
+    record("writePointRatchet must declare previousCoverage and previousOmissionDebt");
+    return;
+  }
+  const previousCoverage = registry.writePointRatchet.previousCoverage;
+  const previousOmissionDebt = registry.writePointRatchet.previousOmissionDebt;
+  if (!Number.isInteger(previousCoverage) || previousCoverage < 0) record("writePointRatchet.previousCoverage must be a non-negative integer");
+  if (!Number.isInteger(previousOmissionDebt) || previousOmissionDebt < 0) record("writePointRatchet.previousOmissionDebt must be a non-negative integer");
+  const omissionDebt = rows.flatMap((row) => asArray(row.directWrites)).filter((entry) => entry.classification === "omission-debt").length;
+  const comparison = previousWritePointCounts()?.omissionDebt ?? previousOmissionDebt;
+  if (Number.isInteger(comparison) && omissionDebt > comparison) {
+    record(`write-point omission debt grew from ${comparison} to ${omissionDebt}`);
+  }
+}
+
+function previousWritePointCounts() {
+  try {
+    const raw = execFileSync("git", ["show", "HEAD^:tools/write-road-registry.json"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    const previous = JSON.parse(raw);
+    if (!isObject(previous) || !Array.isArray(previous.rows)) return undefined;
+    const entries = previous.rows.flatMap((row) => asArray(row.directWrites));
+    if (entries.every((entry) => isObject(entry) && typeof entry.key === "string")) {
+      return {
+        coverage: entries.length,
+        omissionDebt: entries.filter((entry) => entry.classification === "omission-debt").length
+      };
+    }
+    const allowlistRaw = execFileSync("git", ["show", "HEAD^:tools/gate-allowlists/check-bypass-write-boundary.json"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    const allowlist = JSON.parse(allowlistRaw);
+    if (!isObject(allowlist) || !isObject(allowlist.entries)) return undefined;
+    return {
+      coverage: Object.values(allowlist.entries).flatMap(asArray).length,
+      omissionDebt: asArray(allowlist.entries.omissionDebt).length
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function covers(row, discovery) {
   if (discovery.type === "write-op-kind") return asArray(row.writeKinds).includes(discovery.writeOpKind);
   if (discovery.type === "machine-artifact-boundary") return asArray(row.machineArtifactBoundaries).includes(discovery.machineArtifactBoundary);
   if (discovery.type === "coordinator-callsite") return asArray(row.callsiteFiles).includes(discovery.file) || asArray(row.writeKinds).includes(discovery.writeOpKind);
   if (discovery.type === "direct-write") {
-    return asArray(row.directWrites).some((entry) =>
-      isObject(entry) &&
-      entry.file === discovery.file &&
-      (!entry.api || entry.api === discovery.api) &&
-      (!entry.command || entry.command === discovery.command)
-    );
+    return asArray(row.directWrites).some((entry) => isObject(entry) && entry.key === discovery.key);
   }
   if (discovery.type === "daemon-cli-action") return asArray(row.cliActions).includes(discovery.cliAction);
   if (discovery.type === "api-route") return asArray(row.apiRoutes).includes(discovery.apiRoute);
@@ -191,9 +259,10 @@ function discoverMachineArtifactBoundaries() {
 
 function discoverSourceSinks() {
   const out = [];
-  for (const rel of sourceRoots.flatMap(walkTypeScriptFiles)) {
+  for (const rel of sourceRoots.flatMap(walkProductionSourceFiles)) {
     const sourceFile = parseSource(rel);
-    const bindings = fsBindings(sourceFile);
+    const bindings = mutatingBindings(sourceFile);
+    const occurrences = new Map();
     visit(sourceFile, (node) => {
       if (!ts.isCallExpression(node)) return;
       const callName = calledIdentifier(node.expression);
@@ -207,14 +276,17 @@ function discoverSourceSinks() {
         out.push(discovery("coordinator-callsite", rel, node.expression, sourceFile, `coordinator.enqueue${writeOpKind ? ` ${writeOpKind}` : ""}`, { callName: "coordinator.enqueue", writeOpKind }));
         return;
       }
-      const api = calledFsApi(node.expression, bindings);
-      if (api) {
-        out.push(discovery("direct-write", rel, node.expression, sourceFile, `direct fs ${api}`, { api }));
+      const mutation = calledMutatingApi(node.expression, bindings);
+      if (mutation) {
+        const occurrence = (occurrences.get(mutation.api) ?? 0) + 1;
+        occurrences.set(mutation.api, occurrence);
+        const key = `${rel}#${mutation.api}@${occurrence}`;
+        out.push(discovery("direct-write", rel, node.expression, sourceFile, `direct ${mutation.kind} ${mutation.api}`, {
+          api: mutation.api,
+          mutationKind: mutation.kind,
+          key
+        }));
         return;
-      }
-      const command = directGitCommand(node);
-      if (command) {
-        out.push(discovery("direct-write", rel, node.expression, sourceFile, `direct git ${command}`, { command }));
       }
     });
   }
@@ -335,13 +407,6 @@ function coordinatedCallKind(node) {
   return undefined;
 }
 
-function directGitCommand(node) {
-  const callName = calledIdentifier(node.expression);
-  if (callName !== "execFileSync" && callName !== "execFile") return undefined;
-  const first = node.arguments[0];
-  return first && ts.isStringLiteralLike(first) && first.text === "git" ? "git" : undefined;
-}
-
 function stringProperty(object, name) {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property)) continue;
@@ -358,39 +423,72 @@ function propertyNameText(name) {
   return undefined;
 }
 
-function fsBindings(sourceFile) {
+function mutatingBindings(sourceFile) {
   const named = new Map();
-  const namespaces = new Set();
+  const namespaces = new Map();
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (statement.moduleSpecifier.text !== "node:fs" && statement.moduleSpecifier.text !== "node:fs/promises") continue;
-    const clause = statement.importClause;
-    if (!clause) continue;
-    if (clause.name) namespaces.add(clause.name.text);
-    const namedBindings = clause.namedBindings;
-    if (namedBindings && ts.isNamespaceImport(namedBindings)) namespaces.add(namedBindings.name.text);
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-      for (const element of namedBindings.elements) {
-        const imported = (element.propertyName ?? element.name).text;
-        if (fsWriteApis.has(imported)) named.set(element.name.text, imported);
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const moduleKind = moduleBindingKind(statement.moduleSpecifier.text);
+      if (!moduleKind) continue;
+      const clause = statement.importClause;
+      if (!clause) continue;
+      if (clause.name) namespaces.set(clause.name.text, moduleKind);
+      const namedBindings = clause.namedBindings;
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) namespaces.set(namedBindings.name.text, moduleKind);
+      if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          const imported = (element.propertyName ?? element.name).text;
+          if (apisFor(moduleKind).has(imported)) named.set(element.name.text, { api: imported, kind: moduleKind });
+        }
+      }
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const moduleKind = requiredModuleKind(declaration.initializer);
+      if (!moduleKind) continue;
+      if (ts.isIdentifier(declaration.name)) namespaces.set(declaration.name.text, moduleKind);
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          if (!ts.isIdentifier(element.name)) continue;
+          const imported = element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName.text : element.name.text;
+          if (apisFor(moduleKind).has(imported)) named.set(element.name.text, { api: imported, kind: moduleKind });
+        }
       }
     }
   }
   return { named, namespaces };
 }
 
-function calledFsApi(expression, bindings) {
+function calledMutatingApi(expression, bindings) {
   if (ts.isIdentifier(expression)) return bindings.named.get(expression.text);
   if (!ts.isPropertyAccessExpression(expression)) return undefined;
   if (ts.isPropertyAccessExpression(expression.expression) &&
     expression.expression.name.text === "promises" &&
-    bindings.namespaces.has(expression.expression.expression.getText())) {
+    bindings.namespaces.get(expression.expression.expression.getText()) === "fs") {
     const api = expression.name.text;
-    return fsWriteApis.has(api) ? api : undefined;
+    return fsWriteApis.has(api) ? { api, kind: "fs" } : undefined;
   }
-  if (!bindings.namespaces.has(expression.expression.getText())) return undefined;
+  const kind = bindings.namespaces.get(expression.expression.getText());
+  if (!kind) return undefined;
   const api = expression.name.text;
-  return fsWriteApis.has(api) ? api : undefined;
+  return apisFor(kind).has(api) ? { api, kind } : undefined;
+}
+
+function moduleBindingKind(moduleName) {
+  if (["fs", "fs/promises", "node:fs", "node:fs/promises"].includes(moduleName)) return "fs";
+  if (moduleName === "child_process" || moduleName === "node:child_process") return "process";
+  return undefined;
+}
+
+function requiredModuleKind(initializer) {
+  if (!initializer || !ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== "require") return undefined;
+  const moduleName = initializer.arguments[0];
+  return moduleName && ts.isStringLiteralLike(moduleName) ? moduleBindingKind(moduleName.text) : undefined;
+}
+
+function apisFor(kind) {
+  return kind === "fs" ? fsWriteApis : childProcessApis;
 }
 
 function calledIdentifier(expression) {
@@ -467,16 +565,29 @@ function uniqueDiscoveries(items) {
 }
 
 function parseSource(rel) {
-  return ts.createSourceFile(rel, readFileSync(path.join(root, rel), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return ts.createSourceFile(rel, readFileSync(path.join(root, rel), "utf8"), ts.ScriptTarget.Latest, true, scriptKind(rel));
 }
 
-function walkTypeScriptFiles(relRoot) {
+function walkProductionSourceFiles(relRoot) {
   const absRoot = path.join(root, relRoot);
   if (!existsSync(absRoot)) return [];
-  return ts.sys.readDirectory(absRoot, [".ts"], ["**/node_modules/**"], undefined)
-    .filter((entry) => statSync(entry).isFile() && !entry.endsWith(".d.ts"))
+  return ts.sys.readDirectory(absRoot, [".ts", ".tsx", ".js", ".mjs", ".cjs"], ["**/node_modules/**"], undefined)
+    .filter((entry) => statSync(entry).isFile() && isProductionSource(entry))
     .map((entry) => path.relative(root, entry).split(path.sep).join("/"))
     .sort();
+}
+
+function isProductionSource(entry) {
+  const normalized = entry.split(path.sep).join("/");
+  return !normalized.endsWith(".d.ts") &&
+    !/(?:^|\/)(?:fixtures?|test-fixtures)(?:\/|$)/u.test(normalized) &&
+    !/(?:^|\.)test\.[^/]+$/u.test(normalized);
+}
+
+function scriptKind(rel) {
+  if (rel.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (rel.endsWith(".ts")) return ts.ScriptKind.TS;
+  return ts.ScriptKind.JS;
 }
 
 function walkJsonFiles(relRoot) {

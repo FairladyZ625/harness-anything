@@ -2206,11 +2206,12 @@
         "task_01KWW58383X74ZK28Y068CQ2TG",
         "dec_mr9acuxm",
         "dec_GATE_DEFENSE_ROOT_CAUSE",
-        "tools/migrate-bypass-write-anchors.mjs"
+        "tools/migrate-bypass-write-anchors.mjs",
+        "task_01KXW81JKDB6M4V8BTBSYX4G2F"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/kernel/src/store, packages/kernel/src/persistence, packages/kernel/src/write-coordination, packages/adapters/local/src, and packages/cli/src/commands",
-        "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
+        "AST-classified filesystem mutation and child_process calls in every workspace package source root and tools",
+        "ADR-0016 D1 and ADR-0028 D5 bypass closure with exact occurrence registrations and omission-debt ratchet"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -2227,13 +2228,14 @@
         "allowed": true,
         "location": "tools/gate-allowlists/check-bypass-write-boundary.json",
         "adrOrDecisionRequired": true,
-        "notes": "W8 seals bypass fs writes with a structural AST rule; allowlist entries must cite explicit W8 channel classification or C0 coordinator internals."
+        "notes": "W4 extends the structural AST rule to all production package roots and tools; every stable occurrence cites coordinator ownership, a design exemption, or explicit omission debt."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-bypass-write-boundary.mjs",
+          "tools/child-process-apis.mjs",
           "tools/migrate-bypass-write-anchors.mjs",
           "tools/gate-allowlists/check-bypass-write-boundary.json",
           "package.json:scripts.harness:check-bypass-write-boundary",
@@ -2286,11 +2288,12 @@
         "dec_mrcda9kw",
         "dec_mrcu2kud",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md",
-        "tools/write-road-registry.json"
+        "tools/write-road-registry.json",
+        "task_01KXW81JKDB6M4V8BTBSYX4G2F"
       ],
       "consumerScope": [
         "AST-derived WriteOpKind and machine artifact boundary coverage",
-        "AST-derived coordinator callsites and direct fs/git write sinks",
+        "AST-derived coordinator callsites and exact filesystem/process mutation occurrences across every workspace package source root and tools",
         "daemon repo.command.run write-classified actions",
         "mutating GUI/API routes",
         "preset/script declared writes and produces"
@@ -2310,7 +2313,7 @@
         "allowed": true,
         "location": "tools/write-road-registry.json",
         "adrOrDecisionRequired": true,
-        "notes": "Registry rows are the external authority for write road and write-channel classification; checker code only derives discoveries and validates coverage."
+        "notes": "Registry rows are the external authority for write road and exact write-point ownership/classification; checker code derives full-root discoveries, rejects stale registrations, and ratchets omission debt."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2318,6 +2321,7 @@
         "protectedSurfaces": [
           "tools/check-write-road-registry.mjs",
           "tools/check-write-road-registry.test.mjs",
+          "tools/child-process-apis.mjs",
           "tools/write-road-registry.json",
           "package.json:scripts.harness:check-write-road-registry",
           "tools/gate-manifest.json"

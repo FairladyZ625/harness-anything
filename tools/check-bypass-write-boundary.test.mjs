@@ -96,6 +96,46 @@ test("bypass write boundary governs daemon fs writes", () => {
   }
 });
 
+test("bypass write boundary scans every workspace source root", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeFileSync(path.join(root, "packages/application/src/fixture.ts"), [
+      "import { writeFileSync } from 'node:fs';",
+      "export function bypass() {",
+      "  writeFileSync('unregistered.json', '{}', 'utf8');",
+      "}"
+    ].join("\n"), "utf8");
+    writeAllowlist(policyRoot);
+
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/application\/src\/fixture\.ts#writeFileSync@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
+test("bypass write boundary scans tools process creation", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeFileSync(path.join(root, "tools/fixture.cjs"), [
+      "const { spawnSync } = require('child_process');",
+      "spawnSync(process.execPath, ['--version']);"
+    ].join("\n"), "utf8");
+    writeAllowlist(policyRoot);
+
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tools\/fixture\.cjs#spawnSync@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("bypass write boundary governs kernel write-coordination fs writes", () => {
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
@@ -172,11 +212,19 @@ test("bypass write anchor migration converts legacy positions mechanically", () 
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-w8-boundary-"));
+  writeFileSync(path.join(root, "package.json"), JSON.stringify({ workspaces: ["packages/*"] }), "utf8");
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/write-coordination"), { recursive: true });
+  mkdirSync(path.join(root, "packages/application/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
+  mkdirSync(path.join(root, "tools"), { recursive: true });
+  for (const packageRoot of ["kernel", "application", "daemon", "cli"]) {
+    writeFileSync(path.join(root, `packages/${packageRoot}/package.json`), JSON.stringify({ name: `fixture-${packageRoot}` }), "utf8");
+  }
+  mkdirSync(path.join(root, "packages/adapters/local"), { recursive: true });
+  writeFileSync(path.join(root, "packages/adapters/local/package.json"), JSON.stringify({ name: "fixture-local" }), "utf8");
   return root;
 }
 
@@ -191,10 +239,11 @@ function writeAllowlist(policyRoot, allowedValue = "packages/kernel/src/store/un
     reason: "fixture placeholder"
   }];
   const entries = {
-    coordinatedCore: entry,
-    exemptHumanOrBootstrap: entry,
-    legacyArchive: entry,
-    freshGateRegistry: entry
+      coordinatedCore: entry,
+      exemptHumanOrBootstrap: entry,
+      legacyArchive: entry,
+      freshGateRegistry: entry,
+      omissionDebt: []
   };
   writeFileSync(path.join(policyRoot, "check-bypass-write-boundary.json"), JSON.stringify({
     schema: "harness-anything/gate-allowlist/v1",

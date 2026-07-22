@@ -71,7 +71,7 @@ test("write-road registry rejects an unregistered direct fs write", () => {
     });
     const result = runChecker(root);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /unregistered-fs\.ts#direct-write/u);
+    assert.match(result.stderr, /unregistered-fs\.ts#writeFileSync@1/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -93,7 +93,28 @@ test("write-road registry derives a newly added package source root from workspa
     const result = runChecker(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/newcomer\/src\/unregistered-fs\.ts#direct-write/u);
+    assert.match(result.stderr, /packages\/newcomer\/src\/unregistered-fs\.ts#writeFileSync@1/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry rejects an unregistered tools process boundary", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      file: {
+        "tools/unregistered-process.cjs": [
+          "const { spawnSync } = require('child_process');",
+          "spawnSync(process.execPath, ['--version']);"
+        ]
+      }
+    });
+
+    const result = runChecker(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /tools\/unregistered-process\.cjs#spawnSync@1/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -231,6 +252,10 @@ function makeRegistry() {
     rowCountReconciliation: {
       phase1FunctionalRows: 26,
       registryRows: 1
+    },
+    writePointRatchet: {
+      previousCoverage: 0,
+      previousOmissionDebt: 0
     },
     rows: [{
       id: "fixture.covered",

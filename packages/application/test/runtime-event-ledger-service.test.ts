@@ -61,31 +61,10 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
   }
 });
 
-test("runtime event ledger fails closed without a coordinator", async () => {
-  const rootDir = createHarnessRoot();
-  try {
-    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
-    const exit = await runEffectExit(ledger.append({
-      kind: "result",
-      actor: {
-        principal: { kind: "person", personId: "person_zeyu" },
-        executor: null
-      },
-      session: { sessionId: "codex-no-coordinator", runtime: "codex" },
-      result: { status: "failed" }
-    }));
-    assert.equal(exit._tag, "Failure");
-    assert.match(String(exit.cause), /requires a write coordinator/u);
-    assert.equal(existsSync(path.join(rootDir, ".harness/generated/runtime-events/codex-no-coordinator.jsonl")), false);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test("runtime event ledger reads legacy v1 rows without actor", async () => {
   const rootDir = createHarnessRoot();
   try {
-    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
+    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir, coordinator: runtimeEventCoordinator(rootDir) });
     const ledgerDir = path.join(rootDir, ".harness/generated/runtime-events");
     mkdirSync(ledgerDir, { recursive: true });
     writeFileSync(path.join(ledgerDir, "codex-session-1.jsonl"), `${JSON.stringify({
@@ -115,7 +94,7 @@ test("runtime event ledger reads legacy v1 rows without actor", async () => {
 test("runtime event ledger fails closed on invalid JSONL records", async () => {
   const rootDir = createHarnessRoot();
   try {
-    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
+    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir, coordinator: runtimeEventCoordinator(rootDir) });
     const ledgerDir = path.join(rootDir, ".harness/generated/runtime-events");
     mkdirSync(ledgerDir, { recursive: true });
     writeFileSync(path.join(ledgerDir, "codex-session-1.jsonl"), "{\"schema\":\"runtime-event/v1\",\"eventId\":\"bad\"}\n", "utf8");

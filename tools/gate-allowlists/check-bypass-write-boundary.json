@@ -1400,6 +1400,1416 @@
         "ref": "task_01KXZTWY17ZVH5FWRCRV86J16C",
         "reason": "S1 daemon generation/machine-id operational record publication: daemon-owned durable identity files outside authored truth; exclusive-create + fsync + rename discipline, registered in write-road registry."
       }
-    ]
+    ],
+    "fullRootDesignedProduction": [
+      {
+        "value": "packages/adapters/github-issues/src/auth.ts#execFile@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/adapters/github-issues/src/auth.ts owns this declared external helper/runtime execFile boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/adapters/local/src/git-diff-evidence.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/git-diff-evidence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/adapters/local/src/index.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/index.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/adapters/local/src/index.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/index.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/adapters/local/src/projection-source-fence.ts#execFile@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/projection-source-fence.ts this exact execFile call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/adapters/local/src/projection-source-fence.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/projection-source-fence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/adapters/local/src/projection-source-fence.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/adapters/local/src/projection-source-fence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/core/authored-git.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/cli/src/commands/core/authored-git.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/core/authored-git.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/cli/src/commands/core/authored-git.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/core/decision-content-pin-verifier.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/cli/src/commands/core/decision-content-pin-verifier.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/core/gui.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/commands/core/gui.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/commands/core/gui.ts#spawn@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/commands/core/gui.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/commands/core/task-contract-history.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.document.write-stage assigns packages/cli/src/commands/core/task-contract-history.ts this exact execFileSync call for doc-sync-allowed/task-authored-prose-or-stage; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/core/worktree.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row worktree.binding-cache assigns packages/cli/src/commands/core/worktree.ts this exact execFileSync call for generated-local/non-sot-cache; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/productization.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/daemon/productization.ts this exact execFileSync call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/productization.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/daemon/productization.ts this exact execFileSync call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/productization.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/daemon/productization.ts this exact spawn call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/productization.ts#spawn@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/daemon/productization.ts this exact spawn call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/productization.ts#spawn@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/daemon/productization.ts this exact spawn call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/snapshot.ts#execFileSync@6",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.snapshot.install assigns packages/cli/src/commands/daemon/snapshot.ts this exact execFileSync call for runtime-local-durable/non-sot-installed-artifact; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/sshd-witness.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/commands/daemon/sshd-witness.ts owns this declared external helper/runtime execFileSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/sshd-witness.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/commands/daemon/sshd-witness.ts owns this declared external helper/runtime execFileSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/commands/doctor.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/cli/src/commands/doctor.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/architecture/contracts/architecture-javascript-typescript-extractor.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/architecture/contracts/architecture-javascript-typescript-extractor.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs#writeFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-render.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/adr-seed.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-check.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-check.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-init.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/architecture-snapshot.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/decision-conformance-check.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/decision-conformance-check.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/assets/software-coding/scripts/repository-audit.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: bundled preset script packages/cli/src/commands/extensions/assets/software-coding/scripts/repository-audit.mjs writes only its declared staging/output scope; runner manifest validation and coordinator ingest own any canonical authored promotion."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-executor.ts#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/commands/extensions/script-executor.ts owns this declared external helper/runtime spawnSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-host.ts#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row script-run.declared-write-scopes assigns packages/cli/src/commands/extensions/script-host.ts this exact spawnSync call for declared-script-scope/dynamic-output; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-repository-context.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/cli/src/commands/extensions/script-repository-context.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/init.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/init.ts this exact execFileSync call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/commands/init.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row repository.bootstrap.admin assigns packages/cli/src/commands/init.ts this exact execFileSync call for admin-bootstrap/repository-local; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/daemon/client.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/cli/src/daemon/client.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/cli/src/daemon/daemon-launch-spec.ts#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.service-launch-spec.persist assigns packages/cli/src/daemon/daemon-launch-spec.ts this exact mkdirSync call for runtime-local-durable/non-sot-service-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/daemon/daemon-launch-spec.ts#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.service-launch-spec.persist assigns packages/cli/src/daemon/daemon-launch-spec.ts this exact renameSync call for runtime-local-durable/non-sot-service-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/daemon/daemon-launch-spec.ts#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.service-launch-spec.persist assigns packages/cli/src/daemon/daemon-launch-spec.ts this exact rmSync call for runtime-local-durable/non-sot-service-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/daemon/daemon-launch-spec.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.service-launch-spec.persist assigns packages/cli/src/daemon/daemon-launch-spec.ts this exact spawn call for runtime-local-durable/non-sot-service-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/daemon/daemon-launch-spec.ts#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.service-launch-spec.persist assigns packages/cli/src/daemon/daemon-launch-spec.ts this exact writeFileSync call for runtime-local-durable/non-sot-service-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#closeSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact closeSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#closeSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact closeSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#closeSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact closeSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#fsyncSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact fsyncSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#fsyncSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact fsyncSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact mkdirSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#openSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact openSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#openSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact openSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact renameSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/cli/src/receipt/durable-store.ts#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row receipt.compound.durable-store assigns packages/cli/src/receipt/durable-store.ts this exact writeFileSync call for runtime-local-durable/compound-receipt-crash-recovery; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/agent-runtime/auth-profiles.ts#execFile@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/agent-runtime/auth-profiles.ts owns this declared external helper/runtime execFile boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/agent-runtime/host-discovery.ts#execFile@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/agent-runtime/host-discovery.ts owns this declared external helper/runtime execFile boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/agent-runtime/protocol-adapters.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/agent-runtime/protocol-adapters.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/publication-evidence.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/publication-evidence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/authority/production/publication-evidence.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/publication-evidence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/client/local-json-rpc-client.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/client/local-json-rpc-client.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/compound-receipt-composition.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row broker.local-view.native-apply assigns packages/daemon/src/lifecycle/compound-receipt-composition.ts this exact execFileSync call for broker-local-view/transparent-view-materialization; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/compound-receipt-composition.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row broker.local-view.native-apply assigns packages/daemon/src/lifecycle/compound-receipt-composition.ts this exact execFileSync call for broker-local-view/transparent-view-materialization; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-log-file-store.ts#appendFile@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.operational-log.local-store assigns packages/daemon/src/lifecycle/daemon-log-file-store.ts this exact appendFile call for runtime-local-durable/non-sot-diagnostic-log; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-log-file-store.ts#mkdir@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.operational-log.local-store assigns packages/daemon/src/lifecycle/daemon-log-file-store.ts this exact mkdir call for runtime-local-durable/non-sot-diagnostic-log; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/lifecycle/daemon-log-file-store.ts#unlink@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.operational-log.local-store assigns packages/daemon/src/lifecycle/daemon-log-file-store.ts this exact unlink call for runtime-local-durable/non-sot-diagnostic-log; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/platform/mount-observation.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/platform/mount-observation.ts owns this declared external helper/runtime execFileSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/platform/mount-observation.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/platform/mount-observation.ts owns this declared external helper/runtime execFileSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/platform/mount-observation.ts#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/platform/mount-observation.ts owns this declared external helper/runtime execFileSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/service/doc-sync-service.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.document.write-stage assigns packages/daemon/src/service/doc-sync-service.ts this exact execFileSync call for doc-sync-allowed/task-authored-prose-or-stage; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/service/doc-sync-service.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.document.write-stage assigns packages/daemon/src/service/doc-sync-service.ts this exact execFileSync call for doc-sync-allowed/task-authored-prose-or-stage; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/daemon/src/terminal/pty-host.ts#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/terminal/pty-host.ts owns this declared external helper/runtime spawnSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/terminal/pty-host.ts#spawnSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/terminal/pty-host.ts owns this declared external helper/runtime spawnSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/terminal/pty-host.ts#spawnSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/terminal/pty-host.ts owns this declared external helper/runtime spawnSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/transport/node-socket-peer-credential.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/transport/node-socket-peer-credential.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/daemon/src/transport/persistent-ssh-authority-client.ts#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/daemon/src/transport/persistent-ssh-authority-client.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/gui/src/main/local-composition-root.ts#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: packages/gui/src/main/local-composition-root.ts owns this declared external helper/runtime spawnSync boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact mkdirSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact mkdirSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#mkdirSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact mkdirSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#mkdirSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact mkdirSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact renameSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact rmSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact rmSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#rmSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact rmSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#symlinkSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact symlinkSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/daemon/registry.ts#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row daemon.runtime-registration.registry-projection assigns packages/kernel/src/daemon/registry.ts this exact writeFileSync call for runtime-local-durable/non-sot-operational-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#closeSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact closeSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact mkdirSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#openSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact openSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact renameSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact rmSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact writeFileSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/local/local-layout-file-system.ts#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row task.holder.runtime-state assigns packages/kernel/src/local/local-layout-file-system.ts this exact writeFileSync call for coordinator-runtime-state/task-holder-runtime-state; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/persistence/git/local-version-control-system.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/kernel/src/persistence/git/local-version-control-system.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/persistence/git/local-version-control-system.ts#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/kernel/src/persistence/git/local-version-control-system.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/persistence/git/local-version-control-system.ts#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/kernel/src/persistence/git/local-version-control-system.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/projection/post-merge-checks.ts#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row public-code-change.git assigns packages/kernel/src/projection/post-merge-checks.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row governance.projection.rebuild assigns packages/kernel/src/projection/sqlite-projection-store.ts this exact mkdirSync call for generated-local/non-sot-projection; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row governance.projection.rebuild assigns packages/kernel/src/projection/sqlite-projection-store.ts this exact renameSync call for generated-local/non-sot-projection; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row governance.projection.rebuild assigns packages/kernel/src/projection/sqlite-projection-store.ts this exact rmSync call for generated-local/non-sot-projection; it does not bypass a canonical entity coordinator road."
+      },
+      {
+        "value": "packages/kernel/src/projection/sqlite-projection-store.ts#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: write-road row governance.projection.rebuild assigns packages/kernel/src/projection/sqlite-projection-store.ts this exact rmSync call for generated-local/non-sot-projection; it does not bypass a canonical entity coordinator road."
+      }
+    ],
+    "fullRootDesignedTooling": [
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#rmSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-cli-daemon-parity.mjs#writeFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-cli-daemon-parity.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-integration-test-shards.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-integration-test-shards.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-integration-test-shards.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-integration-test-shards.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-integration-test-shards.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-integration-test-shards.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-integration-test-shards.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-integration-test-shards.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-integration-test-shards.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-integration-test-shards.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-legacy-intake-readiness.mjs#closeSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-legacy-intake-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact closeSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-legacy-intake-readiness.mjs#openSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-legacy-intake-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact openSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-legacy-intake-readiness.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-legacy-intake-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-legacy-intake-readiness.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-legacy-intake-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-pr-governance.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-pr-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-private-boundary.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-private-boundary.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-private-boundary.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-private-boundary.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-runtime-release-readiness.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-runtime-release-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-supply-chain.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-supply-chain.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-write-road-registry.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-write-road-registry.mjs reads the previous committed registry/allowlist through this exact execFileSync call to report and enforce the write-point ratchet; it does not author registered entity SoT."
+      },
+      {
+        "value": "tools/check-write-road-registry.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/check-write-road-registry.mjs reads the previous committed registry/allowlist through this exact execFileSync call to report and enforce the write-point ratchet; it does not author registered entity SoT."
+      },
+      {
+        "value": "tools/clear-incremental-artifacts.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/clear-incremental-artifacts.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/clear-incremental-artifacts.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/clear-incremental-artifacts.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/codemod-package-imports.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/codemod-package-imports.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/codemod-package-imports.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/codemod-package-imports.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/duplicate-soft-delete.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/duplicate-soft-delete.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/duplicate-soft-delete.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/duplicate-soft-delete.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/duplicate-soft-delete.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/duplicate-soft-delete.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/gate-allowlists/load-gate-allowlist.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/gate-allowlists/load-gate-allowlist.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/generate-architecture-manifest-schema.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/generate-architecture-manifest-schema.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/generate-preset-manifest-contract.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/generate-preset-manifest-contract.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/generate-write-journal-contract.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/generate-write-journal-contract.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#mkdirSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#renameSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact renameSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#rmSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#rmSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/local-resource-governance.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/local-resource-governance.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/main-watch.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/main-watch.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/migrate-bypass-write-anchors.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/migrate-bypass-write-anchors.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/attribution-union-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/attribution-union-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/attribution-union-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/attribution-union-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/attribution-union-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/attribution-union-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/attribution-union-benchmark.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/attribution-union-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/attribution-union-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/attribution-union-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-concurrency-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-concurrency-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/authority-profile-preload.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/authority-profile-preload.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#execFileSync@6",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/fact-relation-v2-benchmark.mjs#writeFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/fact-relation-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#mkdirSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#mkdirSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@10",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@11",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@6",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@7",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@8",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/gui-projection-benchmark.mjs#writeFileSync@9",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/gui-projection-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/paired-qualification-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/paired-qualification-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/paired-qualification-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/paired-qualification-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/paired-qualification-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/paired-qualification-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/paired-qualification-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/paired-qualification-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/paired-qualification-benchmark.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/paired-qualification-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#execFileSync@6",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/session-execution-review-v2-benchmark.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/session-execution-review-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#execFileSync@6",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/perf/task-decision-module-v2-benchmark.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/perf/task-decision-module-v2-benchmark.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/post-merge-runtime-refresh.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/post-merge-runtime-refresh.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/post-merge-runtime-refresh.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/post-merge-runtime-refresh.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/post-merge-runtime-refresh.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/post-merge-runtime-refresh.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/receipt-honesty-bench.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/receipt-honesty-bench.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/receipt-honesty-bench.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/receipt-honesty-bench.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/receipt-honesty-bench.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/receipt-honesty-bench.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/receipt-honesty-bench.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/receipt-honesty-bench.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/receipt-honesty-bench.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/receipt-honesty-bench.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/relation-weathering-spike.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/relation-weathering-spike.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/relation-weathering-spike.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/relation-weathering-spike.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-ci-equivalent.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-ci-equivalent.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-ci-equivalent.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-ci-equivalent.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-gui-e2e-tests.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-gui-e2e-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-gui-e2e-tests.mjs#spawnSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-gui-e2e-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-gui-tests.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-gui-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-local-check.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-local-check.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-local-gates-check.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-local-gates-check.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-manifest-gates.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-manifest-gates.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-node-tests.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-node-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-node-tests.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-node-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-node-tests.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-node-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-node-tests.mjs#spawn@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-node-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-node-tests.mjs#spawn@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-node-tests.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-staged-activation.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-staged-activation.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-stop-point.mjs#spawnSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-stop-point.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/run-with-local-resources.mjs#spawn@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/run-with-local-resources.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawn call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#execFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#execFileSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#execFileSync@4",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#execFileSync@5",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#mkdirSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#mkdirSync@3",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-cli-package.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-cli-package.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-direct-recovery.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-direct-recovery.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-direct-recovery.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-direct-recovery.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-direct-recovery.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-direct-recovery.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-legacy-intake.mjs#execFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-legacy-intake.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-legacy-intake.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-legacy-intake.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-legacy-intake.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-legacy-intake.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-legacy-intake.mjs#writeFileSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-legacy-intake.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/smoke-legacy-intake.mjs#writeFileSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/smoke-legacy-intake.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/sync-runtime-skills.mjs#mkdirSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/sync-runtime-skills.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact mkdirSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/sync-runtime-skills.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/sync-runtime-skills.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/sync-runtime-skills.mjs#rmSync@2",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/sync-runtime-skills.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/sync-runtime-skills.mjs#symlinkSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/sync-runtime-skills.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact symlinkSync call does not author registered entity SoT."
+      },
+      {
+        "value": "tools/test-process-environment.mjs#rmSync@1",
+        "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "reason": "Design exemption: tools/test-process-environment.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact rmSync call does not author registered entity SoT."
+      }
+    ],
+    "omissionDebt": []
   }
 }
