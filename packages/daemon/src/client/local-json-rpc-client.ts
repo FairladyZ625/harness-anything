@@ -19,6 +19,7 @@ import {
   createDaemonLaunchConfiguration,
   type DaemonLaunchConfiguration
 } from "./daemon-launch-configuration.ts";
+import { DaemonRepoRootResolutionError } from "./daemon-repo-root-resolution-error.ts";
 import { daemonSocketConnectError } from "./daemon-socket-namespace.ts";
 import {
   DaemonJsonRpcRequestTimeoutError,
@@ -227,7 +228,7 @@ export function resolveLocalDaemonTarget(input: {
     });
   }
 
-  throw new Error(`current root is not registered with the user daemon registry. Run: ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
+  throw new DaemonRepoRootResolutionError(path.resolve(input.rootDir));
 }
 
 export async function requestLocalDaemonJsonRpc(

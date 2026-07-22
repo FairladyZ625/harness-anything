@@ -3,6 +3,7 @@ import type { CliResult } from "./types.ts";
 
 export interface GlobalParseOptions {
   readonly rootDir: string;
+  readonly rootResolutionSource: "explicit-override" | "local-cwd";
   readonly authoredRoot?: string;
   readonly daemonRepoId?: string;
   readonly actor?: string;
@@ -13,7 +14,9 @@ export interface GlobalParseOptions {
 }
 
 export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cwd()): GlobalParseOptions {
-  const rootDir = readOption(argv, "--root") ?? cwd;
+  const explicitRoot = readOption(argv, "--root");
+  const rootDir = explicitRoot ?? cwd;
+  const rootResolutionSource = explicitRoot === undefined ? "local-cwd" : "explicit-override";
   const authoredRoot = readOption(argv, "--authored-root") ?? readNonEmptyProcessEnv("HARNESS_AUTHORED_ROOT");
   const daemonRepoId = readOption(argv, "--repo") ?? readNonEmptyProcessEnv("HARNESS_DAEMON_REPO_ID");
   const actor = readOption(argv, "--actor");
@@ -36,7 +39,7 @@ export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cw
       && arg !== "--daemon-profile"
       && previous !== "--daemon-profile";
   });
-  return { rootDir, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args };
+  return { rootDir, rootResolutionSource, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args };
 }
 
 function readDaemonMode(value: string | undefined): GlobalParseOptions["daemonMode"] {

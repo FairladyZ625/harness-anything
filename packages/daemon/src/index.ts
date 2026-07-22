@@ -50,6 +50,7 @@ export {
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget
 } from "./client/local-json-rpc-client.ts";
+export { DaemonRepoRootResolutionError } from "./client/daemon-repo-root-resolution-error.ts";
 export * from "./authority/index.ts";
 export * from "./authority/authority-command-submission.ts";
 export * from "./authority/authority-cutover-command.ts";

@@ -7,6 +7,7 @@ export interface CommandGroupDefinition {
 }
 
 export const globalCommandOptions = [
+  { flag: "--root DIR", description: "Use DIR as the harness repository root." },
   { flag: "--json", description: "Emit machine-readable JSON." }
 ] as const satisfies ReadonlyArray<CommandOptionDefinition>;
 

@@ -8,21 +8,28 @@ import type { CliResult, ParsedCommand } from "./types.ts";
 import { withDeprecatedInvocation } from "./command-deprecations.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
-  const { rootDir, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args: rawArgs } = stripGlobalOptions(argv);
+  const { rootDir, rootResolutionSource, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args: rawArgs } = stripGlobalOptions(argv);
   const jsonInput = applyJsonInputLayer(rawArgs, process.cwd());
   if (!jsonInput.ok) return { ok: false, error: jsonInput.error };
   const args = jsonInput.args;
   const layoutOverrides = authoredRoot ? { authoredRoot } : undefined;
 
   const help = parseHelpRequest(args, rootDir, json, layoutOverrides);
-  if (help) return attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(help, daemonRepoId), actor), daemonMode, daemonProfile), args);
+  if (help) return attachRootResolutionSource(attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(help, daemonRepoId), actor), daemonMode, daemonProfile), args), rootResolutionSource);
 
   const parsed = parseRegisteredCommand(args, rootDir, json, jsonInput.input);
-  if (parsed) return attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor), daemonMode, daemonProfile), args);
+  if (parsed) return attachRootResolutionSource(attachDeprecation(attachDaemonOverrides(attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor), daemonMode, daemonProfile), args), rootResolutionSource);
   return {
     ok: false,
     error: cliError(CliErrorCode.UnknownCommand, unknownCommandHint(args))
   };
+}
+
+function attachRootResolutionSource(
+  parsed: { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] },
+  rootResolutionSource: NonNullable<ParsedCommand["rootResolutionSource"]>
+): typeof parsed {
+  return parsed.ok ? { ok: true, value: { ...parsed.value, rootResolutionSource } } : parsed;
 }
 
 function attachDeprecation(

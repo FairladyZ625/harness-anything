@@ -2,6 +2,7 @@ Usage: harness-anything <kind> [options]
 Alias: ha <kind> [options]
 
 Global options:
+  --root DIR         Use DIR as the harness repository root.
   --json             Emit machine-readable JSON.
 
 Commands:
