@@ -15,23 +15,18 @@ import {
   type DaemonReplacementStopRuntime
 } from "./replacement-cleanup.ts";
 import {
-  daemonControlFailure,
-  incompleteReplacementReason,
-  isCompleteReplacement,
   normalizeDaemonLifecycleStatus,
-  replacementIdentityIsInvalid,
-  type DaemonGenerationConvergenceExpectation,
-  type DaemonLifecycleStatus
 } from "./control-convergence.ts";
+import {
+  completeDaemonReplacement,
+  type DaemonControlLifecycle,
+  type DaemonControlRecoveryGuidance
+} from "./control-replacement.ts";
 import {
   acceptedGenerationExpectation,
   generationExpectationFromCapabilityStatus
 } from "./control-generation-capability.ts";
-import {
-  daemonRecoveryCommand,
-  quoteDaemonRecoveryArgument,
-  rollbackDaemonReplacement
-} from "./snapshot-rollback.ts";
+import { quoteDaemonRecoveryArgument } from "./snapshot-rollback.ts";
 
 export type DaemonControlKind = "restart" | "refresh";
 type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
@@ -41,24 +36,7 @@ export interface DaemonControlRequest {
   readonly params: JsonObject;
 }
 
-export interface DaemonControlLifecycle {
-  readonly target: LocalDaemonTarget;
-  readonly probeGenerationStatus?: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
-  readonly probeStatus: (
-    target: LocalDaemonTarget,
-    capability?: { readonly includeGenerationAxes: true }
-  ) => Promise<Record<string, unknown> | undefined>;
-  readonly ownerIsAlive: (pid: number) => boolean;
-  readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonLaunchConfiguration>;
-  readonly startReplacement: (
-    target: LocalDaemonTarget,
-    timeoutMs: number,
-    launchConfiguration: DaemonLaunchConfiguration,
-    capability?: { readonly includeGenerationAxes: true }
-  ) => Promise<Record<string, unknown>>;
-  readonly stopReplacement?: (target: LocalDaemonTarget, pid: number, timeoutMs: number) => Promise<void>;
-  readonly wait: (ms: number) => Promise<void>;
-}
+export type { DaemonControlLifecycle } from "./control-replacement.ts";
 
 export interface DaemonControlCommandInput {
   readonly rootDir: string;
@@ -71,11 +49,6 @@ export interface DaemonControlCommandInput {
   readonly platform?: NodeJS.Platform;
   readonly replacementEntrypoint?: string;
 }
-
-type DaemonControlHandoff =
-  | { readonly kind: "adopt"; readonly status: Record<string, unknown> }
-  | { readonly kind: "reject"; readonly status: DaemonLifecycleStatus }
-  | { readonly kind: "autostart" };
 
 class DaemonRefreshWrongCheckoutError extends Error {
   constructor() {
@@ -139,19 +112,24 @@ export async function runDaemonControl(
   const expectedIdentity = kind === "refresh"
     ? preparedExpectedIdentity ?? calculateInstalledIdentity(input, launchConfiguration.entrypoint)
     : undefined;
-  const replacement = await completeDaemonReplacement(
+  const replacement = await completeDaemonReplacement({
     lifecycle,
-    before.pid,
-    before.loadedIdentity,
-    receipt.operationId,
-    drainTimeoutMs,
+    beforePid: before.pid,
+    beforeLoadedIdentity: before.loadedIdentity,
+    operationId: receipt.operationId,
+    timeoutMs: drainTimeoutMs,
     kind,
     method,
     launchConfiguration,
     expectedIdentity,
     expectedGeneration,
-    input.replacementEntrypoint ? preparedRunningLaunchConfiguration : undefined
-  );
+    ...(input.replacementEntrypoint && preparedRunningLaunchConfiguration
+      ? {
+          rollbackLaunchConfiguration: preparedRunningLaunchConfiguration,
+          upgradeRecovery: daemonControlRecoveryGuidance(input.args, lifecycle.target.userRoot)
+        }
+      : {})
+  });
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
     ...controlResult,
@@ -205,151 +183,6 @@ function validateAcceptedControlReceipt(
     || receipt.operationId.length === 0) {
     throw new Error(`${method} did not return daemon-control-accepted/v1`);
   }
-}
-
-async function completeDaemonReplacement(
-  lifecycle: DaemonControlLifecycle,
-  beforePid: unknown,
-  beforeLoadedIdentity: unknown,
-  operationId: unknown,
-  timeoutMs: number,
-  kind: DaemonControlKind,
-  method: DaemonControlRequest["method"],
-  launchConfiguration: DaemonLaunchConfiguration,
-  expectedIdentity: string | undefined,
-  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined,
-  rollbackLaunchConfiguration?: DaemonLaunchConfiguration
-): Promise<Record<string, unknown>> {
-  if (!isPositivePid(beforePid)) {
-    throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
-  }
-  if (typeof beforeLoadedIdentity !== "string" || typeof operationId !== "string") {
-    throw new Error(`${method} accepted receipt did not identify the loaded build and operation`);
-  }
-  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, operationId, timeoutMs, expectedIdentity, expectedGeneration);
-  if (handoff.kind === "adopt") return handoff.status;
-  if (handoff.kind === "reject") {
-    await rejectIncompleteReplacement(lifecycle, handoff.status, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
-  }
-  let replacement: Record<string, unknown>;
-  try {
-    replacement = await lifecycle.startReplacement(
-      lifecycle.target,
-      timeoutMs,
-      launchConfiguration,
-      expectedGeneration ? { includeGenerationAxes: true } : undefined
-    );
-  } catch (error) {
-    const failure = new Error(
-      `DAEMON_${kind.toUpperCase()}_REPLACEMENT_FAILED_AFTER_HANDOFF: ${error instanceof Error ? error.message : String(error)}. `
-      + `Restore the daemon with: ${daemonRecoveryCommand(rollbackLaunchConfiguration ?? launchConfiguration)}`
-    );
-    if (!rollbackLaunchConfiguration) throw failure;
-    return await rollbackDaemonReplacement({
-      lifecycle, replacementFailure: failure, beforePid, beforeLoadedIdentity, operationId,
-      timeoutMs, kind, launchConfiguration: rollbackLaunchConfiguration, expectedGeneration
-    });
-  }
-  try {
-    const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
-    if (!replacementLifecycle) {
-      throw new Error(`daemon ${kind} replacement did not return a reachable started daemon status`);
-    }
-    if (replacementLifecycle.pid === beforePid) {
-      throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}; replacement was not signaled`);
-    }
-    return await waitForStartedReplacement(
-      lifecycle,
-      replacement,
-      replacementLifecycle,
-      beforePid,
-      operationId,
-      timeoutMs,
-      kind,
-      expectedIdentity,
-      expectedGeneration
-    );
-  } catch (error) {
-    if (!rollbackLaunchConfiguration) throw error;
-    return await rollbackDaemonReplacement({
-      lifecycle, replacementFailure: error, beforePid, beforeLoadedIdentity, operationId,
-      timeoutMs, kind, launchConfiguration: rollbackLaunchConfiguration, expectedGeneration
-    });
-  }
-}
-
-async function waitForStartedReplacement(
-  lifecycle: DaemonControlLifecycle,
-  initialStatus: Record<string, unknown>,
-  initialLifecycle: DaemonLifecycleStatus,
-  beforePid: number,
-  operationId: string,
-  timeoutMs: number,
-  kind: DaemonControlKind,
-  expectedIdentity: string | undefined,
-  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
-): Promise<Record<string, unknown>> {
-  let status = initialStatus;
-  let replacement = initialLifecycle;
-  const pollIntervalMs = 100;
-  const attempts = Math.ceil(timeoutMs / pollIntervalMs) + 1;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (replacement.pid === beforePid) {
-      throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacement.pid)}; replacement was not signaled`);
-    }
-    if (replacementIdentityIsInvalid(replacement, expectedIdentity)) {
-      await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
-    }
-    if (isCompleteReplacement(replacement, beforePid, operationId, expectedIdentity, expectedGeneration)) return status;
-    if (attempt + 1 < attempts) {
-      await lifecycle.wait(pollIntervalMs);
-      const observed = await lifecycle.probeStatus(
-        lifecycle.target,
-        expectedGeneration ? { includeGenerationAxes: true } : undefined
-      );
-      const observedLifecycle = observed ? normalizeDaemonLifecycleStatus(observed) : undefined;
-      if (observed && observedLifecycle) {
-        status = observed;
-        replacement = observedLifecycle;
-      }
-      continue;
-    }
-  }
-  if (replacement.activeOperationId && replacement.activeOperationId !== operationId) {
-    throw new Error(
-      `daemon ${kind} replacement remained healthy but another daemon control operation remained active: `
-      + `${replacement.activeOperationId}; replacement was left running`
-    );
-  }
-  return await rejectIncompleteReplacement(lifecycle, replacement, beforePid, operationId, timeoutMs, kind, expectedIdentity, expectedGeneration);
-}
-
-async function rejectIncompleteReplacement(
-  lifecycle: DaemonControlLifecycle,
-  replacement: DaemonLifecycleStatus,
-  beforePid: number,
-  operationId: string,
-  timeoutMs: number,
-  kind: DaemonControlKind,
-  expectedIdentity: string | undefined,
-  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
-): Promise<never> {
-  const failure = incompleteReplacementReason(replacement, beforePid, operationId, expectedIdentity, expectedGeneration);
-  if (replacement.pid === beforePid) {
-    throw new Error(`daemon ${kind} replacement ${failure}; replacement was not signaled`);
-  }
-  if (!lifecycle.stopReplacement) {
-    throw new Error(`daemon ${kind} replacement ${failure}; cleanup unavailable; replacement may still be serving`);
-  }
-  try {
-    await lifecycle.stopReplacement(lifecycle.target, replacement.pid, timeoutMs);
-  } catch (error) {
-    throw new Error(
-      `daemon ${kind} replacement ${failure}; cleanup failed and replacement may still be serving: `
-      + `${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  throw new Error(`daemon ${kind} replacement ${failure}; rejected replacement was stopped and endpoint remained unowned`);
 }
 
 function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): DaemonControlLifecycle {
@@ -414,73 +247,6 @@ function daemonLaunchSpecUpgradeError(target: LocalDaemonTarget): Error {
   );
 }
 
-async function waitForDaemonControlHandoff(
-  lifecycle: DaemonControlLifecycle,
-  beforePid: number,
-  operationId: string,
-  timeoutMs: number,
-  expectedIdentity: string | undefined,
-  expectedGeneration: DaemonGenerationConvergenceExpectation | undefined
-): Promise<DaemonControlHandoff> {
-  const pollIntervalMs = 100;
-  const attempts = Math.ceil(timeoutMs / pollIntervalMs) + 1;
-  let pendingReplacement: DaemonLifecycleStatus | undefined;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const status = await lifecycle.probeStatus(
-      lifecycle.target,
-      expectedGeneration ? { includeGenerationAxes: true } : undefined
-    );
-    const ownerAlive = lifecycle.ownerIsAlive(beforePid);
-    const controlFailure = daemonControlFailure(status, operationId);
-    if (controlFailure) throw new Error(controlFailure);
-
-    // One service process owns each OS-user + userRoot pair. While the old
-    // owner lives, neither a reachable endpoint nor autostart can prove a safe handoff.
-    if (!ownerAlive) {
-      // Once the owner is dead, an absent exact endpoint is the only state
-      // that permits the existing autostart primitive to run.
-      if (!status) return { kind: "autostart" };
-      const observedLifecycle = normalizeDaemonLifecycleStatus(status);
-      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, operationId, expectedIdentity, expectedGeneration)) {
-        return { kind: "adopt", status };
-      }
-      if (observedLifecycle && observedLifecycle.pid !== beforePid && replacementIdentityIsInvalid(observedLifecycle, expectedIdentity)) {
-        return { kind: "reject", status: observedLifecycle };
-      }
-      if (observedLifecycle?.pid !== beforePid) pendingReplacement = observedLifecycle;
-      // Reachable old-PID or malformed status is not replacement proof and
-      // blocks autostart, avoiding an overlapping service-owner window.
-    }
-
-    if (attempt + 1 === attempts) {
-      if (pendingReplacement) {
-        if (pendingReplacement.activeOperationId && pendingReplacement.activeOperationId !== operationId) {
-          throw new Error(
-            `another daemon control operation remained active: ${pendingReplacement.activeOperationId}; `
-            + "replacement was left running"
-          );
-        }
-        return { kind: "reject", status: pendingReplacement };
-      }
-      if (status) {
-        for (let finalAttempt = 0; finalAttempt < 5; finalAttempt += 1) {
-          await lifecycle.wait(pollIntervalMs);
-          const finalStatus = await lifecycle.probeStatus(
-            lifecycle.target,
-            expectedGeneration ? { includeGenerationAxes: true } : undefined
-          );
-          const finalControlFailure = daemonControlFailure(finalStatus, operationId);
-          if (finalControlFailure) throw new Error(finalControlFailure);
-        }
-        throw new Error(`old daemon endpoint was not released before timeout (pid ${beforePid})`);
-      }
-      throw new Error(`old daemon owner did not exit after releasing its endpoint (pid ${beforePid})`);
-    }
-    await lifecycle.wait(pollIntervalMs);
-  }
-  throw new Error(`daemon control handoff exhausted without a safe decision (pid ${beforePid})`);
-}
-
 async function probeExactDaemonStatus(
   target: LocalDaemonTarget,
   capability?: { readonly includeGenerationAxes: true }
@@ -521,6 +287,28 @@ async function startDaemonReplacement(
   const status = statusFromReceipt(receipt);
   if (!status) throw new Error("replacement status RPC did not return daemon status data");
   return status;
+}
+
+function daemonControlRecoveryGuidance(
+  args: ReadonlyArray<string>,
+  userRoot: string
+): DaemonControlRecoveryGuidance {
+  const retryCommand = ["ha", ...args].map(quoteDaemonRecoveryArgument).join(" ");
+  const customEndpoint = readOption(args, "--socket");
+  if (customEndpoint) {
+    return {
+      retryCommand,
+      occupiedEndpoint: `ha daemon stop does not target custom endpoint ${quoteDaemonRecoveryArgument(customEndpoint)}; `
+        + `stop that endpoint owner explicitly, then retry exactly with: ${retryCommand}`
+    };
+  }
+  const stop = ["ha", "daemon", "stop", "--user-root", userRoot]
+    .map(quoteDaemonRecoveryArgument)
+    .join(" ");
+  return {
+    retryCommand,
+    occupiedEndpoint: `Stop the endpoint owner and retry exactly with: ${stop} && ${retryCommand}`
+  };
 }
 
 function defaultDaemonReplacementStopRuntime(): DaemonReplacementStopRuntime {
@@ -584,10 +372,6 @@ function daemonProcessIsAlive(pid: number): boolean {
   } catch (error) {
     return !(isDaemonControlRecord(error) && error.code === "ESRCH");
   }
-}
-
-function isPositivePid(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function isDaemonControlRecord(value: unknown): value is Record<string, unknown> {

@@ -4,7 +4,8 @@ import {
   normalizeDaemonLifecycleStatus,
   type DaemonGenerationConvergenceExpectation
 } from "./control-convergence.ts";
-import type { DaemonControlKind, DaemonControlLifecycle } from "./control.ts";
+import type { DaemonControlKind } from "./control.ts";
+import type { DaemonControlLifecycle } from "./control-replacement.ts";
 
 export async function rollbackDaemonReplacement(input: {
   readonly lifecycle: DaemonControlLifecycle;
