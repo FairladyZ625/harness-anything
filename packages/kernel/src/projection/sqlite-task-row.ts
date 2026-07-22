@@ -12,6 +12,7 @@ import type {
   TaskFieldExtensionProjection,
   TaskProjectionRow
 } from "./types.ts";
+import { taskCreatedAtFromId } from "./task-read-derivations.ts";
 
 export interface TaskSourceEntry {
   readonly taskId: string;
@@ -33,10 +34,14 @@ export function taskEntryToRow(
   const packageDisposition = isPackageDisposition(rawDisposition) ? rawDisposition : "active";
   const lifecycleEngine = readScalar(entry.frontmatter, "  engine") || "local";
   const taskDir = path.dirname(entry.indexPath);
+  const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
   return {
     schema: "sqlite-task-row/v1",
-    taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
+    taskId,
     title: readScalar(entry.frontmatter, "title") || entry.taskId,
+    createdAt: taskCreatedAtFromId(taskId),
+    treeRoot: taskId,
+    liveness: null,
     ...readParent(entry.frontmatter),
     canonicalStatus,
     coordinationStatus: coordinationStatus(canonicalStatus),

@@ -323,7 +323,7 @@ export function BoardView({
                   }
                   className={`font-mono ${seg(groupBy === d)}`}
                 >
-                  {d}
+                  {d === "root" ? "PLT" : d}
                 </button>
               ))}
             </div>

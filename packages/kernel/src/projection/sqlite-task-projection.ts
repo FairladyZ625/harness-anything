@@ -43,6 +43,7 @@ import {
 } from "./sqlite-projection-validation-cache.ts";
 import { materializeEntityAttributionBlocks, replaceAttributionProjectionRows } from "./sqlite-attribution-projection.ts";
 import { compareRows, hashExactRows, taskEntryToRow } from "./sqlite-task-source.ts";
+import { deriveTaskProjectionRows } from "./task-read-derivations.ts";
 import {
   captureProjectionSourceFingerprint,
   captureProjectionSourceSnapshot,
@@ -66,6 +67,7 @@ export type {
   DecisionProjectionQueryFilters,
   DecisionProjectionRow,
   TaskFieldExtensionProjection,
+  TaskLiveness,
   TaskProjectionQueryFilters,
   TaskProjectionOptions,
   TaskProjectionRow
@@ -125,8 +127,9 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     yield* materializeEntityAttributionBlocks(sql, snapshot.attributionEvents);
   }));
   rememberProjectionValidation(projectionPath, declaredManifestRows, undefined, sourceCache);
+  const persisted = tryReadProjectionDatabase(projectionPath, options.taskFieldExtensions);
   return {
-    rows,
+    rows: deriveTaskProjectionRows(runtimeContext, persisted.ok ? persisted.rows : rows),
     warnings: source.warnings
   };
 }
@@ -357,7 +360,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
   }
 
   return {
-    rows: [...existing.rows].sort(compareRows),
+    rows: deriveTaskProjectionRows(runtimeContext, [...existing.rows].sort(compareRows)),
     warnings
   };
 }
@@ -369,16 +372,33 @@ export function queryTaskProjection(options: TaskProjectionOptions & { readonly 
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
+      rows: derivedFilteredRows(runtimeContext, projection.rows, queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions), options),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
+      rows: derivedFilteredRows(runtimeContext, rebuilt.rows, queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions), options),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }
+}
+
+function baseTaskFilters(filters: TaskProjectionQueryFilters): TaskProjectionQueryFilters {
+  const { treeRoot: _treeRoot, liveness: _liveness, ...base } = filters;
+  return base;
+}
+
+function derivedFilteredRows(
+  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
+  universe: ReadonlyArray<import("./types.ts").TaskProjectionRow>,
+  rows: ReadonlyArray<import("./types.ts").TaskProjectionRow>,
+  options: TaskProjectionOptions & { readonly filters: TaskProjectionQueryFilters }
+): ReadonlyArray<import("./types.ts").TaskProjectionRow> {
+  return deriveTaskProjectionRows(rootInput, rows, {
+    universe
+  }).filter((row) => (!options.filters.treeRoot || row.treeRoot === options.filters.treeRoot) &&
+    (!options.filters.liveness || row.liveness === options.filters.liveness));
 }
 
 export function queryTaskChildren(options: TaskProjectionOptions & { readonly parentTaskId: string }): ProjectionReadResult {
@@ -388,13 +408,13 @@ export function queryTaskChildren(options: TaskProjectionOptions & { readonly pa
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
+      rows: deriveTaskProjectionRows(runtimeContext, queryTaskChildrenRows(projectionPath, options.parentTaskId), { universe: projection.rows }),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
+      rows: deriveTaskProjectionRows(runtimeContext, queryTaskChildrenRows(projectionPath, options.parentTaskId), { universe: rebuilt.rows }),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }
@@ -407,13 +427,13 @@ export function queryTaskSubtree(options: TaskProjectionOptions & { readonly roo
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
+      rows: deriveTaskProjectionRows(runtimeContext, queryTaskSubtreeRows(projectionPath, options.rootTaskId), { universe: projection.rows }),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
+      rows: deriveTaskProjectionRows(runtimeContext, queryTaskSubtreeRows(projectionPath, options.rootTaskId), { universe: rebuilt.rows }),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }

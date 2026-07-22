@@ -213,7 +213,7 @@ export function queryTaskProjectionRows(
     const sql = yield* SqlClient.SqlClient;
     const where = taskWhereClause(filters);
     const records = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       ${where.sql}
@@ -242,7 +242,7 @@ export function queryTaskChildrenRows(projectionPath: string, parentTaskId: stri
   return runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const records = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       WHERE task_projection.parent_task_id = ?
@@ -263,7 +263,7 @@ export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string)
         FROM task_projection child
         JOIN subtree parent ON child.parent_task_id = parent.task_id
       )
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       JOIN subtree ON task_projection.task_id = subtree.task_id
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
@@ -300,7 +300,7 @@ function readProjectionDatabase(
     const metaRows = yield* sql`SELECT key, value FROM projection_meta`;
     const meta = new Map(metaRows.map((row) => [String(row.key), String(row.value)]));
     const taskRecords = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       ORDER BY task_projection.task_id
@@ -540,6 +540,15 @@ function legacyNumberFromLabel(value: string): number | undefined {
 
 function attributionJoin(entityKind: string, entityIdExpression: string, alias: string): string {
   return `LEFT JOIN entity_attribution_summary ${alias} ON ${alias}.entity_kind = '${entityKind}' AND ${alias}.entity_id = ${entityIdExpression}`;
+}
+
+function taskTerminalAtSelect(): string {
+  return `CASE WHEN task_projection.coordination_status = 'terminal' THEN (
+    SELECT MAX(event.occurred_at)
+    FROM attribution_events event
+    WHERE event.subject_ref = 'task/' || task_projection.task_id
+      AND event.operation = 'transition_local'
+  ) ELSE NULL END AS terminal_at`;
 }
 
 function chunks<Value>(values: ReadonlyArray<Value>, size: number): ReadonlyArray<ReadonlyArray<Value>> {

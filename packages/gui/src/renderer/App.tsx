@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useProjectionNotifications } from "./projection-notifications.ts";
-import { isGenericStatusWriteTransition, type SnapshotStatus } from "./model/types.ts";
+import { isGenericStatusWriteTransition } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
+import { DecisionDetailDrawer } from "./components/DecisionDetailDrawer.tsx";
 import { MockViewBanner } from "./components/shell-chrome.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import { ViewSwitch } from "./components/ViewSwitch.tsx";
@@ -13,7 +14,6 @@ import {
   applyTaskFilters,
   type TaskFilters,
 } from "./model/taskFilters.ts";
-import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { adaptProjectionRows, buildRealProject, REAL_PROJECT_ID } from "./task-adapter.ts";
 import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
@@ -200,6 +200,7 @@ function AppShell() {
   const terminalDockRight = terminalOpen && terminalDockPosition === "right";
   // 最近焦点实体队列(用户在面板/画布/详情之间跳过哪些 navRef)。first = 最新。
   const [recentRefs, setRecentRefs] = useState<string[]>([]);
+  const [decisionPreviewId, setDecisionPreviewId] = useState<string | null>(null);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
@@ -217,6 +218,10 @@ function AppShell() {
   const previewTask = useMemo(
     () => tasks.find((t) => t.taskId === location.previewId) ?? null,
     [location.previewId, tasks],
+  );
+  const previewDecision = useMemo(
+    () => decisions.find((decision) => decision.decisionId === decisionPreviewId) ?? null,
+    [decisionPreviewId, decisions],
   );
   const filteredProjectTasks = useMemo(
     () => applyTaskFilters(projectTasks, location.taskFilters, favorites),
@@ -249,7 +254,7 @@ function AppShell() {
   };
 
   // ── 导航入口:全部汇流到 navigate() ──────────────────────────────
-  // 原来有四个入口绕过了 goto 直接改 state(drillToBoard / navigateToEntity /
+  // 原来有入口绕过了 goto 直接改 state(navigateToEntity /
   // focusEntityInGraph / 多视图 switcher),历史栈会漏记。现在统一走 navigate。
 
   const goto = (v: ViewId) => {
@@ -284,21 +289,6 @@ function AppShell() {
     });
   };
 
-  const drillToBoard = (
-    lane: string,
-    status: SnapshotStatus,
-    dimension: "root" | "module",
-  ) => {
-    // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
-    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "module";
-    navigate({
-      view: "board",
-      drill: { lane, status, groupBy },
-      selectedId: null,
-      previewId: null,
-    });
-  };
-
   // 抽屉开关是「精修」不是「导航」——不推栈,但快照保留最新值。
   const openTaskPreview = (id: string) => {
     updateLocation({ selectedId: null, previewId: id });
@@ -315,12 +305,7 @@ function AppShell() {
       openTaskDetail(id);
     } else if (ref.startsWith("decision/")) {
       const decisionId = ref.split("/")[1];
-      navigate({
-        focusedEntityRef: `decision/${decisionId}`,
-        view: "decisionPool",
-        selectedId: null,
-        previewId: null,
-      });
+      setDecisionPreviewId(decisionId ?? null);
     } else if (ref.startsWith("fact/")) {
       navigate({
         focusedEntityRef: ref,
@@ -527,9 +512,7 @@ function AppShell() {
               favorites={favorites}
               events={[]}
               projectName={project.name}
-              goto={goto}
               onOpenTaskPreview={openTaskPreview}
-              onDrillToBoard={drillToBoard}
               onUpdateTask={updateTask}
               onSelectTask={(id: string) => navigate({ selectedId: id })}
               onClearSelection={() => navigate({ selectedId: null })}
@@ -566,6 +549,14 @@ function AppShell() {
         onClose={() => updateLocation({ previewId: null })}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
+      />
+      <DecisionDetailDrawer
+        decision={previewDecision}
+        tasks={projectTasks}
+        facts={facts}
+        relations={relations}
+        onClose={() => setDecisionPreviewId(null)}
+        onOpenTask={(id) => { setDecisionPreviewId(null); openTaskPreview(id); }}
       />
       <CommandPalette
         open={paletteOpen}

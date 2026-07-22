@@ -45,6 +45,7 @@ test("CLI task list filters projection rows without treating generated cache as 
       urgency: "high",
       taskClass: "epic"
     });
+    writeFileSync(path.join(rootDir, "harness/tasks/task-billing/progress.md"), "# Progress\n\nRecent work\n", "utf8");
     rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
 
     const moduleFiltered = runJson(rootDir, ["task", "list", "--module", "billing", "--preset", "module", "--state", "active", "--queue", "open", "--search", "checkout"]);
@@ -52,6 +53,12 @@ test("CLI task list filters projection rows without treating generated cache as 
     assert.deepEqual(moduleFiltered.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
     assert.equal(moduleFiltered.tasks[0].moduleKey, "billing");
     assert.equal(moduleFiltered.tasks[0].preset, "module");
+    assert.equal(moduleFiltered.tasks[0].createdAt, null);
+    assert.equal(moduleFiltered.tasks[0].treeRoot, "task-billing");
+    assert.equal(moduleFiltered.tasks[0].liveness, "in_flight");
+
+    const derivedFiltered = runJson(rootDir, ["task", "list", "--tree-root", "task-billing", "--liveness", "in_flight"]);
+    assert.deepEqual(derivedFiltered.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
 
     const defaultList = runJson(rootDir, ["task", "list"]);
     assert.deepEqual(defaultList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing", "task-missing", "task-review"]);

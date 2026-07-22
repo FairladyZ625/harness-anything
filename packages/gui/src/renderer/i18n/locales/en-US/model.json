@@ -39,7 +39,7 @@
   "model.copyContext.taskTaskIdTaskNotCurrentProjection": "`task/{taskId}` — task is not in the current projection",
   "model.mockWork.missionContract": "mission contract",
   "model.mockWork.stageProcess": "stage process",
-  "model.mockWork.milestonePlan": "milestone plan",
+  "model.mockWork.milestonePlan": "PLT plan",
   "model.mockWork.implementationStrategy": "implementation strategy",
   "model.mockWork.designDecisions": "design decisions",
   "model.mockWork.visualMap": "Visual map",

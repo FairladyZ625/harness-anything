@@ -39,7 +39,7 @@
   "model.copyContext.taskTaskIdTaskNotCurrentProjection": "`task/{taskId}` — task 不在当前投影",
   "model.mockWork.missionContract": "任务契约",
   "model.mockWork.stageProcess": "阶段流程",
-  "model.mockWork.milestonePlan": "里程碑计划",
+  "model.mockWork.milestonePlan": "PLT 计划",
   "model.mockWork.implementationStrategy": "实施策略",
   "model.mockWork.designDecisions": "设计决策",
   "model.mockWork.visualMap": "可视化地图",
