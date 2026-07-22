@@ -1,6 +1,14 @@
 {
   "governanceNotice": "Authority for write-road and write-channel coverage. Task write lease and command-class semantics live in packages/application/src/task-write-route-policy.ts; task rows here are coverage projections only.",
   "schema": "harness-anything/write-road-registry/v1",
+  "intentCompilerCriterion": {
+    "authoredSurfaceFields": [
+      "cliActions",
+      "apiRoutes",
+      "guiBridgeMethods"
+    ],
+    "notApplicableWhen": "no-authored-ingress-surfaces"
+  },
   "taskWriteRoutePolicy": "packages/application/src/task-write-route-policy.ts",
   "authorityBasis": [
     "task_01KX19G7VXRHSEH6YE7GHYMJYP",
@@ -25,6 +33,18 @@
   "rows": [
     {
       "id": "task.package.create",
+      "intentCompilers": [
+        {
+          "selector": "new-task",
+          "surfaces": {
+            "cliActions": [
+              "new-task"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for new-task has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         1
       ],
@@ -56,6 +76,154 @@
     },
     {
       "id": "task.lifecycle.transition",
+      "intentCompilers": [
+        {
+          "selector": "status-set",
+          "surfaces": {
+            "cliActions": [
+              "status-set"
+            ],
+            "apiRoutes": [
+              "tasks.status.set"
+            ],
+            "guiBridgeMethods": [
+              "setTaskStatus"
+            ]
+          },
+          "parity": "parity-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-lifecycle.ts#runStatusSet"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent"
+            },
+            {
+              "entry": "api-gui",
+              "ref": "packages/application/src/task-lifecycle-orchestrator.ts#makeTaskLifecycleOrchestrator"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
+        },
+        {
+          "selector": "task-archive",
+          "surfaces": {
+            "cliActions": [
+              "task-archive"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-archive has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-closeout",
+          "surfaces": {
+            "cliActions": [
+              "task-closeout"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-closeout has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-complete",
+          "surfaces": {
+            "cliActions": [
+              "task-complete"
+            ]
+          },
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "direct-authored-store",
+              "ref": "packages/application/src/coordinated-execution-authored-store.ts#finalizeExecutionSessionBindings"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/application/src/coordinated-execution-authored-store.ts#finalizeExecutionSessionBindings"
+            }
+          ]
+        },
+        {
+          "selector": "task-delete",
+          "surfaces": {
+            "cliActions": [
+              "task-delete"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-delete has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-reopen",
+          "surfaces": {
+            "cliActions": [
+              "task-reopen"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-reopen has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-review",
+          "surfaces": {
+            "cliActions": [
+              "task-review"
+            ],
+            "apiRoutes": [
+              "tasks.review"
+            ],
+            "guiBridgeMethods": [
+              "reviewTask"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-review has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-review-execution",
+          "surfaces": {
+            "cliActions": [
+              "task-review-execution"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-review-execution has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-start",
+          "surfaces": {
+            "cliActions": [
+              "task-start"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-start has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-submit",
+          "surfaces": {
+            "cliActions": [
+              "task-submit"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-submit has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-supersede",
+          "surfaces": {
+            "cliActions": [
+              "task-supersede"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-supersede has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         2
       ],
@@ -114,6 +282,18 @@
     },
     {
       "id": "task.execution.record",
+      "intentCompilers": [
+        {
+          "selector": "task-claim",
+          "surfaces": {
+            "cliActions": [
+              "task-claim"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-claim has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         2
       ],
@@ -171,6 +351,18 @@
     },
     {
       "id": "task.execution-consent.record",
+      "intentCompilers": [
+        {
+          "selector": "task-consent-record",
+          "surfaces": {
+            "cliActions": [
+              "task-consent-record"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-consent-record has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         2
       ],
@@ -200,6 +392,24 @@
     },
     {
       "id": "task.progress.append",
+      "intentCompilers": [
+        {
+          "selector": "progress-append",
+          "surfaces": {
+            "cliActions": [
+              "progress-append"
+            ],
+            "apiRoutes": [
+              "tasks.progress.append"
+            ],
+            "guiBridgeMethods": [
+              "appendTaskProgress"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for progress-append has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         3
       ],
@@ -261,6 +471,18 @@
     },
     {
       "id": "task.holder.runtime-state",
+      "intentCompilers": [
+        {
+          "selector": "task-release",
+          "surfaces": {
+            "cliActions": [
+              "task-release"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-release has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         2
       ],
@@ -337,6 +559,48 @@
     },
     {
       "id": "task.document.write-stage",
+      "intentCompilers": [
+        {
+          "selector": "task-amend",
+          "surfaces": {
+            "cliActions": [
+              "task-amend"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-amend has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-code-doc-reconcile",
+          "surfaces": {
+            "cliActions": [
+              "task-code-doc-reconcile"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-code-doc-reconcile has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-contract-migrate",
+          "surfaces": {
+            "cliActions": [
+              "task-contract-migrate"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-contract-migrate has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "task-relate",
+          "surfaces": {
+            "cliActions": [
+              "task-relate"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for task-relate has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         5
       ],
@@ -930,6 +1194,28 @@
     },
     {
       "id": "task.migration.backfill",
+      "intentCompilers": [
+        {
+          "selector": "migrate-anchors",
+          "surfaces": {
+            "cliActions": [
+              "migrate-anchors"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-anchors has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "migrate-provenance",
+          "surfaces": {
+            "cliActions": [
+              "migrate-provenance"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-provenance has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         6
       ],
@@ -959,6 +1245,18 @@
     },
     {
       "id": "fact.execution-migration",
+      "intentCompilers": [
+        {
+          "selector": "migrate-fact-execution",
+          "surfaces": {
+            "cliActions": [
+              "migrate-fact-execution"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-fact-execution has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         6
       ],
@@ -986,6 +1284,18 @@
     },
     {
       "id": "attribution.retired-field-migration",
+      "intentCompilers": [
+        {
+          "selector": "migrate-retired-attribution-fields",
+          "surfaces": {
+            "cliActions": [
+              "migrate-retired-attribution-fields"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-retired-attribution-fields has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         6
       ],
@@ -1017,6 +1327,38 @@
     },
     {
       "id": "fact.record",
+      "intentCompilers": [
+        {
+          "selector": "decision-reckon",
+          "surfaces": {
+            "cliActions": [
+              "decision-reckon"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-reckon has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "distill-commit",
+          "surfaces": {
+            "cliActions": [
+              "distill-commit"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for distill-commit has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "record-fact",
+          "surfaces": {
+            "cliActions": [
+              "record-fact"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for record-fact has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         7
       ],
@@ -1052,6 +1394,18 @@
     },
     {
       "id": "fact.invalidate",
+      "intentCompilers": [
+        {
+          "selector": "fact-invalidate",
+          "surfaces": {
+            "cliActions": [
+              "fact-invalidate"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for fact-invalidate has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         8
       ],
@@ -1083,6 +1437,33 @@
     },
     {
       "id": "decision.propose",
+      "intentCompilers": [
+        {
+          "selector": "decision-propose",
+          "surfaces": {
+            "cliActions": [
+              "decision-propose"
+            ],
+            "apiRoutes": [
+              "decisions.propose"
+            ],
+            "guiBridgeMethods": [
+              "proposeDecision"
+            ]
+          },
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision-propose.ts#materializeProposedDecision"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/cli/src/commands/core/decision-propose.ts#materializeProposedDecision"
+            }
+          ]
+        }
+      ],
       "sourceInventoryRows": [
         9
       ],
@@ -1115,6 +1496,28 @@
     },
     {
       "id": "decision.state.transition",
+      "intentCompilers": [
+        {
+          "selector": "decision-transition",
+          "surfaces": {
+            "cliActions": [
+              "decision-transition"
+            ],
+            "apiRoutes": [
+              "decisions.accept",
+              "decisions.defer",
+              "decisions.reject"
+            ],
+            "guiBridgeMethods": [
+              "acceptDecision",
+              "deferDecision",
+              "rejectDecision"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-transition has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         10
       ],
@@ -1151,6 +1554,28 @@
     },
     {
       "id": "decision.amend",
+      "intentCompilers": [
+        {
+          "selector": "decision-amend",
+          "surfaces": {
+            "cliActions": [
+              "decision-amend"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-amend has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "decision-repin",
+          "surfaces": {
+            "cliActions": [
+              "decision-repin"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-repin has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         11
       ],
@@ -1185,6 +1610,27 @@
     },
     {
       "id": "decision.relate",
+      "intentCompilers": [
+        {
+          "selector": "decision-relate",
+          "surfaces": {
+            "cliActions": [
+              "decision-relate"
+            ]
+          },
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision-relate.ts#materializedTaskPriorityWrites"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/cli/src/commands/core/decision-relate.ts#materializedTaskPriorityWrites"
+            }
+          ]
+        }
+      ],
       "sourceInventoryRows": [
         12
       ],
@@ -1218,6 +1664,28 @@
     },
     {
       "id": "decision.relation.mutate",
+      "intentCompilers": [
+        {
+          "selector": "decision-relation-replace",
+          "surfaces": {
+            "cliActions": [
+              "decision-relation-replace"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-relation-replace has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "decision-relation-retire",
+          "surfaces": {
+            "cliActions": [
+              "decision-relation-retire"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for decision-relation-retire has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         13
       ],
@@ -1253,6 +1721,38 @@
     },
     {
       "id": "module.registry.canonical",
+      "intentCompilers": [
+        {
+          "selector": "module-register",
+          "surfaces": {
+            "cliActions": [
+              "module-register"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for module-register has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "module-step",
+          "surfaces": {
+            "cliActions": [
+              "module-step"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for module-step has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "module-unregister",
+          "surfaces": {
+            "cliActions": [
+              "module-unregister"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for module-unregister has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         14
       ],
@@ -1321,6 +1821,18 @@
     },
     {
       "id": "module.scaffold",
+      "intentCompilers": [
+        {
+          "selector": "module-scaffold",
+          "surfaces": {
+            "cliActions": [
+              "module-scaffold"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for module-scaffold has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         15
       ],
@@ -1348,6 +1860,38 @@
     },
     {
       "id": "session.provenance.claim-check",
+      "intentCompilers": [
+        {
+          "selector": "session-backfill",
+          "surfaces": {
+            "cliActions": [
+              "session-backfill"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for session-backfill has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "session-export",
+          "surfaces": {
+            "cliActions": [
+              "session-export"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for session-export has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "session-sync",
+          "surfaces": {
+            "cliActions": [
+              "session-sync"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for session-sync has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         16
       ],
@@ -1388,6 +1932,18 @@
     },
     {
       "id": "runtime-event.coordinated-jsonl",
+      "intentCompilers": [
+        {
+          "selector": "runtime-event-append",
+          "surfaces": {
+            "cliActions": [
+              "runtime-event-append"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for runtime-event-append has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         17
       ],
@@ -1422,6 +1978,18 @@
     },
     {
       "id": "distill.lesson.artifacts",
+      "intentCompilers": [
+        {
+          "selector": "distill-candidate",
+          "surfaces": {
+            "cliActions": [
+              "distill-candidate"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for distill-candidate has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         19
       ],
@@ -1465,6 +2033,58 @@
     },
     {
       "id": "legacy.migration.artifacts",
+      "intentCompilers": [
+        {
+          "selector": "legacy-copy-safe-docs",
+          "surfaces": {
+            "cliActions": [
+              "legacy-copy-safe-docs"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for legacy-copy-safe-docs has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "legacy-index",
+          "surfaces": {
+            "cliActions": [
+              "legacy-index"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for legacy-index has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "legacy-intake-plan",
+          "surfaces": {
+            "cliActions": [
+              "legacy-intake-plan"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for legacy-intake-plan has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "migrate-run",
+          "surfaces": {
+            "cliActions": [
+              "migrate-run"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-run has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "migrate-structure",
+          "surfaces": {
+            "cliActions": [
+              "migrate-structure"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for migrate-structure has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         20
       ],
@@ -1576,6 +2196,34 @@
     },
     {
       "id": "governance.projection.rebuild",
+      "intentCompilers": [
+        {
+          "selector": "governance-rebuild",
+          "surfaces": {
+            "cliActions": [
+              "governance-rebuild"
+            ],
+            "apiRoutes": [
+              "governance.rebuild"
+            ],
+            "guiBridgeMethods": [
+              "rebuildGovernance"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for governance-rebuild has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "materializer-run",
+          "surfaces": {
+            "cliActions": [
+              "materializer-run"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for materializer-run has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         21
       ],
@@ -1668,6 +2316,18 @@
     },
     {
       "id": "graph.panorama.generated",
+      "intentCompilers": [
+        {
+          "selector": "graph",
+          "surfaces": {
+            "cliActions": [
+              "graph"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for graph has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         22
       ],
@@ -1707,6 +2367,68 @@
     },
     {
       "id": "repository.bootstrap.admin",
+      "intentCompilers": [
+        {
+          "selector": "api:terminal.sessions.close",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.close"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.close has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "api:terminal.sessions.create",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.create"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.create has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "api:terminal.sessions.resize",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.resize"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.resize has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "api:terminal.sessions.write",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.write"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.write has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "gui",
+          "surfaces": {
+            "cliActions": [
+              "gui"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for gui has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "init",
+          "surfaces": {
+            "cliActions": [
+              "init"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for init has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         23
       ],
@@ -2035,6 +2757,48 @@
     },
     {
       "id": "preset.config.evidence",
+      "intentCompilers": [
+        {
+          "selector": "preset-entrypoint",
+          "surfaces": {
+            "cliActions": [
+              "preset-entrypoint"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for preset-entrypoint has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "preset-install",
+          "surfaces": {
+            "cliActions": [
+              "preset-install"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for preset-install has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "preset-seed",
+          "surfaces": {
+            "cliActions": [
+              "preset-seed"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for preset-seed has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "preset-uninstall",
+          "surfaces": {
+            "cliActions": [
+              "preset-uninstall"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for preset-uninstall has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         24
       ],
@@ -2154,6 +2918,18 @@
     },
     {
       "id": "script-run.declared-write-scopes",
+      "intentCompilers": [
+        {
+          "selector": "script-run",
+          "surfaces": {
+            "cliActions": [
+              "script-run"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for script-run has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         25
       ],
@@ -2372,6 +3148,38 @@
     },
     {
       "id": "public-code-change.git",
+      "intentCompilers": [
+        {
+          "selector": "adopt-multica",
+          "surfaces": {
+            "cliActions": [
+              "adopt-multica"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for adopt-multica has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "git-diff",
+          "surfaces": {
+            "cliActions": [
+              "git-diff"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for git-diff has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "worktree-create",
+          "surfaces": {
+            "cliActions": [
+              "worktree-create"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for worktree-create has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         26
       ],
@@ -4241,6 +5049,21 @@
     },
     {
       "id": "daemon.control.restart.gui-ipc",
+      "intentCompilers": [
+        {
+          "selector": "api:daemon.restart",
+          "surfaces": {
+            "apiRoutes": [
+              "daemon.restart"
+            ],
+            "guiBridgeMethods": [
+              "restartDaemon"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:daemon.restart has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         26
       ],
@@ -4273,6 +5096,34 @@
     },
     {
       "id": "daemon.agent-runtime.control.gui-ipc",
+      "intentCompilers": [
+        {
+          "selector": "api:agent-runtimes.attach",
+          "surfaces": {
+            "apiRoutes": [
+              "agent-runtimes.attach"
+            ],
+            "guiBridgeMethods": [
+              "attachAgentRuntime"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:agent-runtimes.attach has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "api:agent-runtimes.spawn",
+          "surfaces": {
+            "apiRoutes": [
+              "agent-runtimes.spawn"
+            ],
+            "guiBridgeMethods": [
+              "spawnAgentRuntime"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:agent-runtimes.spawn has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         26
       ],
@@ -4354,6 +5205,28 @@
     },
     {
       "id": "daemon.terminal.control.gui-ipc",
+      "intentCompilers": [
+        {
+          "selector": "api:terminal.sessions.detach",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.detach"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.detach has not been source-verified across every declared ingress."
+        },
+        {
+          "selector": "api:terminal.sessions.terminate",
+          "surfaces": {
+            "apiRoutes": [
+              "terminal.sessions.terminate"
+            ]
+          },
+          "parity": "unknown",
+          "reason": "Compiler ownership for api:terminal.sessions.terminate has not been source-verified across every declared ingress."
+        }
+      ],
       "sourceInventoryRows": [
         26
       ],
