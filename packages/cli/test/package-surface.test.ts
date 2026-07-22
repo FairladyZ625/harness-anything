@@ -174,6 +174,13 @@ test("bundled software coding assets have consistent template and process-preset
     assert.deepEqual(document.warnings, [], `${presetId} must ship valid PRESET.md frontmatter`);
     assert.equal(document.frontmatter?.schema, "preset-document/v1", presetId);
     assert.equal((document.frontmatter?.description.length ?? 0) > 0, true, presetId);
+    if (presetId === "standard-task" || presetId === "docs-task") {
+      assert.doesNotMatch(
+        document.frontmatter?.description ?? "",
+        /\b(?:progress|review)\b/u,
+        `${presetId} description must not advertise retired progress.md or review.md scaffold files`
+      );
+    }
     assert.deepEqual(
       Object.keys(document.frontmatter?.entrypoints ?? {}).sort(),
       Object.keys(manifest.entrypoints ?? {}).sort(),
