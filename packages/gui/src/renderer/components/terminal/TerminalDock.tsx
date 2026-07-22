@@ -1,4 +1,4 @@
-import { CaretUp, List, Plus, TerminalWindow, X } from "@phosphor-icons/react";
+import { CaretUp, List, Plus, Rows, SidebarSimple, TerminalWindow, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { TerminalSessionInfo } from "../../terminal-api-client.ts";
@@ -15,10 +15,17 @@ import {
   type TerminalTabState
 } from "./terminal-tab-state.ts";
 
+/** Where the terminal dock attaches within the main content area. */
+export type DockPosition = "bottom" | "right";
+
 export interface TerminalDockProps {
   readonly open: boolean;
   readonly projectId: string;
   readonly onToggle: () => void;
+  /** Current dock attachment side. */
+  readonly position: DockPosition;
+  /** Called when the user requests a different attachment side via the header toggle. */
+  readonly onPositionChange: (position: DockPosition) => void;
 }
 
 let tabSeq = 0;
@@ -27,7 +34,7 @@ function nextTabId(): string {
   return `term-tab-${tabSeq}-${Date.now().toString(36)}`;
 }
 
-export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
+export function TerminalDock({ open, projectId, onToggle, position, onPositionChange }: TerminalDockProps) {
   const [tabState, setTabState] = useState<TerminalTabState>(() => emptyTerminalTabState());
   const [managerOpen, setManagerOpen] = useState(false);
   const [managerRefresh, setManagerRefresh] = useState(0);
@@ -71,11 +78,22 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
     setManagerRefresh((value) => value + 1);
   }, []);
 
+  // Closed dock always collapses to the bottom thin bar regardless of position,
+  // so the border follows the *visual* attachment: bottom bar → border-t, open
+  // right panel → border-l.
+  const borderSide = open && position === "right" ? "border-l" : "border-t";
+  const sizeClasses = open
+    ? position === "right"
+      ? "w-96 min-w-48"
+      : "h-80 min-h-48"
+    : "h-9";
+
   return (
     <section
-      className={`relative shrink-0 border-t border-border bg-surface ${
-        open ? "flex h-80 min-h-48 flex-col" : "h-9"
-      }`}
+      className={`relative shrink-0 ${borderSide} border-border bg-surface ${
+        open ? "flex flex-col" : ""
+      } ${sizeClasses}`}
+      data-dock-position={position}
     >
       <div className="flex h-9 shrink-0 items-center gap-1 px-2">
         <button
@@ -145,6 +163,17 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
               onClick={() => setManagerOpen((value) => !value)}
             >
               <List size={14} />
+            </button>
+
+            <button
+              type="button"
+              className="grid size-7 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
+              aria-label={position === "bottom" ? t("terminal.dock.dockRight") : t("terminal.dock.dockBottom")}
+              title={position === "bottom" ? t("terminal.dock.dockRight") : t("terminal.dock.dockBottom")}
+              aria-pressed={position === "right"}
+              onClick={() => onPositionChange(position === "bottom" ? "right" : "bottom")}
+            >
+              {position === "bottom" ? <SidebarSimple size={14} /> : <Rows size={14} />}
             </button>
 
             <span className="font-mono text-[10px] text-text-faint">{t("terminal.dock.shortcut")}</span>

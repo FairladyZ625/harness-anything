@@ -2,6 +2,7 @@ import {
   FolderSimple,
   CaretUpDown,
   CloudSlash,
+  TerminalWindow,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { Project, TaskRow } from "../model/types.ts";
@@ -38,6 +39,10 @@ interface AppSidebarProps {
   openProject: (repoId: string) => void;
   goto: (v: ViewId) => void;
   inboxCount: number;
+  /** Whether the global terminal dock is currently expanded. */
+  terminalOpen: boolean;
+  /** Toggle the global terminal dock open/closed. */
+  onToggleTerminal: () => void;
 }
 
 export function AppSidebar({
@@ -56,6 +61,8 @@ export function AppSidebar({
   openProject,
   goto,
   inboxCount,
+  terminalOpen,
+  onToggleTerminal,
 }: AppSidebarProps) {
   return (
     <aside className="flex max-h-[42dvh] w-full shrink-0 flex-col overflow-y-auto border-b border-border bg-surface md:max-h-none md:w-64 md:overflow-visible md:border-r md:border-b-0">
@@ -195,6 +202,32 @@ export function AppSidebar({
             label={item.label}
           />
         ))}
+      </nav>
+
+      <div className="px-3 pt-3 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
+        {t("components.appSidebar.tools")}
+      </div>
+      <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
+        <button
+          type="button"
+          onClick={onToggleTerminal}
+          title={terminalOpen ? t("terminal.dock.close") : t("terminal.dock.open")}
+          aria-pressed={terminalOpen}
+          data-testid="sidebar-terminal-toggle"
+          className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[15px] leading-snug ${
+            terminalOpen
+              ? "bg-surface-raised text-text"
+              : "text-text-muted hover:bg-surface-raised/60 hover:text-text"
+          }`}
+        >
+          <span className="shrink-0 text-base">
+            <TerminalWindow weight="duotone" />
+          </span>
+          <span className="min-w-0 truncate">{t("terminal.dock.title")}</span>
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
+            {t("terminal.dock.shortcut")}
+          </span>
+        </button>
       </nav>
 
       <div className="mt-auto hidden border-t border-border px-3 py-2.5 md:block">

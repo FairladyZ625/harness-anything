@@ -95,11 +95,11 @@ export function TerminalSessionManager({
 
   return (
     <div
-      className="absolute inset-x-0 bottom-9 z-20 mx-2 mb-1 max-h-64 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
+      className="absolute inset-x-0 bottom-9 z-20 mx-2 mb-1 flex max-h-64 flex-col overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
       role="dialog"
       aria-label={t("terminal.manager.title")}
     >
-      <div className="flex h-8 items-center gap-2 border-b border-border px-2">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2">
         <span className="text-xs font-medium text-text">{t("terminal.manager.title")}</span>
         <span className="font-mono text-[10px] text-text-faint">{t("terminal.manager.subtitle")}</span>
         <button
@@ -122,7 +122,7 @@ export function TerminalSessionManager({
         </button>
       </div>
 
-      <div className="max-h-48 overflow-y-auto p-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
         <button
           type="button"
           className="mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-left text-xs text-text-muted hover:border-accent hover:bg-surface hover:text-text"
@@ -212,11 +212,11 @@ export function TerminalSessionManager({
       </div>
 
       {actionError && (
-        <div className="border-t border-border px-2 py-1.5 text-[11px] text-danger">{actionError}</div>
+        <div className="shrink-0 border-t border-border px-2 py-1.5 text-[11px] text-danger">{actionError}</div>
       )}
 
       {confirm.kind === "confirm-terminate" && (
-        <div className="border-t border-border bg-surface px-3 py-2">
+        <div className="shrink-0 border-t border-border bg-surface px-3 py-2">
           <p className="text-[12px] text-text">
             {t("terminal.manager.terminateConfirm", { name: confirm.session.name })}
           </p>

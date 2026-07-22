@@ -6,6 +6,8 @@
   "terminal.dock.newTab": "New terminal",
   "terminal.dock.closeTab": "Close tab",
   "terminal.dock.sessions": "Sessions",
+  "terminal.dock.dockBottom": "Dock to bottom",
+  "terminal.dock.dockRight": "Dock to right",
   "terminal.dock.empty": "No terminal tabs open.",
   "terminal.pane.connecting": "Starting shell…",
   "terminal.pane.cwd": "Working directory: {cwd}",

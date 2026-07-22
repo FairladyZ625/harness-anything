@@ -37,6 +37,7 @@
   "components.appSidebar.repoUnavailableHint": "This repository is not attached; switch is blocked until the daemon attaches it.",
   "components.appSidebar.v2PreviewAfterLoggingYourAccountYou": "V2 preview: After logging in with your account, you can synchronize multiple devices and access projects remotely.",
   "components.appSidebar.workspace": "Workspace",
+  "components.appSidebar.tools": "Tools",
   "components.badges.active": "Active",
   "components.badges.agnosticNoCaching": "Unknown · uncached",
   "components.badges.blocked": "Blocked",

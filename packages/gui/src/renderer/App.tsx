@@ -33,7 +33,7 @@ import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
 import type { EntityFacet } from "./navigation/navigationHistory.ts";
 import { buildEntityIndex, type EntityHit } from "./model/entitySearch.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
-import { TerminalDock } from "./components/terminal/TerminalDock.tsx";
+import { TerminalDock, type DockPosition } from "./components/terminal/TerminalDock.tsx";
 import { t, useI18n } from "./i18n/index.tsx";
 
 const RECENT_LIMIT = 12;
@@ -195,6 +195,9 @@ function AppShell() {
   // Cmd+K 命令面板开态;Cmd+K / Ctrl+K 全局切换,面板内 Esc / Cmd+K 关闭。
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Dock 默认底部;右侧停靠时 ViewSwitch 与 dock 横向并排。位置在同一会话内保持。
+  const [terminalDockPosition, setTerminalDockPosition] = useState<DockPosition>("bottom");
+  const terminalDockRight = terminalOpen && terminalDockPosition === "right";
   // 最近焦点实体队列(用户在面板/画布/详情之间跳过哪些 navRef)。first = 最新。
   const [recentRefs, setRecentRefs] = useState<string[]>([]);
 
@@ -490,6 +493,8 @@ function AppShell() {
         openProject={openProject}
         goto={goto}
         inboxCount={inboxCount}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -500,7 +505,7 @@ function AppShell() {
           onBack={back}
           onForward={forward}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+        <div className={`flex min-h-0 min-w-0 flex-1 overflow-hidden ${terminalDockRight ? "flex-row" : "flex-col"}`}>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <ViewSwitch
               view={location.view}
@@ -544,12 +549,14 @@ function AppShell() {
               onOpenApproval={openApproval}
             />
           </div>
+          <TerminalDock
+            open={terminalOpen}
+            projectId={projectId}
+            onToggle={() => setTerminalOpen((open) => !open)}
+            position={terminalDockPosition}
+            onPositionChange={setTerminalDockPosition}
+          />
         </div>
-        <TerminalDock
-          open={terminalOpen}
-          projectId={projectId}
-          onToggle={() => setTerminalOpen((open) => !open)}
-        />
       </main>
       <TaskPreviewDrawer
         task={previewTask}
