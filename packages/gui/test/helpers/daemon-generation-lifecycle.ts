@@ -160,3 +160,44 @@ function isNoSuchProcess(error: unknown): boolean {
     && "code" in error
     && (error as { readonly code?: unknown }).code === "ESRCH";
 }
+
+export function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
+  writeHarnessConfig(rootDir, authoredRoot);
+  mkdirSync(path.join(rootDir, authoredRoot, "tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, authoredRoot, "tasks", taskId, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    `  status: ${status}`,
+    "  ref: ",
+    `  titleSnapshot: ${title}`,
+    "  url: ",
+    "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
+    "  bindingFingerprint: sha256:test",
+    "packageDisposition: active",
+    "vertical: default",
+    "preset: default",
+    "---",
+    ""
+  ].join("\n"), "utf8");
+}
+
+export function writeHarnessConfig(rootDir: string, authoredRoot = "harness"): void {
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", "harness.yaml"), [
+    "schema: harness-anything/v1",
+    "name: gui-bridge-test",
+    "layout:",
+    `  authoredRoot: ${authoredRoot}`,
+    "  localRoot: .harness",
+    ""
+  ].join("\n"), "utf8");
+}
+
+export function waitForDaemonIdle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 700));
+}
