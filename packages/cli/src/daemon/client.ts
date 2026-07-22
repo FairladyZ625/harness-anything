@@ -12,6 +12,7 @@ import {
 import {
   daemonIdFromEnv,
   daemonUserRootForRepo,
+  DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
@@ -45,6 +46,7 @@ const docSyncHostServices = { resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 import { startCliTimingPhase, type CliTimingPhase } from "../cli/timing.ts";
+import { daemonRequestTimeoutReceipt } from "./request-outcome.ts";
 
 export {
   daemonIdForRoot,
@@ -201,6 +203,9 @@ export async function runCommandThroughDaemon(
   } catch (error) {
     if (command.action.kind === "materializer-run" && config.mode === "local" && !(error instanceof DaemonJsonRpcResponseError)) {
       return undefined;
+    }
+    if (error instanceof DaemonJsonRpcRequestTimeoutError) {
+      return daemonRequestTimeoutReceipt(command, error);
     }
     if (error instanceof CliActorAttributionError) {
       return daemonActorAttributionReceipt(command, error);
