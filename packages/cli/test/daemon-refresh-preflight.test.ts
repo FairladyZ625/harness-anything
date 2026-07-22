@@ -9,7 +9,6 @@ import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
 import {
   defaultDaemonUserRoot,
-  pollUntil,
   runDaemonCommand,
   runRawJsonMaybeFail,
   stopDaemon
@@ -17,14 +16,18 @@ import {
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
 import { initializeHarness } from "../src/commands/init.ts";
 
-test("refresh preflight reports the real manifest failure and leaves the running daemon unchanged", { timeout: 60_000 }, async () => {
+const DAEMON_REFRESH_TEST_TIMEOUT_MS = positiveIntegerEnv("HARNESS_TEST_DAEMON_REFRESH_TIMEOUT_MS", 180_000);
+const DAEMON_REFRESH_REQUEST_TIMEOUT_MS = positiveIntegerEnv("HARNESS_TEST_DAEMON_REFRESH_REQUEST_TIMEOUT_MS", 90_000);
+
+test("refresh preflight reports the real manifest failure and leaves the running daemon unchanged", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
     HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
-    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS)
   };
   const validManifest = readFileSync(fixture.manifestPath, "utf8");
   try {
@@ -82,7 +85,7 @@ test("refresh preflight reports the real manifest failure and leaves the running
   }
 });
 
-test("refresh derives the explicit manifest across a mixed registry and leaves a replacement reachable", { timeout: 60_000 }, async () => {
+test("refresh derives the explicit manifest across a mixed registry and converges on a ready replacement", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const classicRoot = path.join(fixture.root, "classic-repo");
@@ -90,7 +93,8 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
-    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS)
   };
   try {
     runDaemonCommand(fixture.repoRoot, [
@@ -119,14 +123,10 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     ], env);
     assert.equal(refresh.status, 0, JSON.stringify(refresh.receipt));
     assert.equal(refresh.receipt.ok, true, JSON.stringify(refresh.receipt));
-    const after = await pollUntil(
-      () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
-      (status) => status.reachable === true && typeof status.pid === "number" && status.pid !== before.pid,
-      (status, error) => JSON.stringify({ refresh, status, error: String(error ?? "") }),
-      { timeoutMs: 15_000 }
-    );
+    const convergence = assertRefreshConvergence(refresh.receipt, before.pid as number);
+    const after = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
     assert.equal(after.reachable, true, JSON.stringify({ refresh, after }));
-    assert.notEqual(after.pid, before.pid);
+    assert.equal(after.pid, convergence.replacementPid);
     const beforeService = before.service as { readonly build: { readonly loadedIdentity: string } };
     const afterService = after.service as {
       readonly build: { readonly loadedIdentity: string; readonly installedIdentity: string };
@@ -136,14 +136,14 @@ test("refresh derives the explicit manifest across a mixed registry and leaves a
     assert.equal(afterService.build.loadedIdentity, beforeService.build.loadedIdentity);
     assert.equal(afterService.activeControl, null);
     process.kill(after.pid as number, 0);
-    console.log(JSON.stringify({ scenario: "derived-manifest-refresh", beforePid: before.pid, afterPid: after.pid, reachable: after.reachable, refresh: refresh.receipt }));
+    console.log(JSON.stringify({ scenario: "derived-manifest-refresh", events: convergence.events, beforePid: before.pid, afterPid: after.pid, reachable: after.reachable }));
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("refresh explicitly exits the old owner after safe shutdown even with an active resource", { timeout: 60_000 }, async () => {
+test("refresh explicitly exits the old owner after safe shutdown even with an active resource", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const markerPath = path.join(fixture.root, "old-owner-resource.marker");
@@ -154,6 +154,7 @@ test("refresh explicitly exits the old owner after safe shutdown even with an ac
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS),
     HARNESS_TEST_DAEMON_OWNER_RESOURCE_MARKER: markerPath,
     HARNESS_TEST_DAEMON_OWNER_RESOURCE_EVIDENCE: evidencePath,
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
@@ -186,19 +187,11 @@ test("refresh explicitly exits the old owner after safe shutdown even with an ac
     };
     console.log(JSON.stringify({ scenario: "old-owner-active-resource", oldPid, evidence, refresh: refresh.receipt }));
     assert.equal(refresh.status, 0, JSON.stringify(refresh.receipt));
-    const replacement = refresh.receipt.replacement as { readonly pid?: unknown };
-    assert.equal(typeof replacement.pid, "number", JSON.stringify(refresh.receipt));
-    assert.notEqual(replacement.pid, oldPid);
     await persistentClientClosed;
-    await pollUntil(
-      () => processIsAlive(oldPid),
-      (alive) => !alive,
-      (alive, error) => JSON.stringify({ oldPid, alive, error: String(error ?? "") }),
-      { timeoutMs: 5_000 }
-    );
+    const convergence = assertRefreshConvergence(refresh.receipt, oldPid);
     assert.equal(evidence.pid, oldPid);
     assert.equal(evidence.resources.includes("Timeout"), true, JSON.stringify(evidence));
-    console.log(JSON.stringify({ scenario: "old-owner-explicit-exit", oldPid, replacementPid: replacement.pid, refresh: refresh.receipt }));
+    console.log(JSON.stringify({ scenario: "old-owner-explicit-exit", events: convergence.events, oldPid, replacementPid: convergence.replacementPid }));
   } finally {
     persistentClient?.destroy();
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
@@ -207,7 +200,7 @@ test("refresh explicitly exits the old owner after safe shutdown even with an ac
   }
 });
 
-test("refresh reports a stuck drain and leaves the old owner alive", { timeout: 60_000 }, async () => {
+test("refresh reports a stuck drain timeout and leaves the old owner alive", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const markerPath = path.join(fixture.root, "old-owner-stuck-drain.marker");
@@ -217,6 +210,7 @@ test("refresh reports a stuck drain and leaves the old owner alive", { timeout: 
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS),
     HARNESS_TEST_DAEMON_STUCK_DRAIN_MARKER: markerPath,
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
   };
@@ -264,4 +258,36 @@ function processIsAlive(pid: number | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function assertRefreshConvergence(receipt: Record<string, any>, oldPid: number): {
+  readonly events: ReadonlyArray<string>;
+  readonly replacementPid: number;
+} {
+  assert.equal(receipt.accepted, true, JSON.stringify(receipt));
+  assert.equal(receipt.controlSchema, "daemon-control-accepted/v1", JSON.stringify(receipt));
+  const before = receipt.before as Record<string, any>;
+  assert.equal(before.pid, oldPid, JSON.stringify(receipt));
+  assert.equal(before.queueDepth, 0, JSON.stringify(receipt));
+  assert.equal(typeof before.launchConfiguration, "object", JSON.stringify(receipt));
+
+  const replacement = receipt.replacement as Record<string, any>;
+  assert.equal(replacement.schema, "daemon-status/v2", JSON.stringify(receipt));
+  assert.equal(replacement.started, true, JSON.stringify(receipt));
+  assert.equal(typeof replacement.pid, "number", JSON.stringify(receipt));
+  assert.notEqual(replacement.pid, oldPid, JSON.stringify(receipt));
+  assert.equal(replacement.service?.activeControl, null, JSON.stringify(receipt));
+  assert.equal(replacement.service?.build?.loadedIdentity, replacement.service?.build?.installedIdentity, JSON.stringify(receipt));
+  assert.equal(processIsAlive(oldPid), false, `old daemon owner ${oldPid} must exit before replacement readiness is accepted`);
+  process.kill(replacement.pid as number, 0);
+
+  return {
+    events: ["accepted", "drain-preflight-complete", "old-owner-exited", "replacement-ready"],
+    replacementPid: replacement.pid as number
+  };
+}
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }

@@ -10,9 +10,25 @@ const root = process.cwd();
 const errors = [];
 const policy = harnessSupplyChainReleaseReadiness;
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
-const commandTimeoutMs = shorterPositiveTimeout(
+const MAX_COMMAND_TIMEOUT_MS = 180_000;
+const DEFAULT_NETWORK_BUDGET_MS = 180_000;
+const MAX_NETWORK_BUDGET_MS = 300_000;
+const DEFAULT_NETWORK_ATTEMPTS = 2;
+const MAX_NETWORK_ATTEMPTS = 3;
+const commandTimeoutMs = boundedPositiveInteger(
   process.env.HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS,
-  DEFAULT_COMMAND_TIMEOUT_MS
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  MAX_COMMAND_TIMEOUT_MS
+);
+const networkBudgetMs = boundedPositiveInteger(
+  process.env.HARNESS_SUPPLY_CHAIN_NETWORK_BUDGET_MS,
+  DEFAULT_NETWORK_BUDGET_MS,
+  MAX_NETWORK_BUDGET_MS
+);
+const networkAttempts = boundedPositiveInteger(
+  process.env.HARNESS_SUPPLY_CHAIN_NETWORK_ATTEMPTS,
+  DEFAULT_NETWORK_ATTEMPTS,
+  MAX_NETWORK_ATTEMPTS
 );
 const manifestGateRunner = "node tools/run-manifest-gates.mjs";
 const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
@@ -36,42 +52,61 @@ function requireIncludes(file, text, description = text) {
   if (!body.includes(normalizeText(text))) record(`${file} must mention ${description}`);
 }
 
-function run(command) {
+function runNetworkCommand(command, phase, networkStartedAt) {
   const [binary, ...args] = command.split(" ");
-  const result = spawnSync(binary, args, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: commandTimeoutMs,
-    killSignal: "SIGKILL"
-  });
+  for (let attempt = 1; attempt <= networkAttempts; attempt += 1) {
+    const remainingMs = networkBudgetMs - (Date.now() - networkStartedAt);
+    if (remainingMs <= 0) {
+      record(`[phase=${phase}] ${command} exhausted the ${networkBudgetMs}ms network budget before attempt ${attempt}`);
+      return "";
+    }
+    const attemptTimeoutMs = Math.min(commandTimeoutMs, remainingMs);
+    const result = spawnSync(binary, args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: attemptTimeoutMs,
+      killSignal: "SIGKILL",
+      detached: process.platform !== "win32"
+    });
+    const receipt = `phase=${phase} attempt=${attempt}/${networkAttempts} timeoutMs=${attemptTimeoutMs}`;
 
-  if (result.error?.code === "ETIMEDOUT") {
-    record(`${command} timed out after ${commandTimeoutMs}ms`);
-    return "";
-  }
-  if (result.error) {
-    record(`${command} failed to start: ${result.error.message}`);
-    return "";
-  }
-  if (result.signal !== null) {
-    record(`${command} terminated by signal ${result.signal}`);
-    return "";
-  }
-  if (result.status !== 0) {
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    record(`${command} failed${output ? `:\n${output}` : ""}`);
-    return "";
-  }
+    if (result.error?.code === "ETIMEDOUT") {
+      const processReceipt = result.pid === undefined
+        ? "processGroup=unknown"
+        : `processGroup=${result.pid}`;
+      if (attempt < networkAttempts && Date.now() - networkStartedAt < networkBudgetMs) {
+        console.error(`[supply-chain] ${receipt} status=timeout-retry ${processReceipt} termination=SIGKILL`);
+        continue;
+      }
+      record(`[${receipt}] ${command} timed out; ${processReceipt} termination=SIGKILL`);
+      return "";
+    }
+    if (result.error) {
+      record(`[${receipt}] ${command} failed to start: ${result.error.message}`);
+      return "";
+    }
+    if (result.signal !== null) {
+      record(`[${receipt}] ${command} terminated by signal ${result.signal}`);
+      return "";
+    }
+    if (result.status !== 0) {
+      const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+      record(`[${receipt}] ${command} failed${output ? `:\n${output}` : ""}`);
+      return "";
+    }
 
-  return result.stdout;
+    console.log(`[supply-chain] ${receipt} status=completed`);
+    return result.stdout;
+  }
+  return "";
 }
 
-function shorterPositiveTimeout(value, fallback) {
+function boundedPositiveInteger(value, fallback, maximum) {
   if (value === undefined || value === "") return fallback;
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
-  return Math.min(parsed, fallback);
+  return Math.min(parsed, maximum);
 }
 
 const policyValidation = validateSupplyChainReleaseReadiness(policy);
@@ -84,12 +119,18 @@ validatePackageLock();
 validateDependabot();
 validateDocsAndWorkflow();
 
-for (const command of policy.auditCommands) {
-  run(command.command);
-}
+// Local release-contract failures are complete evidence on their own. Keep the
+// network-dependent npm lane isolated so a local fixture or metadata failure
+// never waits on registry availability.
+if (errors.length === 0) {
+  const networkStartedAt = Date.now();
+  for (const [index, command] of policy.auditCommands.entries()) {
+    runNetworkCommand(command.command, `audit-${index + 1}`, networkStartedAt);
+  }
 
-const sbomOutput = run(policy.sbom.generationCommand);
-if (sbomOutput) validateSbom(sbomOutput);
+  const sbomOutput = runNetworkCommand(policy.sbom.generationCommand, "sbom", networkStartedAt);
+  if (sbomOutput) validateSbom(sbomOutput);
+}
 
 if (errors.length > 0) {
   console.error("Supply chain check failed:");
