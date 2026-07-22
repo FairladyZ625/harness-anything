@@ -7,9 +7,9 @@ import test from "node:test";
 import {
   deriveTaskProjectionRows,
   taskCreatedAtFromId,
-  taskTreeRoots,
-  type TaskProjectionRow
-} from "../../src/index.ts";
+  taskTreeRoots
+} from "../../src/projection/task-read-derivations.ts";
+import type { TaskProjectionRow } from "../../src/projection/types.ts";
 
 test("ULID task ids expose their millisecond creation time", () => {
   assert.equal(taskCreatedAtFromId("task_01ARZ3NDEKTSV4RRFFQ69G5FAV"), "2016-07-30T23:54:10.259Z");
