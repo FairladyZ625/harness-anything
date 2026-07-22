@@ -15,6 +15,7 @@ import {
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
+  defaultDaemonJsonRpcRequestTimeoutMs,
   JsonRpcLineClient,
   currentDaemonProtocolVersion,
   resolveCanonicalHarnessRoot,
@@ -65,6 +66,7 @@ export interface DaemonClientConfig {
   readonly modeExplicit: boolean;
   readonly idleExitMs: number;
   readonly autostartTimeoutMs: number;
+  readonly requestTimeoutMs: number;
   readonly userRoot: string;
   readonly daemonId: string;
   readonly directWriteReason?: "recovery";
@@ -104,6 +106,7 @@ export function readDaemonClientConfig(
     modeExplicit: (typeof env.HARNESS_DAEMON_MODE === "string" && env.HARNESS_DAEMON_MODE.trim().length > 0) || projectMode !== undefined,
     idleExitMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_IDLE_MS, defaultDaemonIdleExitMs),
     autostartTimeoutMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS, defaultDaemonAutostartTimeoutMs),
+    requestTimeoutMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_REQUEST_TIMEOUT_MS, defaultDaemonJsonRpcRequestTimeoutMs),
     userRoot,
     daemonId: daemonIdFromEnv(env),
     ...(directWriteReason ? { directWriteReason } : {}),
@@ -272,6 +275,7 @@ function daemonAutostartOptions(
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
     timeoutMs: config.autostartTimeoutMs,
+    requestTimeoutMs: config.requestTimeoutMs,
     layoutOverrides: command.layoutOverrides,
     onPhase
   };

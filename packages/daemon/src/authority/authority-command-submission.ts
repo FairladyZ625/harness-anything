@@ -155,12 +155,12 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
 
 export function gateAuthoritySubmissionForRecovery(
   service: AuthoritySubmissionService,
-  unavailableReason: () => string | undefined
+  unavailableReason: () => Promise<string | undefined> | string | undefined
 ): AuthoritySubmissionService {
   return {
     getOperation: service.getOperation,
     submit: async (envelope) => {
-      const reason = unavailableReason();
+      const reason = await unavailableReason();
       return reason
         ? {
           tag: "RETRYABLE_NOT_COMMITTED",
@@ -173,7 +173,7 @@ export function gateAuthoritySubmissionForRecovery(
     },
     ...(service.submitV2 ? {
       submitV2: async (attempt) => {
-        const reason = unavailableReason();
+        const reason = await unavailableReason();
         if (!reason) return service.submitV2!(attempt);
         const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
         return {

@@ -71,6 +71,7 @@ import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-produ
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
 import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
+import { waitForProductionRecovery } from "./production-recovery-admission.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -390,7 +391,7 @@ function createRepoComponent(
           ), context),
           cutoverControl
         ),
-        () => recoveryUnavailableReason(material)
+        () => waitForProductionRecovery({ repoId: material.config.repoId, recovery: material.recovery })
       );
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
         authorityService,
@@ -460,14 +461,6 @@ async function settleProductionRecovery(
     recovery.status = "failed";
     recovery.error = recoveryErrorSummary(error);
   }
-}
-
-function recoveryUnavailableReason(material: RepoProductionMaterial): string | undefined {
-  if (material.recovery.status === "complete") return undefined;
-  if (material.recovery.status === "recovering") {
-    return `AUTHORITY_RECOVERY_IN_PROGRESS:repoId=${material.config.repoId}; retry after daemon recovery completes`;
-  }
-  return `AUTHORITY_RECOVERY_FAILED:repoId=${material.config.repoId};error=${material.recovery.error ?? "unknown"}`;
 }
 
 function createConnectionAuthorityService(
