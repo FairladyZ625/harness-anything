@@ -119,3 +119,10 @@ human、agent、system、本地 CLI 与已认证 daemon 并不走同一条身份
 自动化之前，先读归属模型。
 
 → **[actor-attribution.zh-CN.md](actor-attribution.zh-CN.md)**
+
+## 配置仓库政策
+
+项目政策参考列出可审查的 `harness.yaml` settings、文档化默认值、环境变量覆盖名
+称，以及非法值的 fail-closed 规则。
+
+→ **[project-policy-settings.zh-CN.md](project-policy-settings.zh-CN.md)**

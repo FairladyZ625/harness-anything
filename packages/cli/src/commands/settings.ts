@@ -4,6 +4,12 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
+import {
+  validateAdapterSettings,
+  validatePositiveIntegerMapping,
+  type ProjectHarnessAdapterSettings,
+  type ProjectHarnessExecutionSettings
+} from "./project-policy-values.ts";
 
 export type HarnessLocale = "zh-CN" | "en-US";
 
@@ -31,6 +37,8 @@ export interface ProjectHarnessSettings {
   readonly identity?: ProjectHarnessIdentity;
   readonly daemon?: ProjectHarnessDaemonSettings;
   readonly tasks: ProjectHarnessTaskSettings;
+  readonly execution?: ProjectHarnessExecutionSettings;
+  readonly adapters?: ProjectHarnessAdapterSettings;
   readonly customVerticalsEnabled: boolean;
 }
 
@@ -227,6 +235,8 @@ function parseSettingsDocument(body: string): { readonly present: boolean; reado
       identity: fromSettings.identity,
       daemon: fromSettings.daemon,
       tasks: fromSettings.tasks,
+      execution: fromSettings.execution,
+      adapters: fromSettings.adapters,
       customVerticals: fromSettings.customVerticals
     };
     return {
@@ -246,6 +256,9 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inIdentity = false;
   let inDaemon = false;
   let inTasks = false;
+  let inExecution = false;
+  let inAdapters = false;
+  let inMultica = false;
   let foundSettings = false;
 
   for (const rawLine of lines) {
@@ -259,6 +272,9 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = false;
       inDaemon = false;
       inTasks = false;
+      inExecution = false;
+      inAdapters = false;
+      inMultica = false;
       foundSettings ||= inSettings;
       if (inSettings && topLevel[2]?.trim()) {
         throw new Error("settings must be a mapping.");
@@ -277,6 +293,9 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = key === "identity";
       inDaemon = key === "daemon";
       inTasks = key === "tasks";
+      inExecution = key === "execution";
+      inAdapters = key === "adapters";
+      inMultica = false;
       if (inCustomVerticals) {
         if (value) throw new Error("settings.customVerticals must be a mapping.");
         settings.customVerticals = {};
@@ -295,6 +314,16 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       if (inTasks) {
         if (value) throw new Error("settings.tasks must be a mapping.");
         settings.tasks = {};
+        continue;
+      }
+      if (inExecution) {
+        if (value) throw new Error("settings.execution must be a mapping.");
+        settings.execution = {};
+        continue;
+      }
+      if (inAdapters) {
+        if (value) throw new Error("settings.adapters must be a mapping.");
+        settings.adapters = {};
         continue;
       }
       if (!isKnownSettingsScalar(key)) throw new Error(`Unknown settings key: ${key}`);
@@ -341,6 +370,32 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       }
       continue;
     }
+    if (inExecution && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "consentTtlMs") throw new Error(`Unknown settings.execution key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.execution.consentTtlMs must be a scalar value.");
+      settings.execution = { consentTtlMs: unquoteScalar(value) };
+      continue;
+    }
+    if (inAdapters && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "multica") throw new Error(`Unknown settings.adapters key: ${key}`);
+      if (rawValue.trim()) throw new Error("settings.adapters.multica must be a mapping.");
+      settings.adapters = { multica: {} };
+      inMultica = true;
+      continue;
+    }
+
+    const adapterNested = /^      ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
+    if (inAdapters && inMultica && adapterNested) {
+      const [, key, rawValue = ""] = adapterNested;
+      if (key !== "staleTtlMs") throw new Error(`Unknown settings.adapters.multica key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.adapters.multica.staleTtlMs must be a scalar value.");
+      settings.adapters = { multica: { staleTtlMs: unquoteScalar(value) } };
+      continue;
+    }
 
     throw new Error(`Unsupported settings YAML line: ${withoutComment.trim()}`);
   }
@@ -381,6 +436,14 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       }
     }
   }
+  const execution = validatePositiveIntegerMapping(
+    raw.execution,
+    "settings.execution",
+    "consentTtlMs"
+  );
+  if (!execution.ok) return invalid(command, execution.message);
+  const adapters = validateAdapterSettings(raw.adapters);
+  if (!adapters.ok) return invalid(command, adapters.message);
   const customVerticals = raw.customVerticals;
   if (customVerticals !== undefined) {
     if (!isRecord(customVerticals)) {
@@ -406,6 +469,8 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
         leaseEnforcement: isRecord(tasks) && tasks.leaseEnforcement === true,
         ...(leaseTtlMs !== undefined ? { leaseTtlMs } : {})
       },
+      ...(execution.value === undefined ? {} : { execution: { consentTtlMs: execution.value } }),
+      ...(adapters.value === undefined ? {} : { adapters: adapters.value }),
       customVerticalsEnabled: isRecord(customVerticals) ? customVerticals.enabled === true : false
     }
   };
@@ -468,7 +533,7 @@ function validateOptionalId(name: string, value: unknown): { readonly ok: true; 
   return { ok: true, value };
 }
 
-function invalid(command: string, message: string): SettingsResult {
+function invalid(command: string, message: string): Extract<SettingsResult, { readonly ok: false }> {
   return { ok: false, result: settingsError(command, message) };
 }
 

@@ -3,14 +3,18 @@ import { makeRecordExecutionConsentService } from "@harness-anything/application
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { resolveExecutionConsentTtlMs } from "../project-policy-settings.ts";
 
 type Action = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-consent-record" }>;
 
 export function runExecutionConsent(context: Parameters<CommandRunner>[0], action: Action): ReturnType<CommandRunner> {
+  const consentTtl = resolveExecutionConsentTtlMs(context.layoutInput, process.env, action.kind);
+  if (!consentTtl.ok) return Effect.succeed(consentTtl.result);
   const service = makeRecordExecutionConsentService({
     rootInput: context.layoutInput,
     coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-consent" }),
-    artifactStore: context.artifactStore
+    artifactStore: context.artifactStore,
+    ttlMs: consentTtl.ttlMs
   });
   return context.currentSessionProbe.currentSession.pipe(
     Effect.flatMap((session) => Effect.tryPromise({

@@ -5,6 +5,7 @@ import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, Ta
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout, taskPackagePath } from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
+import { resolveMulticaStaleTtlMs } from "./project-policy-settings.ts";
 
 export interface AdoptMulticaAction {
   readonly kind: "adopt-multica";
@@ -29,6 +30,8 @@ export function runAdoptMultica(
   action: AdoptMulticaAction,
   makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
+  const staleTtl = resolveMulticaStaleTtlMs(rootInput, process.env, action.kind);
+  if (!staleTtl.ok) return Effect.succeed(staleTtl.result);
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
@@ -36,6 +39,7 @@ export function runAdoptMultica(
     rootDir,
     layoutOverrides,
     client: fixtureClient(action),
+    staleTtlMs: staleTtl.ttlMs,
     coordinator: makeWriteCoordinator({ scope: "operational", kind: "agent", id: "adopt-multica-cli" })
   });
 
@@ -56,8 +60,10 @@ export function runAdoptMultica(
   );
 }
 
-export function runSnapshotMultica(action: SnapshotMulticaAction): Effect.Effect<CliResult, EngineError | WriteError> {
-  const engine = makeMulticaLifecycleEngine({ client: fixtureClient(action) });
+export function runSnapshotMultica(rootInput: HarnessLayoutInput, action: SnapshotMulticaAction): Effect.Effect<CliResult, EngineError | WriteError> {
+  const staleTtl = resolveMulticaStaleTtlMs(rootInput, process.env, action.kind);
+  if (!staleTtl.ok) return Effect.succeed(staleTtl.result);
+  const engine = makeMulticaLifecycleEngine({ client: fixtureClient(action), staleTtlMs: staleTtl.ttlMs });
   return engine.snapshot({ engine: "multica", ref: action.ref as ExternalRef }).pipe(
     Effect.map((snapshot): CliResult => ({
       ok: true,
