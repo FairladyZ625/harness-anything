@@ -4,11 +4,14 @@ import { rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   createDaemonLaunchConfiguration,
   daemonLaunchOptionsResolvedFlag,
+  DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
+  JsonRpcLineClient,
   replaceSpawnLocalDaemonForTest,
   requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
@@ -80,6 +83,33 @@ test("JSON line frames preserve UTF-8 when a multibyte character spans chunks", 
 
   assert.deepEqual(first, { frames: [] });
   assert.deepEqual(second, { frames: [request] });
+});
+
+test("JSON-RPC requests reject within their deadline when the peer never responds", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const client = new JsonRpcLineClient(input, output);
+  const startedAt = Date.now();
+  try {
+    const outcome = await Promise.race([
+      client.request(
+        "repo.command.run",
+        {},
+        30
+      ).then(
+        () => "resolved",
+        (error: unknown) => error
+      ),
+      delay(150).then(() => "outer-timeout")
+    ]);
+
+    assert.notEqual(outcome, "outer-timeout", "request must enforce its own deadline");
+    assert.match(outcome instanceof Error ? outcome.message : "", /DAEMON_JSON_RPC_REQUEST_TIMEOUT.*repo\.command\.run.*30ms/u);
+    assert.ok(Date.now() - startedAt < 150);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
 });
 
 test("autostart coalesces concurrent requests to one spawn per socket path", async (t) => {
@@ -311,6 +341,32 @@ test("autostart surfaces a daemon JSON-RPC error once without retrying it as a d
   assert.equal(failedMethodCalls, 1);
 });
 
+test("autostart bounds an accepted local request when the daemon never responds", async (t) => {
+  if (process.platform === "win32") return;
+  const socketPath = uniqueSocketPath("ha-daemon-request-timeout");
+  const target = makeTarget(socketPath);
+  const server = await startJsonRpcServer(socketPath, { ignoreMethod: "repo.command.run" });
+  t.after(async () => {
+    await closeServer(server);
+    rmSync(socketPath, { force: true });
+  });
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget(
+      target,
+      "repo.command.run",
+      {},
+      20,
+      { entryPath: "/unused", timeoutMs: 1_000, requestTimeoutMs: 40 }
+    ),
+    (error: unknown) => error instanceof DaemonJsonRpcRequestTimeoutError
+      && error.method === "repo.command.run"
+      && error.timeoutMs <= 40
+  );
+  assert.ok(Date.now() - startedAt < 200);
+});
+
 function makeTarget(socketPath: string): LocalDaemonTarget {
   return {
     repoId: "canonical",
@@ -330,6 +386,7 @@ function uniqueSocketPath(prefix: string): string {
 async function startJsonRpcServer(socketPath: string, options: {
   readonly closeFirstConnections?: number;
   readonly errorMethod?: string;
+  readonly ignoreMethod?: string;
   readonly onRequest?: (method: string) => void;
 } = {}): Promise<net.Server> {
   rmSync(socketPath, { force: true });
@@ -344,6 +401,7 @@ async function startJsonRpcServer(socketPath: string, options: {
     lines.on("line", (line) => {
       const request = JSON.parse(line) as JsonRpcRequest;
       options.onRequest?.(request.method);
+      if (request.method === options.ignoreMethod) return;
       if (request.method === options.errorMethod) {
         socket.write(encodeJsonLineFrame({
           jsonrpc: "2.0",

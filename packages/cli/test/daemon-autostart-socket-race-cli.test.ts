@@ -7,10 +7,10 @@ import { acquireDaemonSocketOwnership } from "@harness-anything/daemon";
 import {
   delay,
   runDaemonCommand,
-  runRawJson,
   runRawJsonAsync,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 
 const concurrentClientCount = 8;
 
@@ -49,7 +49,7 @@ test("Windows named-pipe startup ownership waits for the current contender", asy
 
 test("daemon status cannot report started when its lock exists but the socket is unreachable", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
+    initializeNestedHarnessRepo(rootDir);
     const lockPath = path.join(rootDir, ".harness/locks/global.lock");
     mkdirSync(path.dirname(lockPath), { recursive: true });
     writeFileSync(lockPath, JSON.stringify({
@@ -80,10 +80,7 @@ test("concurrent cold-start clients converge on one reachable daemon socket owne
 
     for (const [index, rootDir] of repoRoots.entries()) {
       mkdirSync(rootDir, { recursive: true });
-      runRawJson(rootDir, ["init"], {
-        HARNESS_DAEMON_MODE: "fixture",
-        HARNESS_DAEMON_USER_ROOT: path.join(workspaceRoot, `init-user-${index}`)
-      });
+      initializeNestedHarnessRepo(rootDir);
       runDaemonCommand(rootDir, [
         "daemon",
         "repo",

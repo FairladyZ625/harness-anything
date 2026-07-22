@@ -1,11 +1,9 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { createHash } from "node:crypto";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline";
-import type { Readable, Writable } from "node:stream";
 import {
   readDaemonRegistry,
   registerDaemonRepo,
@@ -14,14 +12,19 @@ import {
   type DaemonRegistryRepo
 } from "@harness-anything/kernel/daemon/registry";
 import { currentDaemonProtocolVersion } from "../protocol/method-registry.ts";
-import { type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "../protocol/json-rpc-types.ts";
-import { encodeJsonLineFrame } from "../transport/frame-codec.ts";
+import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { defaultNamedPipePath } from "../transport/named-pipe.ts";
 import { defaultUnixSocketPath, type UnixSocketPathOptions } from "../transport/unix-socket.ts";
 import {
   createDaemonLaunchConfiguration,
   type DaemonLaunchConfiguration
 } from "./daemon-launch-configuration.ts";
+import {
+  DaemonJsonRpcRequestTimeoutError,
+  DaemonJsonRpcResponseError,
+  defaultDaemonJsonRpcRequestTimeoutMs,
+  JsonRpcLineClient
+} from "./json-rpc-line-client.ts";
 
 export {
   createDaemonLaunchConfiguration,
@@ -34,15 +37,12 @@ export {
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
 
-export class DaemonJsonRpcResponseError extends Error {
-  readonly code: number;
-
-  constructor(code: number, message: string) {
-    super(message);
-    this.name = "DaemonJsonRpcResponseError";
-    this.code = code;
-  }
-}
+export {
+  DaemonJsonRpcRequestTimeoutError,
+  DaemonJsonRpcResponseError,
+  defaultDaemonJsonRpcRequestTimeoutMs,
+  JsonRpcLineClient
+} from "./json-rpc-line-client.ts";
 
 export interface LocalDaemonTarget {
   readonly repoId: string;
@@ -62,6 +62,7 @@ export interface LocalDaemonAutostartOptions {
   readonly entryPath: string;
   readonly idleExitMs?: number;
   readonly timeoutMs?: number;
+  readonly requestTimeoutMs?: number;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly env?: NodeJS.ProcessEnv;
   readonly execPath?: string;
@@ -315,50 +316,6 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
   child.unref();
 }
 
-export class JsonRpcLineClient {
-  private nextId = 1;
-  private readonly input: Readable;
-  private readonly output: Writable;
-  private readonly owner?: ChildProcessWithoutNullStreams;
-
-  constructor(input: Readable, output: Writable, owner?: ChildProcessWithoutNullStreams) {
-    this.input = input;
-    this.output = output;
-    this.owner = owner;
-  }
-
-  async request(method: string, params: JsonObject): Promise<JsonObject> {
-    const id = this.nextId++;
-    const responsePromise = this.readResponse(id);
-    const request = { jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest;
-    this.output.write(encodeJsonLineFrame(request));
-    const response = await responsePromise;
-    if ("error" in response) throw new DaemonJsonRpcResponseError(response.error.code, response.error.message);
-    if (!isPlainRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
-    return response.result as JsonObject;
-  }
-
-  close(): void {
-    this.output.end();
-    this.owner?.kill("SIGTERM");
-  }
-
-  private async readResponse(id: number): Promise<JsonRpcResponse> {
-    const lines = createInterface({ input: this.input });
-    const iterator = lines[Symbol.asyncIterator]();
-    try {
-      while (true) {
-        const next = await iterator.next();
-        if (next.done) throw new Error(`daemon closed before JSON-RPC response ${id}`);
-        const response = JSON.parse(next.value) as JsonRpcResponse;
-        if (response.id === id) return response;
-      }
-    } finally {
-      lines.close();
-    }
-  }
-}
-
 async function requestLocalDaemonJsonRpcWithAutostart(
   target: LocalDaemonTarget,
   method: string,
@@ -380,9 +337,14 @@ async function requestLocalDaemonJsonRpcWithAutostart(
     }
     try {
       autostart.onPhase?.("request-start");
-      return await requestWithSocket(socket, method, params);
+      return await requestWithSocket(
+        socket,
+        method,
+        params,
+        autostart.requestTimeoutMs ?? defaultDaemonJsonRpcRequestTimeoutMs
+      );
     } catch (error) {
-      if (error instanceof DaemonJsonRpcResponseError) throw error;
+      if (error instanceof DaemonJsonRpcResponseError || error instanceof DaemonJsonRpcRequestTimeoutError) throw error;
       lastError = error;
       await delay(Math.min(100, Math.max(1, deadline - Date.now())));
     } finally {
@@ -476,17 +438,24 @@ async function probeLocalDaemonReady(socketPath: string, timeoutMs: number): Pro
   const socket = await connectUnixSocket(socketPath, timeoutMs);
   const client = new JsonRpcLineClient(socket, socket);
   try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, timeoutMs);
   } finally {
     socket.destroy();
   }
 }
 
-async function requestWithSocket(socket: net.Socket, method: string, params: JsonObject): Promise<JsonObject> {
+async function requestWithSocket(
+  socket: net.Socket,
+  method: string,
+  params: JsonObject,
+  timeoutMs = defaultDaemonJsonRpcRequestTimeoutMs
+): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => Math.max(1, deadline - Date.now());
   try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
-    return await client.request(method, params);
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, remaining());
+    return await client.request(method, params, remaining());
   } finally {
     socket.destroy();
   }
@@ -547,10 +516,6 @@ function tryRegisterCanonicalRepo(rootDir: string, userRoot: string): DaemonRegi
 
 function daemonTarget(input: LocalDaemonTarget): LocalDaemonTarget {
   return input;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function delay(ms: number): Promise<void> {

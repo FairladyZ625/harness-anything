@@ -76,6 +76,17 @@ test("daemon user root precedence preserves defaults and isolated profile", () =
   });
 });
 
+test("daemon client request timeout is bounded by default and accepts an explicit budget", () => {
+  withTempRoot((rootDir) => {
+    const baseEnv = cleanDaemonEnv({ HOME: path.join(rootDir, "home") });
+    assert.equal(readDaemonClientConfig(baseEnv, rootDir).requestTimeoutMs, 35_000);
+    assert.equal(readDaemonClientConfig({
+      ...baseEnv,
+      HARNESS_DAEMON_REQUEST_TIMEOUT_MS: "1250"
+    }, rootDir).requestTimeoutMs, 1_250);
+  });
+});
+
 test("project daemon user root expands home and accepts absolute paths", () => {
   withTempRoot((rootDir) => {
     const home = path.join(rootDir, "configured-home");

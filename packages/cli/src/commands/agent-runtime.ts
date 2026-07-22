@@ -83,6 +83,7 @@ async function requestAgentRuntimeDaemon(
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
     timeoutMs: config.autostartTimeoutMs,
+    requestTimeoutMs: config.requestTimeoutMs,
     layoutOverrides
   });
   if (isReceipt(response)) return response;
