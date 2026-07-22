@@ -97,12 +97,12 @@ function parseEnvironmentValue(definition: LandedSettingDefinition, raw: string 
 function nestedValue(root: ProjectHarnessSettings, segments: ReadonlyArray<string>): unknown {
   let current: unknown = root;
   for (const segment of segments) {
-    if (!isRecord(current)) return undefined;
+    if (!isResolvedSettingsRecord(current)) return undefined;
     current = current[segment];
   }
   return current;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isResolvedSettingsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

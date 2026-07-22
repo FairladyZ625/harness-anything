@@ -14,7 +14,7 @@ type Validation<Value> = { readonly ok: true; readonly value?: Value } | { reado
 
 export function validateDaemonSettings(value: unknown): Validation<ProjectHarnessDaemonSettings> {
   if (value === undefined) return { ok: true };
-  if (!isRecord(value)) return { ok: false, message: "settings.daemon must be a mapping." };
+  if (!isIdentitySettingsRecord(value)) return { ok: false, message: "settings.daemon must be a mapping." };
   const keys = Object.keys(value);
   if (keys.length !== 1 || keys[0] !== "userRoot") return { ok: false, message: "settings.daemon supports only userRoot." };
   if (typeof value.userRoot !== "string" || !value.userRoot.trim() || value.userRoot.includes("\0")) {
@@ -28,7 +28,7 @@ export function validateDaemonSettings(value: unknown): Validation<ProjectHarnes
 
 export function validateIdentitySettings(value: unknown): Validation<ProjectHarnessIdentity> {
   if (value === undefined) return { ok: true };
-  if (!isRecord(value)) return { ok: false, message: "settings.identity must be a mapping." };
+  if (!isIdentitySettingsRecord(value)) return { ok: false, message: "settings.identity must be a mapping." };
   const keys = Object.keys(value).sort();
   if (keys.some((key) => key !== "displayName" && key !== "mode" && key !== "personId")) return { ok: false, message: "settings.identity supports only mode, personId, and displayName." };
   if (value.mode !== undefined && value.mode !== "local" && value.mode !== "remote") return { ok: false, message: "settings.identity.mode must be local or remote." };
@@ -42,6 +42,6 @@ export function validateIdentitySettings(value: unknown): Validation<ProjectHarn
   } };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isIdentitySettingsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

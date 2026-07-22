@@ -164,6 +164,8 @@ const publicRuntimeSurface = [
   "isTaskHolderError",
   "isTaskWorkKind",
   "isTerminalStatus",
+  "landedSettingDefaults",
+  "landedSettingsRegistry",
   "legacyPhysicalScopeWarning",
   "listTaskIndexPaths",
   "makeCodeDocGitEvidenceResolver",
