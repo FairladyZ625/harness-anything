@@ -8,6 +8,8 @@
   "terminal.dock.sessions": "Sessions",
   "terminal.dock.dockBottom": "Dock to bottom",
   "terminal.dock.dockRight": "Dock to right",
+  "terminal.dock.resizeHeight": "Drag to resize terminal height (or use ↑ ↓)",
+  "terminal.dock.resizeWidth": "Drag to resize terminal width (or use ← →)",
   "terminal.dock.empty": "No terminal tabs open.",
   "terminal.pane.connecting": "Starting shell…",
   "terminal.pane.cwd": "Working directory: {cwd}",
