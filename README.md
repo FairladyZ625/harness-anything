@@ -147,6 +147,12 @@ The result is a repository that remembers more than its code:
 - which work is truly complete and which claims remain open;
 - how its own development process should improve next.
 
+Repository architecture is also guarded mechanically. `tools/package-boundaries.json`
+is the package-adjacency authority: new forbidden edges fail at error severity, existing
+debt is an exact no-growth ratchet, deep-subpath sunsets have machine-enforced consumer
+ceilings, and source-path strings count as real contract edges. Write-path coverage is
+owned by the full-root `check-write-road-registry` gate.
+
 ## Documentation
 
 - [Start](./docs-release/start/en/00-what-is-this.md) — install it and run one real loop. ([中文](./docs-release/start/zh/00-what-is-this.md))

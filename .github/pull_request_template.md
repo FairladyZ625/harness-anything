@@ -50,6 +50,7 @@
 - [ ] `npm run typecheck`
 - [ ] `npm test`
 - [ ] `npm run harness:check-import-boundaries`
+- [ ] `npm run harness:check-package-boundaries`
 - [ ] `npm run harness:scan-forbidden-symbols`
 - [ ] `npm run harness:check-private-boundary`
 - [ ] `npm run harness:check-package-policy`
@@ -128,6 +129,7 @@
 - [ ] `npm run typecheck`
 - [ ] `npm test`
 - [ ] `npm run harness:check-import-boundaries`
+- [ ] `npm run harness:check-package-boundaries`
 - [ ] `npm run harness:scan-forbidden-symbols`
 - [ ] `npm run harness:check-private-boundary`
 - [ ] `npm run harness:check-package-policy`
