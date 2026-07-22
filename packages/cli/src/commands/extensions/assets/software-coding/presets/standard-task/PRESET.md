@@ -1,6 +1,6 @@
 ---
 schema: preset-document/v1
-description: Create the standard planning, progress, review, evidence, and closeout package for general software work.
+description: Create the standard planning, facts, and closeout scaffold for general software work.
 whenToUse: Use for ordinary implementation, maintenance, refactoring, documentation, or test work when no narrower preset fits.
 ---
 

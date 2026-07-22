@@ -1,6 +1,6 @@
 ---
 schema: preset-document/v1
-description: Create the planning, progress, review, evidence, and closeout package for design, documentation, or chore work that produces no code commit.
+description: Create the planning, facts, and closeout scaffold for design, documentation, or chore work that produces no code commit.
 whenToUse: Use for pure design, documentation, research, or chore tasks whose deliverable is a document or decision rather than code, so completion is gated on a real closeout and an approved review instead of CI or code-doc reconciliation.
 ---
 
