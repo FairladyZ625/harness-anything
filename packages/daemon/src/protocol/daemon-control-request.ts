@@ -20,7 +20,7 @@ export function daemonControlRequest(
     return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.trigger explicit|post-merge|dist-watcher. Retry with \`ha daemon refresh --trigger explicit\`.` };
   }
   if (payload.kind !== undefined && (method !== "admin.daemon.refresh" || payload.kind !== "upgrade")) {
-    return { ok: false, code: "daemon_control_unavailable", hint: `${method} only accepts payload.kind=upgrade on the refresh transport.` };
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.kind to be omitted, or set to upgrade on the admin.daemon.refresh transport. Retry with \`ha daemon upgrade --version <snapshot-version>\` to switch snapshots, or \`ha daemon refresh\` to reload in place.` };
   }
   if (payload.daemonGeneration !== undefined
     && (!Number.isSafeInteger(payload.daemonGeneration) || Number(payload.daemonGeneration) < 1)) {

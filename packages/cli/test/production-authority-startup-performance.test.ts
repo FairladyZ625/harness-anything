@@ -9,6 +9,7 @@ import {
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
+  runRawJsonAsync,
   runRawJsonMaybeFail,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
@@ -21,7 +22,13 @@ import {
   sealLongHistoryFixture
 } from "./production-authority-canonical-ingress/fixture.ts";
 
-test("production service exposes its socket while authority recovery scans history, then uses the persisted increment", { timeout: 120_000 }, async () => {
+test("production service exposes its socket while authority recovery scans history, then uses the persisted increment", {
+  timeout: 120_000,
+  // This benchmark launches one Git observation process per commit. Native
+  // Windows writable authority remains deferred, and its process startup cost
+  // is not comparable to the qualified POSIX service path measured here.
+  skip: process.platform === "win32" ? "production writable recovery performance is POSIX-qualified" : false
+}, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
@@ -30,6 +37,7 @@ test("production service exposes its socket while authority recovery scans histo
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
     HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: "35000",
     CODEX_THREAD_ID: "service-recovery-session"
   };
   const watermarkPath = path.join(
@@ -61,18 +69,16 @@ test("production service exposes its socket while authority recovery scans histo
     const statusDuringRecovery = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
     assert.equal(statusDuringRecovery.reachable, true, JSON.stringify(statusDuringRecovery));
     assert.equal(existsSync(watermarkPath), false, "cold full scan must still be in progress when the socket is first reachable");
-    const gated = runRawJsonMaybeFail(fixture.repoRoot, [
+    const admittedPromise = runRawJsonAsync(fixture.repoRoot, [
       "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", "--text", "must wait for recovery"
     ], env);
-    assert.notEqual(gated.status, 0, JSON.stringify(gated.receipt));
-    assert.match(JSON.stringify(gated.receipt), /AUTHORITY_RECOVERY_IN_PROGRESS/u);
-
-    await pollUntil(
+    const [admitted] = await Promise.all([admittedPromise, pollUntil(
       () => existsSync(watermarkPath) ? JSON.parse(readFileSync(watermarkPath, "utf8")) as { readonly commitSha?: string } : undefined,
       (watermark) => watermark?.commitSha === coldHead,
       (watermark, error) => JSON.stringify({ watermark, error: String(error ?? "") }),
       { timeoutMs: 30_000 }
-    );
+    )]);
+    assert.equal(admitted.ok, true, JSON.stringify(admitted));
     const coldRecoveryMs = Date.now() - coldStartedAt;
     assert.equal(authorityOperationRecords(fixture.serviceRoot).find((record) => record.opId === "namespace-production:unpublished-startup")?.state, "REJECTED");
     const committed = runRawJsonMaybeFail(fixture.repoRoot, [
