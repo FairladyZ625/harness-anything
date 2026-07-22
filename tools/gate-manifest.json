@@ -32,7 +32,8 @@
         "supply-chain",
         "gui-build",
         "node26-compatibility",
-        "pr-body-lint"
+        "pr-body-lint",
+        "direct-recovery"
       ]
     }
   },
@@ -254,7 +255,8 @@
         "supply-chain",
         "gui-build",
         "node26-compatibility",
-        "pr-body-lint"
+        "pr-body-lint",
+        "direct-recovery"
       ],
       "enforceAdmins": false
     }
@@ -262,7 +264,14 @@
   "gates": [
     {
       "id": "aggregate-full-check",
-      "nonDeterminism": { "kind": "aggregate", "reason": "The full-check wrapper inherits test, build, registry, wall-clock, and host-environment behavior from its leaf gates.", "evidence": ["package.json:scripts.check", "tools/run-manifest-gates.mjs"] },
+      "nonDeterminism": {
+        "kind": "aggregate",
+        "reason": "The full-check wrapper inherits test, build, registry, wall-clock, and host-environment behavior from its leaf gates.",
+        "evidence": [
+          "package.json:scripts.check",
+          "tools/run-manifest-gates.mjs"
+        ]
+      },
       "aggregate": true,
       "command": "npm run check",
       "category": "meta-governance",
@@ -333,7 +342,14 @@
     },
     {
       "id": "aggregate-check-pr",
-      "nonDeterminism": { "kind": "aggregate", "reason": "The local PR approximation composes test, build, and external-state leaves and has no independent reproducibility guarantee.", "evidence": ["package.json:scripts.check:pr", "tools/run-manifest-gates.mjs"] },
+      "nonDeterminism": {
+        "kind": "aggregate",
+        "reason": "The local PR approximation composes test, build, and external-state leaves and has no independent reproducibility guarantee.",
+        "evidence": [
+          "package.json:scripts.check:pr",
+          "tools/run-manifest-gates.mjs"
+        ]
+      },
       "aggregate": true,
       "command": "npm run check:pr",
       "category": "meta-governance",
@@ -550,7 +566,14 @@
     },
     {
       "id": "mergify-queue-metadata-edit-noop",
-      "nonDeterminism": { "kind": "external-state", "reason": "This control-flow marker is eligible only when GitHub reports same-head-SHA source-validation proof for Mergify queue orchestration.", "evidence": [".github/workflows/rewrite-ci.yml:jobs.metadata-source-proof", ".github/workflows/rewrite-ci.yml:jobs.source-validation-proof"] },
+      "nonDeterminism": {
+        "kind": "external-state",
+        "reason": "This control-flow marker is eligible only when GitHub reports same-head-SHA source-validation proof for Mergify queue orchestration.",
+        "evidence": [
+          ".github/workflows/rewrite-ci.yml:jobs.metadata-source-proof",
+          ".github/workflows/rewrite-ci.yml:jobs.source-validation-proof"
+        ]
+      },
       "command": "echo \"Reusing successful source validation for the same head SHA.\"",
       "category": "meta-governance",
       "tier": "pr-required",
@@ -855,9 +878,15 @@
         "allowed internal dependency edges derived from tools/package-boundaries.json"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
-        "nodeVersions": [24]
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -886,14 +915,24 @@
           "script": "harness:check-package-boundaries"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check"]
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": [
+            "boundaries"
+          ]
         },
-        "classes": ["local", "pr", "main-full"]
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
       },
       "deterministic": true,
       "positiveControl": {
@@ -906,7 +945,14 @@
     },
     {
       "id": "test-node-all",
-      "nonDeterminism": { "kind": "aggregate", "reason": "The all-tests runner aggregates fast, contract, and integration suites, including filesystem, process, daemon, and Git environment behavior.", "evidence": ["tools/run-node-tests.mjs", "tools/test-tier-manifest.mjs"] },
+      "nonDeterminism": {
+        "kind": "aggregate",
+        "reason": "The all-tests runner aggregates fast, contract, and integration suites, including filesystem, process, daemon, and Git environment behavior.",
+        "evidence": [
+          "tools/run-node-tests.mjs",
+          "tools/test-tier-manifest.mjs"
+        ]
+      },
       "command": "npm test",
       "category": "local-consistency",
       "tier": "main-only",
@@ -1367,7 +1413,14 @@
     },
     {
       "id": "test-gui-e2e",
-      "nonDeterminism": { "kind": "host-environment", "reason": "The Electron smoke requires a headed GUI session and host display/runtime support that headless CI does not reproduce reliably.", "evidence": ["tools/run-gui-e2e-tests.mjs", "decision/dec_mrat10bn"] },
+      "nonDeterminism": {
+        "kind": "host-environment",
+        "reason": "The Electron smoke requires a headed GUI session and host display/runtime support that headless CI does not reproduce reliably.",
+        "evidence": [
+          "tools/run-gui-e2e-tests.mjs",
+          "decision/dec_mrat10bn"
+        ]
+      },
       "command": "npm run test:gui:e2e",
       "category": "smoke",
       "tier": "manual-only",
@@ -1436,7 +1489,15 @@
     },
     {
       "id": "node26-compatibility",
-      "nonDeterminism": { "kind": "aggregate", "reason": "The Node 26 compatibility job is a composite lane over typecheck plus fast and contract suites rather than a leaf judgment.", "evidence": [".github/workflows/rewrite-ci.yml:jobs.node26-compatibility", "package.json:scripts.test:fast", "package.json:scripts.test:contract"] },
+      "nonDeterminism": {
+        "kind": "aggregate",
+        "reason": "The Node 26 compatibility job is a composite lane over typecheck plus fast and contract suites rather than a leaf judgment.",
+        "evidence": [
+          ".github/workflows/rewrite-ci.yml:jobs.node26-compatibility",
+          "package.json:scripts.test:fast",
+          "package.json:scripts.test:contract"
+        ]
+      },
       "aggregate": true,
       "command": "npm run typecheck && npm run test:fast && npm run test:contract",
       "category": "local-consistency",
@@ -2673,7 +2734,14 @@
     },
     {
       "id": "check-enforcement-debt-sunset",
-      "nonDeterminism": { "kind": "temporal", "reason": "The verdict compares authored decision/task dates with the current wall clock and changes when the sunset age crosses its limit.", "evidence": ["tools/check-enforcement-debt-sunset.mjs:parseNow", "tools/check-enforcement-debt-sunset.mjs:sunsetDays"] },
+      "nonDeterminism": {
+        "kind": "temporal",
+        "reason": "The verdict compares authored decision/task dates with the current wall clock and changes when the sunset age crosses its limit.",
+        "evidence": [
+          "tools/check-enforcement-debt-sunset.mjs:parseNow",
+          "tools/check-enforcement-debt-sunset.mjs:sunsetDays"
+        ]
+      },
       "command": "npm run harness:check-enforcement-debt-sunset",
       "category": "meta-governance",
       "tier": "nightly-only",
@@ -3204,7 +3272,14 @@
     },
     {
       "id": "check-github-required-contexts",
-      "nonDeterminism": { "kind": "external-state", "reason": "The checker reads live GitHub branch rules whose authentication, rate-limit, and service state can change independently of repository source.", "evidence": ["GET /repos/{owner}/{repo}/rules/branches/main", "tools/check-github-required-contexts.mjs:fetchGitHubBranchRules"] },
+      "nonDeterminism": {
+        "kind": "external-state",
+        "reason": "The checker reads live GitHub branch rules whose authentication, rate-limit, and service state can change independently of repository source.",
+        "evidence": [
+          "GET /repos/{owner}/{repo}/rules/branches/main",
+          "tools/check-github-required-contexts.mjs:fetchGitHubBranchRules"
+        ]
+      },
       "command": "npm run harness:check-github-required-contexts",
       "category": "meta-governance",
       "tier": "pr-required",
@@ -3860,7 +3935,14 @@
     },
     {
       "id": "check-staged-activation",
-      "nonDeterminism": { "kind": "temporal", "reason": "The staged-contract verdict includes explicit expiry dates evaluated against the current wall clock.", "evidence": ["tools/staged-activation.json", "tools/run-staged-activation.mjs"] },
+      "nonDeterminism": {
+        "kind": "temporal",
+        "reason": "The staged-contract verdict includes explicit expiry dates evaluated against the current wall clock.",
+        "evidence": [
+          "tools/staged-activation.json",
+          "tools/run-staged-activation.mjs"
+        ]
+      },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
@@ -4784,7 +4866,14 @@
     },
     {
       "id": "check-supply-chain",
-      "nonDeterminism": { "kind": "external-state", "reason": "Supply-chain verification invokes live npm audit and package preflight commands whose registry responses are outside repository control.", "evidence": ["packages/gui/src/distribution/supply-chain-release-readiness.ts:auditCommands", "tools/check-supply-chain.mjs"] },
+      "nonDeterminism": {
+        "kind": "external-state",
+        "reason": "Supply-chain verification invokes live npm audit and package preflight commands whose registry responses are outside repository control.",
+        "evidence": [
+          "packages/gui/src/distribution/supply-chain-release-readiness.ts:auditCommands",
+          "tools/check-supply-chain.mjs"
+        ]
+      },
       "command": "npm run harness:check-supply-chain",
       "category": "release-policy",
       "tier": "pr-required",
@@ -5066,8 +5155,10 @@
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
+          "required": true,
+          "contexts": [
+            "direct-recovery"
+          ]
         },
         "classes": [
           "local",
@@ -5086,7 +5177,14 @@
     },
     {
       "id": "vscode-contracts",
-      "nonDeterminism": { "kind": "host-environment", "reason": "The focused manual lane runs outside the governed PR topology and depends on the caller's local Node and workspace toolchain state.", "evidence": ["package.json:scripts.test:vscode-contracts", "packages/vscode-ext/package.json"] },
+      "nonDeterminism": {
+        "kind": "host-environment",
+        "reason": "The focused manual lane runs outside the governed PR topology and depends on the caller's local Node and workspace toolchain state.",
+        "evidence": [
+          "package.json:scripts.test:vscode-contracts",
+          "packages/vscode-ext/package.json"
+        ]
+      },
       "command": "npm run test:vscode-contracts",
       "category": "boundary",
       "tier": "manual-only",
@@ -5102,8 +5200,17 @@
       "consumerScope": [
         "shared daemon API contracts, persistent client state machine, connection pool, and workspace routing"
       ],
-      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
-      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "No skip or fixture allowlist is accepted." },
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No skip or fixture allowlist is accepted."
+      },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
@@ -5117,10 +5224,23 @@
       },
       "bypassFixtureRequired": true,
       "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": "test:vscode-contracts" },
-        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "manual"]
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "test:vscode-contracts"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
       },
       "deterministic": false,
       "positiveControl": {
@@ -5134,59 +5254,155 @@
     },
     {
       "id": "vscode-dual-target-build",
-      "nonDeterminism": { "kind": "host-environment", "reason": "The manual dual-target build depends on the local build toolchain and host filesystem and is not covered by a governed CI execution surface.", "evidence": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/package.json:scripts.build"] },
+      "nonDeterminism": {
+        "kind": "host-environment",
+        "reason": "The manual dual-target build depends on the local build toolchain and host filesystem and is not covered by a governed CI execution surface.",
+        "evidence": [
+          "packages/vscode-ext/scripts/build.mjs",
+          "packages/vscode-ext/package.json:scripts.build"
+        ]
+      },
       "command": "npm run build:vscode",
       "category": "smoke",
       "tier": "manual-only",
       "tierReason": "The focused W-D2 build is registered without changing the protected CI workflow topology.",
-      "authoritySource": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/scripts/verify-artifacts.mjs", "packages/vscode-ext/package.json:scripts.build"],
-      "consumerScope": ["VS Code extension host CJS and browser IIFE artifacts"],
-      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
-      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "Build smoke has no allowlist." },
+      "authoritySource": [
+        "packages/vscode-ext/scripts/build.mjs",
+        "packages/vscode-ext/scripts/verify-artifacts.mjs",
+        "packages/vscode-ext/package.json:scripts.build"
+      ],
+      "consumerScope": [
+        "VS Code extension host CJS and browser IIFE artifacts"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Build smoke has no allowlist."
+      },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["packages/vscode-ext/scripts/build.mjs", "packages/vscode-ext/scripts/verify-artifacts.mjs", "packages/vscode-ext/package.json:scripts.build", "package.json:scripts.build:vscode", "tools/gate-manifest.json"]
+        "protectedSurfaces": [
+          "packages/vscode-ext/scripts/build.mjs",
+          "packages/vscode-ext/scripts/verify-artifacts.mjs",
+          "packages/vscode-ext/package.json:scripts.build",
+          "package.json:scripts.build:vscode",
+          "tools/gate-manifest.json"
+        ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": "build:vscode" },
-        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "manual"]
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "build:vscode"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
       },
       "deterministic": false,
-      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/verify-artifacts.mjs rejects bundled vscode, Node builtins, and remote webview URLs."] }
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/vscode-ext/scripts/verify-artifacts.mjs rejects bundled vscode, Node builtins, and remote webview URLs."
+        ]
+      }
     },
     {
       "id": "vscode-vsix-smoke",
-      "nonDeterminism": { "kind": "host-environment", "reason": "VSIX packaging is a manual artifact-producing smoke whose output depends on the local packaging toolchain and host filesystem.", "evidence": ["packages/vscode-ext/package.json:scripts.package:vsix", "packages/vscode-ext/scripts/verify-artifacts.mjs"] },
+      "nonDeterminism": {
+        "kind": "host-environment",
+        "reason": "VSIX packaging is a manual artifact-producing smoke whose output depends on the local packaging toolchain and host filesystem.",
+        "evidence": [
+          "packages/vscode-ext/package.json:scripts.package:vsix",
+          "packages/vscode-ext/scripts/verify-artifacts.mjs"
+        ]
+      },
       "command": "npm run package:vscode",
       "category": "smoke",
       "tier": "manual-only",
       "tierReason": "VSIX packaging is a focused W-D2 smoke and does not alter existing workflow jobs.",
-      "authoritySource": ["packages/vscode-ext/package.json:scripts.package:vsix", "packages/vscode-ext/scripts/verify-artifacts.mjs"],
-      "consumerScope": ["Harness Anything VSIX package"],
-      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
-      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "VSIX smoke has no allowlist." },
+      "authoritySource": [
+        "packages/vscode-ext/package.json:scripts.package:vsix",
+        "packages/vscode-ext/scripts/verify-artifacts.mjs"
+      ],
+      "consumerScope": [
+        "Harness Anything VSIX package"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "VSIX smoke has no allowlist."
+      },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["packages/vscode-ext/package.json:scripts.package:vsix", "package.json:scripts.package:vscode", "tools/gate-manifest.json"]
+        "protectedSurfaces": [
+          "packages/vscode-ext/package.json:scripts.package:vsix",
+          "package.json:scripts.package:vscode",
+          "tools/gate-manifest.json"
+        ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": "package:vscode" },
-        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "manual"]
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "package:vscode"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
       },
       "deterministic": false,
-      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/verify-artifacts.mjs rejects VSIX archives missing required entries."] }
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/vscode-ext/scripts/verify-artifacts.mjs rejects VSIX archives missing required entries."
+        ]
+      }
     },
     {
       "id": "vscode-test-electron-1-125",
-      "nonDeterminism": { "kind": "host-environment", "reason": "The smoke downloads and launches a platform-specific VS Code/Electron runtime and depends on host extension-runtime support.", "evidence": ["packages/vscode-ext/scripts/test-electron.mjs", "packages/vscode-ext/package.json:engines.vscode"] },
+      "nonDeterminism": {
+        "kind": "host-environment",
+        "reason": "The smoke downloads and launches a platform-specific VS Code/Electron runtime and depends on host extension-runtime support.",
+        "evidence": [
+          "packages/vscode-ext/scripts/test-electron.mjs",
+          "packages/vscode-ext/package.json:engines.vscode"
+        ]
+      },
       "command": "npm run test:vscode-electron",
       "category": "smoke",
       "tier": "manual-only",
@@ -5196,23 +5412,57 @@
         "packages/vscode-ext/package.json:devDependencies.@types/vscode",
         "packages/vscode-ext/scripts/test-electron.mjs"
       ],
-      "consumerScope": ["VS Code 1.125 extension-host activation"],
-      "githubContext": { "requiredContexts": [], "workflowJobs": [], "nodeVersions": [] },
-      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "The runtime version is fixed and cannot fall forward." },
+      "consumerScope": [
+        "VS Code 1.125 extension-host activation"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The runtime version is fixed and cannot fall forward."
+      },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["packages/vscode-ext/package.json:engines.vscode", "packages/vscode-ext/scripts/test-electron.mjs", "package.json:scripts.test:vscode-electron", "tools/gate-manifest.json"]
+        "protectedSurfaces": [
+          "packages/vscode-ext/package.json:engines.vscode",
+          "packages/vscode-ext/scripts/test-electron.mjs",
+          "package.json:scripts.test:vscode-electron",
+          "tools/gate-manifest.json"
+        ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": "test:vscode-electron" },
-        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "manual"]
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "test:vscode-electron"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
       },
       "deterministic": false,
-      "positiveControl": { "status": "covered", "evidence": ["packages/vscode-ext/scripts/test-electron.mjs fixes runtime 1.125.0 without fall-forward; the real Extension Host smoke exits 0."] }
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/vscode-ext/scripts/test-electron.mjs fixes runtime 1.125.0 without fall-forward; the real Extension Host smoke exits 0."
+        ]
+      }
     }
   ]
 }
