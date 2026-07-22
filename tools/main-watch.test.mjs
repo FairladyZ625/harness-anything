@@ -5,7 +5,14 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { formatResultLine, parseMainWatchArgs, resolveCommitSha, watchMain } from "./main-watch.mjs";
+import {
+  formatResultLine,
+  isTransientGithubError,
+  parseMainWatchArgs,
+  resolveCommitSha,
+  retryTransientGithubCall,
+  watchMain
+} from "./main-watch.mjs";
 
 const knownFlake = "daemon start service status and stop expose productized status contract";
 const failedLog = readFileSync(
@@ -180,6 +187,85 @@ test("a missing run is polled until timeout and exits unavailable", async () => 
     runUrl: "-",
     failingTests: []
   });
+});
+
+test("transient GitHub failures use bounded exponential retry before succeeding", async () => {
+  let calls = 0;
+  const delays = [];
+  const value = await retryTransientGithubCall(async () => {
+    calls += 1;
+    if (calls < 3) throw new Error("gh: failed to reach api.github.com: EOF");
+    return "ok";
+  }, {
+    attempts: 5,
+    baseDelayMs: 10,
+    sleep: async (delay) => { delays.push(delay); }
+  });
+
+  assert.equal(value, "ok");
+  assert.equal(calls, 3);
+  assert.deepEqual(delays, [10, 20]);
+});
+
+test("transient GitHub failures are rethrown only after five attempts", async () => {
+  let calls = 0;
+  await assert.rejects(
+    retryTransientGithubCall(async () => {
+      calls += 1;
+      const error = new Error("request failed");
+      error.code = "ECONNRESET";
+      throw error;
+    }, { attempts: 5, baseDelayMs: 0, sleep: async () => {} }),
+    /request failed/u
+  );
+  assert.equal(calls, 5);
+});
+
+test("non-transient GitHub failures are not retried", async () => {
+  let calls = 0;
+  await assert.rejects(
+    retryTransientGithubCall(async () => {
+      calls += 1;
+      throw new Error("HTTP 401: Bad credentials");
+    }, { sleep: async () => assert.fail("non-transient failures must not sleep") }),
+    /Bad credentials/u
+  );
+  assert.equal(calls, 1);
+  assert.equal(isTransientGithubError(new SyntaxError("Unexpected end of JSON input")), true);
+  assert.equal(isTransientGithubError(new Error("HTTP 401: Bad credentials")), false);
+});
+
+test("watchMain retries a transient list-runs error without changing the green result contract", async () => {
+  let calls = 0;
+  const result = await watchMain({
+    commitSha: "37d234863f1bb06b7fa33e511d1558bc1394dc77",
+    registry: { entries: [] },
+    retryBaseDelayMs: 0,
+    retrySleep: async () => {},
+    github: {
+      listRuns: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("connection failed: EOF");
+        return [{
+          databaseId: 1,
+          event: "push",
+          headSha: "37d234863f1bb06b7fa33e511d1558bc1394dc77",
+          status: "completed",
+          conclusion: "success",
+          url: "https://github.com/example/repo/actions/runs/1"
+        }];
+      }
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(result, {
+    code: 0,
+    classification: "green",
+    runUrl: "https://github.com/example/repo/actions/runs/1",
+    failingTests: []
+  });
+  assert.equal(formatResultLine(result), "RESULT: 0 green https://github.com/example/repo/actions/runs/1 -");
 });
 
 test("the CLI prints a machine-readable flake result and exits 20", { skip: process.platform === "win32" }, (t) => {
