@@ -513,23 +513,11 @@ function AppShell() {
               events={[]}
               projectName={project.name}
               onOpenTaskPreview={openTaskPreview}
-              onOverviewDrill={(lane, status, dimension) => navigate({
+              onOverviewDrill={(lane, status) => navigate({
                 view: "board",
                 selectedId: null,
                 previewId: null,
-                drill: { lane, status, groupBy: dimension },
-              })}
-              onOpenDecisionInbox={() => navigate({
-                view: "decisions",
-                selectedId: null,
-                previewId: null,
-                drill: null,
-              })}
-              onOpenDecisionPool={() => navigate({
-                view: "decisionPool",
-                selectedId: null,
-                previewId: null,
-                drill: null,
+                drill: { lane, status, groupBy: "root" },
               })}
               onUpdateTask={updateTask}
               onSelectTask={(id: string) => navigate({ selectedId: id })}

@@ -47,13 +47,14 @@ export function buildLedgerOverview(
 
   const events: LedgerEvent[] = [];
   for (const task of tasks) {
-    if (task.createdAt) events.push({ kind: "task_created", at: task.createdAt, id: task.taskId, title: task.title });
+    const createdAt = task.createdAt ?? ledgerIdCreatedAt(task.taskId);
+    if (createdAt) events.push({ kind: "task_created", at: createdAt, id: task.taskId, title: task.title });
     if (TERMINAL.has(task.coordinationStatus) && task.terminalAt) {
       events.push({ kind: "task_terminal", at: task.terminalAt, id: task.taskId, title: task.title });
     }
   }
   for (const decision of decisions) {
-    const at = decision.proposedAt ?? createdAtFromLedgerId(decision.decisionId);
+    const at = decision.proposedAt ?? ledgerIdCreatedAt(decision.decisionId);
     if (at) events.push({ kind: "decision_created", at, id: decision.decisionId, title: decision.title });
   }
   events.sort((left, right) => right.at.localeCompare(left.at) || right.id.localeCompare(left.id));
@@ -71,14 +72,18 @@ function toPltGroup(rootId: string, tasks: TaskRow[], title?: string): PltGroup 
   return {
     rootId,
     title: title ?? tasks.find((task) => task.taskId === rootId)?.title ?? tasks[0]?.rootTitle ?? rootId,
-    tasks: [...tasks].sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? "")),
+    tasks: [...tasks].sort((left, right) => {
+      const rightAt = right.createdAt ?? ledgerIdCreatedAt(right.taskId) ?? "";
+      const leftAt = left.createdAt ?? ledgerIdCreatedAt(left.taskId) ?? "";
+      return rightAt.localeCompare(leftAt);
+    }),
     openCount: open.length,
     staleCount: open.filter((task) => task.liveness === "stale").length,
     terminalCount,
   };
 }
 
-function createdAtFromLedgerId(id: string): string | null {
+export function ledgerIdCreatedAt(id: string): string | null {
   const value = id.includes("_") ? id.slice(id.indexOf("_") + 1, id.indexOf("_") + 11) : id.slice(0, 10);
   if (!/^[0-9A-HJKMNP-TV-Z]{10}$/u.test(value)) return null;
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";

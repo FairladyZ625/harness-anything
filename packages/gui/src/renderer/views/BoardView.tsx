@@ -233,7 +233,7 @@ export function BoardView({
   initialLayout?: BoardLayout;
   initialGroupBy?: LaneGroupBy;
 }) {
-  // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
+  // coding preset 默认按 PLT 根任务分组。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(
     drill ? "swimlane" : initialLayout ?? "column",
   );
