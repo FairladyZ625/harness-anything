@@ -30,7 +30,7 @@ test("CLI direct-writer gate reports a newly introduced coordinator sink at file
   }
 });
 
-test("CLI direct-writer gate reports closeSync through the shared fs write API criterion", () => {
+test("CLI direct-writer gate reports shared fs APIs until their exact scoped registry key is declared", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-cli-direct-writer-close-"));
   try {
     const sourceDir = path.join(root, "packages/cli/src");
@@ -47,6 +47,29 @@ test("CLI direct-writer gate reports closeSync through the shared fs write API c
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /packages\/cli\/src\/close-writer\.ts:3:\d+ \[canonical-fs\] closeSync/u);
+    mkdirSync(path.join(root, "tools"), { recursive: true });
+    writeFileSync(path.join(root, "tools/write-road-registry.json"), JSON.stringify({
+      rows: [{
+        id: "repository.bootstrap.admin",
+        channel: { pathClass: "admin-bootstrap" },
+        directWrites: [{ key: "packages/cli/src/close-writer.ts#closeSync@2" }]
+      }]
+    }), "utf8");
+
+    const mismatched = spawnSync(process.execPath, [checkerPath, "--root", root], { encoding: "utf8" });
+    assert.notEqual(mismatched.status, 0);
+    assert.match(mismatched.stderr, /closeSync is not in a declared bootstrap\/local\/derived\/transport scope/u);
+
+    writeFileSync(path.join(root, "tools/write-road-registry.json"), JSON.stringify({
+      rows: [{
+        id: "repository.bootstrap.admin",
+        channel: { pathClass: "admin-bootstrap" },
+        directWrites: [{ key: "packages/cli/src/close-writer.ts#closeSync@1" }]
+      }]
+    }), "utf8");
+
+    const declared = spawnSync(process.execPath, [checkerPath, "--root", root], { encoding: "utf8" });
+    assert.equal(declared.status, 0, declared.stderr);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
