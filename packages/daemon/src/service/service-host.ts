@@ -107,7 +107,7 @@ export async function createDaemonServiceHost<
   readonly scheduleIdleExit: () => void;
   readonly waitForStopRequest: () => Promise<DaemonServiceStopRequest>;
   readonly onStop: (handler: () => Promise<void>) => void;
-  readonly startRegistryReconcile: (userRoot: string) => void;
+  readonly startRegistryReconcile: (userRoot: string, intervalMs?: number) => void;
   readonly reconcileNow: (userRoot: string) => Promise<void>;
   readonly stop: () => Promise<void>;
 }> {
@@ -254,7 +254,7 @@ export async function createDaemonServiceHost<
     onStop: (handler) => {
       stopHandlers.push(handler);
     },
-    startRegistryReconcile: (userRoot) => {
+    startRegistryReconcile: (userRoot, intervalMs = 1_000) => {
       if (reconcileTimer || stopping) return;
       const reconcile = async () => {
         if (reconciling || stopping) return;
@@ -267,7 +267,7 @@ export async function createDaemonServiceHost<
       };
       reconcileTimer = setInterval(() => {
         void reconcile();
-      }, 1_000);
+      }, intervalMs);
       reconcileTimer.unref();
     },
     reconcileNow: (targetUserRoot) => reconcileDaemonRepos(targetUserRoot),

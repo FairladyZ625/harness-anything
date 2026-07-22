@@ -43,6 +43,15 @@ export const HarnessConfigSchema = Schema.Struct({
       leaseEnforcement: Schema.optional(Schema.Boolean),
       leaseTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)))
     })),
+    daemonRuntime: Schema.optional(Schema.Struct({
+      writeLockTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      interactiveMicroBatchMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+      maxInteractiveOpsPerCommit: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      materializerPollMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      materializerMaxBranchesPerBatch: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      projectionReconcileIntervalMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      registryReconcileIntervalMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)))
+    })),
     execution: Schema.optional(Schema.Struct({
       consentTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)))
     })),

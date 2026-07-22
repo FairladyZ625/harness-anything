@@ -61,3 +61,30 @@ The receipt-honesty benchmark also accepts `HARNESS_BENCH_LOCK_MAX_WAIT_MS`,
 `HARNESS_BENCH_BARRIER_TIMEOUT_MS`, and `HARNESS_BENCH_BARRIER_POLL_MS`.
 Their matching `--lock-*` / `--barrier-*` flags win over env. Defaults remain
 `100/5/10` ms for lock retry and `10000/5` ms for barrier timeout/poll.
+
+## Daemon runtime policy
+
+The daemon resolves one immutable startup snapshot from environment overrides,
+then `settings.daemonRuntime`, then compiled safety defaults:
+
+```yaml
+settings:
+  daemonRuntime:
+    writeLockTtlMs: 60000
+    interactiveMicroBatchMs: 10
+    maxInteractiveOpsPerCommit: 32
+    materializerPollMs: 5000
+    materializerMaxBranchesPerBatch: 1
+    projectionReconcileIntervalMs: 30000
+    registryReconcileIntervalMs: 1000
+```
+
+The matching emergency overrides are `HARNESS_DAEMON_WRITE_LOCK_TTL_MS`,
+`HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS`,
+`HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT`,
+`HARNESS_DAEMON_MATERIALIZER_POLL_MS`,
+`HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH`,
+`HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS`, and
+`HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS`. Invalid values fail before
+socket ownership, runtime construction, or timers start. All values require a
+daemon restart; there is no hot-reload or GUI mutation surface.

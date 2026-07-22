@@ -8,6 +8,7 @@ import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   checkDaemonServeConfiguration as checkDaemonServeConfigurationRoot,
+  resolveDaemonRuntimePolicy,
   runDaemonServe as runDaemonServeRoot
 } from "@harness-anything/daemon";
 import { runCompoundReceiptExitCommand } from "./receipt/compound-exit-command.ts";
@@ -39,6 +40,7 @@ import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
 import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
 import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 import { startCliTimingPhase } from "./cli/timing.ts";
+import { readProjectHarnessSettings } from "./commands/settings.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 type ParsedCommandRunner = (command: Parameters<typeof runRegisteredCommand>[0]) => Promise<CommandReceipt | CommandFailureReceipt>;
@@ -229,6 +231,8 @@ async function runDaemonServe(
   });
   const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
   const { cliDaemonServiceHostServices } = await import("./composition/daemon-service-host-services.ts");
+  const projectSettings = readProjectHarnessSettings({ rootDir, layoutOverrides: restoredLayoutOverrides }, "daemon-serve");
+  if (!projectSettings.ok) throw new Error(projectSettings.result.error?.hint ?? "Invalid daemon runtime settings.");
   await runDaemonServeRoot({
     rootDir,
     ...(restoredAuthoredRoot !== undefined ? { authoredRoot: restoredAuthoredRoot } : {}),
@@ -239,7 +243,8 @@ async function runDaemonServe(
     ...(restoredLaunchOptions.authorityManifest ? { requestedAuthorityManifest: restoredLaunchOptions.authorityManifest } : {}),
     entrypoint,
     idleMs: parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true }),
-    preflightReplacement: preflightDaemonLaunch
+    preflightReplacement: preflightDaemonLaunch,
+    runtimePolicy: resolveDaemonRuntimePolicy(process.env, projectSettings.settings.daemonRuntime)
   }, cliDaemonServiceHostServices, {
     persistLaunchConfiguration: (userRoot, configuration, effectiveOptions) => restoredSpec
       .withEffectiveOptions(effectiveOptions)

@@ -10,6 +10,7 @@ import {
   resolveExecutionConsentTtlMs,
   resolveMulticaStaleTtlMs
 } from "../src/commands/project-policy-settings.ts";
+import { readProjectHarnessSettings } from "../src/commands/settings.ts";
 
 test("execution consent TTL resolves default, YAML, then environment override", () => {
   withRoot((rootDir) => {
@@ -86,6 +87,31 @@ test("Multica stale TTL rejects invalid YAML and environment before use", () => 
     });
     assert.equal(env.ok, false);
     if (!env.ok) assert.match(env.result.error?.hint ?? "", /HARNESS_MULTICA_STALE_TTL_MS/u);
+  });
+});
+
+test("daemon runtime policy values parse from project YAML and reject invalid values", () => {
+  withRoot((rootDir) => {
+    writeSettings(rootDir, [
+      "settings:",
+      "  daemonRuntime:",
+      "    writeLockTtlMs: 120000",
+      "    interactiveMicroBatchMs: 0",
+      "    materializerPollMs: 10000"
+    ]);
+    const settings = readProjectHarnessSettings(rootDir);
+    assert.equal(settings.ok, true);
+    if (settings.ok) assert.deepEqual(settings.settings.daemonRuntime, {
+      writeLockTtlMs: 120_000,
+      interactiveMicroBatchMs: 0,
+      materializerPollMs: 10_000
+    });
+  });
+  withRoot((rootDir) => {
+    writeSettings(rootDir, ["settings:", "  daemonRuntime:", "    writeLockTtlMs: 0"]);
+    const settings = readProjectHarnessSettings(rootDir);
+    assert.equal(settings.ok, false);
+    if (!settings.ok) assert.match(settings.result.error?.hint ?? "", /settings\.daemonRuntime\.writeLockTtlMs/u);
   });
 });
 

@@ -54,3 +54,30 @@ receipt-honesty benchmark 还支持 `HARNESS_BENCH_LOCK_MAX_WAIT_MS`、
 `HARNESS_BENCH_BARRIER_TIMEOUT_MS`、`HARNESS_BENCH_BARRIER_POLL_MS`。
 对应的 `--lock-*` / `--barrier-*` flag 高于 env。lock retry 默认仍为
 `100/5/10` 毫秒，barrier timeout/poll 默认仍为 `10000/5` 毫秒。
+
+## Daemon runtime policy
+
+daemon 在启动时解析一次 immutable snapshot。优先级是环境变量覆盖、
+`settings.daemonRuntime`、编译安全默认值：
+
+```yaml
+settings:
+  daemonRuntime:
+    writeLockTtlMs: 60000
+    interactiveMicroBatchMs: 10
+    maxInteractiveOpsPerCommit: 32
+    materializerPollMs: 5000
+    materializerMaxBranchesPerBatch: 1
+    projectionReconcileIntervalMs: 30000
+    registryReconcileIntervalMs: 1000
+```
+
+对应紧急覆盖依次为 `HARNESS_DAEMON_WRITE_LOCK_TTL_MS`、
+`HARNESS_DAEMON_INTERACTIVE_MICROBATCH_MS`、
+`HARNESS_DAEMON_MAX_INTERACTIVE_OPS_PER_COMMIT`、
+`HARNESS_DAEMON_MATERIALIZER_POLL_MS`、
+`HARNESS_DAEMON_MATERIALIZER_MAX_BRANCHES_PER_BATCH`、
+`HARNESS_DAEMON_PROJECTION_RECONCILE_INTERVAL_MS`、
+`HARNESS_DAEMON_REGISTRY_RECONCILE_INTERVAL_MS`。非法值会在取得 socket
+ownership、构造 runtime 或启动 timer 之前失败。所有变更都需要重启 daemon；
+当前没有热加载或 GUI 修改面。
