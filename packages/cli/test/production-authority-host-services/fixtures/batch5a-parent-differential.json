@@ -10,7 +10,7 @@
     "packages/cli/src/commands/core/task-lifecycle.ts": "ca002e96498531aef065647cabe7ed6279caa54e",
     "packages/cli/src/commands/daemon/productization.ts": "065603c6a5945073b65a1006f88753b5be8b8890",
     "packages/cli/src/commands/preset-task.ts": "e425389b163993d17ce37c11c60ab088e2d46258",
-    "packages/cli/src/commands/settings.ts": "640579058ad11b952ed8212d4de6e7835e2d670e",
+    "packages/cli/src/commands/settings.ts": "6c26e1c986826d25ead64266ef2d893b87617b40",
     "packages/cli/src/composition/adapter-registry.ts": "8c0be49785f847e0e26e8f0c1a5e661f5c5d17df"
   },
   "adapterE2E": {
