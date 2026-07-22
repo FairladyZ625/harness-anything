@@ -84,6 +84,42 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   assert.throws(() => process.kill(fixtureChildPid, 0), { code: "ESRCH" });
 });
 
+test("runner ends a run wedged outside any test body and names what it caught", () => {
+  const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_STALL_FIXTURE: "wedge",
+    HARNESS_TEST_CONCURRENCY: "1",
+    HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
+    HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-stall",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 30_000
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.equal(elapsedMs < 20_000, true, `runner took ${elapsedMs}ms\n${output}`);
+  // The wedge happens before any test is registered, so node never reports a
+  // timeout. Asserting its absence is what makes this a test of the escalation
+  // rather than of `--test-timeout`.
+  assert.doesNotMatch(output, /test timed out after \d+ms/u);
+  assert.match(output, /\[node-test-stall\] no test output for \d+ms across \d+ windows/u);
+  assert.match(output, /terminating the test process tree/u);
+  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
+});
+
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
   assert.deepEqual(parseRunnerArgs(["--prefix", "tools", "--prefix=packages/kernel/"], testTierNames).prefixes, [
     "tools/",

@@ -96,11 +96,19 @@ test("concurrent cold-start clients converge on one reachable daemon socket owne
       ], { HARNESS_DAEMON_USER_ROOT: userRoot });
     }
 
+    // This case asserts convergence — eight cold starts elect exactly one socket
+    // owner and every client is served by it — not latency. The shipped 6s
+    // autostart budget is an interactive-CLI promise measured on an idle
+    // machine; eight concurrent tsx clients on a two-core CI runner routinely
+    // exceed it, and losing clients then report an honest "Daemon unavailable"
+    // that has nothing to do with convergence. Give the race an explicit budget
+    // so a slow machine cannot masquerade as a startup-election defect.
     const clientResults = await Promise.allSettled(repoRoots.map((rootDir, index) =>
       runRawJsonAsync(rootDir, ["--repo", `repo-${index}`, "task", "list"], {
         HARNESS_DAEMON_MODE: "local",
         HARNESS_DAEMON_USER_ROOT: userRoot,
-        HARNESS_DAEMON_IDLE_MS: "60000"
+        HARNESS_DAEMON_IDLE_MS: "60000",
+        HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "60000"
       })
     ));
 
