@@ -23,11 +23,15 @@ const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
 type ActiveCell = { lane: string; status: SnapshotStatus };
 
 /** 把 groupBy 解析成每个 task 的分组 key 字符串。 */
-function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
+function groupKeyOf(
+  task: TaskRow,
+  groupBy: LaneGroupBy,
+  rootSizes: ReadonlyMap<string, number>,
+): string {
   if (groupBy === "module") return task.module;
   if (groupBy === "engine") return task.engine;
-  // root:用 rootTaskId(若缺失则退回自身,显示为顶层独立 task)
-  return task.rootTaskId ?? task.taskId;
+  const root = task.rootTaskId ?? task.taskId;
+  return (rootSizes.get(root) ?? 0) > 1 ? root : "unassigned";
 }
 
 /** 把分组 key 翻译成展示标签(module/engine 直接是值;root 查 rootTitle)。 */
@@ -37,6 +41,7 @@ function groupLabelOf(
   tasks: ReadonlyArray<TaskRow>,
 ): string {
   if (groupBy === "root") {
+    if (key === "unassigned") return t("views.ledger.noPlt");
     const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
     return representative?.rootTitle ?? representative?.title ?? key;
   }
@@ -277,9 +282,18 @@ export function SwimlaneBoard({
     }
   }, [drillMatches, drillLane, drillStatus]);
 
+  const rootSizes = useMemo(() => {
+    const sizes = new Map<string, number>();
+    for (const task of tasks) {
+      const root = task.rootTaskId ?? task.taskId;
+      sizes.set(root, (sizes.get(root) ?? 0) + 1);
+    }
+    return sizes;
+  }, [tasks]);
+
   const lanes = useMemo(
-    () => [...new Set(tasks.map((t) => groupKeyOf(t, groupBy)))],
-    [groupBy, tasks],
+    () => [...new Set(tasks.map((task) => groupKeyOf(task, groupBy, rootSizes)))],
+    [groupBy, rootSizes, tasks],
   );
 
   useEffect(() => {
@@ -292,10 +306,10 @@ export function SwimlaneBoard({
     if (!activeCell) return [];
     return tasks.filter(
       (t) =>
-        groupKeyOf(t, groupBy) === activeCell.lane &&
+        groupKeyOf(t, groupBy, rootSizes) === activeCell.lane &&
         t.coordinationStatus === activeCell.status,
     );
-  }, [activeCell, groupBy, tasks]);
+  }, [activeCell, groupBy, rootSizes, tasks]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -322,7 +336,7 @@ export function SwimlaneBoard({
             })}
           </div>
           {lanes.map((lane) => {
-            const laneTasks = tasks.filter((t) => groupKeyOf(t, groupBy) === lane);
+            const laneTasks = tasks.filter((task) => groupKeyOf(task, groupBy, rootSizes) === lane);
             const laneLabel = groupLabelOf(lane, groupBy, tasks);
             return (
               <div

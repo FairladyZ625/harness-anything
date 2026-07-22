@@ -38,6 +38,9 @@ function adaptProjectionRow(row: TaskProjectionRow, projectId: string): TaskRow 
     source: row.source,
     module: row.moduleTitle ?? row.moduleKey ?? row.vertical ?? "unassigned",
     lastKnownAt: row.updatedAt,
+    createdAt: row.createdAt,
+    terminalAt: row.terminalAt,
+    liveness: row.liveness,
     gates: [],
     docs: [],
     riskTier: row.riskTier,
@@ -86,8 +89,8 @@ export function adaptProjectionRows(
     parentById.set(task.taskId, task.parentTaskId);
     titleById.set(task.taskId, task.title);
   }
-  return base.map((task) => {
-    const rootTaskId = computeRootTaskId(task.taskId, parentById);
+  return base.map((task, index) => {
+    const rootTaskId = rows[index]?.treeRoot ?? computeRootTaskId(task.taskId, parentById);
     const rootTitle = titleById.get(rootTaskId) ?? task.title;
     return { ...task, rootTaskId, rootTitle };
   });

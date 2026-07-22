@@ -8,10 +8,8 @@ import type {
 import { BOARD_COLUMNS } from "./types.ts";
 import { sortDecisionQueue } from "./triadic.ts";
 
-/** Fixed upper bound for Overview root/module drill-down rows rendered on first screen. */
+/** Fixed upper bound for Overview PLT drill-down rows rendered on first screen. */
 export const OVERVIEW_DIMENSION_PAGE_SIZE = 40;
-
-export type DrillDimension = "root" | "module";
 
 export interface OverviewStatusCounts {
   readonly active: number;
@@ -61,7 +59,6 @@ export function buildOverviewIndex(input: {
   readonly decisions: ReadonlyArray<DecisionRow>;
   readonly facts: ReadonlyArray<FactRef>;
   readonly relations: ReadonlyArray<RelationEdge>;
-  readonly dimension: DrillDimension;
   readonly proposedLimit?: number;
   readonly blockerLimit?: number;
 }): OverviewIndex {
@@ -76,6 +73,12 @@ export function buildOverviewIndex(input: {
   const taskIds = new Set<string>();
   const labelByKey = new Map<string, string>();
   const countsByKey = new Map<string, Record<SnapshotStatus, number>>();
+  const rootSizes = new Map<string, number>();
+
+  for (const task of input.tasks) {
+    const root = task.rootTaskId ?? task.taskId;
+    rootSizes.set(root, (rootSizes.get(root) ?? 0) + 1);
+  }
 
   for (const task of input.tasks) {
     taskIds.add(task.taskId);
@@ -89,9 +92,10 @@ export function buildOverviewIndex(input: {
     if (task.freshness === "stale-but-usable") staleCount += 1;
     if (task.freshness === "unavailable-no-cache") unavailableCount += 1;
 
-    const key = dimensionKey(task, input.dimension);
+    const root = task.rootTaskId ?? task.taskId;
+    const key = (rootSizes.get(root) ?? 0) > 1 ? root : "unassigned";
     if (!labelByKey.has(key)) {
-      labelByKey.set(key, dimensionLabel(task, input.dimension, key));
+      labelByKey.set(key, key === "unassigned" ? key : task.rootTitle ?? task.title ?? key);
     }
     let counts = countsByKey.get(key);
     if (!counts) {
@@ -172,16 +176,6 @@ export function windowDimensionRows(
 export function countStatus(index: OverviewIndex, status: SnapshotStatus): number {
   const normalized = normalizeStatus(status);
   return index.statusCounts[normalized];
-}
-
-export function dimensionKey(task: TaskRow, dimension: DrillDimension): string {
-  if (dimension === "root") return task.rootTaskId ?? task.taskId;
-  return task.module;
-}
-
-function dimensionLabel(task: TaskRow, dimension: DrillDimension, key: string): string {
-  if (dimension === "root") return task.rootTitle ?? task.title ?? key;
-  return key;
 }
 
 function endpointKnown(

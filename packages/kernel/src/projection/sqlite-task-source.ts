@@ -550,7 +550,7 @@ export function compareRows(a: TaskProjectionRow, b: TaskProjectionRow): number 
   return a.taskId.localeCompare(b.taskId);
 }
 
-function canonicalTaskProjectionRow(row: TaskProjectionRow): Omit<TaskProjectionRow, "attribution"> {
+function canonicalTaskProjectionRow(row: TaskProjectionRow): Omit<TaskProjectionRow, "attribution" | "createdAt" | "treeRoot" | "liveness" | "terminalAt"> {
   return {
     schema: row.schema,
     taskId: row.taskId,

@@ -6,6 +6,7 @@ export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
 export type ProjectionCanonicalStatus = DomainStatus | "unknown";
 export type CoordinationStatus = "open" | "blocked" | "in_review" | "terminal" | "unknown";
+export type TaskLiveness = "in_flight" | "stale";
 export type ProjectionWarningSource = "source-package" | "generated-cache" | "collaboration-gate";
 export type ProjectionWarningSeverity = "warning" | "hard-fail";
 export type ProjectionWarningCode =
@@ -58,6 +59,11 @@ export interface TaskProjectionRow {
   readonly schema: "sqlite-task-row/v1";
   readonly taskId: string;
   readonly title: string;
+  readonly createdAt: string | null;
+  readonly treeRoot: string;
+  readonly liveness: TaskLiveness | null;
+  /** Latest authored status transition for a currently-terminal task. Read-side only. */
+  readonly terminalAt?: string;
   readonly parentTaskId?: string;
   readonly workKind?: TaskWorkKind;
   readonly riskTier?: PriorityTier;
@@ -90,6 +96,8 @@ export interface TaskProjectionQueryFilters {
   readonly workKind?: TaskWorkKind;
   readonly riskTier?: PriorityTier;
   readonly urgency?: PriorityTier;
+  readonly treeRoot?: string;
+  readonly liveness?: TaskLiveness;
   readonly review?: string;
   readonly lesson?: "present" | "missing";
   readonly missingMaterials?: boolean;

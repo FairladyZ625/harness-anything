@@ -4,6 +4,7 @@ import type {
   TaskProjectionRow
 } from "./types.ts";
 import { attributionFromRecord } from "./sqlite-attribution-summary.ts";
+import { taskCreatedAtFromId } from "./task-read-derivations.ts";
 
 export interface TaskRecord {
   readonly [column: string]: unknown;
@@ -21,6 +22,7 @@ export interface TaskRecord {
   readonly lifecycle_engine: string;
   readonly freshness: string;
   readonly updated_at: string;
+  readonly terminal_at?: string | null;
   readonly source: string;
   readonly source_path: string;
   readonly vertical: string | null;
@@ -62,6 +64,10 @@ export function recordToTaskRow(
     schema: "sqlite-task-row/v1",
     taskId: record.task_id,
     title: record.title,
+    createdAt: taskCreatedAtFromId(record.task_id),
+    treeRoot: record.task_id,
+    liveness: null,
+    ...(record.terminal_at ? { terminalAt: record.terminal_at } : {}),
     ...(record.parent_task_id ? { parentTaskId: record.parent_task_id } : {}),
     ...(record.work_kind ? { workKind: record.work_kind as TaskProjectionRow["workKind"] } : {}),
     ...(record.risk_tier ? { riskTier: record.risk_tier as TaskProjectionRow["riskTier"] } : {}),

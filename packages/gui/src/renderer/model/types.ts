@@ -61,6 +61,9 @@ export interface TaskRow {
   source: "local-document" | "external-engine" | "snapshot-cache";
   module: string;
   lastKnownAt: string;
+  createdAt?: string | null;
+  terminalAt?: string;
+  liveness?: "in_flight" | "stale" | null;
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;
   gates: GateResult[];
@@ -79,7 +82,7 @@ export interface TaskRow {
   parentTaskId?: string;
   /**
    * 任务树的根 taskId(沿 parentTaskId 上溯到顶层)。根任务的 rootTaskId=自身。
-   * 用于「按 milestone/root task 分组」(milestone 在内核=根 task)。
+   * 用于按 PLT（根任务）分组。
    */
   rootTaskId?: string;
   /** root task 的标题(查表填入,便于分组标签展示) */
