@@ -22,6 +22,12 @@ import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./tes
 const repoRoot = resolve(import.meta.dirname, "..");
 const PROCESS_TREE_KILL_GRACE_MS = 2_000;
 const DEFAULT_STALL_DIAGNOSTIC_MS = 90_000;
+// `--test-timeout` bounds any single test, so silence lasting several windows
+// means the wedge is outside a test body — module load, a blocked thread, a
+// child that never exits — where the per-test timeout can never fire. Reporting
+// such a run forever is what let one wedged file burn a whole 15-minute CI job
+// and take the pull request out of the merge queue with no test named.
+const DEFAULT_STALL_ABORT_WINDOWS = 2;
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -101,6 +107,15 @@ const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
   DEFAULT_STALL_DIAGNOSTIC_MS
 );
+const stallAbortWindows = positiveIntegerOrDefault(
+  process.env.HARNESS_TEST_STALL_ABORT_WINDOWS,
+  DEFAULT_STALL_ABORT_WINDOWS
+);
+// Never preempt `--test-timeout`: while a test is running, that timeout ends it
+// with the test named, which is strictly better evidence. Only silence outlasting
+// the timeout itself proves no test is running, and therefore that nothing else
+// will ever end this run.
+const stallAbortAfterMs = Math.max(stallAbortWindows * stallDiagnosticMs, options.testTimeoutMs + stallDiagnosticMs);
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
@@ -126,15 +141,31 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
 
   let output = "";
   let lastOutputAt = Date.now();
+  let consecutiveStallWindows = 0;
+  let stallAbortStarted = false;
   const seenDiagnosticReports = new Set();
-  const noteOutput = () => {
+  const noteOutput = (text) => {
+    // Asking a stalled host for a diagnostic report makes it print, and that
+    // print is the runner's own echo, not progress. Counting it would clear the
+    // stall streak on every window and the escalation could never be reached.
+    if (isDiagnosticReportEcho(text)) return;
     lastOutputAt = Date.now();
+    consecutiveStallWindows = 0;
   };
   const stallDiagnosticTimer = setInterval(() => {
     const silentForMs = Date.now() - lastOutputAt;
     if (silentForMs < stallDiagnosticMs) return;
     lastOutputAt = Date.now();
+    consecutiveStallWindows += 1;
     emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports });
+    if (consecutiveStallWindows * stallDiagnosticMs < stallAbortAfterMs || stallAbortStarted) return;
+    stallAbortStarted = true;
+    void abortStalledRun({
+      child,
+      silentMs: consecutiveStallWindows * stallDiagnosticMs,
+      silentWindows: consecutiveStallWindows,
+      timeoutAlreadyReported: /test timed out after \d+ms/u.test(output)
+    });
   }, stallDiagnosticMs);
   stallDiagnosticTimer.unref();
   let windowsTreeTerminationStarted = false;
@@ -145,15 +176,15 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     terminateWindowsProcessTree(child);
   };
   child.stdout.on("data", (chunk) => {
-    noteOutput();
     const text = chunk.toString();
+    noteOutput(text);
     output += text;
     process.stdout.write(text);
     terminateTimedOutWindowsTree();
   });
   child.stderr.on("data", (chunk) => {
-    noteOutput();
     const text = chunk.toString();
+    noteOutput(text);
     output += text;
     process.stderr.write(text);
     terminateTimedOutWindowsTree();
@@ -211,46 +242,156 @@ function flushStream(stream) {
   return new Promise((resolveFlush) => stream.write("", resolveFlush));
 }
 
+/**
+ * Recognizes output that exists only because the stall probe asked for a report.
+ * Node writes these two lines when it handles the report signal; a chunk made of
+ * nothing else carries no evidence that the run is moving again.
+ */
+function isDiagnosticReportEcho(text) {
+  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) return true;
+  return lines.every((line) => /^Writing Node\.js report to file:/u.test(line) || /^Node\.js report completed$/u.test(line));
+}
+
 function emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports }) {
   console.error(`\n[node-test-stall] no test output for ${silentForMs}ms; test host pid=${child.pid ?? "unknown"}`);
   console.error(`[node-test-stall] runner active resources: ${JSON.stringify(process.getActiveResourcesInfo())}`);
   if (process.platform !== "win32" && child.pid !== undefined) {
-    child.kill("SIGUSR2");
-    dumpPosixProcessGroup(child.pid);
+    // Ask every report-capable group member, not just the host. Under
+    // `--test-isolation=process` the host is only waiting on a per-file child,
+    // so asking the host alone yields a report with an empty JavaScript stack
+    // every time — the wedged process is the one that has to be asked. But a
+    // blanket group signal would terminate members that never installed a
+    // SIGUSR2 handler (a test's own spawned children), so only processes that
+    // advertise `--report-on-signal` are asked.
+    void signalReportCapableGroupMembers(child.pid);
+    void dumpPosixProcessGroup(child.pid);
   }
   setTimeout(() => emitNewDiagnosticReports(timingRoot, seenDiagnosticReports), 1_000).unref();
 }
 
-function dumpPosixProcessGroup(processGroupId) {
+/**
+ * Ends a run whose output has stopped for several diagnostic windows. Node's own
+ * `--test-timeout` cannot rescue this state, so the runner has to name what it
+ * caught and fail, rather than stay silent until the CI job's own timeout kills
+ * it with no test named.
+ */
+async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyReported }) {
+  // When `--test-timeout` already fired, the failing test is named and this is
+  // just the timeout path's own cleanup arriving early: the run lingers only
+  // because a leaked descendant holds the process group open.
+  if (timeoutAlreadyReported) {
+    console.error("node --test reported a timeout; terminating its process tree");
+    if (process.platform === "win32") {
+      terminateWindowsProcessTree(child);
+      return;
+    }
+    if (child.pid === undefined) return;
+    signalProcessGroup(child.pid, "SIGTERM");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
+    signalProcessGroup(child.pid, "SIGKILL");
+    return;
+  }
+  if (process.platform === "win32") {
+    console.error(`\n[node-test-stall] no test output for ${silentMs}ms across ${silentWindows} windows; terminating the test process tree`);
+    terminateWindowsProcessTree(child);
+    return;
+  }
+  if (child.pid === undefined) return;
+  const stalledFiles = await stalledTestFilesInProcessGroup(child.pid);
+  console.error(`\n[node-test-stall] no test output for ${silentMs}ms across ${silentWindows} windows; --test-timeout cannot fire here, so the runner is terminating the test process tree`);
+  console.error(stalledFiles.length > 0
+    ? `[node-test-stall] stalled test file(s): ${stalledFiles.join(", ")}`
+    : "[node-test-stall] stalled test file could not be identified from the process group");
+  signalProcessGroup(child.pid, "SIGTERM");
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
+  signalProcessGroup(child.pid, "SIGKILL");
+}
+
+/**
+ * Names the test files a wedged group is still holding. The test host lists every
+ * selected file on its own command line, so only descendants are inspected: under
+ * process isolation each of those runs exactly the file it is stuck on.
+ */
+async function stalledTestFilesInProcessGroup(processGroupId) {
+  const lines = await readPosixProcessGroup(processGroupId);
+  const descendantFiles = new Set();
+  const hostFiles = new Set();
+  for (const line of lines) {
+    const pid = /^\s*(\d+)\s+/u.exec(line)?.[1];
+    if (pid === undefined) continue;
+    const target = pid === String(processGroupId) ? hostFiles : descendantFiles;
+    for (const token of line.split(/\s+/u)) {
+      if (/\.test\.(?:ts|tsx|mjs|cjs|js)$/u.test(token)) target.add(token);
+    }
+  }
+  if (descendantFiles.size > 0) return [...descendantFiles];
+  // Without process isolation the host itself is the wedged process, and its
+  // command line is the whole selection rather than one file. Naming it is only
+  // useful when the selection happens to be a single file.
+  return hostFiles.size === 1 ? [...hostFiles] : [];
+}
+
+/**
+ * Sends SIGUSR2 only to group members that run with `--report-on-signal` on
+ * their command line. For anything else the default SIGUSR2 disposition is
+ * termination, and killing a test's own child processes would corrupt the very
+ * run the probe is trying to observe.
+ */
+async function signalReportCapableGroupMembers(processGroupId) {
+  const lines = await readPosixProcessGroup(processGroupId);
+  for (const line of lines) {
+    if (!line.includes("--report-on-signal")) continue;
+    const pid = Number(/^\s*(\d+)\s+/u.exec(line)?.[1]);
+    if (!Number.isSafeInteger(pid)) continue;
+    try {
+      process.kill(pid, "SIGUSR2");
+    } catch {
+      // The process may have exited between the listing and the signal.
+    }
+  }
+}
+
+async function dumpPosixProcessGroup(processGroupId) {
+  const lines = await readPosixProcessGroup(processGroupId);
+  const columnDescription = process.platform === "darwin"
+    ? "pid ppid pgid stat elapsed argv"
+    : "pid ppid pgid stat elapsed wait-channel argv";
+  console.error(`[node-test-stall] process group (${columnDescription}):`);
+  console.error(lines.length > 0 ? lines.join("\n") : `[node-test-stall] no processes found for pgid ${processGroupId}`);
+}
+
+function readPosixProcessGroup(processGroupId) {
   const psColumns = process.platform === "darwin"
     ? "pid=,ppid=,pgid=,stat=,etime=,command="
     : "pid=,ppid=,pgid=,stat=,etime=,wchan:32=,args=";
-  const ps = spawn("ps", ["-eo", psColumns], {
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  let stdout = "";
-  let stderr = "";
-  ps.stdout.on("data", (chunk) => {
-    stdout += chunk.toString();
-  });
-  ps.stderr.on("data", (chunk) => {
-    stderr += chunk.toString();
-  });
-  ps.once("error", (error) => console.error(`[node-test-stall] unable to inspect process group: ${error.message}`));
-  ps.once("close", (code) => {
-    if (code !== 0) {
-      console.error(`[node-test-stall] ps exited ${code}: ${stderr.trim()}`);
-      return;
-    }
-    const groupLines = stdout.split(/\r?\n/u).filter((line) => {
-      const match = /^\s*\d+\s+\d+\s+(\d+)\s+/u.exec(line);
-      return match?.[1] === String(processGroupId);
+  return new Promise((resolveLines) => {
+    const ps = spawn("ps", ["-eo", psColumns], {
+      stdio: ["ignore", "pipe", "pipe"]
     });
-    const columnDescription = process.platform === "darwin"
-      ? "pid ppid pgid stat elapsed argv"
-      : "pid ppid pgid stat elapsed wait-channel argv";
-    console.error(`[node-test-stall] process group (${columnDescription}):`);
-    console.error(groupLines.length > 0 ? groupLines.join("\n") : `[node-test-stall] no processes found for pgid ${processGroupId}`);
+    let stdout = "";
+    let stderr = "";
+    ps.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    ps.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    ps.once("error", (error) => {
+      console.error(`[node-test-stall] unable to inspect process group: ${error.message}`);
+      resolveLines([]);
+    });
+    ps.once("close", (code) => {
+      if (code !== 0) {
+        console.error(`[node-test-stall] ps exited ${code}: ${stderr.trim()}`);
+        resolveLines([]);
+        return;
+      }
+      resolveLines(stdout.split(/\r?\n/u).filter((line) => {
+        const match = /^\s*\d+\s+\d+\s+(\d+)\s+/u.exec(line);
+        return match?.[1] === String(processGroupId);
+      }));
+    });
   });
 }
 
