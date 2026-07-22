@@ -198,7 +198,10 @@ export function TerminalPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#1d1d20]">
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-white/10 px-3 font-mono text-[11px] text-white/55">
+      {/* overflow-hidden is load-bearing: this bar is a fixed h-7, and an
+          arbitrarily long backend error would otherwise spill out of it and
+          paint over the dock header, blocking those controls. */}
+      <div className="flex h-7 shrink-0 items-center gap-2 overflow-hidden border-b border-white/10 px-3 font-mono text-[11px] text-white/55">
         {state.kind === "connecting" && t("terminal.pane.connecting")}
         {(state.kind === "active" || state.kind === "exited") && (
           <>
@@ -226,7 +229,11 @@ export function TerminalPane({
             )}
           </>
         )}
-        {state.kind === "error" && t("terminal.pane.connectionFailed", { error: state.error })}
+        {state.kind === "error" && (
+          <span className="min-w-0 truncate" title={t("terminal.pane.connectionFailed", { error: state.error })}>
+            {t("terminal.pane.connectionFailed", { error: state.error })}
+          </span>
+        )}
       </div>
       {degradation && state.kind === "active" && (
         <div className="shrink-0 border-b border-white/10 bg-amber-950/40 px-3 py-1 text-[10px] text-amber-200/90" title={degradation}>

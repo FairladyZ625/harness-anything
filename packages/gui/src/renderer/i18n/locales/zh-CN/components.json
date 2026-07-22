@@ -37,6 +37,7 @@
   "components.appSidebar.repoUnavailableHint": "该仓库尚未挂载；daemon 挂载前不可切换。",
   "components.appSidebar.v2PreviewAfterLoggingYourAccountYou": "V2 预览：账号登录后可多设备同步、远程访问项目",
   "components.appSidebar.workspace": "工作区",
+  "components.appSidebar.tools": "工具",
   "components.badges.active": "进行中",
   "components.badges.agnosticNoCaching": "不可知 · 无缓存",
   "components.badges.blocked": "已阻塞",

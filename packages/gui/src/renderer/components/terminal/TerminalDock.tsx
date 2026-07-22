@@ -1,4 +1,4 @@
-import { CaretUp, List, Plus, TerminalWindow, X } from "@phosphor-icons/react";
+import { CaretUp, List, Plus, Rows, SidebarSimple, TerminalWindow, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { TerminalSessionInfo } from "../../terminal-api-client.ts";
@@ -14,11 +14,18 @@ import {
   removeTerminalTab,
   type TerminalTabState
 } from "./terminal-tab-state.ts";
+import { useDockResize, type DockPosition } from "./dock-resize.ts";
+
+export type { DockPosition };
 
 export interface TerminalDockProps {
   readonly open: boolean;
   readonly projectId: string;
   readonly onToggle: () => void;
+  /** Current dock attachment side. */
+  readonly position: DockPosition;
+  /** Called when the user requests a different attachment side via the header toggle. */
+  readonly onPositionChange: (position: DockPosition) => void;
 }
 
 let tabSeq = 0;
@@ -27,7 +34,7 @@ function nextTabId(): string {
   return `term-tab-${tabSeq}-${Date.now().toString(36)}`;
 }
 
-export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
+export function TerminalDock({ open, projectId, onToggle, position, onPositionChange }: TerminalDockProps) {
   const [tabState, setTabState] = useState<TerminalTabState>(() => emptyTerminalTabState());
   const [managerOpen, setManagerOpen] = useState(false);
   const [managerRefresh, setManagerRefresh] = useState(0);
@@ -71,21 +78,64 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
     setManagerRefresh((value) => value + 1);
   }, []);
 
+  const resize = useDockResize(position);
+
+  // Closed dock always collapses to the bottom thin bar regardless of position,
+  // so the border follows the *visual* attachment: bottom bar → border-t, open
+  // right panel → border-l.
+  const dockedRight = open && position === "right";
+  const borderSide = dockedRight ? "border-l" : "border-t";
+  // Size is inline (not a Tailwind class) because the user can drag it.
+  const sizeStyle = open
+    ? dockedRight
+      ? { width: `${resize.width}px` }
+      : { height: `${resize.height}px` }
+    : undefined;
+
   return (
     <section
-      className={`relative shrink-0 border-t border-border bg-surface ${
-        open ? "flex h-80 min-h-48 flex-col" : "h-9"
+      className={`relative shrink-0 ${borderSide} border-border bg-surface ${
+        open ? "flex flex-col" : "h-9"
       }`}
+      style={sizeStyle}
+      data-dock-position={position}
     >
-      <div className="flex h-9 shrink-0 items-center gap-1 px-2">
+      {open && (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation={dockedRight ? "vertical" : "horizontal"}
+          aria-label={dockedRight ? t("terminal.dock.resizeWidth") : t("terminal.dock.resizeHeight")}
+          title={dockedRight ? t("terminal.dock.resizeWidth") : t("terminal.dock.resizeHeight")}
+          data-testid="terminal-dock-resize-handle"
+          className={`absolute z-20 touch-none hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none ${
+            resize.resizing ? "bg-accent/50" : ""
+          } ${
+            dockedRight
+              ? "inset-y-0 -left-1 w-2 cursor-col-resize"
+              : "inset-x-0 -top-1 h-2 cursor-row-resize"
+          }`}
+          onPointerDown={resize.onHandlePointerDown}
+          onPointerMove={resize.onHandlePointerMove}
+          onPointerUp={resize.onHandlePointerUp}
+          onPointerCancel={resize.onHandlePointerUp}
+          onKeyDown={resize.onHandleKeyDown}
+        />
+      )}
+
+      {/* Opaque + stacked above the pane: long unwrapped terminal output must
+          never paint over these controls and swallow their clicks. */}
+      <div className="relative z-10 flex h-9 shrink-0 items-center gap-1 overflow-hidden bg-surface px-2">
         <button
           type="button"
-          className="flex h-7 items-center gap-2 rounded-md px-2 text-xs font-medium text-text-muted hover:bg-surface-raised hover:text-text"
+          className="flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-xs font-medium text-text-muted hover:bg-surface-raised hover:text-text"
           aria-expanded={open}
+          aria-label={t("terminal.dock.title")}
           onClick={onToggle}
         >
           <TerminalWindow size={15} weight="bold" />
-          <span>{t("terminal.dock.title")}</span>
+          {/* The narrow right dock needs every pixel for the tabs and controls. */}
+          {!dockedRight && <span>{t("terminal.dock.title")}</span>}
           {!open && <CaretUp size={12} />}
         </button>
 
@@ -125,7 +175,7 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
               })}
               <button
                 type="button"
-                className="grid size-7 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
+                className="grid size-7 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
                 aria-label={t("terminal.dock.newTab")}
                 title={t("terminal.dock.newTab")}
                 onClick={spawnTab}
@@ -136,7 +186,7 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
 
             <button
               type="button"
-              className={`grid size-7 place-items-center rounded-md hover:bg-surface-raised hover:text-text ${
+              className={`grid size-7 shrink-0 place-items-center rounded-md hover:bg-surface-raised hover:text-text ${
                 managerOpen ? "bg-surface-raised text-text" : "text-text-faint"
               }`}
               aria-label={t("terminal.dock.sessions")}
@@ -147,10 +197,25 @@ export function TerminalDock({ open, projectId, onToggle }: TerminalDockProps) {
               <List size={14} />
             </button>
 
-            <span className="font-mono text-[10px] text-text-faint">{t("terminal.dock.shortcut")}</span>
             <button
               type="button"
-              className="grid size-7 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
+              aria-label={position === "bottom" ? t("terminal.dock.dockRight") : t("terminal.dock.dockBottom")}
+              title={position === "bottom" ? t("terminal.dock.dockRight") : t("terminal.dock.dockBottom")}
+              aria-pressed={position === "right"}
+              onClick={() => onPositionChange(position === "bottom" ? "right" : "bottom")}
+            >
+              {position === "bottom" ? <SidebarSimple size={14} /> : <Rows size={14} />}
+            </button>
+
+            {/* Sidebar already surfaces the shortcut; at the right dock the width
+                is better spent on controls that are otherwise squeezed away. */}
+            {!dockedRight && (
+              <span className="shrink-0 font-mono text-[10px] text-text-faint">{t("terminal.dock.shortcut")}</span>
+            )}
+            <button
+              type="button"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
               aria-label={t("terminal.dock.close")}
               title={t("terminal.dock.close")}
               onClick={onToggle}
