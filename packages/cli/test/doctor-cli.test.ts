@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -256,7 +257,12 @@ function runGit(rootDir: string, ...args: string[]): void {
 function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: cliTestEnv({
+      HARNESS_ACTOR: "agent:doctor-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+      HARNESS_GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
+      ...env
+    })
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }
