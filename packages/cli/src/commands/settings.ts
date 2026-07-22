@@ -1,25 +1,23 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
+import type { DaemonRuntimePolicyValues } from "@harness-anything/daemon";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
+import {
+  validateAdapterSettings,
+  validatePositiveIntegerMapping,
+  type ProjectHarnessAdapterSettings,
+  type ProjectHarnessExecutionSettings
+} from "./project-policy-values.ts";
+import { validateDaemonSettings, validateIdentitySettings, type ProjectHarnessDaemonSettings, type ProjectHarnessIdentity } from "./project-settings-identity.ts";
 
 export type HarnessLocale = "zh-CN" | "en-US";
-
-export interface ProjectHarnessIdentity {
-  readonly mode: "local" | "remote";
-  readonly personId?: string;
-  readonly displayName?: string;
-}
 
 export interface ProjectHarnessTaskSettings {
   readonly leaseEnforcement: boolean;
   readonly leaseTtlMs?: number;
-}
-
-export interface ProjectHarnessDaemonSettings {
-  readonly userRoot: string;
 }
 
 export interface ProjectHarnessSettings {
@@ -30,7 +28,10 @@ export interface ProjectHarnessSettings {
   readonly defaultProfile?: string;
   readonly identity?: ProjectHarnessIdentity;
   readonly daemon?: ProjectHarnessDaemonSettings;
+  readonly daemonRuntime?: DaemonRuntimePolicyValues;
   readonly tasks: ProjectHarnessTaskSettings;
+  readonly execution?: ProjectHarnessExecutionSettings;
+  readonly adapters?: ProjectHarnessAdapterSettings;
   readonly customVerticalsEnabled: boolean;
 }
 
@@ -226,7 +227,10 @@ function parseSettingsDocument(body: string): { readonly present: boolean; reado
       defaultProfile: fromSettings.defaultProfile,
       identity: fromSettings.identity,
       daemon: fromSettings.daemon,
+      daemonRuntime: fromSettings.daemonRuntime,
       tasks: fromSettings.tasks,
+      execution: fromSettings.execution,
+      adapters: fromSettings.adapters,
       customVerticals: fromSettings.customVerticals
     };
     return {
@@ -246,6 +250,10 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inIdentity = false;
   let inDaemon = false;
   let inTasks = false;
+  let inDaemonRuntime = false;
+  let inExecution = false;
+  let inAdapters = false;
+  let inMultica = false;
   let foundSettings = false;
 
   for (const rawLine of lines) {
@@ -259,6 +267,10 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = false;
       inDaemon = false;
       inTasks = false;
+      inDaemonRuntime = false;
+      inExecution = false;
+      inAdapters = false;
+      inMultica = false;
       foundSettings ||= inSettings;
       if (inSettings && topLevel[2]?.trim()) {
         throw new Error("settings must be a mapping.");
@@ -277,6 +289,10 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = key === "identity";
       inDaemon = key === "daemon";
       inTasks = key === "tasks";
+      inDaemonRuntime = key === "daemonRuntime";
+      inExecution = key === "execution";
+      inAdapters = key === "adapters";
+      inMultica = false;
       if (inCustomVerticals) {
         if (value) throw new Error("settings.customVerticals must be a mapping.");
         settings.customVerticals = {};
@@ -295,6 +311,21 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       if (inTasks) {
         if (value) throw new Error("settings.tasks must be a mapping.");
         settings.tasks = {};
+        continue;
+      }
+      if (inDaemonRuntime) {
+        if (value) throw new Error("settings.daemonRuntime must be a mapping.");
+        settings.daemonRuntime = {};
+        continue;
+      }
+      if (inExecution) {
+        if (value) throw new Error("settings.execution must be a mapping.");
+        settings.execution = {};
+        continue;
+      }
+      if (inAdapters) {
+        if (value) throw new Error("settings.adapters must be a mapping.");
+        settings.adapters = {};
         continue;
       }
       if (!isKnownSettingsScalar(key)) throw new Error(`Unknown settings key: ${key}`);
@@ -341,6 +372,40 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       }
       continue;
     }
+    if (inExecution && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "consentTtlMs") throw new Error(`Unknown settings.execution key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.execution.consentTtlMs must be a scalar value.");
+      settings.execution = { consentTtlMs: unquoteScalar(value) };
+      continue;
+    }
+    if (inDaemonRuntime && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (!daemonRuntimeKeys.includes(key as keyof DaemonRuntimePolicyValues)) throw new Error(`Unknown settings.daemonRuntime key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error(`settings.daemonRuntime.${key} must be a scalar value.`);
+      settings.daemonRuntime = { ...(isRecord(settings.daemonRuntime) ? settings.daemonRuntime : {}), [key]: unquoteScalar(value) };
+      continue;
+    }
+    if (inAdapters && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "multica") throw new Error(`Unknown settings.adapters key: ${key}`);
+      if (rawValue.trim()) throw new Error("settings.adapters.multica must be a mapping.");
+      settings.adapters = { multica: {} };
+      inMultica = true;
+      continue;
+    }
+
+    const adapterNested = /^      ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
+    if (inAdapters && inMultica && adapterNested) {
+      const [, key, rawValue = ""] = adapterNested;
+      if (key !== "staleTtlMs") throw new Error(`Unknown settings.adapters.multica key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.adapters.multica.staleTtlMs must be a scalar value.");
+      settings.adapters = { multica: { staleTtlMs: unquoteScalar(value) } };
+      continue;
+    }
 
     throw new Error(`Unsupported settings YAML line: ${withoutComment.trim()}`);
   }
@@ -359,10 +424,10 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
   if (!defaultPreset.ok) return invalid(command, defaultPreset.message);
   const defaultProfile = validateOptionalId("settings.defaultProfile", raw.defaultProfile);
   if (!defaultProfile.ok) return invalid(command, defaultProfile.message);
-  const identity = validateIdentity(command, raw.identity);
-  if (!identity.ok) return identity;
-  const daemon = validateDaemon(command, raw.daemon);
-  if (!daemon.ok) return daemon;
+  const identity = validateIdentitySettings(raw.identity);
+  if (!identity.ok) return invalid(command, identity.message);
+  const daemon = validateDaemonSettings(raw.daemon);
+  if (!daemon.ok) return invalid(command, daemon.message);
   const tasks = raw.tasks;
   let leaseTtlMs: number | undefined;
   if (tasks !== undefined) {
@@ -381,6 +446,16 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       }
     }
   }
+  const execution = validatePositiveIntegerMapping(
+    raw.execution,
+    "settings.execution",
+    "consentTtlMs"
+  );
+  if (!execution.ok) return invalid(command, execution.message);
+  const adapters = validateAdapterSettings(raw.adapters);
+  if (!adapters.ok) return invalid(command, adapters.message);
+  const daemonRuntime = validateDaemonRuntime(raw.daemonRuntime);
+  if (!daemonRuntime.ok) return invalid(command, daemonRuntime.message);
   const customVerticals = raw.customVerticals;
   if (customVerticals !== undefined) {
     if (!isRecord(customVerticals)) {
@@ -402,62 +477,39 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       defaultProfile: normalizeDefaultSentinel(defaultProfile.value),
       ...(identity.value ? { identity: identity.value } : {}),
       ...(daemon.value ? { daemon: daemon.value } : {}),
+      ...(daemonRuntime.value ? { daemonRuntime: daemonRuntime.value } : {}),
       tasks: {
         leaseEnforcement: isRecord(tasks) && tasks.leaseEnforcement === true,
         ...(leaseTtlMs !== undefined ? { leaseTtlMs } : {})
       },
+      ...(execution.value === undefined ? {} : { execution: { consentTtlMs: execution.value } }),
+      ...(adapters.value === undefined ? {} : { adapters: adapters.value }),
       customVerticalsEnabled: isRecord(customVerticals) ? customVerticals.enabled === true : false
     }
   };
 }
 
-function validateDaemon(command: string, value: unknown):
-  | { readonly ok: true; readonly value?: ProjectHarnessDaemonSettings }
-  | Extract<SettingsResult, { readonly ok: false }> {
-  if (value === undefined) return { ok: true };
-  if (!isRecord(value)) return invalid(command, "settings.daemon must be a mapping.");
-  const keys = Object.keys(value);
-  if (keys.length !== 1 || keys[0] !== "userRoot") {
-    return invalid(command, "settings.daemon supports only userRoot.");
-  }
-  if (typeof value.userRoot !== "string" || !value.userRoot.trim() || value.userRoot.includes("\0")) {
-    return invalid(command, "settings.daemon.userRoot must be a non-empty path scalar.");
-  }
-  if (value.userRoot.startsWith("~") && value.userRoot !== "~" && !/^~[\\/]/u.test(value.userRoot)) {
-    return invalid(command, "settings.daemon.userRoot supports only ~ or ~/... home-relative paths.");
-  }
-  return { ok: true, value: { userRoot: value.userRoot.trim() } };
-}
+const daemonRuntimeKeys = [
+  "writeLockTtlMs", "interactiveMicroBatchMs", "maxInteractiveOpsPerCommit",
+  "materializerPollMs", "materializerMaxBranchesPerBatch",
+  "projectionReconcileIntervalMs", "registryReconcileIntervalMs"
+] as const satisfies ReadonlyArray<keyof DaemonRuntimePolicyValues>;
 
-function validateIdentity(command: string, value: unknown):
-  | { readonly ok: true; readonly value?: ProjectHarnessIdentity }
-  | Extract<SettingsResult, { readonly ok: false }> {
+function validateDaemonRuntime(value: unknown):
+  | { readonly ok: true; readonly value?: DaemonRuntimePolicyValues }
+  | { readonly ok: false; readonly message: string } {
   if (value === undefined) return { ok: true };
-  if (!isRecord(value)) return invalid(command, "settings.identity must be a mapping.");
-  const keys = Object.keys(value).sort();
-  if (keys.some((key) => key !== "displayName" && key !== "mode" && key !== "personId")) {
-    return invalid(command, "settings.identity supports only mode, personId, and displayName.");
+  if (!isRecord(value) || Object.keys(value).some((key) => !daemonRuntimeKeys.includes(key as keyof DaemonRuntimePolicyValues))) {
+    return { ok: false, message: `settings.daemonRuntime supports only ${daemonRuntimeKeys.join(", ")}.` };
   }
-  if (value.mode !== undefined && value.mode !== "local" && value.mode !== "remote") {
-    return invalid(command, "settings.identity.mode must be local or remote.");
+  const output: Record<string, number> = {};
+  for (const key of daemonRuntimeKeys) {
+    if (value[key] === undefined) continue;
+    const parsed = key === "interactiveMicroBatchMs" ? nonNegativeInteger(value[key]) : positiveInteger(value[key]);
+    if (parsed === undefined) return { ok: false, message: `settings.daemonRuntime.${key} must be ${key === "interactiveMicroBatchMs" ? "a non-negative" : "a positive"} integer.` };
+    output[key] = parsed;
   }
-  if (value.personId !== undefined && (typeof value.personId !== "string" || !SETTINGS_ID_PATTERN.test(value.personId))) {
-    return invalid(command, "settings.identity.personId must be a non-empty identifier when provided.");
-  }
-  if (value.personId === undefined && value.displayName !== undefined) {
-    return invalid(command, "settings.identity.displayName requires settings.identity.personId.");
-  }
-  if (value.displayName !== undefined && (typeof value.displayName !== "string" || !value.displayName.trim())) {
-    return invalid(command, "settings.identity.displayName must be a non-empty string when provided.");
-  }
-  return {
-    ok: true,
-    value: {
-      mode: value.mode === "remote" ? "remote" : "local",
-      ...(typeof value.personId === "string" ? { personId: value.personId } : {}),
-      ...(typeof value.displayName === "string" ? { displayName: value.displayName.trim() } : {})
-    }
-  };
+  return { ok: true, value: output };
 }
 
 function validateOptionalId(name: string, value: unknown): { readonly ok: true; readonly value?: string } | { readonly ok: false; readonly message: string } {
@@ -468,7 +520,7 @@ function validateOptionalId(name: string, value: unknown): { readonly ok: true; 
   return { ok: true, value };
 }
 
-function invalid(command: string, message: string): SettingsResult {
+function invalid(command: string, message: string): Extract<SettingsResult, { readonly ok: false }> {
   return { ok: false, result: settingsError(command, message) };
 }
 
@@ -509,6 +561,12 @@ function positiveInteger(value: unknown): number | undefined {
   if (typeof value === "string" && !/^[0-9]+$/u.test(value)) return undefined;
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value === "string" && !/^[0-9]+$/u.test(value)) return undefined;
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function hasExactKeys(value: Record<string, unknown>, expected: ReadonlyArray<string>): boolean {

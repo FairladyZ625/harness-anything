@@ -97,6 +97,7 @@ export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
 export * from "./projection/relation-flow-frontmatter.ts";
 export * from "./projection/relation-graph-projection.ts";
+export * from "./runtime/operational-limits.ts";
 export {
   auditTaskProvenance,
   queryExecutionProjection,
@@ -190,6 +191,12 @@ export {
   taskHolderExecutorFromJournalActor,
   taskHolderPrincipalFromActor
 } from "./local/task-holder-state.ts";
+export {
+  landedSettingDefaults,
+  landedSettingsRegistry,
+  type LandedSettingDefinition,
+  type LandedSettingSource
+} from "./config/landed-settings-registry.ts";
 export type {
   TaskHolderAcquiredVia,
   ExecutionLeaseContext,

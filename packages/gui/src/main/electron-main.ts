@@ -8,14 +8,14 @@ import {
 } from "./local-composition-root.ts";
 import { createLocalGuiProjectionNotifications } from "./projection-notifications.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
+import { createGuiContentSecurityPolicy, resolveDevRendererOrigin } from "./window-config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(guiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  const allowDevRenderer = Boolean(rendererUrl);
+  const devRendererOrigin = rendererUrl ? resolveDevRendererOrigin(rendererUrl) : undefined;
   const packagedRendererUrl = createLocalPackagedRendererUrl();
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
@@ -36,12 +36,11 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (evaluateNavigationRequest(url, { packagedRendererUrl, allowDevRenderer }).action === "deny") {
+    if (evaluateNavigationRequest(url, { packagedRendererUrl, devRendererOrigin }).action === "deny") {
       event.preventDefault();
     }
   });
   if (rendererUrl) {
-    assertDevRendererUrl(rendererUrl);
     void mainWindow.loadURL(rendererUrl);
   } else {
     void mainWindow.loadFile(packagedRendererIndexPath());
@@ -58,7 +57,9 @@ export function installContentSecurityPolicy(): void {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [createGuiContentSecurityPolicy({
-          allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
+          ...(process.env.ELECTRON_RENDERER_URL
+            ? { devRendererOrigin: resolveDevRendererOrigin(process.env.ELECTRON_RENDERER_URL) }
+            : {})
         })]
       }
     });
@@ -76,7 +77,9 @@ export async function startGuiApp(): Promise<void> {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),
-      allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
+      ...(process.env.ELECTRON_RENDERER_URL
+        ? { devRendererOrigin: resolveDevRendererOrigin(process.env.ELECTRON_RENDERER_URL) }
+        : {})
     }
   }, projectionNotifications.source);
   app.once("before-quit", () => {

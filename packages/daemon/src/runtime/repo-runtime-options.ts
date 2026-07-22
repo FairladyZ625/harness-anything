@@ -44,6 +44,7 @@ export interface DaemonRuntimeOptions {
   readonly maxInteractiveOpsPerCommit?: number;
   readonly materializerPollMs?: number | false;
   readonly materializerMaxBranchesPerBatch?: number;
+  readonly projectionReconcileIntervalMs?: number;
   readonly admissionMaxOperations?: number;
   readonly admissionMaxBytes?: number;
   readonly admissionReservedOperationsPerPlane?: number;

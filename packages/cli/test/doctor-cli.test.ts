@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +28,41 @@ test("doctor reports read-only environment and harness diagnostics without writi
     assert.equal(result.report.harness.isolation.ok, true);
     assert.equal(result.report.harness.localRootExists, false);
     assert.equal(result.report.recommendedCommands.includes("harness-anything check --post-merge --json"), true);
+    assert.equal(result.report.settings.rows.length, 23);
+    assert.equal(result.report.settings.rows.every((row: Record<string, unknown>) => row.source === "default"), true);
+    assert.equal(result.report.settings.rows.find((row: Record<string, unknown>) => row.key === "gui.rendererUrl")?.value, null);
     assert.equal(JSON.stringify(result).includes(rootDir), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), false);
+  });
+});
+
+test("doctor resolves landed settings values and source layers without writing", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  tasks:",
+      "    leaseTtlMs: 7000",
+      "  execution:",
+      "    consentTtlMs: 8000",
+      "  daemonRuntime:",
+      "    materializerPollMs: 9000",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = runJson(rootDir, ["doctor"], {
+      HARNESS_TASK_LEASE_TTL_MS: "7100",
+      HARNESS_GIT_MAX_BUFFER_BYTES: "1048576",
+      ELECTRON_RENDERER_URL: "http://127.0.0.1:5173/app"
+    });
+    const rows = new Map(result.report.settings.rows.map((row: Record<string, unknown>) => [row.key, row]));
+
+    assert.deepEqual(pickResolved(rows.get("tasks.leaseTtlMs")), { value: 7100, source: "env" });
+    assert.deepEqual(pickResolved(rows.get("execution.consentTtlMs")), { value: 8000, source: "yaml" });
+    assert.deepEqual(pickResolved(rows.get("daemonRuntime.materializerPollMs")), { value: 9000, source: "yaml" });
+    assert.deepEqual(pickResolved(rows.get("git.maxBufferBytes")), { value: 1_048_576, source: "env" });
+    assert.deepEqual(pickResolved(rows.get("gui.rendererUrl")), { value: "http://127.0.0.1:5173/app", source: "env" });
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   });
 });
@@ -219,11 +254,21 @@ function runGit(rootDir: string, ...args: string[]): void {
   });
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-    encoding: "utf8"
+    encoding: "utf8",
+    env: cliTestEnv({
+      HARNESS_ACTOR: "agent:doctor-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+      HARNESS_GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
+      ...env
+    })
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function pickResolved(row: Record<string, unknown> | undefined): { readonly value: unknown; readonly source: unknown } {
+  return { value: row?.value, source: row?.source };
 }
 
 function readSnapshot(name: string): string {

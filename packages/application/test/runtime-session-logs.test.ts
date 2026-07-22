@@ -4,8 +4,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation } from "../src/runtime-session-logs.ts";
+import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, resolveRuntimeLogSearchDepth } from "../src/runtime-session-logs.ts";
 import { runEffect } from "./effect-test-helpers.ts";
+
+test("runtime log search depth resolves explicit option then environment and rejects unsafe values", () => {
+  assert.equal(resolveRuntimeLogSearchDepth({ env: {} }), 8);
+  assert.equal(resolveRuntimeLogSearchDepth({ env: { HARNESS_RUNTIME_LOG_SEARCH_DEPTH: "12" } }), 12);
+  assert.equal(resolveRuntimeLogSearchDepth({ maxSearchDepth: 4, env: { HARNESS_RUNTIME_LOG_SEARCH_DEPTH: "12" } }), 4);
+  assert.throws(() => resolveRuntimeLogSearchDepth({ env: { HARNESS_RUNTIME_LOG_SEARCH_DEPTH: "0" } }), /HARNESS_RUNTIME_LOG_SEARCH_DEPTH/u);
+  assert.throws(() => resolveRuntimeLogSearchDepth({ env: { HARNESS_RUNTIME_LOG_SEARCH_DEPTH: "65" } }), /HARNESS_RUNTIME_LOG_SEARCH_DEPTH/u);
+});
 
 test("runtime session discovery uses the operating-system home when HOME is unset", async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-home-"));

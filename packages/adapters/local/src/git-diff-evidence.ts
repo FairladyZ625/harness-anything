@@ -1,7 +1,8 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { execFileSync } from "node:child_process";
+import { resolveGitMaxBufferBytes } from "@harness-anything/kernel";
 
-const gitMaxBuffer = 256 * 1024 * 1024;
+const gitMaxBuffer = resolveGitMaxBufferBytes();
 
 export interface GitDiffEvidenceOptions {
   readonly rootDir: string;

@@ -4926,6 +4926,20 @@
           "reason": "Design exemption: tools/generate-preset-manifest-contract.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
         },
         {
+          "key": "tools/generate-settings-examples.mjs#writeFileSync@1",
+          "owner": "repository.tooling.mutation-surfaces",
+          "classification": "design-exemption",
+          "ref": "task_01KY3RP0NVP5E48VHYVQJENAJW",
+          "reason": "Settings example generator writes only the registry-derived harness.yaml.example projection; the drift gate rejects hand-maintained bytes and this is not registered entity SoT."
+        },
+        {
+          "key": "tools/generate-settings-examples.mjs#writeFileSync@2",
+          "owner": "repository.tooling.mutation-surfaces",
+          "classification": "design-exemption",
+          "ref": "task_01KY3RP0NVP5E48VHYVQJENAJW",
+          "reason": "Settings example generator writes only the registry-derived .env.example projection; the drift gate rejects hand-maintained bytes and this is not registered entity SoT."
+        },
+        {
           "key": "tools/generate-write-journal-contract.mjs#writeFileSync@1",
           "owner": "repository.tooling.mutation-surfaces",
           "classification": "design-exemption",

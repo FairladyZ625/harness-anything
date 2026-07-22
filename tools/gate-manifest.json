@@ -98,6 +98,7 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-mergify-queue-contexts",
+        "check-settings-examples",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -142,6 +143,7 @@
         "check-private-boundary",
         "check-integration-test-shards",
         "check-mergify-queue-contexts",
+        "check-settings-examples",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -193,6 +195,7 @@
         "check-private-boundary",
         "check-integration-test-shards",
         "check-mergify-queue-contexts",
+        "check-settings-examples",
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
@@ -213,7 +216,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 47
+      "harnessLeafGateCount": 48
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -3266,6 +3269,88 @@
         "status": "covered",
         "evidence": [
           "tools/check-github-required-contexts.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-settings-examples",
+      "command": "npm run harness:check-settings-examples",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "task_01KY3RP0NVP5E48VHYVQJENAJW",
+        "packages/kernel/src/config/landed-settings-registry.ts",
+        "tools/generate-settings-examples.mjs",
+        "tools/check-settings-examples.mjs"
+      ],
+      "consumerScope": [
+        "generated harness.yaml.example and .env.example settings discovery surfaces"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Generated settings examples must match the typed landed-settings registry exactly."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "packages/kernel/src/config/landed-settings-registry.ts",
+          "harness.yaml.example",
+          ".env.example",
+          "tools/generate-settings-examples.mjs",
+          "tools/check-settings-examples.mjs",
+          "tools/check-settings-examples.test.mjs",
+          "package.json:scripts.harness:check-settings-examples",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-settings-examples"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-settings-examples.test.mjs"
         ]
       }
     },

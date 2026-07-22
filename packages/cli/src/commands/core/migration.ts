@@ -46,7 +46,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
       return runAdoptMultica(context.layoutInput, action, context.makeWriteCoordinator);
     case "external-snapshot":
       if (action.provider !== "multica") throw new Error("external snapshot provider routed to migration runner");
-      return runSnapshotMultica(action);
+      return runSnapshotMultica(context.layoutInput, action);
     case "migrate-plan":
       return Effect.sync(() => runMigratePlan(context.layoutInput, action));
     case "migrate-structure":

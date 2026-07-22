@@ -3,6 +3,7 @@ import { makeReviewExecutionService } from "@harness-anything/application";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { resolveExecutionConsentTtlMs } from "../project-policy-settings.ts";
 
 type Action = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-review-execution" }>;
 
@@ -15,12 +16,15 @@ export function runExecutionReview(context: Parameters<CommandRunner>[0], action
       error: cliError(CliErrorCode.WriteRejected, action.executionSelectionError ?? "task review-execution requires --execution-id or exactly one submitted Execution.")
     } satisfies CliResult);
   }
+  const consentTtl = resolveExecutionConsentTtlMs(context.layoutInput, process.env, action.kind);
+  if (!consentTtl.ok) return Effect.succeed(consentTtl.result);
   const executionId = action.executionId;
   const generatedConsentId = action.generatedConsentId;
   const service = makeReviewExecutionService({
     rootInput: context.layoutInput,
     coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-review" }),
     artifactStore: context.artifactStore,
+    consentTtlMs: consentTtl.ttlMs,
     ...(generatedConsentId ? { generateConsentId: () => generatedConsentId } : {})
   });
   return context.currentSessionProbe.currentSession.pipe(

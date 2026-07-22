@@ -1,13 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy, guiContentSecurityPolicy, isTrustedRendererUrl } from "../src/index.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy, guiContentSecurityPolicy, isTrustedRendererUrl, resolveDevRendererOrigin } from "../src/index.ts";
 
 test("dev renderer override accepts only the local Vite server", () => {
   assert.equal(assertDevRendererUrl("http://127.0.0.1:5173"), true);
-  assert.throws(() => assertDevRendererUrl("file:///tmp/renderer/index.html"), /local dev renderer/);
-  assert.throws(() => assertDevRendererUrl("http://localhost:5173"), /local dev renderer/);
-  assert.throws(() => assertDevRendererUrl("https://example.invalid"), /local dev renderer/);
+  assert.equal(resolveDevRendererOrigin("http://127.0.0.1:4173/app"), "http://127.0.0.1:4173");
+  assert.throws(() => assertDevRendererUrl("file:///tmp/renderer/index.html"), /development renderer/u);
+  assert.throws(() => assertDevRendererUrl("http://localhost:5173"), /development renderer/u);
+  assert.throws(() => assertDevRendererUrl("https://example.invalid"), /development renderer/u);
+  assert.throws(() => assertDevRendererUrl("http://127.0.0.1"), /explicit 127\.0\.0\.1 HTTP port/u);
 });
 
 test("production CSP does not allow wildcard localhost connections", () => {
@@ -15,6 +17,7 @@ test("production CSP does not allow wildcard localhost connections", () => {
   assert.doesNotMatch(guiContentSecurityPolicy, /127\.0\.0\.1:\*/);
   assert.match(createGuiContentSecurityPolicy({ allowDevRenderer: true }), /http:\/\/127\.0\.0\.1:5173/);
   assert.doesNotMatch(createGuiContentSecurityPolicy({ allowDevRenderer: true }), /127\.0\.0\.1:\*/);
+  assert.match(createGuiContentSecurityPolicy({ devRendererOrigin: "http://127.0.0.1:4173" }), /http:\/\/127\.0\.0\.1:4173 ws:\/\/127\.0\.0\.1:4173/u);
 });
 
 test("inline script/style relaxation is dev-only; production CSP stays strict", () => {
@@ -31,6 +34,8 @@ test("trusted renderer URL accepts only explicit dev server or packaged renderer
   assert.equal(isTrustedRendererUrl(packagedRendererUrl, { packagedRendererUrl }), true);
   assert.equal(isTrustedRendererUrl("http://127.0.0.1:5173", { packagedRendererUrl }), false);
   assert.equal(isTrustedRendererUrl("http://127.0.0.1:5173", { packagedRendererUrl, allowDevRenderer: true }), true);
+  assert.equal(isTrustedRendererUrl("http://127.0.0.1:4173/app", { packagedRendererUrl, devRendererOrigin: "http://127.0.0.1:4173" }), true);
+  assert.equal(isTrustedRendererUrl("http://127.0.0.1:5173", { packagedRendererUrl, devRendererOrigin: "http://127.0.0.1:4173" }), false);
   assert.equal(isTrustedRendererUrl("file:///tmp/renderer/index.html", { packagedRendererUrl }), false);
   assert.equal(isTrustedRendererUrl("file:///app/.harness-private/task.md", { packagedRendererUrl }), false);
   assert.equal(isTrustedRendererUrl("https://example.invalid", { packagedRendererUrl }), false);

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isRecord } from "@harness-anything/application/record";
+import { landedSettingDefaults } from "@harness-anything/kernel";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,7 +12,12 @@ export interface CommandResult {
 }
 
 export interface FdeCommandRunner {
-  readonly run: (command: string, args: ReadonlyArray<string>) => Promise<CommandResult>;
+  readonly run: (command: string, args: ReadonlyArray<string>, budget: FdeProbeBudget) => Promise<CommandResult>;
+}
+
+export interface FdeProbeBudget {
+  readonly timeoutMs: number;
+  readonly maxBufferBytes: number;
 }
 
 export interface FdeEvidence {
@@ -25,21 +31,23 @@ export interface FdeEvidence {
 export async function detectFullVolumeEncryption(options: {
   readonly platform?: NodeJS.Platform;
   readonly runner?: FdeCommandRunner;
+  readonly env?: NodeJS.ProcessEnv;
 } = {}): Promise<FdeEvidence> {
   const platform = options.platform ?? process.platform;
   const runner = options.runner ?? nodeFdeCommandRunner;
-  if (platform === "darwin") return detectFileVault(runner);
-  if (platform === "linux") return detectLuks(runner);
+  const budget = resolveFdeProbeBudget(options.env ?? process.env);
+  if (platform === "darwin") return detectFileVault(runner, budget);
+  if (platform === "linux") return detectLuks(runner, budget);
   return evidence(platform, "unsupported", "unsupported", "platform_not_supported");
 }
 
 export const nodeFdeCommandRunner: FdeCommandRunner = {
-  run: async (command, args) => {
+  run: async (command, args, budget) => {
     try {
       const result = await execFileAsync(command, [...args], {
         encoding: "utf8",
-        timeout: 10_000,
-        maxBuffer: 1024 * 1024
+        timeout: budget.timeoutMs,
+        maxBuffer: budget.maxBufferBytes
       });
       return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
@@ -53,16 +61,16 @@ export const nodeFdeCommandRunner: FdeCommandRunner = {
   }
 };
 
-async function detectFileVault(runner: FdeCommandRunner): Promise<FdeEvidence> {
-  const result = await runner.run("fdesetup", ["status"]);
+async function detectFileVault(runner: FdeCommandRunner, budget: FdeProbeBudget): Promise<FdeEvidence> {
+  const result = await runner.run("fdesetup", ["status"], budget);
   if (result.exitCode !== 0) return evidence("darwin", "filevault", "indeterminate", "filevault_probe_failed");
   if (/FileVault is On\./iu.test(result.stdout)) return evidence("darwin", "filevault", "encrypted", "filevault_on");
   if (/FileVault is Off\./iu.test(result.stdout)) return evidence("darwin", "filevault", "not-encrypted", "filevault_off");
   return evidence("darwin", "filevault", "indeterminate", "filevault_status_unknown");
 }
 
-async function detectLuks(runner: FdeCommandRunner): Promise<FdeEvidence> {
-  const result = await runner.run("lsblk", ["--json", "--output", "NAME,TYPE,FSTYPE,MOUNTPOINTS"]);
+async function detectLuks(runner: FdeCommandRunner, budget: FdeProbeBudget): Promise<FdeEvidence> {
+  const result = await runner.run("lsblk", ["--json", "--output", "NAME,TYPE,FSTYPE,MOUNTPOINTS"], budget);
   if (result.exitCode !== 0) return evidence("linux", "luks", "indeterminate", "lsblk_probe_failed");
   try {
     const document: unknown = JSON.parse(result.stdout);
@@ -77,6 +85,23 @@ async function detectLuks(runner: FdeCommandRunner): Promise<FdeEvidence> {
   } catch {
     return evidence("linux", "luks", "indeterminate", "lsblk_json_invalid");
   }
+}
+
+export function resolveFdeProbeBudget(env: NodeJS.ProcessEnv = process.env): FdeProbeBudget {
+  return {
+    timeoutMs: boundedPositiveInteger("HARNESS_FDE_PROBE_TIMEOUT_MS", env.HARNESS_FDE_PROBE_TIMEOUT_MS, landedSettingDefaults.fdeProbeTimeoutMs, 120_000),
+    maxBufferBytes: boundedPositiveInteger("HARNESS_FDE_PROBE_MAX_BUFFER_BYTES", env.HARNESS_FDE_PROBE_MAX_BUFFER_BYTES, landedSettingDefaults.fdeProbeMaxBufferBytes, 64 * 1024 * 1024)
+  };
+}
+
+function boundedPositiveInteger(name: string, raw: string | undefined, fallback: number, maximum: number): number {
+  if (raw === undefined) return fallback;
+  if (!/^[0-9]+$/u.test(raw.trim())) throw new Error(`${name} must be a positive integer.`);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new Error(`${name} must be between 1 and ${maximum}.`);
+  }
+  return parsed;
 }
 
 function findRootPath(

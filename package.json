@@ -68,6 +68,7 @@
     "harness:check-mergify-queue-contexts": "node tools/check-mergify-queue-contexts.mjs",
     "harness:check-github-required-contexts": "node tools/check-github-required-contexts.mjs",
     "harness:check-docs-release-map": "node tools/check-docs-release-map.mjs",
+    "harness:check-settings-examples": "node tools/check-settings-examples.mjs",
     "harness:check-gate-surface": "node tools/check-gate-surface.mjs",
     "harness:check-gate-manifest-invariants": "node tools/check-gate-manifest-invariants.mjs",
     "harness:check-ghost-task-packages": "node tools/check-ghost-task-packages.mjs",

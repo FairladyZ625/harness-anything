@@ -74,12 +74,9 @@ import {
   type DaemonProjectionGenerationManager
 } from "./projection-generation-manager.ts";
 import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
+import { defaultDaemonRuntimePolicy } from "./runtime-policy.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
-const defaultLockTtlMs = 60_000;
-const defaultInteractiveMicroBatchMs = 10;
-const defaultMaxInteractiveOpsPerCommit = 32;
-const defaultMaterializerMaxBranchesPerBatch = 1;
 
 export type {
   BackgroundBatchRequest,
@@ -217,12 +214,12 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.runtimeContext = createHarnessRuntimeContext(this.rootDir, options.layoutOverrides);
     this.layout = resolveHarnessLayout(this.runtimeContext);
     this.operationalActor = options.operationalActor ?? defaultDaemonOperationalActor;
-    this.lockTtlMs = options.lockTtlMs ?? defaultLockTtlMs;
-    this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultMaterializerMaxBranchesPerBatch;
+    this.lockTtlMs = options.lockTtlMs ?? defaultDaemonRuntimePolicy.write.lockTtlMs;
+    this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultDaemonRuntimePolicy.materializer.maxBranchesPerBatch;
     this.admissionBudget = createRuntimeAdmissionBudget(options);
     this.queue = new DaemonWriteQueue(
-      options.maxInteractiveOpsPerCommit ?? defaultMaxInteractiveOpsPerCommit,
-      options.interactiveMicroBatchMs ?? defaultInteractiveMicroBatchMs,
+      options.maxInteractiveOpsPerCommit ?? defaultDaemonRuntimePolicy.write.maxInteractiveOpsPerCommit,
+      options.interactiveMicroBatchMs ?? defaultDaemonRuntimePolicy.write.interactiveMicroBatchMs,
       this.admissionBudget
     );
     this.projectionGeneration = this.createProjectionGenerationManager();
@@ -516,7 +513,8 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
           rootDir: this.rootDir,
           ...(this.options.layoutOverrides ? { layoutOverrides: this.options.layoutOverrides } : {})
         })
-      } : {})
+      } : {}),
+      reconcileIntervalMs: this.options.projectionReconcileIntervalMs ?? defaultDaemonRuntimePolicy.projection.reconcileIntervalMs
     });
   }
 
@@ -535,6 +533,7 @@ function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDae
     ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),
     ...(repo.materializerPollMs !== undefined ? {} : options.materializerPollMs !== undefined ? { materializerPollMs: options.materializerPollMs } : {}),
     ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {}),
+    ...(repo.projectionReconcileIntervalMs !== undefined ? {} : options.projectionReconcileIntervalMs !== undefined ? { projectionReconcileIntervalMs: options.projectionReconcileIntervalMs } : {}),
     ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {}),
     ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {}),
     ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {}),

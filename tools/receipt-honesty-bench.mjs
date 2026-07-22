@@ -4,31 +4,35 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { Effect } from "effect";
+import { landedSettingDefaults } from "@harness-anything/kernel";
 import { makeJournaledWriteCoordinator } from "../packages/kernel/src/write-coordination/journal/coordinator.ts";
 
 const defaultWriters = 4;
 const writesPerWriter = 4;
 const workerArg = process.argv.indexOf("--worker");
 
-if (workerArg >= 0) {
-  await runWorker(process.argv[workerArg + 1], Number(process.argv[workerArg + 2]));
-} else {
-  await runBench();
+if (path.resolve(process.argv[1] ?? "") === import.meta.filename) {
+  if (workerArg >= 0) {
+    await runWorker(process.argv[workerArg + 1], Number(process.argv[workerArg + 2]), JSON.parse(process.argv[workerArg + 3]));
+  } else {
+    await runBench();
+  }
 }
 
 async function runBench() {
   const writers = numberOption("--writers", defaultWriters);
+  const policy = resolveReceiptHonestyBenchPolicy(process.argv, process.env);
   const rootDir = mkdtempSync(path.join(tmpdir(), "receipt-honesty-"));
   const keep = process.argv.includes("--keep");
   try {
     mkdirSync(path.join(rootDir, "harness", "tasks"), { recursive: true });
     const children = Array.from({ length: writers }, (_, writer) => spawn(
       process.execPath,
-      [import.meta.filename, "--worker", rootDir, String(writer)],
+      [import.meta.filename, "--worker", rootDir, String(writer), JSON.stringify(policy)],
       { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] }
     ));
 
-    await waitFor(() => Array.from({ length: writers }, (_, writer) => path.join(rootDir, `.ready-${writer}`)).every(existsSync));
+    await waitFor(() => Array.from({ length: writers }, (_, writer) => path.join(rootDir, `.ready-${writer}`)).every(existsSync), policy);
     writeFileSync(path.join(rootDir, ".start"), "start\n");
     const rows = (await Promise.all(children.map(readChild))).flat();
     const watermark = JSON.parse(readFileSync(path.join(rootDir, ".harness", "write-journal", "watermark.json"), "utf8"));
@@ -55,7 +59,7 @@ async function runBench() {
   }
 }
 
-async function runWorker(rootDir, writer) {
+async function runWorker(rootDir, writer, policy) {
   if (!rootDir || !Number.isInteger(writer)) throw new Error("invalid worker arguments");
   const opIds = Array.from({ length: writesPerWriter }, (_, index) => `receipt-w${writer}-n${index}`);
   const coordinator = makeJournaledWriteCoordinator({
@@ -68,7 +72,7 @@ async function runWorker(rootDir, writer) {
       principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:receipt-bench" },
       executorSource: "client-asserted"
     },
-    lockConflictRetry: { maxWaitMs: 100, initialDelayMs: 5, maxDelayMs: 10 },
+    lockConflictRetry: policy.lockConflictRetry,
     autoMaterialize: false,
     versionControlSystem: slowVersionControlSystem(rootDir)
   });
@@ -82,7 +86,7 @@ async function runWorker(rootDir, writer) {
     }));
   }
   writeFileSync(path.join(rootDir, `.ready-${writer}`), "ready\n");
-  await waitFor(() => existsSync(path.join(rootDir, ".start")));
+  await waitFor(() => existsSync(path.join(rootDir, ".start")), policy);
   const result = await Effect.runPromise(Effect.either(coordinator.flush("explicit")));
   const receiptOk = result._tag === "Right";
   for (let index = 0; index < writesPerWriter; index += 1) {
@@ -135,12 +139,39 @@ async function readChild(child) {
   return stdout.trim().split(/\r?\n/u).filter(Boolean).map((line) => JSON.parse(line));
 }
 
-async function waitFor(predicate) {
+async function waitFor(predicate, policy) {
   const startedAt = Date.now();
   while (!predicate()) {
-    if (Date.now() - startedAt > 10_000) throw new Error("timed out waiting for bench barrier");
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    if (Date.now() - startedAt > policy.barrierTimeoutMs) throw new Error("timed out waiting for bench barrier");
+    await new Promise((resolve) => setTimeout(resolve, policy.barrierPollMs));
   }
+}
+
+export function resolveReceiptHonestyBenchPolicy(argv = process.argv, env = process.env) {
+  const value = (flag, envName, fallback, maximum) => {
+    const flagIndex = argv.indexOf(flag);
+    const raw = flagIndex >= 0 ? argv[flagIndex + 1] : env[envName];
+    if (raw === undefined) return fallback;
+    if (!/^[0-9]+$/u.test(raw)) throw new Error(`${flag} / ${envName} must be a positive integer`);
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+      throw new Error(`${flag} / ${envName} must be between 1 and ${maximum}`);
+    }
+    return parsed;
+  };
+  const lockConflictRetry = {
+    maxWaitMs: value("--lock-max-wait-ms", "HARNESS_BENCH_LOCK_MAX_WAIT_MS", landedSettingDefaults.benchLockMaxWaitMs, 60_000),
+    initialDelayMs: value("--lock-initial-delay-ms", "HARNESS_BENCH_LOCK_INITIAL_DELAY_MS", landedSettingDefaults.benchLockInitialDelayMs, 10_000),
+    maxDelayMs: value("--lock-max-delay-ms", "HARNESS_BENCH_LOCK_MAX_DELAY_MS", landedSettingDefaults.benchLockMaxDelayMs, 10_000)
+  };
+  if (lockConflictRetry.initialDelayMs > lockConflictRetry.maxDelayMs) {
+    throw new Error("benchmark lock initial delay must not exceed max delay");
+  }
+  return {
+    lockConflictRetry,
+    barrierTimeoutMs: value("--barrier-timeout-ms", "HARNESS_BENCH_BARRIER_TIMEOUT_MS", landedSettingDefaults.benchBarrierTimeoutMs, 120_000),
+    barrierPollMs: value("--barrier-poll-ms", "HARNESS_BENCH_BARRIER_POLL_MS", landedSettingDefaults.benchBarrierPollMs, 10_000)
+  };
 }
 
 function numberOption(name, fallback) {

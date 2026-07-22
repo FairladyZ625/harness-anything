@@ -4,8 +4,9 @@ import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
 import { VcsCommandError } from "../../ports/version-control-system.ts";
+import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
 
-const gitMaxBuffer = 256 * 1024 * 1024;
+const gitMaxBuffer = resolveGitMaxBufferBytes();
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return {

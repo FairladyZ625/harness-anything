@@ -133,3 +133,10 @@ same identity channel. Read the attribution model before configuring shells or
 team automation.
 
 → **[actor-attribution.md](actor-attribution.md)**
+
+## Configure repository policy
+
+Use the project policy reference for reviewable `harness.yaml` settings,
+documented defaults, environment override names, and fail-closed value rules.
+
+→ **[project-policy-settings.md](project-policy-settings.md)**

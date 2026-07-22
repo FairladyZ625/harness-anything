@@ -27,6 +27,7 @@ import { makeDaemonLogFileStore } from "./daemon-log-file-store.ts";
 import { makeDaemonReservationReconciler } from "./reservation-reconciler.ts";
 import { recordDaemonStarted, recordDaemonTerminated } from "./daemon-lifecycle.ts";
 import { prepareDaemonGenerationForServe } from "./daemon-generation.ts";
+import { resolveDaemonRuntimePolicy, type DaemonRuntimePolicy } from "../runtime/runtime-policy.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -47,6 +48,7 @@ export interface DaemonServeInput {
   readonly idleMs: number;
   readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   readonly platform?: NodeJS.Platform;
+  readonly runtimePolicy?: DaemonRuntimePolicy;
 }
 
 export async function runDaemonServe<
@@ -69,6 +71,7 @@ export async function runDaemonServe<
   const { serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = resolveDaemonServeConfiguration(input);
   const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
   const startedAt = new Date().toISOString();
+  const runtimePolicy = input.runtimePolicy ?? resolveDaemonRuntimePolicy();
 
   return withDaemonSocketOwnership(endpoint, async () => {
     const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
@@ -152,7 +155,12 @@ export async function runDaemonServe<
       });
       runtime = createMultiRepoDaemonRuntime({
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
-        materializerPollMs: 5_000,
+        lockTtlMs: runtimePolicy.write.lockTtlMs,
+        interactiveMicroBatchMs: runtimePolicy.write.interactiveMicroBatchMs,
+        maxInteractiveOpsPerCommit: runtimePolicy.write.maxInteractiveOpsPerCommit,
+        materializerPollMs: runtimePolicy.materializer.pollMs,
+        materializerMaxBranchesPerBatch: runtimePolicy.materializer.maxBranchesPerBatch,
+        projectionReconcileIntervalMs: runtimePolicy.projection.reconcileIntervalMs,
         ...(generation.mode === "legacy" ? {
           generationCapability: { mode: "legacy", platform: "win32", diagnostic: generation.diagnostic }
         } : {}),
@@ -215,7 +223,7 @@ export async function runDaemonServe<
         ...(authorityManifest ? { authorityManifest } : {}),
         ...(input.authoredRoot ? { authoredRoot: input.authoredRoot } : {})
       });
-      serviceHost.startRegistryReconcile(userRoot);
+      serviceHost.startRegistryReconcile(userRoot, runtimePolicy.registry.reconcileIntervalMs);
       await recordDaemonStarted({
         userRoot,
         logService: daemonLogService,
