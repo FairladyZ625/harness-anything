@@ -23,6 +23,7 @@ const sourcePackageRoots = [
   "packages/adapters/multica/src"
 ] as const;
 const identityDomain = Buffer.from("harness-anything/daemon-artifact-identity/v2\0", "utf8");
+export const daemonBuildProvenanceFilename = "daemon-build-provenance.json";
 
 export function calculateDaemonArtifactIdentity(entrypoint: string): DaemonArtifactIdentity {
   const started = process.hrtime.bigint();
@@ -93,6 +94,7 @@ function filesBelowRoots(
       }
       if (!entry.isFile()
         || !extensions.has(path.extname(entry.name))
+        || entry.name === daemonBuildProvenanceFilename
         || entry.name.endsWith(".d.ts")) continue;
       files.push(path.relative(root, absolutePath).split(path.sep).join("/"));
     }

@@ -1,11 +1,16 @@
 export async function readDaemonStatusWithGenerationFallback(
   includeGenerationAxes: boolean,
-  request: (includeAxes: boolean) => Promise<Record<string, unknown>>
+  request: (includeAxes: boolean, includeDeploymentIdentity: boolean) => Promise<Record<string, unknown>>,
+  includeDeploymentIdentity = false
 ): Promise<Record<string, unknown> | undefined> {
-  const attempts = includeGenerationAxes ? [true, false] : [false];
-  for (const [index, includeAxes] of attempts.entries()) {
+  const attempts = [
+    ...(includeDeploymentIdentity ? [{ axes: includeGenerationAxes, deployment: true }] : []),
+    ...(includeGenerationAxes ? [{ axes: true, deployment: false }] : []),
+    { axes: false, deployment: false }
+  ].filter((attempt, index, all) => all.findIndex((candidate) => candidate.axes === attempt.axes && candidate.deployment === attempt.deployment) === index);
+  for (const [index, attempt] of attempts.entries()) {
     try {
-      const receipt = await request(includeAxes);
+      const receipt = await request(attempt.axes, attempt.deployment);
       const details = isDaemonStatusRecord(receipt.details) ? receipt.details : {};
       const data = isDaemonStatusRecord(details.data) ? details.data : undefined;
       if (receipt.ok === true && data) return data;

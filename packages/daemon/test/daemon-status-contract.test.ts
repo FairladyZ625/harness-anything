@@ -110,6 +110,37 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
     loadedIdentity,
     version: "0.1.0-test",
     readInstalledIdentity: () => installedIdentity,
+    includeDeploymentIdentity: true,
+    readDeploymentStatus: () => ({
+      entrypoint: "/repo/ha/packages/cli/dist/cli/src/index.js",
+      artifactRoot: "/repo/ha/packages/cli/dist",
+      provenance: {
+        kind: "build-manifest",
+        sourceCommit: "a".repeat(40),
+        sourceDirty: false,
+        sourceFingerprint: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        contentFingerprint: loadedIdentity,
+        contentMatchesLoaded: true,
+        reason: "recorded artifact fingerprint matches the bytes loaded at daemon start"
+      },
+      checkout: {
+        root: "/repo/ha",
+        currentCommit: "a".repeat(40),
+        currentDirty: false,
+        currentSourceFingerprint: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        matchesProvenance: true
+      },
+      supervision: {
+        kind: "systemd-system",
+        unit: "harness-anything-daemon.service",
+        managerState: "active",
+        observedPid: process.pid,
+        matchesPid: true,
+        reason: "service manager reports this daemon PID as its active main process"
+      },
+      healthy: true,
+      failures: []
+    }),
     activeControl: {
       operationId: "control-stuck",
       kind: "refresh",
@@ -168,6 +199,7 @@ test("daemon status v2 aggregates every repo and derives a renderer-safe project
   assert.equal(status.service.attachedCount, 1);
   assert.equal(status.service.unavailableCount, 1);
   assert.equal(status.service.build.stale, true);
+  assert.equal(status.service.deployment?.healthy, true);
   assert.equal(status.requestedRepo.repoId, "alpha");
   assert.equal(status.repos[1]?.lastError, "lock held");
 
@@ -217,6 +249,15 @@ test("daemon status generation capability preserves legacy bytes and validates t
   }), {
     repo: { repoId: "canonical" },
     includeGenerationAxes: true
+  });
+  assert.deepEqual(decodeDaemonStatusRequestV2({
+    repo: { repoId: "canonical" },
+    includeGenerationAxes: true,
+    includeDeploymentIdentity: true
+  }), {
+    repo: { repoId: "canonical" },
+    includeGenerationAxes: true,
+    includeDeploymentIdentity: true
   });
   assert.throws(() => decodeDaemonStatusRequestV2({
     repo: { repoId: "canonical" },
