@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -61,6 +61,66 @@ test("daemon launch configuration is the canonical argv derivation for every spa
       daemonLaunchOptionsResolvedFlag
     ]
   });
+});
+
+test("legacy socket fallback diagnoses and removes an unowned empty directory occupying the socket path", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary");
+  const legacy = uniqueSocketPath("ha-daemon-directory-legacy");
+  mkdirSync(legacy);
+  t.after(() => rmSync(legacy, { recursive: true, force: true }));
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
+    (error: unknown) => {
+      assert.match(String(error), new RegExp(`path=${escapeRegExp(legacy)}`, "u"));
+      assert.match(String(error), /shape=directory;owner=unowned;cleanup=removed-empty-directory;connectCode=(?:EINVAL|ENOTSOCK)/u);
+      return true;
+    }
+  );
+  assert.equal(existsSync(legacy), false);
+});
+
+test("legacy socket fallback preserves a directory when a live owner record exists", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary-owned");
+  const legacy = uniqueSocketPath("ha-daemon-directory-owned");
+  mkdirSync(legacy);
+  writeFileSync(`${legacy}.owner`, JSON.stringify({
+    schema: "daemon-socket-owner/v1",
+    pid: process.pid,
+    ownerToken: "live-owner-test"
+  }));
+  t.after(() => {
+    rmSync(`${legacy}.owner`, { force: true });
+    rmSync(legacy, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
+    new RegExp(`shape=directory;owner=live-pid-${process.pid};cleanup=not-attempted;connectCode=(?:EINVAL|ENOTSOCK)`, "u")
+  );
+  assert.equal(existsSync(legacy), true);
+});
+
+test("legacy socket fallback connects to a live socket without namespace cleanup", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary-live");
+  const legacy = uniqueSocketPath("ha-daemon-live-legacy");
+  const server = await startJsonRpcServer(legacy);
+  t.after(async () => {
+    await closeServer(server);
+    rmSync(legacy, { force: true });
+  });
+
+  const receipt = await requestLocalDaemonJsonRpcForTarget(
+    { ...makeTarget(primary), legacySocketPath: legacy },
+    "repo.daemon.logs.list",
+    {},
+    100
+  );
+  assert.deepEqual(receipt, { ok: true, method: "repo.daemon.logs.list" });
+  assert.equal(existsSync(legacy), true);
 });
 
 test("JSON line frames preserve UTF-8 when a multibyte character spans chunks", () => {
@@ -325,6 +385,10 @@ function makeTarget(socketPath: string): LocalDaemonTarget {
 
 function uniqueSocketPath(prefix: string): string {
   return path.join("/tmp", `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sock`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 async function startJsonRpcServer(socketPath: string, options: {

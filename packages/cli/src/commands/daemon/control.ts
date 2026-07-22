@@ -28,7 +28,7 @@ import {
 } from "./control-generation-capability.ts";
 import { quoteDaemonRecoveryArgument } from "./snapshot-rollback.ts";
 
-export type DaemonControlKind = "restart" | "refresh";
+export type DaemonControlKind = "restart" | "refresh" | "upgrade";
 type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
 
 export interface DaemonControlRequest {
@@ -63,7 +63,7 @@ export async function runDaemonControl(
 ): Promise<Record<string, unknown>> {
   if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
-  const trigger = kind === "refresh" ? daemonRefreshTrigger(input.args) : undefined;
+  const trigger = kind === "restart" ? undefined : daemonRefreshTrigger(input.args);
   const method: DaemonControlRequest["method"] = kind === "restart"
     ? "admin.daemon.restart"
     : "admin.daemon.refresh";
@@ -90,10 +90,11 @@ export async function runDaemonControl(
       reason: readOption(input.args, "--reason") ?? `${trigger ?? "explicit"} daemon ${kind} request`,
       drainTimeoutMs,
       ...(trigger ? { trigger } : {}),
+      ...(kind === "upgrade" ? { kind: "upgrade" } : {}),
       ...(probedGeneration ? { daemonGeneration: probedGeneration.daemonGeneration } : {})
     }
   };
-  const preparedRunningLaunchConfiguration = kind === "refresh"
+  const preparedRunningLaunchConfiguration = kind !== "restart"
     ? await lifecycle.prepareReplacement?.(lifecycle.target)
     : undefined;
   const preparedLaunchConfiguration = preparedRunningLaunchConfiguration && input.replacementEntrypoint
@@ -109,7 +110,7 @@ export async function runDaemonControl(
   const expectedGeneration = acceptedGenerationExpectation(receipt, before, probedGeneration);
   const launchConfiguration = preparedLaunchConfiguration
     ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
-  const expectedIdentity = kind === "refresh"
+  const expectedIdentity = kind !== "restart"
     ? preparedExpectedIdentity ?? calculateInstalledIdentity(input, launchConfiguration.entrypoint)
     : undefined;
   const replacement = await completeDaemonReplacement({

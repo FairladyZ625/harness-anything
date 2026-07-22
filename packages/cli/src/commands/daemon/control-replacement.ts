@@ -51,7 +51,7 @@ interface CompleteDaemonReplacementInput {
   readonly beforeLoadedIdentity: unknown;
   readonly operationId: unknown;
   readonly timeoutMs: number;
-  readonly kind: "restart" | "refresh";
+  readonly kind: "restart" | "refresh" | "upgrade";
   readonly method: "admin.daemon.restart" | "admin.daemon.refresh";
   readonly launchConfiguration: DaemonLaunchConfiguration;
   readonly expectedIdentity: string | undefined;

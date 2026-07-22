@@ -25,7 +25,7 @@ export function createDaemonControlService<
   readonly setDrainTimeout: (timeoutMs: number) => void;
   readonly requestStop: (request: {
     readonly reason: "control";
-    readonly kind: "restart" | "refresh";
+    readonly kind: "restart" | "refresh" | "upgrade";
     readonly operationId: string;
   }) => void;
 }, hostServices: DaemonControlErrorHostServices<PresentedError>): DaemonControlService {
@@ -48,7 +48,7 @@ export function createDaemonControlService<
           }
         };
       }
-      if (kind === "refresh") {
+      if (kind !== "restart") {
         try {
           await input.preflightReplacement(input.launchConfiguration);
         } catch (error) {

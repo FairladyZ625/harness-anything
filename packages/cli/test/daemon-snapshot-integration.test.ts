@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync } from "node:fs";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
+import { daemonLaunchSpecPath } from "../src/daemon/daemon-launch-spec.ts";
 import {
   defaultDaemonUserRoot,
   runDaemonCommand,
@@ -44,6 +45,7 @@ test("daemon upgrade serves the installed snapshot identity and persists its ent
       };
     };
 
+    assert.equal(upgrade.kind, "upgrade");
     assert.notEqual(replacement.pid, started.pid);
     assert.equal(replacement.service.build.loadedIdentity, snapshot.manifest.contentFingerprint);
     assert.equal(replacement.service.build.installedIdentity, snapshot.manifest.contentFingerprint);
@@ -63,6 +65,17 @@ test("daemon upgrade serves the installed snapshot identity and persists its ent
     const launchDetails = launchReceipt.details as Record<string, unknown>;
     const launchSpec = launchDetails.data as { readonly entrypoint?: unknown };
     assert.equal(launchSpec.entrypoint, snapshot.entrypoint);
+    const persistedLaunchSpec = JSON.parse(readFileSync(
+      daemonLaunchSpecPath(userRoot, String((replacement as Record<string, unknown>).endpoint ?? "")),
+      "utf8"
+    )) as { readonly launchConfiguration?: { readonly entrypoint?: unknown } };
+    assert.equal(persistedLaunchSpec.launchConfiguration?.entrypoint, snapshot.entrypoint);
+
+    const status = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "status", "--user-root", userRoot, "--json"
+    ], env);
+    assert.equal(typeof status.machineId, "string");
+    assert.equal(typeof status.daemonGeneration, "number");
     process.kill(replacement.pid, 0);
     console.log(JSON.stringify({
       scenario: "snapshot-upgrade",

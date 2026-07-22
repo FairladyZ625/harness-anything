@@ -45,7 +45,7 @@ import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
-  | { readonly reason: "control"; readonly kind: "restart" | "refresh"; readonly operationId: string };
+  | { readonly reason: "control"; readonly kind: "restart" | "refresh" | "upgrade"; readonly operationId: string };
 
 export type { DaemonLaunchConfiguration } from "../lifecycle/daemon-control-service.ts";
 

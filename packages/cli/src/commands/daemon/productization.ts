@@ -175,7 +175,7 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
   });
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
   const lockStatus = readDaemonLock(path.join(layout.locksRoot, "global.lock"));
-  const rpcStatus = await readReachableDaemonStatus(target);
+  const rpcStatus = await readReachableDaemonStatus(target, true);
   const cliRpcStatus = rpcStatus ? daemonStatusForCli(rpcStatus) : undefined;
   const lifecycle = await observeDaemonLifecycle({
     userRoot: target.userRoot,
@@ -454,9 +454,15 @@ function readDaemonLock(lockPath: string): Record<string, unknown> {
   };
 }
 
-async function readReachableDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {
+async function readReachableDaemonStatus(
+  target: LocalDaemonTarget,
+  includeGenerationAxes = false
+): Promise<Record<string, unknown> | undefined> {
   try {
-    const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", { repo: { repoId: target.repoId } }, 1_000, {
+    const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
+      repo: { repoId: target.repoId },
+      ...(includeGenerationAxes ? { includeGenerationAxes: true } : {})
+    }, 1_000, {
       userRoot: target.userRoot,
       daemonId: target.daemonId,
       socketPath: target.socketPath,

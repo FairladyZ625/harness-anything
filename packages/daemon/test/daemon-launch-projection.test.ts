@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DaemonActiveControlStatus, DaemonStatusResultV2 } from "../../application/src/index.ts";
 import { createDaemonControlService, type DaemonLaunchConfiguration } from "../src/index.ts";
+import { daemonControlRequest } from "../src/protocol/daemon-control-request.ts";
 
 const launchConfiguration: DaemonLaunchConfiguration = {
   execPath: "/current/node",
@@ -67,6 +68,22 @@ test("explicit generation control fails closed for legacy platform startup and s
   });
   assert.equal(stale.ok, false);
   if (!stale.ok) assert.match(stale.error.hint, /does not match current generation 5/u);
+});
+
+test("upgrade marker crosses the refresh transport and remains upgrade in the accepted receipt", async () => {
+  const decoded = daemonControlRequest("admin.daemon.refresh", {
+    reason: "install and switch snapshot",
+    drainTimeoutMs: 5_000,
+    trigger: "explicit",
+    kind: "upgrade"
+  });
+  assert.equal(decoded.ok, true);
+  if (!decoded.ok) return;
+  assert.equal(decoded.kind, "upgrade");
+
+  const accepted = await control().requestControl(decoded.kind, decoded.value);
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) assert.equal(accepted.accepted.kind, "upgrade");
 });
 
 function control(configuration: DaemonLaunchConfiguration = launchConfiguration) {
