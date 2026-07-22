@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -64,6 +64,66 @@ test("daemon launch configuration is the canonical argv derivation for every spa
       daemonLaunchOptionsResolvedFlag
     ]
   });
+});
+
+test("legacy socket fallback diagnoses and removes an unowned empty directory occupying the socket path", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary");
+  const legacy = uniqueSocketPath("ha-daemon-directory-legacy");
+  mkdirSync(legacy);
+  t.after(() => rmSync(legacy, { recursive: true, force: true }));
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
+    (error: unknown) => {
+      assert.match(String(error), new RegExp(`path=${escapeRegExp(legacy)}`, "u"));
+      assert.match(String(error), /shape=directory;owner=unowned;cleanup=removed-empty-directory;connectCode=(?:ECONNREFUSED|EINVAL|ENOTSOCK)/u);
+      return true;
+    }
+  );
+  assert.equal(existsSync(legacy), false);
+});
+
+test("legacy socket fallback preserves a directory when a live owner record exists", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary-owned");
+  const legacy = uniqueSocketPath("ha-daemon-directory-owned");
+  mkdirSync(legacy);
+  writeFileSync(`${legacy}.owner`, JSON.stringify({
+    schema: "daemon-socket-owner/v1",
+    pid: process.pid,
+    ownerToken: "live-owner-test"
+  }));
+  t.after(() => {
+    rmSync(`${legacy}.owner`, { force: true });
+    rmSync(legacy, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
+    new RegExp(`shape=directory;owner=live-pid-${process.pid};cleanup=not-attempted;connectCode=(?:ECONNREFUSED|EINVAL|ENOTSOCK)`, "u")
+  );
+  assert.equal(existsSync(legacy), true);
+});
+
+test("legacy socket fallback connects to a live socket without namespace cleanup", async (t) => {
+  if (process.platform === "win32") return;
+  const primary = uniqueSocketPath("ha-daemon-missing-primary-live");
+  const legacy = uniqueSocketPath("ha-daemon-live-legacy");
+  const server = await startJsonRpcServer(legacy);
+  t.after(async () => {
+    await closeServer(server);
+    rmSync(legacy, { force: true });
+  });
+
+  const receipt = await requestLocalDaemonJsonRpcForTarget(
+    { ...makeTarget(primary), legacySocketPath: legacy },
+    "repo.daemon.logs.list",
+    {},
+    100
+  );
+  assert.deepEqual(receipt, { ok: true, method: "repo.daemon.logs.list" });
+  assert.equal(existsSync(legacy), true);
 });
 
 test("JSON line frames preserve UTF-8 when a multibyte character spans chunks", () => {
@@ -307,7 +367,7 @@ test("autostart retries when the socket accepts before JSON-RPC is ready", async
   assert.deepEqual(result, { ok: true, method: "repo.tasks.list" });
 });
 
-test("autostart treats a slow ready-probe hello as retryable within the total startup budget", async (t) => {
+test("autostart allocates enough remaining startup budget for a slow ready-probe hello", async (t) => {
   if (process.platform === "win32") return;
   const socketPath = uniqueSocketPath("ha-daemon-slow-ready-hello");
   const target = makeTarget(socketPath);
@@ -317,7 +377,7 @@ test("autostart treats a slow ready-probe hello as retryable within the total st
     setTimeout(() => {
       void startJsonRpcServer(socketPath, {
         delayMethod: "protocol.hello",
-        delayMethodMs: 250,
+        delayMethodMs: 1_400,
         onRequest: (method) => {
           if (method === "protocol.hello") helloCalls += 1;
         }
@@ -337,21 +397,27 @@ test("autostart treats a slow ready-probe hello as retryable within the total st
     "repo.tasks.list",
     {},
     200,
-    { entryPath: "/unused", timeoutMs: 2_000 }
+    { entryPath: "/unused", timeoutMs: 3_000 }
   );
 
   assert.deepEqual(result, { ok: true, method: "repo.tasks.list" });
-  assert.ok(helloCalls >= 3, `expected a timed-out probe, a successful retry, and the command hello; saw ${helloCalls}`);
+  assert.equal(helloCalls, 2, "the slow ready probe should complete once before the command hello");
 });
 
-test("autostart reports total startup-budget exhaustion instead of a ready-probe request timeout", async (t) => {
+test("autostart bounds a never-responding ready probe by the total startup budget", async (t) => {
   if (process.platform === "win32") return;
   const socketPath = uniqueSocketPath("ha-daemon-ready-budget");
   const target = makeTarget(socketPath);
+  let helloCalls = 0;
   let server: net.Server | undefined;
   const restoreSpawn = replaceSpawnLocalDaemonForTest(() => {
     setTimeout(() => {
-      void startJsonRpcServer(socketPath, { delayMethod: "protocol.hello", delayMethodMs: 500 }).then((started) => {
+      void startJsonRpcServer(socketPath, {
+        ignoreMethod: "protocol.hello",
+        onRequest: (method) => {
+          if (method === "protocol.hello") helloCalls += 1;
+        }
+      }).then((started) => {
         server = started;
       });
     }, 10);
@@ -368,13 +434,15 @@ test("autostart reports total startup-budget exhaustion instead of a ready-probe
       target,
       "repo.tasks.list",
       {},
-      40,
-      { entryPath: "/unused", timeoutMs: 180 }
+      200,
+      { entryPath: "/unused", timeoutMs: 1_200 }
     ),
     (error: unknown) => !(error instanceof DaemonJsonRpcRequestTimeoutError)
-      && /autostart.*180ms/u.test(error instanceof Error ? error.message : "")
+      && /autostart.*1200ms/u.test(error instanceof Error ? error.message : "")
   );
-  assert.ok(Date.now() - startedAt >= 150);
+  const elapsedMs = Date.now() - startedAt;
+  assert.ok(elapsedMs >= 1_000 && elapsedMs < 2_000, `expected total-budget failure near 1200ms; saw ${elapsedMs}ms`);
+  assert.ok(helloCalls >= 2, `expected multiple bounded ready probes; saw ${helloCalls}`);
 });
 
 test("autostart surfaces a daemon JSON-RPC error once without retrying it as a disconnect", async (t) => {
@@ -451,6 +519,10 @@ function makeTarget(socketPath: string): LocalDaemonTarget {
 
 function uniqueSocketPath(prefix: string): string {
   return path.join("/tmp", `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sock`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 async function startJsonRpcServer(socketPath: string, options: {

@@ -511,7 +511,7 @@ async function handleAdminMethod(
     const request = daemonControlRequest(contract.method, payload);
     if (!request.ok) return failureReceipt(contract.method, request.code, request.hint);
     const result = await options.services.DaemonControlService.requestControl(
-      contract.method === "admin.daemon.restart" ? "restart" : "refresh",
+      request.kind,
       request.value
     );
     if (!result.ok) {

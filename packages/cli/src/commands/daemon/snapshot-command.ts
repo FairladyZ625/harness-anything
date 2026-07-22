@@ -23,7 +23,7 @@ export async function upgradeDaemonSnapshot(
     ...input,
     daemonEntryPath: sourceEntrypoint,
     replacementEntrypoint: snapshot.entrypoint
-  }, "refresh");
+  }, "upgrade");
   return { snapshot: daemonSnapshotResult(snapshot), ...result };
 }
 

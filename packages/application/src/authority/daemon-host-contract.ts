@@ -247,7 +247,7 @@ export interface DaemonCommandHostServices<
 
 export type DaemonControlHostError =
   | { readonly code: "daemon_refresh_build_failed"; readonly context: { readonly cause: string } }
-  | { readonly code: "daemon_queue_drain_timeout"; readonly context: { readonly kind: "restart" | "refresh" } };
+  | { readonly code: "daemon_queue_drain_timeout"; readonly context: { readonly kind: "restart" | "refresh" | "upgrade" } };
 
 /** CLI presents structured daemon errors; the shared contract carries no hint text. */
 export interface DaemonControlErrorHostServices<PresentedError> {

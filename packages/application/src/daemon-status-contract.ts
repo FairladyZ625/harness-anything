@@ -257,7 +257,7 @@ function activeControl(value: unknown): void {
   const record = object(value, "result.service.activeControl");
   keys(record, ["operationId", "kind", "phase", "requestedAt", "failure", "machineId", "daemonGeneration"], "result.service.activeControl", ["failure", "machineId", "daemonGeneration"]);
   string(record.operationId, "result.service.activeControl.operationId");
-  oneOf(record.kind, ["restart", "refresh"], "result.service.activeControl.kind");
+  oneOf(record.kind, ["restart", "refresh", "upgrade"], "result.service.activeControl.kind");
   oneOf(record.phase, ["accepted", "draining", "building", "replacing", "failed"], "result.service.activeControl.phase");
   timestamp(record.requestedAt, "result.service.activeControl.requestedAt");
   if (record.machineId !== undefined) string(record.machineId, "result.service.activeControl.machineId");
@@ -332,7 +332,7 @@ export interface DaemonStatusService {
     DaemonStatusResultV2 | Promise<DaemonStatusResultV2>;
 }
 
-export type DaemonControlKind = "restart" | "refresh";
+export type DaemonControlKind = "restart" | "refresh" | "upgrade";
 export type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
 
 export interface DaemonControlRequestV1 {

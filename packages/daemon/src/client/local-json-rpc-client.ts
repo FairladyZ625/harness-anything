@@ -19,6 +19,7 @@ import {
   createDaemonLaunchConfiguration,
   type DaemonLaunchConfiguration
 } from "./daemon-launch-configuration.ts";
+import { daemonSocketConnectError } from "./daemon-socket-namespace.ts";
 import {
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
@@ -36,6 +37,7 @@ export {
 
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
+const minimumReadyProbeResponseTimeoutMs = 500;
 
 export {
   DaemonJsonRpcRequestTimeoutError,
@@ -396,24 +398,17 @@ async function spawnAndWaitForLocalDaemon(
 ): Promise<void> {
   autostart.onPhase?.("launch-start");
   spawnLocalDaemon(target, autostart);
-  let readyProbeTimeoutMs = connectTimeoutMs;
   while (Date.now() <= flight.deadline) {
     try {
       await probeLocalDaemonReady(
         target.socketPath,
         boundedDeadlineTimeout(connectTimeoutMs, flight.deadline),
-        boundedDeadlineTimeout(readyProbeTimeoutMs, flight.deadline)
+        readyProbeResponseTimeout(flight.deadline)
       );
       autostart.onPhase?.("ready");
       return;
     } catch (error) {
       flight.lastError = error;
-      if (error instanceof DaemonJsonRpcRequestTimeoutError && error.method === "protocol.hello") {
-        readyProbeTimeoutMs = Math.min(
-          Math.max(1, flight.deadline - Date.now()),
-          readyProbeTimeoutMs * 2
-        );
-      }
       const retryDelayMs = Math.min(100, flight.deadline - Date.now());
       if (retryDelayMs > 0) await delay(retryDelayMs);
     }
@@ -507,8 +502,12 @@ async function connectUnixSocketWithLegacyFallback(socketPath: string, legacySoc
   try {
     return await connectUnixSocket(socketPath, timeoutMs);
   } catch (error) {
-    if (!legacySocketPath || legacySocketPath === socketPath) throw error;
-    return connectUnixSocket(legacySocketPath, timeoutMs);
+    if (!legacySocketPath || legacySocketPath === socketPath) throw daemonSocketConnectError(socketPath, error);
+    try {
+      return await connectUnixSocket(legacySocketPath, timeoutMs);
+    } catch (legacyError) {
+      throw daemonSocketConnectError(legacySocketPath, legacyError);
+    }
   }
 }
 
@@ -548,6 +547,16 @@ function delay(ms: number): Promise<void> {
 
 function boundedDeadlineTimeout(timeoutMs: number, deadline: number): number {
   return Math.max(1, Math.min(timeoutMs, deadline - Date.now()));
+}
+
+function readyProbeResponseTimeout(deadline: number): number {
+  const remainingMs = Math.max(1, deadline - Date.now());
+  // Give a live-but-loaded daemon meaningful response time while reserving
+  // half of an ample startup budget for another bounded probe.
+  return Math.min(
+    remainingMs,
+    Math.max(minimumReadyProbeResponseTimeoutMs, Math.floor(remainingMs / 2))
+  );
 }
 
 function daemonAutostartTimeoutError(timeoutMs: number, lastError: unknown): Error {

@@ -24,6 +24,64 @@ const runningLaunchConfiguration = {
   args: ["--root", "/repo", "daemon", "serve", "--socket", "/user-root/daemon.sock"]
 } as const;
 
+test("daemon upgrade preserves explicit and omitted version arguments across the control wire", async () => {
+  for (const scenario of [
+    { args: ["--version", "stable-2026-07-22b"], expectedVersion: "stable-2026-07-22b" },
+    { args: [], expectedVersion: undefined }
+  ] as const) {
+    let wirePayload: Record<string, unknown> | undefined;
+    const result = await runCapturedUpgrade({
+      target: controlTarget,
+      prepareReplacement: async () => runningLaunchConfiguration,
+      probeStatus: async () => undefined,
+      ownerIsAlive: () => false,
+      startReplacement: async () => v2DaemonStatus(84),
+      wait: async () => undefined
+    }, "/snapshots/selected/dist/cli/src/index.js", async (request) => {
+      wirePayload = request.params.payload as Record<string, unknown>;
+      return {
+        schema: "daemon-control-accepted/v1",
+        accepted: true,
+        operationId: "control-upgrade",
+        kind: "upgrade",
+        before: { pid: 42, loadedIdentity: oldIdentity, launchConfiguration: runningLaunchConfiguration }
+      };
+    }, scenario.args);
+
+    assert.equal(result.exitCode, 0, JSON.stringify(result.receipt));
+    assert.equal(result.installedVersion, scenario.expectedVersion);
+    assert.equal(result.receipt.kind, "upgrade");
+    assert.equal(wirePayload?.kind, "upgrade");
+    assert.equal(wirePayload?.trigger, "explicit");
+  }
+});
+
+test("daemon upgrade completes replacement after a legacy daemon reports refresh", async () => {
+  const starts: string[] = [];
+  const result = await runCapturedUpgrade({
+    target: controlTarget,
+    prepareReplacement: async () => runningLaunchConfiguration,
+    probeStatus: async () => undefined,
+    ownerIsAlive: () => false,
+    startReplacement: async (_target, _timeoutMs, launchConfiguration) => {
+      starts.push(launchConfiguration.entrypoint);
+      return v2DaemonStatus(84);
+    },
+    wait: async () => undefined
+  }, "/snapshots/legacy-compatible/dist/cli/src/index.js", async () => ({
+    schema: "daemon-control-accepted/v1",
+    accepted: true,
+    operationId: "control-legacy-refresh",
+    kind: "refresh",
+    before: { pid: 42, loadedIdentity: oldIdentity, launchConfiguration: runningLaunchConfiguration }
+  }));
+
+  assert.equal(result.exitCode, 0, JSON.stringify(result.receipt));
+  assert.deepEqual(starts, ["/snapshots/legacy-compatible/dist/cli/src/index.js"]);
+  assert.equal(result.receipt.kind, "upgrade");
+  assert.equal(result.receipt.operationId, "control-legacy-refresh");
+});
+
 test("daemon upgrade switches to the installed snapshot only after drain handoff", async () => {
   const starts: string[] = [];
   const snapshotEntrypoint = "/user-root/daemon-snapshots/release-2/dist/cli/src/index.js";
@@ -265,14 +323,15 @@ const oldIdentity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 async function runCapturedUpgrade(
   daemonControlLifecycle: DaemonControlLifecycle,
   snapshotEntrypoint: string,
-  requestDaemonControl: (() => Promise<Record<string, unknown>>) | undefined = undefined,
+  requestDaemonControl: ((request: { readonly method: string; readonly params: Record<string, unknown> }) => Promise<Record<string, unknown>>) | undefined = undefined,
   extraArgs: ReadonlyArray<string> = []
-): Promise<{ readonly exitCode: number; readonly receipt: Record<string, unknown> }> {
+): Promise<{ readonly exitCode: number; readonly receipt: Record<string, unknown>; readonly installedVersion: string | undefined }> {
+  let installedVersion: string | undefined;
   requestDaemonControl ??= async () => ({
     schema: "daemon-control-accepted/v1",
     accepted: true,
-    operationId: "control-refresh",
-    kind: "refresh",
+    operationId: "control-upgrade",
+    kind: "upgrade",
     before: { pid: 42, loadedIdentity: oldIdentity, launchConfiguration: runningLaunchConfiguration }
   });
   const output: string[] = [];
@@ -286,29 +345,32 @@ async function runCapturedUpgrade(
       runServe: async () => undefined,
       requestDaemonControl,
       daemonControlLifecycle,
-      installDaemonSnapshot: () => ({
-        installed: true,
-        snapshotDir: path.dirname(path.dirname(path.dirname(path.dirname(snapshotEntrypoint)))),
-        entrypoint: snapshotEntrypoint,
-        manifestPath: "/snapshots/manifest.json",
-        manifest: {
-          schema: "daemon-snapshot-manifest/v1",
-          version: "test",
-          sourceRef: "HEAD",
-          sourceCommit: "a".repeat(40),
-          sourceDirty: false,
-          sourceFingerprint: "a".repeat(40),
-          builtAt: "2026-07-22T00:00:00.000Z",
-          entrypoint: "dist/cli/src/index.js",
-          contentFingerprint: "sha256:" + "b".repeat(64),
-          artifactFileCount: 1,
-          runtimePackages: []
-        }
-      }),
+      installDaemonSnapshot: (installInput) => {
+        installedVersion = installInput.version;
+        return {
+          installed: true,
+          snapshotDir: path.dirname(path.dirname(path.dirname(path.dirname(snapshotEntrypoint)))),
+          entrypoint: snapshotEntrypoint,
+          manifestPath: "/snapshots/manifest.json",
+          manifest: {
+            schema: "daemon-snapshot-manifest/v1",
+            version: "test",
+            sourceRef: "HEAD",
+            sourceCommit: "a".repeat(40),
+            sourceDirty: false,
+            sourceFingerprint: "a".repeat(40),
+            builtAt: "2026-07-22T00:00:00.000Z",
+            entrypoint: "dist/cli/src/index.js",
+            contentFingerprint: "sha256:" + "b".repeat(64),
+            artifactFileCount: 1,
+            runtimePackages: []
+          }
+        };
+      },
       daemonSourceEntrypoint: () => "/repo/packages/cli/src/index.ts",
       calculateInstalledIdentity: () => "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     });
-    return { exitCode, receipt: JSON.parse(output.at(-1) ?? "") as Record<string, unknown> };
+    return { exitCode, receipt: JSON.parse(output.at(-1) ?? "") as Record<string, unknown>, installedVersion };
   } finally {
     console.log = originalLog;
   }
