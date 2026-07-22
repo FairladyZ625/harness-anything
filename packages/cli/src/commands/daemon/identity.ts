@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "@harness-anything/application";
 import {
   composeIdentityProvider,
   credentialKey,
@@ -37,7 +36,6 @@ export function loadDaemonIdentityWithEmail(
   readonly personRegistry?: PersonRegistry;
   readonly identityProvider?: IdentityProvider;
   readonly identityAdminSnapshot?: IdentityAdminSnapshot;
-  readonly appendRuntimeEvent?: ReturnType<typeof makeRuntimeEventAppendPromise>;
 } {
   const runtimeContext = createHarnessRuntimeContext(rootDir, layoutOverrides);
   const layout = resolveHarnessLayout(runtimeContext);
@@ -57,8 +55,7 @@ export function loadDaemonIdentityWithEmail(
     if (!configured) return { mode };
     return {
       mode,
-      ...configured,
-      appendRuntimeEvent: makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({ rootInput: runtimeContext }))
+      ...configured
     };
   }
   const projectRoster = hasProjectRoster ? loadPeopleRoster(runtimeContext) : undefined;
@@ -75,8 +72,7 @@ export function loadDaemonIdentityWithEmail(
     mode,
     personRegistry,
     identityProvider: mode === "remote" ? requireRemoteForcedCommand(identityProvider) : identityProvider,
-    identityAdminSnapshot: makePeopleRosterIdentityAdminSnapshot(peopleRoster, personRegistry),
-    appendRuntimeEvent: makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({ rootInput: runtimeContext }))
+    identityAdminSnapshot: makePeopleRosterIdentityAdminSnapshot(peopleRoster, personRegistry)
   };
 }
 

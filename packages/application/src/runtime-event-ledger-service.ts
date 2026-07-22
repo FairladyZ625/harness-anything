@@ -20,7 +20,7 @@ import { isRecord } from "./record.ts";
 
 export interface RuntimeEventLedgerServiceOptions {
   readonly rootInput: HarnessLayoutInput;
-  readonly coordinator?: WriteCoordinator;
+  readonly coordinator: WriteCoordinator;
   readonly now?: () => string;
   readonly makeEventId?: () => string;
 }
@@ -143,7 +143,7 @@ function toRuntimeEventRecord(
 function appendRuntimeEvent(
   rootInput: HarnessLayoutInput,
   event: RuntimeEventRecordV2,
-  coordinator?: WriteCoordinator
+  coordinator: WriteCoordinator
 ): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected> {
   return Effect.try({
     try: () => {
@@ -166,9 +166,6 @@ function appendRuntimeEvent(
           path: path.relative(resolveHarnessLayout(rootInput).rootDir, target.absolutePath).split(path.sep).join("/"),
           value: decoded
         };
-      if (!coordinator) {
-        return Effect.fail(runtimeEventRejection(decoded.session.sessionId, "runtime-event append requires a write coordinator"));
-      }
       return writeCoordinatedPayloadLocal(coordinator, {
           entityId: moduleEntityId("runtime-event-ledger"),
           kind: "machine_artifact_append_jsonl",

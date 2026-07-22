@@ -36,12 +36,21 @@ export function loadGateAllowlist(gateId, options = {}) {
     if (!(section in parsed.entries)) fail(gateId, `${displayPath} missing entries.${section}`);
   }
 
-  const currentCount = validateEntryTree(gateId, parsed.entries, "entries");
+  const coverageCount = validateEntryTree(gateId, parsed.entries, "entries");
+  const ratchetSections = options.ratchetSections ?? [];
+  const currentCount = ratchetSections.length === 0
+    ? coverageCount
+    : countSelectedSections(gateId, parsed.entries, ratchetSections);
 
-  const previousCount = previousEntryCount(displayPath);
+  const previous = previousEntryCounts(displayPath, ratchetSections);
+  const previousCount = previous?.ratchet ?? null;
   const trend = previousCount === null ? "previous=unavailable" : `previous=${previousCount} delta=${currentCount - previousCount}`;
   const growth = previousCount !== null && currentCount > previousCount ? " GROWTH_REQUIRES_GOVERNANCE_REVIEW" : "";
   console.log(`[gate-allowlist] ${gateId}: current=${currentCount} ${trend}${growth}`);
+  if (ratchetSections.length > 0) {
+    const previousCoverage = previous?.coverage ?? "unavailable";
+    console.log(`[gate-allowlist-coverage] ${gateId}: governed=${coverageCount} previousGoverned=${previousCoverage}`);
+  }
 
   return parsed.entries;
 }
@@ -100,7 +109,17 @@ function validateEntry(gateId, entry, label) {
   }
 }
 
-function previousEntryCount(displayPath) {
+function countSelectedSections(gateId, entries, sections, options = {}) {
+  let count = 0;
+  for (const section of sections) {
+    if (!(section in entries) && options.missingAsZero === true) continue;
+    if (!(section in entries)) fail(gateId, `entries missing ratchet section ${section}`);
+    count += validateEntryTree(gateId, entries[section], `entries.${section}`);
+  }
+  return count;
+}
+
+function previousEntryCounts(displayPath, ratchetSections) {
   try {
     const raw = execFileSync("git", ["show", `HEAD^:${displayPath}`], {
       cwd: toolRoot,
@@ -109,7 +128,11 @@ function previousEntryCount(displayPath) {
     });
     const parsed = JSON.parse(raw);
     if (!isObject(parsed) || !isObject(parsed.entries)) return null;
-    return validateEntryTree("previous", parsed.entries, "entries");
+    const coverage = validateEntryTree("previous", parsed.entries, "entries");
+    const ratchet = ratchetSections.length === 0
+      ? coverage
+      : countSelectedSections("previous", parsed.entries, ratchetSections, { missingAsZero: true });
+    return { coverage, ratchet };
   } catch {
     return null;
   }

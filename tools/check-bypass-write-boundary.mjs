@@ -3,30 +3,25 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { childProcessApis } from "./child-process-apis.mjs";
 import { fsWriteApis } from "./fs-write-apis.mjs";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
-
-const targetRoots = [
-  "packages/kernel/src/store",
-  "packages/kernel/src/persistence",
-  "packages/kernel/src/write-coordination",
-  "packages/adapters/local/src",
-  "packages/daemon/src",
-  "packages/cli/src/commands"
-];
+import { discoverWorkspaceSourceRoots } from "./workspace-packages.mjs";
 
 export function scanBypassWriteCalls(root = process.cwd()) {
-  return targetRoots.flatMap((relRoot) => walkTypeScriptFiles(root, relRoot)).flatMap((rel) => inspectFile(root, rel));
+  const targetRoots = [...discoverWorkspaceSourceRoots(root), "tools"];
+  return targetRoots.flatMap((relRoot) => walkProductionSourceFiles(root, relRoot)).flatMap((rel) => inspectFile(root, rel));
 }
 
 export function checkBypassWriteBoundary(root = process.cwd()) {
   const allowlist = loadGateAllowlist("check-bypass-write-boundary", {
-    requiredSections: ["coordinatedCore", "exemptHumanOrBootstrap", "legacyArchive", "freshGateRegistry"]
+    requiredSections: ["coordinatedCore", "exemptHumanOrBootstrap", "legacyArchive", "freshGateRegistry", "omissionDebt"],
+    ratchetSections: ["omissionDebt"]
   });
   const allowed = new Set(Object.values(allowlist).flatMap((entries) => entryValues(entries)));
   const findings = scanBypassWriteCalls(root).map((finding) => ({
     ...finding,
-    message: `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
+    message: `${finding.api} mutates filesystem or process state outside the coordinator unless explicitly governed`,
     allowed: allowed.has(finding.key)
   }));
 
@@ -40,15 +35,15 @@ export function checkBypassWriteBoundary(root = process.cwd()) {
 
 function inspectFile(root, rel) {
   const sourceText = readFileSync(path.join(root, rel), "utf8");
-  const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const bindings = fsBindings(sourceFile);
+  const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, scriptKind(rel));
+  const bindings = mutatingBindings(sourceFile);
   if (bindings.named.size === 0 && bindings.namespaces.size === 0) return [];
   const occurrences = new Map();
   const findings = [];
 
   visit(sourceFile, (node) => {
     if (!ts.isCallExpression(node)) return;
-    const api = calledFsApi(node.expression, bindings);
+    const api = calledMutatingApi(node.expression, bindings);
     if (!api) return;
     const occurrence = (occurrences.get(api) ?? 0) + 1;
     occurrences.set(api, occurrence);
@@ -62,31 +57,68 @@ function inspectFile(root, rel) {
   return findings;
 }
 
-function fsBindings(sourceFile) {
+function mutatingBindings(sourceFile) {
   const named = new Map();
-  const namespaces = new Set();
+  const namespaces = new Map();
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (!["node:fs", "node:fs/promises"].includes(statement.moduleSpecifier.text)) continue;
-    const clause = statement.importClause;
-    if (!clause) continue;
-    if (clause.name) namespaces.add(clause.name.text);
-    const namedBindings = clause.namedBindings;
-    if (namedBindings && ts.isNamespaceImport(namedBindings)) namespaces.add(namedBindings.name.text);
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-      for (const element of namedBindings.elements) {
-        const imported = (element.propertyName ?? element.name).text;
-        if (fsWriteApis.has(imported)) named.set(element.name.text, imported);
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const moduleKind = moduleBindingKind(statement.moduleSpecifier.text);
+      if (!moduleKind) continue;
+      const clause = statement.importClause;
+      if (!clause) continue;
+      if (clause.name) namespaces.set(clause.name.text, moduleKind);
+      const namedBindings = clause.namedBindings;
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) namespaces.set(namedBindings.name.text, moduleKind);
+      if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          const imported = (element.propertyName ?? element.name).text;
+          if (apisFor(moduleKind).has(imported)) named.set(element.name.text, imported);
+        }
+      }
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const moduleKind = requiredModuleKind(declaration.initializer);
+      if (!moduleKind) continue;
+      if (ts.isIdentifier(declaration.name)) namespaces.set(declaration.name.text, moduleKind);
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          if (!ts.isIdentifier(element.name)) continue;
+          const imported = element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName.text : element.name.text;
+          if (apisFor(moduleKind).has(imported)) named.set(element.name.text, imported);
+        }
       }
     }
   }
   return { named, namespaces };
 }
 
-function calledFsApi(expression, bindings) {
+function calledMutatingApi(expression, bindings) {
   if (ts.isIdentifier(expression)) return bindings.named.get(expression.text);
-  if (!ts.isPropertyAccessExpression(expression) || !bindings.namespaces.has(expression.expression.getText())) return undefined;
-  return fsWriteApis.has(expression.name.text) ? expression.name.text : undefined;
+  if (!ts.isPropertyAccessExpression(expression)) return undefined;
+  if (ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === "promises") {
+    const kind = bindings.namespaces.get(expression.expression.expression.getText());
+    return kind === "fs" && fsWriteApis.has(expression.name.text) ? expression.name.text : undefined;
+  }
+  const kind = bindings.namespaces.get(expression.expression.getText());
+  return kind && apisFor(kind).has(expression.name.text) ? expression.name.text : undefined;
+}
+
+function moduleBindingKind(moduleName) {
+  if (["fs", "fs/promises", "node:fs", "node:fs/promises"].includes(moduleName)) return "fs";
+  if (moduleName === "child_process" || moduleName === "node:child_process") return "process";
+  return undefined;
+}
+
+function requiredModuleKind(initializer) {
+  if (!initializer || !ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== "require") return undefined;
+  const moduleName = initializer.arguments[0];
+  return moduleName && ts.isStringLiteralLike(moduleName) ? moduleBindingKind(moduleName.text) : undefined;
+}
+
+function apisFor(kind) {
+  return kind === "fs" ? fsWriteApis : childProcessApis;
 }
 
 function visit(node, fn) {
@@ -94,13 +126,26 @@ function visit(node, fn) {
   ts.forEachChild(node, (child) => visit(child, fn));
 }
 
-function walkTypeScriptFiles(root, relRoot) {
+function walkProductionSourceFiles(root, relRoot) {
   const absRoot = path.join(root, relRoot);
   if (!existsSync(absRoot)) return [];
-  return ts.sys.readDirectory(absRoot, [".ts"], undefined, undefined)
-    .filter((entry) => statSync(entry).isFile() && !entry.endsWith(".d.ts"))
+  return ts.sys.readDirectory(absRoot, [".ts", ".tsx", ".js", ".mjs", ".cjs"], ["**/node_modules/**"], undefined)
+    .filter((entry) => statSync(entry).isFile() && isProductionSource(entry))
     .map((entry) => path.relative(root, entry).split(path.sep).join("/"))
     .sort();
+}
+
+function isProductionSource(entry) {
+  const normalized = entry.split(path.sep).join("/");
+  return !normalized.endsWith(".d.ts") &&
+    !/(?:^|\/)(?:fixtures?|test-fixtures)(?:\/|$)/u.test(normalized) &&
+    !/(?:^|\.)test\.[^/]+$/u.test(normalized);
+}
+
+function scriptKind(rel) {
+  if (rel.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (rel.endsWith(".ts")) return ts.ScriptKind.TS;
+  return ts.ScriptKind.JS;
 }
 
 function main() {
@@ -110,7 +155,7 @@ function main() {
     for (const finding of result.violations) console.error(`- ${finding.key}: ${finding.message}`);
     process.exitCode = 1;
   } else {
-    console.log(`Bypass write boundary check passed (${result.findings.length} governed fs write call(s)).`);
+    console.log(`Bypass write boundary check passed (${result.findings.length} governed filesystem/process mutation call(s)).`);
   }
 }
 
