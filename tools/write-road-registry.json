@@ -3432,6 +3432,13 @@
       "freshness": "daemon-socket-owner-lock",
       "directWrites": [
         {
+          "key": "packages/daemon/src/client/daemon-socket-namespace.ts#rmdirSync@1",
+          "owner": "daemon.socket-ownership.lock",
+          "classification": "design-exemption",
+          "ref": "task_01KY4D0K47X77BXJ05KAM8TRNN",
+          "reason": "Daemon-owned socket endpoint namespace hygiene: removes only an empty directory that occupies a socket path and carries no live owner record, restoring the endpoint the transport lock publishes; live sockets, live owners, and non-empty directories are never touched, and no canonical entity state is mutated."
+        },
+        {
           "key": "packages/daemon/src/transport/local-service-transport.ts#closeSync@1",
           "owner": "daemon.socket-ownership.lock",
           "classification": "design-exemption",

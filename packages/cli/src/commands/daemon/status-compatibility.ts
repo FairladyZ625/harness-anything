@@ -6,8 +6,8 @@ export async function readDaemonStatusWithGenerationFallback(
   for (const [index, includeAxes] of attempts.entries()) {
     try {
       const receipt = await request(includeAxes);
-      const details = isRecord(receipt.details) ? receipt.details : {};
-      const data = isRecord(details.data) ? details.data : undefined;
+      const details = isDaemonStatusRecord(receipt.details) ? receipt.details : {};
+      const data = isDaemonStatusRecord(details.data) ? details.data : undefined;
       if (receipt.ok === true && data) return data;
       if (index === attempts.length - 1) return { rpcError: receipt };
     } catch {
@@ -17,6 +17,6 @@ export async function readDaemonStatusWithGenerationFallback(
   return undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isDaemonStatusRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
