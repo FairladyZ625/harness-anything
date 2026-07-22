@@ -4,6 +4,12 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { DaemonRuntimePolicyValues } from "@harness-anything/daemon";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import {
+  daemonRuntimeKeys,
+  isRecord,
+  parseSettingsDocument,
+  type RawSettings
+} from "./settings-document.ts";
 import type { CliResult } from "../cli/types.ts";
 import {
   validateAdapterSettings,
@@ -11,7 +17,14 @@ import {
   type ProjectHarnessAdapterSettings,
   type ProjectHarnessExecutionSettings
 } from "./project-policy-values.ts";
-import { validateDaemonSettings, validateIdentitySettings, type ProjectHarnessDaemonSettings, type ProjectHarnessIdentity } from "./project-settings-identity.ts";
+import {
+  validateDaemonRemoteSettings,
+  validateDaemonSettings,
+  validateIdentitySettings,
+  type ProjectHarnessDaemonRemoteSettings,
+  type ProjectHarnessDaemonSettings,
+  type ProjectHarnessIdentity
+} from "./project-settings-identity.ts";
 
 export type HarnessLocale = "zh-CN" | "en-US";
 
@@ -38,6 +51,7 @@ export interface ProjectHarnessSettings {
 export interface UserHarnessSettings {
   readonly present: boolean;
   readonly customVerticalsDevMode: boolean;
+  readonly daemonRemote?: ProjectHarnessDaemonRemoteSettings;
 }
 
 type SettingsResult =
@@ -47,8 +61,6 @@ type SettingsResult =
 type UserSettingsResult =
   | { readonly ok: true; readonly settings: UserHarnessSettings }
   | { readonly ok: false; readonly result: CliResult };
-
-type RawSettings = Record<string, unknown>;
 
 const EMPTY_SETTINGS: ProjectHarnessSettings = {
   present: false,
@@ -61,7 +73,6 @@ const EMPTY_USER_SETTINGS: UserHarnessSettings = {
   customVerticalsDevMode: false
 };
 
-const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
 const DEFAULT_TASK_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 
@@ -97,22 +108,27 @@ export function readUserHarnessSettings(rootInput: HarnessLayoutInput, command =
     const raw = JSON.parse(readFileSync(configPath, "utf8")) as unknown;
     if (
       !isRecord(raw) ||
-      !hasExactKeys(raw, ["devMode", "schema"]) ||
+      !hasKnownKeys(raw, ["daemon", "devMode", "schema"]) ||
       raw.schema !== "user-settings/v1" ||
-      !isRecord(raw.devMode) ||
-      !hasExactKeys(raw.devMode, ["customVerticals"]) ||
-      typeof raw.devMode.customVerticals !== "boolean"
+      (raw.devMode !== undefined && (
+        !isRecord(raw.devMode) ||
+        !hasExactKeys(raw.devMode, ["customVerticals"]) ||
+        typeof raw.devMode.customVerticals !== "boolean"
+      ))
     ) {
       return {
         ok: false,
         result: userSettingsError(command, ".harness/user-settings.json must match user-settings/v1 with devMode.customVerticals boolean.")
       };
     }
+    const daemonRemote = readUserDaemonRemote(raw.daemon);
+    if (!daemonRemote.ok) return { ok: false, result: userSettingsError(command, daemonRemote.message) };
     return {
       ok: true,
       settings: {
         present: true,
-        customVerticalsDevMode: raw.devMode.customVerticals
+        customVerticalsDevMode: isRecord(raw.devMode) && raw.devMode.customVerticals === true,
+        ...(daemonRemote.value === undefined ? {} : { daemonRemote: daemonRemote.value })
       }
     };
   } catch (error) {
@@ -215,204 +231,6 @@ export function settingsIssue(result: Extract<SettingsResult, { readonly ok: fal
   };
 }
 
-function parseSettingsDocument(body: string): { readonly present: boolean; readonly settings: RawSettings } {
-  const trimmed = body.trimStart();
-  if (trimmed.startsWith("{")) {
-    const decoded = JSON.parse(body) as { readonly settings?: RawSettings; readonly project?: { readonly locale?: unknown }; readonly vertical?: { readonly default?: unknown }; readonly presets?: { readonly default?: unknown } };
-    const fromSettings = decoded.settings ?? {};
-    const merged = {
-      locale: fromSettings.locale ?? decoded.project?.locale,
-      defaultVertical: fromSettings.defaultVertical ?? decoded.vertical?.default,
-      defaultPreset: fromSettings.defaultPreset ?? decoded.presets?.default,
-      defaultProfile: fromSettings.defaultProfile,
-      identity: fromSettings.identity,
-      daemon: fromSettings.daemon,
-      daemonRuntime: fromSettings.daemonRuntime,
-      tasks: fromSettings.tasks,
-      execution: fromSettings.execution,
-      adapters: fromSettings.adapters,
-      customVerticals: fromSettings.customVerticals
-    };
-    return {
-      present: Boolean(decoded.settings || decoded.project?.locale || decoded.vertical?.default || decoded.presets?.default),
-      settings: merged
-    };
-  }
-
-  return parseYamlSettings(body);
-}
-
-function parseYamlSettings(body: string): { readonly present: boolean; readonly settings: RawSettings } {
-  const lines = body.split(/\r?\n/u);
-  const settings: Record<string, unknown> = {};
-  let inSettings = false;
-  let inCustomVerticals = false;
-  let inIdentity = false;
-  let inDaemon = false;
-  let inTasks = false;
-  let inDaemonRuntime = false;
-  let inExecution = false;
-  let inAdapters = false;
-  let inMultica = false;
-  let foundSettings = false;
-
-  for (const rawLine of lines) {
-    const withoutComment = rawLine.replace(/\s+#.*$/u, "");
-    if (!withoutComment.trim()) continue;
-
-    const topLevel = /^([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
-    if (topLevel) {
-      inSettings = topLevel[1] === "settings";
-      inCustomVerticals = false;
-      inIdentity = false;
-      inDaemon = false;
-      inTasks = false;
-      inDaemonRuntime = false;
-      inExecution = false;
-      inAdapters = false;
-      inMultica = false;
-      foundSettings ||= inSettings;
-      if (inSettings && topLevel[2]?.trim()) {
-        throw new Error("settings must be a mapping.");
-      }
-      continue;
-    }
-
-    if (!inSettings) continue;
-
-    const nested = /^  ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
-    if (nested) {
-      const [, key, rawValue = ""] = nested;
-      if (!SETTINGS_KEY_PATTERN.test(key)) throw new Error(`Invalid settings key: ${key}`);
-      const value = rawValue.trim();
-      inCustomVerticals = key === "customVerticals";
-      inIdentity = key === "identity";
-      inDaemon = key === "daemon";
-      inTasks = key === "tasks";
-      inDaemonRuntime = key === "daemonRuntime";
-      inExecution = key === "execution";
-      inAdapters = key === "adapters";
-      inMultica = false;
-      if (inCustomVerticals) {
-        if (value) throw new Error("settings.customVerticals must be a mapping.");
-        settings.customVerticals = {};
-        continue;
-      }
-      if (inIdentity) {
-        if (value) throw new Error("settings.identity must be a mapping.");
-        settings.identity = {};
-        continue;
-      }
-      if (inDaemon) {
-        if (value) throw new Error("settings.daemon must be a mapping.");
-        settings.daemon = {};
-        continue;
-      }
-      if (inTasks) {
-        if (value) throw new Error("settings.tasks must be a mapping.");
-        settings.tasks = {};
-        continue;
-      }
-      if (inDaemonRuntime) {
-        if (value) throw new Error("settings.daemonRuntime must be a mapping.");
-        settings.daemonRuntime = {};
-        continue;
-      }
-      if (inExecution) {
-        if (value) throw new Error("settings.execution must be a mapping.");
-        settings.execution = {};
-        continue;
-      }
-      if (inAdapters) {
-        if (value) throw new Error("settings.adapters must be a mapping.");
-        settings.adapters = {};
-        continue;
-      }
-      if (!isKnownSettingsScalar(key)) throw new Error(`Unknown settings key: ${key}`);
-      if (!value) throw new Error(`settings.${key} must be a scalar value.`);
-      settings[key] = unquoteScalar(value);
-      continue;
-    }
-
-    const customNested = /^    ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
-    if (inCustomVerticals && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "enabled") throw new Error(`Unknown settings.customVerticals key: ${key}`);
-      const value = rawValue.trim();
-      if (value !== "true" && value !== "false") throw new Error("settings.customVerticals.enabled must be true or false.");
-      settings.customVerticals = { enabled: value === "true" };
-      continue;
-    }
-    if (inIdentity && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "mode" && key !== "personId" && key !== "displayName") throw new Error(`Unknown settings.identity key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error(`settings.identity.${key} must be a scalar value.`);
-      settings.identity = { ...(isRecord(settings.identity) ? settings.identity : {}), [key]: unquoteScalar(value) };
-      continue;
-    }
-    if (inDaemon && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "userRoot") throw new Error(`Unknown settings.daemon key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error("settings.daemon.userRoot must be a scalar value.");
-      settings.daemon = { userRoot: unquoteScalar(value) };
-      continue;
-    }
-    if (inTasks && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "leaseEnforcement" && key !== "leaseTtlMs") throw new Error(`Unknown settings.tasks key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error(`settings.tasks.${key} must be a scalar value.`);
-      if (key === "leaseEnforcement") {
-        if (value !== "true" && value !== "false") throw new Error("settings.tasks.leaseEnforcement must be true or false.");
-        settings.tasks = { ...(isRecord(settings.tasks) ? settings.tasks : {}), leaseEnforcement: value === "true" };
-      } else {
-        settings.tasks = { ...(isRecord(settings.tasks) ? settings.tasks : {}), leaseTtlMs: unquoteScalar(value) };
-      }
-      continue;
-    }
-    if (inExecution && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "consentTtlMs") throw new Error(`Unknown settings.execution key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error("settings.execution.consentTtlMs must be a scalar value.");
-      settings.execution = { consentTtlMs: unquoteScalar(value) };
-      continue;
-    }
-    if (inDaemonRuntime && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (!daemonRuntimeKeys.includes(key as keyof DaemonRuntimePolicyValues)) throw new Error(`Unknown settings.daemonRuntime key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error(`settings.daemonRuntime.${key} must be a scalar value.`);
-      settings.daemonRuntime = { ...(isRecord(settings.daemonRuntime) ? settings.daemonRuntime : {}), [key]: unquoteScalar(value) };
-      continue;
-    }
-    if (inAdapters && customNested) {
-      const [, key, rawValue = ""] = customNested;
-      if (key !== "multica") throw new Error(`Unknown settings.adapters key: ${key}`);
-      if (rawValue.trim()) throw new Error("settings.adapters.multica must be a mapping.");
-      settings.adapters = { multica: {} };
-      inMultica = true;
-      continue;
-    }
-
-    const adapterNested = /^      ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
-    if (inAdapters && inMultica && adapterNested) {
-      const [, key, rawValue = ""] = adapterNested;
-      if (key !== "staleTtlMs") throw new Error(`Unknown settings.adapters.multica key: ${key}`);
-      const value = rawValue.trim();
-      if (!value) throw new Error("settings.adapters.multica.staleTtlMs must be a scalar value.");
-      settings.adapters = { multica: { staleTtlMs: unquoteScalar(value) } };
-      continue;
-    }
-
-    throw new Error(`Unsupported settings YAML line: ${withoutComment.trim()}`);
-  }
-
-  return { present: foundSettings, settings };
-}
-
 function validateSettings(command: string, raw: RawSettings): SettingsResult {
   const locale = raw.locale;
   if (locale !== undefined && locale !== "zh-CN" && locale !== "en-US") {
@@ -489,12 +307,6 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
   };
 }
 
-const daemonRuntimeKeys = [
-  "writeLockTtlMs", "interactiveMicroBatchMs", "maxInteractiveOpsPerCommit",
-  "materializerPollMs", "materializerMaxBranchesPerBatch",
-  "projectionReconcileIntervalMs", "registryReconcileIntervalMs"
-] as const satisfies ReadonlyArray<keyof DaemonRuntimePolicyValues>;
-
 function validateDaemonRuntime(value: unknown):
   | { readonly ok: true; readonly value?: DaemonRuntimePolicyValues }
   | { readonly ok: false; readonly message: string } {
@@ -540,10 +352,6 @@ function userSettingsError(command: string, hint: string): CliResult {
   };
 }
 
-function isKnownSettingsScalar(key: string): boolean {
-  return key === "locale" || key === "defaultVertical" || key === "defaultPreset" || key === "defaultProfile";
-}
-
 function parseLeaseEnforcementEnv(value: string | undefined): boolean | undefined {
   switch (value?.trim().toLowerCase()) {
     case "1":
@@ -574,17 +382,26 @@ function hasExactKeys(value: Record<string, unknown>, expected: ReadonlyArray<st
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
+function hasKnownKeys(value: Record<string, unknown>, allowed: ReadonlyArray<string>): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+/**
+ * Personal settings carry only the operator-specific half of the remote
+ * connection; the shared project file owns the rest. Unknown keys fail closed
+ * here for the same reason they do in the project file: a typo that silently
+ * resolves to the default would send writes at the wrong ledger.
+ */
+function readUserDaemonRemote(
+  value: unknown
+): { readonly ok: true; readonly value?: ProjectHarnessDaemonRemoteSettings } | { readonly ok: false; readonly message: string } {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value) || !hasExactKeys(value, ["remote"])) {
+    return { ok: false, message: ".harness/user-settings.json daemon supports only remote." };
+  }
+  return validateDaemonRemoteSettings(value.remote, ".harness/user-settings.json daemon.remote");
+}
+
 function normalizeDefaultSentinel(value: string | undefined): string | undefined {
   return value === "default" ? undefined : value;
-}
-
-function unquoteScalar(value: string): string {
-  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
