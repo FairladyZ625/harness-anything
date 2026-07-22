@@ -1,11 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  deriveTaskProjectionRows,
+  deriveTaskProjectionRowsFromSourceCache,
   taskCreatedAtFromId,
   taskTreeRoots
 } from "../../src/projection/task-read-derivations.ts";
@@ -29,16 +29,15 @@ test("tree roots follow parents and terminate deterministically on cycles", () =
   assert.equal(roots.get("cycle-b"), "cycle-a");
 });
 
-test("liveness uses lease, progress, and nested package mtimes while excluding terminal tasks", () => {
+test("liveness uses cached task-source mtimes and active leases while excluding terminal tasks", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-recency-"));
   try {
     const now = new Date("2026-07-22T12:00:00.000Z");
-    const leaseTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAV", "harness/tasks/lease/INDEX.md");
-    const progressTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAW", "harness/tasks/progress/INDEX.md");
-    const packageTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAX", "harness/tasks/package/INDEX.md");
+    const leaseTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAV", "harness/tasks/task_01ARZ3NDEKTSV4RRFFQ69G5FAV-lease/INDEX.md");
+    const sourceTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAW", "harness/tasks/task_01ARZ3NDEKTSV4RRFFQ69G5FAW-source/INDEX.md");
+    const staleTask = row("task_01ARZ3NDEKTSV4RRFFQ69G5FAX", "harness/tasks/task_01ARZ3NDEKTSV4RRFFQ69G5FAX-stale/INDEX.md");
+    const terminal = { ...sourceTask, canonicalStatus: "done" as const, coordinationStatus: "terminal" as const };
     mkdirSync(path.join(rootDir, ".harness/task-holders"), { recursive: true });
-    mkdirSync(path.join(rootDir, "harness/tasks/progress"), { recursive: true });
-    mkdirSync(path.join(rootDir, "harness/tasks/package/artifacts"), { recursive: true });
     writeFileSync(path.join(rootDir, ".harness/task-holders", `${leaseTask.taskId}.json`), JSON.stringify({
       schema: "task-holder/v1",
       taskId: leaseTask.taskId,
@@ -46,24 +45,53 @@ test("liveness uses lease, progress, and nested package mtimes while excluding t
       leaseExpiresAt: "2026-07-22T13:00:00.000Z",
       releasedAt: null
     }));
-    const progressPath = path.join(rootDir, "harness/tasks/progress/progress.md");
-    writeFileSync(progressPath, "# Progress\n");
-    const progressAt = new Date("2026-07-20T12:00:00.000Z");
-    utimesSync(progressPath, progressAt, progressAt);
-    const artifactPath = path.join(rootDir, "harness/tasks/package/artifacts/result.txt");
-    writeFileSync(artifactPath, "result\n");
-    utimesSync(artifactPath, progressAt, progressAt);
+    const old = statSignature("2026-07-01T00:00:00.000Z");
+    const recent = statSignature("2026-07-20T12:00:00.000Z");
+    const sourceCache = {
+      files: [
+        cacheFile(leaseTask, "task-index", old),
+        cacheFile(sourceTask, "task-index", old),
+        cacheFile(sourceTask, "task-review", recent, "review.md"),
+        cacheFile(staleTask, "task-index", old)
+      ],
+      watches: [],
+      metadata: [],
+      kindHashes: { task: "task-hash", attribution: "attribution-hash" },
+      hash: "cache-hash"
+    } as const;
 
-    const recent = deriveTaskProjectionRows(rootDir, [leaseTask, progressTask, packageTask], { now });
-    assert.deepEqual(recent.map((task) => task.liveness), ["in_flight", "in_flight", "in_flight"]);
-    const later = deriveTaskProjectionRows(rootDir, [leaseTask, progressTask, packageTask], { now: new Date("2026-07-24T13:00:00.000Z") });
-    assert.deepEqual(later.map((task) => task.liveness), ["stale", "stale", "stale"]);
-    const terminal = { ...progressTask, canonicalStatus: "done" as const, coordinationStatus: "terminal" as const };
-    assert.equal(deriveTaskProjectionRows(rootDir, [terminal], { now })[0]?.liveness, null);
+    const derived = deriveTaskProjectionRowsFromSourceCache(
+      rootDir,
+      [leaseTask, sourceTask, staleTask, terminal],
+      sourceCache,
+      { now, includeActiveLeases: true }
+    );
+    assert.deepEqual(derived.map((task) => task.liveness), ["in_flight", "in_flight", "stale", null]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+function statSignature(at: string): string {
+  return `1:2:3:4:${BigInt(Date.parse(at)) * 1_000_000n}:6`;
+}
+
+function cacheFile(
+  task: TaskProjectionRow,
+  sourceKind: string,
+  statSignatureValue: string,
+  basename = "INDEX.md"
+) {
+  return {
+    cacheKind: "task" as const,
+    sourcePath: path.posix.join(path.posix.dirname(task.sourcePath), basename),
+    sourceKind,
+    ...(sourceKind === "task-index" ? { ownerId: path.posix.basename(path.posix.dirname(task.sourcePath)) } : {}),
+    statSignature: statSignatureValue,
+    contentSha256: "sha256:fixture",
+    body: "fixture"
+  };
+}
 
 function row(taskId: string, sourcePath: string): TaskProjectionRow {
   return {

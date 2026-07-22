@@ -43,7 +43,11 @@ import {
 } from "./sqlite-projection-validation-cache.ts";
 import { materializeEntityAttributionBlocks, replaceAttributionProjectionRows } from "./sqlite-attribution-projection.ts";
 import { compareRows, hashExactRows, taskEntryToRow } from "./sqlite-task-source.ts";
-import { deriveTaskProjectionRows } from "./task-read-derivations.ts";
+import {
+  deriveTaskProjectionRows,
+  deriveTaskProjectionRowsFromSourceCache,
+  deriveTaskProjectionRowsWithActiveLeases
+} from "./task-read-derivations.ts";
 import {
   captureProjectionSourceFingerprint,
   captureProjectionSourceSnapshot,
@@ -125,10 +129,10 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     yield* replaceAttributionProjectionRows(sql, snapshot.attributionEvents);
     yield* materializeEntityAttributionBlocks(sql, snapshot.attributionEvents);
   }));
-  rememberProjectionValidation(projectionPath, declaredManifestRows, undefined, sourceCache);
   const persisted = tryReadProjectionDatabase(projectionPath, options.taskFieldExtensions);
+  rememberProjectionValidation(projectionPath, declaredManifestRows, undefined, sourceCache);
   return {
-    rows: deriveTaskProjectionRows(runtimeContext, persisted.ok ? persisted.rows : rows),
+    rows: deriveTaskProjectionRowsFromSourceCache(runtimeContext, persisted.ok ? persisted.rows : rows, sourceCache),
     warnings: source.warnings
   };
 }
@@ -168,7 +172,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Run harness-anything governance rebuild to materialize a fresh local projection cache before relying on generated state."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   const existing = tryReadProjectionDatabase(projectionPath, options.taskFieldExtensions);
@@ -180,7 +184,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   if (existing.meta.version !== projectionVersion) {
@@ -191,7 +195,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Run harness-anything governance rebuild after upgrading projection schema."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   const cachedValidation = readCachedProjectionValidation(projectionPath);
@@ -210,7 +214,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
         "Discard the generated cache and rebuild it from authored state; do not merge generated projection edits."
       ));
       const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-      return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+      return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
     }
   }
   let declaredManifest: ReturnType<typeof readDeclaredSourceManifestRows>;
@@ -224,7 +228,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored entities; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
   if (!cachedValidation && existing.meta.declaredManifestHash !== hashDeclaredSourceManifestRows(declaredManifest)) {
     warnings.push(hardFail(
@@ -234,7 +238,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored entities; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   const snapshot = captureProjectionSourceFingerprint(runtimeContext, declaredManifest);
@@ -261,7 +265,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored entities; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   let attributionRowsMatch = true;
@@ -280,7 +284,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored attribution events; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   const actualRowsHash = hashExactRows(existing.rows);
@@ -293,7 +297,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   if (existing.meta.sourceHash !== snapshot.fingerprint) {
@@ -330,7 +334,11 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
           "Declared entity projection changes were refreshed incrementally.",
           "No full projection rebuild is required for isolated session, execution, consent, or review changes."
         ));
-        return { rows: [...existing.rows].sort(compareRows), warnings };
+        const sourceCache = cachedValidation?.sourceCache ?? persistedSourceCache ?? readProjectionSourceCacheSnapshot(projectionPath);
+        return {
+          rows: deriveTaskProjectionRowsFromSourceCache(runtimeContext, [...existing.rows].sort(compareRows), sourceCache, { includeActiveLeases: true }),
+          warnings
+        };
       } catch {
         // Fall through to the safe full rebuild when the manifest delta cannot be proven.
       }
@@ -342,24 +350,36 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Run harness-anything governance rebuild after authored task changes or merges."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
-    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+    return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
   }
 
   const currentSourceCache = persistedSourceCache ? captureProjectionSourceCacheSnapshot(runtimeContext) : null;
   if (persistedSourceCache && currentSourceCache && currentSourceCache.hash !== persistedSourceCache.hash) {
     updateProjectionSourceCacheSnapshot(projectionPath, persistedSourceCache, currentSourceCache);
   }
+  const readSourceCache = currentSourceCache ?? cachedValidation?.sourceCache ?? persistedSourceCache ?? readProjectionSourceCacheSnapshot(projectionPath);
   if (!cachedValidation?.projection || !cachedValidation.sourceCache) {
     rememberProjectionValidation(
       projectionPath,
       declaredManifest,
       existing,
-      cachedValidation?.sourceCache ?? persistedSourceCache ?? undefined
+      readSourceCache
     );
   }
 
   return {
-    rows: deriveTaskProjectionRows(runtimeContext, [...existing.rows].sort(compareRows)),
+    rows: deriveTaskProjectionRowsFromSourceCache(runtimeContext, [...existing.rows].sort(compareRows), readSourceCache, { includeActiveLeases: true }),
+    warnings
+  };
+}
+
+function derivedReadResult(
+  runtimeContext: ReturnType<typeof createHarnessRuntimeContext>,
+  rows: ReadonlyArray<import("./types.ts").TaskProjectionRow>,
+  warnings: ProjectionReadResult["warnings"]
+): ProjectionReadResult {
+  return {
+    rows: deriveTaskProjectionRowsWithActiveLeases(runtimeContext, rows),
     warnings
   };
 }
@@ -371,13 +391,17 @@ export function queryTaskProjection(options: TaskProjectionOptions & { readonly 
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: derivedFilteredRows(runtimeContext, projection.rows, queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions), options),
+      rows: derivedFilteredRows(projection.rows, queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions), options),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: derivedFilteredRows(runtimeContext, rebuilt.rows, queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions), options),
+      rows: derivedFilteredRows(
+        deriveTaskProjectionRowsWithActiveLeases(runtimeContext, rebuilt.rows),
+        queryTaskProjectionRows(projectionPath, baseTaskFilters(options.filters), options.taskFieldExtensions),
+        options
+      ),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }
@@ -389,12 +413,11 @@ function baseTaskFilters(filters: TaskProjectionQueryFilters): TaskProjectionQue
 }
 
 function derivedFilteredRows(
-  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
   universe: ReadonlyArray<import("./types.ts").TaskProjectionRow>,
   rows: ReadonlyArray<import("./types.ts").TaskProjectionRow>,
   options: TaskProjectionOptions & { readonly filters: TaskProjectionQueryFilters }
 ): ReadonlyArray<import("./types.ts").TaskProjectionRow> {
-  return deriveTaskProjectionRows(rootInput, rows, {
+  return deriveTaskProjectionRows(rows, {
     universe
   }).filter((row) => (!options.filters.treeRoot || row.treeRoot === options.filters.treeRoot) &&
     (!options.filters.liveness || row.liveness === options.filters.liveness));
@@ -407,13 +430,15 @@ export function queryTaskChildren(options: TaskProjectionOptions & { readonly pa
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: deriveTaskProjectionRows(runtimeContext, queryTaskChildrenRows(projectionPath, options.parentTaskId), { universe: projection.rows }),
+      rows: deriveTaskProjectionRows(queryTaskChildrenRows(projectionPath, options.parentTaskId), { universe: projection.rows }),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: deriveTaskProjectionRows(runtimeContext, queryTaskChildrenRows(projectionPath, options.parentTaskId), { universe: rebuilt.rows }),
+      rows: deriveTaskProjectionRows(queryTaskChildrenRows(projectionPath, options.parentTaskId), {
+        universe: deriveTaskProjectionRowsWithActiveLeases(runtimeContext, rebuilt.rows)
+      }),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }
@@ -426,13 +451,15 @@ export function queryTaskSubtree(options: TaskProjectionOptions & { readonly roo
   const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: deriveTaskProjectionRows(runtimeContext, queryTaskSubtreeRows(projectionPath, options.rootTaskId), { universe: projection.rows }),
+      rows: deriveTaskProjectionRows(queryTaskSubtreeRows(projectionPath, options.rootTaskId), { universe: projection.rows }),
       warnings: projection.warnings
     };
   } catch {
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: deriveTaskProjectionRows(runtimeContext, queryTaskSubtreeRows(projectionPath, options.rootTaskId), { universe: rebuilt.rows }),
+      rows: deriveTaskProjectionRows(queryTaskSubtreeRows(projectionPath, options.rootTaskId), {
+        universe: deriveTaskProjectionRowsWithActiveLeases(runtimeContext, rebuilt.rows)
+      }),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }

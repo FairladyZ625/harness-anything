@@ -9,7 +9,7 @@ import {
   type DeclaredProjectionRow
 } from "./entity-declaration-projection.ts";
 import type { DeclaredEntitySourceSnapshot, DeclaredProjectionSnapshot } from "./projection-source-snapshot.ts";
-import { runSqlite } from "./sqlite-projection-store.ts";
+import { runSqliteReadonly } from "./sqlite-projection-store.ts";
 
 export interface DeclaredSourceManifestRow {
   readonly sourcePath: string;
@@ -278,7 +278,7 @@ export function replaceDeclaredSourceManifestRows(
 }
 
 export function readDeclaredSourceManifestRows(projectionPath: string): ReadonlyArray<DeclaredSourceManifestRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const records = yield* sql<DeclaredSourceManifestRecord>`
       SELECT source_path, source_kind, projection_table, primary_key,

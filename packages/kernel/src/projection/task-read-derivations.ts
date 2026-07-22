@@ -1,8 +1,9 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
-import type { TaskLiveness, TaskProjectionRow } from "./types.ts";
+import { readDirIfPresent, readTextFileIfPresent } from "./toctou-safe-fs.ts";
+import type { ProjectionSourceCacheSnapshot } from "./sqlite-projection-source-cache.ts";
+import type { TaskProjectionRow } from "./types.ts";
 
 // v1 deliberately uses one fixed window. Configuring it would cross the production
 // wire-parity baseline; only pay that governance cost after this view proves useful.
@@ -24,22 +25,54 @@ export function taskCreatedAtFromId(taskId: string): string | null {
 }
 
 export function deriveTaskProjectionRows(
-  rootInput: HarnessLayoutInput,
   rows: ReadonlyArray<TaskProjectionRow>,
   options: {
     readonly universe?: ReadonlyArray<TaskProjectionRow>;
-    readonly now?: Date;
+    readonly inFlightTaskIds?: ReadonlySet<string>;
   } = {}
 ): ReadonlyArray<TaskProjectionRow> {
   const universe = options.universe ?? rows;
   const treeRoots = taskTreeRoots(universe);
-  const at = options.now ?? new Date();
+  const inFlightTaskIds = options.inFlightTaskIds ?? new Set(universe
+    .filter((row) => row.liveness === "in_flight")
+    .map((row) => row.taskId));
   return rows.map((row) => ({
     ...row,
     createdAt: taskCreatedAtFromId(row.taskId),
     treeRoot: treeRoots.get(row.taskId) ?? row.taskId,
-    liveness: taskLiveness(rootInput, row, at)
+    liveness: row.coordinationStatus === "terminal"
+      ? null
+      : inFlightTaskIds.has(row.taskId) ? "in_flight" : "stale"
   }));
+}
+
+export function deriveTaskProjectionRowsFromSourceCache(
+  rootInput: HarnessLayoutInput,
+  rows: ReadonlyArray<TaskProjectionRow>,
+  sourceCache: ProjectionSourceCacheSnapshot,
+  options: {
+    readonly now?: Date;
+    readonly includeActiveLeases?: boolean;
+  } = {}
+): ReadonlyArray<TaskProjectionRow> {
+  const now = options.now ?? new Date();
+  const inFlightTaskIds = recentTaskSourceIds(rows, sourceCache, now);
+  if (options.includeActiveLeases) {
+    for (const taskId of activeLeaseTaskIds(rootInput, rows, now)) inFlightTaskIds.add(taskId);
+  }
+  return deriveTaskProjectionRows(rows, { inFlightTaskIds });
+}
+
+export function deriveTaskProjectionRowsWithActiveLeases(
+  rootInput: HarnessLayoutInput,
+  rows: ReadonlyArray<TaskProjectionRow>,
+  now = new Date()
+): ReadonlyArray<TaskProjectionRow> {
+  const inFlightTaskIds = new Set(rows
+    .filter((row) => row.liveness === "in_flight")
+    .map((row) => row.taskId));
+  for (const taskId of activeLeaseTaskIds(rootInput, rows, now)) inFlightTaskIds.add(taskId);
+  return deriveTaskProjectionRows(rows, { inFlightTaskIds });
 }
 
 export function taskTreeRoots(rows: ReadonlyArray<Pick<TaskProjectionRow, "taskId" | "parentTaskId">>): ReadonlyMap<string, string> {
@@ -64,55 +97,74 @@ function traceRoot(taskId: string, parents: ReadonlyMap<string, string | undefin
   }
 }
 
-function taskLiveness(
-  rootInput: HarnessLayoutInput,
-  row: TaskProjectionRow,
+function recentTaskSourceIds(
+  rows: ReadonlyArray<TaskProjectionRow>,
+  sourceCache: ProjectionSourceCacheSnapshot,
   now: Date
-): TaskLiveness | null {
-  if (row.coordinationStatus === "terminal") return null;
-  if (hasActiveLease(rootInput, row.taskId, now)) return "in_flight";
-  const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const packagePath = path.join(rootDir, path.dirname(row.sourcePath));
-  const progressPath = path.join(packagePath, "progress.md");
-  const progressMtime = statPathIfPresent(progressPath)?.mtime.getTime();
-  const recentCutoff = now.getTime() - TASK_LIVENESS_WINDOW_MS;
-  if (progressMtime !== undefined && progressMtime >= recentCutoff) return "in_flight";
-
-  // This is deliberately a weak activity signal: it means some file in the task
-  // package was written recently, not that a person actively advanced the task.
-  // Bulk materialization can therefore create false in_flight readings. We still
-  // use it in v1 because authored progress entries currently provide no coverage.
-  const packageMtime = latestFileMtime(packagePath);
-  return packageMtime !== null && packageMtime >= recentCutoff ? "in_flight" : "stale";
+): Set<string> {
+  const records = sourceCache.files.filter((record) => record.cacheKind === "task");
+  const taskIdByPackagePath = new Map(rows.map((row) => [
+    path.posix.dirname(row.sourcePath.split(path.sep).join("/")),
+    row.taskId
+  ]));
+  const recentCutoffNs = BigInt(now.getTime() - TASK_LIVENESS_WINDOW_MS) * 1_000_000n;
+  const recent = new Set<string>();
+  for (const record of records) {
+    const modifiedAtNs = statSignatureMtimeNs(record.statSignature);
+    if (modifiedAtNs === null || modifiedAtNs < recentCutoffNs) continue;
+    const taskId = owningTaskId(record.sourcePath, taskIdByPackagePath);
+    if (taskId) recent.add(taskId);
+  }
+  return recent;
 }
 
-function latestFileMtime(directoryPath: string): number | null {
-  const entries = readDirIfPresent(directoryPath);
-  if (entries === null) return null;
-  let latest: number | null = null;
+function statSignatureMtimeNs(signature: string): bigint | null {
+  const value = signature.split(":")[4];
+  if (!value || !/^\d+$/u.test(value)) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function owningTaskId(sourcePath: string, taskIdByPackagePath: ReadonlyMap<string, string>): string | undefined {
+  let current = path.posix.dirname(sourcePath);
+  while (current !== ".") {
+    const taskId = taskIdByPackagePath.get(current);
+    if (taskId) return taskId;
+    const parent = path.posix.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+  return undefined;
+}
+
+function activeLeaseTaskIds(
+  rootInput: HarnessLayoutInput,
+  rows: ReadonlyArray<TaskProjectionRow>,
+  now: Date
+): ReadonlySet<string> {
+  const relevantTaskIds = new Set(rows
+    .filter((row) => row.coordinationStatus !== "terminal")
+    .map((row) => row.taskId));
+  const holderRoot = path.join(resolveHarnessLayout(rootInput).localRoot, "task-holders");
+  const entries = readDirIfPresent(holderRoot) ?? [];
+  const active = new Set<string>();
   for (const entry of entries) {
-    const entryPath = path.join(directoryPath, entry.name);
-    if (entry.isDirectory()) {
-      const nested = latestFileMtime(entryPath);
-      if (nested !== null && (latest === null || nested > latest)) latest = nested;
-    } else if (entry.isFile()) {
-      const mtime = statPathIfPresent(entryPath)?.mtime.getTime();
-      if (mtime !== undefined && (latest === null || mtime > latest)) latest = mtime;
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const taskId = entry.name.slice(0, -".json".length);
+    if (!relevantTaskIds.has(taskId)) continue;
+    const body = readTextFileIfPresent(path.join(holderRoot, entry.name));
+    if (body === null) continue;
+    try {
+      const holder = JSON.parse(body) as Record<string, unknown>;
+      if ((holder.schema === "task-holder/v1" || holder.schema === "task-holder/v2") &&
+          holder.taskId === taskId && holder.releasedAt === null && typeof holder.leaseExpiresAt === "string" &&
+          Date.parse(holder.leaseExpiresAt) > now.getTime()) active.add(taskId);
+    } catch {
+      // Invalid runtime-state files do not make authored task state unreadable.
     }
   }
-  return latest;
-}
-
-function hasActiveLease(rootInput: HarnessLayoutInput, taskId: string, now: Date): boolean {
-  const holderPath = path.join(resolveHarnessLayout(rootInput).localRoot, "task-holders", `${taskId}.json`);
-  const body = readTextFileIfPresent(holderPath);
-  if (body === null) return false;
-  try {
-    const holder = JSON.parse(body) as Record<string, unknown>;
-    return (holder.schema === "task-holder/v1" || holder.schema === "task-holder/v2") &&
-      holder.taskId === taskId && holder.releasedAt === null && typeof holder.leaseExpiresAt === "string" &&
-      Date.parse(holder.leaseExpiresAt) > now.getTime();
-  } catch {
-    return false;
-  }
+  return active;
 }
