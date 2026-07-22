@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
@@ -14,18 +15,18 @@ const cliEntry = path.resolve("packages/cli/src/index.ts");
 const execFileAsync = promisify(execFile);
 
 test("a timed-out write reports an unknown outcome after the daemon accepted the request", { skip: process.platform === "win32" }, async () => {
-  await withTempRootAsync(async (rootDir) => {
+  await withSocketTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"]);
-    const userRoot = path.join(rootDir, ".outcome-daemon-user");
+    const daemon = testDaemonLocation(rootDir);
     let acceptedRequest = false;
-    const server = await startCommandServer(userRoot, (request, socket) => {
+    const server = await startCommandServer(daemon, (request, socket) => {
       assert.equal(request.method, "repo.command.run");
       acceptedRequest = true;
       socket.on("error", () => undefined);
     });
     try {
       const result = await runCliFailure(rootDir, ["task", "create", "--title", "Committed Before Lost Response"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot,
+        ...testDaemonEnv(daemon),
         HARNESS_DAEMON_REQUEST_TIMEOUT_MS: "40"
       });
 
@@ -44,10 +45,10 @@ test("a timed-out write reports an unknown outcome after the daemon accepted the
 });
 
 test("a daemon JSON-RPC rejection remains a known request failure", { skip: process.platform === "win32" }, async () => {
-  await withTempRootAsync(async (rootDir) => {
+  await withSocketTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"]);
-    const userRoot = path.join(rootDir, ".outcome-daemon-user");
-    const server = await startCommandServer(userRoot, (request, socket) => {
+    const daemon = testDaemonLocation(rootDir);
+    const server = await startCommandServer(daemon, (request, socket) => {
       socket.end(`${JSON.stringify({
         jsonrpc: "2.0",
         id: request.id,
@@ -56,7 +57,7 @@ test("a daemon JSON-RPC rejection remains a known request failure", { skip: proc
     });
     try {
       const result = await runCliFailure(rootDir, ["task", "create", "--title", "Rejected Write"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot
+        ...testDaemonEnv(daemon)
       });
 
       assert.equal(result.error.code, "write_rejected");
@@ -70,18 +71,18 @@ test("a daemon JSON-RPC rejection remains a known request failure", { skip: proc
 });
 
 test("a timed-out local materializer request keeps its intentional local fallback", { skip: process.platform === "win32" }, async () => {
-  await withTempRootAsync(async (rootDir) => {
+  await withSocketTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"]);
-    const userRoot = path.join(rootDir, ".outcome-daemon-user");
+    const daemon = testDaemonLocation(rootDir);
     let acceptedRequest = false;
-    const server = await startCommandServer(userRoot, (request, socket) => {
+    const server = await startCommandServer(daemon, (request, socket) => {
       assert.equal(request.method, "repo.command.run");
       acceptedRequest = true;
       socket.on("error", () => undefined);
     });
     try {
       const result = await runCli(rootDir, ["materializer", "run", "--dry-run"], {
-        HARNESS_DAEMON_USER_ROOT: userRoot,
+        ...testDaemonEnv(daemon),
         HARNESS_DAEMON_REQUEST_TIMEOUT_MS: "40"
       });
 
@@ -98,8 +99,9 @@ test("an unreachable daemon remains unavailable with the direct recovery guidanc
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"]);
     const unreachableUserRoot = path.join(rootDir, "u".repeat(180));
+    const daemon = testDaemonLocation(rootDir, unreachableUserRoot);
     const result = await runCliFailure(rootDir, ["task", "create", "--title", "Unreachable Write"], {
-      HARNESS_DAEMON_USER_ROOT: unreachableUserRoot,
+      ...testDaemonEnv(daemon),
       HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "40"
     });
 
@@ -111,7 +113,7 @@ test("an unreachable daemon remains unavailable with the direct recovery guidanc
 });
 
 async function startCommandServer(
-  userRoot: string,
+  daemon: TestDaemonLocation,
   onRequest: (request: { readonly id: number; readonly method: string }, socket: net.Socket) => void
 ): Promise<net.Server> {
   const server = net.createServer((socket) => {
@@ -132,8 +134,49 @@ async function startCommandServer(
       }
     });
   });
-  await listen(server, localUserDaemonEndpoint(userRoot));
+  await listen(server, daemon.socketPath);
   return server;
+}
+
+interface TestDaemonLocation {
+  readonly userRoot: string;
+  readonly runtimeDir: string;
+  readonly socketPath: string;
+}
+
+function testDaemonLocation(
+  rootDir: string,
+  userRoot = path.join(rootDir, ".outcome-daemon-user")
+): TestDaemonLocation {
+  const runtimeDir = path.join(rootDir, ".daemon-runtime");
+  const socketPath = localUserDaemonEndpoint(userRoot, "default", process.platform, {
+    env: { XDG_RUNTIME_DIR: runtimeDir, TMPDIR: runtimeDir }
+  });
+  const relativeSocketPath = path.relative(rootDir, socketPath);
+  assert.equal(
+    relativeSocketPath !== "" && !relativeSocketPath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeSocketPath),
+    true,
+    `test daemon socket must stay beneath its temporary root: ${socketPath}`
+  );
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  return { userRoot, runtimeDir, socketPath };
+}
+
+function testDaemonEnv(daemon: TestDaemonLocation): Readonly<Record<string, string>> {
+  return {
+    HARNESS_DAEMON_USER_ROOT: daemon.userRoot,
+    XDG_RUNTIME_DIR: daemon.runtimeDir,
+    TMPDIR: daemon.runtimeDir
+  };
+}
+
+async function withSocketTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
+  const rootDir = mkdtempSync("/tmp/ha-rpc-");
+  try {
+    return await fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 }
 
 async function runCliFailure(
