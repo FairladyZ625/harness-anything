@@ -21,7 +21,7 @@ test("worktree commands derive a registered canonical root from git common-dir",
 
     const shown = runFrom(fixture.worktreeRoot, ["--json", "task", "show", String(taskId)], fixture.env);
 
-    assert.equal(shown.status, 0);
+    assert.equal(shown.status, 0, shown.diagnostic);
     assert.equal(shown.receipt.ok, true);
     assert.deepEqual(receiptRootResolution(shown.receipt), {
       root: realpathSync.native(fixture.canonicalRoot),
@@ -32,7 +32,7 @@ test("worktree commands derive a registered canonical root from git common-dir",
       encoding: "utf8",
       env: fixture.env
     });
-    assert.equal(text.status, 0);
+    assert.equal(text.status, 0, formatChildResult(text));
     assert.match(text.stdout, /root=.*canonical rootSource=git-common-dir/iu);
   } finally {
     await cleanupFixture(fixture);
@@ -49,13 +49,13 @@ test("explicit root override wins over a registered git common-dir candidate", a
 
     const listed = runFrom(fixture.worktreeRoot, ["--root", explicitRoot, "--json", "task", "list"], fixture.env);
 
-    assert.equal(listed.status, 0);
+    assert.equal(listed.status, 0, listed.diagnostic);
     assert.deepEqual(receiptRootResolution(listed.receipt), {
       root: realpathSync.native(explicitRoot),
       source: "explicit-override"
     });
     const local = runFrom(explicitRoot, ["--json", "task", "list"], fixture.env);
-    assert.equal(local.status, 0);
+    assert.equal(local.status, 0, local.diagnostic);
     assert.deepEqual(receiptRootResolution(local.receipt), {
       root: realpathSync.native(explicitRoot),
       source: "local-cwd"
@@ -76,7 +76,7 @@ test("git common-dir parent is rejected when it is not a registered repo root", 
 
     const failed = runFrom(fixture.worktreeRoot, ["--json", "task", "list"], fixture.env);
 
-    assert.notEqual(failed.status, 0);
+    assert.notEqual(failed.status, 0, failed.diagnostic);
     assert.equal(failed.receipt.error?.code, "journal_unavailable");
     assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
     assert.match(String(failed.receipt.error?.hint), /git common-dir candidate .* is not registered/iu);
@@ -100,7 +100,7 @@ test("non-git cwd keeps the unregistered-root failure path", async () => {
 
     const failed = runFrom(outsiderRoot, ["--json", "task", "list"], env);
 
-    assert.notEqual(failed.status, 0);
+    assert.notEqual(failed.status, 0, failed.diagnostic);
     assert.equal(failed.receipt.error?.code, "journal_unavailable");
     assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
     assert.doesNotMatch(String(failed.receipt.error?.hint), /git common-dir candidate/iu);
@@ -127,7 +127,7 @@ test("resolved roots retain the daemon-unavailable recovery hint for real connec
       HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "30"
     });
 
-    assert.notEqual(failed.status, 0);
+    assert.notEqual(failed.status, 0, failed.diagnostic);
     assert.equal(failed.receipt.error?.code, "journal_unavailable");
     assert.match(String(failed.receipt.error?.hint), /Daemon unavailable/iu);
     assert.match(String(failed.receipt.error?.hint), /HARNESS_DIRECT_WRITE_REASON=recovery/iu);
@@ -179,16 +179,40 @@ function registerRepo(rootDir: string, userRoot: string, repoId: string, env: No
 function runFrom(cwd: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv): {
   readonly status: number | null;
   readonly receipt: Record<string, any>;
+  readonly diagnostic: string;
 } {
   const result = spawnSync(process.execPath, [cliEntry, ...args], {
     cwd,
     encoding: "utf8",
     env
   });
+  const diagnostic = formatChildResult(result);
+  let receipt: Record<string, any>;
+  try {
+    receipt = JSON.parse(result.stdout || "{}") as Record<string, any>;
+  } catch (error) {
+    throw new Error(`CLI stdout was not JSON.\n${diagnostic}`, { cause: error });
+  }
   return {
     status: result.status,
-    receipt: JSON.parse(result.stdout || "{}") as Record<string, any>
+    receipt,
+    diagnostic
   };
+}
+
+function formatChildResult(result: {
+  readonly status: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly error?: Error;
+}): string {
+  return [
+    `status=${String(result.status)} signal=${String(result.signal)}`,
+    `stdout:\n${result.stdout || "<empty>"}`,
+    `stderr:\n${result.stderr || "<empty>"}`,
+    ...(result.error ? [`spawn error:\n${result.error.stack ?? result.error.message}`] : [])
+  ].join("\n");
 }
 
 function receiptData(receipt: Record<string, any>): Record<string, any> {
@@ -205,9 +229,11 @@ function daemonEnv(homeRoot: string, userRoot?: string): NodeJS.ProcessEnv {
     USERPROFILE: path.join(homeRoot, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_SYSTEM: "/dev/null",
+    HARNESS_CLI_TEST_FIXTURE_PRELOAD: "",
     HARNESS_ACTOR: "agent:worktree-root-test",
     HARNESS_GIT_AUTHOR_NAME: "Harness Test",
     HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
+    NODE_OPTIONS: "",
     ...(userRoot ? { HARNESS_DAEMON_USER_ROOT: userRoot } : {}),
     HA_PROGRESS: "0"
   });
@@ -219,16 +245,18 @@ function writeProjectDaemonRoot(rootDir: string, userRoot: string): void {
 }
 
 function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", rootDir, ...args], {
+  return execFileSync("git", [
+    "-c", "user.name=Harness Test",
+    "-c", "user.email=harness-test@example.invalid",
+    "-c", "init.defaultBranch=main",
+    "-C", rootDir,
+    ...args
+  ], {
     encoding: "utf8",
     env: {
       ...process.env,
       GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_AUTHOR_NAME: "Harness Test",
-      GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
-      GIT_COMMITTER_NAME: "Harness Test",
-      GIT_COMMITTER_EMAIL: "harness-test@example.invalid"
+      GIT_CONFIG_SYSTEM: "/dev/null"
     }
   }).trim();
 }
