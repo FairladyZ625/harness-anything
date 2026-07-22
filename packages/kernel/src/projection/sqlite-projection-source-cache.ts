@@ -19,7 +19,7 @@ import {
   type MarkdownSourcePersistentCache,
   type TaskProjectionSourceHashInput
 } from "./sqlite-task-source.ts";
-import { runSqlite } from "./sqlite-projection-store.ts";
+import { runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 import {
   applyProjectionSourceCacheStoredChange,
   readProjectionSourceCacheRows,
@@ -218,7 +218,7 @@ export function refreshProjectionSourceCacheAfterIncrementalChange(input: {
 }
 
 export function readProjectionSourceCacheSnapshot(projectionPath: string): ProjectionSourceCacheSnapshot {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`BEGIN`;
     try {
@@ -237,7 +237,7 @@ export function readProjectionSourceCacheBody(
   cacheKindValue: ProjectionSourceCacheKind,
   sourcePath: string
 ): string | undefined {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return yield* readProjectionSourceCacheStoredBody(sql, cacheKindValue, sourcePath);
   }));

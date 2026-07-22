@@ -209,11 +209,11 @@ export function queryTaskProjectionRows(
   filters: TaskProjectionQueryFilters,
   taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
 ): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const where = taskWhereClause(filters);
     const records = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       ${where.sql}
@@ -224,7 +224,7 @@ export function queryTaskProjectionRows(
 }
 
 export function queryDecisionProjectionRows(projectionPath: string, filters: DecisionProjectionQueryFilters): ReadonlyArray<DecisionProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const where = decisionWhereClause(filters);
     const records = yield* sql.unsafe<DecisionRecord>(`
@@ -239,10 +239,10 @@ export function queryDecisionProjectionRows(projectionPath: string, filters: Dec
 }
 
 export function queryTaskChildrenRows(projectionPath: string, parentTaskId: string): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const records = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       WHERE task_projection.parent_task_id = ?
@@ -253,7 +253,7 @@ export function queryTaskChildrenRows(projectionPath: string, parentTaskId: stri
 }
 
 export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string): ReadonlyArray<TaskProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const records = yield* sql.unsafe<TaskRecord>(`
       WITH RECURSIVE subtree(task_id) AS (
@@ -263,7 +263,7 @@ export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string)
         FROM task_projection child
         JOIN subtree parent ON child.parent_task_id = parent.task_id
       )
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       JOIN subtree ON task_projection.task_id = subtree.task_id
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
@@ -274,14 +274,14 @@ export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string)
 }
 
 export function readRelationGraphRows(projectionPath: string): ProjectionGraphRows {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return yield* readRelationGraphRowsFromStore(sql);
   }));
 }
 
 export function readRelationGraphReuseSeed(projectionPath: string): RelationGraphReuseSeed {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return yield* readRelationGraphReuseSeedFromStore(sql);
   }));
@@ -295,12 +295,12 @@ function readProjectionDatabase(
   readonly decisionRows: ReadonlyArray<DecisionProjectionRow>;
   readonly meta: ProjectionMeta;
 } {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const metaRows = yield* sql`SELECT key, value FROM projection_meta`;
     const meta = new Map(metaRows.map((row) => [String(row.key), String(row.value)]));
     const taskRecords = yield* sql.unsafe<TaskRecord>(`
-      SELECT task_projection.*, ${attributionSummarySelect("task_attribution")}
+      SELECT task_projection.*, ${taskTerminalAtSelect()}, ${attributionSummarySelect("task_attribution")}
       FROM task_projection
       ${attributionJoin("task", "task_projection.task_id", "task_attribution")}
       ORDER BY task_projection.task_id
@@ -333,6 +333,10 @@ function readProjectionDatabase(
 
 export function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
   return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename })));
+}
+
+export function runSqliteReadonly<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
+  return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename, readonly: true, disableWAL: true })));
 }
 
 function insertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effect.Effect<unknown, unknown> {
@@ -443,7 +447,7 @@ export function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProject
 }
 
 export function readAttributionProjectionStateHash(projectionPath: string): string {
-  return runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, hashAttributionProjectionState));
+  return runSqliteReadonly(projectionPath, Effect.flatMap(SqlClient.SqlClient, hashAttributionProjectionState));
 }
 
 function taskWhereClause(filters: TaskProjectionQueryFilters): { readonly sql: string; readonly params: ReadonlyArray<unknown> } {
@@ -540,6 +544,15 @@ function legacyNumberFromLabel(value: string): number | undefined {
 
 function attributionJoin(entityKind: string, entityIdExpression: string, alias: string): string {
   return `LEFT JOIN entity_attribution_summary ${alias} ON ${alias}.entity_kind = '${entityKind}' AND ${alias}.entity_id = ${entityIdExpression}`;
+}
+
+function taskTerminalAtSelect(): string {
+  return `CASE WHEN task_projection.coordination_status = 'terminal' THEN (
+    SELECT MAX(event.occurred_at)
+    FROM attribution_events event
+    WHERE event.subject_ref = 'task/' || task_projection.task_id
+      AND event.operation = 'transition_local'
+  ) ELSE NULL END AS terminal_at`;
 }
 
 function chunks<Value>(values: ReadonlyArray<Value>, size: number): ReadonlyArray<ReadonlyArray<Value>> {

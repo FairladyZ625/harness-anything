@@ -24,6 +24,12 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
   if (!urgency.ok) return { ok: false, error: urgency.error };
   const review = readOption(args, "--review");
   const search = readOption(args, "--search");
+  const treeRoot = readOption(args, "--tree-root");
+  const liveness = readOption(args, "--liveness");
+  if (liveness && liveness !== "in_flight" && liveness !== "stale") {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --liveness in_flight or --liveness stale.") };
+  }
+  const livenessFilter = liveness === "in_flight" || liveness === "stale" ? liveness : undefined;
   const fieldExtensions = readFieldExtensionFilters(args);
   return taskListOk(rootDir, json, {
     kind: "task-list",
@@ -35,6 +41,8 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
       ...(workKind.value ? { workKind: workKind.value } : {}),
       ...(riskTier.value ? { riskTier: riskTier.value } : {}),
       ...(urgency.value ? { urgency: urgency.value } : {}),
+      ...(treeRoot ? { treeRoot } : {}),
+      ...(livenessFilter ? { liveness: livenessFilter } : {}),
       ...(review ? { review } : {}),
       ...(args.includes("--lesson") ? { lesson } : {}),
       missingMaterials: args.includes("--missing-materials"),
