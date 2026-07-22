@@ -14,7 +14,7 @@ import {
   localProjectionSourceFileSystem,
   localRuntimeStateFileSystem
 } from "../local/local-layout-file-system.ts";
-import { quoteIdentifier, runSqlite } from "./sqlite-projection-store.ts";
+import { quoteIdentifier, runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 
 export type DeclaredProjectionValue = string | number | null;
 export type DeclaredProjectionRow = Readonly<Record<string, DeclaredProjectionValue>>;
@@ -110,7 +110,7 @@ export function readDeclaredProjectionRows(
   projectionPath: string,
   declaration: EntityDeclaration
 ): ReadonlyArray<DeclaredProjectionRow> {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const columns = declaration.projection.columns.map((column) => quoteIdentifier(column.name)).join(", ");
     const primaryKey = declaration.projection.columns.find((column) => column.primaryKey)!;

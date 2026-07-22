@@ -35,7 +35,7 @@ import {
   replaceAttributionEvents
 } from "./sqlite-attribution-event-store.ts";
 import type { ProjectionSourceCacheChange } from "./sqlite-projection-source-cache.ts";
-import { runSqlite } from "./sqlite-projection-store.ts";
+import { runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 import type { EntityAttributionProjection } from "./types.ts";
 
 export interface AttributionDigestStatus {
@@ -273,11 +273,11 @@ export function readAttributionProjection(
   rootInput: HarnessLayoutInput,
   projectionPath = resolveHarnessLayout(rootInput).projectionPath
 ): ReadonlyArray<AttributionProjectionRow> {
-  return runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, readAttributionProjectionRows));
+  return runSqliteReadonly(projectionPath, Effect.flatMap(SqlClient.SqlClient, readAttributionProjectionRows));
 }
 
 export function countAttributionProjectionRows(projectionPath: string): number {
-  return runSqlite(projectionPath, Effect.gen(function* () {
+  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const [record] = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count FROM attribution_events`;
     return Number(record?.count ?? 0);

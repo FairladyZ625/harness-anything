@@ -62,9 +62,8 @@ export interface ViewSwitchProps {
   favorites: Set<string>;
   events: EventEntry[];
   projectName: string;
-  goto: (v: ViewId) => void;
   onOpenTaskPreview: (id: string) => void;
-  onDrillToBoard: (lane: string, status: SnapshotStatus, dimension: "root" | "module") => void;
+  onOverviewDrill: (lane: string, status: SnapshotStatus) => void;
   onUpdateTask: (id: string, patch: Partial<TaskRow>) => void;
   onSelectTask: (id: string) => void;
   /** TaskDetailView 的「返回上一层」:清空选中态(回到视图表)。 */
@@ -110,9 +109,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
     favorites,
     events,
     projectName,
-    goto,
     onOpenTaskPreview,
-    onDrillToBoard,
+    onOverviewDrill,
     onUpdateTask,
     onSelectTask,
     onClearSelection,
@@ -239,9 +237,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
           facts={facts}
           relations={relations}
           onSelect={onOpenTaskPreview}
-          onDrill={onDrillToBoard}
-          onOpenInbox={() => goto("decisions")}
-          onOpenDecisionPool={() => goto("decisionPool")}
+          onDrill={onOverviewDrill}
+          onOpenDecision={onNavigateDecision}
           dataReady={overviewDataReady}
         />
       ) : view === "board" ? (
