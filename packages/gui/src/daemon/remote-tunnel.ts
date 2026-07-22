@@ -5,7 +5,14 @@ import type { TerminalSessionInfo } from "@harness-anything/application/terminal
 export type DaemonTransport =
   | { readonly kind: "local-ipc"; readonly endpoint: string }
   | { readonly kind: "local-loopback"; readonly host: "127.0.0.1"; readonly port: number }
-  | { readonly kind: "ssh-tunnel"; readonly tunnelId: string; readonly localHost: "127.0.0.1"; readonly localPort: number };
+  | { readonly kind: "ssh-tunnel"; readonly tunnelId: string; readonly localHost: "127.0.0.1"; readonly localPort: number }
+  | {
+      readonly kind: "ssh-stdio";
+      readonly host: string;
+      readonly remoteHaPath: string;
+      readonly remoteRoot: string;
+      readonly repoId: string;
+    };
 
 export type TunnelConnectionStatus =
   | "initiating"

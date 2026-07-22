@@ -31,6 +31,19 @@ test("ssh tunnel transport reuses daemon API route semantics with tunnel auth on
   assert.equal(remote.some((route) => route.id.includes("remote")), false);
 });
 
+test("ssh stdio is a distinct transport and does not inherit tunnel token auth", () => {
+  const remote = bindApiRoutesToDaemonTransport(apiRouteContracts, {
+    kind: "ssh-stdio",
+    host: "kty",
+    remoteHaPath: "ha",
+    remoteRoot: "/srv/harness/team",
+    repoId: "canonical"
+  });
+
+  assert.equal(remote.every((route) => route.transport === "ssh-stdio"), true);
+  assert.equal(remote.some((route) => route.auth === "ssh-tunnel-local-token"), false);
+});
+
 test("remote daemon token bootstrap stores metadata separately from the one-time secret", () => {
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a")],

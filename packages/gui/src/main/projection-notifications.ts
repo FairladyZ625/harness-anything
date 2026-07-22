@@ -1,10 +1,13 @@
 import type { Disposable, ProjectionChangeNotification, Subscription } from "@harness-anything/api-contracts";
-import { JsonLineSocketTransport, PersistentDaemonClient } from "@harness-anything/daemon-client";
+import { JsonLineSocketTransport, PersistentDaemonClient, type PersistentTransport } from "@harness-anything/daemon-client";
+import { SshStdioTransport } from "../../../daemon-client/src/ssh-stdio-transport.ts";
+import type { DaemonTransport } from "../daemon/remote-tunnel.ts";
 import type {
   HarnessProjectionNotificationSource
 } from "./ipc-handlers.ts";
 import type { RendererProjectionNotification } from "../preload/allowlist.ts";
 import {
+  resolveGuiDaemonTransport,
   resolveGuiDaemonNotificationTarget,
   type HarnessLayoutOverrides
 } from "./local-composition-root.ts";
@@ -20,6 +23,29 @@ export interface LocalGuiProjectionNotifications {
 export function createLocalGuiProjectionNotifications(
   rootDir: string,
   layoutOverrides?: HarnessLayoutOverrides
+): LocalGuiProjectionNotifications {
+  return createProjectionNotifications(rootDir, layoutOverrides, true);
+}
+
+export function createGuiProjectionNotifications(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides,
+  options: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly createSshTransport?: (transport: Extract<DaemonTransport, { readonly kind: "ssh-stdio" }>) => PersistentTransport;
+  } = {}
+): LocalGuiProjectionNotifications {
+  return createProjectionNotifications(rootDir, layoutOverrides, false, options);
+}
+
+function createProjectionNotifications(
+  rootDir: string,
+  layoutOverrides: HarnessLayoutOverrides | undefined,
+  forceLocal: boolean,
+  options: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly createSshTransport?: (transport: Extract<DaemonTransport, { readonly kind: "ssh-stdio" }>) => PersistentTransport;
+  } = {}
 ): LocalGuiProjectionNotifications {
   let client: PersistentDaemonClient | undefined;
   let clientEvents: Disposable | undefined;
@@ -65,10 +91,20 @@ export function createLocalGuiProjectionNotifications(
 
   async function ensureClient(): Promise<PersistentDaemonClient> {
     if (client) return client;
-    const target = await resolveGuiDaemonNotificationTarget(rootDir, layoutOverrides);
+    const selected = forceLocal ? undefined : await resolveGuiDaemonTransport(rootDir, layoutOverrides, options.env);
+    const target = selected?.kind === "ssh-stdio"
+      ? {
+          endpoint: `ssh-stdio:${selected.host}`,
+          transport: options.createSshTransport?.(selected)
+            ?? new SshStdioTransport({ host: selected.host, remoteHaPath: selected.remoteHaPath })
+        }
+      : await resolveGuiDaemonNotificationTarget(rootDir, layoutOverrides).then((local) => ({
+          endpoint: local.socketPath,
+          transport: new JsonLineSocketTransport()
+        }));
     client = new PersistentDaemonClient({
-      endpoint: target.socketPath,
-      transport: new JsonLineSocketTransport(),
+      endpoint: target.endpoint,
+      transport: target.transport,
       helloTimeoutMs: daemonConnectionTimeoutMs,
       requestTimeoutMs: projectionSubscriptionTimeoutMs,
       onDiagnostic: (diagnostic) => {

@@ -2,10 +2,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { PersistentDaemonClient, type PersistentTransport } from "@harness-anything/daemon-client";
+import { SshStdioTransport } from "../../../daemon-client/src/ssh-stdio-transport.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon } from "../api/service-bridge.ts";
 import type { ApiRouteContract } from "../api/api-contract-registry.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
+import type { DaemonTransport } from "../daemon/remote-tunnel.ts";
 
 const defaultDaemonAutostartTimeoutMs = 6_000;
 const defaultDaemonIdleExitMs = 5 * 60_000;
@@ -81,9 +84,27 @@ interface LocalDaemonClientModule {
 }
 
 let daemonClientModulePromise: Promise<LocalDaemonClientModule> | undefined;
-let daemonSettingsModulePromise: Promise<{
+interface DaemonSettingsModule {
   readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
-}> | undefined;
+  readonly readDaemonClientConfig: (
+    env?: NodeJS.ProcessEnv,
+    rootDir?: string,
+    modeOverride?: "direct" | "local" | "remote",
+    profileOverride?: "default" | "isolated",
+    layoutOverrides?: HarnessLayoutOverrides
+  ) => {
+    readonly mode: "direct" | "local" | "remote";
+    readonly requestTimeoutMs: number;
+    readonly remote?: {
+      readonly host: string;
+      readonly remoteHaPath: string;
+      readonly remoteRoot: string;
+      readonly repoId: string;
+    };
+  };
+}
+
+let daemonSettingsModulePromise: Promise<DaemonSettingsModule> | undefined;
 
 interface GuiDaemonBridgeState {
   layoutOverrideDaemonStarted: boolean;
@@ -94,6 +115,67 @@ export function createLocalGuiServiceBridge(rootDir: string, layoutOverrides?: H
   validateProjectPath(resolvedRootDir, ".");
   const state: GuiDaemonBridgeState = { layoutOverrideDaemonStarted: false };
   return createGuiServiceBridgeForDaemon(async (route, payload) => requestGuiRouteViaDaemon(resolvedRootDir, layoutOverrides, state, route, payload));
+}
+
+/** Selects the same local/remote daemon mode and SSH config inputs as the CLI. */
+export function createGuiServiceBridge(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides,
+  options: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly createSshTransport?: (transport: Extract<DaemonTransport, { readonly kind: "ssh-stdio" }>) => PersistentTransport;
+  } = {}
+): GuiServiceBridge {
+  const env = options.env ?? process.env;
+  const resolvedRootDir = path.resolve(rootDir);
+  validateProjectPath(resolvedRootDir, ".");
+  let remoteClient: PersistentDaemonClient | undefined;
+  let transportPromise: Promise<DaemonTransport> | undefined;
+  const localState: GuiDaemonBridgeState = { layoutOverrideDaemonStarted: false };
+  const bridge = createGuiServiceBridgeForDaemon(async (route, payload) => {
+    const transport = await (transportPromise ??= resolveGuiDaemonTransport(resolvedRootDir, layoutOverrides, env));
+    if (transport.kind !== "ssh-stdio") {
+      return requestGuiRouteViaDaemon(resolvedRootDir, layoutOverrides, localState, route, payload);
+    }
+    try {
+      remoteClient ??= new PersistentDaemonClient({
+        endpoint: `ssh-stdio:${transport.host}`,
+        transport: options.createSshTransport?.(transport)
+          ?? new SshStdioTransport({ host: transport.host, remoteHaPath: transport.remoteHaPath }),
+        requestTimeoutMs: remoteRequestTimeoutMs(env)
+      });
+      return await remoteClient.request(
+        jsonRpcMethodForGuiRoute(route) as never,
+        jsonRpcParamsForGuiRoute(route, transport.repoId, payload) as never
+      ) as JsonObject;
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: "daemon_unavailable",
+          hint: `Remote Harness daemon is unavailable through ${transport.host}: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+    }
+  });
+  return {
+    invoke: bridge.invoke,
+    dispose: async () => remoteClient?.dispose()
+  };
+}
+
+export async function resolveGuiDaemonTransport(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<DaemonTransport> {
+  const daemonSettings = await loadDaemonSettingsModule();
+  const config = daemonSettings.readDaemonClientConfig(env, rootDir, undefined, undefined, layoutOverrides);
+  if (config.mode === "remote") {
+    if (!config.remote) throw new Error("Remote daemon configuration is missing.");
+    return { kind: "ssh-stdio", ...config.remote };
+  }
+  return { kind: "local-ipc", endpoint: "auto" };
 }
 
 export async function resolveGuiDaemonNotificationTarget(
@@ -238,12 +320,8 @@ function daemonClientModuleUrl(): string {
   return new URL("../../../daemon/src/client/local-json-rpc-client.ts", import.meta.url).href;
 }
 
-async function loadDaemonSettingsModule(): Promise<{
-  readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
-}> {
-  daemonSettingsModulePromise ??= import(daemonSettingsModuleUrl()) as Promise<{
-    readonly readDaemonUserRoot: (env?: NodeJS.ProcessEnv, rootDir?: string, layoutOverrides?: HarnessLayoutOverrides) => string;
-  }>;
+async function loadDaemonSettingsModule(): Promise<DaemonSettingsModule> {
+  daemonSettingsModulePromise ??= import(daemonSettingsModuleUrl()) as Promise<DaemonSettingsModule>;
   return daemonSettingsModulePromise;
 }
 
@@ -337,6 +415,10 @@ function positiveIntegerOr(value: string | undefined, fallback: number): number 
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function remoteRequestTimeoutMs(env: NodeJS.ProcessEnv): number {
+  return positiveIntegerOr(env.HARNESS_DAEMON_REQUEST_TIMEOUT_MS, 35_000);
 }
 
 function isLocalServiceRecord(value: unknown): value is Record<string, unknown> {
