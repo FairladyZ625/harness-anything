@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,6 +18,20 @@ test("supply-chain check accepts the expected release gate contract", async () =
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Supply chain check passed/u);
+    assert.match(result.stdout, /phase=sbom .*status=completed/u);
+  });
+});
+
+test("supply-chain check accepts an explicitly wider fail-closed command timeout", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root);
+
+    const result = runCheck(root, {
+      env: { HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS: "120000" }
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /phase=audit-1 .*timeoutMs=120000 .*status=completed/u);
   });
 });
 
@@ -258,22 +272,46 @@ test("supply-chain check rejects Dependabot directory under wrong ecosystem", as
   });
 });
 
-test("supply-chain check reports a bounded npm command timeout", async (t) => {
+test("supply-chain check isolates local contract failures from npm commands", async () => {
   await withFixtureRepo((root) => {
-    writeValidSupplyChainFixture(root, { hangNpmCommand: "sbom --sbom-format=cyclonedx --sbom-type=application" });
-    const startedAt = Date.now();
-
-    const result = runCheck(root, {
-      env: { HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS: "2000" },
-      timeoutMs: 10_000
+    const invocationLogPath = path.join(root, "npm-invocations.log");
+    writeValidSupplyChainFixture(root, {
+      dependabotBody: validDependabot().replace('package-ecosystem: "npm"', 'package-ecosystem: "github-actions"'),
+      invocationLogPath
     });
-    const elapsedMs = Date.now() - startedAt;
+
+    const result = runCheck(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /npm sbom --sbom-format=cyclonedx --sbom-type=application timed out after 2000ms/u);
-    assert.doesNotMatch(result.stderr, /npm audit .* timed out/u);
-    assert.equal(elapsedMs < 9_000, true, `bounded supply-chain check took ${elapsedMs}ms\n${result.stderr}`);
-    t.diagnostic(`timeout control completed in ${elapsedMs}ms: ${result.stderr.trim()}`);
+    assert.match(result.stderr, /must cover npm directory/u);
+    assert.equal(existsSync(invocationLogPath), false, "local contract failure must not enter the npm network phase");
+  });
+});
+
+test("supply-chain check reports a bounded npm command timeout", async (t) => {
+  await withFixtureRepo((root) => {
+    const hangPidPath = path.join(root, "hanging-npm.pid");
+    writeValidSupplyChainFixture(root, {
+      hangNpmCommand: "sbom --sbom-format=cyclonedx --sbom-type=application",
+      hangPidPath
+    });
+
+    const result = runCheck(root, {
+      env: {
+        HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS: "5000",
+        HARNESS_SUPPLY_CHAIN_NETWORK_BUDGET_MS: "11000"
+      },
+      timeoutMs: 20_000
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /phase=sbom attempt=2\/2 .*timed out/u);
+    assert.match(result.stderr, /termination=SIGKILL/u);
+    assert.doesNotMatch(result.stderr, /phase=audit-.*timed out/u);
+    const hangingPid = Number(readFileSync(hangPidPath, "utf8"));
+    assert.equal(processGroupExists(hangingPid), false, `hanging npm process group ${hangingPid} must be gone`);
+    t.diagnostic(`timeout receipt: ${result.stderr.trim()}`);
+    t.diagnostic(`process group gone: ${hangingPid}`);
   });
 });
 
@@ -389,7 +427,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator, options.hangNpmCommand);
+  writeMockNpm(root, options);
 }
 
 function validReadme() {
@@ -439,15 +477,20 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root, sbomMutator, hangNpmCommand) {
+function writeMockNpm(root, options) {
   const mockPath = path.join(root, ".mock-bin/npm");
   const sbomValue = validSbom();
-  sbomMutator?.(sbomValue);
+  options.sbomMutator?.(sbomValue);
   const sbom = JSON.stringify(sbomValue);
   writeFile(root, ".mock-bin/npm", [
     "#!/usr/bin/env node",
+    "const { appendFileSync, writeFileSync } = require('node:fs');",
     "const args = process.argv.slice(2).join(' ');",
-    `if (args === ${JSON.stringify(hangNpmCommand)}) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); }`,
+    ...(options.invocationLogPath ? [`appendFileSync(${JSON.stringify(options.invocationLogPath)}, args + '\\n');`] : []),
+    `if (args === ${JSON.stringify(options.hangNpmCommand)}) {`,
+    ...(options.hangPidPath ? [`  writeFileSync(${JSON.stringify(options.hangPidPath)}, String(process.pid));`] : []),
+    "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
+    "}",
     "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
     "  console.log('found 0 vulnerabilities');",
     "  process.exit(0);",
@@ -460,6 +503,23 @@ function writeMockNpm(root, sbomMutator, hangNpmCommand) {
     "process.exit(1);"
   ].join("\n"));
   chmodSync(mockPath, 0o755);
+}
+
+function processGroupExists(pid) {
+  if (process.platform === "win32") {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validSbom() {
