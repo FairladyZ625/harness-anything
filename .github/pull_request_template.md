@@ -44,22 +44,11 @@
 - Private evidence commit/path:
 - Reviewer evidence path:
 - GitHub Actions `rewrite-ci` run URL:
-- [ ] `npm ci`
 - [ ] `git diff --check`
-- [ ] `npm run check`
-- [ ] `npm run typecheck`
-- [ ] `npm test`
-- [ ] `npm run harness:check-import-boundaries`
-- [ ] `npm run harness:check-package-boundaries`
-- [ ] `npm run harness:scan-forbidden-symbols`
-- [ ] `npm run harness:check-private-boundary`
-- [ ] `npm run harness:check-package-policy`
-- [ ] `npm run harness:check-implementation-contracts`
-- [ ] `npm run harness:check-schema-contracts`
-- [ ] `npm run harness:check-legacy-intake-readiness`
-- [ ] `npm run harness:smoke-cli-package`
-- [ ] GitHub Actions `rewrite-ci` passed
-- Not run: [command and reason]
+- [ ] `npm run check:stop-point` (the gate set is derived from `tools/gate-manifest.json`; do not enumerate gates by hand)
+- [ ] Targeted tests for the change surface, named with their counts:
+- [ ] GitHub Actions `rewrite-ci` passed (this is the authoritative full gate)
+- Not run, and why: [list what should have run but did not, with the reason; reporting only what passed is an incomplete report]
 
 ## Review Evidence
 
@@ -123,22 +112,11 @@
 - 私有证据 commit/path：
 - Reviewer 证据路径：
 - GitHub Actions `rewrite-ci` run URL：
-- [ ] `npm ci`
 - [ ] `git diff --check`
-- [ ] `npm run check`
-- [ ] `npm run typecheck`
-- [ ] `npm test`
-- [ ] `npm run harness:check-import-boundaries`
-- [ ] `npm run harness:check-package-boundaries`
-- [ ] `npm run harness:scan-forbidden-symbols`
-- [ ] `npm run harness:check-private-boundary`
-- [ ] `npm run harness:check-package-policy`
-- [ ] `npm run harness:check-implementation-contracts`
-- [ ] `npm run harness:check-schema-contracts`
-- [ ] `npm run harness:check-legacy-intake-readiness`
-- [ ] `npm run harness:smoke-cli-package`
-- [ ] GitHub Actions `rewrite-ci` passed
-- 未运行：[命令和原因]
+- [ ] `npm run check:stop-point`（门集从 `tools/gate-manifest.json` 派生，不要手工枚举门名）
+- [ ] 改动面的定向测试，写明测试名与通过数：
+- [ ] GitHub Actions `rewrite-ci` 通过（这是权威全量门）
+- 未跑项及原因：[列出该跑而未跑的项与理由；只报跑绿了什么，不算完整报告]
 
 ## 审查证据
 
