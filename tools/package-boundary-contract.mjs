@@ -19,8 +19,8 @@ export function loadPackageBoundaryContract(root) {
     }
   }
   for (const entry of contract.deepSubpaths ?? []) {
-    if (!entry.package || !entry.subpath || !entry.target || !entry.owner || !entry.sunset) {
-      throw new Error("every deep subpath registration requires package, subpath, target, owner, and sunset");
+    if (!entry.package || !entry.subpath || !entry.target || !entry.owner || !entry.sunset || !Number.isInteger(entry.maxProductionConsumers) || entry.maxProductionConsumers < 0) {
+      throw new Error("every deep subpath registration requires package, subpath, target, owner, sunset, and a non-negative maxProductionConsumers ratchet");
     }
     if (!ids.has(entry.package)) throw new Error(`deep subpath references unknown package id: ${entry.package}`);
   }
@@ -66,6 +66,34 @@ export function moduleSpecifiers(file, source) {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  return values;
+}
+
+export function sourcePathSpecifiers(file, source) {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const values = [];
+  const moduleLiterals = new Set();
+  const visit = (node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      moduleLiterals.add(node.moduleSpecifier);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      moduleLiterals.add(node.argument.literal);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+    ) {
+      moduleLiterals.add(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  const collect = (node) => {
+    if (ts.isStringLiteral(node) && !moduleLiterals.has(node) && node.text.startsWith(".") && node.text.includes("/src/")) values.push(node.text);
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
   return values;
 }
 

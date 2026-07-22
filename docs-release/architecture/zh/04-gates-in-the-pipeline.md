@@ -90,6 +90,16 @@ anchor 只有在同时携带 SHA 时才校验，否则只是 warning。没有任
 一扇门合入源码，并不等于当前本地二进制已经执行这扇门；在调用 `ha task complete` 测新门或改过的门
 之前，必须先重建 `packages/cli/dist`。
 
+## 仓库边界门
+
+生命周期门决定一次实体迁移能否提交；仓库边界门保护实现这些迁移的代码。package 邻接由
+`tools/package-boundaries.json` 定义；`check-package-boundaries` 将禁止邻接置于 error 档，
+只承接逐条记录且不得增长的存量债务，让 deep subpath 的生产消费者数量沿 sunset ratchet
+只降不升，并把 source-path 字符串计为 contract 真边。全根文件系统与进程变更的归属由
+`check-write-road-registry` 以稳定 occurrence key 检查，它已经取代重复的旧 bypass-write
+清单。其余 import、coordinator policy 与 CLI direct-writer 专门门仍保留，因为它们各自还有
+这两份通用 contract 未覆盖的唯一断言。
+
 ## 三扇具名的门,作为机制
 
 learn/03 按名字介绍了三扇门。这里说明每扇门到底在检查什么,描述在结构层面,而非意图层面。

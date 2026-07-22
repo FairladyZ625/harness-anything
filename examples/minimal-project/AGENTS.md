@@ -68,6 +68,7 @@
 - PR / 分支 / 合并 / admin bypass → `harness/standards/repo-governance.md` 与 `.github/pull_request_template.md`
 - CI / required checks / 发布门禁 → `harness/standards/ci-cd-standard.md`
 - 测试 tier / 证据深度 / 新测试文件 → `harness/standards/testing-standard.md`
+- package 邻接、deep subpath 与 source-path 边 → `tools/package-boundaries.json` + `npm run harness:check-package-boundaries`；写路径全根账本 → `tools/write-road-registry.json` + `npm run harness:check-write-road-registry`
 
 ## CI/Gate authority stop condition
 

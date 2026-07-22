@@ -93,7 +93,6 @@
     "harness:smoke-direct-recovery": "node tools/smoke-direct-recovery.mjs",
     "hooks:install": "git config core.hooksPath tools/git-hooks",
     "harness:check-write-coordinator-boundary": "node tools/check-write-coordinator-boundary.mjs",
-    "harness:check-bypass-write-boundary": "node tools/check-bypass-write-boundary.mjs",
     "harness:check-write-road-registry": "node tools/check-write-road-registry.mjs",
     "harness:check-cli-direct-writer": "node tools/check-cli-direct-writer.mjs",
     "harness:check-cli-daemon-parity": "node tools/check-cli-daemon-parity.mjs",

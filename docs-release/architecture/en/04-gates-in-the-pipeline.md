@@ -132,6 +132,20 @@ binary runs built CLI output, not TypeScript source. A gate merged into source i
 not active for that local binary until `packages/cli/dist` is rebuilt, so testing
 a new or changed gate requires rebuilding before invoking `ha task complete`.
 
+## Repository boundary gates
+
+Lifecycle gates decide whether an entity transition may commit. Repository
+boundary gates protect the code that implements those transitions. Package
+adjacency comes from `tools/package-boundaries.json`; `check-package-boundaries`
+runs forbidden adjacency at error severity, permits only the exact recorded
+no-growth debt, ratchets deep-subpath production consumers toward their sunsets,
+and treats source-path strings as real edges. Full-root filesystem and process
+mutation ownership is checked by `check-write-road-registry`, whose stable
+occurrence keys replaced the former duplicate bypass-write inventory. The
+remaining specialized import, coordinator-policy, and CLI direct-writer gates
+stay separate because each still protects assertions outside those two general
+contracts.
+
 ## The three named gates, as mechanism
 
 learn/03 introduced three gates by name. Here is what each one is checking for,

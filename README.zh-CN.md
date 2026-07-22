@@ -133,6 +133,11 @@ Harness Anything 用三个长期存在的原语承载 agent 工作：
 - 哪些工作真的完成了，哪些声明仍然悬而未决；
 - 下一轮开发应该如何做得更好。
 
+仓库架构同样由机器门守护。`tools/package-boundaries.json` 是 package 邻接权威：
+新增禁止边以 error 档失败，现存债务走精确且只降不升的 ratchet，deep subpath
+sunset 有机器强制的消费者上限，source-path 字符串也计入 contract 真边。写路径
+覆盖由扫描全根的 `check-write-road-registry` 门统一负责。
+
 ## 文档
 
 - [上手（Start）](./docs-release/start/zh/00-what-is-this.md)：安装并跑通一条真实循环。（[English](./docs-release/start/en/00-what-is-this.md)）

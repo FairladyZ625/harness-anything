@@ -7,12 +7,13 @@ import test from "node:test";
 import { createPackageBoundaryPlugin, packageBoundaryMessageIds } from "./eslint-package-boundaries.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ruleId = "package-boundaries/enforce";
+const adjacencyRuleId = "package-boundaries/adjacency";
+const pathsRuleId = "package-boundaries/paths";
 const eslint = new ESLint({
   cwd: root,
   overrideConfig: {
     plugins: { "package-boundaries": createPackageBoundaryPlugin(root) },
-    rules: { [ruleId]: "warn" }
+    rules: { [adjacencyRuleId]: "error", [pathsRuleId]: "warn" }
   }
 });
 
@@ -25,13 +26,14 @@ test("package boundary ESLint rule reports every governed violation class", asyn
   ];
   for (const [file, source, messageId] of cases) {
     const [result] = await eslint.lintText(source, { filePath: path.join(root, file) });
-    assert.ok(result.messages.some((message) => message.ruleId === ruleId && message.messageId === messageId), `${messageId} positive control`);
+    const expectedRuleId = messageId === packageBoundaryMessageIds.forbiddenEdge ? adjacencyRuleId : pathsRuleId;
+    assert.ok(result.messages.some((message) => message.ruleId === expectedRuleId && message.messageId === messageId), `${messageId} positive control`);
   }
 });
 
 test("package boundary ESLint rule accepts allowed roots and registered subpaths", async () => {
   const [result] = await eslint.lintText("import '@harness-anything/kernel';", { filePath: path.join(root, "packages/application/src/fixture.ts") });
-  assert.equal(result.messages.filter((message) => message.ruleId === ruleId).length, 0);
+  assert.equal(result.messages.filter((message) => message.ruleId === adjacencyRuleId || message.ruleId === pathsRuleId).length, 0);
 });
 
 test("package boundary ESLint rule inspects every module-bearing handler", async () => {
@@ -45,7 +47,7 @@ test("package boundary ESLint rule inspects every module-bearing handler", async
   for (const [label, source] of cases) {
     const [result] = await eslint.lintText(source, { filePath: path.join(root, "packages/application/src/fixture.ts") });
     assert.ok(
-      result.messages.some((message) => message.ruleId === ruleId && message.messageId === packageBoundaryMessageIds.unregisteredDeepSubpath),
+      result.messages.some((message) => message.ruleId === pathsRuleId && message.messageId === packageBoundaryMessageIds.unregisteredDeepSubpath),
       `${label} positive control`
     );
   }

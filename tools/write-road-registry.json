@@ -4856,13 +4856,6 @@
           "reason": "Design exemption: tools/check-write-road-registry.mjs reads the previous committed registry/allowlist through this exact execFileSync call to report and enforce the write-point ratchet; it does not author registered entity SoT."
         },
         {
-          "key": "tools/check-write-road-registry.mjs#execFileSync@2",
-          "owner": "repository.tooling.mutation-surfaces",
-          "classification": "design-exemption",
-          "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
-          "reason": "Design exemption: tools/check-write-road-registry.mjs reads the previous committed registry/allowlist through this exact execFileSync call to report and enforce the write-point ratchet; it does not author registered entity SoT."
-        },
-        {
           "key": "tools/clear-incremental-artifacts.mjs#rmSync@1",
           "owner": "repository.tooling.mutation-surfaces",
           "classification": "design-exemption",
@@ -5008,13 +5001,6 @@
           "classification": "design-exemption",
           "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
           "reason": "Design exemption: tools/main-watch.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact spawnSync call does not author registered entity SoT."
-        },
-        {
-          "key": "tools/migrate-bypass-write-anchors.mjs#writeFileSync@1",
-          "owner": "repository.tooling.mutation-surfaces",
-          "classification": "design-exemption",
-          "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
-          "reason": "Design exemption: tools/migrate-bypass-write-anchors.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact writeFileSync call does not author registered entity SoT."
         },
         {
           "key": "tools/perf/attribution-union-benchmark.mjs#execFileSync@1",

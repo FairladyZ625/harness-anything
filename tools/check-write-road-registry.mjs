@@ -200,17 +200,7 @@ function previousWritePointCounts() {
         omissionDebt: entries.filter((entry) => entry.classification === "omission-debt").length
       };
     }
-    const allowlistRaw = execFileSync("git", ["show", "HEAD^:tools/gate-allowlists/check-bypass-write-boundary.json"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    });
-    const allowlist = JSON.parse(allowlistRaw);
-    if (!isObject(allowlist) || !isObject(allowlist.entries)) return undefined;
-    return {
-      coverage: Object.values(allowlist.entries).flatMap(asArray).length,
-      omissionDebt: asArray(allowlist.entries.omissionDebt).length
-    };
+    return undefined;
   } catch {
     return undefined;
   }

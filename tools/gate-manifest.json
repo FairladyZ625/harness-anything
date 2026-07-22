@@ -90,7 +90,6 @@
         "check-capabilities-kind-source",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
-        "check-bypass-write-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
         "check-relation-cycle-substrate",
@@ -132,7 +131,6 @@
         "check-import-boundaries",
         "check-package-boundaries",
         "check-write-coordinator-boundary",
-        "check-bypass-write-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
         "check-cli-daemon-parity",
@@ -184,7 +182,6 @@
         "check-import-boundaries",
         "check-package-boundaries",
         "check-write-coordinator-boundary",
-        "check-bypass-write-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
         "check-cli-daemon-parity",
@@ -216,7 +213,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 48
+      "harnessLeafGateCount": 47
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -868,12 +865,13 @@
       "authoritySource": [
         "tools/package-boundaries.json",
         "tools/package-boundary-violations.json",
+        "task_01KXW82J0DN4BB1RM3YM8S0J04",
         "package.json:workspaces",
         "packages/*/package.json",
         "packages/adapters/*/package.json"
       ],
       "consumerScope": [
-        "workspace package root exports, registered deep subpaths, and internal dependencies",
+        "workspace package root exports, machine-ratcheted deep-subpath sunsets, and internal dependencies",
         "cross-package imports, TypeScript import types, and source-path strings under packages/**",
         "allowed internal dependency edges derived from tools/package-boundaries.json"
       ],
@@ -892,7 +890,7 @@
         "allowed": true,
         "location": "tools/package-boundaries.json:deepSubpaths",
         "adrOrDecisionRequired": true,
-        "notes": "Every explicit deep subpath carries an owner and sunset condition; architecture violations remain warnings during W1 migration."
+        "notes": "Adjacency violations run at error severity behind an exact no-growth ratchet. Every explicit deep subpath carries an owner, sunset condition, and machine-enforced production-consumer ceiling."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2257,88 +2255,6 @@
       }
     },
     {
-      "id": "check-bypass-write-boundary",
-      "command": "npm run harness:check-bypass-write-boundary",
-      "category": "boundary",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
-        "task_01KWW58383X74ZK28Y068CQ2TG",
-        "dec_mr9acuxm",
-        "dec_GATE_DEFENSE_ROOT_CAUSE",
-        "tools/migrate-bypass-write-anchors.mjs",
-        "task_01KXW81JKDB6M4V8BTBSYX4G2F"
-      ],
-      "consumerScope": [
-        "AST-classified filesystem mutation and child_process calls in every workspace package source root and tools",
-        "ADR-0016 D1 and ADR-0028 D5 bypass closure with exact occurrence registrations and omission-debt ratchet"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gate-allowlists/check-bypass-write-boundary.json",
-        "adrOrDecisionRequired": true,
-        "notes": "W4 extends the structural AST rule to all production package roots and tools; every stable occurrence cites coordinator ownership, a design exemption, or explicit omission debt."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/check-bypass-write-boundary.mjs",
-          "tools/child-process-apis.mjs",
-          "tools/migrate-bypass-write-anchors.mjs",
-          "tools/gate-allowlists/check-bypass-write-boundary.json",
-          "package.json:scripts.harness:check-bypass-write-boundary",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": true,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": true,
-          "checkPr": true,
-          "script": "harness:check-bypass-write-boundary"
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
-        },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": [
-          "tools/check-bypass-write-boundary.test.mjs"
-        ]
-      }
-    },
-    {
       "id": "check-write-road-registry",
       "command": "npm run harness:check-write-road-registry",
       "category": "boundary",
@@ -2350,11 +2266,12 @@
         "dec_mrcu2kud",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md",
         "tools/write-road-registry.json",
-        "task_01KXW81JKDB6M4V8BTBSYX4G2F"
+        "task_01KXW81JKDB6M4V8BTBSYX4G2F",
+        "task_01KXW82J0DN4BB1RM3YM8S0J04"
       ],
       "consumerScope": [
         "AST-derived WriteOpKind and machine artifact boundary coverage",
-        "AST-derived coordinator callsites and exact filesystem/process mutation occurrences across every workspace package source root and tools",
+        "AST-derived coordinator callsites and exact filesystem/process mutation occurrences across every workspace package source root and tools; this supersedes the retired duplicate bypass-write gate",
         "daemon repo.command.run write-classified actions",
         "mutating GUI/API routes",
         "preset/script declared writes and produces"
