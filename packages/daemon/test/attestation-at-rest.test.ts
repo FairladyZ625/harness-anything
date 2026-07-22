@@ -4,12 +4,23 @@ import test from "node:test";
 import {
   completeReplicaReadAuthorityStatement,
   detectFullVolumeEncryption,
+  resolveFdeProbeBudget,
   evaluateAtRestProfile,
   revokeResidualStatement,
   strictWritableAtRestProfile,
   type AtRestProfile,
   type FdeCommandRunner
 } from "../src/index.ts";
+
+test("FDE probe budget resolves environment overrides and rejects invalid values", () => {
+  assert.deepEqual(resolveFdeProbeBudget({}), { timeoutMs: 10_000, maxBufferBytes: 1024 * 1024 });
+  assert.deepEqual(resolveFdeProbeBudget({
+    HARNESS_FDE_PROBE_TIMEOUT_MS: "20000",
+    HARNESS_FDE_PROBE_MAX_BUFFER_BYTES: "2097152"
+  }), { timeoutMs: 20_000, maxBufferBytes: 2_097_152 });
+  assert.throws(() => resolveFdeProbeBudget({ HARNESS_FDE_PROBE_TIMEOUT_MS: "0" }), /HARNESS_FDE_PROBE_TIMEOUT_MS/u);
+  assert.throws(() => resolveFdeProbeBudget({ HARNESS_FDE_PROBE_MAX_BUFFER_BYTES: "unbounded" }), /HARNESS_FDE_PROBE_MAX_BUFFER_BYTES/u);
+});
 
 test("FileVault detector distinguishes encrypted, plaintext, and failed probes", async () => {
   assert.equal((await detectFullVolumeEncryption({

@@ -7,7 +7,7 @@ import { explainStatusTransition, isTerminalStatus } from "@harness-anything/ker
 import { evaluateEntityDisposition } from "@harness-anything/kernel";
 import { stablePayloadHash } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
-import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "@harness-anything/kernel";
+import { createHarnessRuntimeContext, harnessRuntimeRoot, resolveGitMaxBufferBytes, taskPackagePath } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
 import { makeJournaledWriteCoordinator } from "@harness-anything/kernel";
 import { makeLocalProjectionSourceFenceReader } from "./projection-source-fence.ts";
@@ -341,7 +341,7 @@ function writeCodeDocReconciliation(
   });
 }
 
-const gitMaxBuffer = 256 * 1024 * 1024;
+const gitMaxBuffer = resolveGitMaxBufferBytes();
 
 function readTaskTreeStatus(rootInput: HarnessLayoutInput, taskId: string): LocalTaskTreeStatusResult {
   const packagePath = taskPackagePath(rootInput, taskId);

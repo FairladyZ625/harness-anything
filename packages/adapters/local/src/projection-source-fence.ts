@@ -5,14 +5,16 @@ import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 import {
   createHarnessRuntimeContext,
+  resolveGitMaxBufferBytes,
   resolveHarnessLayout,
+  resolveProjectionMaxChangedPaths,
   type HarnessLayoutOverrides,
   type ProjectionSourceFence,
   type ProjectionSourceFenceReader
 } from "@harness-anything/kernel";
 
-const gitMaxBuffer = 256 * 1024 * 1024;
-const maxChangedPaths = 50_000;
+const gitMaxBuffer = resolveGitMaxBufferBytes();
+const maxChangedPaths = resolveProjectionMaxChangedPaths();
 
 export function makeLocalProjectionSourceFenceReader(options: {
   readonly rootDir: string;

@@ -97,6 +97,7 @@ export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
 export * from "./projection/relation-flow-frontmatter.ts";
 export * from "./projection/relation-graph-projection.ts";
+export * from "./runtime/operational-limits.ts";
 export {
   auditTaskProvenance,
   queryExecutionProjection,

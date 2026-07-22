@@ -9,6 +9,8 @@ export interface RuntimeLogOptions {
   readonly homeDir?: string;
   readonly runtimeLogRoots?: Partial<Record<CurrentSessionRuntime, ReadonlyArray<string>>>;
   readonly transcriptFile?: string;
+  readonly maxSearchDepth?: number;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 export interface RuntimeConversationMessage {
@@ -25,7 +27,8 @@ export interface RuntimeConversation {
 
 type JsonObject = Record<string, unknown>;
 
-const maxRuntimeLogSearchDepth = 8;
+const defaultRuntimeLogSearchDepth = 8;
+const maxRuntimeLogSearchDepth = 64;
 const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function resolveRuntimeConversation(
@@ -39,13 +42,14 @@ async function resolveRuntimeConversationAsync(
   session: ProvenanceSessionDocument,
   options: RuntimeLogOptions
 ): Promise<RuntimeConversation> {
+  const searchDepth = resolveRuntimeLogSearchDepth(options);
   const warnings: string[] = [];
   if (session.runtime === "human") {
     warnings.push("No runtime JSONL log is expected for human fallback sessions.");
     return { messages: [], warnings };
   }
 
-  const logPath = await findRuntimeLogPath(session, options, warnings);
+  const logPath = await findRuntimeLogPath(session, options, warnings, searchDepth);
   if (!logPath) {
     warnings.push(`No runtime JSONL log found for ${session.runtime} session ${session.sessionId}.`);
     return { messages: [], warnings };
@@ -80,6 +84,7 @@ async function discoverRuntimeSessionsAsync(
   backfillOptions: ProvenanceSessionBackfillOptions,
   detectedAt: string
 ): Promise<{ readonly sessions: ReadonlyArray<CurrentSessionRef>; readonly warnings: ReadonlyArray<string> }> {
+  const searchDepth = resolveRuntimeLogSearchDepth(options);
   const warnings: string[] = [];
   const runtimes = backfillOptions.runtime ? [backfillOptions.runtime] : ["claude-code", "codex", "zcode", "antigravity"] as const;
   const sessions = new Map<string, CurrentSessionRef>();
@@ -90,7 +95,7 @@ async function discoverRuntimeSessionsAsync(
       continue;
     }
     for (const root of roots) {
-      for (const logPath of await listRuntimeJsonlFiles(root, maxRuntimeLogSearchDepth, warnings)) {
+      for (const logPath of await listRuntimeJsonlFiles(root, searchDepth, warnings)) {
         const sessionId = sessionIdFromRuntimeLog(runtime, logPath);
         if (!sessionId || !safeSessionIdPattern.test(sessionId)) continue;
         const key = `${runtime}:${sessionId}`;
@@ -109,7 +114,8 @@ async function discoverRuntimeSessionsAsync(
 async function findRuntimeLogPath(
   session: ProvenanceSessionDocument,
   options: RuntimeLogOptions,
-  warnings: string[]
+  warnings: string[],
+  searchDepth: number
 ): Promise<string | undefined> {
   if (options.transcriptFile) return options.transcriptFile;
   const configuredRoots = options.runtimeLogRoots?.[session.runtime];
@@ -119,17 +125,18 @@ async function findRuntimeLogPath(
     return undefined;
   }
 
-  return findFirstRuntimeLog(roots, session.sessionId, configuredRoots !== undefined, warnings);
+  return findFirstRuntimeLog(roots, session.sessionId, configuredRoots !== undefined, warnings, searchDepth);
 }
 
 async function findFirstRuntimeLog(
   roots: ReadonlyArray<string>,
   sessionId: string,
   allowExplicitFileRoot: boolean,
-  warnings: string[]
+  warnings: string[],
+  searchDepth: number
 ): Promise<string | undefined> {
   for (const root of roots) {
-    const match = await findMatchingJsonl(root, sessionId, allowExplicitFileRoot, warnings);
+    const match = await findMatchingJsonl(root, sessionId, allowExplicitFileRoot, warnings, searchDepth);
     if (match) return match;
   }
   return undefined;
@@ -157,7 +164,8 @@ async function findMatchingJsonl(
   root: string,
   sessionId: string,
   allowExplicitFileRoot: boolean,
-  warnings: string[]
+  warnings: string[],
+  searchDepth: number
 ): Promise<string | undefined> {
   let rootStat;
   try {
@@ -172,7 +180,20 @@ async function findMatchingJsonl(
     return undefined;
   }
   if (!rootStat.isDirectory()) return undefined;
-  return findMatchingJsonlInDirectory(root, sessionId, maxRuntimeLogSearchDepth);
+  return findMatchingJsonlInDirectory(root, sessionId, searchDepth);
+}
+
+export function resolveRuntimeLogSearchDepth(options: RuntimeLogOptions): number {
+  const raw = options.maxSearchDepth ?? (options.env ?? process.env).HARNESS_RUNTIME_LOG_SEARCH_DEPTH;
+  const parsed = typeof raw === "number"
+    ? raw
+    : raw === undefined || raw === ""
+      ? defaultRuntimeLogSearchDepth
+      : /^[0-9]+$/u.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maxRuntimeLogSearchDepth) {
+    throw new Error(`HARNESS_RUNTIME_LOG_SEARCH_DEPTH must be an integer between 1 and ${maxRuntimeLogSearchDepth}.`);
+  }
+  return parsed;
 }
 
 async function findMatchingJsonlInDirectory(root: string, sessionId: string, depth: number): Promise<string | undefined> {

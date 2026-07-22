@@ -76,12 +76,16 @@ export function buildPresetContextProjections(options: {
   readonly layout: ResolvedLayout;
   readonly outputRoot: string;
   readonly readRoots: ReadonlyArray<string>;
+  readonly maxMilestoneFiles?: number;
+  readonly maxMilestoneNotes?: number;
+  readonly env?: NodeJS.ProcessEnv;
 }): Record<string, unknown> {
+  const milestoneLimits = resolvePresetContextMilestoneLimits(options);
   return {
     taskIndex: readTaskIndexContext(options.layout, options.readRoots),
     taskEvidence: readTaskEvidenceContext(options.layout, options.outputRoot, options.readRoots),
     milestoneCriteria: readMilestoneCriteriaContext(options.layout, options.readRoots),
-    milestoneNotes: readMilestoneNotesContext(options.layout, options.readRoots),
+    milestoneNotes: readMilestoneNotesContext(options.layout, options.readRoots, milestoneLimits),
     decisions: readDecisionContext(options.layout, options.readRoots),
     factRefs: readFactRefsContext(options.layout, options.readRoots)
   };
@@ -149,16 +153,40 @@ function readMilestoneCriteriaContext(
     });
 }
 
-function readMilestoneNotesContext(layout: ResolvedLayout, readRoots: ReadonlyArray<string>): ReadonlyArray<string> {
+function readMilestoneNotesContext(
+  layout: ResolvedLayout,
+  readRoots: ReadonlyArray<string>,
+  limits: { readonly maxFiles: number; readonly maxNotes: number }
+): ReadonlyArray<string> {
   const notes: string[] = [];
-  for (const filename of collectMarkdownFiles(readRoots).filter((filePath) => isPathInside(layout.milestonesRoot, filePath)).slice(0, 20)) {
+  for (const filename of collectMarkdownFiles(readRoots).filter((filePath) => isPathInside(layout.milestonesRoot, filePath)).slice(0, limits.maxFiles)) {
     for (const line of readOptionalFile(filename).split(/\r?\n/u)) {
       const trimmed = line.trim();
       if (/acceptance|验收|criteria/iu.test(trimmed)) notes.push(trimmed.replace(/^[-*#\s]+/u, ""));
-      if (notes.length >= 3) return notes;
+      if (notes.length >= limits.maxNotes) return notes;
     }
   }
   return notes;
+}
+
+export function resolvePresetContextMilestoneLimits(options: {
+  readonly maxMilestoneFiles?: number;
+  readonly maxMilestoneNotes?: number;
+  readonly env?: NodeJS.ProcessEnv;
+} = {}): { readonly maxFiles: number; readonly maxNotes: number } {
+  const env = options.env ?? process.env;
+  return {
+    maxFiles: contextLimit("HARNESS_PRESET_CONTEXT_MAX_MILESTONES", options.maxMilestoneFiles, env.HARNESS_PRESET_CONTEXT_MAX_MILESTONES, 20, 200),
+    maxNotes: contextLimit("HARNESS_PRESET_CONTEXT_MAX_NOTES", options.maxMilestoneNotes, env.HARNESS_PRESET_CONTEXT_MAX_NOTES, 3, 50)
+  };
+}
+
+function contextLimit(name: string, explicit: number | undefined, raw: string | undefined, fallback: number, maximum: number): number {
+  const value = explicit ?? (raw === undefined ? fallback : /^[0-9]+$/u.test(raw.trim()) ? Number(raw) : Number.NaN);
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`${name} must be an integer between 1 and ${maximum}.`);
+  }
+  return value;
 }
 
 function readDecisionContext(layout: ResolvedLayout, readRoots: ReadonlyArray<string>): ReadonlyArray<PresetContextDecision> {
