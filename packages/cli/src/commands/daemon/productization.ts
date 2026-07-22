@@ -34,6 +34,7 @@ import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.t
 import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonCommandInput } from "./command-types.ts";
 import { installSnapshotCommand, upgradeDaemonSnapshot } from "./snapshot-command.ts";
+import { readDaemonStatusWithGenerationFallback } from "./status-compatibility.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 export type { DaemonCommandInput, DaemonServeHooks } from "./command-types.ts";
@@ -458,22 +459,17 @@ async function readReachableDaemonStatus(
   target: LocalDaemonTarget,
   includeGenerationAxes = false
 ): Promise<Record<string, unknown> | undefined> {
-  try {
-    const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
+  return readDaemonStatusWithGenerationFallback(includeGenerationAxes, (includeAxes) =>
+    requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
       repo: { repoId: target.repoId },
-      ...(includeGenerationAxes ? { includeGenerationAxes: true } : {})
+      ...(includeAxes ? { includeGenerationAxes: true } : {})
     }, 1_000, {
       userRoot: target.userRoot,
       daemonId: target.daemonId,
       socketPath: target.socketPath,
       allowLegacySocket: true
-    });
-    const details = isDaemonRecord(receipt.details) ? receipt.details : {};
-    const data = isDaemonRecord(details.data) ? details.data : undefined;
-    return receipt.ok === true && data ? data : { rpcError: receipt };
-  } catch {
-    return undefined;
-  }
+    })
+  );
 }
 
 async function waitForReachableStatus(target: LocalDaemonTarget, timeoutMs: number): Promise<Record<string, unknown>> {

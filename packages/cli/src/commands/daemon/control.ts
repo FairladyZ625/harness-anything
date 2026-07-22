@@ -134,6 +134,7 @@ export async function runDaemonControl(
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
     ...controlResult,
+    kind,
     controlSchema,
     replacement: {
       ...replacement,
@@ -179,7 +180,7 @@ function validateAcceptedControlReceipt(
 ): void {
   if (receipt.schema !== "daemon-control-accepted/v1"
     || receipt.accepted !== true
-    || receipt.kind !== kind
+    || (receipt.kind !== kind && !(kind === "upgrade" && receipt.kind === "refresh"))
     || typeof receipt.operationId !== "string"
     || receipt.operationId.length === 0) {
     throw new Error(`${method} did not return daemon-control-accepted/v1`);

@@ -56,6 +56,32 @@ test("daemon upgrade preserves explicit and omitted version arguments across the
   }
 });
 
+test("daemon upgrade completes replacement after a legacy daemon reports refresh", async () => {
+  const starts: string[] = [];
+  const result = await runCapturedUpgrade({
+    target: controlTarget,
+    prepareReplacement: async () => runningLaunchConfiguration,
+    probeStatus: async () => undefined,
+    ownerIsAlive: () => false,
+    startReplacement: async (_target, _timeoutMs, launchConfiguration) => {
+      starts.push(launchConfiguration.entrypoint);
+      return v2DaemonStatus(84);
+    },
+    wait: async () => undefined
+  }, "/snapshots/legacy-compatible/dist/cli/src/index.js", async () => ({
+    schema: "daemon-control-accepted/v1",
+    accepted: true,
+    operationId: "control-legacy-refresh",
+    kind: "refresh",
+    before: { pid: 42, loadedIdentity: oldIdentity, launchConfiguration: runningLaunchConfiguration }
+  }));
+
+  assert.equal(result.exitCode, 0, JSON.stringify(result.receipt));
+  assert.deepEqual(starts, ["/snapshots/legacy-compatible/dist/cli/src/index.js"]);
+  assert.equal(result.receipt.kind, "upgrade");
+  assert.equal(result.receipt.operationId, "control-legacy-refresh");
+});
+
 test("daemon upgrade switches to the installed snapshot only after drain handoff", async () => {
   const starts: string[] = [];
   const snapshotEntrypoint = "/user-root/daemon-snapshots/release-2/dist/cli/src/index.js";

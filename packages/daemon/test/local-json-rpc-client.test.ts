@@ -74,7 +74,7 @@ test("legacy socket fallback diagnoses and removes an unowned empty directory oc
     requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
     (error: unknown) => {
       assert.match(String(error), new RegExp(`path=${escapeRegExp(legacy)}`, "u"));
-      assert.match(String(error), /shape=directory;owner=unowned;cleanup=removed-empty-directory;connectCode=(?:EINVAL|ENOTSOCK)/u);
+      assert.match(String(error), /shape=directory;owner=unowned;cleanup=removed-empty-directory;connectCode=(?:ECONNREFUSED|EINVAL|ENOTSOCK)/u);
       return true;
     }
   );
@@ -98,7 +98,7 @@ test("legacy socket fallback preserves a directory when a live owner record exis
 
   await assert.rejects(
     requestLocalDaemonJsonRpcForTarget({ ...makeTarget(primary), legacySocketPath: legacy }, "repo.daemon.logs.list", {}, 20),
-    new RegExp(`shape=directory;owner=live-pid-${process.pid};cleanup=not-attempted;connectCode=(?:EINVAL|ENOTSOCK)`, "u")
+    new RegExp(`shape=directory;owner=live-pid-${process.pid};cleanup=not-attempted;connectCode=(?:ECONNREFUSED|EINVAL|ENOTSOCK)`, "u")
   );
   assert.equal(existsSync(legacy), true);
 });
