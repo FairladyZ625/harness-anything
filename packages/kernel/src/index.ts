@@ -197,11 +197,6 @@ export {
   type LandedSettingDefinition,
   type LandedSettingSource
 } from "./config/landed-settings-registry.ts";
-export {
-  deriveTaskProjectionRows,
-  taskCreatedAtFromId,
-  taskTreeRoots
-} from "./projection/task-read-derivations.ts";
 export type {
   TaskHolderAcquiredVia,
   ExecutionLeaseContext,

@@ -67,7 +67,6 @@ export type {
   DecisionProjectionQueryFilters,
   DecisionProjectionRow,
   TaskFieldExtensionProjection,
-  TaskLiveness,
   TaskProjectionQueryFilters,
   TaskProjectionOptions,
   TaskProjectionRow
