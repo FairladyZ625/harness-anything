@@ -42,7 +42,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for new-task has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#createTask and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and new-task registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -116,7 +116,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-archive has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-archive.ts#runTaskArchive and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-archive registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-closeout",
@@ -126,7 +126,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-closeout has not been source-verified across every declared ingress."
+          "reason": "task-closeout registers only cliActions:task-closeout; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "task-complete",
@@ -155,7 +155,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-delete has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-lifecycle.ts#runTaskDelete and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-delete registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-reopen",
@@ -165,7 +165,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-reopen has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#reopenTask and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-reopen registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-review",
@@ -181,7 +181,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-review has not been source-verified across every declared ingress."
+          "reason": "task-review still lacks path#symbol convergence evidence across cliActions:task-review, apiRoutes:tasks.review, guiBridgeMethods:reviewTask; task.lifecycle.transition owner must trace every listed authored ingress before choosing unified or parity-debt."
         },
         {
           "selector": "task-review-execution",
@@ -191,7 +191,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-review-execution has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/application/src/review-execution-service.ts#makeReviewExecutionService and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and task-review-execution registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-start",
@@ -201,7 +201,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-start has not been source-verified across every declared ingress."
+          "reason": "task-start registers only cliActions:task-start; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "task-submit",
@@ -211,7 +211,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-submit has not been source-verified across every declared ingress."
+          "reason": "task-submit registers only cliActions:task-submit; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "task-supersede",
@@ -221,7 +221,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-supersede has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-supersede.ts#runTaskSupersede and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-supersede registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -291,7 +291,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-claim has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-holder.ts#runTaskClaim and packages/daemon/src/authority/production/production-authority-task-claim-intent.ts#taskClaimAttemptIntent; full variant convergence remains unverified, and task-claim registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -360,7 +360,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-consent-record has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/application/src/record-execution-consent-service.ts#makeRecordExecutionConsentService and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and task-consent-record registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -406,8 +406,23 @@
               "appendTaskProgress"
             ]
           },
-          "parity": "unknown",
-          "reason": "Compiler ownership for progress-append has not been source-verified across every declared ingress."
+          "parity": "parity-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/adapters/local/src/index.ts#appendProgress"
+            },
+            {
+              "entry": "api-gui",
+              "ref": "packages/adapters/local/src/index.ts#appendProgress"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "task.progress.append",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -480,7 +495,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-release has not been source-verified across every declared ingress."
+          "reason": "task-release registers only cliActions:task-release; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -568,7 +583,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-amend has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-amend.ts#runTaskAmend and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-amend registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-code-doc-reconcile",
@@ -578,7 +593,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-code-doc-reconcile has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#writeCodeDocReconciliation and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and task-code-doc-reconcile registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "task-contract-migrate",
@@ -588,7 +603,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-contract-migrate has not been source-verified across every declared ingress."
+          "reason": "task-contract-migrate registers only cliActions:task-contract-migrate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "task-relate",
@@ -598,7 +613,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for task-relate has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-relations.ts#runTaskRelate and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-relate registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1203,7 +1218,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-anchors has not been source-verified across every declared ingress."
+          "reason": "migrate-anchors registers only cliActions:migrate-anchors; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "migrate-provenance",
@@ -1213,7 +1228,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-provenance has not been source-verified across every declared ingress."
+          "reason": "migrate-provenance registers only cliActions:migrate-provenance; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1254,7 +1269,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-fact-execution has not been source-verified across every declared ingress."
+          "reason": "migrate-fact-execution registers only cliActions:migrate-fact-execution; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1293,7 +1308,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-retired-attribution-fields has not been source-verified across every declared ingress."
+          "reason": "migrate-retired-attribution-fields registers only cliActions:migrate-retired-attribution-fields; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1336,7 +1351,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for decision-reckon has not been source-verified across every declared ingress."
+          "reason": "decision-reckon registers only cliActions:decision-reckon; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "distill-commit",
@@ -1346,7 +1361,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for distill-commit has not been source-verified across every declared ingress."
+          "reason": "distill-commit registers only cliActions:distill-commit; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "record-fact",
@@ -1356,7 +1371,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for record-fact has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/application/src/fact-write-service.ts#makeFactWriteService and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and record-fact registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1403,7 +1418,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for fact-invalidate has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/application/src/fact-write-service.ts#makeFactWriteService and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and fact-invalidate registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1514,8 +1529,23 @@
               "rejectDecision"
             ]
           },
-          "parity": "unknown",
-          "reason": "Compiler ownership for decision-transition has not been source-verified across every declared ingress."
+          "parity": "parity-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision.ts#runTransition"
+            },
+            {
+              "entry": "api-gui",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#decisionTransitionAttemptIntent"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#decisionTransitionAttemptIntent"
+            }
+          ],
+          "owner": "decision.state.transition",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1563,7 +1593,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for decision-amend has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision.ts#runAmend and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-amend registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "decision-repin",
@@ -1573,7 +1603,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for decision-repin has not been source-verified across every declared ingress."
+          "reason": "decision-repin registers only cliActions:decision-repin; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1673,7 +1703,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for decision-relation-replace has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationReplace and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-relation-replace registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "decision-relation-retire",
@@ -1683,7 +1713,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for decision-relation-retire has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationRetire and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-relation-retire registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1730,7 +1760,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for module-register has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-register registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "module-step",
@@ -1740,7 +1770,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for module-step has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-step registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "module-unregister",
@@ -1750,7 +1780,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for module-unregister has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-unregister registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1830,7 +1860,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for module-scaffold has not been source-verified across every declared ingress."
+          "reason": "module-scaffold registers only cliActions:module-scaffold; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1869,7 +1899,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for session-backfill has not been source-verified across every declared ingress."
+          "reason": "session-backfill registers only cliActions:session-backfill; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "session-export",
@@ -1879,7 +1909,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for session-export has not been source-verified across every declared ingress."
+          "reason": "Observed distinct candidate compiler refs packages/application/src/provenance-session-exporter.ts#makeProvenanceSessionExporter and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and session-export registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
         },
         {
           "selector": "session-sync",
@@ -1889,7 +1919,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for session-sync has not been source-verified across every declared ingress."
+          "reason": "session-sync registers only cliActions:session-sync; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1941,7 +1971,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for runtime-event-append has not been source-verified across every declared ingress."
+          "reason": "runtime-event-append registers only cliActions:runtime-event-append; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -1987,7 +2017,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for distill-candidate has not been source-verified across every declared ingress."
+          "reason": "distill-candidate registers only cliActions:distill-candidate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2042,7 +2072,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for legacy-copy-safe-docs has not been source-verified across every declared ingress."
+          "reason": "legacy-copy-safe-docs registers only cliActions:legacy-copy-safe-docs; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "legacy-index",
@@ -2052,7 +2082,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for legacy-index has not been source-verified across every declared ingress."
+          "reason": "legacy-index registers only cliActions:legacy-index; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "legacy-intake-plan",
@@ -2062,7 +2092,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for legacy-intake-plan has not been source-verified across every declared ingress."
+          "reason": "legacy-intake-plan registers only cliActions:legacy-intake-plan; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "migrate-run",
@@ -2072,7 +2102,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-run has not been source-verified across every declared ingress."
+          "reason": "migrate-run registers only cliActions:migrate-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "migrate-structure",
@@ -2082,7 +2112,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for migrate-structure has not been source-verified across every declared ingress."
+          "reason": "migrate-structure registers only cliActions:migrate-structure; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2211,7 +2241,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for governance-rebuild has not been source-verified across every declared ingress."
+          "reason": "governance-rebuild still lacks path#symbol convergence evidence across cliActions:governance-rebuild, apiRoutes:governance.rebuild, guiBridgeMethods:rebuildGovernance; governance.projection.rebuild owner must trace every listed authored ingress before choosing unified or parity-debt."
         },
         {
           "selector": "materializer-run",
@@ -2221,7 +2251,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for materializer-run has not been source-verified across every declared ingress."
+          "reason": "materializer-run registers only cliActions:materializer-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2325,7 +2355,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for graph has not been source-verified across every declared ingress."
+          "reason": "graph registers only cliActions:graph; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2376,7 +2406,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.close has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.close registers only apiRoutes:terminal.sessions.close; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "api:terminal.sessions.create",
@@ -2386,7 +2416,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.create has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.create registers only apiRoutes:terminal.sessions.create; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "api:terminal.sessions.resize",
@@ -2396,7 +2426,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.resize has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.resize registers only apiRoutes:terminal.sessions.resize; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "api:terminal.sessions.write",
@@ -2406,7 +2436,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.write has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.write registers only apiRoutes:terminal.sessions.write; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "gui",
@@ -2416,7 +2446,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for gui has not been source-verified across every declared ingress."
+          "reason": "gui registers only cliActions:gui; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "init",
@@ -2426,7 +2456,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for init has not been source-verified across every declared ingress."
+          "reason": "init registers only cliActions:init; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2766,7 +2796,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for preset-entrypoint has not been source-verified across every declared ingress."
+          "reason": "preset-entrypoint registers only cliActions:preset-entrypoint; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "preset-install",
@@ -2776,7 +2806,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for preset-install has not been source-verified across every declared ingress."
+          "reason": "preset-install registers only cliActions:preset-install; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "preset-seed",
@@ -2786,7 +2816,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for preset-seed has not been source-verified across every declared ingress."
+          "reason": "preset-seed registers only cliActions:preset-seed; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "preset-uninstall",
@@ -2796,7 +2826,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for preset-uninstall has not been source-verified across every declared ingress."
+          "reason": "preset-uninstall registers only cliActions:preset-uninstall; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -2927,7 +2957,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for script-run has not been source-verified across every declared ingress."
+          "reason": "script-run registers only cliActions:script-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -3157,7 +3187,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for adopt-multica has not been source-verified across every declared ingress."
+          "reason": "adopt-multica registers only cliActions:adopt-multica; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "git-diff",
@@ -3167,7 +3197,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for git-diff has not been source-verified across every declared ingress."
+          "reason": "git-diff registers only cliActions:git-diff; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "worktree-create",
@@ -3177,7 +3207,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for worktree-create has not been source-verified across every declared ingress."
+          "reason": "worktree-create registers only cliActions:worktree-create; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
@@ -5061,7 +5091,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:daemon.restart has not been source-verified across every declared ingress."
+          "reason": "api:daemon.restart still lacks path#symbol convergence evidence across apiRoutes:daemon.restart, guiBridgeMethods:restartDaemon; daemon.control.restart.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
         }
       ],
       "sourceInventoryRows": [
@@ -5108,7 +5138,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:agent-runtimes.attach has not been source-verified across every declared ingress."
+          "reason": "api:agent-runtimes.attach still lacks path#symbol convergence evidence across apiRoutes:agent-runtimes.attach, guiBridgeMethods:attachAgentRuntime; daemon.agent-runtime.control.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
         },
         {
           "selector": "api:agent-runtimes.spawn",
@@ -5121,7 +5151,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:agent-runtimes.spawn has not been source-verified across every declared ingress."
+          "reason": "api:agent-runtimes.spawn still lacks path#symbol convergence evidence across apiRoutes:agent-runtimes.spawn, guiBridgeMethods:spawnAgentRuntime; daemon.agent-runtime.control.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
         }
       ],
       "sourceInventoryRows": [
@@ -5214,7 +5244,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.detach has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.detach registers only apiRoutes:terminal.sessions.detach; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         },
         {
           "selector": "api:terminal.sessions.terminate",
@@ -5224,7 +5254,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "Compiler ownership for api:terminal.sessions.terminate has not been source-verified across every declared ingress."
+          "reason": "api:terminal.sessions.terminate registers only apiRoutes:terminal.sessions.terminate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
         }
       ],
       "sourceInventoryRows": [
