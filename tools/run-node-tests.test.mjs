@@ -84,7 +84,14 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   assert.throws(() => process.kill(fixtureChildPid, 0), { code: "ESRCH" });
 });
 
-test("runner ends a run wedged outside any test body and names what it caught", () => {
+test("runner ends a run wedged outside any test body and names what it caught", {
+  // The wedge this escalation targets was observed on POSIX CI runners (a
+  // futex-blocked child), and naming the stalled file inspects the POSIX
+  // process group. Windows keeps its existing taskkill timeout path.
+  skip: process.platform === "win32"
+    ? "stalled-file naming inspects the POSIX process group; Windows keeps its taskkill path"
+    : false
+}, () => {
   const startedAt = Date.now();
   const childEnv = {
     ...process.env,
