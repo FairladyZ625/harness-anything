@@ -43,6 +43,7 @@ import { resolveManagedSectionPolicy } from "../commands/extensions/managed-sect
 
 const docSyncHostServices = { resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
+import { readRemoteConfig, remoteDaemonSshArgs, remoteDaemonUnavailableHint, type RemoteDaemonConfig } from "./remote-config.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 import { startCliTimingPhase, type CliTimingPhase } from "../cli/timing.ts";
 
@@ -59,6 +60,12 @@ export {
   type LocalDaemonTarget
 } from "@harness-anything/daemon";
 
+export {
+  remoteDaemonSshArgs,
+  remoteDaemonUnavailableHint,
+  type RemoteDaemonConfig
+} from "./remote-config.ts";
+
 export type DaemonClientMode = "direct" | "local" | "remote";
 
 export interface DaemonClientConfig {
@@ -71,13 +78,6 @@ export interface DaemonClientConfig {
   readonly daemonId: string;
   readonly directWriteReason?: "recovery";
   readonly remote?: RemoteDaemonConfig;
-}
-
-export interface RemoteDaemonConfig {
-  readonly host: string;
-  readonly remoteHaPath: string;
-  readonly remoteRoot: string;
-  readonly repoId: string;
 }
 
 type TaskHolderParsedCommand = ParsedCommand & {
@@ -110,7 +110,7 @@ export function readDaemonClientConfig(
     userRoot,
     daemonId: daemonIdFromEnv(env),
     ...(directWriteReason ? { directWriteReason } : {}),
-    ...(mode === "remote" ? { remote: readRemoteConfig(env) } : {})
+    ...(mode === "remote" ? { remote: readRemoteConfig(env, rootDir, projectSettings, layoutOverrides) } : {})
   };
 }
 
@@ -454,14 +454,6 @@ function isInitializedHarness(command: ParsedCommand): boolean {
   }
 }
 
-export function remoteDaemonSshArgs(remote: RemoteDaemonConfig): ReadonlyArray<string> {
-  return [remote.host, remote.remoteHaPath, "daemon", "connect", "--stdio"];
-}
-
-export function remoteDaemonUnavailableHint(remote: RemoteDaemonConfig): string {
-  return `Remote daemon unavailable. Start the persistent daemon on ${remote.host} with '${remote.remoteHaPath} daemon start --service' and verify '${remote.remoteHaPath} daemon status'.`;
-}
-
 function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): ParsedCommand {
   return path.resolve(command.rootDir) === path.resolve(target.canonicalRoot)
     ? command
@@ -482,21 +474,6 @@ export function daemonClientCliEntrypointPath(moduleUrl: string | URL = import.m
     throw new Error(`unsupported daemon client module extension: ${extension || "<none>"}`);
   }
   return fileURLToPath(new URL(`../index${extension}`, clientUrl));
-}
-
-function readRemoteConfig(env: NodeJS.ProcessEnv): RemoteDaemonConfig {
-  return {
-    host: requiredEnv(env, "HARNESS_DAEMON_SSH_HOST"),
-    remoteHaPath: env.HARNESS_DAEMON_REMOTE_HA ?? "ha",
-    remoteRoot: requiredEnv(env, "HARNESS_DAEMON_REMOTE_ROOT"),
-    repoId: env.HARNESS_DAEMON_REPO_ID ?? "canonical"
-  };
-}
-
-function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
-  const value = env[name];
-  if (typeof value === "string" && value.length > 0) return value;
-  throw new Error(`${name} is required when HARNESS_DAEMON_MODE=remote`);
 }
 
 function isCommandReceipt(value: JsonObject): boolean {
