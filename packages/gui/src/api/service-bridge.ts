@@ -13,6 +13,7 @@ export { validateGuiRoutePayload } from "./gui-route-payload.ts";
 // not import that kernel barrel because it would reintroduce the sqlite ABI path.
 export interface GuiServiceBridge {
   readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
+  readonly dispose?: () => Promise<void>;
 }
 
 type JsonObject = { readonly [key: string]: JsonValue };

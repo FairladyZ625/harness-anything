@@ -3,10 +3,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import {
-  createLocalGuiServiceBridge,
+  createGuiServiceBridge,
   type HarnessLayoutOverrides
 } from "./local-composition-root.ts";
-import { createLocalGuiProjectionNotifications } from "./projection-notifications.ts";
+import { createGuiProjectionNotifications } from "./projection-notifications.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { createGuiContentSecurityPolicy, resolveDevRendererOrigin } from "./window-config.ts";
 
@@ -72,8 +72,9 @@ export async function startGuiApp(): Promise<void> {
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot();
   const layoutOverrides = resolveGuiLayoutOverrides();
-  const projectionNotifications = createLocalGuiProjectionNotifications(rootDir, layoutOverrides);
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(rootDir, layoutOverrides), {
+  const serviceBridge = createGuiServiceBridge(rootDir, layoutOverrides);
+  const projectionNotifications = createGuiProjectionNotifications(rootDir, layoutOverrides);
+  registerHarnessIpcHandlers(ipcMain, serviceBridge, {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createLocalPackagedRendererUrl(),
@@ -83,6 +84,7 @@ export async function startGuiApp(): Promise<void> {
     }
   }, projectionNotifications.source);
   app.once("before-quit", () => {
+    void serviceBridge.dispose?.();
     void projectionNotifications.dispose();
   });
   createTrustedMainWindow(trustedWebContentsIds);

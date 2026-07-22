@@ -1,11 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
 import type { DaemonClientDiagnostic } from "../../api-contracts/src/index.ts";
 import { ConnectionPool } from "../src/connection-pool.ts";
 import { JsonRpcWriter } from "../src/json-rpc-writer.ts";
 import { PersistentDaemonClient } from "../src/persistent-daemon-client.ts";
 import { createDaemonRegistryResolver } from "../src/registry-discovery.ts";
+import { SshStdioTransport, sshStdioArgs } from "../src/ssh-stdio-transport.ts";
 import { FakeConnection, FakeTransport, hello, receipt } from "./fake-transport.ts";
 
 test("real command-receipt hello and projection notifications interleave with responses", async () => {
@@ -146,6 +148,35 @@ test("registry discovery fails explicitly when the kernel resolver seam is not i
     () => createDaemonRegistryResolver({ endpoint: "unix:/daemon", userRoot: "/profile" } as never),
     /requires resolveRepoByRoot after PLT-Boundary W1/u
   );
+});
+
+test("ssh stdio transport uses the CLI command shape and carries JSON-RPC lines", async () => {
+  const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+  const transport = new SshStdioTransport({
+    host: "remote-alias",
+    remoteHaPath: "/opt/ha",
+    spawnProcess: (command, args, options) => {
+      calls.push({ command, args });
+      return spawn(process.execPath, ["-e", [
+        "process.stdin.setEncoding('utf8');",
+        "let buffer = '';",
+        "process.stdin.on('data', chunk => {",
+        "  buffer += chunk;",
+        "  const newline = buffer.indexOf('\\n');",
+        "  if (newline < 0) return;",
+        "  const request = JSON.parse(buffer.slice(0, newline));",
+        "  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { echoed: request.method } }) + '\\n');",
+        "});"
+      ].join("\n")], options);
+    }
+  });
+  const connection = await transport.open("ssh-stdio:remote-alias");
+  const response = new Promise<unknown>((resolve) => connection.onFrame(resolve));
+  connection.write({ jsonrpc: "2.0", id: 7, method: "repo.tasks.list", params: {} });
+
+  assert.deepEqual(await response, { jsonrpc: "2.0", id: 7, result: { echoed: "repo.tasks.list" } });
+  assert.deepEqual(calls, [{ command: "ssh", args: sshStdioArgs("remote-alias", "/opt/ha") }]);
+  await connection.close();
 });
 
 function fixtureClient(
