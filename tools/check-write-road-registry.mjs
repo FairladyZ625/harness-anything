@@ -25,6 +25,7 @@ const discoveries = [
 const findings = [];
 
 validateRegistryShape();
+checkIntentCompilerCriterion();
 checkCoverage();
 checkStaleRegistryEntries();
 checkInventoryReconciliation();
@@ -45,6 +46,8 @@ if (findings.length > 0) {
   };
   console.log(`[write-road-coverage] current=${writePoints.length} previous=${previous.coverage} delta=${writePoints.length - previous.coverage}`);
   console.log(`[write-road-ratchet] current=${omissionDebt} previous=${previous.omissionDebt} delta=${omissionDebt - previous.omissionDebt}`);
+  const intentItems = rows.flatMap((row) => asArray(row.intentCompilers));
+  console.log(`[intent-compiler-criterion] unified=${intentItems.filter((item) => item.parity === "unified").length} parity-debt=${intentItems.filter((item) => item.parity === "parity-debt").length} unknown=${intentItems.filter((item) => item.parity === "unknown").length}`);
   console.log(`Write-road registry check passed (${sourceRoots.length} production source root(s), ${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
 }
 
@@ -106,6 +109,144 @@ function validateRegistryShape() {
       record(`${row.id}: leaseRequired rows must declare task-* bearing`);
     }
   }
+}
+
+function checkIntentCompilerCriterion() {
+  const criterion = registry.intentCompilerCriterion;
+  const authoredFields = ["cliActions", "apiRoutes", "guiBridgeMethods"];
+  if (!isObject(criterion)) {
+    record("intentCompilerCriterion must declare authored surface fields and the structural not-applicable rule");
+    return;
+  }
+  if (JSON.stringify(criterion.authoredSurfaceFields) !== JSON.stringify(authoredFields)) {
+    record(`intentCompilerCriterion.authoredSurfaceFields must be ${authoredFields.join(", ")}`);
+  }
+  if (criterion.notApplicableWhen !== "no-authored-ingress-surfaces") {
+    record("intentCompilerCriterion.notApplicableWhen must be no-authored-ingress-surfaces");
+  }
+
+  const discoveredSurfaces = new Set();
+  for (const discovery of discoveries) {
+    const surface = authoredSurfaceForDiscovery(discovery);
+    if (surface) discoveredSurfaces.add(surface);
+  }
+
+  const coveredSurfaces = new Map();
+  const selectors = new Set();
+  for (const row of rows) {
+    const rowSurfaces = new Set(authoredFields.flatMap((field) => asArray(row[field]).map((value) => `${field}:${value}`)));
+    const items = asArray(row.intentCompilers);
+    if (rowSurfaces.size === 0 && items.length > 0) {
+      record(`${row.id}: non-authored row is not-applicable and cannot declare intentCompilers`);
+    }
+    for (const [itemIndex, item] of items.entries()) {
+      const label = `${row.id}.intentCompilers[${itemIndex}]`;
+      if (!isObject(item)) {
+        record(`${label} must be an object`);
+        continue;
+      }
+      if (typeof item.selector !== "string" || item.selector.trim() === "") {
+        record(`${label}.selector must be non-empty`);
+      } else if (selectors.has(item.selector)) {
+        record(`${label}.selector duplicates ${item.selector}`);
+      } else {
+        selectors.add(item.selector);
+      }
+      const itemSurfaces = authoredFields.flatMap((field) => asArray(item.surfaces?.[field]).map((value) => `${field}:${value}`));
+      if (itemSurfaces.length === 0) record(`${label}.surfaces must select at least one authored ingress surface`);
+      const expectedSelector = sourceDerivedSelector(item.surfaces);
+      if (expectedSelector && item.selector !== expectedSelector) {
+        record(`${label}.selector must be source-derived as ${expectedSelector}`);
+      }
+      if (!itemSurfaces.some((surface) => rowSurfaces.has(surface))) {
+        record(`${label} must be owned by a row that declares at least one selected surface`);
+      }
+      for (const surface of itemSurfaces) {
+        if (!discoveredSurfaces.has(surface)) record(`${label}: stale or non-authored surface ${surface}`);
+        const previous = coveredSurfaces.get(surface);
+        if (previous) record(`${label}: authored surface ${surface} is already owned by ${previous}`);
+        else coveredSurfaces.set(surface, item.selector);
+      }
+      validateIntentParity(item, label);
+    }
+  }
+
+  for (const surface of [...discoveredSurfaces].sort()) {
+    if (!coveredSurfaces.has(surface)) record(`${surface}: authored ingress surface has no intent compiler criterion item`);
+  }
+}
+
+function validateIntentParity(item, label) {
+  if (!["unified", "parity-debt", "unknown"].includes(item.parity)) {
+    record(`${label}.parity must be unified, parity-debt, or unknown`);
+    return;
+  }
+  if (item.parity === "unknown") {
+    if (typeof item.reason !== "string" || item.reason.trim().length < 20) {
+      record(`${label}: unknown must include a specific reason`);
+    }
+    if (asArray(item.compilers).length > 0) record(`${label}: unknown cannot declare verified compilers`);
+    return;
+  }
+
+  const compilers = asArray(item.compilers);
+  if (compilers.length < 2) record(`${label}: ${item.parity} must declare at least two entry compilers`);
+  const entries = new Set();
+  const refs = new Set();
+  for (const [compilerIndex, compiler] of compilers.entries()) {
+    const compilerLabel = `${label}.compilers[${compilerIndex}]`;
+    if (!isObject(compiler)) {
+      record(`${compilerLabel} must be an object`);
+      continue;
+    }
+    if (typeof compiler.entry !== "string" || compiler.entry.trim() === "") record(`${compilerLabel}.entry must be non-empty`);
+    else if (entries.has(compiler.entry)) record(`${compilerLabel}.entry duplicates ${compiler.entry}`);
+    else entries.add(compiler.entry);
+    if (typeof compiler.ref !== "string" || !compiler.ref.includes("#")) {
+      record(`${compilerLabel}.ref must be path#symbol`);
+      continue;
+    }
+    refs.add(compiler.ref);
+    const [refPath, symbol] = compiler.ref.split("#");
+    const absolute = path.join(root, refPath);
+    if (!existsSync(absolute)) record(`${compilerLabel}.ref path does not exist: ${refPath}`);
+    else if (!new RegExp(`\\b${escapeRegExp(symbol)}\\b`, "u").test(readFileSync(absolute, "utf8"))) {
+      record(`${compilerLabel}.ref symbol does not exist: ${compiler.ref}`);
+    }
+  }
+  if (item.parity === "unified" && refs.size !== 1) {
+    record(`${label}: unified entry compilers must resolve to one materializer ref`);
+  }
+  if (item.parity === "parity-debt") {
+    const surfaceCount = ["cliActions", "apiRoutes", "guiBridgeMethods"]
+      .reduce((count, field) => count + asArray(item.surfaces?.[field]).length, 0);
+    if (surfaceCount < 2) record(`${label}: parity-debt must describe one intent with multiple ingress surfaces`);
+    if (refs.size < 2) record(`${label}: parity-debt must identify multiple materializer refs`);
+    if (typeof item.owner !== "string" || item.owner.trim() === "") record(`${label}: parity-debt must include owner`);
+    if (typeof item.sunset !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(item.sunset)) {
+      record(`${label}: parity-debt must include sunset as YYYY-MM-DD`);
+    }
+  }
+}
+
+function sourceDerivedSelector(surfaces) {
+  const cliAction = [...asArray(surfaces?.cliActions)].sort()[0];
+  if (cliAction) return cliAction;
+  const apiRoute = [...asArray(surfaces?.apiRoutes)].sort()[0];
+  if (apiRoute) return `api:${apiRoute}`;
+  const guiBridgeMethod = [...asArray(surfaces?.guiBridgeMethods)].sort()[0];
+  return guiBridgeMethod ? `gui:${guiBridgeMethod}` : undefined;
+}
+
+function authoredSurfaceForDiscovery(discovery) {
+  if (discovery.type === "daemon-cli-action") return `cliActions:${discovery.cliAction}`;
+  if (discovery.type === "api-route") return `apiRoutes:${discovery.apiRoute}`;
+  if (discovery.type === "gui-bridge-method") return `guiBridgeMethods:${discovery.guiBridgeMethod}`;
+  return undefined;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function checkCoverage() {
