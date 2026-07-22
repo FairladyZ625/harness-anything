@@ -5113,7 +5113,9 @@
         "Hermetic daemon-absent direct recovery task creation and CLI read-back"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "direct-recovery"
+        ],
         "workflowJobs": [
           "direct-recovery",
           "full-check"

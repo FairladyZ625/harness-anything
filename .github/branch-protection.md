@@ -57,6 +57,7 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- direct-recovery
 
 The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
@@ -80,6 +81,7 @@ against the queued pull request's predicted merge state.
 - gui-build
 - node26-compatibility
 - pr-body-lint
+- direct-recovery
 
 The `pr-body-lint` job checks human-authored pull request bodies against the
 repository template. It narrowly skips Mergify synthetic queue verification pull
