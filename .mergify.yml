@@ -20,6 +20,7 @@ queue_rules:
       - check-success = gui-build
       - check-success = node26-compatibility
       - check-success = pr-body-lint
+      - check-success = direct-recovery
     merge_conditions: []
 
 pull_request_rules:
