@@ -8,7 +8,15 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-supply-chain.mjs");
-const CHECK_PROCESS_TIMEOUT_MS = 90_000;
+// The outer spawn wrapper MUST exceed the check's own worst-case self-runtime
+// (its default network budget of 180_000ms, see DEFAULT_NETWORK_BUDGET_MS in
+// check-supply-chain.mjs) plus margin. Otherwise a CPU-starved-but-correct run
+// under parallel shard load is killed by this wrapper before the check's own
+// bounded retry/timeout logic can settle, producing a false red rather than a
+// deterministic result. Tests that deliberately exercise a hang set their own
+// smaller network budget and pass an explicit, smaller timeoutMs.
+const CHECK_NETWORK_BUDGET_MS = 180_000;
+const CHECK_PROCESS_TIMEOUT_MS = CHECK_NETWORK_BUDGET_MS + 20_000;
 
 test("supply-chain check accepts the expected release gate contract", async () => {
   await withFixtureRepo((root) => {
