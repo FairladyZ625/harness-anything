@@ -49,6 +49,7 @@ export interface DaemonServeInput {
   readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   readonly platform?: NodeJS.Platform;
   readonly runtimePolicy?: DaemonRuntimePolicy;
+  readonly admissionMaxBytes?: number;
 }
 
 export async function runDaemonServe<
@@ -161,6 +162,7 @@ export async function runDaemonServe<
         materializerPollMs: runtimePolicy.materializer.pollMs,
         materializerMaxBranchesPerBatch: runtimePolicy.materializer.maxBranchesPerBatch,
         projectionReconcileIntervalMs: runtimePolicy.projection.reconcileIntervalMs,
+        ...(input.admissionMaxBytes === undefined ? {} : { admissionMaxBytes: input.admissionMaxBytes }),
         ...(generation.mode === "legacy" ? {
           generationCapability: { mode: "legacy", platform: "win32", diagnostic: generation.diagnostic }
         } : {}),

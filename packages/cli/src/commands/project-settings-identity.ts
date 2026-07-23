@@ -21,9 +21,14 @@ export interface ProjectHarnessDaemonRemoteSettings {
   readonly haPath?: string;
 }
 
+export interface ProjectHarnessDaemonAdmissionSettings {
+  readonly maxBytes: number;
+}
+
 export interface ProjectHarnessDaemonSettings {
   readonly userRoot?: string;
   readonly remote?: ProjectHarnessDaemonRemoteSettings;
+  readonly admission?: ProjectHarnessDaemonAdmissionSettings;
 }
 
 const DAEMON_REMOTE_HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@-]*$/u;
@@ -35,8 +40,8 @@ export function validateDaemonSettings(value: unknown): Validation<ProjectHarnes
   if (value === undefined) return { ok: true };
   if (!isIdentitySettingsRecord(value)) return { ok: false, message: "settings.daemon must be a mapping." };
   const keys = Object.keys(value);
-  if (keys.length === 0 || keys.some((key) => key !== "userRoot" && key !== "remote")) {
-    return { ok: false, message: "settings.daemon supports only userRoot and remote." };
+  if (keys.length === 0 || keys.some((key) => key !== "userRoot" && key !== "remote" && key !== "admission")) {
+    return { ok: false, message: "settings.daemon supports only userRoot, remote, and admission." };
   }
   let userRoot: string | undefined;
   if (value.userRoot !== undefined) {
@@ -50,13 +55,30 @@ export function validateDaemonSettings(value: unknown): Validation<ProjectHarnes
   }
   const remote = validateDaemonRemoteSettings(value.remote, "settings.daemon.remote");
   if (!remote.ok) return remote;
+  const admission = validateDaemonAdmissionSettings(value.admission);
+  if (!admission.ok) return admission;
   return {
     ok: true,
     value: {
       ...(userRoot === undefined ? {} : { userRoot }),
-      ...(remote.value === undefined ? {} : { remote: remote.value })
+      ...(remote.value === undefined ? {} : { remote: remote.value }),
+      ...(admission.value === undefined ? {} : { admission: admission.value })
     }
   };
+}
+
+function validateDaemonAdmissionSettings(value: unknown): Validation<ProjectHarnessDaemonAdmissionSettings> {
+  if (value === undefined) return { ok: true };
+  if (!isIdentitySettingsRecord(value)) return { ok: false, message: "settings.daemon.admission must be a mapping." };
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== "maxBytes") {
+    return { ok: false, message: "settings.daemon.admission supports only maxBytes." };
+  }
+  const maxBytes = positiveAdmissionByteLimit(value.maxBytes);
+  if (maxBytes === undefined) {
+    return { ok: false, message: "settings.daemon.admission.maxBytes must be a positive safe integer." };
+  }
+  return { ok: true, value: { maxBytes } };
 }
 
 /**
@@ -120,4 +142,10 @@ export function validateIdentitySettings(value: unknown): Validation<ProjectHarn
 
 function isIdentitySettingsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function positiveAdmissionByteLimit(value: unknown): number | undefined {
+  if (typeof value === "string" && !/^[0-9]+$/u.test(value)) return undefined;
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
