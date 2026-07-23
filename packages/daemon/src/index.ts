@@ -65,6 +65,8 @@ export * from "./runtime/canonical-harness-root.ts";
 export * from "./runtime/canonical-root.ts";
 export * from "./runtime/registry-reconciler.ts";
 export * from "./runtime/repo-runtime.ts";
+export * from "./runtime/repo-write-outcome-schema.ts";
+export * from "./runtime/durable-repo-write-outcome-store.ts";
 export * from "./runtime/runtime-policy.ts";
 export * from "./lifecycle/daemon-lifecycle.ts";
 export * from "./lifecycle/daemon-generation.ts";
