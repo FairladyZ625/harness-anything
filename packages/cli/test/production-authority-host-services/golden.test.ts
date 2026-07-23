@@ -48,3 +48,15 @@ test("structured daemon unsupported-command data retains the CLI receipt bytes",
     hint: `AUTHORITY_TYPED_COMMAND_UNSUPPORTED: ${productionAuthorityUnsupportedHint(rejectedKind)}`
   });
 });
+
+test("structured daemon unsupported variants explain the excluded command shape", () => {
+  const rendered = toCliError({
+    _tag: "WriteRejected",
+    code: "authority_ingress_rejected",
+    reason: "AUTHORITY_TYPED_COMMAND_UNSUPPORTED:new-task[register-module]"
+  });
+  assert.deepEqual(rendered, {
+    code: "authority_ingress_rejected",
+    hint: "AUTHORITY_TYPED_COMMAND_UNSUPPORTED: production canonical ingress rejected new-task variant register-module: inline module registration is a cross-entity composite write; register the module separately before creating the task (decision/dec_01KXSWKWTEXB751A30TRRCQWDG)"
+  });
+});

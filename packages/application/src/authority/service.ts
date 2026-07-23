@@ -63,6 +63,7 @@ import {
   rejectStaleGeneration
 } from "./generation-fence-enforcement.ts";
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
+import { authorityPublicationSegments } from "./publication-segments.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
@@ -254,6 +255,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         authorityIntegrity,
         actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),
         canonicalRequestEnvelope,
+        ...(semanticCompilation.publicationRevalidation
+          ? { publicationRevalidation: semanticCompilation.publicationRevalidation }
+          : {}),
         recordedProtocol
       };
     } catch (error) {
@@ -331,22 +335,14 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     const receipts = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
     const prepared = admissions.filter((admission): admission is PreparedAuthoritySubmission => admission.kind === "prepared");
     if (prepared.length === 0) return admissions.map((admission) => (admission as TerminalAuthoritySubmission).receipt);
-    if (prepared.some((entry) => entry.authorityIntegrity) && prepared.some((entry) => !entry.authorityIntegrity)) {
+    const segments = authorityPublicationSegments(prepared);
+    if (segments.length > 1) {
       // V1 and V2 may coexist after explicit schema negotiation, but one Git
       // commit cannot truthfully anchor a V2 "exactly this batch" vector while
-      // also containing unanchored legacy operations. Preserve FIFO and split
-      // only at the provenance boundary.
+      // also containing unanchored legacy operations. Publication revalidation
+      // similarly requires a single-operation FIFO segment.
       const settled = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
-      let segment: PreparedAuthoritySubmission[] = [];
-      for (const entry of prepared) {
-        if (segment.length > 0 && Boolean(segment[0]!.authorityIntegrity) !== Boolean(entry.authorityIntegrity)) {
-          const segmentReceipts = await publishBatch(segment);
-          segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
-          segment = [];
-        }
-        segment.push(entry);
-      }
-      if (segment.length > 0) {
+      for (const segment of segments) {
         const segmentReceipts = await publishBatch(segment);
         segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
       }
@@ -375,17 +371,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       for (const entry of prepared) {
         try {
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
+          await entry.publicationRevalidation?.();
           await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
           candidates.push(entry);
         } catch (error) {
           if (isDaemonGenerationFenced(error)) throw error;
+          const reason = error instanceof SemanticAdmissionErrorV2 ? error.code : `ADMISSION_REJECTED:${describe(error)}`;
           receipts.set(entry, await persistTerminal(
             entry,
             entry.semanticDigest,
             "REJECTED",
-            rejected(entry, entry.semanticDigest, `ADMISSION_REJECTED:${describe(error)}`)
+            rejected(entry, entry.semanticDigest, reason)
           ));
         }
       }

@@ -5,13 +5,13 @@ import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler
 import type { RegistryEntityRefV2 } from "./semantic-mutation-envelope-v2.ts";
 import { semanticAdmissionV2 as admission, semanticMutationPlanV2 as plan } from "./semantic-authority-helpers-v2.ts";
 
-interface ModuleRegistryV2 {
+export interface ModuleRegistryV2 {
   readonly schema: "module-registry/v1";
   readonly modules: ReadonlyArray<ModuleRecordV2>;
 }
 
 export async function compileModuleRegisterV2(state: TaskDecisionModuleAuthorityStateV2, payload: ModuleRegisterPayloadV2): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
+  const { registry, snapshot } = await readModuleRegistryV2(state);
   const modules = registry.modules.some((entry) => entry.key === payload.module.key)
     ? registry.modules.map((entry) => entry.key === payload.module.key ? payload.module : entry)
     : [...registry.modules, payload.module];
@@ -19,7 +19,7 @@ export async function compileModuleRegisterV2(state: TaskDecisionModuleAuthority
 }
 
 export async function compileModuleUnregisterV2(state: TaskDecisionModuleAuthorityStateV2, payload: ModuleUnregisterPayloadV2): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
+  const { registry, snapshot } = await readModuleRegistryV2(state);
   if (!snapshot) throw admission("MODULE_REGISTRY_NOT_FOUND");
   const current = registry.modules.find((entry) => entry.key === payload.moduleKey);
   if (!current || current.status === "unregistered") throw admission("MODULE_NOT_FOUND");
@@ -30,7 +30,7 @@ export async function compileModuleUnregisterV2(state: TaskDecisionModuleAuthori
 }
 
 export async function compileModuleStepV2(state: TaskDecisionModuleAuthorityStateV2, payload: ModuleStepPayloadV2): Promise<CompiledTaskDecisionModuleCommandV2> {
-  const { registry, snapshot } = await moduleRegistry(state);
+  const { registry, snapshot } = await readModuleRegistryV2(state);
   if (!snapshot) throw admission("MODULE_REGISTRY_NOT_FOUND");
   const current = registry.modules.find((entry) => entry.key === payload.moduleKey);
   if (!current || current.status === "unregistered") throw admission("MODULE_NOT_FOUND");
@@ -53,7 +53,7 @@ function moduleCompilation(moduleKey: string, action: "register" | "unregister" 
   };
 }
 
-async function moduleRegistry(state: TaskDecisionModuleAuthorityStateV2): Promise<{ readonly registry: ModuleRegistryV2; readonly snapshot: HostedDocumentSnapshotV2 | null }> {
+export async function readModuleRegistryV2(state: TaskDecisionModuleAuthorityStateV2): Promise<{ readonly registry: ModuleRegistryV2; readonly snapshot: HostedDocumentSnapshotV2 | null }> {
   const snapshot = await state.readHostedDocument("modules.json");
   if (!snapshot) return { registry: { schema: "module-registry/v1", modules: [] }, snapshot: null };
   let value: unknown;

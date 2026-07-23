@@ -321,8 +321,15 @@ export function buildAuthorityPresetTaskCreateWrites(
   createdAt: string,
   provenance: ProvenancePayload
 ): ReadonlyArray<{ readonly path: string; readonly body: string; readonly packageSlug?: string }> {
-  if (!action.taskId || action.fromLegacyId || action.moduleKey || action.registerModule) {
+  if (!action.taskId || action.fromLegacyId || action.registerModule) {
     throw new Error("AUTHORITY_PRESET_TASK_CREATE_SHAPE_UNSUPPORTED");
+  }
+  const module = action.moduleKey
+    ? readModules(rootInput).modules.find((candidate) =>
+        candidate.key === action.moduleKey && candidate.status !== "unregistered")
+    : undefined;
+  if (action.moduleKey && !module) {
+    throw new Error(`AUTHORITY_PRESET_TASK_CREATE_MODULE_NOT_FOUND:${action.moduleKey}`);
   }
   const vertical = action.vertical ?? settings.defaultVertical ?? "software/coding";
   const presetId = action.preset ?? (action.longRunning ? "long-running-task" : settings.defaultPreset ?? "standard-task");
@@ -368,7 +375,12 @@ export function buildAuthorityPresetTaskCreateWrites(
       path: document.materializeAs,
       body: renderTemplateBody(document.body, action.title),
       packageSlug: action.slug
-    }))
+    })),
+    ...(module ? [{
+      path: "module.md",
+      body: renderModuleSelection(module),
+      packageSlug: action.slug
+    }] : [])
   ];
 }
 

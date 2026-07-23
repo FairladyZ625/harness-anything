@@ -21,6 +21,8 @@ import {
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
   type ActorAxesBindingClaimsV2,
+  type HostedDocumentSnapshotV2,
+  type PathCasV2,
   type ReplicaChangeLog,
   type SemanticBaseCasV2,
   type SemanticMutationEnvelopeV2,
@@ -31,6 +33,7 @@ import {
   entityRegistry,
   makeJournaledWriteCoordinator,
   readUnionAttributionEvents,
+  sha256Text,
   type DaemonAdmissionBudget,
   type DecisionPackage,
   type RegistryEntityRefV2
@@ -158,6 +161,98 @@ test("task, decision, and module typed writes publish through their existing phy
   });
 });
 
+test("module-scoped task publication preserves FIFO against module unregister", async () => {
+  for (const order of ["unregister-first", "task-first"] as const) {
+    await withHermeticGit(async ({ rootDir, env }) => {
+      const claims = {
+        ...actorClaims(),
+        allowedActions: ["create", "unregister"]
+      };
+      const secret = Buffer.alloc(32, 0x5a);
+      const token = issueActorAxesBindingV2(claims, {
+        algorithm: "HMAC-SHA-256", issuer: "authority.test", keyId: "key-w3", secret
+      });
+      const tokenDigest = actorAxesBindingTokenDigestV2(token);
+      const module = {
+        key: "kernel", title: "Kernel", status: "active",
+        scopes: ["packages/kernel/**"], steps: []
+      } as const;
+      const modulesPath = path.join(rootDir, "harness/modules.json");
+      writeFileSync(modulesPath, `${JSON.stringify({ schema: "module-registry/v1", modules: [module] }, null, 2)}\n`, "utf8");
+      git(rootDir, env, "add", "modules.json");
+      git(rootDir, env, "commit", "-m", "test: register initial module");
+
+      const readModules = async (portablePath: string): Promise<HostedDocumentSnapshotV2 | null> => {
+        if (portablePath !== "modules.json" || !existsSync(modulesPath)) return null;
+        const body = readFileSync(modulesPath, "utf8");
+        const digest = sha256Text(body);
+        return {
+          body,
+          epoch: digest,
+          revision: 0n,
+          blobDigest: Buffer.from(digest, "hex")
+        };
+      };
+      const initial = (await readModules("modules.json"))!;
+      const service = authority(
+        rootDir,
+        env,
+        claims,
+        secret,
+        tokenDigest,
+        createInMemoryReplicaChangeLog(),
+        undefined,
+        { readEntityBase: async () => null, readHostedDocument: readModules }
+      );
+      const taskId = order === "task-first" ? "task_FIFO_TASK_FIRST" : "task_FIFO_UNREGISTER_FIRST";
+      const indexBody = taskIndexFor(taskId);
+      const taskPayload: TaskDecisionModuleCommandPayloadV2 = {
+        schema: "task.create/v1",
+        taskId,
+        indexBody,
+        writes: [
+          { path: "INDEX.md", body: indexBody },
+          { path: "module.md", body: moduleSelection(module) }
+        ]
+      };
+      const taskEnvelope = bindEnvelope(requestEnvelope(
+        order === "task-first" ? 31 : 32,
+        taskPayload,
+        [absent(ref("task", `task/${taskId}`))],
+        set("task", `task/${taskId}`, "create"),
+        [pathCas("modules.json", initial)]
+      ), claims, tokenDigest);
+      const unregisterPayload = { schema: "module.unregister/v1", moduleKey: "kernel" } as const;
+      const unregisterEnvelope = bindEnvelope(requestEnvelope(
+        order === "task-first" ? 33 : 34,
+        unregisterPayload,
+        [absent(ref("module", "module/kernel"))],
+        set("module", "module/kernel", "unregister"),
+        [pathCas("modules.json", initial)]
+      ), claims, tokenDigest);
+      const submit = (requestId: string, envelope: SemanticMutationEnvelopeV2) => service.submitV2!({
+        requestId,
+        presentationToken: token,
+        envelope: encodeSemanticMutationEnvelopeV2(envelope)
+      });
+      const requests = order === "task-first"
+        ? [["task", taskEnvelope], ["unregister", unregisterEnvelope]] as const
+        : [["unregister", unregisterEnvelope], ["task", taskEnvelope]] as const;
+      const receipts = await Promise.all(requests.map(([requestId, envelope]) => submit(`${order}-${requestId}`, envelope)));
+
+      assert.equal(receipts[0]?.tag, "COMMITTED", JSON.stringify(receipts));
+      if (order === "task-first") {
+        assert.equal(receipts[1]?.tag, "COMMITTED", JSON.stringify(receipts));
+        assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`)), true);
+      } else {
+        assert.equal(receipts[1]?.tag, "REJECTED", JSON.stringify(receipts));
+        assert.equal(receipts[1]?.tag === "REJECTED" ? receipts[1].reason : "", "MODULE_NOT_FOUND");
+        assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`)), false);
+      }
+    });
+  }
+});
+
 function authority(
   rootDir: string,
   env: NodeJS.ProcessEnv,
@@ -165,7 +260,8 @@ function authority(
   secret: Uint8Array,
   tokenDigest: Uint8Array,
   changeLog: ReplicaChangeLog,
-  admissionBudget?: DaemonAdmissionBudget
+  admissionBudget?: DaemonAdmissionBudget,
+  semanticState = { readEntityBase: async () => null, readHostedDocument: async () => null }
 ) {
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
@@ -221,7 +317,7 @@ function authority(
       },
       entityRegistrations: [entityRegistry.task, entityRegistry.decision, entityRegistry.module],
       semanticCompiler: makeTaskDecisionModuleSemanticCompilerV2({
-        state: { readEntityBase: async () => null, readHostedDocument: async () => null }
+        state: semanticState
       }),
       operationNamespaceVerifier: { verify: async () => undefined },
       committedEventPublisher: {
@@ -239,7 +335,8 @@ function requestEnvelope(
   randomByte: number,
   payloadValue: TaskDecisionModuleCommandPayloadV2,
   baseCas: ReadonlyArray<SemanticBaseCasV2>,
-  mutationSet: SemanticMutationSetV2
+  mutationSet: SemanticMutationSetV2,
+  declaredPathCas: ReadonlyArray<PathCasV2> = []
 ): SemanticMutationEnvelopeV2 {
   const payload = encodeTaskDecisionModuleCommandPayloadV2(payloadValue);
   return finalize({
@@ -265,7 +362,7 @@ function requestEnvelope(
       canonicalPayload: { kind: "inline", size: BigInt(payload.length), bytes: payload },
       canonicalPayloadDigest: canonicalPayloadDigestV2(payload),
       baseCas,
-      declaredPathCas: []
+      declaredPathCas
     },
     claimedMutationSet: mutationSet,
     claimedSemanticMutationSetDigest: semanticMutationSetDigestV2(mutationSet),
@@ -342,8 +439,12 @@ function absent(entityRef: RegistryEntityRefV2): SemanticBaseCasV2 {
 }
 
 function taskIndex(): string {
+  return taskIndexFor("task_W3");
+}
+
+function taskIndexFor(taskId: string): string {
   return [
-    "---", "schema: task-package/v2", "task_id: task_W3", "title: W3 positive",
+    "---", "schema: task-package/v2", `task_id: ${taskId}`, "title: W3 positive",
     "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: planned",
     "  ref: ", "  titleSnapshot: W3 positive", "  url: ",
     "  bindingCreatedAt: 2026-07-14T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`,
@@ -351,6 +452,23 @@ function taskIndex(): string {
     "provenance:", "  - {runtime: codex, sessionId: session-w3, boundAt: 2026-07-14T00:00:00.000Z}",
     "---", "", "# W3 positive", ""
   ].join("\n");
+}
+
+function moduleSelection(module: { readonly key: string; readonly title: string; readonly scopes: ReadonlyArray<string> }): string {
+  return [
+    "# Module Selection", "", `Module key: ${module.key}`, `Module title: ${module.title}`, "",
+    "## Scopes", "", ...module.scopes.map((scope) => `- ${scope}`), "",
+    "This file records the module selected when the task was created.", ""
+  ].join("\n");
+}
+
+function pathCas(documentPath: string, snapshot: HostedDocumentSnapshotV2): PathCasV2 {
+  return {
+    path: documentPath,
+    expectedEpoch: snapshot.epoch,
+    expectedRevision: snapshot.revision,
+    expectedBlobDigest: snapshot.blobDigest
+  };
 }
 
 function decisionPackage(): DecisionPackage {

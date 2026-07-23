@@ -61,3 +61,22 @@ test("daemon generation rejection preserves its stable code and structured conte
     context
   });
 });
+
+test("daemon module lookup rejections use the public module-not-found contract", () => {
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "module_not_found",
+    reason: "AUTHORITY_PRESET_TASK_CREATE_MODULE_NOT_FOUND:daemon-performance"
+  }), {
+    code: "module_not_found",
+    hint: "Module daemon-performance was not found."
+  });
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "module_not_found",
+    reason: "MODULE_NOT_FOUND"
+  }), {
+    code: "module_not_found",
+    hint: "The selected module was not found."
+  });
+});

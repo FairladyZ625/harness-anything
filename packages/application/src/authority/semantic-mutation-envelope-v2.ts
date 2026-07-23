@@ -126,6 +126,7 @@ export interface AuthoritySemanticCompilationV2 {
   readonly mutationPlan: RegistryMutationPlanInput;
   readonly operation: WriteOp;
   readonly decodedBytes: bigint;
+  readonly publicationRevalidation?: () => Promise<void>;
 }
 
 export interface AuthoritySemanticCompilerContextV2 {
