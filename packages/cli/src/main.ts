@@ -85,22 +85,26 @@ async function runParsedCommand(command: Parameters<typeof runRegisteredCommand>
   const configuredMode = process.env.HARNESS_DAEMON_MODE;
   const testFixtureCommandRunner = (globalThis as Record<symbol, unknown>)[cliTestFixtureRunnerSymbol] as ParsedCommandRunner | undefined;
   if (testFixtureCommandRunner && configuredMode !== "direct" && configuredMode !== "local" && configuredMode !== "remote") {
-    return runTimedCommand(() => testFixtureCommandRunner(command));
+    return runDaemonBackedCommand(() => runTimedCommand(() => testFixtureCommandRunner(command)));
   }
   if (isDaemonIndependentCommand(command) || isGithubIssuesReadCommand(command)) {
     return runLocalRegisteredCommand(command);
   }
+  const daemonOutput = await runDaemonBackedCommand(() => runCommandThroughDaemon(command));
+  return daemonOutput ?? runLocalRegisteredCommand(command);
+}
+
+async function runDaemonBackedCommand<T>(run: () => Promise<T>): Promise<T> {
+  if (process.env.HA_PROGRESS === "0") return run();
   const slowDaemonNotice = setTimeout(() => {
-    console.error("[ha] Waiting for daemon readiness or command completion; authority admission remains enforced.");
+    console.error("[ha] Command is still running; this is progress, not the final receipt. Keep waiting for this process to finish. Agent tools must continue reading the same session.");
   }, 1_000);
   slowDaemonNotice.unref();
-  let daemonOutput: CommandReceipt | CommandFailureReceipt | undefined;
   try {
-    daemonOutput = await runCommandThroughDaemon(command);
+    return await run();
   } finally {
     clearTimeout(slowDaemonNotice);
   }
-  return daemonOutput ?? runLocalRegisteredCommand(command);
 }
 
 async function runLocalRegisteredCommand(
