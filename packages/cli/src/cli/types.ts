@@ -158,6 +158,7 @@ export interface CliResult {
   readonly launchPlan?: {
     readonly packageName: "@harness-anything/gui";
     readonly mode: "local-desktop-controller";
+    readonly source: "installed-product" | "source-checkout";
     readonly apiHost: "127.0.0.1";
     readonly delegated: true;
     readonly dryRun: boolean;

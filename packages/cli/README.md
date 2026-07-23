@@ -46,3 +46,23 @@ commands still return exactly one final receipt after completion. Set
 `HA_PROGRESS=0` only when a caller deliberately suppresses these human-readable
 progress messages; it does not change daemon, authority, durability, or receipt
 behavior.
+
+## Desktop GUI launcher
+
+`ha gui` resolves the current Harness project from the caller's working
+directory, but it never executes package scripts from that project. GUI launch
+is client-local and does not run inside the global daemon snapshot.
+
+The launcher supports the complete installed desktop product and trusted source
+development:
+
+- a packaged CLI discovers the GUI executable in the same desktop artifact;
+- package managers may expose `harness-anything-gui` on `PATH`;
+- standard macOS, Windows, and Linux installation locations are checked;
+- `HARNESS_GUI_EXECUTABLE` registers a non-standard installation explicitly;
+- a workspace-local CLI may use the verified `@harness-anything/gui` source
+  checkout for development.
+
+Every launch passes the selected project as `HARNESS_GUI_ROOT`. If the complete
+desktop product is absent, the command reports an installation error instead of
+treating the target project as executable code.

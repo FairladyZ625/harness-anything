@@ -134,6 +134,7 @@ function isDaemonIndependentCommand(command: { readonly action: { readonly kind:
     || command.action.kind === "entity-list"
     || command.action.kind === "capabilities"
     || command.action.kind === "completion"
+    || command.action.kind === "gui"
     || command.action.kind === "git-diff";
 }
 
