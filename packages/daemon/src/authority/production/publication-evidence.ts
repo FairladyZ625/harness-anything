@@ -22,6 +22,8 @@ const materializerCommitter = {
 } as const;
 
 export interface CanonicalPublicationEvidence {
+  /** Ordered operation group encoded by the canonical publication anchor. */
+  readonly opIds: ReadonlyArray<string>;
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly parentCommits: ReadonlyArray<string>;
@@ -283,6 +285,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       return true;
     }).map((change) => change.path);
     return {
+      opIds: [...expectedOpIds],
       commitSha: head,
       previousCommit: expectedPreviousHead,
       parentCommits,

@@ -6,9 +6,9 @@ import {
   type AuthorityStoredOperationRecord
 } from "@harness-anything/application";
 import {
-  assertPublicationMatchesMutationSet,
   type GitCanonicalPublicationInspector
 } from "./publication-evidence.ts";
+import { recoverReplicaPublicationGroup } from "./publication-recovery-group.ts";
 import type { DurableAuthorityServiceState } from "./service-state.ts";
 import {
   actorAxesBindingCoreDigestV2,
@@ -32,30 +32,12 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
   if (!change && record.authorityIntegrity && record.commitSha) {
     const evidence = await input.publicationInspector.findPublicationForOperation(record.opId);
     if (evidence.commitSha !== record.commitSha) throw new Error("AUTHORITY_V2_RECOVERY_COMMIT_MISMATCH");
-    assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity.canonicalMutationSet);
-    const latest = await input.replicaChangeLog.latest(record.workspaceId);
-    change = {
-      schema: "replica-change/v2",
-      workspaceId: record.workspaceId,
-      revision: (latest?.revision ?? 0) + 1,
-      opId: record.opId,
-      semanticDigest: record.semanticDigest,
-      operations: [{
-        opId: record.opId,
-        semanticDigest: record.semanticDigest,
-        authorityIntegrity: record.authorityIntegrity
-      }],
-      commitSha: record.commitSha,
-      previousCommit: evidence.previousCommit,
-      changedAt: new Date().toISOString(),
-      manifest: {
-        digest: `sha256:${record.semanticDigest}`,
-        entryCount: 0
-      },
-      paths: [],
-      authorityIntegrity: record.authorityIntegrity
-    };
-    await input.replicaChangeLog.append(change);
+    change = await recoverReplicaPublicationGroup({
+      record,
+      operationRegistry: input.operationRegistry,
+      replicaChangeLog: input.replicaChangeLog,
+      evidence
+    });
   }
   const changeOperation = change?.operations.find((operation) => operation.opId === record.opId);
   if (!change || !record.authorityIntegrity || !record.commitSha

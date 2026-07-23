@@ -88,7 +88,7 @@ test("shadow reconciliation reports exact matches and names commit divergence", 
   assert.deepEqual(report.differences.map((entry) => entry.code), ["CANONICAL_COMMIT_MISMATCH"]);
 });
 
-test("authority microbatches concurrent admissions into one linear publication with per-operation attribution", async () => {
+test("normal authority writes remain open and return COMMITTED receipts for a multi-operation publication", async () => {
   await withHermeticGit(async ({ rootDir, env }) => {
     const changeLog = createInMemoryReplicaChangeLog();
     const shadowLog = createInMemoryShadowPublicationLog();

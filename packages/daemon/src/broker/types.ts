@@ -27,6 +27,9 @@ export interface ManagedFingerprint {
 export interface BrokerVersion {
   readonly epoch: string;
   readonly revision: number;
+  /** Ordered operation owners for this path in a grouped publication. */
+  readonly lastChangeOpIds?: ReadonlyArray<string>;
+  /** Compatibility alias for lastChangeOpIds[0]. */
   readonly lastChangeOpId: string | null;
   readonly commitSha: string | null;
   readonly fingerprint: ManagedFingerprint;

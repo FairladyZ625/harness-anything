@@ -130,7 +130,11 @@ function exactAffectedPaths(
 ): ReadonlyArray<string> {
   return Object.entries(state.paths)
     .filter(([, pathState]) => pathState.canonicalHidden.revision === authority.revision
-      && pathState.canonicalHidden.lastChangeOpId === authority.opId
+      && (pathState.canonicalHidden.lastChangeOpIds
+        ?? (pathState.canonicalHidden.lastChangeOpId === null
+          ? []
+          : [pathState.canonicalHidden.lastChangeOpId]))
+        .includes(authority.opId)
       && pathState.canonicalHidden.commitSha === authority.commitSha)
     .map(([pathName]) => pathName)
     .sort();

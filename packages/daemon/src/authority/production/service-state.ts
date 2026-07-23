@@ -60,6 +60,11 @@ export function openDurableAuthorityServiceState(input: {
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
   const operationLog = openLog(stateDirectory, "operations.jsonl", "operation");
   const replicaLog = openLog(stateDirectory, "replica-changes.jsonl", "replica-change");
+  for (const [key, value] of replicaLog.values) {
+    const normalized = normalizePersistedReplicaChange(value);
+    validateReplicaChange(normalized);
+    replicaLog.values.set(key, normalized);
+  }
   const bindingLog = openLog(stateDirectory, "bindings.jsonl", "binding");
   const namespaceLog = openLog(stateDirectory, "namespaces.jsonl", "namespace");
   const cutoverLog = openLog(stateDirectory, "cutover.jsonl", "cutover");
@@ -250,6 +255,15 @@ function normalizeReplicaChange(record: Parameters<ReplicaChangeLog["append"]>[0
     },
     paths: record.paths ?? []
   };
+}
+
+function normalizePersistedReplicaChange(value: unknown): ReplicaChangeRecord {
+  if (!value || typeof value !== "object") throw new Error("AUTHORITY_REPLICA_CHANGE_ROW_INVALID");
+  const record = value as Parameters<ReplicaChangeLog["append"]>[0];
+  if (record.schema !== "replica-change/v1" && record.schema !== "replica-change/v2") {
+    throw new Error("AUTHORITY_REPLICA_CHANGE_SCHEMA_INVALID");
+  }
+  return normalizeReplicaChange(record);
 }
 
 function latestReplica(values: ReadonlyMap<string, unknown>, workspaceId: string): ReplicaChangeRecord | undefined {
