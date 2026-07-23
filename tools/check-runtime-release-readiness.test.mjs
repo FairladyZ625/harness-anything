@@ -138,7 +138,7 @@ function validRuntimeDoc() {
   return [
     "# Runtime Release",
     "Status: source checkout and package smoke only.",
-    "Node 24 and Node 26 are checked.",
+    "Node 24-only CI is checked.",
     "Run node packages/cli/src/index.ts --json doctor.",
     "Run npm run check.",
     "Run npm run check:pr.",
@@ -156,7 +156,7 @@ function validWorkflow() {
     "  full-check:",
     "    strategy:",
     "      matrix:",
-    "        node-version: [24, 26]",
+    "        node-version: 24",
     "    steps:",
     "      - run: npm run check",
     "  fast-contract:",

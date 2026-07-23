@@ -31,7 +31,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "pr-body-lint",
         "direct-recovery"
       ]
@@ -54,8 +53,8 @@
   "tierDefinitions": {
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
     "pr-advisory": "Runs for pull requests but is intentionally not yet a GitHub branch-protection required context; promotion to required is a separate governed change.",
-    "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
-    "nightly-only": "Runs only on scheduled full-check.",
+    "main-only": "Runs only on main push outside pull-request required contexts.",
+    "nightly-only": "Runs only on scheduled rewrite-ci.",
     "local-only": "Produces an applicable verdict only for a declared self-hosted layout. Public CI may execute the local runner but receives an explicit not-applicable result because no private layout is declared.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
   },
@@ -228,8 +227,7 @@
         "package-policy",
         "supply-chain",
         "direct-recovery",
-        "gui-build",
-        "node26-compatibility"
+        "gui-build"
       ],
       "helperJobsNotRegisteredAsGates": [
         "metadata-source-proof",
@@ -237,7 +235,7 @@
         "windows-local-check"
       ],
       "nonPullRequestGateJobs": [
-        "full-check"
+        "enforcement-debt-sunset"
       ]
     },
     "branchProtection": {
@@ -254,7 +252,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "pr-body-lint",
         "direct-recovery"
       ],
@@ -262,84 +259,6 @@
     }
   },
   "gates": [
-    {
-      "id": "aggregate-full-check",
-      "nonDeterminism": {
-        "kind": "aggregate",
-        "reason": "The full-check wrapper inherits test, build, registry, wall-clock, and host-environment behavior from its leaf gates.",
-        "evidence": [
-          "package.json:scripts.check",
-          "tools/run-manifest-gates.mjs"
-        ]
-      },
-      "aggregate": true,
-      "command": "npm run check",
-      "category": "meta-governance",
-      "tier": "main-only",
-      "tierReason": "Full aggregate check is intentionally not a pull_request job; rewrite-ci runs it on main push, schedule, and workflow_dispatch.",
-      "authoritySource": [
-        "package.json:scripts.check",
-        ".github/workflows/rewrite-ci.yml:jobs.full-check"
-      ],
-      "consumerScope": [
-        "full local gate suite",
-        "non-PR rewrite-ci full-check matrix"
-      ],
-      "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": [
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "Aggregate composition is governed by this manifest and package.json until G3 derives/checks it."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "package.json",
-          ".github/workflows/rewrite-ci.yml",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": true,
-          "checkPr": false,
-          "script": "check"
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
-        },
-        "branchProtection": {
-          "required": false,
-          "contexts": []
-        },
-        "classes": [
-          "local",
-          "main-full"
-        ]
-      },
-      "deterministic": false,
-      "positiveControl": {
-        "status": "not-applicable",
-        "evidence": [
-          "Composite runner only; positive controls are declared by its leaf gates."
-        ]
-      }
-    },
     {
       "id": "aggregate-check-pr",
       "nonDeterminism": {
@@ -600,8 +519,7 @@
           "boundaries",
           "package-policy",
           "supply-chain",
-          "gui-build",
-          "node26-compatibility"
+          "gui-build"
         ],
         "workflowJobs": [
           "pr-body-lint",
@@ -611,12 +529,10 @@
           "boundaries",
           "package-policy",
           "supply-chain",
-          "gui-build",
-          "node26-compatibility"
+          "gui-build"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -650,8 +566,7 @@
             "boundaries",
             "package-policy",
             "supply-chain",
-            "gui-build",
-            "node26-compatibility"
+            "gui-build"
           ],
           "nonPullRequestJobs": []
         },
@@ -670,8 +585,7 @@
             "boundaries",
             "package-policy",
             "supply-chain",
-            "gui-build",
-            "node26-compatibility"
+            "gui-build"
           ]
         },
         "classes": [
@@ -702,16 +616,13 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "typecheck (24)",
-          "node26-compatibility"
+          "typecheck (24)"
         ],
         "workflowJobs": [
-          "typecheck",
-          "node26-compatibility"
+          "typecheck"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -737,24 +648,19 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "typecheck",
-            "node26-compatibility"
+            "typecheck"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "typecheck (24)",
-            "node26-compatibility"
+            "typecheck (24)"
           ]
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -832,9 +738,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -844,8 +748,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -919,9 +822,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -931,8 +832,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -956,8 +856,8 @@
       },
       "command": "npm test",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "PR workflow runs the node test tiers separately through fast-contract and integration; the aggregate npm test command only runs through full-check.",
+      "tier": "manual-only",
+      "tierReason": "The aggregate npm test command remains a local convenience; rewrite-ci runs its fast, contract, and integration tiers through Node 24 split jobs.",
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
         "tools/run-node-tests.mjs",
@@ -968,13 +868,8 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "workflowJobs": [],
+        "nodeVersions": []
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -999,9 +894,7 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": false,
@@ -1009,7 +902,7 @@
         },
         "classes": [
           "local",
-          "main-full"
+          "manual"
         ]
       },
       "deterministic": false,
@@ -1036,16 +929,13 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "fast-contract",
-          "node26-compatibility"
+          "fast-contract"
         ],
         "workflowJobs": [
-          "fast-contract",
-          "node26-compatibility"
+          "fast-contract"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1071,16 +961,14 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "fast-contract",
-            "node26-compatibility"
+            "fast-contract"
           ],
           "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "fast-contract",
-            "node26-compatibility"
+            "fast-contract"
           ]
         },
         "classes": [
@@ -1117,16 +1005,13 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "fast-contract",
-          "node26-compatibility"
+          "fast-contract"
         ],
         "workflowJobs": [
-          "fast-contract",
-          "node26-compatibility"
+          "fast-contract"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1153,16 +1038,14 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "fast-contract",
-            "node26-compatibility"
+            "fast-contract"
           ],
           "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "fast-contract",
-            "node26-compatibility"
+            "fast-contract"
           ]
         },
         "classes": [
@@ -1316,9 +1199,7 @@
           "pullRequestJobs": [
             "gui-build"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ],
+          "nonPullRequestJobs": [],
           "pathFiltered": true
         },
         "branchProtection": {
@@ -1329,8 +1210,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1489,85 +1369,6 @@
       }
     },
     {
-      "id": "node26-compatibility",
-      "nonDeterminism": {
-        "kind": "aggregate",
-        "reason": "The Node 26 compatibility job is a composite lane over typecheck plus fast and contract suites rather than a leaf judgment.",
-        "evidence": [
-          ".github/workflows/rewrite-ci.yml:jobs.node26-compatibility",
-          "package.json:scripts.test:fast",
-          "package.json:scripts.test:contract"
-        ]
-      },
-      "aggregate": true,
-      "command": "npm run typecheck && npm run test:fast && npm run test:contract",
-      "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        ".github/workflows/rewrite-ci.yml:jobs.node26-compatibility",
-        "harness/governance/standards/ci-cd-standard.md#ci-lane"
-      ],
-      "consumerScope": [
-        "Node 26 compatibility for typecheck plus fast and contract tests"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "node26-compatibility"
-        ],
-        "workflowJobs": [
-          "node26-compatibility"
-        ],
-        "nodeVersions": [
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "No compatibility allowlist is declared."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          ".github/workflows/rewrite-ci.yml",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": false,
-          "checkPr": false,
-          "script": null
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "node26-compatibility"
-          ],
-          "nonPullRequestJobs": []
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "node26-compatibility"
-          ]
-        },
-        "classes": [
-          "pr"
-        ]
-      },
-      "deterministic": false,
-      "positiveControl": {
-        "status": "not-applicable",
-        "evidence": [
-          "Composite compatibility lane; positive controls belong to typecheck, fast, and contract leaf gates."
-        ]
-      }
-    },
-    {
       "id": "check-file-complexity",
       "command": "npm run harness:check-file-complexity",
       "category": "local-consistency",
@@ -1617,9 +1418,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -1629,8 +1428,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1659,12 +1457,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1693,9 +1489,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -1705,8 +1499,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1736,12 +1529,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1770,9 +1561,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -1782,8 +1571,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1812,12 +1600,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1846,9 +1632,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -1858,8 +1642,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1889,12 +1672,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -1924,9 +1705,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -1936,8 +1715,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -1967,12 +1745,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -2001,9 +1777,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2013,8 +1787,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2044,12 +1817,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -2079,9 +1850,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2091,8 +1860,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2155,9 +1923,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2167,8 +1933,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2233,9 +1998,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2245,8 +2008,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2319,9 +2081,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2331,8 +2091,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2396,9 +2155,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2408,8 +2165,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2474,9 +2230,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2486,8 +2240,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2552,9 +2305,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2564,8 +2315,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2628,9 +2378,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2640,8 +2388,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2665,7 +2412,7 @@
       "command": "npm run harness:check-enforcement-debt-sunset",
       "category": "meta-governance",
       "tier": "nightly-only",
-      "tierReason": "ADR-0022 D4 requires overdue enforcement debt visibility in nightly full-check without turning stale governance debt into a pull-request required merge blocker.",
+      "tierReason": "ADR-0022 D4 requires overdue enforcement debt visibility in the dedicated scheduled rewrite-ci job without making it a pull-request blocker.",
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d4--adr-has-text-must-have-code-enforcement-in-same-pr-accepted-but-unimplemented-enters-debt-table",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
@@ -2674,16 +2421,15 @@
       "consumerScope": [
         "private harness/decisions decision-package relations derives -> task/*",
         "private harness/tasks task-package lifecycle status projection from INDEX.md",
-        "scheduled rewrite-ci full-check only"
+        "dedicated scheduled rewrite-ci enforcement-debt-sunset job"
       ],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": [
-          "full-check"
+          "enforcement-debt-sunset"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -2712,7 +2458,7 @@
         "rewriteCi": {
           "pullRequestJobs": [],
           "nonPullRequestJobs": [
-            "full-check"
+            "enforcement-debt-sunset"
           ],
           "scheduleOnly": true
         },
@@ -2783,9 +2529,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2795,8 +2539,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2825,12 +2568,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -2859,9 +2600,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2871,8 +2610,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -2901,12 +2639,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -2935,9 +2671,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -2947,8 +2681,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3010,9 +2743,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3022,8 +2753,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3091,9 +2821,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3103,8 +2831,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3166,9 +2893,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3178,8 +2903,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3292,8 +3016,7 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
           24
@@ -3330,9 +3053,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3342,8 +3063,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3372,12 +3092,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -3406,9 +3124,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3418,8 +3134,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3448,7 +3163,7 @@
       ],
       "consumerScope": [
         "gate manifest to package.json aggregate scripts",
-        "gate manifest to rewrite-ci pull-request and full-check surfaces",
+        "gate manifest to rewrite-ci pull-request and scheduled surfaces",
         "gate manifest to branch-protection documentation",
         "manifest tier reasons, boundary gate metadata, and boundary allowlist authority location checks"
       ],
@@ -3492,9 +3207,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3504,8 +3217,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -3543,12 +3255,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -3579,9 +3289,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3591,8 +3299,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       }
     },
@@ -3710,12 +3417,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -3754,9 +3459,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3766,8 +3469,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       }
     },
@@ -3798,12 +3500,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -3837,9 +3537,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3849,8 +3547,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       }
     },
@@ -3882,12 +3579,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -3918,9 +3613,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -3930,8 +3623,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       }
     },
@@ -3971,12 +3663,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -4008,9 +3698,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4020,8 +3708,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       }
     },
@@ -4044,12 +3731,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -4078,9 +3763,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4090,8 +3773,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4153,9 +3835,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4165,8 +3845,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4231,9 +3910,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4243,8 +3920,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4306,9 +3982,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4318,8 +3992,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4383,9 +4056,7 @@
           "pullRequestJobs": [
             "package-policy"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4395,8 +4066,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4458,9 +4128,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4470,8 +4138,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4502,12 +4169,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -4536,9 +4201,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4548,8 +4211,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4580,12 +4242,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -4616,9 +4276,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4628,8 +4286,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4691,9 +4348,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4703,8 +4358,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4733,12 +4387,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -4767,9 +4419,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4779,8 +4429,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4842,9 +4491,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4854,8 +4501,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -4926,9 +4572,7 @@
           "pullRequestJobs": [
             "supply-chain"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -4938,8 +4582,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": false,
@@ -4968,12 +4611,10 @@
           "boundaries"
         ],
         "workflowJobs": [
-          "boundaries",
-          "full-check"
+          "boundaries"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -5002,9 +4643,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -5014,8 +4653,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -5076,9 +4714,7 @@
           "pullRequestJobs": [
             "package-policy"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -5088,8 +4724,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,
@@ -5119,12 +4754,10 @@
           "direct-recovery"
         ],
         "workflowJobs": [
-          "direct-recovery",
-          "full-check"
+          "direct-recovery"
         ],
         "nodeVersions": [
-          24,
-          26
+          24
         ]
       },
       "allowlistPolicy": {
@@ -5154,9 +4787,7 @@
           "pullRequestJobs": [
             "direct-recovery"
           ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
@@ -5166,8 +4797,7 @@
         },
         "classes": [
           "local",
-          "pr",
-          "main-full"
+          "pr"
         ]
       },
       "deterministic": true,

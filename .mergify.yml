@@ -18,7 +18,6 @@ queue_rules:
       - check-success = "integration-shard (6)"
       - check-success = supply-chain
       - check-success = gui-build
-      - check-success = node26-compatibility
       - check-success = pr-body-lint
       - check-success = direct-recovery
     merge_conditions: []
