@@ -74,6 +74,7 @@ export class RemoteReadDownSession {
     this.blobReader = new RemoteBlobReader(this.cas, options.client, () => this.assertOpen());
     this.backoff = { ...defaultBackoff, ...options.backoff };
     this.changeCache = { ...defaultChangeCache, ...options.changeCache };
+    this.resumeCursor = options.expectedResume ? { ...options.expectedResume } : undefined;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.stoppedSignal = new Promise((resolve) => {

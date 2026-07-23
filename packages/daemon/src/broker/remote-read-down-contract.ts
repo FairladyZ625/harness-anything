@@ -25,6 +25,7 @@ export interface RemoteReadDownSessionOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly schedule?: (milliseconds: number, callback: () => void) => { readonly dispose: () => void };
   readonly changeCache?: Partial<RemoteReadDownChangeCacheLimits>;
+  readonly expectedResume?: ResumeCursor;
   readonly onDiagnostic?: (text: string) => void;
 }
 

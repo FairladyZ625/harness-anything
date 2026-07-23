@@ -141,6 +141,7 @@ export interface BrokerOptions {
   readonly stateRoot: string;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly snapshotSource: CanonicalSnapshotSource;
+  readonly replicaGapPolicy?: "RESYNC_REQUIRED" | "TERMINAL";
   readonly writerExclusion?: WriterExclusion;
   readonly watcherFence?: WatcherFence;
   readonly crashInjector?: BrokerCrashInjector;

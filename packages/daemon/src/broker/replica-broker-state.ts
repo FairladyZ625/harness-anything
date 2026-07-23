@@ -4,9 +4,22 @@ import type { ConflictReason } from "./conflict-store.ts";
 import { sameFingerprint, tombstoneFingerprint } from "./fingerprint.ts";
 import type {
   BrokerPathState,
+  BrokerResyncTarget,
   BrokerVersion,
   ManagedFingerprint
 } from "./types.ts";
+
+export const maxRemoteResyncTransitionsPerSynchronization = 3;
+
+export function sameResyncTarget(
+  left: BrokerResyncTarget | undefined,
+  right: BrokerResyncTarget
+): boolean {
+  return left?.epoch === right.epoch
+    && left.revision === right.revision
+    && left.commitSha === right.commitSha
+    && JSON.stringify(left.cutChange) === JSON.stringify(right.cutChange);
+}
 
 export function versionFor(
   change: ReplicaChangeRecord | null,

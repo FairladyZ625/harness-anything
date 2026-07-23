@@ -6,6 +6,10 @@ import {
   normalizeRelativeDocumentPath
 } from "@harness-anything/kernel";
 import { BrokerCasStore } from "./cas-store.ts";
+import {
+  BrokerReplicaIntegrityError,
+  BrokerSubmitPreflightError
+} from "./broker-errors.ts";
 import { LocalConflictStore, type ConflictReason } from "./conflict-store.ts";
 import { BrokerDurableStateStore } from "./durable-state-store.ts";
 import {
@@ -22,6 +26,8 @@ import {
   isSubmittableDraft,
   localTombstone,
   mapConflictReason,
+  maxRemoteResyncTransitionsPerSynchronization,
+  sameResyncTarget,
   sameVersion,
   versionFor,
   versionOperationIds
@@ -47,6 +53,7 @@ export class ReplicaBroker {
   private readonly cas: BrokerCasStore;
   private readonly applier: CrashSafeNativeApplier;
   private state: BrokerDurableState | undefined;
+  private synchronizationTask: Promise<BrokerDurableState> | undefined;
 
   constructor(options: BrokerOptions) {
     this.options = options;
@@ -67,8 +74,23 @@ export class ReplicaBroker {
     return this.snapshotState();
   }
 
-  async synchronize(): Promise<BrokerDurableState> {
+  synchronize(): Promise<BrokerDurableState> {
+    if (this.synchronizationTask) return this.synchronizationTask;
+    const task = this.synchronizeExclusive();
+    this.synchronizationTask = task;
+    void task.then(
+      () => {
+        if (this.synchronizationTask === task) this.synchronizationTask = undefined;
+      },
+      () => {
+        if (this.synchronizationTask === task) this.synchronizationTask = undefined;
+      }
+    );
+    return task;
+  }
+  private async synchronizeExclusive(): Promise<BrokerDurableState> {
     await this.ensureInitialized();
+    let remoteResyncTransitions = 0;
     for (;;) {
       try {
         if (this.current().mode === "RESYNC_REQUIRED") {
@@ -89,7 +111,11 @@ export class ReplicaBroker {
         return this.snapshotState();
       } catch (error) {
         if (!(error instanceof RemoteReplicaResyncRequiredError)) throw error;
-        await this.enterRemoteResync(error);
+        remoteResyncTransitions += 1;
+        const advanced = await this.enterRemoteResync(error);
+        if (!advanced || remoteResyncTransitions >= maxRemoteResyncTransitionsPerSynchronization) {
+          throw error;
+        }
       }
     }
   }
@@ -294,6 +320,11 @@ export class ReplicaBroker {
     if (change.workspaceId !== this.options.workspaceId
       || change.revision !== current.receivedCursor + 1
       || change.previousCommit !== current.receivedCommit) {
+      if (this.options.replicaGapPolicy === "TERMINAL") {
+        throw new BrokerReplicaIntegrityError(
+          `replica change gap or parent mismatch at revision ${change.revision}`
+        );
+      }
       await this.enterResync();
       throw new Error(`replica change gap or parent mismatch at revision ${change.revision}`);
     }
@@ -483,7 +514,7 @@ export class ReplicaBroker {
     await this.persist({ ...this.current(), mode: "RESYNC_REQUIRED" });
   }
 
-  private async enterRemoteResync(error: RemoteReplicaResyncRequiredError): Promise<void> {
+  private async enterRemoteResync(error: RemoteReplicaResyncRequiredError): Promise<boolean> {
     const { cut, cutChange } = error;
     if (cut.workspaceId !== this.options.workspaceId
       || (cutChange !== null && (cutChange.workspaceId !== this.options.workspaceId
@@ -499,12 +530,14 @@ export class ReplicaBroker {
       cutChange
     };
     const current = this.current();
+    if (sameResyncTarget(current.resyncTarget, resyncTarget)) return false;
     await this.persist({
       ...current,
       mode: "RESYNC_REQUIRED",
       resyncTarget,
       nextJournalLSN: current.nextJournalLSN + 1
     });
+    return true;
   }
 
   private async bootstrapResync(): Promise<void> {
@@ -562,17 +595,5 @@ export class ReplicaBroker {
 
   private visiblePath(pathName: string): string {
     return path.join(this.options.viewRoot, ...pathName.split("/"));
-  }
-}
-
-export class BrokerSubmitPreflightError extends Error {
-  readonly path: string;
-  readonly status: string;
-
-  constructor(pathName: string, status: string, message: string) {
-    super(`${message}: ${pathName} (${status})`);
-    this.name = "BrokerSubmitPreflightError";
-    this.path = pathName;
-    this.status = status;
   }
 }

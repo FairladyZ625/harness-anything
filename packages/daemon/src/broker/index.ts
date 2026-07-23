@@ -1,5 +1,9 @@
 export { BrokerCasStore } from "./cas-store.ts";
 export {
+  BrokerReplicaIntegrityError,
+  BrokerSubmitPreflightError
+} from "./broker-errors.ts";
+export {
   LocalConflictStore,
   type ConflictReason,
   type LocalConflictEvent,
@@ -19,10 +23,11 @@ export {
   tombstoneFingerprint
 } from "./fingerprint.ts";
 export { CrashSafeNativeApplier, type NativeApplyResult } from "./native-applier.ts";
-export { BrokerSubmitPreflightError, ReplicaBroker } from "./replica-broker.ts";
+export { ReplicaBroker } from "./replica-broker.ts";
 export { RemoteCanonicalSnapshotSource } from "./remote-canonical-snapshot-source.ts";
 export {
   RemoteBrokerRuntime,
+  type RemoteBrokerRuntimeHealth,
   type RemoteBrokerRuntimeOptions
 } from "./remote-broker-runtime.ts";
 export {
