@@ -12,6 +12,8 @@ import { fsWriteApis } from "./fs-write-apis.mjs";
 import { discoverWorkspaceSourceRoots } from "./workspace-packages.mjs";
 
 const mutatingHttpMethods = new Set(["POST", "PUT", "DELETE"]);
+const taskReviewControllerCalls = new Set(["map", "pipe", "runPromise", "startTaskReview", "validateLocalControllerTaskId"]);
+const taskReviewGuardCalls = new Set(["succeed", "taskFailure"]);
 const root = process.cwd();
 const sourceRoots = [...discoverWorkspaceSourceRoots(root), "tools"];
 
@@ -113,6 +115,7 @@ function discoverDaemonCliActions() {
 
 function discoverApiRoutes() {
   const out = [];
+  const taskReviewIsRequestGuard = discoverTaskReviewRequestGuard();
   for (const [rel, arrayName] of [
     ["packages/api-contracts/src/api-contract-registry.ts", "apiRouteContracts"],
     ["packages/application/src/task-write-route-policy.ts", "taskWriteApiRoutePolicies"]
@@ -121,8 +124,10 @@ function discoverApiRoutes() {
     for (const element of objectElementsInArray(sourceFile, arrayName)) {
       const id = stringProperty(element, "id");
       const method = stringProperty(element, "method");
+      const serviceMethod = stringProperty(element, "serviceMethod");
       const guiBridgeMethod = stringProperty(element, "guiBridgeMethod");
       if (id && method && mutatingHttpMethods.has(method)) {
+        if (serviceMethod === "reviewTask" && taskReviewIsRequestGuard) continue;
         out.push(discovery("api-route", rel, element, sourceFile, `mutating API route ${id}`, { apiRoute: id }));
         if (guiBridgeMethod) {
           out.push(discovery("gui-bridge-method", rel, element, sourceFile, `mutating GUI bridge method ${guiBridgeMethod}`, { guiBridgeMethod }));
@@ -131,6 +136,50 @@ function discoverApiRoutes() {
     }
   }
   return uniqueDiscoveries(out);
+}
+
+function discoverTaskReviewRequestGuard() {
+  const controllerRel = "packages/application/src/local-controller-service.ts";
+  const lifecycleRel = "packages/application/src/task-lifecycle-orchestrator.ts";
+  if (![controllerRel, lifecycleRel].every((rel) => existsSync(path.join(root, rel)))) return false;
+  const controllerBody = propertyImplementationBody(parseSource(controllerRel), "reviewTask");
+  const guardBody = propertyImplementationBody(parseSource(lifecycleRel), "startTaskReview");
+  return controllerBody !== undefined &&
+    guardBody !== undefined &&
+    setsEqual(calledNamesIn(controllerBody), taskReviewControllerCalls) &&
+    setsEqual(calledNamesIn(guardBody), taskReviewGuardCalls) &&
+    stringLiteralsInNode(guardBody).includes("execution_submission_required");
+}
+
+function propertyImplementationBody(sourceFile, propertyName) {
+  let body;
+  visit(sourceFile, (node) => {
+    if (!ts.isPropertyAssignment(node) || propertyNameText(node.name) !== propertyName) return;
+    const implementation = unwrapExpression(node.initializer);
+    if (ts.isArrowFunction(implementation) || ts.isFunctionExpression(implementation)) body = implementation.body;
+  });
+  return body;
+}
+
+function calledNamesIn(node) {
+  const calls = new Set();
+  visit(node, (child) => {
+    if (ts.isCallExpression(child)) calls.add(calledIdentifier(child.expression));
+  });
+  calls.delete("");
+  return calls;
+}
+
+function stringLiteralsInNode(node) {
+  const literals = [];
+  visit(node, (child) => {
+    if (ts.isStringLiteralLike(child)) literals.push(child.text);
+  });
+  return literals;
+}
+
+function setsEqual(left, right) {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function objectElementsInArray(sourceFile, arrayName) {

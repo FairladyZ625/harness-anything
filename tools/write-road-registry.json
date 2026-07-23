@@ -223,16 +223,16 @@
           "surfaces": {
             "cliActions": [
               "task-review"
-            ],
-            "apiRoutes": [
-              "tasks.review"
-            ],
-            "guiBridgeMethods": [
-              "reviewTask"
             ]
           },
-          "parity": "unknown",
-          "reason": "CLI packages/cli/src/commands/core/task-gates.ts#runTaskGatesCommand reaches packages/application/src/task-lifecycle-orchestrator.ts#reviewTask, but API/GUI packages/application/src/local-controller-service.ts#makeLocalControllerService routes reviewTask to startTaskReview, which returns execution_submission_required without a materializer; the five dispositions do not express an existing second ingress with no materializer, so task.lifecycle.transition owner must decide that shape."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-gates.ts#runTaskGatesCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second materializing authored ingress surface is registered for this intent."
         },
         {
           "selector": "task-review-execution",
@@ -346,12 +346,10 @@
         "task-review-execution"
       ],
       "apiRoutes": [
-        "tasks.status.set",
-        "tasks.review"
+        "tasks.status.set"
       ],
       "guiBridgeMethods": [
-        "setTaskStatus",
-        "reviewTask"
+        "setTaskStatus"
       ],
       "callsiteFiles": [
         "packages/adapters/local/src/task-writes.ts"
@@ -2593,8 +2591,20 @@
               "rebuildGovernance"
             ]
           },
-          "parity": "unknown",
-          "reason": "CLI packages/cli/src/commands/governance.ts#runGovernanceRebuild rebuilds and writes projection artifacts, but API/GUI packages/application/src/local-controller-service.ts#makeLocalControllerService implements rebuildGovernance as queryTaskProjection with no rebuild materializer; the five dispositions do not express an existing second ingress with no materializer, so governance.projection.rebuild owner must decide that shape."
+          "parity": "parity-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/governance.ts#runGovernanceRebuild"
+            },
+            {
+              "entry": "api-gui",
+              "ref": "packages/kernel/src/projection/sqlite-task-projection.ts#rebuildTaskProjection"
+            }
+          ],
+          "owner": "governance.projection.rebuild",
+          "sunset": "2026-10-31",
+          "reason": "CLI runGovernanceRebuild unconditionally performs the complete rebuild and also writes generated governance views plus an optional archive; API/GUI reaches rebuildTaskProjection only conditionally through queryTaskProjection/readTaskProjection and materializes only the SQLite projection. The owner must converge these ingress semantics or explicitly preserve the divergence before sunset."
         },
         {
           "selector": "materializer-run",
