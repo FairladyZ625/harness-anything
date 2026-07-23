@@ -88,6 +88,7 @@ export class PersistentSshAuthorityClient {
   private sequence = 0;
   private ready = false;
   private closing = false;
+  private connectionTask: Promise<void> | undefined;
   private readonly notificationListeners = new Set<(change: ReplicaChangeRecord) => void>();
   private readonly disconnectListeners = new Set<(error: AuthorityTransportDisconnectedError) => void>();
   private pending = new Map<string, {
@@ -109,9 +110,23 @@ export class PersistentSshAuthorityClient {
     return this.generation;
   }
 
-  async connect(): Promise<void> {
-    if (this.child && this.ready) return;
+  connect(): Promise<void> {
+    if (this.child && this.ready) return Promise.resolve();
+    if (this.connectionTask) return this.connectionTask;
     this.closing = false;
+    return this.runConnectionTask(() => this.openConnection());
+  }
+
+  reconnect(): Promise<void> {
+    if (this.connectionTask) return this.connectionTask;
+    this.closing = false;
+    return this.runConnectionTask(async () => {
+      await this.closeChild(new AuthorityTransportDisconnectedError("authority SSH connection replaced"));
+      await this.openConnection();
+    });
+  }
+
+  private async openConnection(): Promise<void> {
     this.generation += 1;
     const generation = this.generation;
     const childFactory = this.options.childFactory ?? nodeSshAuthorityChildFactory;
@@ -133,22 +148,27 @@ export class PersistentSshAuthorityClient {
     child.on("error", (error) => this.disconnect(asError(error), generation));
     child.on("exit", () => this.disconnect(new AuthorityTransportDisconnectedError("authority SSH connection exited"), generation));
 
-    const response = await this.request({
-      type: authorityWireFrameType,
-      kind: "hello",
-      requestId: this.nextRequestId(),
-      connectionGeneration: generation,
-      workspaceId: this.options.workspaceId,
-      channelNonceDigest: this.options.channelNonceDigest(),
-      protocol: this.options.protocol
-    });
-    if (!response.ok) throw new Error(response.error?.message ?? "authority protocol negotiation failed");
-    this.ready = true;
-  }
-
-  async reconnect(): Promise<void> {
-    await this.closeChild();
-    await this.connect();
+    try {
+      const response = await this.request({
+        type: authorityWireFrameType,
+        kind: "hello",
+        requestId: this.nextRequestId(),
+        connectionGeneration: generation,
+        workspaceId: this.options.workspaceId,
+        channelNonceDigest: this.options.channelNonceDigest(),
+        protocol: this.options.protocol
+      });
+      if (!response.ok) throw new Error(response.error?.message ?? "authority protocol negotiation failed");
+      if (this.closing || this.generation !== generation || this.child !== child) {
+        throw new AuthorityTransportDisconnectedError("authority SSH connection changed during negotiation");
+      }
+      this.ready = true;
+    } catch (error) {
+      if (this.generation === generation && this.child === child) {
+        await this.closeChild(new AuthorityTransportDisconnectedError(asError(error).message));
+      }
+      throw error;
+    }
   }
 
   async submit(envelope: AuthorityOperationEnvelope): Promise<AuthorityOperationReceipt> {
@@ -293,7 +313,9 @@ export class PersistentSshAuthorityClient {
 
   async close(): Promise<void> {
     this.closing = true;
-    await this.closeChild();
+    const connectionTask = this.connectionTask;
+    await this.closeChild(new AuthorityTransportDisconnectedError("authority SSH connection closed"));
+    await connectionTask?.catch(() => undefined);
   }
 
   private request(frame: AuthorityRequestFrame, opId?: string): Promise<AuthorityResponseFrame> {
@@ -365,14 +387,39 @@ export class PersistentSshAuthorityClient {
     }
   }
 
-  private async closeChild(): Promise<void> {
+  private async closeChild(error: AuthorityTransportDisconnectedError): Promise<void> {
     const child = this.child;
+    const generation = this.generation;
     this.ready = false;
     this.child = undefined;
-    if (!child) return;
-    child.stdin.end();
-    child.kill("SIGTERM");
+    this.rejectPendingGeneration(generation, error);
+    if (child) {
+      child.stdin.end();
+      child.kill("SIGTERM");
+    }
     await Promise.resolve();
+  }
+
+  private rejectPendingGeneration(generation: number, error: AuthorityTransportDisconnectedError): void {
+    for (const [requestId, pending] of this.pending) {
+      if (pending.generation !== generation) continue;
+      this.pending.delete(requestId);
+      pending.reject(new AuthorityTransportDisconnectedError(error.message, pending.opId));
+    }
+  }
+
+  private runConnectionTask(operation: () => Promise<void>): Promise<void> {
+    const task = operation();
+    this.connectionTask = task;
+    void task.then(
+      () => {
+        if (this.connectionTask === task) this.connectionTask = undefined;
+      },
+      () => {
+        if (this.connectionTask === task) this.connectionTask = undefined;
+      }
+    );
+    return task;
   }
 
   private nextRequestId(): string {

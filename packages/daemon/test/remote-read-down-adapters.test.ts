@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ReplicaChangeRecord } from "../../application/src/index.ts";
 import {
   AuthorityReadDownRequestError,
+  AuthorityTransportDisconnectedError,
   RemoteCanonicalSnapshotSource,
   RemoteReadDownSession,
   RemoteReplicaChangeLog,
@@ -24,6 +25,7 @@ import type {
   AuthoritySnapshotReservation,
   Sha256Digest
 } from "../src/authority/protocol.ts";
+import { deferred, type Deferred } from "./remote-read-down-test-support.ts";
 
 const workspaceId = "workspace-remote-adapter";
 
@@ -199,6 +201,235 @@ test("lease renewal failure reconnects and begins a new snapshot instead of exte
   });
 });
 
+test("late renewal and stale fetch continuations cannot overwrite or clear a replacement generation", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const now = Date.parse("2026-07-23T04:00:00.000Z");
+    const first = makeSnapshot(1, { "one.md": Buffer.from("one\n") }, now + 1_000, now + 5_000);
+    const second = makeSnapshot(2, { "two.md": Buffer.from("two\n") }, now + 2_000, now + 10_000);
+    const client = new FakeReadDownClient([first, second]);
+    const renewal = deferred<AuthoritySnapshotLease>();
+    const fetch = deferred<AuthorityChangesAfterResult>();
+    const scheduled: Array<() => void> = [];
+    const session = new RemoteReadDownSession({
+      client: client as unknown as PersistentSshAuthorityClient,
+      workspaceId,
+      stateRoot,
+      now: () => now,
+      schedule: (_milliseconds, callback) => {
+        scheduled.push(callback);
+        return { dispose: () => undefined };
+      },
+      backoff: { initialMs: 0, maximumMs: 0, multiplier: 1 }
+    });
+
+    assert.equal((await session.latest())?.revision, 1);
+    client.renewalGate = renewal;
+    client.changesGate = fetch;
+    const staleFetch = session.changesAfter(1);
+    await waitFor(() => client.changesRequests === 2);
+    scheduled.shift()!();
+    await waitFor(() => client.renewRequests === 1);
+    client.disconnect();
+    await waitFor(() => client.beginRequests === 2);
+
+    renewal.resolve({
+      ...first.reservation.lease,
+      expiresAt: new Date(now + 3_000).toISOString()
+    });
+    fetch.reject(new AuthorityTransportDisconnectedError("stale fetch disconnected"));
+    client.changesGate = undefined;
+    await assert.rejects(
+      staleFetch,
+      (error: unknown) => error instanceof RemoteReplicaResyncRequiredError && error.cutRevision === 2
+    );
+    assert.equal((await session.latest())?.revision, 2, "late continuations leave the replacement cut installed");
+    assert.equal(client.beginRequests, 2, "stale catch does not clear and reopen the replacement generation");
+    await session.close();
+  });
+});
+
+test("same-epoch reconnect inherits the delivered cursor and keeps an existing subscription live", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const base = makeSnapshot(0, {});
+    const firstChange = makeChange(base, 1, { "one.md": Buffer.from("one\n") });
+    base.forwardChanges.push(firstChange.change);
+    const next = firstChange.snapshot;
+    const secondChange = makeChange(next, 2, { "two.md": Buffer.from("two\n") });
+    next.forwardChanges.push(secondChange.change);
+    const client = new FakeReadDownClient([base, next]);
+    const session = makeSession(client, stateRoot);
+    const received: number[] = [];
+    session.subscribe((change) => received.push(change.revision));
+
+    await session.changesAfter(0);
+    await waitFor(() => received.includes(1));
+    client.disconnect();
+    await waitFor(() => client.beginRequests === 2);
+    client.notify(secondChange.change);
+    await waitFor(() => received.includes(2));
+
+    assert.deepEqual(received, [1, 2]);
+    await session.close();
+  });
+});
+
+test("epoch replacement and same-revision identity drift require explicit resync with a bootstrap cut", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const before = makeSnapshot(1, { "value.md": Buffer.from("old\n") }, undefined, undefined, "7");
+    const after = makeSnapshot(1, { "value.md": Buffer.from("new\n") }, undefined, undefined, "8");
+    const client = new FakeReadDownClient([before, after]);
+    const session = makeSession(client, stateRoot);
+
+    const oldChange = await session.latest();
+    await session.changesAfter(1);
+    client.disconnect();
+    await waitFor(() => client.beginRequests === 2);
+    await assert.rejects(
+      session.changesAfter(1),
+      (error: unknown) => error instanceof RemoteReplicaResyncRequiredError
+        && error.cut.epoch === "8"
+        && error.cut.manifestDigest === after.reservation.cut.manifestDigest
+        && error.cutChange?.revision === 1
+    );
+    await assert.rejects(
+      session.snapshotAt(oldChange!),
+      /CHANGE_EPOCH_MISMATCH/u
+    );
+    const replacement = await session.snapshotAt(after.cutChange!);
+    assert.equal(Buffer.from(replacement.entries[0]!.content).toString("utf8"), "new\n");
+    assert.deepEqual(await session.changesAfter(1), [], "retry at the bootstrap cut explicitly acknowledges resync");
+    await session.close();
+  });
+});
+
+test("close cancels recovery sleep and joins in-flight blob work before resolving", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const snapshot = makeSnapshot(1, { "value.md": Buffer.from("value\n") });
+    const sleeping = deferred<void>();
+    const client = new FakeReadDownClient([snapshot]);
+    client.connectFailures = 1;
+    const session = new RemoteReadDownSession({
+      client: client as unknown as PersistentSshAuthorityClient,
+      workspaceId,
+      stateRoot,
+      sleep: () => sleeping.promise,
+      backoff: { initialMs: 1, maximumMs: 1, multiplier: 1 }
+    });
+    const pending = session.latest();
+    await waitFor(() => client.connectRequests === 1);
+    await session.close();
+    await assert.rejects(pending, /closed|connect failure/u);
+    sleeping.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(client.reconnectRequests, 0, "recovery does not reconnect after close");
+  });
+
+  await withStateRoot(async (stateRoot) => {
+    const snapshot = makeSnapshot(1, { "value.md": Buffer.from("value\n") });
+    const blob = deferred<void>();
+    const client = new FakeReadDownClient([snapshot]);
+    client.blobGate = blob;
+    const session = makeSession(client, stateRoot);
+    const pending = session.latest();
+    await waitFor(() => client.activeBlobRequests === 1);
+    let closed = false;
+    const closing = session.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(closed, false, "close waits for an in-flight blob operation");
+    blob.resolve();
+    await closing;
+    await assert.rejects(pending, /closed/u);
+    assert.equal(client.activeBlobRequests, 0);
+  });
+});
+
+test("a corrupted durable CAS object is a terminal integrity failure without reconnect", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const bytes = Buffer.from("trusted\n");
+    const snapshot = makeSnapshot(1, { "value.md": bytes });
+    const firstClient = new FakeReadDownClient([snapshot]);
+    const firstSession = makeSession(firstClient, stateRoot);
+    await firstSession.latest();
+    await firstSession.close();
+
+    const objectDigest = digest(bytes).slice("sha256:".length);
+    await writeFile(path.join(stateRoot, "cas", objectDigest.slice(0, 2), objectDigest.slice(2)), "corrupt");
+    const client = new FakeReadDownClient([snapshot]);
+    const session = makeSession(client, stateRoot);
+    await assert.rejects(session.latest(), /CAS object corrupted/u);
+    assert.equal(client.beginRequests, 1);
+    assert.equal(client.reconnectRequests, 0, "deterministic local corruption is not retried as transport failure");
+    await assert.rejects(session.latest(), /CAS object corrupted/u);
+    assert.equal(client.beginRequests, 1, "terminal integrity failure is sticky for the session");
+    await session.close();
+  });
+});
+
+test("notification cache remains count and byte bounded under a large hint burst", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const base = makeSnapshot(0, {});
+    const client = new FakeReadDownClient([base]);
+    const session = new RemoteReadDownSession({
+      client: client as unknown as PersistentSshAuthorityClient,
+      workspaceId,
+      stateRoot,
+      changeCache: { maxCount: 32, maxBytes: 32 * 1024 },
+      backoff: { initialMs: 0, maximumMs: 0, multiplier: 1 }
+    });
+    await session.latest();
+    for (let revision = 1; revision <= 50_000; revision += 1) {
+      client.notify(recordFor(
+        revision,
+        revision.toString(16).padStart(40, "0"),
+        digest(Buffer.from(`manifest-${revision}`)),
+        0,
+        []
+      ));
+    }
+    const active = (session as unknown as {
+      readonly active: { readonly changes: ReadonlyMap<number, ReplicaChangeRecord>; readonly changeBytes: number };
+    }).active;
+    assert.ok(active.changes.size <= 32);
+    assert.ok(active.changeBytes <= 32 * 1024);
+    assert.equal((await session.latest())?.revision, 32, "highest revision lookup does not spread the large input set");
+    await session.close();
+  });
+});
+
+test("blob warming deduplicates digest requests and all blob IO stays batch bounded", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const shared = Buffer.from("shared\n");
+    const duplicateFiles = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [`shared-${index}.md`, shared])
+    );
+    const duplicateSnapshot = makeSnapshot(1, duplicateFiles);
+    const duplicateClient = new FakeReadDownClient([duplicateSnapshot]);
+    const duplicateSession = makeSession(duplicateClient, stateRoot);
+    await duplicateSession.latest();
+    assert.equal(duplicateClient.blobRequests.length, 1, "manifest warming pulls each digest once");
+    await duplicateSession.close();
+  });
+
+  await withStateRoot(async (stateRoot) => {
+    const files = Object.fromEntries(
+      Array.from({ length: 25 }, (_, index) => [`file-${index}.md`, Buffer.from(`value-${index}\n`)])
+    );
+    const snapshot = makeSnapshot(1, files);
+    const client = new FakeReadDownClient([snapshot]);
+    client.delayBlobs = true;
+    const session = makeSession(client, stateRoot);
+    await session.latest();
+    assert.ok(client.maximumBlobConcurrency <= 8, "manifest warming observes the batch limit");
+    await rm(path.join(stateRoot, "cas"), { recursive: true, force: true });
+    client.maximumBlobConcurrency = 0;
+    await session.snapshotAt(snapshot.cutChange!);
+    assert.ok(client.maximumBlobConcurrency <= 8, "snapshot materialization observes the batch limit");
+    await session.close();
+  });
+});
+
 interface SnapshotFixture {
   readonly reservation: AuthoritySnapshotReservation;
   readonly manifest: AuthoritySnapshotManifest;
@@ -211,12 +442,20 @@ class FakeReadDownClient {
   readonly snapshots: ReadonlyArray<SnapshotFixture>;
   readonly blobRequests: Array<{ readonly snapshot: number; readonly digest: Sha256Digest }> = [];
   beginRequests = 0;
+  connectRequests = 0;
+  changesRequests = 0;
   renewRequests = 0;
   reconnectRequests = 0;
+  activeBlobRequests = 0;
+  maximumBlobConcurrency = 0;
   connectFailures = 0;
   advanceOnReconnect = true;
   failRenewal = false;
   corruptBlob = false;
+  delayBlobs = false;
+  renewalGate: Deferred<AuthoritySnapshotLease> | undefined;
+  changesGate: Deferred<AuthorityChangesAfterResult> | undefined;
+  blobGate: Deferred<void> | undefined;
   private snapshotIndex = 0;
   private readonly notificationListeners = new Set<(change: ReplicaChangeRecord) => void>();
   private readonly disconnectListeners = new Set<() => void>();
@@ -226,6 +465,7 @@ class FakeReadDownClient {
   }
 
   async connect(): Promise<void> {
+    this.connectRequests += 1;
     if (this.connectFailures > 0) {
       this.connectFailures -= 1;
       throw new Error("scripted connect failure");
@@ -234,6 +474,10 @@ class FakeReadDownClient {
 
   async reconnect(): Promise<void> {
     this.reconnectRequests += 1;
+    if (this.connectFailures > 0) {
+      this.connectFailures -= 1;
+      throw new Error("scripted reconnect failure");
+    }
     if (this.advanceOnReconnect && this.snapshotIndex < this.snapshots.length - 1) this.snapshotIndex += 1;
   }
 
@@ -252,12 +496,22 @@ class FakeReadDownClient {
 
   async getBlob(_streamToken: string, requested: Sha256Digest): Promise<Uint8Array> {
     this.blobRequests.push({ snapshot: this.snapshotIndex, digest: requested });
-    const bytes = this.current().blobs.get(requested);
-    if (!bytes) throw new Error(`missing scripted blob ${requested}`);
-    return this.corruptBlob ? Buffer.from("changed") : Buffer.from(bytes);
+    this.activeBlobRequests += 1;
+    this.maximumBlobConcurrency = Math.max(this.maximumBlobConcurrency, this.activeBlobRequests);
+    try {
+      if (this.blobGate) await this.blobGate.promise;
+      if (this.delayBlobs) await new Promise((resolve) => setTimeout(resolve, 1));
+      const bytes = this.current().blobs.get(requested);
+      if (!bytes) throw new Error(`missing scripted blob ${requested}`);
+      return this.corruptBlob ? Buffer.from("changed") : Buffer.from(bytes);
+    } finally {
+      this.activeBlobRequests -= 1;
+    }
   }
 
   async changesAfter(_streamToken: string, sinceRevision: number): Promise<AuthorityChangesAfterResult> {
+    this.changesRequests += 1;
+    if (this.changesGate) return this.changesGate.promise;
     const current = this.current();
     if (sinceRevision < current.reservation.cut.revision) {
       throw new AuthorityReadDownRequestError("RESYNC_REQUIRED", "CURSOR_PRECEDES_PINNED_CUT");
@@ -273,6 +527,7 @@ class FakeReadDownClient {
 
   async renewLease(): Promise<AuthoritySnapshotLease> {
     this.renewRequests += 1;
+    if (this.renewalGate) return this.renewalGate.promise;
     if (this.failRenewal) throw new AuthorityReadDownRequestError("SNAPSHOT_EXPIRED", "scripted renewal failure");
     const current = this.current().reservation.lease;
     return {
@@ -320,7 +575,8 @@ function makeSnapshot(
   revision: number,
   files: Readonly<Record<string, Buffer>>,
   expiresAt = Date.now() + 60_000,
-  renewableUntil = Date.now() + 3_600_000
+  renewableUntil = Date.now() + 3_600_000,
+  epoch = "7"
 ): SnapshotFixture {
   const entries = Object.entries(files).map(([pathName, bytes]) => ({
     path: pathName,
@@ -329,7 +585,7 @@ function makeSnapshot(
     tombstone: false as const
   })).sort((left, right) => left.path.localeCompare(right.path, "en"));
   const commitSha = revision.toString(16).padStart(40, "0");
-  const cutBase = { workspaceId, epoch: "7", revision, commitSha };
+  const cutBase = { workspaceId, epoch, revision, commitSha };
   const cut = {
     ...cutBase,
     manifestDigest: manifestDigest(cutBase, entries),

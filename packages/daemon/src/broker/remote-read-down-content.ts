@@ -1,0 +1,201 @@
+import type { ReplicaChangeRecord } from "@harness-anything/application";
+import { manifestDigest } from "../authority/replication-content-store.ts";
+import type {
+  AuthoritySnapshotManifest,
+  AuthoritySnapshotManifestEntry,
+  AuthoritySnapshotReservation
+} from "../authority/protocol.ts";
+import {
+  AuthorityReadDownRequestError
+} from "../transport/persistent-ssh-authority-client.ts";
+import type { ActiveSnapshot, RemoteReadDownChangeCacheLimits } from "./remote-read-down-contract.ts";
+
+export function assertManifest(
+  reservation: AuthoritySnapshotReservation,
+  manifest: AuthoritySnapshotManifest,
+  workspaceId: string
+): void {
+  if (manifest.cut.workspaceId !== workspaceId
+    || !sameSnapshotCut(manifest.cut, reservation.cut)) {
+    throw new Error("authority snapshot manifest cut mismatch");
+  }
+  const actual = manifestDigest(manifest.cut, manifest.entries);
+  if (actual !== reservation.cut.manifestDigest) {
+    throw new Error(`MANIFEST_DIGEST_MISMATCH:${reservation.cut.manifestDigest}:${actual}`);
+  }
+}
+
+export function assertCutChange(
+  reservation: AuthoritySnapshotReservation,
+  change: ReplicaChangeRecord | null
+): void {
+  if (reservation.cut.revision === 0) {
+    if (change !== null) throw new Error("authority empty cut unexpectedly has a change");
+    return;
+  }
+  if (!change
+    || change.workspaceId !== reservation.cut.workspaceId
+    || change.revision !== reservation.cut.revision
+    || change.commitSha !== reservation.cut.commitSha
+    || change.manifest.digest !== reservation.cut.manifestDigest) {
+    throw new Error("authority cut change does not match snapshot reservation");
+  }
+}
+
+export async function mapInBatches<Value>(
+  values: ReadonlyArray<Value>,
+  batchSize: number,
+  operation: (value: Value) => Promise<unknown>
+): Promise<void> {
+  for (let offset = 0; offset < values.length; offset += batchSize) {
+    await Promise.all(values.slice(offset, offset + batchSize).map(operation));
+  }
+}
+
+export function validateChanges(
+  changes: ReadonlyArray<ReplicaChangeRecord>,
+  sinceRevision: number,
+  workspaceId: string
+): void {
+  let expected = sinceRevision + 1;
+  for (const change of changes) {
+    if (change.workspaceId !== workspaceId || change.revision !== expected) {
+      throw new Error(`remote replica change gap at revision ${change.revision}; expected ${expected}`);
+    }
+    expected += 1;
+  }
+}
+
+export function applyChange(
+  entries: Map<string, AuthoritySnapshotManifestEntry>,
+  change: ReplicaChangeRecord
+): void {
+  for (const item of change.paths) {
+    if (item.tombstone) {
+      entries.delete(item.path);
+    } else {
+      if (!item.blobDigest || !item.mode) throw new Error(`remote change lacks blob metadata for ${item.path}`);
+      entries.set(item.path, {
+        path: item.path,
+        blobDigest: item.blobDigest,
+        mode: item.mode,
+        tombstone: false
+      });
+    }
+  }
+}
+
+export function assertChangeManifest(
+  epoch: string,
+  change: ReplicaChangeRecord,
+  entries: ReadonlyMap<string, AuthoritySnapshotManifestEntry>
+): void {
+  const actual = manifestDigest({
+    workspaceId: change.workspaceId,
+    epoch,
+    revision: change.revision,
+    commitSha: change.commitSha
+  }, [...entries.values()]);
+  if (actual !== change.manifest.digest || entries.size !== change.manifest.entryCount) {
+    throw new Error(`MANIFEST_DIGEST_MISMATCH:${change.manifest.digest}:${actual}`);
+  }
+}
+
+export function pruneChanges(active: ActiveSnapshot, throughRevision: number): void {
+  for (const revision of active.changes.keys()) {
+    if (revision <= throughRevision) deleteCachedChange(active, revision);
+  }
+  recomputeHighestRevision(active);
+}
+
+export function sameChangeIdentity(left: ReplicaChangeRecord, right: ReplicaChangeRecord): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.revision === right.revision
+    && left.commitSha === right.commitSha
+    && left.previousCommit === right.previousCommit
+    && left.manifest.digest === right.manifest.digest
+    && left.manifest.entryCount === right.manifest.entryCount;
+}
+
+export function storeCachedChange(
+  active: ActiveSnapshot,
+  change: ReplicaChangeRecord,
+  limits: RemoteReadDownChangeCacheLimits,
+  lossyHint: boolean
+): boolean {
+  const existing = active.changes.get(change.revision);
+  if (existing) {
+    if (!sameChangeIdentity(existing, change)) {
+      throw new Error(`remote replica change identity conflict at revision ${change.revision}`);
+    }
+    return false;
+  }
+  const byteSize = Buffer.byteLength(JSON.stringify(change));
+  if (byteSize > limits.maxBytes) {
+    throw new Error(`REMOTE_CHANGE_CACHE_LIMIT_EXCEEDED:bytes:${byteSize}:${limits.maxBytes}`);
+  }
+  if (lossyHint
+    && (active.changes.size >= limits.maxCount
+      || active.changeBytes + byteSize > limits.maxBytes)) {
+    return false;
+  }
+  if (active.changes.size >= limits.maxCount
+    || active.changeBytes + byteSize > limits.maxBytes) {
+    throw new Error(
+      `REMOTE_CHANGE_CACHE_LIMIT_EXCEEDED:${active.changes.size + 1}:${active.changeBytes + byteSize}`
+    );
+  }
+  active.changes.set(change.revision, change);
+  active.changeSizes.set(change.revision, byteSize);
+  active.changeBytes += byteSize;
+  active.highestRevision = Math.max(active.highestRevision, change.revision);
+  return true;
+}
+
+export function compareManifestPaths(
+  left: AuthoritySnapshotManifestEntry,
+  right: AuthoritySnapshotManifestEntry
+): number {
+  return left.path.localeCompare(right.path, "en");
+}
+
+export function isResyncError(error: unknown): error is AuthorityReadDownRequestError {
+  return error instanceof AuthorityReadDownRequestError
+    && (error.code === "RESYNC_REQUIRED" || error.code === "SNAPSHOT_EXPIRED");
+}
+
+export function isIntegrityError(error: unknown): boolean {
+  const message = contentError(error).message;
+  return /(?:BLOB|MANIFEST)_DIGEST_MISMATCH|CAS object corrupted|manifest (?:cut mismatch|contains duplicate)|cut change does not match|blob response (?:metadata mismatch|is not canonical)/iu.test(message);
+}
+
+function sameSnapshotCut(
+  left: AuthoritySnapshotReservation["cut"],
+  right: AuthoritySnapshotReservation["cut"]
+): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.epoch === right.epoch
+    && left.revision === right.revision
+    && left.commitSha === right.commitSha
+    && left.manifestDigest === right.manifestDigest
+    && left.provenanceDigest === right.provenanceDigest;
+}
+
+function deleteCachedChange(active: ActiveSnapshot, revision: number): void {
+  const byteSize = active.changeSizes.get(revision) ?? 0;
+  active.changes.delete(revision);
+  active.changeSizes.delete(revision);
+  active.changeBytes -= byteSize;
+}
+
+function recomputeHighestRevision(active: ActiveSnapshot): void {
+  let highest = active.reservation.cut.revision;
+  for (const revision of active.changes.keys()) {
+    if (revision > highest) highest = revision;
+  }
+  active.highestRevision = highest;
+}
+
+function contentError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}

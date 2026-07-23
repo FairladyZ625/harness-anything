@@ -86,6 +86,53 @@ test("persistent SSH client consumes all six frozen read-down request frames", a
   await client.close();
 });
 
+test("concurrent reconnects share one connection transition and reject the replaced generation", async () => {
+  let spawnCount = 0;
+  const client = new PersistentSshAuthorityClient({
+    target: { destination: "authority.internal", fixedCommand: "ha-authority-connect" },
+    workspaceId,
+    channelNonceDigest: () => "sha256:channel-generation",
+    protocol: authorityProtocolTuple,
+    childFactory: frameHandlingChildFactory((frame, respond) => {
+      if (frame.kind === "hello") respond({
+        accepted: true,
+        protocol: authorityProtocolTuple,
+        capabilities: []
+      });
+    }, () => {
+      spawnCount += 1;
+    })
+  });
+
+  await client.connect();
+  const pending = client.changesAfter("stream-token", 1);
+  const firstReconnect = client.reconnect();
+  const secondReconnect = client.reconnect();
+
+  await assert.rejects(pending, /connection replaced/u);
+  await Promise.all([firstReconnect, secondReconnect]);
+  assert.equal(spawnCount, 2, "concurrent recovery creates exactly one replacement child");
+  await client.close();
+});
+
+test("closing a negotiating child rejects its pending hello instead of leaving connect hung", async () => {
+  let sawHello = false;
+  const client = new PersistentSshAuthorityClient({
+    target: { destination: "authority.internal", fixedCommand: "ha-authority-connect" },
+    workspaceId,
+    channelNonceDigest: () => "sha256:channel-generation",
+    protocol: authorityProtocolTuple,
+    childFactory: frameHandlingChildFactory((frame) => {
+      if (frame.kind === "hello") sawHello = true;
+    })
+  });
+
+  const connecting = client.connect();
+  await waitFor(() => sawHello);
+  await client.close();
+  await assert.rejects(connecting, /connection closed/u);
+});
+
 function scriptedChildFactory(
   results: {
     readonly lease: AuthoritySnapshotLease;
@@ -143,6 +190,58 @@ function scriptedChildFactory(
   };
 }
 
+function frameHandlingChildFactory(
+  handle: (
+    frame: Record<string, unknown> & {
+      readonly kind: string;
+      readonly requestId: string;
+      readonly connectionGeneration: number;
+    },
+    respond: (result: unknown) => void
+  ) => void,
+  onSpawn: () => void = () => undefined
+): SshAuthorityChildFactory {
+  return {
+    spawn: () => {
+      onSpawn();
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const events = new EventEmitter();
+      const reader = createLengthPrefixedFrameReader();
+      stdin.on("data", (chunk: Buffer) => {
+        const batch = reader.push(chunk);
+        assert.equal(batch.error, undefined);
+        for (const value of batch.frames) {
+          const frame = value as Record<string, unknown> & {
+            readonly kind: string;
+            readonly requestId: string;
+            readonly connectionGeneration: number;
+          };
+          handle(frame, (result) => stdout.write(encodeLengthPrefixedFrame({
+            type: authorityWireFrameType,
+            kind: "response",
+            requestId: frame.requestId,
+            connectionGeneration: frame.connectionGeneration,
+            ok: true,
+            result
+          })));
+        }
+      });
+      return {
+        stdin,
+        stdout,
+        stderr,
+        on: (event, listener) => events.on(event, listener),
+        kill: () => {
+          queueMicrotask(() => events.emit("exit", 0, null));
+          return true;
+        }
+      };
+    }
+  };
+}
+
 function resultFor(
   kind: string,
   frame: Readonly<Record<string, unknown>>,
@@ -184,4 +283,12 @@ function change(): ReplicaChangeRecord {
     manifest: { digest, entryCount: 0 },
     paths: []
   };
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("timed out waiting for transport condition");
 }

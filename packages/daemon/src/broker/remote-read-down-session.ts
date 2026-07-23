@@ -1,85 +1,86 @@
 import type { ReplicaChangeRecord } from "@harness-anything/application";
 import { manifestDigest } from "../authority/replication-content-store.ts";
 import type {
-  AuthoritySnapshotManifest,
   AuthoritySnapshotManifestEntry,
   AuthoritySnapshotReservation
 } from "../authority/protocol.ts";
-import {
-  AuthorityReadDownRequestError,
-  AuthorityTransportDisconnectedError,
-  type PersistentSshAuthorityClient
-} from "../transport/persistent-ssh-authority-client.ts";
+import { AuthorityTransportDisconnectedError } from "../transport/persistent-ssh-authority-client.ts";
+import { RemoteBlobReader } from "./remote-blob-reader.ts";
 import { BrokerCasStore } from "./cas-store.ts";
-import { isMissing } from "./errno.ts";
+import {
+  assertBackoff,
+  assertChangeCache,
+  defaultBackoff,
+  defaultChangeCache,
+  RemoteReplicaResyncRequiredError,
+  type ActiveSnapshot,
+  type RemoteReadDownBackoff,
+  type RemoteReadDownChangeCacheLimits,
+  type RemoteReadDownSessionOptions,
+  type ResumeCursor
+} from "./remote-read-down-contract.ts";
+import {
+  applyChange,
+  assertChangeManifest,
+  assertCutChange,
+  assertManifest,
+  compareManifestPaths,
+  isIntegrityError,
+  isResyncError,
+  mapInBatches,
+  pruneChanges,
+  sameChangeIdentity,
+  storeCachedChange,
+  validateChanges
+} from "./remote-read-down-content.ts";
 import type { CanonicalSnapshot } from "./types.ts";
 
-export interface RemoteReadDownBackoff {
-  readonly initialMs: number;
-  readonly maximumMs: number;
-  readonly multiplier: number;
-}
-
-export interface RemoteReadDownSessionOptions {
-  readonly client: PersistentSshAuthorityClient;
-  readonly workspaceId: string;
-  readonly stateRoot: string;
-  readonly backoff?: Partial<RemoteReadDownBackoff>;
-  readonly now?: () => number;
-  readonly sleep?: (milliseconds: number) => Promise<void>;
-  readonly schedule?: (milliseconds: number, callback: () => void) => { readonly dispose: () => void };
-  readonly onDiagnostic?: (text: string) => void;
-}
-
-export class RemoteReplicaResyncRequiredError extends Error {
-  readonly cutChange: ReplicaChangeRecord | null;
-  readonly cutRevision: number;
-
-  constructor(message: string, cutRevision: number, cutChange: ReplicaChangeRecord | null) {
-    super(`RESYNC_REQUIRED:${message}`);
-    this.name = "RemoteReplicaResyncRequiredError";
-    this.cutRevision = cutRevision;
-    this.cutChange = cutChange;
-  }
-}
-
-interface ActiveSnapshot {
-  readonly reservation: AuthoritySnapshotReservation;
-  readonly cutChange: ReplicaChangeRecord | null;
-  readonly baseEntries: ReadonlyMap<string, AuthoritySnapshotManifestEntry>;
-  readonly changes: Map<number, ReplicaChangeRecord>;
-  adopted: boolean;
-  deliveredRevision: number;
-}
-
-const defaultBackoff: RemoteReadDownBackoff = {
-  initialMs: 100,
-  maximumMs: 5_000,
-  multiplier: 2
-};
+export {
+  RemoteReplicaResyncRequiredError,
+  type RemoteReadDownBackoff,
+  type RemoteReadDownChangeCacheLimits,
+  type RemoteReadDownSessionOptions
+} from "./remote-read-down-contract.ts";
 
 export class RemoteReadDownSession {
   private readonly options: RemoteReadDownSessionOptions;
   private readonly cas: BrokerCasStore;
+  private readonly blobReader: RemoteBlobReader;
   private readonly backoff: RemoteReadDownBackoff;
+  private readonly changeCache: RemoteReadDownChangeCacheLimits;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly listeners = new Set<(change: ReplicaChangeRecord) => void>();
   private active: ActiveSnapshot | undefined;
-  private recovery: Promise<ActiveSnapshot> | undefined;
+  private recovery: { readonly generation: number; readonly promise: Promise<ActiveSnapshot> } | undefined;
   private renewalTask: { readonly dispose: () => void } | undefined;
+  private renewalOperation: Promise<void> | undefined;
   private stopped = false;
+  private closeTask: Promise<void> | undefined;
+  private lifecycleGeneration = 0;
+  private resumeCursor: ResumeCursor | undefined;
+  private terminalError: Error | undefined;
   private notificationPump: Promise<void> | undefined;
+  private readonly operations = new Set<Promise<unknown>>();
+  private readonly changeEpochs = new WeakMap<ReplicaChangeRecord, string>();
+  private readonly stoppedSignal: Promise<void>;
+  private resolveStopped!: () => void;
   private readonly removeNotificationListener: () => void;
   private readonly removeDisconnectListener: () => void;
 
   constructor(options: RemoteReadDownSessionOptions) {
     this.options = options;
     this.cas = new BrokerCasStore(options.stateRoot);
+    this.blobReader = new RemoteBlobReader(this.cas, options.client, () => this.assertOpen());
     this.backoff = { ...defaultBackoff, ...options.backoff };
+    this.changeCache = { ...defaultChangeCache, ...options.changeCache };
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.stoppedSignal = new Promise((resolve) => {
+      this.resolveStopped = resolve;
+    });
     assertBackoff(this.backoff);
+    assertChangeCache(this.changeCache);
     this.removeNotificationListener = options.client.onNotification((change) => this.receiveNotification(change));
     this.removeDisconnectListener = options.client.onDisconnect(() => this.handleDisconnect());
   }
@@ -90,52 +91,88 @@ export class RemoteReadDownSession {
 
   subscribe(listener: (change: ReplicaChangeRecord) => void): () => void {
     this.listeners.add(listener);
-    void this.ready().catch((error) => this.options.onDiagnostic?.(`remote read-down start failed: ${readDownError(error).message}`));
+    this.queueRecovery("remote read-down start failed");
     return () => this.listeners.delete(listener);
   }
 
-  async latest(): Promise<ReplicaChangeRecord | undefined> {
-    const active = await this.ready();
-    await this.fetchAfter(active, highestKnownRevision(active));
-    return [...active.changes.values()].sort(compareChanges).at(-1) ?? active.cutChange ?? undefined;
+  latest(): Promise<ReplicaChangeRecord | undefined> {
+    return this.runOperation(() => this.readLatest());
   }
 
-  async getByOperation(opId: string): Promise<ReplicaChangeRecord | undefined> {
+  private async readLatest(): Promise<ReplicaChangeRecord | undefined> {
     const active = await this.ready();
     await this.fetchAfter(active, highestKnownRevision(active));
-    return [active.cutChange, ...active.changes.values()]
-      .filter((change): change is ReplicaChangeRecord => change !== null)
-      .find((change) => change.operations.some((operation) => operation.opId === opId));
+    return active.changes.get(active.highestRevision) ?? active.cutChange ?? undefined;
   }
 
-  async changesAfter(revision: number): Promise<ReadonlyArray<ReplicaChangeRecord>> {
+  getByOperation(opId: string): Promise<ReplicaChangeRecord | undefined> {
+    return this.runOperation(() => this.readByOperation(opId));
+  }
+
+  private async readByOperation(opId: string): Promise<ReplicaChangeRecord | undefined> {
+    const active = await this.ready();
+    await this.fetchAfter(active, highestKnownRevision(active));
+    if (active.cutChange?.operations.some((operation) => operation.opId === opId)) return active.cutChange;
+    for (const change of active.changes.values()) {
+      if (change.operations.some((operation) => operation.opId === opId)) return change;
+    }
+    return undefined;
+  }
+
+  changesAfter(revision: number): Promise<ReadonlyArray<ReplicaChangeRecord>> {
+    return this.runOperation(() => this.readChangesAfter(revision));
+  }
+
+  private async readChangesAfter(revision: number): Promise<ReadonlyArray<ReplicaChangeRecord>> {
     const active = await this.ready();
     const cutRevision = active.reservation.cut.revision;
+    if (active.resyncReason) {
+      if (!active.resyncReported || revision < cutRevision) {
+        active.resyncReported = true;
+        throw resyncError(active, active.resyncReason);
+      }
+      active.resyncReason = undefined;
+    }
     if (revision < cutRevision) {
-      throw new RemoteReplicaResyncRequiredError(
+      throw resyncError(
+        active,
         `CURSOR_PRECEDES_PINNED_CUT:${revision}:${cutRevision}`,
-        cutRevision,
-        active.cutChange
       );
     }
     active.adopted = true;
     active.deliveredRevision = Math.max(active.deliveredRevision, revision);
+    active.durableCursor = Math.max(active.durableCursor, revision);
+    pruneChanges(active, active.durableCursor);
     const changes = await this.fetchAfter(active, revision);
     this.queueNotificationPump();
     return changes;
   }
 
-  async snapshotAt(change: ReplicaChangeRecord): Promise<CanonicalSnapshot> {
+  snapshotAt(change: ReplicaChangeRecord): Promise<CanonicalSnapshot> {
+    return this.runOperation(() => this.readSnapshotAt(change));
+  }
+
+  private async readSnapshotAt(change: ReplicaChangeRecord): Promise<CanonicalSnapshot> {
     const active = await this.ready();
     if (change.workspaceId !== this.options.workspaceId) {
       throw new Error("remote snapshot change belongs to another workspace");
     }
+    const observedEpoch = this.changeEpochs.get(change);
+    if (observedEpoch && observedEpoch !== active.reservation.cut.epoch) {
+      throw resyncError(active, `CHANGE_EPOCH_MISMATCH:${observedEpoch}:${active.reservation.cut.epoch}`);
+    }
     const entries = await this.entriesAt(active, change);
-    const snapshotEntries = await Promise.all([...entries.values()].sort(compareManifestPaths).map(async (entry) => ({
+    const orderedEntries = [...entries.values()].sort(compareManifestPaths);
+    const uniqueDigests = [...new Set(orderedEntries.map((entry) => entry.blobDigest))];
+    const blobs = new Map<string, Buffer>();
+    await mapInBatches(uniqueDigests, 8, async (blobDigest) => {
+      blobs.set(blobDigest, await this.readBlob(active, blobDigest));
+    });
+    const snapshotEntries = orderedEntries.map((entry) => ({
       path: entry.path,
-      content: await this.readBlob(active, entry.blobDigest),
+      content: blobs.get(entry.blobDigest)!,
       logicalMode: Number.parseInt(entry.mode, 8)
-    })));
+    }));
     return {
       workspaceId: change.workspaceId,
       revision: change.revision,
@@ -144,69 +181,133 @@ export class RemoteReadDownSession {
     };
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closeTask) return this.closeTask;
     this.stopped = true;
+    this.lifecycleGeneration += 1;
+    this.resolveStopped();
     this.renewalTask?.dispose();
+    this.renewalTask = undefined;
     this.removeNotificationListener();
     this.removeDisconnectListener();
+    this.closeTask = this.finishClose();
+    return this.closeTask;
+  }
+
+  private async finishClose(): Promise<void> {
     await this.options.client.close();
+    for (;;) {
+      const pending = [
+        ...this.operations,
+        ...(this.recovery ? [this.recovery.promise] : []),
+        ...(this.notificationPump ? [this.notificationPump] : []),
+        ...(this.renewalOperation ? [this.renewalOperation] : []),
+        ...this.blobReader.pending()
+      ];
+      if (pending.length === 0) return;
+      await Promise.allSettled(pending);
+    }
   }
 
   private async ready(): Promise<ActiveSnapshot> {
     if (this.stopped) throw new Error("remote read-down session is closed");
+    if (this.terminalError) throw this.terminalError;
     if (this.active) return this.active;
-    if (!this.recovery) {
-      this.recovery = this.recover().finally(() => {
-        this.recovery = undefined;
-      });
-    }
-    return this.recovery;
+    if (this.recovery) return this.recovery.promise;
+    const generation = this.lifecycleGeneration;
+    const promise = this.recover(generation);
+    const recovery = { generation, promise };
+    this.recovery = recovery;
+    void promise.then(
+      () => {
+        if (this.recovery === recovery) this.recovery = undefined;
+      },
+      () => {
+        if (this.recovery === recovery) this.recovery = undefined;
+      }
+    );
+    return promise;
   }
 
-  private async recover(): Promise<ActiveSnapshot> {
+  private async recover(generation: number): Promise<ActiveSnapshot> {
     let delay = this.backoff.initialMs;
+    let replaceConnection = this.resumeCursor !== undefined;
     for (;;) {
       try {
-        await this.options.client.connect();
-        const active = await this.openSnapshot();
+        if (replaceConnection) {
+          await this.options.client.reconnect();
+        } else {
+          await this.options.client.connect();
+        }
+        this.assertRecoveryCurrent(generation);
+        const active = await this.openSnapshot(this.resumeCursor);
+        this.assertRecoveryCurrent(generation);
+        if (this.active) return this.active;
         this.active = active;
         this.scheduleRenewal(active);
         this.queueNotificationPump();
         return active;
       } catch (error) {
         if (this.stopped) throw readDownError(error);
-        if (isIntegrityError(error)) throw readDownError(error);
+        if (generation !== this.lifecycleGeneration) {
+          throw new AuthorityTransportDisconnectedError("remote read-down recovery generation changed");
+        }
+        if (isIntegrityError(error)) {
+          this.terminalError = readDownError(error);
+          throw this.terminalError;
+        }
         this.options.onDiagnostic?.(`remote read-down reconnect failed; retrying in ${delay}ms: ${readDownError(error).message}`);
-        await this.sleep(delay);
+        await this.interruptibleSleep(delay);
+        this.assertRecoveryCurrent(generation);
         delay = Math.min(this.backoff.maximumMs, Math.max(delay + 1, Math.ceil(delay * this.backoff.multiplier)));
-        await this.options.client.reconnect().catch(() => undefined);
+        replaceConnection = true;
       }
     }
   }
 
-  private async openSnapshot(): Promise<ActiveSnapshot> {
+  private async openSnapshot(resume: ResumeCursor | undefined): Promise<ActiveSnapshot> {
     const reservation = await this.options.client.beginSnapshotAndSubscribe();
+    this.assertOpen();
     const manifest = await this.options.client.getSnapshotManifest(
       reservation.stream.streamToken,
       reservation.cut.manifestDigest
     );
+    this.assertOpen();
     assertManifest(reservation, manifest, this.options.workspaceId);
     const cutChange = await this.options.client.getCutChange(reservation.stream.streamToken);
+    this.assertOpen();
     assertCutChange(reservation, cutChange);
+    if (cutChange) this.changeEpochs.set(cutChange, reservation.cut.epoch);
     const baseEntries = new Map(manifest.entries.map((entry) => [entry.path, entry]));
     if (baseEntries.size !== manifest.entries.length) throw new Error("authority snapshot manifest contains duplicate paths");
+    const uniqueDigests = [...new Set(manifest.entries.map((entry) => entry.blobDigest))];
     await mapInBatches(
-      manifest.entries,
+      uniqueDigests,
       8,
-      (entry) => this.readBlobFromReservation(reservation, entry.blobDigest)
+      (blobDigest) => this.readBlobFromReservation(reservation, blobDigest)
     );
+    this.assertOpen();
+    const sameEpoch = resume?.epoch === reservation.cut.epoch;
+    const canResume = Boolean(resume && sameEpoch && reservation.cut.revision <= resume.deliveredRevision);
+    const resyncReason = resume && !sameEpoch
+      ? `EPOCH_CHANGED:${resume.epoch}:${reservation.cut.epoch}`
+      : resume && !canResume
+        ? `CURSOR_PRECEDES_RECONNECTED_CUT:${resume.deliveredRevision}:${reservation.cut.revision}`
+        : undefined;
     return {
       reservation,
       cutChange,
       baseEntries,
       changes: new Map(),
-      adopted: reservation.cut.revision === 0,
-      deliveredRevision: reservation.cut.revision
+      changeSizes: new Map(),
+      changeBytes: 0,
+      highestRevision: reservation.cut.revision,
+      durableCursor: reservation.cut.revision,
+      adopted: canResume || (!resume && reservation.cut.revision === 0),
+      deliveredRevision: canResume ? resume!.deliveredRevision : reservation.cut.revision,
+      ...(resyncReason ? { resyncReason } : {}),
+      resyncSignaled: false,
+      resyncReported: false
     };
   }
 
@@ -214,27 +315,25 @@ export class RemoteReadDownSession {
     try {
       this.assertCurrent(active);
       const result = await this.options.client.changesAfter(active.reservation.stream.streamToken, revision);
+      this.assertCurrent(active);
       validateChanges(result.changes, revision, this.options.workspaceId);
-      for (const change of result.changes) active.changes.set(change.revision, change);
+      for (const change of result.changes) this.storeChange(active, change, false);
       return result.changes;
     } catch (error) {
+      if (this.stopped) throw readDownError(error);
       if (isResyncError(error)) {
-        this.active = undefined;
+        this.invalidateActive(active);
         const next = await this.ready();
-        throw new RemoteReplicaResyncRequiredError(
-          error.message,
-          next.reservation.cut.revision,
-          next.cutChange
-        );
+        throw resyncError(next, error.message);
       }
       if (error instanceof AuthorityTransportDisconnectedError) {
-        this.active = undefined;
+        this.invalidateActive(active);
         const next = await this.ready();
+        if (next.resyncReason) throw resyncError(next, next.resyncReason);
         if (revision < next.reservation.cut.revision) {
-          throw new RemoteReplicaResyncRequiredError(
+          throw resyncError(
+            next,
             `CURSOR_PRECEDES_RECONNECTED_CUT:${revision}:${next.reservation.cut.revision}`,
-            next.reservation.cut.revision,
-            next.cutChange
           );
         }
         return this.fetchAfter(next, revision);
@@ -249,13 +348,18 @@ export class RemoteReadDownSession {
   ): Promise<ReadonlyMap<string, AuthoritySnapshotManifestEntry>> {
     const cut = active.reservation.cut;
     if (change.revision < cut.revision) {
-      throw new RemoteReplicaResyncRequiredError(
+      throw resyncError(
+        active,
         `SNAPSHOT_PRECEDES_PINNED_CUT:${change.revision}:${cut.revision}`,
-        cut.revision,
-        active.cutChange
       );
     }
     if (change.revision > cut.revision) await this.fetchAfter(active, cut.revision);
+    const canonical = change.revision === cut.revision
+      ? active.cutChange
+      : active.changes.get(change.revision);
+    if (!canonical || !sameChangeIdentity(canonical, change)) {
+      throw resyncError(active, `CHANGE_IDENTITY_MISMATCH:${change.revision}`);
+    }
     const entries = new Map(active.baseEntries);
     for (let revision = cut.revision + 1; revision <= change.revision; revision += 1) {
       const next = active.changes.get(revision);
@@ -279,27 +383,28 @@ export class RemoteReadDownSession {
     reservation: AuthoritySnapshotReservation,
     digest: AuthoritySnapshotManifestEntry["blobDigest"]
   ): Promise<Buffer> {
-    try {
-      return await this.cas.get(digest);
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-    }
-    const bytes = await this.options.client.getBlob(reservation.stream.streamToken, digest);
-    const actual = await this.cas.put(bytes);
-    if (actual !== digest) throw new Error(`BLOB_DIGEST_MISMATCH:${digest}:${actual}`);
-    return Buffer.from(bytes);
+    return this.blobReader.read(reservation, digest);
   }
 
   private receiveNotification(change: ReplicaChangeRecord): void {
     const active = this.active;
     if (!active || change.workspaceId !== this.options.workspaceId) return;
     if (change.revision <= active.reservation.cut.revision) return;
-    active.changes.set(change.revision, change);
+    try {
+      this.storeChange(active, change, true);
+    } catch (error) {
+      this.terminalError = readDownError(error);
+      this.invalidateActive(active);
+      this.options.onDiagnostic?.(`remote read-down notification rejected: ${this.terminalError.message}`);
+      return;
+    }
     this.queueNotificationPump();
   }
 
   private queueNotificationPump(): void {
+    if (this.stopped) return;
     void this.pumpNotifications().catch((error) => {
+      if (this.stopped) return;
       this.options.onDiagnostic?.(`remote read-down notification pump stopped: ${readDownError(error).message}`);
     });
   }
@@ -314,8 +419,17 @@ export class RemoteReadDownSession {
 
   private async flushNotifications(): Promise<void> {
     const active = this.active;
-    if (!active?.adopted || this.listeners.size === 0) return;
+    if (!active || this.listeners.size === 0) return;
+    if (active.resyncReason) {
+      if (!active.resyncSignaled && active.cutChange) {
+        active.resyncSignaled = true;
+        this.notifyListeners(active.cutChange);
+      }
+      return;
+    }
+    if (!active.adopted) return;
     for (;;) {
+      if (this.stopped || this.active !== active) return;
       const expected = active.deliveredRevision + 1;
       let change = active.changes.get(expected);
       if (!change) {
@@ -324,21 +438,17 @@ export class RemoteReadDownSession {
       }
       if (!change || change.revision !== expected) return;
       active.deliveredRevision = change.revision;
-      for (const listener of this.listeners) {
-        try {
-          listener(change);
-        } catch (error) {
-          this.options.onDiagnostic?.(`remote read-down notification listener failed: ${readDownError(error).message}`);
-        }
-      }
+      this.resumeCursor = { epoch: active.reservation.cut.epoch, deliveredRevision: active.deliveredRevision };
+      this.notifyListeners(change);
+      pruneChanges(active, active.deliveredRevision);
     }
   }
 
   private handleDisconnect(): void {
     if (this.stopped) return;
-    this.active = undefined;
-    this.renewalTask?.dispose();
-    void this.ready().catch((error) => this.options.onDiagnostic?.(`remote read-down recovery stopped: ${readDownError(error).message}`));
+    const active = this.active;
+    if (active) this.invalidateActive(active);
+    this.queueRecovery("remote read-down recovery stopped");
   }
 
   private scheduleRenewal(active: ActiveSnapshot): void {
@@ -348,20 +458,32 @@ export class RemoteReadDownSession {
     const remaining = expiresAt - this.now();
     const delay = Math.max(0, Math.min(remaining / 2, renewableUntil - this.now()));
     const schedule = this.options.schedule ?? defaultSchedule;
-    this.renewalTask = schedule(delay, () => void this.renew(active));
+    this.renewalTask = schedule(delay, () => {
+      if (this.stopped) return;
+      const operation = this.renew(active);
+      this.renewalOperation = operation;
+      void operation.then(
+        () => {
+          if (this.renewalOperation === operation) this.renewalOperation = undefined;
+        },
+        () => {
+          if (this.renewalOperation === operation) this.renewalOperation = undefined;
+        }
+      );
+    });
   }
 
   private async renew(active: ActiveSnapshot): Promise<void> {
     if (this.active !== active || this.stopped) return;
     try {
       if (this.now() >= Date.parse(active.reservation.lease.renewableUntil)) {
-        throw new RemoteReplicaResyncRequiredError(
+        throw resyncError(
+          active,
           "LEASE_RENEWAL_LIMIT_REACHED",
-          active.reservation.cut.revision,
-          active.cutChange
         );
       }
       const lease = await this.options.client.renewLease(active.reservation.stream.streamToken);
+      if (this.stopped || this.active !== active) return;
       const renewed: ActiveSnapshot = {
         ...active,
         reservation: { ...active.reservation, lease }
@@ -369,157 +491,100 @@ export class RemoteReadDownSession {
       this.active = renewed;
       this.scheduleRenewal(renewed);
     } catch (error) {
+      if (this.stopped || this.active !== active) return;
       this.options.onDiagnostic?.(`remote read-down lease requires resnapshot: ${readDownError(error).message}`);
-      this.active = undefined;
-      await this.options.client.reconnect().catch(() => undefined);
-      void this.ready().catch((recoveryError) => {
-        this.options.onDiagnostic?.(`remote read-down lease recovery failed: ${readDownError(recoveryError).message}`);
-      });
+      this.invalidateActive(active);
+      this.queueRecovery("remote read-down lease recovery failed");
+    }
+  }
+
+  private storeChange(active: ActiveSnapshot, change: ReplicaChangeRecord, lossyHint: boolean): void {
+    if (storeCachedChange(active, change, this.changeCache, lossyHint)) {
+      this.changeEpochs.set(change, active.reservation.cut.epoch);
+    }
+  }
+
+  private invalidateActive(active: ActiveSnapshot): boolean {
+    if (this.active !== active) return false;
+    this.resumeCursor = {
+      epoch: active.reservation.cut.epoch,
+      deliveredRevision: active.deliveredRevision
+    };
+    this.active = undefined;
+    this.lifecycleGeneration += 1;
+    this.recovery = undefined;
+    this.renewalTask?.dispose();
+    this.renewalTask = undefined;
+    return true;
+  }
+
+  private notifyListeners(change: ReplicaChangeRecord): void {
+    const active = this.active;
+    if (active) this.changeEpochs.set(change, active.reservation.cut.epoch);
+    for (const listener of this.listeners) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.options.onDiagnostic?.(`remote read-down notification listener failed: ${readDownError(error).message}`);
+      }
+    }
+  }
+
+  private queueRecovery(description: string): void {
+    if (this.stopped || this.terminalError) return;
+    void this.ready().catch((error) => {
+      if (this.stopped) return;
+      if (error instanceof AuthorityTransportDisconnectedError && !this.active) {
+        queueMicrotask(() => this.queueRecovery(description));
+        return;
+      }
+      this.options.onDiagnostic?.(`${description}: ${readDownError(error).message}`);
+    });
+  }
+
+  private runOperation<Value>(operation: () => Promise<Value>): Promise<Value> {
+    if (this.stopped) return Promise.reject(new Error("remote read-down session is closed"));
+    const task = operation();
+    this.operations.add(task);
+    void task.then(
+      () => this.operations.delete(task),
+      () => this.operations.delete(task)
+    );
+    return task;
+  }
+
+  private async interruptibleSleep(milliseconds: number): Promise<void> {
+    await Promise.race([
+      this.sleep(milliseconds),
+      this.stoppedSignal.then(() => {
+        throw new Error("remote read-down session is closed");
+      })
+    ]);
+  }
+
+  private assertOpen(): void {
+    if (this.stopped) throw new Error("remote read-down session is closed");
+  }
+
+  private assertRecoveryCurrent(generation: number): void {
+    this.assertOpen();
+    if (generation !== this.lifecycleGeneration) {
+      throw new AuthorityTransportDisconnectedError("remote read-down recovery generation changed");
     }
   }
 
   private assertCurrent(active: ActiveSnapshot): void {
+    this.assertOpen();
     if (this.active !== active) throw new AuthorityTransportDisconnectedError("remote read-down snapshot generation changed");
   }
 }
 
-function assertManifest(
-  reservation: AuthoritySnapshotReservation,
-  manifest: AuthoritySnapshotManifest,
-  workspaceId: string
-): void {
-  if (manifest.cut.workspaceId !== workspaceId
-    || !sameSnapshotCut(manifest.cut, reservation.cut)) {
-    throw new Error("authority snapshot manifest cut mismatch");
-  }
-  const actual = manifestDigest(manifest.cut, manifest.entries);
-  if (actual !== reservation.cut.manifestDigest) {
-    throw new Error(`MANIFEST_DIGEST_MISMATCH:${reservation.cut.manifestDigest}:${actual}`);
-  }
-}
-
-function sameSnapshotCut(
-  left: AuthoritySnapshotReservation["cut"],
-  right: AuthoritySnapshotReservation["cut"]
-): boolean {
-  return left.workspaceId === right.workspaceId
-    && left.epoch === right.epoch
-    && left.revision === right.revision
-    && left.commitSha === right.commitSha
-    && left.manifestDigest === right.manifestDigest
-    && left.provenanceDigest === right.provenanceDigest;
-}
-
-function assertCutChange(
-  reservation: AuthoritySnapshotReservation,
-  change: ReplicaChangeRecord | null
-): void {
-  if (reservation.cut.revision === 0) {
-    if (change !== null) throw new Error("authority empty cut unexpectedly has a change");
-    return;
-  }
-  if (!change
-    || change.workspaceId !== reservation.cut.workspaceId
-    || change.revision !== reservation.cut.revision
-    || change.commitSha !== reservation.cut.commitSha
-    || change.manifest.digest !== reservation.cut.manifestDigest) {
-    throw new Error("authority cut change does not match snapshot reservation");
-  }
-}
-
-async function mapInBatches<Value>(
-  values: ReadonlyArray<Value>,
-  batchSize: number,
-  operation: (value: Value) => Promise<unknown>
-): Promise<void> {
-  for (let offset = 0; offset < values.length; offset += batchSize) {
-    await Promise.all(values.slice(offset, offset + batchSize).map(operation));
-  }
-}
-
-function validateChanges(
-  changes: ReadonlyArray<ReplicaChangeRecord>,
-  sinceRevision: number,
-  workspaceId: string
-): void {
-  let expected = sinceRevision + 1;
-  for (const change of changes) {
-    if (change.workspaceId !== workspaceId || change.revision !== expected) {
-      throw new Error(`remote replica change gap at revision ${change.revision}; expected ${expected}`);
-    }
-    expected += 1;
-  }
-}
-
-function applyChange(
-  entries: Map<string, AuthoritySnapshotManifestEntry>,
-  change: ReplicaChangeRecord
-): void {
-  for (const item of change.paths) {
-    if (item.tombstone) {
-      entries.delete(item.path);
-    } else {
-      if (!item.blobDigest || !item.mode) throw new Error(`remote change lacks blob metadata for ${item.path}`);
-      entries.set(item.path, {
-        path: item.path,
-        blobDigest: item.blobDigest,
-        mode: item.mode,
-        tombstone: false
-      });
-    }
-  }
-}
-
-function assertChangeManifest(
-  epoch: string,
-  change: ReplicaChangeRecord,
-  entries: ReadonlyMap<string, AuthoritySnapshotManifestEntry>
-): void {
-  const actual = manifestDigest({
-    workspaceId: change.workspaceId,
-    epoch,
-    revision: change.revision,
-    commitSha: change.commitSha
-  }, [...entries.values()]);
-  if (actual !== change.manifest.digest || entries.size !== change.manifest.entryCount) {
-    throw new Error(`MANIFEST_DIGEST_MISMATCH:${change.manifest.digest}:${actual}`);
-  }
-}
-
 function highestKnownRevision(active: ActiveSnapshot): number {
-  return Math.max(active.reservation.cut.revision, ...active.changes.keys());
+  return active.highestRevision;
 }
 
-function compareChanges(left: ReplicaChangeRecord, right: ReplicaChangeRecord): number {
-  return left.revision - right.revision;
-}
-
-function compareManifestPaths(
-  left: AuthoritySnapshotManifestEntry,
-  right: AuthoritySnapshotManifestEntry
-): number {
-  return left.path.localeCompare(right.path, "en");
-}
-
-function assertBackoff(backoff: RemoteReadDownBackoff): void {
-  if (!Number.isFinite(backoff.initialMs)
-    || !Number.isFinite(backoff.maximumMs)
-    || !Number.isFinite(backoff.multiplier)
-    || backoff.initialMs < 0
-    || backoff.maximumMs < backoff.initialMs
-    || backoff.multiplier < 1) {
-    throw new Error("remote read-down backoff must be finite, non-negative, and bounded");
-  }
-}
-
-function isResyncError(error: unknown): error is AuthorityReadDownRequestError {
-  return error instanceof AuthorityReadDownRequestError
-    && (error.code === "RESYNC_REQUIRED" || error.code === "SNAPSHOT_EXPIRED");
-}
-
-function isIntegrityError(error: unknown): boolean {
-  const message = readDownError(error).message;
-  return /(?:BLOB|MANIFEST)_DIGEST_MISMATCH|manifest (?:cut mismatch|contains duplicate)|cut change does not match|blob response (?:metadata mismatch|is not canonical)/iu.test(message);
+function resyncError(active: ActiveSnapshot, message: string): RemoteReplicaResyncRequiredError {
+  return new RemoteReplicaResyncRequiredError(message, active.reservation.cut, active.cutChange);
 }
 
 function readDownError(error: unknown): Error {

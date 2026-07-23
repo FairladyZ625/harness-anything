@@ -25,6 +25,7 @@ export {
   RemoteReadDownSession,
   RemoteReplicaResyncRequiredError,
   type RemoteReadDownBackoff,
+  type RemoteReadDownChangeCacheLimits,
   type RemoteReadDownSessionOptions
 } from "./remote-read-down-session.ts";
 export { RemoteReplicaChangeLog } from "./remote-replica-change-log.ts";
