@@ -37,7 +37,12 @@ const excluded = (reason: string): ProductionAuthorityIngressDisposition => ({
 });
 
 const dispositions = {
-  "new-task": typed("generic"),
+  "new-task": typed("generic", {
+    "register-module": {
+      decisionRef: productionAuthorityIngressDecisionRef,
+      reason: "inline module registration is a cross-entity composite write; register the module separately before creating the task"
+    }
+  }),
   "task-claim": typed("task-claim"),
   "status-set": typed("generic"),
   "progress-append": typed("generic"),

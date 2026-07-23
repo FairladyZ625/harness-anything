@@ -124,7 +124,7 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
       throw authorityWriteRejected(
         cause instanceof Error ? cause.message : String(cause),
         false,
-        "authority_ingress_rejected"
+        authorityRejectionCode(cause instanceof Error ? cause.message : String(cause))
       );
     }
   };
@@ -340,7 +340,7 @@ export function assertAuthorityReceiptOperation(
 export function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushReason): FlushReport {
   switch (receipt.tag) {
     case "COMMITTED": return { reason, opCount: 1, committed: true, watermark: receipt.opId };
-    case "REJECTED": throw authorityWriteRejected(receipt.reason, false, "authority_ingress_rejected");
+    case "REJECTED": throw authorityWriteRejected(receipt.reason, false, authorityRejectionCode(receipt.reason));
     case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(
       receipt.reason,
       true,
@@ -392,6 +392,13 @@ function authorityWriteRejected(
     ...(context ? { context } : {}),
     ...(retryable ? { retryable: true } : {})
   };
+}
+
+function authorityRejectionCode(reason: string): string {
+  return reason === "MODULE_NOT_FOUND"
+    || reason.startsWith("AUTHORITY_PRESET_TASK_CREATE_MODULE_NOT_FOUND:")
+    ? "module_not_found"
+    : "authority_ingress_rejected";
 }
 
 function isAuthorityWriteError(error: unknown): error is WriteError {

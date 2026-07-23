@@ -19,6 +19,7 @@ export interface PreparedAuthoritySubmission {
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;
+  readonly publicationRevalidation?: () => Promise<void>;
   readonly recordedProtocol: RecordedAuthorityProtocol;
 }
 

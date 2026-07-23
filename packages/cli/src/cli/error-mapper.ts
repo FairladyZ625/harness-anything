@@ -1,6 +1,6 @@
 import type { ArtifactStoreError, EngineError, WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode, isCliErrorCode } from "./error-codes.ts";
-import { productionAuthorityUnsupportedHint } from "./command-spec/index.ts";
+import { productionAuthorityIngressFor, productionAuthorityUnsupportedHint } from "./command-spec/index.ts";
 import type { CliResult } from "./types.ts";
 
 type CliReachableKernelError = ArtifactStoreError | EngineError | WriteError;
@@ -40,7 +40,13 @@ const cliErrorMappers = {
     `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying.`
   ),
   WriteRejected: (error) => error.code && isCliErrorCode(error.code)
-    ? cliError(error.code, authorityIngressPresentation(error.reason), error.context)
+    ? cliError(
+      error.code,
+      error.code === CliErrorCode.ModuleNotFound
+        ? authorityModuleNotFoundPresentation(error.reason)
+        : authorityIngressPresentation(error.reason),
+      error.context
+    )
     : error.reason.includes("authored root is not isolated from the outer code repository")
       ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
       : cliError(CliErrorCode.WriteRejected, error.reason),
@@ -69,7 +75,27 @@ function authorityIngressPresentation(reason: string): string {
   const prefix = "AUTHORITY_TYPED_COMMAND_UNSUPPORTED:";
   if (!reason.startsWith(prefix)) return reason;
   const rejectedKind = reason.slice(prefix.length);
-  return `${prefix} ${productionAuthorityUnsupportedHint(rejectedKind)}`;
+  return `${prefix} ${productionAuthorityVariantHint(rejectedKind) ?? productionAuthorityUnsupportedHint(rejectedKind)}`;
+}
+
+function authorityModuleNotFoundPresentation(reason: string): string {
+  const prefix = "AUTHORITY_PRESET_TASK_CREATE_MODULE_NOT_FOUND:";
+  if (reason.startsWith(prefix)) return `Module ${reason.slice(prefix.length)} was not found.`;
+  return "The selected module was not found.";
+}
+
+function productionAuthorityVariantHint(rejectedKind: string): string | undefined {
+  const variantStart = rejectedKind.indexOf("[");
+  if (variantStart <= 0 || !rejectedKind.endsWith("]")) return undefined;
+  const commandKind = rejectedKind.slice(0, variantStart);
+  const variant = rejectedKind.slice(variantStart + 1, -1);
+  if (!variant) return undefined;
+  const disposition = productionAuthorityIngressFor(commandKind);
+  const exclusion = disposition?.status === "typed-v2"
+    ? disposition.excludedVariants?.[variant]
+    : undefined;
+  if (!exclusion) return undefined;
+  return `production canonical ingress rejected ${commandKind} variant ${variant}: ${exclusion.reason} (${exclusion.decisionRef})`;
 }
 
 function journalUnavailableCause(cause: unknown): string {

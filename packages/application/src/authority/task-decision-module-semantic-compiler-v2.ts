@@ -52,10 +52,7 @@ import {
   verifySemanticBaseCasV2,
   verifySemanticPathCasV2
 } from "./semantic-authority-helpers-v2.ts";
-import type {
-  HostedDocumentSnapshotV2,
-  SemanticEntityBaseV2
-} from "./fact-relation-semantic-compiler-v2.ts";
+import type { HostedDocumentSnapshotV2, SemanticEntityBaseV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import {
   compileDecisionAmendV2,
   compileDecisionRelationReplaceV2,
@@ -67,6 +64,7 @@ import {
   compileModuleStepV2,
   compileModuleUnregisterV2
 } from "./task-decision-module-module-mutations-v2.ts";
+import { taskCreateModuleReadDependencyV2 } from "./task-decision-module-task-create-module-selection-v2.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -110,20 +108,24 @@ export interface CompiledTaskDecisionModuleCommandV2 {
   readonly operation: WriteOp;
   readonly requiredBaseRefs: ReadonlyArray<RegistryEntityRefV2>;
   readonly requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
+  readonly publicationRevalidation?: () => Promise<void>;
 }
 
 const registryVersion = 1;
 
-export function makeTaskDecisionModuleSemanticCompilerV2(
-  options: TaskDecisionModuleSemanticCompilerV2Options
-): AuthoritySemanticCompilerV2 {
+export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionModuleSemanticCompilerV2Options): AuthoritySemanticCompilerV2 {
   return {
     compile: async (envelope) => {
       const { payload, decodedBytes } = decodeTaskDecisionModuleCommandPayloadV2(envelope);
       const compiled = await compileTaskDecisionModulePayload(options.state, payload);
       await verifySemanticBaseCasV2(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
       verifySemanticPathCasV2(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
-      return { mutationPlan: compiled.mutationPlan, operation: compiled.operation, decodedBytes };
+      return {
+        mutationPlan: compiled.mutationPlan,
+        operation: compiled.operation,
+        decodedBytes,
+        ...(compiled.publicationRevalidation ? { publicationRevalidation: compiled.publicationRevalidation } : {})
+      };
     }
   };
 }
@@ -133,7 +135,7 @@ async function compileTaskDecisionModulePayload(
   payload: TaskDecisionModuleCommandPayloadV2
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
   switch (payload.schema) {
-    case "task.create/v1": return compileTaskCreate(payload);
+    case "task.create/v1": return compileTaskCreate(state, payload);
     case "task.transition/v1": return compileTaskTransition(state, payload);
     case "task.append/v1": return compileTaskAppend(payload);
     case "task.document/v1": return compileTaskDocument(state, payload);
@@ -155,7 +157,7 @@ async function compileTaskDecisionModulePayload(
   }
 }
 
-function compileTaskCreate(payload: TaskCreatePayloadV2): CompiledTaskDecisionModuleCommandV2 {
+async function compileTaskCreate(state: TaskDecisionModuleAuthorityStateV2, payload: TaskCreatePayloadV2): Promise<CompiledTaskDecisionModuleCommandV2> {
   const task = parseTaskIndex(payload.indexBody);
   if (task.taskId !== payload.taskId) throw admission("TASK_ID_MISMATCH");
   if (task.status !== "planned") throw admission("TASK_CREATE_REQUIRES_PLANNED_STATUS");
@@ -168,7 +170,16 @@ function compileTaskCreate(payload: TaskCreatePayloadV2): CompiledTaskDecisionMo
     const indexWrite = payload.writes.find((write) => write.path === "INDEX.md");
     if (!indexWrite || indexWrite.body !== payload.indexBody) throw admission("TASK_CREATE_INDEX_WRITE_MISMATCH");
   }
-  return taskCompilation(payload.taskId, "create", "package_create", operationPayload, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)]);
+  const compiled = taskCompilation(payload.taskId, "create", "package_create", operationPayload, [
+    taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)
+  ]);
+  const moduleDependency = await taskCreateModuleReadDependencyV2(state, payload.writes);
+  if (!moduleDependency) return compiled;
+  return {
+    ...compiled,
+    requiredPathSnapshots: [{ path: "modules.json", snapshot: moduleDependency.snapshot }],
+    publicationRevalidation: moduleDependency.publicationRevalidation
+  };
 }
 
 async function compileTaskTransition(
