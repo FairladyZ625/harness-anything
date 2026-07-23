@@ -52,6 +52,18 @@ function requireIncludes(file, text, description = text) {
   if (!body.includes(normalizeText(text))) record(`${file} must mention ${description}`);
 }
 
+// A transient npm registry / transport failure (5xx, rate limit, connection
+// reset, DNS, socket hang up) must be retried inside the network budget rather
+// than hard-failing this required gate on a registry blip. Real `npm audit`
+// findings (actual advisories) never contain these transport tokens, so this
+// predicate cannot mistake a genuine vulnerability report for a transient error.
+export function isTransientRegistryError(output) {
+  if (typeof output !== "string" || output === "") return false;
+  return /\b(50[0234]|429)\b|service unavailable|bad gateway|gateway time-?out|too many requests|audit endpoint returned an error|econnreset|etimedout|eai_again|enotfound|socket hang ?up|network (?:error|timeout)|request to https?:\/\/\S*registry\S* failed/iu.test(
+    output
+  );
+}
+
 function runNetworkCommand(command, phase, networkStartedAt) {
   const [binary, ...args] = command.split(" ");
   for (let attempt = 1; attempt <= networkAttempts; attempt += 1) {
@@ -92,6 +104,16 @@ function runNetworkCommand(command, phase, networkStartedAt) {
     }
     if (result.status !== 0) {
       const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+      if (
+        attempt < networkAttempts &&
+        Date.now() - networkStartedAt < networkBudgetMs &&
+        isTransientRegistryError(output)
+      ) {
+        console.error(
+          `[supply-chain] ${receipt} status=registry-error-retry: ${output.split("\n", 1)[0]}`
+        );
+        continue;
+      }
       record(`[${receipt}] ${command} failed${output ? `:\n${output}` : ""}`);
       return "";
     }

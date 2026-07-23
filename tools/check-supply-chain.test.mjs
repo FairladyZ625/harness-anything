@@ -43,6 +43,42 @@ test("supply-chain check accepts an explicitly wider fail-closed command timeout
   });
 });
 
+test("supply-chain check retries a transient registry error and passes within budget", async () => {
+  await withFixtureRepo((root) => {
+    const counterPath = path.join(root, "audit-attempts.count");
+    writeValidSupplyChainFixture(root, {
+      flakyNpmCommand: "audit --omit=dev --audit-level=high",
+      flakyCounterPath: counterPath,
+      flakyFailCount: 1
+    });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Supply chain check passed/u);
+    assert.match(result.stderr, /status=registry-error-retry/u);
+    assert.equal(Number(readFileSync(counterPath, "utf8")), 2, "a transient 503 must be retried once");
+  });
+});
+
+test("supply-chain check does not retry a real audit finding and fails closed", async () => {
+  await withFixtureRepo((root) => {
+    const counterPath = path.join(root, "audit-attempts.count");
+    writeValidSupplyChainFixture(root, {
+      flakyNpmCommand: "audit --omit=dev --audit-level=high",
+      flakyCounterPath: counterPath,
+      flakyFailCount: 99,
+      flakyFailMessage: "found 3 high severity vulnerabilities in 1200 scanned packages"
+    });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stderr, /status=registry-error-retry/u);
+    assert.equal(Number(readFileSync(counterPath, "utf8")), 1, "a real finding must fail closed without retry");
+  });
+});
+
 test("supply-chain check rejects non-CLI publishable packages", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
@@ -492,13 +528,23 @@ function writeMockNpm(root, options) {
   const sbom = JSON.stringify(sbomValue);
   writeFile(root, ".mock-bin/npm", [
     "#!/usr/bin/env node",
-    "const { appendFileSync, writeFileSync } = require('node:fs');",
+    "const { appendFileSync, readFileSync, writeFileSync } = require('node:fs');",
     "const args = process.argv.slice(2).join(' ');",
     ...(options.invocationLogPath ? [`appendFileSync(${JSON.stringify(options.invocationLogPath)}, args + '\\n');`] : []),
     `if (args === ${JSON.stringify(options.hangNpmCommand)}) {`,
     ...(options.hangPidPath ? [`  writeFileSync(${JSON.stringify(options.hangPidPath)}, String(process.pid));`] : []),
     "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
     "}",
+    ...(options.flakyNpmCommand ? [
+      `if (args === ${JSON.stringify(options.flakyNpmCommand)}) {`,
+      `  let n = 0; try { n = Number(readFileSync(${JSON.stringify(options.flakyCounterPath)}, 'utf8')) || 0; } catch {}`,
+      `  writeFileSync(${JSON.stringify(options.flakyCounterPath)}, String(n + 1));`,
+      `  if (n < ${options.flakyFailCount ?? 1}) {`,
+      `    console.error(${JSON.stringify(options.flakyFailMessage ?? "npm warn audit 503 Service Unavailable - POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk - Service Unavailable\nnpm error audit endpoint returned an error")});`,
+      "    process.exit(1);",
+      "  }",
+      "}"
+    ] : []),
     "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
     "  console.log('found 0 vulnerabilities');",
     "  process.exit(0);",
