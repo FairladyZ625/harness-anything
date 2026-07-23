@@ -20,6 +20,14 @@ export {
 } from "./fingerprint.ts";
 export { CrashSafeNativeApplier, type NativeApplyResult } from "./native-applier.ts";
 export { BrokerSubmitPreflightError, ReplicaBroker } from "./replica-broker.ts";
+export { RemoteCanonicalSnapshotSource } from "./remote-canonical-snapshot-source.ts";
+export {
+  RemoteReadDownSession,
+  RemoteReplicaResyncRequiredError,
+  type RemoteReadDownBackoff,
+  type RemoteReadDownSessionOptions
+} from "./remote-read-down-session.ts";
+export { RemoteReplicaChangeLog } from "./remote-replica-change-log.ts";
 export { BrokerSubmissionCoordinator, type AuthoredSubmissionResult } from "./submission-coordinator.ts";
 export type {
   AuthoritySubmissionClient,

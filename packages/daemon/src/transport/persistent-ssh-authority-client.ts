@@ -11,10 +11,15 @@ import type {
 import {
   authorityWireFrameType,
   isAuthorityServerFrame,
+  type AuthorityBlobResult,
+  type AuthorityChangesAfterResult,
   type AuthorityNegotiatedProtocol,
   type AuthorityRequestFrame,
   type AuthorityResponseFrame,
-  type AuthoritySnapshotLease
+  type AuthoritySnapshotLease,
+  type AuthoritySnapshotManifest,
+  type AuthoritySnapshotReservation,
+  type Sha256Digest
 } from "../authority/protocol.ts";
 import {
   createLengthPrefixedFrameReader,
@@ -65,6 +70,16 @@ export class AuthorityTransportDisconnectedError extends Error {
   }
 }
 
+export class AuthorityReadDownRequestError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(`${code}: ${message}`);
+    this.name = "AuthorityReadDownRequestError";
+    this.code = code;
+  }
+}
+
 export class PersistentSshAuthorityClient {
   private readonly options: PersistentSshAuthorityClientOptions;
   private readonly limits: TransportFlowLimits;
@@ -73,6 +88,8 @@ export class PersistentSshAuthorityClient {
   private sequence = 0;
   private ready = false;
   private closing = false;
+  private readonly notificationListeners = new Set<(change: ReplicaChangeRecord) => void>();
+  private readonly disconnectListeners = new Set<(error: AuthorityTransportDisconnectedError) => void>();
   private pending = new Map<string, {
     readonly generation: number;
     readonly opId?: string;
@@ -175,6 +192,69 @@ export class PersistentSshAuthorityClient {
     return (response.result ?? undefined) as AuthorityOperationRecord | undefined;
   }
 
+  async beginSnapshotAndSubscribe(): Promise<AuthoritySnapshotReservation> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "begin_snapshot_and_subscribe",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      workspaceId: this.options.workspaceId
+    });
+    return this.readDownResult(response, "authority snapshot reservation") as AuthoritySnapshotReservation;
+  }
+
+  async getSnapshotManifest(
+    streamToken: string,
+    manifestDigest: Sha256Digest
+  ): Promise<AuthoritySnapshotManifest> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "get_snapshot_manifest",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      streamToken,
+      manifestDigest
+    });
+    return this.readDownResult(response, "authority snapshot manifest") as AuthoritySnapshotManifest;
+  }
+
+  async getBlob(streamToken: string, digest: Sha256Digest): Promise<Uint8Array> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "get_blob",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      streamToken,
+      digest
+    });
+    const result = this.readDownResult(response, "authority blob") as AuthorityBlobResult;
+    if (result.encoding !== "base64" || result.digest !== digest) {
+      throw new Error(`authority blob response metadata mismatch for ${digest}`);
+    }
+    const bytes = Buffer.from(result.bytes, "base64");
+    if (bytes.toString("base64") !== result.bytes) {
+      throw new Error(`authority blob response is not canonical base64 for ${digest}`);
+    }
+    return bytes;
+  }
+
+  async changesAfter(streamToken: string, sinceRevision: number): Promise<AuthorityChangesAfterResult> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "changes_after",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      workspaceId: this.options.workspaceId,
+      streamToken,
+      sinceRevision
+    });
+    return this.readDownResult(response, "authority changes") as AuthorityChangesAfterResult;
+  }
+
   async renewLease(streamToken: string): Promise<AuthoritySnapshotLease> {
     this.assertReady();
     const response = await this.request({
@@ -185,10 +265,7 @@ export class PersistentSshAuthorityClient {
       workspaceId: this.options.workspaceId,
       streamToken
     });
-    if (!response.ok || !response.result) {
-      throw new Error(response.error?.message ?? "authority lease renewal failed without a lease");
-    }
-    return response.result as AuthoritySnapshotLease;
+    return this.readDownResult(response, "authority lease renewal") as AuthoritySnapshotLease;
   }
 
   async getCutChange(streamToken: string): Promise<ReplicaChangeRecord | null> {
@@ -200,8 +277,18 @@ export class PersistentSshAuthorityClient {
       connectionGeneration: this.generation,
       streamToken
     });
-    if (!response.ok) throw new Error(response.error?.message ?? "authority cut change read failed");
+    if (!response.ok) throw this.readDownError(response, "authority cut change read");
     return (response.result ?? null) as ReplicaChangeRecord | null;
+  }
+
+  onNotification(listener: (change: ReplicaChangeRecord) => void): () => void {
+    this.notificationListeners.add(listener);
+    return () => this.notificationListeners.delete(listener);
+  }
+
+  onDisconnect(listener: (error: AuthorityTransportDisconnectedError) => void): () => void {
+    this.disconnectListeners.add(listener);
+    return () => this.disconnectListeners.delete(listener);
   }
 
   async close(): Promise<void> {
@@ -228,7 +315,18 @@ export class PersistentSshAuthorityClient {
     if (sourceGeneration !== this.generation || !isAuthorityServerFrame(value)) return;
     if (value.connectionGeneration !== this.generation) return;
     if (value.kind === "replica_change") {
-      this.options.onNotification?.(value.change);
+      try {
+        this.options.onNotification?.(value.change);
+      } catch (error) {
+        this.options.onDiagnostic?.(`authority notification listener failed: ${asError(error).message}`);
+      }
+      for (const listener of this.notificationListeners) {
+        try {
+          listener(value.change);
+        } catch (error) {
+          this.options.onDiagnostic?.(`authority notification listener failed: ${asError(error).message}`);
+        }
+      }
       return;
     }
     if (value.kind === "stream_closed") {
@@ -245,6 +343,9 @@ export class PersistentSshAuthorityClient {
     if (sourceGeneration !== this.generation) return;
     this.ready = false;
     this.child = undefined;
+    const disconnected = error instanceof AuthorityTransportDisconnectedError
+      ? error
+      : new AuthorityTransportDisconnectedError(error.message);
     for (const [requestId, pending] of this.pending) {
       if (pending.generation !== sourceGeneration) continue;
       this.pending.delete(requestId);
@@ -253,6 +354,15 @@ export class PersistentSshAuthorityClient {
         : new AuthorityTransportDisconnectedError(error.message, pending.opId));
     }
     if (!this.closing) this.options.onDiagnostic?.(`authority transport disconnected: ${error.message}`);
+    if (!this.closing) {
+      for (const listener of this.disconnectListeners) {
+        try {
+          listener(disconnected);
+        } catch (listenerError) {
+          this.options.onDiagnostic?.(`authority disconnect listener failed: ${asError(listenerError).message}`);
+        }
+      }
+    }
   }
 
   private async closeChild(): Promise<void> {
@@ -272,6 +382,19 @@ export class PersistentSshAuthorityClient {
 
   private assertReady(): void {
     if (!this.child || !this.ready) throw new AuthorityTransportDisconnectedError("authority SSH connection is not ready");
+  }
+
+  private readDownResult(response: AuthorityResponseFrame, description: string): NonNullable<AuthorityResponseFrame["result"]> {
+    if (!response.ok || response.result === undefined || response.result === null) {
+      throw this.readDownError(response, `${description} failed without a result`);
+    }
+    return response.result;
+  }
+
+  private readDownError(response: AuthorityResponseFrame, fallback: string): Error {
+    return response.error
+      ? new AuthorityReadDownRequestError(response.error.code, response.error.message)
+      : new Error(fallback);
   }
 }
 
