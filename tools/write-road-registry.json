@@ -3942,7 +3942,7 @@
       ],
       "evidence": [
         "packages/application/src/authority/admission.ts:23",
-        "packages/application/src/authority/service.ts:86",
+        "packages/application/src/authority/service.ts:376",
         "packages/daemon/src/authority/forced-command-session.ts:1"
       ],
       "freshness": "authority-serialized-first-parent"
@@ -6063,6 +6063,13 @@
           "classification": "design-exemption",
           "ref": "task_01KXW81JKDB6M4V8BTBSYX4G2F",
           "reason": "Design exemption: packages/daemon/src/client/local-json-rpc-client.ts owns this declared external helper/runtime spawn boundary; process lifecycle is not a filesystem coordinator mutation and canonical writes remain separately gated."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-child-process-transport.ts#fork@1",
+          "owner": "production.process.execution-boundaries",
+          "classification": "design-exemption",
+          "ref": "task_01KY6ZD1YJF3HV437BTB647VBH",
+          "reason": "Design exemption: this foundation transport defines the future per-repository writer capsule process boundary but is not production-activated or supervised yet; process lifecycle is not itself a canonical mutation, and activation must keep every child-owned write on the registered authority and coordinator roads."
         },
         {
           "key": "packages/daemon/src/platform/mount-observation.ts#execFileSync@1",
