@@ -1,4 +1,5 @@
 // @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
+import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 export const repoWriteProtocolType = "harness-repo-write-ipc/v1" as const;
 
 export interface RepoWriteProtocolLimits {
@@ -60,8 +61,9 @@ export type RepoWriteParentMessage =
 export type RepoWritePreparedFrame = RepoWriteOperationFrame<"prepared">;
 export type RepoWriteDrainedFrame = RepoWriteRequestFrame<"drained">;
 export type RepoWriteReadyFrame = RepoWriteFrameBase & { readonly kind: "ready" };
+export type RepoWriteTerminalOutcome = "committed" | "rejected";
 export interface RepoWriteTerminalFrame extends RepoWriteOperationFrame<"terminal"> {
-  readonly outcome: "committed";
+  readonly outcome: RepoWriteTerminalOutcome;
   readonly receipt: RepoWriteJsonObject;
 }
 
@@ -90,13 +92,19 @@ export interface RepoWriteOutcomeUnknownFailureFrame extends RepoWriteOperationF
   readonly diagnostic: string;
 }
 export type RepoWriteFailureFrame = RepoWriteNotStartedFailureFrame | RepoWriteOutcomeUnknownFailureFrame;
-export type RepoWriteOperationState = "not-found" | "prepared" | "proceeding" | "committed" | "failed" | "unknown";
+export type RepoWriteOperationState =
+  "not-found" | "prepared" | "proceeding" | RepoWriteTerminalOutcome | "failed" | "unknown";
 
 export type RepoWriteOperationLookupResult =
-  | { readonly state: Exclude<RepoWriteOperationState, "committed"> }
+  | { readonly state: Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome> }
   | {
       readonly state: "committed";
       readonly outcome: "committed";
+      readonly receipt: RepoWriteJsonObject;
+    }
+  | {
+      readonly state: "rejected";
+      readonly outcome: "rejected";
       readonly receipt: RepoWriteJsonObject;
     };
 
@@ -271,14 +279,16 @@ function decodeTerminal(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, budget: { nodes: number }
 ): RepoWriteTerminalFrame {
   assertExactKeys(frame, baseKeys(["requestId", "opId", "outcome", "receipt"]), [], "$");
-  if (frame.outcome !== "committed") invalid("$.outcome", "committed terminal outcome");
+  const outcome = terminalOutcome(frame.outcome, "$.outcome");
+  const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+  assertTerminalReceipt(outcome, receipt, "$.receipt");
   return {
     ...baseFields(frame),
     kind: "terminal",
     requestId: identifier(frame.requestId, "$.requestId", limits),
     opId: identifier(frame.opId, "$.opId", limits),
-    outcome: "committed",
-    receipt: jsonObject(frame.receipt, "$.receipt", limits, budget, 1)
+    outcome,
+    receipt
   };
 }
 
@@ -323,7 +333,7 @@ function decodeStatus(
   budget: { nodes: number }
 ): RepoWriteStatusFrame {
   const states: ReadonlyArray<RepoWriteOperationState> = [
-    "not-found", "prepared", "proceeding", "committed", "failed", "unknown"
+    "not-found", "prepared", "proceeding", "committed", "rejected", "failed", "unknown"
   ];
   if (!states.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
   const common = {
@@ -332,18 +342,42 @@ function decodeStatus(
     requestId: identifier(frame.requestId, "$.requestId", limits),
     opId: identifier(frame.opId, "$.opId", limits)
   };
-  if (frame.state === "committed") {
+  if (frame.state === "committed" || frame.state === "rejected") {
     assertExactKeys(frame, baseKeys(["requestId", "opId", "state", "outcome", "receipt"]), [], "$");
-    if (frame.outcome !== "committed") invalid("$.outcome", "committed terminal outcome");
-    return {
+    const outcome = terminalOutcome(frame.outcome, "$.outcome");
+    if (outcome !== frame.state) invalid("$.outcome", "terminal outcome matching state");
+    const receipt = jsonObject(frame.receipt, "$.receipt", limits, budget, 1);
+    assertTerminalReceipt(outcome, receipt, "$.receipt");
+    const terminal = {
       ...common,
-      state: "committed",
-      outcome: "committed",
-      receipt: jsonObject(frame.receipt, "$.receipt", limits, budget, 1)
+      state: frame.state,
+      outcome,
+      receipt
     };
+    return frame.state === "committed"
+      ? { ...terminal, state: "committed", outcome: "committed" }
+      : { ...terminal, state: "rejected", outcome: "rejected" };
   }
   assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
-  return { ...common, state: frame.state as Exclude<RepoWriteOperationState, "committed"> };
+  return {
+    ...common,
+    state: frame.state as Exclude<RepoWriteOperationState, RepoWriteTerminalOutcome>
+  };
+}
+
+function terminalOutcome(value: unknown, path: string): RepoWriteTerminalOutcome {
+  if (value !== "committed" && value !== "rejected") invalid(path, "terminal outcome");
+  return value;
+}
+
+function assertTerminalReceipt(
+  outcome: RepoWriteTerminalOutcome,
+  receipt: RepoWriteJsonObject,
+  path: string
+): void {
+  if (!repoWriteTerminalReceiptMatches(outcome, receipt)) {
+    invalid(path, "exact command-receipt/v2");
+  }
 }
 function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
   assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");

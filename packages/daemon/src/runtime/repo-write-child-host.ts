@@ -2,9 +2,19 @@
 import {
   type RepoWriteCommandDto,
   type RepoWriteJsonObject,
-  type RepoWriteOperationLookupResult,
   type RepoWriteParentMessage
 } from "./repo-write-protocol.ts";
+import {
+  assertRepoWriteOutcomeAxesV1,
+  decodeRepoWriteOutcomeV1,
+  type RepoWriteTerminalOutcomeV1
+} from "./repo-write-outcome-schema.ts";
+import {
+  repoWriteCanonicalLookupResult,
+  repoWriteLocalLookupResult,
+  type RepoWriteCanonicalLookupResult,
+  type RepoWriteHostedOperationPhase
+} from "./repo-write-child-lookup.ts";
 import {
   RepoWriteChildResponseWriter,
   type RepoWriteChildTransport
@@ -21,17 +31,24 @@ export interface RepoWritePrepareInput {
 
 export interface RepoWritePreparedOperation {
   readonly opId: string;
-  readonly execute: () => RepoWriteJsonObject | Promise<RepoWriteJsonObject>;
+  /**
+   * Only a child-owned, proof-validated durable TERMINAL outcome may cross
+   * this hook. An application result or an inner indeterminate receipt is not
+   * a terminal repo-write outcome.
+   */
+  readonly execute: () => RepoWriteTerminalOutcomeV1 | Promise<RepoWriteTerminalOutcomeV1>;
 }
 
 export interface RepoWriteLookupInput {
   readonly repoId: string;
+  readonly workspaceId: string;
   readonly generation: number;
   readonly opId: string;
 }
 
 export interface RepoWriteShutdownInput {
   readonly repoId: string;
+  readonly workspaceId: string;
   readonly generation: number;
 }
 
@@ -45,7 +62,7 @@ export interface RepoWriteChildHostHooks {
   ) => RepoWritePreparedOperation | Promise<RepoWritePreparedOperation>;
   readonly lookup: (
     input: RepoWriteLookupInput
-  ) => RepoWriteOperationLookupResult | Promise<RepoWriteOperationLookupResult>;
+  ) => RepoWriteCanonicalLookupResult | Promise<RepoWriteCanonicalLookupResult>;
   readonly shutdown: (input: RepoWriteShutdownInput) => void | Promise<void>;
 }
 
@@ -68,17 +85,16 @@ export interface RepoWriteChildHostLimits {
 
 export interface RepoWriteChildHostOptions {
   readonly repoId: string;
+  readonly workspaceId: string;
   readonly generation: number;
   readonly transport: RepoWriteChildTransport;
   readonly hooks: RepoWriteChildHostHooks;
   readonly limits?: Partial<RepoWriteChildHostLimits>;
 }
 
-type OperationPhase = "preparing" | "prepared" | "proceeding" | "committed" | "failed" | "unknown";
-
 interface HostedOperation {
   readonly requestId: string;
-  phase: OperationPhase;
+  phase: RepoWriteHostedOperationPhase;
   opId?: string;
   execute?: RepoWritePreparedOperation["execute"];
   receipt?: RepoWriteJsonObject;
@@ -119,6 +135,7 @@ export class RepoWriteChildHost {
 
   constructor(options: RepoWriteChildHostOptions) {
     if (!options.repoId.trim()) throw new Error("repoId is required");
+    if (!options.workspaceId.trim()) throw new Error("workspaceId is required");
     if (!Number.isSafeInteger(options.generation) || options.generation < 1) {
       throw new Error("generation must be a positive safe integer");
     }
@@ -284,7 +301,13 @@ export class RepoWriteChildHost {
     try {
       let receipt: RepoWriteJsonObject;
       try {
-        receipt = await operation.execute!();
+        const durableOutcome = decodeRepoWriteOutcomeV1(await operation.execute!());
+        if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
+          throw new Error("execution did not return the matching durable TERMINAL outer outcome");
+        }
+        assertRepoWriteOutcomeAxesV1(durableOutcome, this.outcomeAxes());
+        receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
+        operation.phase = durableOutcome.terminalKind;
       } catch (error) {
         operation.phase = "unknown";
         this.release(operation);
@@ -297,9 +320,13 @@ export class RepoWriteChildHost {
         return;
       }
       operation.receipt = receipt;
-      operation.phase = "committed";
       this.release(operation);
-      await this.responses.terminal(operation.requestId, operation.opId!, operation.receipt);
+      await this.responses.terminal(
+        operation.requestId,
+        operation.opId!,
+        operation.phase,
+        operation.receipt
+      );
     } finally {
       await this.maybeCompleteShutdown();
     }
@@ -333,13 +360,14 @@ export class RepoWriteChildHost {
     try {
       const canonical = await this.options.hooks.lookup({
         repoId: this.options.repoId,
+        workspaceId: this.options.workspaceId,
         generation: this.options.generation,
         opId: message.opId
       });
       const local = this.operationsById.get(message.opId);
       const result = canonical.state === "not-found" && local
-        ? localLookupResult(local)
-        : canonical;
+        ? repoWriteLocalLookupResult(local)
+        : repoWriteCanonicalLookupResult(canonical, message.opId, this.outcomeAxes());
       await this.responses.status(message.requestId, message.opId, result);
     } catch (error) {
       await this.responses.notStarted(
@@ -413,7 +441,7 @@ export class RepoWriteChildHost {
   }
 
   private async sendDuplicateSubmit(operation: HostedOperation): Promise<void> {
-    if (operation.opId && ["proceeding", "committed", "unknown"].includes(operation.phase)) {
+    if (operation.opId && ["proceeding", "committed", "rejected", "unknown"].includes(operation.phase)) {
       await this.responses.unknown(
         operation.requestId,
         operation.opId,
@@ -436,7 +464,7 @@ export class RepoWriteChildHost {
     code: string,
     diagnostic: string
   ): Promise<void> {
-    if (operation?.opId && ["proceeding", "committed", "unknown"].includes(operation.phase)) {
+    if (operation?.opId && ["proceeding", "committed", "rejected", "unknown"].includes(operation.phase)) {
       await this.responses.unknown(requestId, operation.opId, code, diagnostic);
       return;
     }
@@ -444,8 +472,13 @@ export class RepoWriteChildHost {
   }
 
   private async sendRepeatedProceed(operation: HostedOperation): Promise<void> {
-    if (operation.phase === "committed" && operation.receipt) {
-      await this.responses.terminal(operation.requestId, operation.opId!, operation.receipt);
+    if ((operation.phase === "committed" || operation.phase === "rejected") && operation.receipt) {
+      await this.responses.terminal(
+        operation.requestId,
+        operation.opId!,
+        operation.phase,
+        operation.receipt
+      );
       return;
     }
     if (operation.phase === "proceeding" || operation.phase === "unknown") {
@@ -514,6 +547,7 @@ export class RepoWriteChildHost {
   private shutdownHook(): Promise<void> {
     this.shutdownHookPromise ??= Promise.resolve(this.options.hooks.shutdown({
       repoId: this.options.repoId,
+      workspaceId: this.options.workspaceId,
       generation: this.options.generation
     }));
     return this.shutdownHookPromise;
@@ -528,22 +562,18 @@ export class RepoWriteChildHost {
       `writer did not drain within ${this.limits.shutdownTimeoutMs}ms`
     ).catch(() => undefined);
   }
+
+  private outcomeAxes() {
+    return {
+      repoId: this.options.repoId,
+      workspaceId: this.options.workspaceId,
+      generation: this.options.generation
+    } as const;
+  }
 }
 
 export function createRepoWriteChildHost(options: RepoWriteChildHostOptions): RepoWriteChildHost {
   return new RepoWriteChildHost(options);
-}
-
-function localLookupResult(operation: HostedOperation): RepoWriteOperationLookupResult {
-  if (operation.phase === "preparing" || operation.phase === "prepared") return { state: "prepared" };
-  if (operation.phase === "proceeding") return { state: "proceeding" };
-  if (operation.phase !== "committed") return { state: operation.phase };
-  if (!operation.receipt) throw new Error("committed repo writer operation is missing its terminal receipt");
-  return {
-    state: "committed",
-    outcome: "committed",
-    receipt: operation.receipt
-  };
 }
 
 function assertPositiveLimit(value: number, name: string): void {

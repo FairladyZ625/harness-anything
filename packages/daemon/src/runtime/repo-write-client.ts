@@ -8,6 +8,7 @@ import {
   type RepoWriteParentMessage,
   type RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
+import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 
 export interface RepoWriteClientTransport {
   /**
@@ -327,6 +328,10 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer terminal correlation does not match the prepared request.");
         return;
       }
+      if (!repoWriteTerminalReceiptMatches(message.outcome, message.receipt)) {
+        this.failProtocol("Repo writer terminal receipt does not match its durable outcome.");
+        return;
+      }
       this.pending.delete(message.requestId);
       pending.resolve(message.receipt);
       return;
@@ -337,10 +342,19 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer status correlation does not match the pending lookup.");
         return;
       }
+      if ((message.state === "committed" || message.state === "rejected")
+        && !repoWriteTerminalReceiptMatches(message.outcome, message.receipt)) {
+        this.failProtocol("Repo writer status receipt does not match its durable outcome.");
+        return;
+      }
       this.pendingLookups.delete(message.requestId);
-      pending.resolve(message.state === "committed"
-        ? { state: "committed", outcome: message.outcome, receipt: message.receipt }
-        : { state: message.state });
+      if (message.state === "committed") {
+        pending.resolve({ state: "committed", outcome: "committed", receipt: message.receipt });
+      } else if (message.state === "rejected") {
+        pending.resolve({ state: "rejected", outcome: "rejected", receipt: message.receipt });
+      } else {
+        pending.resolve({ state: message.state });
+      }
       return;
     }
     if (message.kind === "telemetry") {

@@ -4,7 +4,8 @@ import {
   repoWriteProtocolType,
   type RepoWriteChildMessage,
   type RepoWriteJsonObject,
-  type RepoWriteOperationLookupResult
+  type RepoWriteOperationLookupResult,
+  type RepoWriteTerminalOutcome
 } from "./repo-write-protocol.ts";
 
 export interface RepoWriteChildTransport {
@@ -56,13 +57,18 @@ export class RepoWriteChildResponseWriter {
     });
   }
 
-  terminal(requestId: string, opId: string, receipt: RepoWriteJsonObject): Promise<void> {
+  terminal(
+    requestId: string,
+    opId: string,
+    outcome: RepoWriteTerminalOutcome,
+    receipt: RepoWriteJsonObject
+  ): Promise<void> {
     return this.send({
       ...this.frameBase(),
       kind: "terminal",
       requestId,
       opId,
-      outcome: "committed",
+      outcome,
       receipt
     });
   }
