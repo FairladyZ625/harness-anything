@@ -1,11 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
+import { bindCreateProvenance, makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteAttribution, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
@@ -107,6 +107,40 @@ test("fact create service binds provenance into the single-line record and expor
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");
     assert.deepEqual(syncedPaths, ["sessions/human-cli-1783036800000.md"]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("automatic provenance binding keeps the session pointer when transcript availability is indeterminate", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const session = {
+      runtime: "codex",
+      sessionId: "unconfigured-runtime-root-session",
+      source: "runtime",
+      detectedAt: "2026-07-03T00:00:00.000Z"
+    } as const;
+    const currentSessionProbe = { currentSession: Effect.succeed(session) };
+    const provenanceSessionExporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      runtimeLogRoots: { codex: [path.join(rootDir, "nonexistent-runtime-root")] }
+    });
+
+    const provenance = await runEffect(bindCreateProvenance({
+      currentSessionProbe,
+      provenanceSessionExporter
+    }, "2026-07-03T00:01:00.000Z"));
+
+    assert.deepEqual(provenance, {
+      runtime: "codex",
+      sessionId: session.sessionId,
+      boundAt: "2026-07-03T00:01:00.000Z"
+    });
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", `${session.sessionId}.md`)), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -25,11 +25,105 @@ export interface RuntimeConversation {
   readonly warnings: ReadonlyArray<string>;
 }
 
+export type RuntimeTranscriptInspection =
+  | { readonly status: "available"; readonly logPath: string }
+  | { readonly status: "unavailable"; readonly reason: string; readonly searched: boolean }
+  | { readonly status: "indeterminate"; readonly reason: string };
+
 type JsonObject = Record<string, unknown>;
 
 const defaultRuntimeLogSearchDepth = landedSettingDefaults.runtimeLogSearchDepth;
 const maxRuntimeLogSearchDepth = 64;
 const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+export async function inspectRuntimeTranscript(
+  session: { readonly runtime: string; readonly sessionId: string },
+  options: RuntimeLogOptions = {}
+): Promise<RuntimeTranscriptInspection> {
+  if (session.runtime === "human" || !isRuntimeWithTranscript(session.runtime)) {
+    return { status: "indeterminate", reason: `Unsupported runtime transcript source: ${session.runtime}.` };
+  }
+  const configuredRoots = options.runtimeLogRoots?.[session.runtime];
+  const roots = options.transcriptFile
+    ? [options.transcriptFile]
+    : configuredRoots ?? defaultRuntimeLogRoots(session.runtime, options.homeDir);
+  if (roots.length === 0) {
+    return { status: "indeterminate", reason: `No runtime JSONL log roots are configured for ${session.runtime}.` };
+  }
+  const inspections = await Promise.all(roots.map((root) => inspectRuntimePath(
+    root,
+    session.sessionId,
+    options.transcriptFile !== undefined || configuredRoots !== undefined,
+    resolveRuntimeLogSearchDepth(options)
+  )));
+  const available = inspections.find((item) => item.status === "available");
+  if (available?.status === "available") return available;
+  const uncertain = inspections.filter((item) => item.status === "indeterminate");
+  if (uncertain.length > 0) {
+    return { status: "indeterminate", reason: uncertain.map((item) => item.reason).join(" ") };
+  }
+  if (!inspections.some((item) => item.status === "unavailable" && item.searched)) {
+    return {
+      status: "indeterminate",
+      reason: `No configured runtime JSONL log root exists for ${session.runtime}; transcript absence cannot be confirmed.`
+    };
+  }
+  return {
+    status: "unavailable",
+    reason: `No runtime JSONL log found for ${session.runtime} session ${session.sessionId} after searching all configured roots.`,
+    searched: true
+  };
+}
+
+async function inspectRuntimePath(
+  target: string,
+  sessionId: string,
+  explicitFileAllowed: boolean,
+  depth: number
+): Promise<RuntimeTranscriptInspection> {
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(target);
+  } catch (error) {
+    return isMissingPathError(error)
+      ? { status: "unavailable", reason: `Runtime log root does not exist: ${displayRuntimePath(target)}.`, searched: false }
+      : { status: "indeterminate", reason: `Runtime log root is not readable: ${displayRuntimePath(target)} (${errorMessage(error)}).` };
+  }
+  if (stat.isFile()) {
+    return path.extname(target) === ".jsonl" && (explicitFileAllowed || fileNameMatchesSession(target, sessionId))
+      ? { status: "available", logPath: target }
+      : { status: "indeterminate", reason: `Runtime log file does not match session ${sessionId}: ${displayRuntimePath(target)}.` };
+  }
+  if (!stat.isDirectory()) {
+    return { status: "indeterminate", reason: `Runtime log root is not a file or directory: ${displayRuntimePath(target)}.` };
+  }
+  let entries: fs.Dirent[];
+  try {
+    entries = (await fs.promises.readdir(target, { withFileTypes: true }))
+      .toSorted((left, right) => left.name.localeCompare(right.name));
+  } catch (error) {
+    return { status: "indeterminate", reason: `Runtime log directory is not readable: ${displayRuntimePath(target)} (${errorMessage(error)}).` };
+  }
+  const file = entries.find((entry) =>
+    entry.isFile() && path.extname(entry.name) === ".jsonl" && fileNameMatchesSession(entry.name, sessionId));
+  if (file) return { status: "available", logPath: path.join(target, file.name) };
+  const directories = entries.filter((entry) => entry.isDirectory());
+  if (directories.length > 0 && depth === 0) {
+    return { status: "indeterminate", reason: `Runtime transcript search depth was exhausted under ${displayRuntimePath(target)}.` };
+  }
+  const nested = await Promise.all(directories.map((entry) =>
+    inspectRuntimePath(path.join(target, entry.name), sessionId, false, depth - 1)));
+  const available = nested.find((item) => item.status === "available");
+  if (available?.status === "available") return available;
+  const uncertain = nested.filter((item) => item.status === "indeterminate");
+  return uncertain.length > 0
+    ? { status: "indeterminate", reason: uncertain.map((item) => item.reason).join(" ") }
+    : { status: "unavailable", reason: `No matching runtime transcript under ${displayRuntimePath(target)}.`, searched: true };
+}
+
+function isRuntimeWithTranscript(runtime: string): runtime is Exclude<CurrentSessionRuntime, "human"> {
+  return runtime === "claude-code" || runtime === "codex" || runtime === "zcode" || runtime === "antigravity";
+}
 
 export function resolveRuntimeConversation(
   session: ProvenanceSessionDocument,
@@ -142,7 +236,7 @@ async function findFirstRuntimeLog(
   return undefined;
 }
 
-function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = os.homedir()): ReadonlyArray<string> {
+export function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = os.homedir()): ReadonlyArray<string> {
   if (!homeDir) return [];
   if (runtime === "claude-code") return [path.join(homeDir, ".claude", "projects")];
   if (runtime === "codex") {
@@ -258,7 +352,7 @@ function sessionIdFromRuntimeLog(runtime: Exclude<CurrentSessionRuntime, "human"
   return basename;
 }
 
-function fileNameMatchesSession(filePath: string, sessionId: string): boolean {
+export function fileNameMatchesSession(filePath: string, sessionId: string): boolean {
   const basename = path.basename(filePath, ".jsonl");
   return basename === sessionId || basename.endsWith(`-${sessionId}`) || basename.endsWith(`_${sessionId}`);
 }
@@ -483,4 +577,8 @@ export function displayRuntimePath(logPath: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
