@@ -59,7 +59,7 @@ export function renderDaemonHelp(): string {
     "  start --service              Start a detached local daemon service (default).",
     "  start --foreground           Run the daemon service in the foreground.",
     "    --authority-manifest PATH Enable fail-closed V2 authority composition from an explicit manifest.",
-    "  status                       Show lock holder, queue depth, connections, and version.",
+    "  status [--check]             Show status; --check fails on deployment or supervisor drift.",
     "  logs [options]               Read bounded operational daemon logs.",
     "    --limit <1-200>            Set page size (default: 100).",
     "    --since <timestamp>        Include entries at or after an ISO-8601 timestamp.",

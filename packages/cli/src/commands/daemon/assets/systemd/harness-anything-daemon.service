@@ -8,6 +8,7 @@ Type=simple
 User={{USER}}
 WorkingDirectory={{CANONICAL_ROOT}}
 Environment=HARNESS_DAEMON_SERVER_HOST=1
+Environment=HARNESS_DAEMON_SUPERVISOR=systemd-system:harness-anything-daemon.service
 ExecStart={{HA_BIN}} --root {{CANONICAL_ROOT}} daemon start --foreground
 Restart=on-failure
 RestartSec=3

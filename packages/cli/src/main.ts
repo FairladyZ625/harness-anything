@@ -17,9 +17,9 @@ import type { CommandRegistryEntry } from "./cli/types.ts";
 import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
 import {
-  runDaemonProductCommand,
+  runDaemonCommand,
   type DaemonServeHooks
-} from "./commands/daemon/productization.ts";
+} from "./commands/daemon/command.ts";
 import { daemonStatusCliProjection } from "./commands/daemon/status-payload.ts";
 import { runDaemonConnect } from "./commands/daemon/connect.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
@@ -176,7 +176,7 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     await runDaemonServe(launchOptions.rootDir, serveLayoutOverrides, daemonArgs, {}, launchOptions);
     return 0;
   }
-  return runDaemonProductCommand({
+  return runDaemonCommand({
     rootDir: stripped.rootDir,
     layoutOverrides,
     json: stripped.json,

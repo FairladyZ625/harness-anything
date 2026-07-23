@@ -354,7 +354,8 @@ async function callServiceMethod(
       const request = validateDaemonStatusRequest(params);
       const produced = await services.DaemonStatusService.getStatus(repo ? {
         repo,
-        ...(request.includeGenerationAxes ? { includeGenerationAxes: true as const } : {})
+        ...(request.includeGenerationAxes ? { includeGenerationAxes: true as const } : {}),
+        ...(request.includeDeploymentIdentity ? { includeDeploymentIdentity: true as const } : {})
       } : undefined);
       const status = validateDaemonStatusResult(request.includeGenerationAxes && options.acceptedConnection
         ? { ...produced, connectionId: options.acceptedConnection.connectionId }

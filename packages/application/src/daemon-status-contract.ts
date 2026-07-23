@@ -2,6 +2,7 @@
 export interface DaemonStatusRequestV2 {
   readonly repo: { readonly repoId: string };
   readonly includeGenerationAxes?: true;
+  readonly includeDeploymentIdentity?: true;
 }
 
 export interface DaemonQueueStatus {
@@ -55,6 +56,37 @@ export interface DaemonBuildStatus {
   readonly installedIdentity: string;
   readonly identitySource: "installed-artifact-set";
   readonly stale: boolean;
+}
+
+export interface DaemonDeploymentStatus {
+  readonly entrypoint: string;
+  readonly artifactRoot: string;
+  readonly provenance: {
+    readonly kind: "build-manifest" | "snapshot-manifest" | "direct-source" | "unavailable";
+    readonly sourceCommit: string | null;
+    readonly sourceDirty: boolean | null;
+    readonly sourceFingerprint: string | null;
+    readonly contentFingerprint: string | null;
+    readonly contentMatchesLoaded: boolean | null;
+    readonly reason: string;
+  };
+  readonly checkout: {
+    readonly root: string | null;
+    readonly currentCommit: string | null;
+    readonly currentDirty: boolean | null;
+    readonly currentSourceFingerprint: string | null;
+    readonly matchesProvenance: boolean | null;
+  };
+  readonly supervision: {
+    readonly kind: "systemd-system" | "systemd-user" | "launchd" | "windows-service" | "unverified";
+    readonly unit: string | null;
+    readonly managerState: string | null;
+    readonly observedPid: number | null;
+    readonly matchesPid: boolean;
+    readonly reason: string;
+  };
+  readonly healthy: boolean;
+  readonly failures: ReadonlyArray<"artifact-drift" | "checkout-drift" | "dirty-build" | "provenance-unavailable" | "supervision-unverified">;
 }
 
 export interface DaemonRepoStatus {
@@ -112,6 +144,7 @@ export interface DaemonStatusResultV2 {
     readonly lastReconcileAt: string | null;
     readonly lastReconcileError: DaemonReconcileErrorStatus | null;
     readonly activeControl: DaemonActiveControlStatus | null;
+    readonly deployment?: DaemonDeploymentStatus;
     readonly machineId?: string;
     readonly daemonGeneration?: number;
   };
@@ -133,14 +166,16 @@ export class DaemonStatusContractError extends Error {
 export function decodeDaemonStatusRequestV2(value: unknown): DaemonStatusRequestV2 {
   try {
     const request = object(value, "request");
-    keys(request, ["repo", "includeGenerationAxes"], "request", ["includeGenerationAxes"]);
+    keys(request, ["repo", "includeGenerationAxes", "includeDeploymentIdentity"], "request", ["includeGenerationAxes", "includeDeploymentIdentity"]);
     const repo = object(request.repo, "request.repo");
     keys(repo, ["repoId"], "request.repo");
     string(repo.repoId, "request.repo.repoId");
     if (request.includeGenerationAxes !== undefined) literal(request.includeGenerationAxes, true, "request.includeGenerationAxes");
+    if (request.includeDeploymentIdentity !== undefined) literal(request.includeDeploymentIdentity, true, "request.includeDeploymentIdentity");
     return {
       repo: { repoId: repo.repoId as string },
-      ...(request.includeGenerationAxes === true ? { includeGenerationAxes: true as const } : {})
+      ...(request.includeGenerationAxes === true ? { includeGenerationAxes: true as const } : {}),
+      ...(request.includeDeploymentIdentity === true ? { includeDeploymentIdentity: true as const } : {})
     };
   } catch (error) {
     if (error instanceof DaemonStatusContractError) {
@@ -182,8 +217,8 @@ function service(value: unknown): void {
   const record = object(value, "result.service");
   keys(record, [
     "daemonId", "pid", "endpoint", "userRoot", "started", "startedAt", "uptimeMs", "build", "queue", "connections", "repoCount",
-    "attachedCount", "unavailableCount", "lastReconcileAt", "lastReconcileError", "activeControl", "machineId", "daemonGeneration"
-  ], "result.service", ["machineId", "daemonGeneration"]);
+    "attachedCount", "unavailableCount", "lastReconcileAt", "lastReconcileError", "activeControl", "deployment", "machineId", "daemonGeneration"
+  ], "result.service", ["deployment", "machineId", "daemonGeneration"]);
   for (const field of ["daemonId", "endpoint", "userRoot"] as const) string(record[field], `result.service.${field}`);
   nonNegativeStatusInteger(record.pid, "result.service.pid");
   boolean(record.started, "result.service.started");
@@ -194,6 +229,7 @@ function service(value: unknown): void {
   for (const field of ["version", "loadedIdentity", "installedIdentity"] as const) string(build[field], `result.service.build.${field}`);
   literal(build.identitySource, "installed-artifact-set", "result.service.build.identitySource");
   boolean(build.stale, "result.service.build.stale");
+  if (record.deployment !== undefined) deployment(record.deployment);
   queue(record.queue, "result.service.queue");
   connections(record.connections, "result.service.connections");
   for (const field of ["repoCount", "attachedCount", "unavailableCount"] as const) nonNegativeStatusInteger(record[field], `result.service.${field}`);
@@ -280,6 +316,36 @@ function nullableReconcileError(value: unknown, label: string): void {
   nullableString(record.repoId, `${label}.repoId`);
 }
 
+function deployment(value: unknown): void {
+  const record = object(value, "result.service.deployment");
+  keys(record, ["entrypoint", "artifactRoot", "provenance", "checkout", "supervision", "healthy", "failures"], "result.service.deployment");
+  string(record.entrypoint, "result.service.deployment.entrypoint");
+  string(record.artifactRoot, "result.service.deployment.artifactRoot");
+  const provenance = object(record.provenance, "result.service.deployment.provenance");
+  keys(provenance, ["kind", "sourceCommit", "sourceDirty", "sourceFingerprint", "contentFingerprint", "contentMatchesLoaded", "reason"], "result.service.deployment.provenance");
+  oneOf(provenance.kind, ["build-manifest", "snapshot-manifest", "direct-source", "unavailable"], "result.service.deployment.provenance.kind");
+  for (const field of ["sourceCommit", "sourceFingerprint", "contentFingerprint"] as const) nullableString(provenance[field], `result.service.deployment.provenance.${field}`);
+  nullableBoolean(provenance.sourceDirty, "result.service.deployment.provenance.sourceDirty");
+  nullableBoolean(provenance.contentMatchesLoaded, "result.service.deployment.provenance.contentMatchesLoaded");
+  string(provenance.reason, "result.service.deployment.provenance.reason");
+  const checkout = object(record.checkout, "result.service.deployment.checkout");
+  keys(checkout, ["root", "currentCommit", "currentDirty", "currentSourceFingerprint", "matchesProvenance"], "result.service.deployment.checkout");
+  for (const field of ["root", "currentCommit", "currentSourceFingerprint"] as const) nullableString(checkout[field], `result.service.deployment.checkout.${field}`);
+  nullableBoolean(checkout.currentDirty, "result.service.deployment.checkout.currentDirty");
+  nullableBoolean(checkout.matchesProvenance, "result.service.deployment.checkout.matchesProvenance");
+  const supervision = object(record.supervision, "result.service.deployment.supervision");
+  keys(supervision, ["kind", "unit", "managerState", "observedPid", "matchesPid", "reason"], "result.service.deployment.supervision");
+  oneOf(supervision.kind, ["systemd-system", "systemd-user", "launchd", "windows-service", "unverified"], "result.service.deployment.supervision.kind");
+  nullableString(supervision.unit, "result.service.deployment.supervision.unit");
+  nullableString(supervision.managerState, "result.service.deployment.supervision.managerState");
+  if (supervision.observedPid !== null) positiveStatusInteger(supervision.observedPid, "result.service.deployment.supervision.observedPid");
+  boolean(supervision.matchesPid, "result.service.deployment.supervision.matchesPid");
+  string(supervision.reason, "result.service.deployment.supervision.reason");
+  boolean(record.healthy, "result.service.deployment.healthy");
+  if (!Array.isArray(record.failures)) invalidStatusShape("result.service.deployment.failures must be an array");
+  record.failures.forEach((failure, index) => oneOf(failure, ["artifact-drift", "checkout-drift", "dirty-build", "provenance-unavailable", "supervision-unverified"], `result.service.deployment.failures[${index}]`));
+}
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) invalidStatusShape(`${label} must be an object`);
   return value as Record<string, unknown>;
@@ -294,6 +360,7 @@ function keys(record: Record<string, unknown>, allowed: ReadonlyArray<string>, l
 
 function string(value: unknown, label: string): asserts value is string { if (typeof value !== "string") invalidStatusShape(`${label} must be a string`); }
 function nullableString(value: unknown, label: string): void { if (value !== null && typeof value !== "string") invalidStatusShape(`${label} must be null or a string`); }
+function nullableBoolean(value: unknown, label: string): void { if (value !== null && typeof value !== "boolean") invalidStatusShape(`${label} must be null or a boolean`); }
 function boolean(value: unknown, label: string): void { if (typeof value !== "boolean") invalidStatusShape(`${label} must be a boolean`); }
 function nonNegativeStatusInteger(value: unknown, label: string): void { if (!Number.isInteger(value) || Number(value) < 0) invalidStatusShape(`${label} must be a non-negative integer`); }
 function positiveStatusInteger(value: unknown, label: string): void { if (!Number.isSafeInteger(value) || Number(value) < 1) invalidStatusShape(`${label} must be a positive safe integer`); }
@@ -328,6 +395,7 @@ export interface DaemonStatusService {
   readonly getStatus: (context?: {
     readonly repo: { readonly repoId: string; readonly canonicalRoot: string };
     readonly includeGenerationAxes?: true;
+    readonly includeDeploymentIdentity?: true;
   }) =>
     DaemonStatusResultV2 | Promise<DaemonStatusResultV2>;
 }

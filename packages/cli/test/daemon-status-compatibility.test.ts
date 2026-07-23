@@ -30,6 +30,18 @@ test("generation-aware status keeps a capable daemon on the single capability re
   assert.equal((status?.service as Record<string, unknown>).daemonGeneration, 7);
 });
 
+test("deployment-aware status retries generation-only and then legacy parameters for old daemons", async () => {
+  const attempts: Array<readonly [boolean, boolean]> = [];
+  const status = await readDaemonStatusWithGenerationFallback(true, async (includeAxes, includeDeployment) => {
+    attempts.push([includeAxes, includeDeployment]);
+    if (includeAxes || includeDeployment) return { ok: false, error: { code: "invalid_daemon_status_request" } };
+    return { ok: true, details: { data: legacyStatus() } };
+  }, true);
+
+  assert.deepEqual(attempts, [[true, true], [true, false], [false, false]]);
+  assert.equal((status?.service as Record<string, unknown>).started, true);
+});
+
 function legacyStatus(): { readonly schema: string; readonly service: Record<string, unknown> } {
   return { schema: "daemon-status/v2", service: { started: true, pid: 42 } };
 }

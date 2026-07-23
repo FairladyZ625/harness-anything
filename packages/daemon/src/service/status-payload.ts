@@ -1,6 +1,7 @@
 import type {
   DaemonActiveControlStatus,
   DaemonAdmissionStatus,
+  DaemonDeploymentStatus,
   DaemonQueueStatus,
   DaemonRepoStatus,
   DaemonStatusResultV2
@@ -53,6 +54,7 @@ export function daemonStatusPayload(input: {
   readonly loadedIdentity: string;
   readonly version: string;
   readonly readInstalledIdentity: () => string;
+  readonly readDeploymentStatus?: (installedIdentity: string) => DaemonDeploymentStatus;
   readonly activeControl: DaemonActiveControlStatus | null;
   readonly runtimeStatus: {
     readonly started: boolean;
@@ -71,6 +73,7 @@ export function daemonStatusPayload(input: {
   readonly connections: DaemonConnectionStats;
   readonly generationAxes?: { readonly machineId: string; readonly daemonGeneration: number };
   readonly includeGenerationAxes?: true;
+  readonly includeDeploymentIdentity?: true;
   readonly reconcileStatus?: Pick<DaemonReconcileState, "lastReconcileAt" | "lastReconcileError" | "repoErrors">;
 }): DaemonStatusResultV2 {
   const runtimeRepos = input.runtimeStatus.repos ?? [];
@@ -121,6 +124,9 @@ export function daemonStatusPayload(input: {
         identitySource: "installed-artifact-set",
         stale: installedIdentity !== input.loadedIdentity
       },
+      ...(input.includeDeploymentIdentity && input.readDeploymentStatus
+        ? { deployment: input.readDeploymentStatus(installedIdentity) }
+        : {}),
       queue: aggregateQueue,
       connections: {
         active: input.connections.active,

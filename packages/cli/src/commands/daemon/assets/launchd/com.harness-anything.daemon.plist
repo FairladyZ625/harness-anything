@@ -18,6 +18,8 @@
   <dict>
     <key>HARNESS_DAEMON_SERVER_HOST</key>
     <string>1</string>
+    <key>HARNESS_DAEMON_SUPERVISOR</key>
+    <string>launchd:com.harness-anything.daemon</string>
   </dict>
   <key>WorkingDirectory</key>
   <string>{{CANONICAL_ROOT}}</string>

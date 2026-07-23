@@ -33,7 +33,6 @@ import { drainDaemonRuntime, isDaemonDrainTimeout } from "../lifecycle/daemon-dr
 import { makeDaemonQueuedWriteCoordinator } from "../lifecycle/queued-write-coordinator.ts";
 import { makeLocalAgentHolderServices } from "../agent-runtime/holder-projection-host.ts";
 import { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import { calculateDaemonArtifactIdentity } from "../protocol/daemon-artifact-identity.ts";
 import { canonicalRootIdentity } from "../runtime/canonical-root.ts";
 import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonReconcileState } from "../runtime/registry-reconciler.ts";
 import { publishRuntimeRegistrationSnapshot } from "../runtime/runtime-registration-projection.ts";
@@ -42,6 +41,7 @@ import { requireAuthoritySubmissionForDispatch } from "../authority/authority-su
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
 import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
+import { daemonDeploymentStatusOptions } from "./deployment-status-options.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
@@ -357,7 +357,7 @@ export async function createDaemonServiceHost<
       startedAt: build.startedAt,
       loadedIdentity: build.loadedIdentity,
       version: hostServices.version(),
-      readInstalledIdentity: () => calculateDaemonArtifactIdentity(build.entrypoint).identity,
+      ...daemonDeploymentStatusOptions(build),
       activeControl,
       runtimeStatus: runtime.status(),
       connections,
@@ -468,9 +468,7 @@ function createRepoServiceBinding<
             startedAt: statusOptions?.build?.startedAt ?? new Date(0).toISOString(),
             loadedIdentity: statusOptions?.build?.loadedIdentity ?? "sha256:0000000000000000000000000000000000000000000000000000000000000000",
             version: hostServices.version(),
-            readInstalledIdentity: () => statusOptions?.build
-              ? calculateDaemonArtifactIdentity(statusOptions.build.entrypoint).identity
-              : "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            ...daemonDeploymentStatusOptions(statusOptions?.build),
             activeControl: statusOptions?.activeControl?.() ?? null,
             runtimeStatus: managerRuntime.status(),
             connections: statusOptions?.connections ?? { active: 0, total: 0 },
@@ -481,6 +479,7 @@ function createRepoServiceBinding<
               }
             } : {}),
             ...(context?.includeGenerationAxes ? { includeGenerationAxes: true as const } : {}),
+            ...(context?.includeDeploymentIdentity ? { includeDeploymentIdentity: true as const } : {}),
             ...(statusOptions?.reconcileStatus ? { reconcileStatus: statusOptions.reconcileStatus } : {})
           });
         }

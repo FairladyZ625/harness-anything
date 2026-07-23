@@ -166,6 +166,7 @@ export {
   projectDaemonStatusForRenderer,
   type DaemonActiveControlStatus,
   type DaemonBuildStatus,
+  type DaemonDeploymentStatus,
   type DaemonControlAcceptedV1,
   type DaemonControlErrorV1,
   type DaemonControlKind,
@@ -198,9 +199,14 @@ export {
 } from "@harness-anything/application/daemon-log-contract";
 export {
   calculateDaemonArtifactIdentity,
+  daemonBuildProvenanceFilename,
   resolveDaemonArtifactRoot,
   type DaemonArtifactIdentity
 } from "./protocol/daemon-artifact-identity.ts";
+export {
+  captureDaemonDeploymentStatus,
+  inspectDaemonSupervision
+} from "./protocol/daemon-deployment-identity.ts";
 export {
   createJsonRpcProtocolServer,
   type DaemonRepoAvailabilityFailure,
