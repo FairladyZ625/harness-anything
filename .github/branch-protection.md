@@ -95,10 +95,14 @@ and cancelled replacement races can make the queue treat otherwise passing
 checks as failed.
 
 When Mergify edits only the metadata body of a synthetic
-`mergify/merge-queue/*` pull request, required jobs should complete with a
-fast no-op success. That keeps queue bookkeeping edits from launching another
-full CI pass while preserving normal `edited` body validation for
-human-authored pull requests.
+`mergify/merge-queue/*` pull request, the workflow routes that run's job names
+to the non-required `mergify-queue-metadata-edit-noop / *` namespace. The
+successful required contexts already recorded on the unchanged head SHA
+therefore remain the latest checks under those names. Same-SHA proof still
+keeps the metadata-only jobs fast, while the distinct names prevent their
+skipped/no-op check runs from resetting Mergify's required context set.
+Human-authored `edited` events retain the normal required names and execute
+the full validation paths.
 
 Integration tests are required through the six `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.
