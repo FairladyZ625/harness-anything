@@ -2,15 +2,17 @@ import path from "node:path";
 import { Effect } from "effect";
 import {
   checkTaskProjection,
+  queryTaskChildren,
   queryTaskProjection,
   queryTaskSubtree,
   readRelationGraphProjection,
   type TaskFieldExtensionProjection,
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
-import type { CliResult } from "../../cli/types.ts";
+import type { CliResult, TaskListFilters } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { bundledVerticalDefinition } from "../extensions/bundled.ts";
+import { filterTaskProjectionRows } from "../task-list-filter.ts";
 import {
   buildTaskShowReport,
   filterRelations,
@@ -26,12 +28,7 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskQueryAction;
   if (action.kind === "task-list") {
     return Effect.sync(() => {
-      const result = queryTaskProjection({
-        rootDir: context.rootDir,
-        layoutOverrides: context.layoutOverrides,
-        filters: action.filters,
-        taskFieldExtensions: activeTaskFieldExtensions()
-      });
+      const result = queryTaskListProjection(context, action.filters);
       return {
         ok: true,
         command: "task-list",
@@ -142,6 +139,32 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
     } satisfies CliResult;
   });
 };
+
+function queryTaskListProjection(context: Parameters<CommandRunner>[0], filters: TaskListFilters) {
+  const result = filters.treeRoot
+    ? queryTaskSubtree({
+        rootDir: context.rootDir,
+        layoutOverrides: context.layoutOverrides,
+        rootTaskId: filters.treeRoot,
+        taskFieldExtensions: activeTaskFieldExtensions()
+      })
+    : filters.parent
+      ? queryTaskChildren({
+          rootDir: context.rootDir,
+          layoutOverrides: context.layoutOverrides,
+          parentTaskId: filters.parent,
+          taskFieldExtensions: activeTaskFieldExtensions()
+        })
+      : queryTaskProjection({
+          rootDir: context.rootDir,
+          layoutOverrides: context.layoutOverrides,
+          filters,
+          taskFieldExtensions: activeTaskFieldExtensions()
+        });
+  return filters.treeRoot || filters.parent
+    ? { ...result, rows: filterTaskProjectionRows(result.rows, filters) }
+    : result;
+}
 
 function activeTaskFieldExtensions(): ReadonlyArray<TaskFieldExtensionProjection> {
   return bundledVerticalDefinition()?.entityFieldExtensions ?? [];
