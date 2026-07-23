@@ -191,6 +191,19 @@ export class PersistentSshAuthorityClient {
     return response.result as AuthoritySnapshotLease;
   }
 
+  async getCutChange(streamToken: string): Promise<ReplicaChangeRecord | null> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "get_cut_change",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      streamToken
+    });
+    if (!response.ok) throw new Error(response.error?.message ?? "authority cut change read failed");
+    return (response.result ?? null) as ReplicaChangeRecord | null;
+  }
+
   async close(): Promise<void> {
     this.closing = true;
     await this.closeChild();

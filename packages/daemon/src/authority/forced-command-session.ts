@@ -53,6 +53,8 @@ export interface AuthorityForcedCommandOptions {
 export interface AuthorityReadDownService {
   readonly beginSnapshot: () => Promise<AuthoritySnapshotReservation>;
   readonly getManifest: (streamToken: string, digest: Sha256Digest) => Promise<AuthoritySnapshotManifest>;
+  readonly getCutChange: (streamToken: string) => Promise<import("@harness-anything/application").ReplicaChangeRecord | null>;
+  readonly releaseLease: (streamToken: string) => Promise<void>;
   readonly getBlob: (streamToken: string, digest: Sha256Digest) => Promise<AuthorityBlobResult>;
   readonly renewLease: (streamToken: string) => Promise<AuthoritySnapshotLease>;
   readonly changesAfter: (streamToken: string, sinceRevision: number) => Promise<AuthorityChangesAfterResult>;
@@ -164,6 +166,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
           ...(options.readDownService ? [
             "begin-snapshot-and-subscribe/v1",
             "authority-snapshot-manifest/v1",
+            "authority-cut-change/v1",
             "authority-blob/v1",
             "authority-changes-after/v1",
             "authority-lease-renewal/v1"
@@ -199,7 +202,15 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
       try {
         const reservation = await options.readDownService.beginSnapshot();
         subscribedAfterRevision = reservation.cut.revision;
-        write(response(value.requestId, generation, true, reservation));
+        try {
+          const accepted = write(response(value.requestId, generation, true, reservation));
+          if (!accepted && (closed || options.output.destroyed || options.output.writableEnded)) {
+            throw new Error("SNAPSHOT_RESPONSE_NOT_DELIVERABLE");
+          }
+        } catch (error) {
+          await options.readDownService.releaseLease(reservation.stream.streamToken);
+          throw error;
+        }
         for (const change of pendingHints.splice(0)) {
           if (change.revision > reservation.cut.revision) writeReplicaHint(change);
         }
@@ -212,6 +223,10 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     }
     if (value.kind === "get_snapshot_manifest") {
       await handleReadDown(value.requestId, () => options.readDownService!.getManifest(value.streamToken, value.manifestDigest));
+      return;
+    }
+    if (value.kind === "get_cut_change") {
+      await handleReadDown(value.requestId, () => options.readDownService!.getCutChange(value.streamToken));
       return;
     }
     if (value.kind === "get_blob") {
@@ -371,7 +386,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
 
   async function handleReadDown(
     requestId: string,
-    read: () => Promise<NonNullable<AuthorityResponseFrame["result"]>>
+    read: () => Promise<AuthorityResponseFrame["result"]>
   ): Promise<void> {
     if (!options.readDownService) {
       write(response(requestId, generation, false, undefined, "READ_DOWN_UNAVAILABLE", "Authority read-down is not enabled."));

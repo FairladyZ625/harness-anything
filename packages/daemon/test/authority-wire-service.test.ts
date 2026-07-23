@@ -45,7 +45,8 @@ test("read-down snapshot manifest and blob remain verifiable across service rest
     );
 
     assert.equal(reservation.cut.revision, 0);
-    assert.equal(reservation.cutChange, null);
+    assert.equal("cutChange" in reservation, false);
+    assert.equal(await first.service.getCutChange(reservation.stream.streamToken), null);
     assert.equal(reservation.stream.fromRevision, 1);
     assert.deepEqual(manifest.entries.map((entry) => entry.path), ["docs/a-first.md", "z-last.md"]);
     const entry = manifest.entries[0]!;
@@ -106,7 +107,7 @@ test("read-down snapshot manifest and blob remain verifiable across service rest
   }
 });
 
-test("read-down reservation carries the authority's complete latest change without reconstruction", async () => {
+test("read-down reservation stays bounded while the complete latest change is fetched on demand", async () => {
   const fixture = createReadDownFixture();
   try {
     writeFileSync(path.join(fixture.gitRoot, "seed.md"), "seed\n");
@@ -114,7 +115,7 @@ test("read-down reservation carries the authority's complete latest change witho
     git(fixture.gitRoot, "commit", "-m", "seed");
     const opened = fixture.open("2026-07-23T04:00:00.000Z");
     const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
-    await opened.changeLog.append({
+    await fixture.base.append({
       schema: "replica-change/v2",
       workspaceId: "workspace-read-down",
       revision: 1,
@@ -128,20 +129,40 @@ test("read-down reservation carries the authority's complete latest change witho
         digest: `sha256:${"1".repeat(64)}`,
         entryCount: 1
       },
-      paths: [{
-        path: "seed.md",
-        blobDigest: `sha256:${createHash("sha256").update("seed\n").digest("hex")}`,
-        mode: 0o100644,
-        tombstone: false
-      }]
+      paths: Array.from({ length: 25_000 }, (_, index) => ({
+        path: `removed/${String(index).padStart(5, "0")}-${"x".repeat(64)}.md`,
+        blobDigest: null,
+        mode: null,
+        tombstone: true as const
+      }))
     });
     const authorityLatest = await opened.changeLog.latest("workspace-read-down");
-
-    const reservation = await opened.service.beginSnapshot();
-
-    assert.deepEqual(reservation.cutChange, authorityLatest);
-    assert.equal(reservation.cutChange?.revision, reservation.cut.revision);
-    assert.equal(reservation.cutChange?.commitSha, reservation.cut.commitSha);
+    assert.ok(JSON.stringify(authorityLatest).length > 1024 * 1024);
+    const wire = openWireSession(
+      {
+        submit: async () => { throw new Error("write path is not used by read-down tests"); },
+        getOperation: async () => undefined
+      },
+      opened.changeLog,
+      opened.service,
+      1
+    );
+    try {
+      wire.send(helloFrame("hello-bounded", 1));
+      await wire.frames.nextResponse("hello-bounded");
+      wire.send(beginFrame("begin-bounded", 1));
+      const begin = await wire.frames.nextResponse("begin-bounded");
+      assert.equal(begin.ok, true);
+      const reservation = begin.result as Awaited<ReturnType<typeof opened.service.beginSnapshot>>;
+      assert.equal("cutChange" in reservation, false);
+      assert.ok(JSON.stringify(reservation).length < 16 * 1024);
+      assert.deepEqual(
+        await opened.service.getCutChange(reservation.stream.streamToken),
+        authorityLatest
+      );
+    } finally {
+      await wire.session.close();
+    }
   } finally {
     fixture.cleanup();
   }
@@ -448,6 +469,7 @@ function createReadDownFixture() {
   };
   return {
     gitRoot,
+    base,
     state,
     open: (timestamp: string, epoch = "7") => {
       const content = createAuthorityReplicationContentStore({

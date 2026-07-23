@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { ReplicaChangeLog } from "@harness-anything/application";
+import type { ReplicaChangeLog, ReplicaChangeRecord } from "@harness-anything/application";
 import type { AuthorityReadDownService } from "./forced-command-session.ts";
 import type {
   AuthorityChangesAfterResult,
@@ -19,9 +19,11 @@ interface DurableSnapshotLease {
   readonly schema: "authority-snapshot-lease/v1";
   readonly reservation: AuthoritySnapshotReservation;
   readonly manifest: AuthoritySnapshotManifest;
+  readonly cutChange: ReplicaChangeRecord | null;
 }
 
 const defaultLeaseTtlMs = 5 * 60 * 1000;
+const defaultLeaseMaxLifetimeMs = 60 * 60 * 1000;
 
 export function createAuthorityReadDownService(input: {
   readonly workspaceId: string;
@@ -35,9 +37,11 @@ export function createAuthorityReadDownService(input: {
   };
   readonly now?: () => Date;
   readonly leaseTtlMs?: number;
+  readonly leaseMaxLifetimeMs?: number;
 }): AuthorityReadDownService {
   const now = input.now ?? (() => new Date());
   const leaseTtlMs = input.leaseTtlMs ?? defaultLeaseTtlMs;
+  const leaseMaxLifetimeMs = input.leaseMaxLifetimeMs ?? defaultLeaseMaxLifetimeMs;
 
   return {
     beginSnapshot: () => input.publicationExecutor.run(async () => {
@@ -48,6 +52,8 @@ export function createAuthorityReadDownService(input: {
       }
       const revision = latest?.revision ?? 0;
       const snapshot = input.content.snapshot(commitSha, revision);
+      const issuedAt = now().getTime();
+      const renewableUntil = issuedAt + leaseMaxLifetimeMs;
       const cut = {
         workspaceId: input.workspaceId,
         epoch: input.epoch,
@@ -59,10 +65,10 @@ export function createAuthorityReadDownService(input: {
       const reservation: AuthoritySnapshotReservation = {
         schema: "authority-snapshot-reservation/v1",
         cut,
-        cutChange: latest ?? null,
         lease: {
           leaseId: randomUUID(),
-          expiresAt: new Date(now().getTime() + leaseTtlMs).toISOString(),
+          expiresAt: new Date(Math.min(issuedAt + leaseTtlMs, renewableUntil)).toISOString(),
+          renewableUntil: new Date(renewableUntil).toISOString(),
           minRetainedRevision: revision + 1,
           pinnedBlobSetDigest: snapshot.pinnedBlobSetDigest
         },
@@ -76,9 +82,23 @@ export function createAuthorityReadDownService(input: {
         cut,
         entries: snapshot.entries
       };
-      writeLease(input.state, { schema: "authority-snapshot-lease/v1", reservation, manifest });
+      writeLease(input.state, {
+        schema: "authority-snapshot-lease/v1",
+        reservation,
+        manifest,
+        cutChange: latest ?? null
+      });
       return reservation;
     }),
+    getCutChange: async (streamToken) => {
+      const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
+      return structuredClone(lease.cutChange);
+    },
+    releaseLease: async (streamToken) => {
+      input.state.put(leaseStateKey(streamToken), {
+        schema: "authority-snapshot-lease-released/v1"
+      });
+    },
     getManifest: async (streamToken, requestedDigest) => {
       const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
       const actualDigest = manifestDigest(lease.manifest.cut, lease.manifest.entries);
@@ -104,14 +124,28 @@ export function createAuthorityReadDownService(input: {
       };
     },
     renewLease: async (streamToken) => {
-      const current = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
+      const renewalTime = now().getTime();
+      const current = readLiveLease(
+        input.state,
+        streamToken,
+        () => new Date(renewalTime),
+        input.workspaceId,
+        input.epoch
+      );
+      const currentExpiry = Date.parse(current.reservation.lease.expiresAt);
+      const renewableUntil = Date.parse(current.reservation.lease.renewableUntil);
+      if (currentExpiry - renewalTime > leaseTtlMs / 2) {
+        return structuredClone(current.reservation.lease);
+      }
+      const nextExpiry = Math.min(renewalTime + leaseTtlMs, renewableUntil);
+      if (currentExpiry >= nextExpiry) return structuredClone(current.reservation.lease);
       const renewed: DurableSnapshotLease = {
         ...current,
         reservation: {
           ...current.reservation,
           lease: {
             ...current.reservation.lease,
-            expiresAt: new Date(now().getTime() + leaseTtlMs).toISOString()
+            expiresAt: new Date(nextExpiry).toISOString()
           }
         }
       };
@@ -172,6 +206,23 @@ function readLiveLease(
   if (cut.workspaceId !== workspaceId || cut.epoch !== epoch) {
     throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_AUTHORITY_MISMATCH");
   }
+  const expectedFromRevision = cut.revision + 1;
+  if (typeof lease.reservation.lease.leaseId !== "string"
+    || lease.reservation.lease.leaseId.trim().length === 0
+    || lease.reservation.lease.minRetainedRevision !== expectedFromRevision
+    || lease.reservation.stream.fromRevision !== expectedFromRevision) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_DAMAGED");
+  }
+  if ((cut.revision === 0 && lease.cutChange !== null)
+    || (cut.revision > 0 && (
+      lease.cutChange === null
+      || lease.cutChange === undefined
+      || lease.cutChange.workspaceId !== cut.workspaceId
+      || lease.cutChange.revision !== cut.revision
+      || lease.cutChange.commitSha !== cut.commitSha
+    ))) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_CUT_CHANGE_MISMATCH");
+  }
   if (!sameCut(lease.manifest.cut, cut)) throw new Error("RESYNC_REQUIRED:SNAPSHOT_MANIFEST_CUT_MISMATCH");
   const actualManifestDigest = manifestDigest(cut, lease.manifest.entries);
   if (actualManifestDigest !== cut.manifestDigest
@@ -185,6 +236,13 @@ function readLiveLease(
   const expiry = typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN;
   if (!Number.isFinite(expiry) || new Date(expiry).toISOString() !== expiresAt) {
     throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_EXPIRY_DAMAGED");
+  }
+  const renewableUntil = lease.reservation.lease.renewableUntil;
+  const renewalLimit = typeof renewableUntil === "string" ? Date.parse(renewableUntil) : Number.NaN;
+  if (!Number.isFinite(renewalLimit)
+    || new Date(renewalLimit).toISOString() !== renewableUntil
+    || expiry > renewalLimit) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_RENEWAL_LIMIT_DAMAGED");
   }
   if (expiry <= now().getTime()) {
     throw new Error(`SNAPSHOT_EXPIRED:${lease.reservation.lease.leaseId}`);

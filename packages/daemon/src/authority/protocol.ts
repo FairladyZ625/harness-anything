@@ -22,6 +22,7 @@ export interface AuthoritySnapshotCut {
 export interface AuthoritySnapshotLease {
   readonly leaseId: string;
   readonly expiresAt: string;
+  readonly renewableUntil: string;
   readonly minRetainedRevision: number;
   readonly pinnedBlobSetDigest: Sha256Digest;
 }
@@ -29,7 +30,6 @@ export interface AuthoritySnapshotLease {
 export interface AuthoritySnapshotReservation {
   readonly schema: "authority-snapshot-reservation/v1";
   readonly cut: AuthoritySnapshotCut;
-  readonly cutChange?: ReplicaChangeRecord | null;
   readonly lease: AuthoritySnapshotLease;
   readonly stream: {
     readonly streamToken: string;
@@ -96,6 +96,12 @@ export interface AuthorityGetSnapshotManifestFrame extends AuthorityWireFrameBas
   readonly manifestDigest: Sha256Digest;
 }
 
+export interface AuthorityGetCutChangeFrame extends AuthorityWireFrameBase {
+  readonly kind: "get_cut_change";
+  readonly requestId: string;
+  readonly streamToken: string;
+}
+
 export interface AuthorityGetBlobFrame extends AuthorityWireFrameBase {
   readonly kind: "get_blob";
   readonly requestId: string;
@@ -134,6 +140,7 @@ export interface AuthorityChangesAfterResult {
 }
 
 export type AuthorityReadDownResult =
+  | ReplicaChangeRecord
   | AuthoritySnapshotReservation
   | AuthoritySnapshotManifest
   | AuthorityBlobResult
@@ -146,6 +153,7 @@ export type AuthorityRequestFrame =
   | AuthoritySubmitV2Frame
   | AuthorityGetOperationFrame
   | AuthorityBeginSnapshotFrame
+  | AuthorityGetCutChangeFrame
   | AuthorityGetSnapshotManifestFrame
   | AuthorityGetBlobFrame
   | AuthorityChangesAfterFrame
@@ -191,6 +199,7 @@ export function isAuthorityRequestFrame(value: unknown): value is AuthorityReque
   if (value.kind === "submit_v2") return typeof value.presentationToken === "string" && typeof value.envelope === "string";
   if (value.kind === "get_operation") return typeof value.workspaceId === "string" && typeof value.opId === "string";
   if (value.kind === "begin_snapshot_and_subscribe") return typeof value.workspaceId === "string";
+  if (value.kind === "get_cut_change") return typeof value.streamToken === "string";
   if (value.kind === "get_snapshot_manifest") {
     return typeof value.streamToken === "string" && isSha256Digest(value.manifestDigest);
   }
