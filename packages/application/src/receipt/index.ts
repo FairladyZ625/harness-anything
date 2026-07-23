@@ -1,5 +1,15 @@
 // @slice-activation TW-02 compound receipt contract consumed by transparent-workspace broker and CLI exits.
 export { classifyCompoundExit, compoundExitCodes, compoundExitDefinitions } from "./exit-contract.ts";
+export {
+  projectCompoundReceiptEnvelope,
+  projectCompoundReceiptHonestOutcome,
+  projectCompoundWireFrameHonestOutcome
+} from "./honest-outcome-projection.ts";
+export type {
+  CompoundHonestOutcomeFailureRegistry,
+  CompoundHonestOutcomeProjectionOptions,
+  ProjectedHonestReceiptOutcome
+} from "./honest-outcome-projection.ts";
 export type {
   CompoundExitCode,
   CompoundExitDefinition,

@@ -112,6 +112,16 @@ export {
   createCompoundReceiptService,
   isCompoundOperationReceipt
 } from "./receipt/index.ts";
+export {
+  projectCompoundReceiptEnvelope,
+  projectCompoundReceiptHonestOutcome,
+  projectCompoundWireFrameHonestOutcome
+} from "./receipt/index.ts";
+export type {
+  CompoundHonestOutcomeFailureRegistry,
+  CompoundHonestOutcomeProjectionOptions,
+  ProjectedHonestReceiptOutcome
+} from "./receipt/index.ts";
 export * from "./receipt/witness-v1.ts";
 export * from "./receipt/v2-integrity.ts";
 export * from "./receipt/v2-service.ts";

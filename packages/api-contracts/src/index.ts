@@ -3,3 +3,4 @@ export * from "./daemon-protocol.ts";
 export * from "./daemon-registry.ts";
 export * from "./daemon-generation.ts";
 export * from "./renderer-safe-state.ts";
+export * from "./honest-receipt-outcome.ts";
