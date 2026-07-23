@@ -22,7 +22,9 @@ export function bindCreateProvenance(
         Effect.catchAll(() => options.provenanceSessionExporter!.exportSession(session)),
         Effect.flatMap((result) => options.syncExportedSession ? options.syncExportedSession(result) : Effect.void),
         Effect.as(provenance),
-        Effect.catchAll((error) => error.code === "transcript_unavailable"
+        // Optional transcript capture must not make unrelated writes depend on runtime-log availability.
+        // Execution submission applies the stricter confirmed-unavailable rule at its finalization boundary.
+        Effect.catchAll((error) => error.code === "transcript_unavailable" || error.code === "read_failed"
           ? Effect.succeed(provenance)
           : Effect.fail(error))
       );

@@ -1,16 +1,15 @@
 import { Effect } from "effect";
 import {
-  makeCoordinatedExecutionAuthoredStore,
-  makeExecutionSagaService,
   readTaskLifecyclePolicy,
   type TaskHolderPrincipal
 } from "@harness-anything/application";
-import { readSessionEntityDocument, type WriteError } from "@harness-anything/kernel";
+import type { WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
+import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
 import { plannedTaskClaimGuidance } from "./task-lifecycle-facade-guidance.ts";
 import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
 type TaskHolderAction = Extract<
@@ -22,7 +21,7 @@ function runExecutionClaim(
   action: Extract<TaskHolderAction, { readonly kind: "task-claim" }>,
   principal: TaskHolderPrincipal
 ): Effect.Effect<CliResult> {
-  const saga = executionSaga(context);
+  const { saga } = commandExecutionSaga(context);
   return context.currentSessionProbe.currentSession.pipe(
     Effect.flatMap((session) => Effect.tryPromise({
       try: () => saga.claim({
@@ -59,7 +58,7 @@ export function runExecutionSubmit(
 ): Effect.Effect<CliResult> {
   const principal = taskHolderPrincipal(context);
   if (!principal.ok) return Effect.succeed(principal.result);
-  const saga = executionSaga(context);
+  const { authoredStore, saga } = commandExecutionSaga(context);
   const submission = action.executionSubmission!;
   return Effect.gen(function* () {
     const snapshot = submission.executionId
@@ -114,13 +113,29 @@ export function runExecutionSubmit(
           : cliError(CliErrorCode.WriteRejected, submitted.error instanceof Error ? submitted.error.message : String(submitted.error))
       } satisfies CliResult;
     }
+    const submittedExecution = yield* Effect.promise(() => authoredStore.readExecution({
+      taskId: action.taskId,
+      executionId
+    }));
+    const unavailableBindings = submittedExecution?.session_bindings
+      .filter((binding) => binding.archive_status === "unavailable")
+      .map((binding) => ({
+        bindingId: binding.binding_id,
+        sessionRef: binding.session_ref,
+        archiveStatus: binding.archive_status
+      })) ?? [];
     return {
       ok: true,
       command: "status-set",
       taskId: action.taskId,
       executionId,
       status: "in_review",
-      report: { schema: "execution-submit-result/v1", executionId, leaseReleased: true }
+      report: {
+        schema: "execution-submit-result/v1",
+        executionId,
+        leaseReleased: true,
+        unavailableBindings
+      }
     } satisfies CliResult;
   });
 }
@@ -129,27 +144,6 @@ function isTaskHolderWriteError(error: unknown): error is WriteError {
   return typeof error === "object" && error !== null && "_tag" in error && [
     "WriteRejected", "WriteConflict", "GlobalWriteConflict", "JournalUnavailable"
   ].includes(String(error._tag));
-}
-
-function executionSaga(context: CommandRunnerContext) {
-  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-saga" });
-  return makeExecutionSagaService({
-    taskHolderService: context.taskHolderService,
-    authoredStore: makeCoordinatedExecutionAuthoredStore({
-      rootInput: context.layoutInput,
-      coordinator,
-      artifactStore: context.artifactStore
-    }),
-    finalizeSession: async (session) => {
-      try {
-        if (readSessionEntityDocument(context.layoutInput, session.sessionId).format === "manifest") return;
-      } catch {
-        // A missing or legacy Session is finalized through the existing exporter below.
-      }
-      const exported = await Effect.runPromise(context.provenanceSessionExporter.exportSession(session));
-      await Effect.runPromise(context.syncExportedSession(exported));
-    }
-  });
 }
 
 export function runTaskClaim(

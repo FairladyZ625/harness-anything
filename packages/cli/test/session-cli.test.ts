@@ -52,7 +52,9 @@ test("CLI session export binds CODEX_THREAD_ID and writes managed session markdo
 test("CLI session export fails closed without writing when a runtime transcript is unavailable", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
+    const homeDir = path.join(rootDir, "empty-home");
     mkdirSync(harnessRoot, { recursive: true });
+    mkdirSync(path.join(homeDir, ".codex", "sessions"), { recursive: true });
     initHarnessGit(harnessRoot);
 
     const exported = runJson(rootDir, [
@@ -60,7 +62,7 @@ test("CLI session export fails closed without writing when a runtime transcript 
       "--session", "missing-desktop-thread",
       "--runtime", "codex",
       "--source", "runtime"
-    ], false);
+    ], false, { HOME: homeDir });
 
     assert.equal(exported.ok, false);
     assert.equal(exported.error?.code, "session_export_failed");

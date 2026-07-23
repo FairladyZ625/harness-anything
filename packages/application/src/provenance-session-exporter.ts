@@ -2,7 +2,8 @@ import path from "node:path";
 import { Effect } from "effect";
 import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import { privateTextScannerVersion, resolveHarnessLayout, scanPrivateText, writeContentAddressedBlob, writeSessionEntity, type HarnessLayoutInput } from "@harness-anything/kernel";
-import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
+import { discoverRuntimeSessions, displayRuntimePath, inspectRuntimeTranscript, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
+import { clearRuntimeTranscriptConfirmation, recordRuntimeTranscriptInspection } from "./runtime-transcript-confirmation.ts";
 import { readSessionEntity } from "./session-entity-reader.ts";
 
 export interface ProvenanceSessionExporterOptions {
@@ -104,15 +105,35 @@ function writeSessionDocument(
         "transcript_unavailable"
       ));
     }
+    if (session.runtime !== "human") clearRuntimeTranscriptConfirmation(session);
+    const transcript = session.runtime === "human"
+      ? undefined
+      : yield* Effect.promise(() => inspectRuntimeTranscript(session, {
+          ...options,
+          ...(exportOptions.transcriptFile ? { transcriptFile: exportOptions.transcriptFile } : {})
+        }));
+    if (transcript) recordRuntimeTranscriptInspection(session, transcript.status);
+    if (transcript?.status === "unavailable") {
+      return yield* Effect.fail(sessionRejection(
+        session.sessionId,
+        transcript.reason,
+        "transcript_unavailable"
+      ));
+    }
+    if (transcript?.status === "indeterminate") {
+      return yield* Effect.fail(sessionRejection(session.sessionId, transcript.reason, "read_failed"));
+    }
     const conversation = yield* resolveRuntimeConversation(session, {
       ...options,
-      ...(exportOptions.transcriptFile ? { transcriptFile: exportOptions.transcriptFile } : {})
+      ...(transcript?.status === "available"
+        ? { transcriptFile: transcript.logPath }
+        : exportOptions.transcriptFile ? { transcriptFile: exportOptions.transcriptFile } : {})
     });
     if (session.runtime !== "human" && conversation.messages.length === 0) {
       return yield* Effect.fail(sessionRejection(
         session.sessionId,
         conversation.warnings.join(" ") || `No conversation text could be extracted for ${session.runtime} session ${session.sessionId}.`,
-        "transcript_unavailable"
+        "read_failed"
       ));
     }
     // Capture is report-only: sessions land in the private ledger (system of record),

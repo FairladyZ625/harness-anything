@@ -2,7 +2,7 @@
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -320,6 +320,49 @@ test("default claim preserves status and the Holder V2 actor can submit without 
     assert.equal(submitted.report.leaseReleased, true);
     const holder = runJson(rootDir, ["task", "holder", created.taskId]);
     assert.equal(holder.report.effectiveHolder, null);
+  });
+});
+
+test("submit reports a confirmed unavailable binding without changing its Session ownership", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
+    const created = runJson(rootDir, ["new-task", "--title", "Unavailable Session"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    const sessionId = "missing-codex-primary-session";
+    const homeDir = path.join(rootDir, "empty-home");
+    mkdirSync(path.join(homeDir, ".codex", "sessions"), { recursive: true });
+    const sessionEnv = {
+      HARNESS_ACTOR: "agent:test",
+      HOME: homeDir,
+      CODEX_THREAD_ID: sessionId,
+      CODEX_SESSION_ID: sessionId
+    };
+    const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, sessionEnv);
+    runJson(rootDir, ["task", "transition", created.taskId, "active"], true, sessionEnv);
+
+    const submitted = runJson(rootDir, [
+      "task", "transition", created.taskId, "in_review",
+      "--summary", "ready with unavailable transcript",
+      "--verification", "node:test",
+      "--output", "commit:def456"
+    ], true, sessionEnv);
+
+    assert.equal(submitted.status, "in_review");
+    assert.deepEqual(submitted.report.unavailableBindings, [{
+      bindingId: `primary:${sessionId}`,
+      sessionRef: `session/${sessionId}`,
+      archiveStatus: "unavailable"
+    }]);
+    const executionPath = path.join(
+      rootDir,
+      `harness/tasks/${created.taskId}-unavailable-session/executions/${claimed.executionId}.md`
+    );
+    const execution = JSON.parse(readFileSync(executionPath, "utf8"));
+    assert.equal(execution.session_bindings[0].binding_id, `primary:${sessionId}`);
+    assert.equal(execution.session_bindings[0].session_ref, `session/${sessionId}`);
+    assert.equal(execution.session_bindings[0].session.sessionId, sessionId);
+    assert.equal(execution.session_bindings[0].archive_status, "unavailable");
+    assert.equal(existsSync(path.join(rootDir, "harness/sessions", `${sessionId}.md`)), false);
   });
 });
 

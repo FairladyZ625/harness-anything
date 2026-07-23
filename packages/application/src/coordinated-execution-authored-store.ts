@@ -13,6 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import type { ExecutionRecord } from "@harness-anything/kernel";
 import type { ExecutionAuthoredStore, ExecutionSubmission } from "./execution-saga-service.ts";
+import { isRuntimeTranscriptConfirmedUnavailable } from "./runtime-transcript-confirmation.ts";
 
 export function makeCoordinatedExecutionAuthoredStore(input: {
   readonly rootInput: HarnessLayoutInput;
@@ -190,6 +191,9 @@ export function finalizeExecutionSessionBindings(
   return bindings.map((binding) => {
     if (typeof binding.session_ref !== "string" || !binding.session_ref.startsWith("session/")) return binding;
     const sessionId = binding.session_ref.slice("session/".length);
+    if (binding.archive_status === "unavailable") {
+      return finalizeUnavailableBinding(binding, endedAt);
+    }
     try {
       const session = readSessionEntityDocument(rootInput, sessionId);
       return {
@@ -198,10 +202,27 @@ export function finalizeExecutionSessionBindings(
         capture_range: binding.capture_range ? { ...binding.capture_range, end_at: endedAt } : null
       };
     } catch (error) {
+      if (isMissingSessionSnapshotError(error)
+          && binding.session?.source === "runtime"
+          && binding.session.sessionId === sessionId
+          && isRuntimeTranscriptConfirmedUnavailable(binding.session)) {
+        return finalizeUnavailableBinding(binding, endedAt);
+      }
       const prefix = binding.role === "primary" ? "primary Session" : "Session";
       throw new Error(`${prefix} ${sessionId} snapshot is not finalized: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
+}
+
+function finalizeUnavailableBinding(
+  binding: ExecutionRecord["session_bindings"][number],
+  endedAt: string
+): ExecutionRecord["session_bindings"][number] {
+  return {
+    ...binding,
+    archive_status: "unavailable",
+    capture_range: binding.capture_range ? { ...binding.capture_range, end_at: endedAt } : null
+  };
 }
 
 function assertExecutionHost(current: ExecutionRecord, taskId: string, executionId: string): void {
@@ -232,4 +253,8 @@ function assertBindingsFinal(bindings: ReadonlyArray<unknown>): void {
 
 function executionPath(executionId: string): string {
   return `executions/${executionId}.md`;
+}
+
+function isMissingSessionSnapshotError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
