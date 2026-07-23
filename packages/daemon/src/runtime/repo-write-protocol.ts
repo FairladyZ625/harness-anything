@@ -123,7 +123,7 @@ export function encodeRepoWriteBigInt(value: bigint): RepoWriteEncodedBigInt {
 }
 export function decodeRepoWriteBigInt(value: unknown): bigint {
   const record = recordAt(value, "$");
-  exactKeys(record, ["$repoWriteType", "encoding", "text"], [], "$");
+  assertExactKeys(record, ["$repoWriteType", "encoding", "text"], [], "$");
   if (record.$repoWriteType !== "bigint" || record.encoding !== "decimal") invalid("$", "encoded bigint");
   const text = stringAt(record.text, "$.text", defaultRepoWriteProtocolLimits.maxStringBytes);
   if (!/^(?:0|-[1-9]\d*|[1-9]\d*)$/u.test(text) || text.length > 4_096) {
@@ -141,7 +141,7 @@ export function encodeRepoWriteBytes(value: Uint8Array): RepoWriteEncodedBytes {
 }
 export function decodeRepoWriteBytes(value: unknown): Uint8Array {
   const record = recordAt(value, "$");
-  exactKeys(record, ["$repoWriteType", "encoding", "text"], [], "$");
+  assertExactKeys(record, ["$repoWriteType", "encoding", "text"], [], "$");
   if (record.$repoWriteType !== "bytes" || record.encoding !== "base64url") invalid("$", "encoded bytes");
   const text = stringAt(record.text, "$.text", defaultRepoWriteProtocolLimits.maxStringBytes);
   if (!/^[A-Za-z0-9_-]*$/u.test(text)) invalid("$.text", "canonical base64url bytes");
@@ -223,9 +223,9 @@ type FrameRecord = Record<string, unknown> & {
 function decodeSubmit(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, budget: { nodes: number }
 ): RepoWriteSubmitFrame {
-  exactKeys(frame, baseKeys(["requestId", "command"]), [], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "command"]), [], "$");
   const command = recordAt(frame.command, "$.command");
-  exactKeys(command, ["commandName", "actor", "context", "payload"], [], "$.command");
+  assertExactKeys(command, ["commandName", "actor", "context", "payload"], [], "$.command");
   const decoded: RepoWriteSubmitFrame = {
     ...baseFields(frame),
     kind: "submit",
@@ -242,7 +242,7 @@ function decodeSubmit(
 function decodeOperationFrame<K extends "proceed" | "status" | "prepared">(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, kind: K
 ): RepoWriteOperationFrame<K> {
-  exactKeys(frame, baseKeys(["requestId", "opId"]), [], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "opId"]), [], "$");
   return {
     ...baseFields(frame),
     kind,
@@ -253,17 +253,17 @@ function decodeOperationFrame<K extends "proceed" | "status" | "prepared">(
 function decodeRequestFrame<K extends "shutdown" | "drained">(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, kind: K
 ): RepoWriteRequestFrame<K> {
-  exactKeys(frame, baseKeys(["requestId"]), [], "$");
+  assertExactKeys(frame, baseKeys(["requestId"]), [], "$");
   return { ...baseFields(frame), kind, requestId: identifier(frame.requestId, "$.requestId", limits) };
 }
 function decodeReady(frame: FrameRecord): RepoWriteReadyFrame {
-  exactKeys(frame, baseKeys([]), [], "$");
+  assertExactKeys(frame, baseKeys([]), [], "$");
   return { ...baseFields(frame), kind: "ready" };
 }
 function decodeTerminal(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, budget: { nodes: number }
 ): RepoWriteTerminalFrame {
-  exactKeys(frame, baseKeys(["requestId", "opId", "outcome", "receipt"]), [], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "opId", "outcome", "receipt"]), [], "$");
   if (frame.outcome !== "committed") invalid("$.outcome", "committed terminal outcome");
   return {
     ...baseFields(frame),
@@ -276,7 +276,7 @@ function decodeTerminal(
 }
 
 function decodeFailure(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteFailureFrame {
-  exactKeys(frame, baseKeys(["requestId", "phase", "outcome", "replay", "code", "diagnostic"]), ["opId"], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "phase", "outcome", "replay", "code", "diagnostic"]), ["opId"], "$");
   const common = {
     ...baseFields(frame),
     kind: "failure" as const,
@@ -311,7 +311,7 @@ function decodeFailure(frame: FrameRecord, limits: RepoWriteProtocolLimits): Rep
   invalid("$.phase", "failure phase");
 }
 function decodeStatus(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteStatusFrame {
-  exactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
   const states: ReadonlyArray<RepoWriteOperationState> = [
     "not-found", "prepared", "proceeding", "committed", "failed", "unknown"
   ];
@@ -325,7 +325,7 @@ function decodeStatus(frame: FrameRecord, limits: RepoWriteProtocolLimits): Repo
   };
 }
 function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
-  exactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");
+  assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");
   const phases: ReadonlyArray<RepoWriteTelemetryPhase> = [
     "queue", "compile", "journal", "git", "fsync", "materializer", "projection", "total"
   ];
@@ -441,7 +441,7 @@ function recordAt(value: unknown, path: string): Record<string, unknown> {
   if (prototype !== Object.prototype && prototype !== null) invalid(path, "plain object");
   return value as Record<string, unknown>;
 }
-function exactKeys(
+function assertExactKeys(
   record: Record<string, unknown>, required: ReadonlyArray<string>, optional: ReadonlyArray<string>, path: string
 ): void {
   const allowed = new Set([...required, ...optional]);
