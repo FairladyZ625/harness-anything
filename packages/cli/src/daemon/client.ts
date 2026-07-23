@@ -13,6 +13,7 @@ import {
   daemonIdFromEnv,
   daemonUserRootForRepo,
   DaemonJsonRpcRequestTimeoutError,
+  DaemonRepoRootResolutionError,
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
@@ -48,6 +49,13 @@ import { readRemoteConfig, remoteDaemonSshArgs, remoteDaemonUnavailableHint, typ
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 import { startCliTimingPhase, type CliTimingPhase } from "../cli/timing.ts";
 import { daemonRequestTimeoutReceipt } from "./request-outcome.ts";
+import {
+  CliRootResolutionError,
+  commandForRootResolution,
+  resolveCommandRoot,
+  rootResolutionUnavailableHint,
+  withRootResolution
+} from "./root-resolution.ts";
 
 export {
   daemonIdForRoot,
@@ -184,7 +192,8 @@ export async function runCommandThroughDaemon(
 ): Promise<CommandReceipt | CommandFailureReceipt | undefined> {
   const finishConfig = startCliTimingPhase("daemon_config");
   try {
-    config ??= readDaemonClientConfig(process.env, command.rootDir, command.daemonModeOverride, command.daemonProfileOverride, command.layoutOverrides);
+    const configRoot = resolveCommandRoot(command).root;
+    config ??= readDaemonClientConfig(process.env, configRoot, command.daemonModeOverride, command.daemonProfileOverride, command.layoutOverrides);
   } catch (error) {
     return daemonUnavailableReceipt(command, error);
   } finally {
@@ -219,15 +228,27 @@ export async function runCommandThroughDaemon(
 
 async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfig): Promise<CommandReceipt | CommandFailureReceipt> {
   const finishTarget = startCliTimingPhase("daemon_target");
-  command = commandForCanonicalHarness(command);
-  const target = resolveLocalDaemonTarget({
-    rootDir: command.rootDir,
-    repoIdOverride: command.daemonRepoId,
-    userRoot: config.userRoot,
-    daemonId: config.daemonId,
-    autoRegisterSingleRepo: true,
-    layoutOverrides: command.layoutOverrides
-  });
+  let rootResolution = resolveCommandRoot(command);
+  command = commandForRootResolution(command, rootResolution);
+  let target: LocalDaemonTarget;
+  try {
+    target = resolveLocalDaemonTarget({
+      rootDir: command.rootDir,
+      repoIdOverride: command.daemonRepoId,
+      userRoot: config.userRoot,
+      daemonId: config.daemonId,
+      autoRegisterSingleRepo: true,
+      layoutOverrides: command.layoutOverrides
+    });
+  } catch (error) {
+    if (error instanceof DaemonRepoRootResolutionError) throw new CliRootResolutionError(rootResolution, error);
+    throw error;
+  }
+  rootResolution = {
+    ...rootResolution,
+    root: target.canonicalRoot,
+    ...(command.daemonRepoId ? { source: "explicit-override" as const } : {})
+  };
   finishTarget();
   const timing = daemonTimingObserver();
   const autostart = daemonAutostartOptions(command, config, timing.observe);
@@ -243,10 +264,10 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
           docSyncHostServices
         );
       } catch (error) {
-        return docSyncSubmitPreviewRejected(error);
+        return withRootResolution(docSyncSubmitPreviewRejected(error), rootResolution);
       }
       const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.doc.sync.submit", request as unknown as JsonObject, 200, autostart);
-      if (isCommandReceipt(response)) return normalizeDocSyncSubmitReceipt(response);
+      if (isCommandReceipt(response)) return withRootResolution(normalizeDocSyncSubmitReceipt(response), rootResolution);
       throw new Error("repo.doc.sync.submit did not return command-receipt/v2");
     }
     if (isTaskHolderCommand(command)) {
@@ -254,7 +275,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
         repo: { repoId: target.repoId },
         payload: taskHolderPayload(command)
       }, 200, autostart);
-      if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
+      if (isCommandReceipt(response)) return withRootResolution(normalizeTaskHolderReceipt(response, command.action.kind), rootResolution);
       throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
     }
     const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.command.run", {
@@ -264,7 +285,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
         Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
       )
     }, 200, command.action.kind === "materializer-run" ? undefined : autostart);
-    if (isCommandReceipt(response)) return response as unknown as CommandReceipt | CommandFailureReceipt;
+    if (isCommandReceipt(response)) return withRootResolution(response as unknown as CommandReceipt | CommandFailureReceipt, rootResolution);
     throw new Error("daemon command.run did not return command-receipt/v2");
   } finally {
     timing.finish();
@@ -378,7 +399,9 @@ async function runWithLineClient(
 }
 
 function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote?: RemoteDaemonConfig): CommandFailureReceipt {
-  const unavailableHint = remote
+  const unavailableHint = error instanceof CliRootResolutionError
+    ? rootResolutionUnavailableHint(error.resolution)
+    : remote
     ? remoteDaemonUnavailableHint(remote)
     : `Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'. If the daemon is stuck and this write must be recovered locally, run '${directRecoveryCommandLine()}'.`;
   const receipt = toCommandReceipt({
@@ -386,7 +409,9 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote
     command: receiptCommandKind(command.action),
     error: cliError(
       CliErrorCode.JournalUnavailable,
-      `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
+      error instanceof CliRootResolutionError
+        ? unavailableHint
+        : `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
     )
   });
   if (receipt.ok) throw new Error("daemon unavailable receipt unexpectedly succeeded");
@@ -465,13 +490,6 @@ function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): Pa
     : { ...command, rootDir: target.canonicalRoot };
 }
 
-function commandForCanonicalHarness(command: ParsedCommand): ParsedCommand {
-  const canonicalRoot = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
-  return path.resolve(command.rootDir) === path.resolve(canonicalRoot)
-    ? command
-    : { ...command, rootDir: canonicalRoot };
-}
-
 export function daemonClientCliEntrypointPath(moduleUrl: string | URL = import.meta.url): string {
   const clientUrl = new URL(moduleUrl);
   const extension = path.posix.extname(clientUrl.pathname);
@@ -511,7 +529,7 @@ function taskHolderPayload(command: TaskHolderParsedCommand): JsonObject {
 
 export function commandRunPayload(command: ParsedCommand, session?: CurrentSessionRef): JsonObject {
   const executor = taskHolderExecutorPayload(command);
-  const { actor: _localActorFlag, ...transportCommand } = command;
+  const { actor: _localActorFlag, rootResolutionSource: _localRootResolutionSource, ...transportCommand } = command;
   return {
     command: transportCommand as unknown as JsonObject,
     ...(executor !== undefined ? { executor } : {}),

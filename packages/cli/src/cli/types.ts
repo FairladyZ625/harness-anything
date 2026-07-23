@@ -209,6 +209,7 @@ export interface CommandHelpOption {
 
 export interface ParsedCommand {
   readonly rootDir: string;
+  readonly rootResolutionSource?: "explicit-override" | "local-cwd";
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly daemonRepoId?: string;
   readonly actor?: string;

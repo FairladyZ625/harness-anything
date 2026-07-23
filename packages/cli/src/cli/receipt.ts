@@ -77,6 +77,11 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (receipt.command === "preset list") return renderPresetListText(receipt);
   const data = receiptDetailsData(receipt);
   const parts = [`ok`, `command=${formatToken(receipt.command)}`];
+  const rootResolution = receiptRootResolution(receipt.details?.rootResolution);
+  if (rootResolution) {
+    parts.push(`root=${formatToken(rootResolution.root)}`);
+    parts.push(`rootSource=${formatToken(rootResolution.source)}`);
+  }
   const taskId = typeof data.taskId === "string" ? data.taskId : receipt.entity?.kind === "task" ? receipt.entity.id : undefined;
   if (typeof taskId === "string") parts.push(`task=${formatToken(taskId)}`);
   const status = typeof data.status === "string" ? data.status : undefined;
@@ -96,6 +101,14 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
   return parts.join(" ");
+}
+
+function receiptRootResolution(value: unknown): { readonly root: string; readonly source: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as { readonly root?: unknown; readonly source?: unknown };
+  return typeof candidate.root === "string" && typeof candidate.source === "string"
+    ? { root: candidate.root, source: candidate.source }
+    : undefined;
 }
 
 function renderCompletionText(receipt: CommandReceipt): string {
