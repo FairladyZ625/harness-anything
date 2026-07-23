@@ -27,12 +27,13 @@ Required pull request checks must cover:
 - architecture boundaries
 - package policy
 - GUI build smoke
-- Node 26 compatibility for typecheck plus fast and contract tests
 
-The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
-manual workflow dispatch. It remains the release-grade gate and still covers
-typecheck, all node tests, boundaries, package policy, schema/API/service gates,
-supply-chain, Legacy Intake smoke, and CLI package smoke.
+`main` runs the identical `rewrite-ci` sharded contexts as pull requests, so the
+merge target is protected by the same evidence tiers with no asymmetry. There is
+no separate full aggregate matrix: the sharded pull request contexts
+(fast-contract plus the six `integration-shard (N)` jobs) cover the same tests
+the retired `npm run check` matrix did, and the boundary, package-policy,
+supply-chain, and GUI build gates run as their own contexts.
 
 The active GitHub repository ruleset is the sole enforcement surface for
 `main`. It requires pull requests, the `rewrite-ci` status checks, deletion
@@ -55,7 +56,6 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (6)
 - supply-chain
 - gui-build
-- node26-compatibility
 - pr-body-lint
 - direct-recovery
 
@@ -79,7 +79,6 @@ against the queued pull request's predicted merge state.
 - integration-shard (6)
 - supply-chain
 - gui-build
-- node26-compatibility
 - pr-body-lint
 - direct-recovery
 

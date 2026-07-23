@@ -31,7 +31,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "pr-body-lint",
         "direct-recovery"
       ]
@@ -253,7 +252,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "node26-compatibility",
         "pr-body-lint",
         "direct-recovery"
       ],
@@ -521,8 +519,7 @@
           "boundaries",
           "package-policy",
           "supply-chain",
-          "gui-build",
-          "node26-compatibility"
+          "gui-build"
         ],
         "workflowJobs": [
           "pr-body-lint",
@@ -588,8 +585,7 @@
             "boundaries",
             "package-policy",
             "supply-chain",
-            "gui-build",
-            "node26-compatibility"
+            "gui-build"
           ]
         },
         "classes": [
