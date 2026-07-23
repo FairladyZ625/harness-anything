@@ -34,6 +34,17 @@ test("write-road registry rejects unified entry compilers that point to differen
   }
 });
 
+test("write-road registry accepts a compliant parity-debt item", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { parity: "parity-debt" });
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("write-road registry rejects an authored surface without a criterion item", () => {
   const root = makeFixtureRoot();
   try {
@@ -233,6 +244,30 @@ test("write-road registry rejects an unregistered task write API policy", () => 
   }
 });
 
+test("write-road registry treats a verified task review request guard as non-materializing ingress", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { taskReviewRequestGuard: true });
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry fails closed when the task review request guard starts materializing", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { taskReviewRequestGuard: true, materializingTaskReviewGuard: true });
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /mutating API route tasks\.review/u);
+    assert.match(result.stderr, /mutating GUI bridge method reviewTask/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("write-road registry rejects an unregistered preset script output scope", () => {
   const root = makeFixtureRoot();
   try {
@@ -286,9 +321,11 @@ function writeFixture(root, overrides = {}) {
   ]);
   const taskCliPolicies = ["{ actionKind: 'registered-action' }"];
   if (overrides.extraTaskCliAction) taskCliPolicies.push(`{ actionKind: '${overrides.extraTaskCliAction}' }`);
-  const taskApiPolicies = ["single-surface-debt", "single-entry"].includes(overrides.parity)
+  const taskApiPolicies = ["single-surface-debt", "single-entry"].includes(overrides.parity) && !overrides.taskReviewRequestGuard
     ? []
-    : ["{ id: 'registered.route', method: 'POST', guiBridgeMethod: 'registeredBridge' }"];
+    : overrides.taskReviewRequestGuard
+      ? ["{ id: 'tasks.review', method: 'POST', serviceMethod: 'reviewTask', guiBridgeMethod: 'reviewTask' }"]
+      : ["{ id: 'registered.route', method: 'POST', guiBridgeMethod: 'registeredBridge' }"];
   if (overrides.extraTaskApiRoute) taskApiPolicies.push(overrides.extraTaskApiRoute);
   writeLines(root, "packages/application/src/task-write-route-policy.ts", [
     `export const taskWriteCliRoutePolicies = [${taskCliPolicies.join(", ")}] as const;`,
@@ -303,6 +340,35 @@ function writeFixture(root, overrides = {}) {
   writeLines(root, "packages/api-contracts/src/api-contract-registry.ts", [
     `export const apiRouteContracts = [${apiRoutes.join(", ")}] as const;`
   ]);
+  if (overrides.taskReviewRequestGuard) {
+    writeLines(root, "packages/application/src/local-controller-service.ts", [
+      "declare const Effect: { runPromise(value: unknown): unknown; map(fn: unknown): unknown };",
+      "declare const lifecycleOrchestrator: { startTaskReview(payload: unknown): { pipe(...args: unknown[]): unknown } };",
+      "declare function validateLocalControllerTaskId(taskId: unknown): void;",
+      "declare function toLocalControllerResult(value: unknown): unknown;",
+      "export function makeLocalControllerService() {",
+      "  return {",
+      "    reviewTask: async (payload: { taskId: string }) => {",
+      "      validateLocalControllerTaskId(payload.taskId);",
+      "      return Effect.runPromise(lifecycleOrchestrator.startTaskReview(payload).pipe(Effect.map(toLocalControllerResult)));",
+      "    }",
+      "  };",
+      "}"
+    ]);
+    writeLines(root, "packages/application/src/task-lifecycle-orchestrator.ts", [
+      "declare const Effect: { succeed(value: unknown): unknown };",
+      "declare function taskFailure(taskId: string, code: string, hint: string): unknown;",
+      ...(overrides.materializingTaskReviewGuard ? ["declare function materializeReview(): void;"] : []),
+      "export function makeTaskLifecycleOrchestrator() {",
+      "  return {",
+      "    startTaskReview: (payload: { taskId: string }) => {",
+      ...(overrides.materializingTaskReviewGuard ? ["      materializeReview();"] : []),
+      "      return Effect.succeed(taskFailure(payload.taskId, 'execution_submission_required', 'Submit an execution first.'));",
+      "    }",
+      "  };",
+      "}"
+    ]);
+  }
   writeFileSync(path.join(root, "packages/cli/src/commands/extensions/assets/software-coding/presets/fixture/preset.json"), JSON.stringify({
     schema: "preset-manifest/v2",
     id: "fixture",
@@ -322,7 +388,7 @@ function writeFixture(root, overrides = {}) {
 }
 
 function makeRegistry(overrides = {}) {
-  const parity = overrides.parity ?? "unified";
+  const parity = overrides.taskReviewRequestGuard ? "single-entry" : overrides.parity ?? "unified";
   const surfaces = {
     cliActions: ["registered-action"],
     apiRoutes: ["single-surface-debt", "single-entry"].includes(parity) ? [] : ["registered.route"],
@@ -336,14 +402,14 @@ function makeRegistry(overrides = {}) {
         { entry: "direct", ref: "packages/application/src/fixture.ts#compileRegisteredIntent" },
         {
           entry: "daemon",
-          ref: overrides.splitIntentCompiler || parity === "single-surface-debt"
+          ref: overrides.splitIntentCompiler || ["parity-debt", "single-surface-debt"].includes(parity)
             ? "packages/application/src/fixture.ts#compileRegisteredIntentSeparately"
             : "packages/application/src/fixture.ts#compileRegisteredIntent"
         }
       ];
   const dispositionFields = overrides.omitDispositionFields
     ? {}
-    : parity === "single-surface-debt"
+    : ["parity-debt", "single-surface-debt"].includes(parity)
       ? { owner: "fixture.covered", sunset: "2026-10-31" }
       : parity === "single-entry"
         ? { reviewWhen: "Return to unknown when any second authored ingress surface is registered." }
