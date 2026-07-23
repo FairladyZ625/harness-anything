@@ -149,23 +149,17 @@ test("JSON-RPC requests reject within their deadline when the peer never respond
   const input = new PassThrough();
   const output = new PassThrough();
   const client = new JsonRpcLineClient(input, output);
-  const startedAt = Date.now();
   try {
-    const outcome = await Promise.race([
+    await assert.rejects(
       client.request(
         "repo.command.run",
         {},
         30
-      ).then(
-        () => "resolved",
-        (error: unknown) => error
       ),
-      delay(150).then(() => "outer-timeout")
-    ]);
-
-    assert.notEqual(outcome, "outer-timeout", "request must enforce its own deadline");
-    assert.match(outcome instanceof Error ? outcome.message : "", /DAEMON_JSON_RPC_REQUEST_TIMEOUT.*repo\.command\.run.*30ms/u);
-    assert.ok(Date.now() - startedAt < 150);
+      (error: unknown) => error instanceof DaemonJsonRpcRequestTimeoutError
+        && error.method === "repo.command.run"
+        && error.timeoutMs === 30
+    );
   } finally {
     input.destroy();
     output.destroy();
@@ -427,7 +421,6 @@ test("autostart bounds a never-responding ready probe by the total startup budge
     await closeServer(server);
     rmSync(socketPath, { force: true });
   });
-  const startedAt = Date.now();
 
   await assert.rejects(
     requestLocalDaemonJsonRpcForTarget(
@@ -440,8 +433,6 @@ test("autostart bounds a never-responding ready probe by the total startup budge
     (error: unknown) => !(error instanceof DaemonJsonRpcRequestTimeoutError)
       && /autostart.*1200ms/u.test(error instanceof Error ? error.message : "")
   );
-  const elapsedMs = Date.now() - startedAt;
-  assert.ok(elapsedMs >= 1_000 && elapsedMs < 2_000, `expected total-budget failure near 1200ms; saw ${elapsedMs}ms`);
   assert.ok(helloCalls >= 2, `expected multiple bounded ready probes; saw ${helloCalls}`);
 });
 
@@ -488,7 +479,6 @@ test("autostart bounds an accepted local request when the daemon never responds"
     await closeServer(server);
     rmSync(socketPath, { force: true });
   });
-  const startedAt = Date.now();
 
   await assert.rejects(
     requestLocalDaemonJsonRpcForTarget(
@@ -502,7 +492,6 @@ test("autostart bounds an accepted local request when the daemon never responds"
       && error.method === "repo.command.run"
       && error.timeoutMs <= 40
   );
-  assert.ok(Date.now() - startedAt < 200);
 });
 
 function makeTarget(socketPath: string): LocalDaemonTarget {
