@@ -299,6 +299,7 @@ export {
 } from "./transport/length-frame-codec.ts";
 export {
   AuthorityTransportDisconnectedError,
+  AuthorityReadDownRequestError,
   PersistentSshAuthorityClient,
   buildAuthoritySshArgs,
   type AuthoritySshTarget,
