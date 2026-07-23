@@ -34,7 +34,15 @@ command output remains unchanged on stdout.
 HA_TIMING=1 ha task show task_01ABC --json
 ```
 
-Cold daemon startup also prints progress on stderr so an invocation does not
-remain silent while authority readiness is pending. Set `HA_PROGRESS=0` only
-when a caller deliberately suppresses those human-readable progress messages;
-it does not change daemon or authority behavior.
+Every daemon-backed CLI command that remains in flight beyond the progress
+threshold prints a non-terminal notice on stderr. The notice means the command
+is still running and the final receipt has not been returned; it never means
+the caller should run the command again. Human users keep waiting for the
+current process. Agent tools that yield a process/session must continue reading
+that same session until it exits and returns the final receipt.
+
+Progress never contaminates stdout, including with `--json`, and successful
+commands still return exactly one final receipt after completion. Set
+`HA_PROGRESS=0` only when a caller deliberately suppresses these human-readable
+progress messages; it does not change daemon, authority, durability, or receipt
+behavior.
