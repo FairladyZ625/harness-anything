@@ -6,7 +6,8 @@ import test from "node:test";
 // for it to time out. `Atomics.wait` reproduces the futex wedge seen in CI
 // without burning a core. Only the stall escalation in
 // tools/run-node-tests.mjs can end this run.
-if (process.env.HARNESS_RUNNER_STALL_FIXTURE === "wedge") {
+if (["chatter", "wedge"].includes(process.env.HARNESS_RUNNER_STALL_FIXTURE)) {
+  process.title = "ha-node-test-wedge tools/test-fixtures/runner-stall/wedged-module.test.mjs";
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 }
 

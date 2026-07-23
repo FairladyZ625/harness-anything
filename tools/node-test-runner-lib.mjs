@@ -6,6 +6,34 @@ export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 export const DEFAULT_TEST_TIMEOUT_MS = 180_000;
 
+export function parsePosixProcessGroupLine(line, platform = process.platform) {
+  const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/u.exec(line);
+  if (match === null) return null;
+  const [, pidText, ppidText, pgidText, , , tail] = match;
+  if (platform === "darwin") {
+    return { pid: Number(pidText), ppid: Number(ppidText), pgid: Number(pgidText), waitChannel: null, command: tail.trim() };
+  }
+  const waitMatch = /^(\S+)\s+(.+)$/u.exec(tail);
+  if (waitMatch === null) return null;
+  return {
+    pid: Number(pidText),
+    ppid: Number(ppidText),
+    pgid: Number(pgidText),
+    waitChannel: waitMatch[1],
+    command: waitMatch[2].trim()
+  };
+}
+
+export function hasIsolationWedgeSignature(member) {
+  return /^futex(?:_|$)/u.test(member.waitChannel ?? "") || member.command.startsWith("ha-node-test-wedge ");
+}
+
+export function testFilesFromProcessCommand(command, repoRoot) {
+  return command.split(/\s+/u)
+    .map((token) => token.startsWith(`${repoRoot}/`) ? token.slice(repoRoot.length + 1) : token)
+    .filter((token) => /\.test\.(?:ts|tsx|mjs|cjs|js)$/u.test(token));
+}
+
 export function parseRunnerArgs(args, tierNames) {
   const options = {
     tier: "all",

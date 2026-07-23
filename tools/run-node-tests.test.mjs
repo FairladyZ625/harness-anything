@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, hasIsolationWedgeSignature, parseCompletedTestLine, parsePosixProcessGroupLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, testFilesFromProcessCommand, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -122,9 +122,112 @@ test("runner ends a run wedged outside any test body and names what it caught", 
   // timeout. Asserting its absence is what makes this a test of the escalation
   // rather than of `--test-timeout`.
   assert.doesNotMatch(output, /test timed out after \d+ms/u);
-  assert.match(output, /\[node-test-stall\] no test output for \d+ms across \d+ windows/u);
+  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
   assert.match(output, /terminating the test process tree/u);
   assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
+});
+
+test("runner detects a wedged isolation child while another file keeps producing output", {
+  skip: process.platform === "win32"
+    ? "per-child wedge detection inspects the POSIX process group"
+    : false
+}, () => {
+  const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_STALL_FIXTURE: "chatter",
+    HARNESS_TEST_CONCURRENCY: "2",
+    HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
+    HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-stall",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 15_000
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
+  assert.match(output, /runner chatter \d+/u);
+  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
+  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
+});
+
+test("runner preserves a real test failure without classifying it as a wedge", () => {
+  const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_STALL_FIXTURE: "failing-only",
+    HARNESS_TEST_CONCURRENCY: "1",
+    HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
+    HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-stall",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 10_000
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
+  assert.match(output, /✖ runner failing-wedge probe exposes a real failure before shutdown/u);
+  assert.match(output, /intentional real failure before shutdown wedge/u);
+  assert.doesNotMatch(output, /isolation child pid=\d+ remained wedged/u);
+});
+
+test("runner treats a real failure hidden by a shutdown wedge as a named wedge failure", {
+  skip: process.platform === "win32"
+    ? "per-child wedge detection inspects the POSIX process group"
+    : false
+}, () => {
+  const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_STALL_FIXTURE: "failing-wedge",
+    HARNESS_TEST_CONCURRENCY: "1",
+    HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
+    HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-stall",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 10_000
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
+  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
+  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/failing-then-wedge\.test\.mjs/u);
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
@@ -133,6 +236,28 @@ test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
     "packages/kernel/"
   ]);
   assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
+});
+
+test("Linux process snapshots distinguish a futex-wedged isolation child", () => {
+  const member = parsePosixProcessGroupLine(
+    " 8774 2519 2519 Sl 06:11 futex_do_wait /opt/node/bin/node --test-isolation=process tools/graph-panorama.test.mjs",
+    "linux"
+  );
+  assert.deepEqual(member, {
+    pid: 8774,
+    ppid: 2519,
+    pgid: 2519,
+    waitChannel: "futex_do_wait",
+    command: "/opt/node/bin/node --test-isolation=process tools/graph-panorama.test.mjs"
+  });
+  assert.equal(hasIsolationWedgeSignature(member), true);
+  assert.deepEqual(testFilesFromProcessCommand(member.command, repoRoot), ["tools/graph-panorama.test.mjs"]);
+
+  const healthy = parsePosixProcessGroupLine(
+    " 8775 2519 2519 Sl 00:01 ep_poll /opt/node/bin/node --test-isolation=process tools/healthy.test.mjs",
+    "linux"
+  );
+  assert.equal(hasIsolationWedgeSignature(healthy), false);
 });
 
 test("parseRunnerArgs accepts integration shards only for the integration tier", () => {
