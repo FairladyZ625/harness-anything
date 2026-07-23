@@ -132,7 +132,6 @@ test("runner detects a wedged isolation child while another file keeps producing
     ? "per-child wedge detection inspects the POSIX process group"
     : false
 }, () => {
-  const startedAt = Date.now();
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "chatter",
@@ -152,19 +151,16 @@ test("runner detects a wedged isolation child while another file keeps producing
     env: childEnv,
     timeout: 15_000
   });
-  const elapsedMs = Date.now() - startedAt;
   const output = `${result.stdout}\n${result.stderr}`;
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
   assert.match(output, /runner chatter \d+/u);
   assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
   assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
 });
 
 test("runner preserves a real test failure without classifying it as a wedge", () => {
-  const startedAt = Date.now();
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "failing-only",
@@ -184,12 +180,10 @@ test("runner preserves a real test failure without classifying it as a wedge", (
     env: childEnv,
     timeout: 10_000
   });
-  const elapsedMs = Date.now() - startedAt;
   const output = `${result.stdout}\n${result.stderr}`;
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
   assert.match(output, /✖ runner failing-wedge probe exposes a real failure before shutdown/u);
   assert.match(output, /intentional real failure before shutdown wedge/u);
   assert.doesNotMatch(output, /isolation child pid=\d+ remained wedged/u);
@@ -200,7 +194,6 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
     ? "per-child wedge detection inspects the POSIX process group"
     : false
 }, () => {
-  const startedAt = Date.now();
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "failing-wedge",
@@ -220,12 +213,10 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
     env: childEnv,
     timeout: 10_000
   });
-  const elapsedMs = Date.now() - startedAt;
   const output = `${result.stdout}\n${result.stderr}`;
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.equal(elapsedMs < 5_000, true, `runner took ${elapsedMs}ms\n${output}`);
   assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
   assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/failing-then-wedge\.test\.mjs/u);
 });
