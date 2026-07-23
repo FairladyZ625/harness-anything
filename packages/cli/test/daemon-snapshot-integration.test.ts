@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import { readFileSync, rmSync } from "node:fs";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
+import {
+  defaultDaemonJsonRpcRequestTimeoutMs,
+  requestLocalDaemonJsonRpc
+} from "../../daemon/src/index.ts";
 import { daemonLaunchSpecPath } from "../src/daemon/daemon-launch-spec.ts";
 import {
   defaultDaemonUserRoot,
@@ -11,14 +14,24 @@ import {
 } from "./helpers/daemon-cli.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
 
-test("daemon upgrade serves the installed snapshot identity and persists its entrypoint", { timeout: 90_000 }, async () => {
+const snapshotTestTimeoutMs = positiveIntegerEnv(
+  "HARNESS_TEST_DAEMON_SNAPSHOT_TIMEOUT_MS",
+  process.env.CI ? 180_000 : 90_000
+);
+const snapshotRequestTimeoutMs = positiveIntegerEnv(
+  "HARNESS_TEST_DAEMON_SNAPSHOT_REQUEST_TIMEOUT_MS",
+  process.env.CI ? 90_000 : defaultDaemonJsonRpcRequestTimeoutMs
+);
+
+test("daemon upgrade serves the installed snapshot identity and persists its entrypoint", { timeout: snapshotTestTimeoutMs }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
     HARNESS_DAEMON_MODE: "local",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_IDLE_MS: "60000",
-    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000"
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(snapshotRequestTimeoutMs)
   };
   try {
     runDaemonCommand(fixture.repoRoot, [
@@ -89,3 +102,8 @@ test("daemon upgrade serves the installed snapshot identity and persists its ent
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
