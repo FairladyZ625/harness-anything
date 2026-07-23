@@ -148,6 +148,8 @@ export interface AuthoritySemanticCompilerV2 {
 
 export interface OperationNamespaceVerifierV2 {
   readonly verify: (operationId: OperationIdV2) => Promise<void>;
+  /** Verifies proof/current generation but not elapsed wall-clock expiry. */
+  readonly verifyRecovery?: (operationId: OperationIdV2) => Promise<void>;
 }
 
 export class SemanticAdmissionErrorV2 extends Error {

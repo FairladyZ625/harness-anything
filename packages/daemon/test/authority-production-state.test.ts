@@ -12,6 +12,7 @@ import {
   createDurableAuthorityBindingRuntimeV2,
   type AuthorityProductionRepoConfigV1
 } from "../src/authority/production/authority-production-state.ts";
+import { registerAuthorityBindingRow } from "../src/authority/production/authority-binding-state.ts";
 import {
   openDurableAuthorityServiceState,
   type DurableAuthorityStateTable
@@ -81,6 +82,66 @@ test("durable binding consumption preserves the inner op identity across service
       opId: "namespace-1:operation-b"
     }), "denied");
     await restartedState.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("durable operation state preserves the exact fixed WriteOp across restart", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fixed-operation-"));
+  const semanticDigest = "1".repeat(64);
+  const authorityIntegrity = {
+    schema: "authority-operation-integrity/v2" as const,
+    semanticRequestDigest: semanticDigest,
+    semanticMutationSetDigest: "2".repeat(64),
+    mutationRegistryVersion: 1,
+    actorAxesBindingDigest: "3".repeat(64),
+    canonicalMutationSet: { registryVersion: 1, mutations: [] }
+  };
+  const canonicalOperation = {
+    opId: "namespace-1:operation-a",
+    entityId: "task:task_A" as const,
+    kind: "progress_append" as const,
+    payload: { taskId: "task_A", text: "fixed\n" },
+    authorityIntegrity
+  };
+  try {
+    const first = openDurableAuthorityServiceState({
+      serviceStateRoot: root,
+      repoId: "repo-1"
+    });
+    await first.operationRegistry.put({
+      workspaceId: "workspace-1",
+      opId: canonicalOperation.opId,
+      semanticDigest,
+      state: "RECEIVED",
+      canonicalRequestEnvelope: "fixed-envelope",
+      authorityIntegrity,
+      canonicalOperation,
+      recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
+    });
+    await first.close();
+
+    const restarted = openDurableAuthorityServiceState({
+      serviceStateRoot: root,
+      repoId: "repo-1"
+    });
+    assert.deepEqual(
+      (await restarted.operationRegistry.get("workspace-1", canonicalOperation.opId))
+        ?.canonicalOperation,
+      canonicalOperation
+    );
+    await assert.rejects(restarted.operationRegistry.put({
+      workspaceId: "workspace-1",
+      opId: canonicalOperation.opId,
+      semanticDigest,
+      state: "PREPARED",
+      canonicalRequestEnvelope: "fixed-envelope",
+      authorityIntegrity,
+      canonicalOperation: { ...canonicalOperation, opId: "namespace-1:spliced" },
+      recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
+    }), /AUTHORITY_STORED_OPERATION_FIXED_MATERIAL_MISMATCH/u);
+    await restarted.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -228,6 +289,52 @@ test("startup rejects v2 binding rows with over-limit or duplicate operation wit
       proofKeys: emptyProofKeys
     }), /AUTHORITY_BINDING_DURABLE_MISMATCH/u);
   }
+});
+
+test("exact recovery preserves a disabled binding while new admission remains denied", async () => {
+  const config = productionConfig(1);
+  const binding = config.bootstrapBindings[0]!;
+  const inactiveRecord = { ...binding.record, active: false };
+  const table = memoryTable([[
+    "token:token-1",
+    {
+      schema: "authority-binding-state/v2",
+      tokenId: binding.tokenId,
+      tokenDigest: Buffer.from(binding.tokenDigest).toString("base64url"),
+      maxOperations: 1,
+      consumedOperations: 0,
+      consumedOperationIds: [],
+      record: inactiveRecord
+    }
+  ]]);
+  assert.throws(() => registerAuthorityBindingRow(table, {
+    tokenId: binding.tokenId,
+    tokenDigest: binding.tokenDigest,
+    maxOperations: 1,
+    record: binding.record
+  }), /AUTHORITY_BINDING_DURABLE_MISMATCH/u);
+  registerAuthorityBindingRow(table, {
+    tokenId: binding.tokenId,
+    tokenDigest: binding.tokenDigest,
+    maxOperations: 1,
+    record: binding.record
+  }, true);
+  assert.equal(
+    table.get<{ readonly record: ActorAxesBindingRecordV2 }>("token:token-1")?.record.active,
+    false
+  );
+  const runtime = createDurableAuthorityBindingRuntimeV2({
+    config: { ...config, bootstrapBindings: [] },
+    table,
+    proofKeys: emptyProofKeys
+  });
+  const input = {
+    tokenId: binding.tokenId,
+    maximum: 1,
+    opId: "namespace-1:recovery-op"
+  };
+  assert.equal(await runtime.consumeOperation(input), "denied");
+  assert.equal(await runtime.consumeRecoveryOperation!(input), "consumed");
 });
 
 const emptyProofKeys: ActorAxesProofKeyResolverV2 = {

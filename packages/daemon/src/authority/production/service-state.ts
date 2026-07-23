@@ -276,6 +276,23 @@ function validateStoredOperation(record: AuthorityStoredOperationRecord): void {
   requiredKey(record.workspaceId, "workspaceId");
   requiredKey(record.opId, "opId");
   requiredKey(record.semanticDigest, "semanticDigest");
+  if (record.recoveryPublicationPolicy !== undefined
+    && record.recoveryPublicationPolicy !== "EXACT_FIXED_OPERATION"
+    && record.recoveryPublicationPolicy !== "REVALIDATION_REQUIRED") {
+    throw new Error("AUTHORITY_STORED_OPERATION_RECOVERY_POLICY_INVALID");
+  }
+  if (record.canonicalOperation) {
+    requiredKey(record.canonicalOperation.opId, "canonical operation opId");
+    requiredKey(record.canonicalOperation.entityId, "canonical operation entityId");
+    requiredKey(record.canonicalOperation.kind, "canonical operation kind");
+    if (record.canonicalOperation.opId !== record.opId
+      || !record.authorityIntegrity
+      || record.authorityIntegrity.semanticRequestDigest !== record.semanticDigest
+      || stableStringify(record.canonicalOperation.authorityIntegrity)
+        !== stableStringify(record.authorityIntegrity)) {
+      throw new Error("AUTHORITY_STORED_OPERATION_FIXED_MATERIAL_MISMATCH");
+    }
+  }
 }
 
 function validateReplicaChange(record: ReplicaChangeRecord): void {

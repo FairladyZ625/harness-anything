@@ -140,7 +140,17 @@ export interface ActorAxesBindingRuntimeV2 {
   readonly consumeOperation: (
     input: ActorAxesBindingOperationConsumeInputV2
   ) => Promise<ActorAxesBindingOperationConsumeResultV2>;
+  /** Exact outer-PROCEEDING recovery only; new admission must never call this. */
+  readonly consumeRecoveryOperation?: (
+    input: ActorAxesBindingOperationConsumeInputV2
+  ) => Promise<ActorAxesBindingOperationConsumeResultV2>;
   readonly validateAdmissionTokenRef: (input: {
+    readonly bindingId: string;
+    readonly tokenId: string;
+    readonly tokenDigest: Uint8Array;
+  }) => Promise<boolean>;
+  /** Matches immutable registration even when the binding was later disabled. */
+  readonly validateRecoveryAdmissionTokenRef?: (input: {
     readonly bindingId: string;
     readonly tokenId: string;
     readonly tokenDigest: Uint8Array;
@@ -240,6 +250,25 @@ export async function consumeActorAxesBindingOperationV2(
   if (result === "denied") {
     throw new Error("TOKEN_OPERATION_LIMIT_EXCEEDED");
   }
+  if (result !== "consumed" && result !== "already-consumed-by-same-op") {
+    throw new Error("TOKEN_OPERATION_CONSUME_RESULT_INVALID");
+  }
+}
+
+export async function consumeRecoveredActorAxesBindingOperationV2(
+  verified: VerifiedActorAxesBindingV2,
+  opId: string,
+  runtime: ActorAxesBindingRuntimeV2
+): Promise<void> {
+  if (!runtime.consumeRecoveryOperation) {
+    throw new Error("TOKEN_OPERATION_RECOVERY_UNAVAILABLE");
+  }
+  const result = await runtime.consumeRecoveryOperation({
+    tokenId: verified.token.claims.tokenId,
+    maximum: verified.token.claims.maxOperations,
+    opId: nonBlank(opId, "opId")
+  });
+  if (result === "denied") throw new Error("TOKEN_OPERATION_LIMIT_EXCEEDED");
   if (result !== "consumed" && result !== "already-consumed-by-same-op") {
     throw new Error("TOKEN_OPERATION_CONSUME_RESULT_INVALID");
   }

@@ -21,6 +21,7 @@ import {
 import {
   encodeCanonicalCbor,
   semanticMutationWireV2,
+  stableStringify,
   type CanonicalCborValue,
   type RegistryEntityRefV2,
   type WriteAttribution,
@@ -35,6 +36,10 @@ import {
 } from "./authority-production-state.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
 import { executorDerivedFromPresetScript } from "./production-authority-script-ingest.ts";
+import {
+  decodeRepoWriteOutcomeV1,
+  type RepoWriteProceedingOutcomeV1
+} from "../../runtime/repo-write-outcome-schema.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
 type CanonicalCompileInput =
@@ -65,6 +70,12 @@ export interface ProductionAuthorityProgressAppendPlanV1
   readonly commandKind: "progress-append";
 }
 
+export interface ProductionAuthorityOuterRecoveryWitnessV1 {
+  readonly outerOpId: string;
+  readonly outerRequestDigest: string;
+  readonly outerGeneration: number;
+}
+
 export interface ProductionAuthorityAttemptPlanner {
   readonly planIntent: (
     command: ProductionAuthorityCommand,
@@ -76,6 +87,10 @@ export interface ProductionAuthorityAttemptPlanner {
   readonly activatePlan: (
     plan: ProductionAuthorityAttemptPlanV1
   ) => AuthorizedOperationAttemptV2;
+  readonly activateRecoveryPlan: (
+    plan: ProductionAuthorityAttemptPlanV1,
+    witness: ProductionAuthorityOuterRecoveryWitnessV1
+  ) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export function createProductionAuthorityAttemptPlanner(input: {
@@ -87,6 +102,14 @@ export function createProductionAuthorityAttemptPlanner(input: {
   readonly nowMs?: () => number;
   readonly randomUuid?: () => string;
   readonly random128?: () => Uint8Array;
+  /**
+   * Loads the exact fsynced PROCEEDING row and invokes the consumer while the
+   * current daemon generation fence remains held.
+   */
+  readonly runAuthorizedRecoveryPlan?: <Result>(
+    witness: ProductionAuthorityOuterRecoveryWitnessV1,
+    useDurableProceeding: (outcome: RepoWriteProceedingOutcomeV1) => Result
+  ) => Promise<Result>;
 }): ProductionAuthorityAttemptPlanner {
   const nowMs = input.nowMs ?? Date.now;
   const newUuid = input.randomUuid ?? randomUUID;
@@ -237,8 +260,57 @@ export function createProductionAuthorityAttemptPlanner(input: {
         attribution: attribution.writeAttribution
       };
     },
-    activatePlan: (plan) => activatePlannedAttempt(input, plan)
+    activatePlan: (plan) => activatePlannedAttempt(input, plan, false),
+    activateRecoveryPlan: async (plan, witness) => {
+      if (!input.runAuthorizedRecoveryPlan) {
+        throw new Error("AUTHORITY_ATTEMPT_RECOVERY_AUTHORIZATION_UNAVAILABLE");
+      }
+      if (!boundedText(witness.outerOpId, 512)
+        || !/^[a-f0-9]{64}$/u.test(witness.outerRequestDigest)
+        || !Number.isSafeInteger(witness.outerGeneration)
+        || witness.outerGeneration < 1) {
+        throw new Error("AUTHORITY_ATTEMPT_OUTER_RECOVERY_WITNESS_INVALID");
+      }
+      return input.runAuthorizedRecoveryPlan(
+        witness,
+        (candidate) => {
+          assertRecoveryOutcomeBindsPlan(input.config, plan, witness, candidate);
+          return activatePlannedAttempt(input, plan, true);
+        }
+      );
+    }
   };
+}
+
+function assertRecoveryOutcomeBindsPlan(
+  config: AuthorityProductionRepoConfigV1,
+  plan: ProductionAuthorityAttemptPlanV1,
+  witness: ProductionAuthorityOuterRecoveryWitnessV1,
+  candidate: RepoWriteProceedingOutcomeV1
+): void {
+  const outcome = decodeRepoWriteOutcomeV1(candidate);
+  if (outcome.phase !== "PROCEEDING") {
+    throw new Error("AUTHORITY_ATTEMPT_RECOVERY_PROCEEDING_REQUIRED");
+  }
+  if (outcome.repoId !== config.repoId
+    || outcome.workspaceId !== config.workspaceId
+    || outcome.generation !== config.authorityGeneration
+    || witness.outerOpId !== outcome.outerOpId
+    || witness.outerRequestDigest !== outcome.requestDigest
+    || witness.outerGeneration !== outcome.generation) {
+    throw new Error("AUTHORITY_ATTEMPT_RECOVERY_OUTER_BINDING_MISMATCH");
+  }
+  if (outcome.innerOpId !== plan.innerOpId
+    || outcome.authoritySemanticDigest !== plan.semanticDigest
+    || stableStringify(outcome.recoveryContext) !== stableStringify(plan)) {
+    throw new Error("AUTHORITY_ATTEMPT_RECOVERY_PLAN_BINDING_MISMATCH");
+  }
+  const authenticatedActor = outcome.authenticatedContext.actor as Record<string, unknown>;
+  if (plan.attribution.actor.principal.personId !== authenticatedActor.personId
+    || plan.attribution.principalSource.kind !== "daemon-authenticated"
+    || plan.attribution.principalSource.providerId !== authenticatedActor.providerId) {
+    throw new Error("AUTHORITY_ATTEMPT_RECOVERY_ACTOR_BINDING_MISMATCH");
+  }
 }
 
 export function attemptFromProgressAppendPlan(
@@ -252,7 +324,8 @@ export function attemptFromProgressAppendPlan(
 
 function activatePlannedAttempt(
   input: Parameters<typeof createProductionAuthorityAttemptPlanner>[0],
-  plan: ProductionAuthorityAttemptPlanV1
+  plan: ProductionAuthorityAttemptPlanV1,
+  recovery: boolean
 ): AuthorizedOperationAttemptV2 {
   const attempt = attemptFromPlan(plan);
   const token = verifyActorAxesBindingV2(
@@ -278,14 +351,18 @@ function activatePlannedAttempt(
     || token.claims.deviceId !== input.config.deviceId
     || token.claims.viewId !== input.config.viewId
     || token.claims.authorityGeneration !== BigInt(input.config.authorityGeneration)
-    || !sameProtocolSchemaTupleV2(token.claims.schemaTuple, input.config.schemaTuple)
-    || !sameRevocationEpochs(token.claims.revocationEpochs, token.claims.executorAgentId === null
-      ? { ...input.config.revocationEpochs, executor: 0n }
-      : input.config.revocationEpochs)
-    || !Buffer.from(token.claims.channelNonceDigest).equals(
-      Buffer.from(input.context.channelBinding.digest)
-    )) {
+    || !sameProtocolSchemaTupleV2(token.claims.schemaTuple, input.config.schemaTuple)) {
     throw new Error("AUTHORITY_ATTEMPT_PLAN_TOKEN_CONFIG_MISMATCH");
+  }
+  if (!recovery && (!sameRevocationEpochs(
+    token.claims.revocationEpochs,
+    token.claims.executorAgentId === null
+      ? { ...input.config.revocationEpochs, executor: 0n }
+      : input.config.revocationEpochs
+  ) || !Buffer.from(token.claims.channelNonceDigest).equals(
+    Buffer.from(input.context.channelBinding.digest)
+  ))) {
+    throw new Error("AUTHORITY_ATTEMPT_PLAN_TOKEN_CURRENT_ADMISSION_MISMATCH");
   }
   if (token.claims.notBefore !== token.claims.issuedAt
     || token.claims.expiresAt !== token.claims.issuedAt + 5n * 60_000n
@@ -313,7 +390,10 @@ function activatePlannedAttempt(
     || token.claims.executorAgentId !== (plan.attribution.actor.executor?.id ?? null)) {
     throw new Error("AUTHORITY_ATTEMPT_PLAN_ATTRIBUTION_MISMATCH");
   }
-  input.bindingRuntime.registerIssuedToken({
+  const register = recovery
+    ? input.bindingRuntime.registerRecoveryIssuedToken
+    : input.bindingRuntime.registerIssuedToken;
+  register({
     claims: token.claims,
     token: attempt.presentationToken,
     attribution: plan.attribution
@@ -363,6 +443,11 @@ function sameRevocationEpochs(
     && left.view === right.view
     && left.principal === right.principal
     && left.executor === right.executor;
+}
+
+function boundedText(value: string, maximum: number): boolean {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum
+    && value.trim() === value && !value.includes("\0");
 }
 
 function resourceScopeWire(scope: {

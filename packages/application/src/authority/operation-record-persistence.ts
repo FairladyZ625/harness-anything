@@ -1,10 +1,11 @@
-import type { AuthorityOperationIntegrity } from "@harness-anything/kernel";
+import type { AuthorityOperationIntegrity, WriteOp } from "@harness-anything/kernel";
 import type {
   AuthorityOperationEnvelope,
   AuthorityGenerationFence,
   AuthorityOperationReceipt,
   AuthorityOperationRegistry,
   AuthorityOperationState,
+  AuthorityRecoveryPublicationPolicyV1,
   RecordedAuthorityProtocol
 } from "./types.ts";
 
@@ -19,7 +20,9 @@ export type PersistAuthorityTerminal = (
   state: Extract<AuthorityOperationState, "COMMITTED" | "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
   receipt: AuthorityOperationReceipt,
   authorityIntegrity?: AuthorityOperationIntegrity,
-  canonicalRequestEnvelope?: string
+  canonicalRequestEnvelope?: string,
+  canonicalOperation?: WriteOp,
+  recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
 ) => Promise<AuthorityOperationReceipt>;
 
 export function createAuthorityOperationRecordPersistence(
@@ -33,7 +36,9 @@ export function createAuthorityOperationRecordPersistence(
     receipt?: AuthorityOperationReceipt,
     commitSha?: string,
     authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string
+    canonicalRequestEnvelope?: string,
+    canonicalOperation?: WriteOp,
+    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
   ) => Promise<void>;
   readonly persistTerminal: PersistAuthorityTerminal;
 } {
@@ -44,7 +49,9 @@ export function createAuthorityOperationRecordPersistence(
     receipt?: AuthorityOperationReceipt,
     commitSha?: string,
     authorityIntegrity?: AuthorityOperationIntegrity,
-    canonicalRequestEnvelope?: string
+    canonicalRequestEnvelope?: string,
+    canonicalOperation?: WriteOp,
+    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
   ): Promise<void> => operationRegistry.put({
     workspaceId: envelope.workspaceId,
     opId: envelope.opId,
@@ -54,6 +61,8 @@ export function createAuthorityOperationRecordPersistence(
     ...(commitSha ? { commitSha } : {}),
     ...(authorityIntegrity ? { authorityIntegrity } : {}),
     ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {}),
+    ...(canonicalOperation ? { canonicalOperation } : {}),
+    ...(recoveryPublicationPolicy ? { recoveryPublicationPolicy } : {}),
     ...("recordedProtocol" in envelope && envelope.recordedProtocol
       ? { recordedProtocol: envelope.recordedProtocol }
       : "protocol" in envelope && envelope.protocol
@@ -62,9 +71,28 @@ export function createAuthorityOperationRecordPersistence(
   });
   return {
     put,
-    persistTerminal: async (envelope, digest, state, receipt, authorityIntegrity, canonicalRequestEnvelope) => {
+    persistTerminal: async (
+      envelope,
+      digest,
+      state,
+      receipt,
+      authorityIntegrity,
+      canonicalRequestEnvelope,
+      canonicalOperation,
+      recoveryPublicationPolicy
+    ) => {
       const persist = async () => {
-        await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined, authorityIntegrity, canonicalRequestEnvelope);
+        await put(
+          envelope,
+          digest,
+          state,
+          receipt,
+          "commitSha" in receipt ? receipt.commitSha : undefined,
+          authorityIntegrity,
+          canonicalRequestEnvelope,
+          canonicalOperation,
+          recoveryPublicationPolicy
+        );
         return receipt;
       };
       return generationFence

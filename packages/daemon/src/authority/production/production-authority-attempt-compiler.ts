@@ -39,12 +39,14 @@ import { productionScriptIngestAttemptIntent } from "./production-authority-scri
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
 import {
   createProductionAuthorityAttemptPlanner,
+  type ProductionAuthorityOuterRecoveryWitnessV1,
   type ProductionAuthorityProgressAppendPlanV1
 } from "./production-authority-attempt-plan.ts";
 export {
   attemptFromProgressAppendPlan,
   productionAuthorityAttemptPlanV1Schema,
   type ProductionAuthorityAttemptPlanV1,
+  type ProductionAuthorityOuterRecoveryWitnessV1,
   type ProductionAuthorityProgressAppendPlanV1
 } from "./production-authority-attempt-plan.ts";
 export { createProductionCanonicalSemanticState } from "./semantic-state.ts";
@@ -80,6 +82,10 @@ export interface ProductionCanonicalAttemptCompilerV2
   readonly activatePlannedProgressAppend: (
     plan: ProductionAuthorityProgressAppendPlanV1
   ) => AuthorizedOperationAttemptV2;
+  readonly activateRecoveryProgressAppend: (
+    plan: ProductionAuthorityProgressAppendPlanV1,
+    witness: ProductionAuthorityOuterRecoveryWitnessV1
+  ) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export function createProductionCanonicalAttemptCompiler(input: {
@@ -93,6 +99,12 @@ export function createProductionCanonicalAttemptCompiler(input: {
   readonly nowMs?: () => number;
   readonly randomUuid?: () => string;
   readonly random128?: () => Uint8Array;
+  readonly runAuthorizedRecoveryPlan?: <Result>(
+    witness: ProductionAuthorityOuterRecoveryWitnessV1,
+    useDurableProceeding: (
+      outcome: import("../../runtime/repo-write-outcome-schema.ts").RepoWriteProceedingOutcomeV1
+    ) => Result
+  ) => Promise<Result>;
 }): ProductionCanonicalAttemptCompilerV2 {
   const attemptPlanner = createProductionAuthorityAttemptPlanner(input);
   const compileIntent = async (
@@ -134,6 +146,12 @@ export function createProductionCanonicalAttemptCompiler(input: {
         throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${plan.commandKind}`);
       }
       return attemptPlanner.activatePlan(plan);
+    },
+    activateRecoveryProgressAppend: async (plan, witness) => {
+      if (plan.commandKind !== "progress-append") {
+        throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${plan.commandKind}`);
+      }
+      return attemptPlanner.activateRecoveryPlan(plan, witness);
     },
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
       const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);

@@ -28,6 +28,10 @@ import {
 import {
   createProductionAuthorityLifecycleFixture as createFixture
 } from "./helpers/production-authority-lifecycle-fixture.ts";
+import {
+  createRepoWriteProceedingOutcomeV1,
+  repoWriteActorStampDigestV1
+} from "../../daemon/src/runtime/repo-write-outcome-schema.ts";
 
 test("progress append planning is pure and activation validates exact durable recovery material", async () => {
   const fixture = createFixture();
@@ -114,6 +118,61 @@ test("progress append planning is pure and activation validates exact durable re
       decodeActorAxesBindingV2(exactAttempt.presentationToken).claims.tokenId,
       plan.tokenId
     );
+    const actorStamp = productionAuthorityActor();
+    const proceeding = createRepoWriteProceedingOutcomeV1({
+      repoId: config.repoId,
+      workspaceId: config.workspaceId,
+      generation: config.authorityGeneration,
+      outerOpId: "outer-progress-op",
+      innerOpId: plan.innerOpId,
+      authoritySemanticDigest: plan.semanticDigest,
+      canonicalCommand: {
+        commandName: "task.progress.append",
+        actor: actorStamp,
+        context: {},
+        payload: {}
+      },
+      authenticatedContext: { actor: actorStamp },
+      receiptSeed: {
+        schema: "repo-write-receipt-seed/v1",
+        renderer: "cli-command-receipt/v2@1",
+        generatedAt: "2026-07-23T00:00:00.000Z",
+        command: "task progress append",
+        action: "append",
+        actorStampDigest: repoWriteActorStampDigestV1(actorStamp)
+      },
+      recoveryContext: plan
+    });
+    const outerWitness = {
+      outerOpId: proceeding.outerOpId,
+      outerRequestDigest: proceeding.requestDigest,
+      outerGeneration: proceeding.generation
+    };
+    await assert.rejects(
+      compiler.activateRecoveryProgressAppend(plan, outerWitness),
+      /AUTHORITY_ATTEMPT_RECOVERY_AUTHORIZATION_UNAVAILABLE/u
+    );
+    assert.equal(JSON.stringify(state.bindingState.entries()), beforeEntries);
+    let staleActivationRan = false;
+    const staleCompiler = createProductionCanonicalAttemptCompiler({
+      config,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: productionAuthorityConnection(actor),
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async () => {
+        staleActivationRan = true;
+        throw new Error("DAEMON_GENERATION_FENCED");
+      }
+    });
+    await assert.rejects(
+      staleCompiler.activateRecoveryProgressAppend(plan, outerWitness),
+      /DAEMON_GENERATION_FENCED/u
+    );
+    assert.equal(staleActivationRan, true);
+    assert.equal(JSON.stringify(state.bindingState.entries()), beforeEntries);
 
     compiler.activatePlannedProgressAppend(plan);
     const afterFirstActivation = JSON.stringify(state.bindingState.entries());
@@ -128,6 +187,105 @@ test("progress append planning is pure and activation validates exact durable re
     const afterInnerConsume = JSON.stringify(state.bindingState.entries());
     compiler.activatePlannedProgressAppend(plan);
     assert.equal(JSON.stringify(state.bindingState.entries()), afterInnerConsume);
+    const [bindingKey, bindingRow] = state.bindingState.entries<Record<string, unknown>>()[0]!;
+    state.bindingState.put(bindingKey, {
+      ...bindingRow,
+      record: {
+        ...(bindingRow.record as Record<string, unknown>),
+        active: false
+      }
+    });
+    const recoveryConfig = {
+      ...config,
+      revocationEpochs: {
+        ...config.revocationEpochs,
+        workspace: config.revocationEpochs.workspace + 1n
+      }
+    };
+    const recoveryCompiler = createProductionCanonicalAttemptCompiler({
+      config: recoveryConfig,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: {
+        ...productionAuthorityConnection(actor),
+        channelBinding: {
+          digest: Buffer.alloc(32, 0x77),
+          source: "transport-observed"
+        }
+      },
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async (witness, useDurableProceeding) => {
+        assert.deepEqual(witness, outerWitness);
+        return useDurableProceeding(proceeding);
+      }
+    });
+    assert.throws(
+      () => recoveryCompiler.activatePlannedProgressAppend(plan),
+      /AUTHORITY_ATTEMPT_PLAN_TOKEN_CURRENT_ADMISSION_MISMATCH/u
+    );
+    await recoveryCompiler.activateRecoveryProgressAppend(plan, outerWitness);
+    assert.equal(
+      (state.bindingState.get<{ readonly record: { readonly active: boolean } }>(bindingKey))?.record.active,
+      false
+    );
+    const mismatchedProceeding = createRepoWriteProceedingOutcomeV1({
+      ...proceeding,
+      recoveryContext: { ...plan, semanticDigest: "0".repeat(64) }
+    });
+    const mismatchedRecoveryCompiler = createProductionCanonicalAttemptCompiler({
+      config: recoveryConfig,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: productionAuthorityConnection(actor),
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async (_witness, useDurableProceeding) =>
+        useDurableProceeding(mismatchedProceeding)
+    });
+    await assert.rejects(
+      mismatchedRecoveryCompiler.activateRecoveryProgressAppend(plan, outerWitness),
+      /AUTHORITY_ATTEMPT_RECOVERY_PLAN_BINDING_MISMATCH/u
+    );
+    const differentActor = { ...actorStamp, personId: "person_mallory" };
+    const actorMismatchedProceeding = createRepoWriteProceedingOutcomeV1({
+      repoId: config.repoId,
+      workspaceId: config.workspaceId,
+      generation: config.authorityGeneration,
+      outerOpId: proceeding.outerOpId,
+      innerOpId: plan.innerOpId,
+      authoritySemanticDigest: plan.semanticDigest,
+      canonicalCommand: {
+        ...proceeding.canonicalCommand,
+        actor: differentActor
+      },
+      authenticatedContext: { actor: differentActor },
+      receiptSeed: {
+        ...proceeding.receiptSeed,
+        actorStampDigest: repoWriteActorStampDigestV1(differentActor)
+      },
+      recoveryContext: plan
+    });
+    const actorMismatchedCompiler = createProductionCanonicalAttemptCompiler({
+      config: recoveryConfig,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: productionAuthorityConnection(actor),
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async (_witness, useDurableProceeding) =>
+        useDurableProceeding(actorMismatchedProceeding)
+    });
+    await assert.rejects(
+      actorMismatchedCompiler.activateRecoveryProgressAppend(plan, {
+        ...outerWitness,
+        outerRequestDigest: actorMismatchedProceeding.requestDigest
+      }),
+      /AUTHORITY_ATTEMPT_RECOVERY_ACTOR_BINDING_MISMATCH/u
+    );
 
     const secondPlan = await compiler.planProgressAppend(compileInput);
     const beforeTamper = JSON.stringify(state.bindingState.entries());

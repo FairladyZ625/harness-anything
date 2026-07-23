@@ -79,6 +79,11 @@ export interface DurableAuthorityBindingRuntimeV2 extends ActorAxesBindingRuntim
     readonly token: Uint8Array;
     readonly attribution: WriteAttribution;
   }) => void;
+  readonly registerRecoveryIssuedToken: (input: {
+    readonly claims: ActorAxesBindingClaimsV2;
+    readonly token: Uint8Array;
+    readonly attribution: WriteAttribution;
+  }) => void;
 }
 
 interface DurableNamespaceRowV1 {
@@ -176,8 +181,12 @@ export function createDurableAuthorityBindingRuntimeV2(input: {
     nowMs: () => BigInt(nowMs()),
     consumeOperation: async (consumeInput) =>
       consumeAuthorityBindingOperation(input.table, consumeInput),
+    consumeRecoveryOperation: async (consumeInput) =>
+      consumeAuthorityBindingOperation(input.table, consumeInput, true),
     validateAdmissionTokenRef: async (candidate) =>
       authorityBindingTokenMatches(input.table, candidate),
+    validateRecoveryAdmissionTokenRef: async (candidate) =>
+      authorityBindingTokenMatches(input.table, candidate, true),
     registerIssuedToken: ({ claims, token, attribution }) => {
       const record: ActorAxesBindingRecordV2 = {
         bindingId: claims.bindingId,
@@ -196,6 +205,25 @@ export function createDurableAuthorityBindingRuntimeV2(input: {
         maxOperations: claims.maxOperations,
         record
       });
+    },
+    registerRecoveryIssuedToken: ({ claims, token, attribution }) => {
+      const record: ActorAxesBindingRecordV2 = {
+        bindingId: claims.bindingId,
+        principalPersonId: claims.principalPersonId,
+        executorAgentId: claims.executorAgentId,
+        workspaceId: claims.workspaceId,
+        deviceId: claims.deviceId,
+        viewId: claims.viewId,
+        sessionId: claims.sessionId,
+        active: true,
+        attribution
+      };
+      registerAuthorityBindingRow(input.table, {
+        tokenId: claims.tokenId,
+        tokenDigest: actorAxesBindingTokenDigestV2(token),
+        maxOperations: claims.maxOperations,
+        record
+      }, true);
     }
   };
   return runtime;
@@ -213,31 +241,36 @@ export function createDurableOperationNamespaceVerifierV2(input: {
     throw new Error("AUTHORITY_OPERATION_NAMESPACE_DURABLE_MISMATCH");
   }
   if (!existing) input.table.put(namespaceKey(configured.namespaceId), configured);
+  const verifyConfigured = async (
+    operationId: OperationIdV2,
+    enforceExpiry: boolean
+  ): Promise<void> => {
+    const candidate = namespaceRow(operationId.namespace);
+    const durable = input.table.get<DurableNamespaceRowV1>(namespaceKey(candidate.namespaceId));
+    if (!durable || stableStringify(durable) !== stableStringify(candidate)
+      || stableStringify(candidate) !== stableStringify(configured)) {
+      throw new Error("OP_NAMESPACE_DURABLE_MISMATCH");
+    }
+    if (operationId.clientRandom128.byteLength !== 16
+      || (enforceExpiry && BigInt(input.nowMs?.() ?? Date.now()) > operationId.namespace.expiresAt)) {
+      throw new Error("OP_NAMESPACE_EXPIRED_OR_RANDOM_INVALID");
+    }
+    const key = input.proofKeys.resolve({
+      algorithm: "Ed25519",
+      issuer: candidate.issuer,
+      keyId: candidate.keyId
+    });
+    if (!key || key.algorithm !== "Ed25519" || !verify(
+      null,
+      namespaceProofBytes(operationId.namespace),
+      key.publicKey,
+      operationId.namespace.proof
+    )) throw new Error("OP_NAMESPACE_PROOF_INVALID");
+  };
   return {
     ...authorityDurableAdapterMarker,
-    verify: async (operationId) => {
-      const candidate = namespaceRow(operationId.namespace);
-      const durable = input.table.get<DurableNamespaceRowV1>(namespaceKey(candidate.namespaceId));
-      if (!durable || stableStringify(durable) !== stableStringify(candidate)
-        || stableStringify(candidate) !== stableStringify(configured)) {
-        throw new Error("OP_NAMESPACE_DURABLE_MISMATCH");
-      }
-      if (operationId.clientRandom128.byteLength !== 16
-        || BigInt(input.nowMs?.() ?? Date.now()) > operationId.namespace.expiresAt) {
-        throw new Error("OP_NAMESPACE_EXPIRED_OR_RANDOM_INVALID");
-      }
-      const key = input.proofKeys.resolve({
-        algorithm: "Ed25519",
-        issuer: candidate.issuer,
-        keyId: candidate.keyId
-      });
-      if (!key || key.algorithm !== "Ed25519" || !verify(
-        null,
-        namespaceProofBytes(operationId.namespace),
-        key.publicKey,
-        operationId.namespace.proof
-      )) throw new Error("OP_NAMESPACE_PROOF_INVALID");
-    }
+    verify: (operationId) => verifyConfigured(operationId, true),
+    verifyRecovery: (operationId) => verifyConfigured(operationId, false)
   };
 }
 

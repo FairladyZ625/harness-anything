@@ -174,7 +174,18 @@ export type RecordedAuthorityProtocol =
 
 export interface AuthorityStoredOperationRecord extends AuthorityOperationRecord {
   readonly canonicalRequestEnvelope?: string;
+  /**
+   * The exact storage operation fixed before RECEIVED becomes durable.
+   * Recovery must replay this value and must not invoke semantic compilation
+   * again for a known RECEIVED or PREPARED operation.
+   */
+  readonly canonicalOperation?: WriteOp;
+  readonly recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1;
 }
+
+export type AuthorityRecoveryPublicationPolicyV1 =
+  | "EXACT_FIXED_OPERATION"
+  | "REVALIDATION_REQUIRED";
 
 export interface AuthorityOperationRegistry {
   readonly get: (workspaceId: string, opId: string) => Promise<AuthorityStoredOperationRecord | undefined>;
@@ -337,5 +348,23 @@ export interface AttributedCoordinatorFactory {
 export interface AuthoritySubmissionService {
   readonly submit: (envelope: AuthorityOperationEnvelope) => Promise<AuthorityOperationReceipt>;
   readonly submitV2?: (attempt: AuthorizedOperationAttemptV2) => Promise<AuthorityOperationReceipt>;
+  readonly resumeV2?: (recovery: AuthorityRecoveryAttemptV2) => Promise<AuthorityOperationReceipt>;
   readonly getOperation: (workspaceId: string, opId: string) => Promise<AuthorityOperationRecord | undefined>;
+}
+
+export interface AuthorityRecoveryAttemptV2 {
+  readonly schema: "authority-recovery-attempt/v1";
+  readonly attempt: AuthorizedOperationAttemptV2;
+  readonly witness: {
+    readonly outerOpId: string;
+    readonly outerRequestDigest: string;
+    readonly outerGeneration: number;
+    readonly requestId: string;
+    readonly workspaceId: string;
+    readonly opId: string;
+    readonly semanticDigest: string;
+    readonly admittedAtMs: string;
+    readonly canonicalRequestEnvelope: string;
+    readonly attribution: WriteAttribution;
+  };
 }

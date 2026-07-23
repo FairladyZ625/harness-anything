@@ -65,13 +65,14 @@ export function registerAuthorityBindingRow(
     readonly tokenDigest: Uint8Array;
     readonly maxOperations: number;
     readonly record: ActorAxesBindingRecordV2;
-  }
+  },
+  allowActiveMismatch = false
 ): void {
   ensureBindingRow(table, bindingRow({
     ...input,
     consumedOperations: 0,
     consumedOperationIds: []
-  }));
+  }), false, allowActiveMismatch);
 }
 
 export function authorityBindingRecord(
@@ -86,13 +87,15 @@ export function authorityBindingRecord(
 
 export function consumeAuthorityBindingOperation(
   table: DurableAuthorityStateTable,
-  input: ActorAxesBindingOperationConsumeInputV2
+  input: ActorAxesBindingOperationConsumeInputV2,
+  allowInactive = false
 ): ActorAxesBindingOperationConsumeResultV2 {
   const { tokenId, maximum, opId } = input;
   if (!isRequiredText(tokenId) || !isRequiredText(opId)
     || !Number.isSafeInteger(maximum) || maximum < 1) return "denied";
   const row = table.get<unknown>(bindingKey(tokenId));
-  if (!validBindingRow(row) || maximum !== row.maxOperations || !row.record.active) {
+  if (!validBindingRow(row) || maximum !== row.maxOperations
+    || (!allowInactive && !row.record.active)) {
     return "denied";
   }
   if (row.consumedOperationIds.includes(opId)) return "already-consumed-by-same-op";
@@ -111,10 +114,11 @@ export function authorityBindingTokenMatches(
     readonly bindingId: string;
     readonly tokenId: string;
     readonly tokenDigest: Uint8Array;
-  }
+  },
+  allowInactive = false
 ): boolean {
   const row = table.get<unknown>(bindingKey(input.tokenId));
-  return validBindingRow(row) && row.record.active
+  return validBindingRow(row) && (allowInactive || row.record.active)
     && row.record.bindingId === input.bindingId
     && row.tokenDigest === Buffer.from(input.tokenDigest).toString("base64url");
 }
@@ -143,13 +147,14 @@ function bindingRow(
 function ensureBindingRow(
   table: DurableAuthorityStateTable,
   row: DurableBindingRowV2,
-  replace = false
+  replace = false,
+  allowActiveMismatch = false
 ): void {
   const key = bindingKey(row.tokenId);
   const existing = table.get<unknown>(key);
   if (existing && !replace) {
     if ((validBindingRow(existing) || validLegacyBindingRow(existing))
-      && sameBindingRegistration(existing, row)) return;
+      && sameBindingRegistration(existing, row, allowActiveMismatch)) return;
     throw new Error("AUTHORITY_BINDING_DURABLE_MISMATCH");
   }
   if (!existing || replace) table.put(key, row);
@@ -184,12 +189,21 @@ function validLegacyBindingRow(value: unknown): value is LegacyDurableBindingRow
 
 function sameBindingRegistration(
   left: DurableBindingRowV2 | LegacyDurableBindingRowV1,
-  right: DurableBindingRowV2
+  right: DurableBindingRowV2,
+  allowActiveMismatch: boolean
 ): boolean {
+  if (!allowActiveMismatch) {
+    return left.tokenId === right.tokenId
+      && left.tokenDigest === right.tokenDigest
+      && left.maxOperations === right.maxOperations
+      && stableStringify(left.record) === stableStringify(right.record);
+  }
+  const { active: _leftActive, ...leftRecord } = left.record;
+  const { active: _rightActive, ...rightRecord } = right.record;
   return left.tokenId === right.tokenId
     && left.tokenDigest === right.tokenDigest
     && left.maxOperations === right.maxOperations
-    && stableStringify(left.record) === stableStringify(right.record);
+    && stableStringify(leftRecord) === stableStringify(rightRecord);
 }
 
 function canonicalDigest32(value: unknown): value is string {
