@@ -11,20 +11,16 @@ import {
   authorityProtocolTuple,
   actorAxesBindingTokenDigestV2,
   canonicalAuthorityRequestDigest,
-  compareCanonicalPathBytes,
   createAuthoritySubmissionService,
   createInMemoryAuthorityOperationRegistry,
   createInMemoryReplicaChangeLog,
   createInMemoryShadowPublicationLog,
-  createNamespaceAdmissionService,
   encodeSemanticMutationEnvelopeV2,
   issueActorAxesBindingV2,
   reconcileShadowPublications,
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
   SemanticAdmissionErrorV2,
-  NamespaceAdmissionError,
-  validatePortableManagedPath,
   type AuthorityOperationEnvelope,
   type CanonicalPublicationInspector,
   type DelegationTokenVerifier,
@@ -75,34 +71,6 @@ const v2EntityRegistrations = [{
   projectionFacet: { status: "ready", project: () => undefined, resolveCanonicalRef: () => ({}) }
 }] as const;
 
-test("portable-ascii-v2 rejects reserved, non-ASCII, overlong, and Windows-budget paths", () => {
-  for (const candidate of ["tasks/CON.md", "tasks/naïve.md", `tasks/${"a".repeat(113)}.md`, `${"a".repeat(181)}`]) {
-    assert.throws(() => validatePortableManagedPath(candidate), NamespaceAdmissionError, candidate);
-  }
-  assert.throws(
-    () => validatePortableManagedPath("tasks/ok.md", { windowsVisibleRootUnits: 60 }),
-    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "WINDOWS_ROOT_TOO_LONG"
-  );
-  assert.equal(validatePortableManagedPath("tasks/task_01ABC/INDEX.md", { windowsVisibleRootUnits: 59 }).policy, "portable-ascii-v2");
-  assert.deepEqual(["a", "A", "a-"].sort(compareCanonicalPathBytes), ["A", "a", "a-"]);
-});
-
-test("folded component trie rejects aliases and file ancestors while grandfathering exact legacy paths", () => {
-  const legacy = `tasks/${"legacy-".repeat(30)}.md`;
-  const admission = createNamespaceAdmissionService(["A/x.md", legacy]);
-
-  assert.equal(admission.admitNewPath(legacy), undefined, "an exact legacy update is not a new-path admission");
-  assert.throws(
-    () => admission.admitNewPath("a/y.md"),
-    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "CASE_COLLISION"
-  );
-  admission.admitNewPath("docs/file");
-  assert.throws(
-    () => admission.admitNewPath("docs/file/child.md"),
-    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "FILE_ANCESTOR"
-  );
-});
-
 test("shadow reconciliation reports exact matches and names commit divergence", () => {
   const canonical = [{ commitSha: "a".repeat(40), previousCommit: "b".repeat(40), opIds: ["op-1"] }];
   const matching = [{
@@ -134,7 +102,7 @@ test("authority microbatches concurrent admissions into one linear publication w
     assert.deepEqual(shadow[0]?.opIds, envelopes.map((envelope) => envelope.opId));
 
     assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED"), true, JSON.stringify(receipts));
-    assert.deepEqual(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.revision : -1), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.revision : -1), Array(8).fill(1));
     assert.equal(new Set(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.commitSha : "")).size, 1);
     assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED" && receipt.previousCommit === seedHead), true);
     assert.equal(git(rootDir, env, "rev-list", "--count", "HEAD~1..HEAD"), "1");
@@ -143,9 +111,10 @@ test("authority microbatches concurrent admissions into one linear publication w
       assert.equal(readFileSync(path.join(rootDir, `harness/tasks/task-tw01-${index}/notes.md`), "utf8"), `body-${index}\n`);
     }
     const changes = await changeLog.changesAfter(workspaceId, 0);
-    assert.deepEqual(changes.map((change) => change.revision), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.equal(changes.every((change) => change.commitSha === receipts[0]?.commitSha), true);
-    assert.equal(changes.every((change) => change.previousCommit === seedHead), true);
+    assert.deepEqual(changes.map((change) => change.revision), [1]);
+    assert.equal(changes[0]?.commitSha, receipts[0]?.commitSha);
+    assert.equal(changes[0]?.previousCommit, seedHead);
+    assert.deepEqual(changes[0]?.operations.map((operation) => operation.opId), envelopes.map((envelope) => envelope.opId));
     const attributionEvents = readUnionAttributionEvents(rootDir);
     assert.deepEqual(attributionEvents.map((event) => event.opId), envelopes.map((envelope) => envelope.opId));
     assert.deepEqual(

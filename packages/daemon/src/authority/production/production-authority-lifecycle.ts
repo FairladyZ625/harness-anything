@@ -155,7 +155,9 @@ export function createProductionAuthorityLifecycle(input: {
       }).authoredRoot;
       const replicationContent = createAuthorityReplicationContentStore({
         gitRoot: authoredRoot,
-        state: state.replicationState
+        state: state.replicationState,
+        workspaceId: config.workspaceId,
+        epoch: String(config.authorityGeneration)
       });
       const replicaChangeLog = createContentEnrichedReplicaChangeLog(
         state.replicaChangeLog,
@@ -182,7 +184,7 @@ export function createProductionAuthorityLifecycle(input: {
             const expectedOpIds = changes
               .filter((change) => change.commitSha === request.commitSha)
               .sort((left, right) => left.revision - right.revision)
-              .map((change) => change.opId);
+              .flatMap((change) => change.operations.map((operation) => operation.opId));
             if (!expectedOpIds.includes(request.opId)) {
               throw new Error(`AUTHORITY_PRODUCTION_PUBLICATION_OPERATION_MISSING:opId=${request.opId};commitSha=${request.commitSha}`);
             }
@@ -456,7 +458,9 @@ function createRepoComponent(
             readDownService
           });
           sessions.add(session);
-          readable.once("close", () => sessions.delete(session));
+          readable.once("close", () => {
+            void session.close().finally(() => sessions.delete(session));
+          });
           return session;
         }
       };

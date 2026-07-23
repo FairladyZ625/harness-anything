@@ -70,6 +70,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   let negotiatedV2 = false;
   let queueDepth = 0;
   let closed = false;
+  let closePromise: Promise<void> | undefined;
   let queue = Promise.resolve();
   let unsubscribe: (() => void) | undefined;
   let subscribedAfterRevision: number | undefined;
@@ -83,19 +84,32 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   options.input.on("end", () => {
     const batch = reader.flush();
     if (batch.error) closeWithError("INVALID_FRAME", batch.error.message);
+    else void closeAuthoritySession();
   });
-  options.input.on("error", (error: Error) => closeWithError("INPUT_ERROR", error.message));
+  options.input.on("close", () => void closeAuthoritySession());
+  options.input.on("error", (error: Error) => {
+    closeWithError("INPUT_ERROR", error.message);
+    void closeAuthoritySession();
+  });
 
   return {
-    close: async () => {
-      closed = true;
-      unsubscribe?.();
-      await queue;
-      options.input.destroy();
-      options.output.end();
-      options.observer?.observe({ kind: "closed", connectionGeneration: generation, queueDepth });
-    }
+    close: closeAuthoritySession
   };
+
+  function closeAuthoritySession(): Promise<void> {
+    if (closePromise) return closePromise;
+    closed = true;
+    unsubscribe?.();
+    unsubscribe = undefined;
+    pendingHints.length = 0;
+    closePromise = (async () => {
+      await queue;
+      if (!options.input.destroyed) options.input.destroy();
+      if (!options.output.destroyed) options.output.end();
+      options.observer?.observe({ kind: "closed", connectionGeneration: generation, queueDepth });
+    })();
+    return closePromise;
+  }
 
   function enqueue(value: unknown): void {
     if (closed) return;
@@ -112,6 +126,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   }
 
   async function handle(value: unknown): Promise<void> {
+    if (closed) return;
     if (!isAuthorityRequestFrame(value)) {
       write(response("invalid", generation, false, undefined, "INVALID_REQUEST", "Invalid authority request frame."));
       return;
@@ -143,7 +158,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
         capabilities: [
           "single-writer",
           "op-id-dedupe",
-          "replica-change/v1",
+          "replica-change/v2",
           ...(options.readDownService ? [
             "begin-snapshot-and-subscribe/v1",
             "authority-snapshot-manifest/v1",
@@ -300,8 +315,12 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   }
 
   async function streamClose(code: "BACKPRESSURE" | "UPGRADE_REQUIRED" | "SERVER_SHUTDOWN", message: string): Promise<void> {
+    if (closed) return;
+    closed = true;
+    unsubscribe?.();
+    unsubscribe = undefined;
     const latest = await options.replicaChangeLog.latest(options.workspaceId);
-    write({
+    writeRaw({
       type: authorityWireFrameType,
       kind: "stream_closed",
       connectionGeneration: generation,
@@ -309,25 +328,30 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
       lastDurableRevision: latest?.revision ?? 0,
       message
     });
-    unsubscribe?.();
-    closed = true;
     options.output.end();
   }
 
   function closeWithError(code: string, message: string): void {
     if (closed) return;
     unsubscribe?.();
-    write(response("transport", generation, false, undefined, code, message));
+    unsubscribe = undefined;
+    writeRaw(response("transport", generation, false, undefined, code, message));
     closed = true;
     options.output.end();
   }
 
-  function write(frame: AuthorityServerFrame): void {
-    if (!closed) options.output.write(encodeLengthPrefixedFrame(frame, maxFrameBytes));
+  function write(frame: AuthorityServerFrame): boolean {
+    return !closed && writeRaw(frame);
+  }
+
+  function writeRaw(frame: AuthorityServerFrame): boolean {
+    if (options.output.destroyed || options.output.writableEnded) return false;
+    return options.output.write(encodeLengthPrefixedFrame(frame, maxFrameBytes));
   }
 
   function writeReplicaHint(change: import("@harness-anything/application").ReplicaChangeRecord): void {
-    write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+    const accepted = write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+    if (!accepted) void streamClose("BACKPRESSURE", "authority replica hint output exceeded its configured bound");
   }
 
   async function handleReadDown(

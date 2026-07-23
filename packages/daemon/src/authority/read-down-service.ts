@@ -8,6 +8,7 @@ import type {
   Sha256Digest
 } from "./protocol.ts";
 import {
+  digestSet,
   manifestDigest,
   type AuthorityReplicationContentStore
 } from "./replication-content-store.ts";
@@ -45,8 +46,8 @@ export function createAuthorityReadDownService(input: {
       if (latest && latest.commitSha !== commitSha) {
         throw new Error(`RESYNC_REQUIRED:CHANGE_LOG_HEAD_MISMATCH:${latest.commitSha}:${commitSha}`);
       }
-      const snapshot = input.content.snapshot(commitSha);
       const revision = latest?.revision ?? 0;
+      const snapshot = input.content.snapshot(commitSha, revision);
       const cut = {
         workspaceId: input.workspaceId,
         epoch: input.epoch,
@@ -78,25 +79,41 @@ export function createAuthorityReadDownService(input: {
       return reservation;
     }),
     getManifest: async (streamToken, requestedDigest) => {
-      const lease = readLiveLease(input.state, streamToken, now);
-      const actualDigest = manifestDigest(lease.manifest.entries);
+      const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
+      const actualDigest = manifestDigest(lease.manifest.cut, lease.manifest.entries);
       if (requestedDigest !== lease.reservation.cut.manifestDigest || actualDigest !== requestedDigest) {
         throw new Error(`MANIFEST_DIGEST_MISMATCH:${requestedDigest}:${actualDigest}`);
       }
       return structuredClone(lease.manifest);
     },
     getBlob: async (streamToken, digest) => {
-      readLiveLease(input.state, streamToken, now);
+      const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
+      const authorized = new Set(lease.manifest.entries.map((entry) => entry.blobDigest));
+      for (const change of await changesAfterPinnedCut(input.replicaChangeLog, input.workspaceId, lease)) {
+        for (const pathChange of change.paths) {
+          if (!pathChange.tombstone && pathChange.blobDigest) authorized.add(pathChange.blobDigest);
+        }
+      }
+      if (!authorized.has(digest)) throw new Error(`RESYNC_REQUIRED:BLOB_NOT_AUTHORIZED:${digest}`);
       return {
         schema: "authority-blob/v1",
         digest,
+        encoding: "base64",
         bytes: Buffer.from(input.content.blob(digest)).toString("base64")
       };
     },
     changesAfter: async (streamToken, sinceRevision): Promise<AuthorityChangesAfterResult> => {
-      const lease = readLiveLease(input.state, streamToken, now);
+      const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
       if (sinceRevision < lease.reservation.cut.revision) {
         throw new Error(`RESYNC_REQUIRED:CURSOR_PRECEDES_PINNED_CUT:${sinceRevision}`);
+      }
+      const latest = await input.replicaChangeLog.latest(input.workspaceId);
+      const latestRevision = latest?.revision ?? 0;
+      if (latestRevision < lease.reservation.cut.revision) {
+        throw new Error(`RESYNC_REQUIRED:CHANGE_LOG_BEHIND_PINNED_CUT:${latestRevision}`);
+      }
+      if (sinceRevision > latestRevision) {
+        throw new Error(`RESYNC_REQUIRED:CURSOR_AHEAD_OF_AUTHORITY:${sinceRevision}:${latestRevision}`);
       }
       const changes = await input.replicaChangeLog.changesAfter(input.workspaceId, sinceRevision);
       let expected = sinceRevision + 1;
@@ -123,7 +140,9 @@ function writeLease(state: DurableAuthorityStateTable, lease: DurableSnapshotLea
 function readLiveLease(
   state: DurableAuthorityStateTable,
   streamToken: string,
-  now: () => Date
+  now: () => Date,
+  workspaceId: string,
+  epoch: string
 ): DurableSnapshotLease {
   const lease = state.get<DurableSnapshotLease>(leaseStateKey(streamToken));
   if (!lease) throw new Error("RESYNC_REQUIRED:UNKNOWN_STREAM_TOKEN");
@@ -133,10 +152,51 @@ function readLiveLease(
     || lease.reservation.stream.streamToken !== streamToken) {
     throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_DAMAGED");
   }
-  if (Date.parse(lease.reservation.lease.expiresAt) <= now().getTime()) {
+  const { cut } = lease.reservation;
+  if (cut.workspaceId !== workspaceId || cut.epoch !== epoch) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_AUTHORITY_MISMATCH");
+  }
+  if (!sameCut(lease.manifest.cut, cut)) throw new Error("RESYNC_REQUIRED:SNAPSHOT_MANIFEST_CUT_MISMATCH");
+  const actualManifestDigest = manifestDigest(cut, lease.manifest.entries);
+  if (actualManifestDigest !== cut.manifestDigest
+    || provenanceDigest(cut.workspaceId, cut.epoch, cut.revision, cut.commitSha, cut.manifestDigest) !== cut.provenanceDigest) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_MANIFEST_AUTHENTICATION_FAILED");
+  }
+  if (digestSet(lease.manifest.entries.map((entry) => entry.blobDigest)) !== lease.reservation.lease.pinnedBlobSetDigest) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_PINNED_BLOB_SET_MISMATCH");
+  }
+  const expiresAt = lease.reservation.lease.expiresAt;
+  const expiry = typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(expiry) || new Date(expiry).toISOString() !== expiresAt) {
+    throw new Error("RESYNC_REQUIRED:SNAPSHOT_LEASE_EXPIRY_DAMAGED");
+  }
+  if (expiry <= now().getTime()) {
     throw new Error(`SNAPSHOT_EXPIRED:${lease.reservation.lease.leaseId}`);
   }
   return lease;
+}
+
+async function changesAfterPinnedCut(
+  log: ReplicaChangeLog,
+  workspaceId: string,
+  lease: DurableSnapshotLease
+): Promise<Awaited<ReturnType<ReplicaChangeLog["changesAfter"]>>> {
+  const changes = await log.changesAfter(workspaceId, lease.reservation.cut.revision);
+  let expected = lease.reservation.cut.revision + 1;
+  for (const change of changes) {
+    if (change.revision !== expected) throw new Error(`RESYNC_REQUIRED:CHANGE_GAP:${expected}:${change.revision}`);
+    expected += 1;
+  }
+  return changes;
+}
+
+function sameCut(left: AuthoritySnapshotManifest["cut"], right: AuthoritySnapshotReservation["cut"]): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.epoch === right.epoch
+    && left.revision === right.revision
+    && left.commitSha === right.commitSha
+    && left.manifestDigest === right.manifestDigest
+    && left.provenanceDigest === right.provenanceDigest;
 }
 
 function leaseStateKey(streamToken: string): string {

@@ -197,21 +197,34 @@ export interface ReplicaPathChange {
   readonly tombstone: boolean;
 }
 
-export interface ReplicaChangeRecord {
-  readonly schema: "replica-change/v1";
-  readonly workspaceId: string;
-  readonly revision: number;
+export interface ReplicaChangeOperation {
   readonly opId: string;
   readonly semanticDigest: string;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
+}
+
+export interface ReplicaChangeRecord {
+  readonly schema: "replica-change/v2";
+  readonly workspaceId: string;
+  readonly revision: number;
+  /** Compatibility alias for operations[0].opId. */
+  readonly opId: string;
+  /** Compatibility alias for operations[0].semanticDigest. */
+  readonly semanticDigest: string;
+  /** One ordered operation group for exactly one canonical publication. */
+  readonly operations: ReadonlyArray<ReplicaChangeOperation>;
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly changedAt: string;
   readonly manifest: ReplicaManifestReference;
   readonly paths: ReadonlyArray<ReplicaPathChange>;
+  /** Compatibility alias for operations[0].authorityIntegrity. */
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
 }
 
-export type ReplicaChangeDraft = Omit<ReplicaChangeRecord, "manifest" | "paths"> & {
+export type ReplicaChangeDraft = Omit<ReplicaChangeRecord, "schema" | "operations" | "manifest" | "paths"> & {
+  readonly schema: "replica-change/v1" | "replica-change/v2";
+  readonly operations?: ReadonlyArray<ReplicaChangeOperation>;
   readonly manifest?: ReplicaManifestReference;
   readonly paths?: ReadonlyArray<ReplicaPathChange>;
 };

@@ -35,11 +35,16 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
     assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity.canonicalMutationSet);
     const latest = await input.replicaChangeLog.latest(record.workspaceId);
     change = {
-      schema: "replica-change/v1",
+      schema: "replica-change/v2",
       workspaceId: record.workspaceId,
       revision: (latest?.revision ?? 0) + 1,
       opId: record.opId,
       semanticDigest: record.semanticDigest,
+      operations: [{
+        opId: record.opId,
+        semanticDigest: record.semanticDigest,
+        authorityIntegrity: record.authorityIntegrity
+      }],
       commitSha: record.commitSha,
       previousCommit: evidence.previousCommit,
       changedAt: new Date().toISOString(),
@@ -52,10 +57,11 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
     };
     await input.replicaChangeLog.append(change);
   }
+  const changeOperation = change?.operations.find((operation) => operation.opId === record.opId);
   if (!change || !record.authorityIntegrity || !record.commitSha
     || change.commitSha !== record.commitSha
-    || change.semanticDigest !== record.semanticDigest
-    || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity.semanticMutationSetDigest) {
+    || changeOperation?.semanticDigest !== record.semanticDigest
+    || changeOperation.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity.semanticMutationSetDigest) {
     throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
   }
   if (!record.canonicalRequestEnvelope) throw new Error("AUTHORITY_V2_RECOVERY_ENVELOPE_REQUIRED");

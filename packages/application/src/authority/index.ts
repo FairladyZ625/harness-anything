@@ -70,6 +70,7 @@ export type {
   AuthorityStreamReservation,
   ReplicaChangeDraft,
   ReplicaChangeListener,
+  ReplicaChangeOperation,
   ReplicaChangeLog,
   ReplicaChangeRecord,
   ReplicaFileMode,

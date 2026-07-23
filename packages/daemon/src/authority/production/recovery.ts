@@ -194,10 +194,11 @@ async function recoverPublishedRecord(
   }
   assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity!.canonicalMutationSet);
   const change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
+  const changeOperation = change?.operations.find((operation) => operation.opId === record.opId);
   if (change && (change.commitSha !== evidence.commitSha
     || change.previousCommit !== evidence.previousCommit
-    || change.semanticDigest !== record.semanticDigest
-    || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
+    || changeOperation?.semanticDigest !== record.semanticDigest
+    || changeOperation.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
     throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
   }
   if (!change) {

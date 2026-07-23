@@ -3,6 +3,10 @@ import type {
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "@harness-anything/application";
+import {
+  foldPortableComponent,
+  validatePortableManagedPath
+} from "@harness-anything/application";
 import type { AuthoritySnapshotManifestEntry } from "./protocol.ts";
 import type { DurableAuthorityStateTable } from "./production/service-state.ts";
 import { readAuthorityGitBytes } from "./production/publication-evidence.ts";
@@ -20,7 +24,7 @@ export interface AuthorityReplicaSnapshot {
 }
 
 export interface AuthorityReplicationContentStore {
-  readonly snapshot: (commitSha: string) => AuthorityReplicaSnapshot;
+  readonly snapshot: (commitSha: string, revision: number) => AuthorityReplicaSnapshot;
   readonly blob: (digest: Sha256Digest) => Uint8Array;
   readonly describeChange: (draft: ReplicaChangeDraft) => ReplicaChangeRecord;
 }
@@ -28,11 +32,13 @@ export interface AuthorityReplicationContentStore {
 export function createAuthorityReplicationContentStore(input: {
   readonly gitRoot: string;
   readonly state: DurableAuthorityStateTable;
+  readonly workspaceId: string;
+  readonly epoch: string;
 }): AuthorityReplicationContentStore {
-  const cache = new Map<string, AuthorityReplicaSnapshot>();
+  const cache = new Map<string, ReadonlyArray<AuthoritySnapshotManifestEntry>>();
 
   return {
-    snapshot: loadReplicaSnapshot,
+    snapshot: buildReplicaSnapshot,
     blob: (digest) => {
       validateBlobDigest(digest);
       const encoded = input.state.get<string>(blobStateKey(digest));
@@ -44,28 +50,44 @@ export function createAuthorityReplicationContentStore(input: {
       return bytes;
     },
     describeChange: (draft) => {
-      const current = loadReplicaSnapshot(draft.commitSha);
-      const previous = draft.previousCommit ? loadReplicaSnapshot(draft.previousCommit) : undefined;
+      const current = buildReplicaSnapshot(draft.commitSha, draft.revision);
+      const previous = draft.previousCommit ? loadReplicaEntries(draft.previousCommit) : undefined;
       return {
         ...draft,
+        schema: "replica-change/v2",
+        operations: draft.operations ?? [{
+          opId: draft.opId,
+          semanticDigest: draft.semanticDigest,
+          ...(draft.authorityIntegrity ? { authorityIntegrity: draft.authorityIntegrity } : {})
+        }],
         manifest: { digest: current.manifestDigest, entryCount: current.entries.length },
-        paths: diffSnapshots(previous?.entries ?? [], current.entries)
+        paths: diffSnapshots(previous ?? [], current.entries)
       };
     }
   };
 
-  function loadReplicaSnapshot(commitSha: string): AuthorityReplicaSnapshot {
-    const cached = cache.get(commitSha);
-    if (cached) return structuredClone(cached);
-    const entries = readGitEntries(input.gitRoot, commitSha, storeBlob);
+  function buildReplicaSnapshot(commitSha: string, revision: number): AuthorityReplicaSnapshot {
+    const entries = loadReplicaEntries(commitSha);
     const value: AuthorityReplicaSnapshot = {
       commitSha,
-      manifestDigest: manifestDigest(entries),
+      manifestDigest: manifestDigest({
+        workspaceId: input.workspaceId,
+        epoch: input.epoch,
+        revision,
+        commitSha
+      }, entries),
       pinnedBlobSetDigest: digestSet(entries.map((entry) => entry.blobDigest)),
       entries
     };
-    cache.set(commitSha, value);
     return structuredClone(value);
+  }
+
+  function loadReplicaEntries(commitSha: string): ReadonlyArray<AuthoritySnapshotManifestEntry> {
+    const cached = cache.get(commitSha);
+    if (cached) return structuredClone(cached);
+    const entries = readGitEntries(input.gitRoot, commitSha, storeBlob);
+    cache.set(commitSha, entries);
+    return structuredClone(entries);
   }
 
   function storeBlob(bytes: Uint8Array): Sha256Digest {
@@ -101,8 +123,15 @@ export function createContentEnrichedReplicaChangeLog(
   };
 }
 
-export function manifestDigest(entries: ReadonlyArray<AuthoritySnapshotManifestEntry>): Sha256Digest {
+export function manifestDigest(
+  cut: { readonly workspaceId: string; readonly epoch: string; readonly revision: number; readonly commitSha: string },
+  entries: ReadonlyArray<AuthoritySnapshotManifestEntry>
+): Sha256Digest {
   const hash = createHash("sha256").update("ha/authority-snapshot-manifest/v1\0", "utf8");
+  updateField(hash, Buffer.from(cut.workspaceId, "utf8"));
+  updateField(hash, Buffer.from(cut.epoch, "utf8"));
+  updateField(hash, Buffer.from(String(cut.revision), "ascii"));
+  updateField(hash, Buffer.from(cut.commitSha, "ascii"));
   for (const entry of [...entries].sort(compareEntries)) {
     updateField(hash, Buffer.from(entry.path, "utf8"));
     updateField(hash, Buffer.from(entry.mode, "ascii"));
@@ -138,17 +167,59 @@ function readGitEntries(
   persistBlob: (bytes: Uint8Array) => Sha256Digest
 ): ReadonlyArray<AuthoritySnapshotManifestEntry> {
   const listing = readAuthorityGitBytes(root, "ls-tree", "-r", "-z", "--full-tree", commitSha);
-  return Buffer.from(listing).toString("utf8").split("\0").filter(Boolean).map((row) => {
-    const match = /^(100644|100755|120000) blob ([0-9a-f]+)\t(.+)$/u.exec(row);
-    if (!match) throw new Error(`RESYNC_REQUIRED:UNSUPPORTED_GIT_TREE_ENTRY:${row.slice(0, 80)}`);
+  const entries = splitNul(listing).map((row) => {
+    const separator = row.indexOf(0x09);
+    const metadata = separator >= 0 ? row.subarray(0, separator).toString("ascii") : "";
+    const match = /^(100644|100755|120000) blob ([0-9a-f]+)$/u.exec(metadata);
+    if (!match || separator < 0) throw new Error(`RESYNC_REQUIRED:UNSUPPORTED_GIT_TREE_ENTRY:${metadata.slice(0, 80)}`);
+    const pathBytes = row.subarray(separator + 1);
+    const pathName = decodePortableGitPath(pathBytes);
     const bytes = readAuthorityGitBytes(root, "cat-file", "blob", match[2]!);
     return {
-      path: match[3]!,
+      path: pathName,
       blobDigest: persistBlob(bytes),
       mode: match[1] as ReplicaFileMode,
       tombstone: false as const
     };
   }).sort(compareEntries);
+  const portableKeys = new Set<string>();
+  for (const entry of entries) {
+    const portableKey = entry.path.split("/").map(foldPortableComponent).join("/");
+    if (portableKeys.has(portableKey)) throw new Error(`RESYNC_REQUIRED:PORTABLE_PATH_COLLISION:${portableKey}`);
+    portableKeys.add(portableKey);
+  }
+  return entries;
+}
+
+function splitNul(value: Uint8Array): ReadonlyArray<Buffer> {
+  const bytes = Buffer.from(value);
+  const rows: Buffer[] = [];
+  let start = 0;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] !== 0) continue;
+    if (index > start) rows.push(bytes.subarray(start, index));
+    start = index + 1;
+  }
+  if (start !== bytes.length) throw new Error("RESYNC_REQUIRED:GIT_TREE_NOT_NUL_TERMINATED");
+  return rows;
+}
+
+function decodePortableGitPath(pathBytes: Uint8Array): string {
+  let pathName: string;
+  try {
+    pathName = new TextDecoder("utf-8", { fatal: true }).decode(pathBytes);
+  } catch {
+    throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_UTF8:${Buffer.from(pathBytes).toString("hex").slice(0, 80)}`);
+  }
+  if (!Buffer.from(pathName, "utf8").equals(Buffer.from(pathBytes))) {
+    throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_UTF8_ROUND_TRIP:${Buffer.from(pathBytes).toString("hex").slice(0, 80)}`);
+  }
+  try {
+    validatePortableManagedPath(pathName);
+  } catch {
+    throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_PORTABLE:${pathName}`);
+  }
+  return pathName;
 }
 
 function diffSnapshots(

@@ -95,10 +95,10 @@ export function openDurableAuthorityServiceState(input: {
       ensureOpen();
       const normalized = normalizeReplicaChange(record);
       validateReplicaChange(normalized);
-      const operationKey = compoundKey(record.workspaceId, record.opId);
       const known = [...replicaLog.values.values()].find((candidate) => {
         const row = candidate as ReplicaChangeRecord;
-        return compoundKey(row.workspaceId, row.opId) === operationKey;
+        return row.workspaceId === normalized.workspaceId
+          && row.operations.some((operation) => normalized.operations.some((incoming) => incoming.opId === operation.opId));
       }) as ReplicaChangeRecord | undefined;
       if (known) {
         if (stableStringify(known) !== stableStringify(normalized)) {
@@ -122,7 +122,7 @@ export function openDurableAuthorityServiceState(input: {
       ensureOpen();
       return [...replicaLog.values.values()].find((candidate) => {
         const row = candidate as ReplicaChangeRecord;
-        return row.workspaceId === workspaceId && row.opId === opId;
+        return row.workspaceId === workspaceId && row.operations.some((operation) => operation.opId === opId);
       }) as ReplicaChangeRecord | undefined;
     },
     changesAfter: async (workspaceId, revision) => {
@@ -235,8 +235,15 @@ function stateTable(
 }
 
 function normalizeReplicaChange(record: Parameters<ReplicaChangeLog["append"]>[0]): ReplicaChangeRecord {
+  const operations = record.operations ?? [{
+    opId: record.opId,
+    semanticDigest: record.semanticDigest,
+    ...(record.authorityIntegrity ? { authorityIntegrity: record.authorityIntegrity } : {})
+  }];
   return {
     ...record,
+    schema: "replica-change/v2",
+    operations,
     manifest: record.manifest ?? {
       digest: `sha256:${record.semanticDigest}`,
       entryCount: record.paths?.filter((entry) => !entry.tombstone).length ?? 0
@@ -258,10 +265,20 @@ function validateStoredOperation(record: AuthorityStoredOperationRecord): void {
 }
 
 function validateReplicaChange(record: ReplicaChangeRecord): void {
-  if (record.schema !== "replica-change/v1") throw new Error("AUTHORITY_REPLICA_CHANGE_SCHEMA_INVALID");
+  if (record.schema !== "replica-change/v2") throw new Error("AUTHORITY_REPLICA_CHANGE_SCHEMA_INVALID");
   requiredKey(record.workspaceId, "workspaceId");
   requiredKey(record.opId, "opId");
   if (!Number.isInteger(record.revision) || record.revision <= 0) throw new Error("AUTHORITY_REPLICA_CHANGE_REVISION_INVALID");
+  if (record.operations.length === 0
+    || record.operations[0]?.opId !== record.opId
+    || record.operations[0]?.semanticDigest !== record.semanticDigest
+    || new Set(record.operations.map((operation) => operation.opId)).size !== record.operations.length) {
+    throw new Error("AUTHORITY_REPLICA_CHANGE_OPERATION_GROUP_INVALID");
+  }
+  for (const operation of record.operations) {
+    requiredKey(operation.opId, "operation opId");
+    requiredKey(operation.semanticDigest, "operation semanticDigest");
+  }
 }
 
 function compoundKey(left: string, right: string): string {

@@ -111,6 +111,8 @@ export interface AuthorityChangesAfterFrame extends AuthorityWireFrameBase {
 export interface AuthorityBlobResult {
   readonly schema: "authority-blob/v1";
   readonly digest: Sha256Digest;
+  /** RFC 4648 canonical padded base64. */
+  readonly encoding: "base64";
   readonly bytes: string;
 }
 
