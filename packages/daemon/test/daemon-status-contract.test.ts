@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +13,25 @@ import {
   decodeDaemonStatusResultV2,
   projectDaemonStatusForRenderer
 } from "../src/index.ts";
+
+function measureArtifactContentHashBaseline(artifactRoot: string): number {
+  const started = process.hrtime.bigint();
+  const files: string[] = [];
+  const pending = [artifactRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(absolutePath);
+      else if (entry.isFile()) files.push(absolutePath);
+    }
+  }
+  files.sort((left, right) => Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")));
+  const digest = createHash("sha256");
+  for (const file of files) digest.update(readFileSync(file));
+  digest.digest();
+  return Number(process.hrtime.bigint() - started) / 1_000_000;
+}
 
 test("daemon artifact identity is deterministic over the adjudicated regular-file set", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-artifact-"));
@@ -65,7 +85,7 @@ test("source daemon artifact identity covers CLI build inputs and remains determ
   }
 });
 
-test("representative installed artifact identity is stable with a sub-50ms median calculation", (t) => {
+test("representative installed artifact identity has bounded relative overhead", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-installed-artifact-"));
   try {
     const dist = path.join(root, "dist");
@@ -82,16 +102,35 @@ test("representative installed artifact identity is stable with a sub-50ms media
       writeFileSync(modulePath, `export const artifact${index} = ${JSON.stringify("x".repeat(1_024))};\n`);
     }
 
-    const samples = Array.from({ length: 7 }, () => calculateDaemonArtifactIdentity(entrypoint));
+    calculateDaemonArtifactIdentity(entrypoint);
+    measureArtifactContentHashBaseline(dist);
+    // Alternate arm order so same-window runner or cache drift affects both sides of the paired median.
+    const pairs = Array.from({ length: 9 }, (_, index) => {
+      if (index % 2 === 0) {
+        const identity = calculateDaemonArtifactIdentity(entrypoint);
+        const baselineMs = measureArtifactContentHashBaseline(dist);
+        return { identity, baselineMs };
+      }
+      const baselineMs = measureArtifactContentHashBaseline(dist);
+      const identity = calculateDaemonArtifactIdentity(entrypoint);
+      return { identity, baselineMs };
+    });
+    const samples = pairs.map((pair) => pair.identity);
     assert.equal(new Set(samples.map((sample) => sample.identity)).size, 1);
     assert.equal(samples[0]!.artifactRoot, realpathSync(dist));
     assert.equal(samples[0]!.fileCount, 256);
-    // Median preserves the representative latency contract without making shared-runner tail noise decisive.
-    const elapsedMs = samples.map((sample) => sample.elapsedMs).sort((left, right) => left - right);
-    const median = elapsedMs[Math.floor(elapsedMs.length / 2)]!;
-    const slowest = elapsedMs.at(-1)!;
-    t.diagnostic(`artifact identity calculation median=${median.toFixed(2)}ms slowest=${slowest.toFixed(2)}ms`);
-    assert.equal(median < 50, true, `median artifact identity calculation took ${median.toFixed(2)}ms`);
+    const ratios = pairs
+      .map((pair) => pair.identity.elapsedMs / pair.baselineMs)
+      .sort((left, right) => left - right);
+    const medianRatio = ratios[Math.floor(ratios.length / 2)]!;
+    const slowestRatio = ratios.at(-1)!;
+    const maximumMedianRatio = 2;
+    t.diagnostic(`artifact identity relative overhead median=${medianRatio.toFixed(2)}x slowest=${slowestRatio.toFixed(2)}x`);
+    assert.equal(
+      medianRatio <= maximumMedianRatio,
+      true,
+      `median artifact identity relative overhead was ${medianRatio.toFixed(2)}x`
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
