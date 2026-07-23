@@ -90,6 +90,7 @@ export interface ProductionCanonicalAttemptCompilerV2
 
 export function createProductionCanonicalAttemptCompiler(input: {
   readonly config: AuthorityProductionRepoConfigV1;
+  readonly writerGeneration?: number;
   readonly keyStore: KeyMaterial["keyStore"];
   readonly keyRegistry: KeyMaterial["registry"];
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;

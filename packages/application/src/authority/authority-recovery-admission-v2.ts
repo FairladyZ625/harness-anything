@@ -26,6 +26,11 @@ export async function validateAuthorityRecoveryAttemptV2(input: {
 }> {
   const { recovery, options } = input;
   validateAuthorityRecoveryWitnessShape(recovery);
+  if (!options.recoveryScope
+    || recovery.witness.repoId !== options.recoveryScope.repoId
+    || recovery.witness.outerGeneration !== options.recoveryScope.writerGeneration) {
+    throw new Error("AUTHORITY_RECOVERY_OUTER_SCOPE_MISMATCH");
+  }
   const canonicalRequestEnvelope = Buffer.from(
     recovery.attempt.envelope
   ).toString("base64url");
@@ -52,7 +57,7 @@ export async function validateAuthorityRecoveryAttemptV2(input: {
     || admittedAt < token.claims.notBefore
     || admittedAt > token.claims.expiresAt
     || token.claims.workspaceId !== input.workspaceId
-    || token.claims.authorityGeneration !== BigInt(recovery.witness.outerGeneration)
+    || token.claims.authorityGeneration !== BigInt(recovery.witness.authorityGeneration)
     || token.claims.authorityGeneration !== options.bindingRuntime.currentAuthorityGeneration()
     || !sameProtocolSchemaTupleV2(token.claims.schemaTuple, options.schemaTuple)) {
     throw new Error("AUTHORITY_RECOVERY_ADMISSION_WITNESS_MISMATCH");
@@ -89,20 +94,24 @@ export function validateAuthorityRecoveryWitnessShape(
   recovery: AuthorityRecoveryAttemptV2
 ): void {
   if (!recovery || typeof recovery !== "object"
-    || !exactKeys(recovery, ["schema", "attempt", "witness"])
+    || !hasExactRecoveryKeys(recovery, ["schema", "attempt", "witness"])
     || recovery.schema !== "authority-recovery-attempt/v1"
     || !recovery.attempt || typeof recovery.attempt !== "object"
-    || !exactKeys(recovery.attempt, ["requestId", "presentationToken", "envelope"])
+    || !hasExactRecoveryKeys(recovery.attempt, ["requestId", "presentationToken", "envelope"])
     || !recovery.witness || typeof recovery.witness !== "object"
-    || !exactKeys(recovery.witness, [
-      "outerOpId", "outerRequestDigest", "outerGeneration", "requestId",
+    || !hasExactRecoveryKeys(recovery.witness, [
+      "repoId", "outerOpId", "outerRequestDigest", "outerGeneration",
+      "authorityGeneration", "requestId",
       "workspaceId", "opId", "semanticDigest", "admittedAtMs",
       "canonicalRequestEnvelope", "attribution"
     ])
+    || !boundedText(recovery.witness.repoId, 512)
     || !boundedText(recovery.witness.outerOpId, 512)
     || !hex64(recovery.witness.outerRequestDigest)
     || !Number.isSafeInteger(recovery.witness.outerGeneration)
     || recovery.witness.outerGeneration < 1
+    || !Number.isSafeInteger(recovery.witness.authorityGeneration)
+    || recovery.witness.authorityGeneration < 1
     || !boundedText(recovery.witness.requestId, 512)
     || !boundedText(recovery.witness.workspaceId, 512)
     || !boundedText(recovery.witness.opId, 1024)
@@ -133,7 +142,7 @@ function hex64(value: string): boolean {
   return /^[a-f0-9]{64}$/u.test(value);
 }
 
-function exactKeys(
+function hasExactRecoveryKeys(
   value: object,
   expected: ReadonlyArray<string>
 ): boolean {

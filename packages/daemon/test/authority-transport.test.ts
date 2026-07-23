@@ -9,6 +9,7 @@ import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import {
   authorityProtocolTuple,
+  authorityFixedOperationBindingMatchesV1,
   actorAxesBindingTokenDigestV2,
   canonicalAuthorityRequestDigest,
   createAuthoritySubmissionService,
@@ -207,6 +208,7 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
       v2: {
         schemaTuple: v2SchemaTuple,
         channelNonceDigest: nonce,
+        recoveryScope: { repoId: "repo-canonical", writerGeneration: 2 },
         bindingRuntime: {
           proofKeys: { resolve: () => ({ algorithm: "HMAC-SHA-256", secret }) },
           validatePresentationToken: async (input) => input.tokenId === claims.tokenId
@@ -287,6 +289,17 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
     assert.equal((await changeLog.changesAfter(workspaceId, 0)).every((change) => Boolean(change.authorityIntegrity)), true);
     const stored = await operationRegistry.get(workspaceId, receipts[0]!.opId);
     assert.equal(stored?.canonicalRequestEnvelope, Buffer.from(encodeSemanticMutationEnvelopeV2(envelopes[0]!)).toString("base64url"));
+    assert.ok(stored?.canonicalOperation && stored.fixedOperationBinding);
+    assert.equal(authorityFixedOperationBindingMatchesV1(stored.fixedOperationBinding, {
+      repoId: "repo-canonical",
+      workspaceId,
+      writerGeneration: 2,
+      authorityGeneration: Number(claims.authorityGeneration),
+      opId: stored.opId,
+      semanticDigest: stored.semanticDigest,
+      canonicalRequestEnvelope: stored.canonicalRequestEnvelope!,
+      operation: stored.canonicalOperation
+    }), true);
     assert.equal("canonicalRequestEnvelope" in (await service.getOperation(workspaceId, receipts[0]!.opId))!, false);
 
     const headAfterBatch = git(rootDir, env, "rev-parse", "HEAD");

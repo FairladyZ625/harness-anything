@@ -130,15 +130,15 @@ function bindingRow(
 ): DurableBindingRowV2 {
   return {
     schema: bindingStateSchema,
-    tokenId: requiredText(input.tokenId, "tokenId"),
+    tokenId: requiredBindingText(input.tokenId, "tokenId"),
     tokenDigest: digest32(input.tokenDigest, "tokenDigest"),
-    maxOperations: requiredPositiveInteger(input.maxOperations, "maxOperations"),
-    consumedOperations: nonNegativeInteger(
+    maxOperations: requiredBindingPositiveInteger(input.maxOperations, "maxOperations"),
+    consumedOperations: bindingNonNegativeInteger(
       input.consumedOperations,
       "consumedOperations"
     ),
     consumedOperationIds: input.consumedOperationIds.map(
-      (opId) => requiredText(opId, "consumedOperationIds")
+      (opId) => requiredBindingText(opId, "consumedOperationIds")
     ),
     record: input.record
   };
@@ -257,7 +257,7 @@ function validPrincipalSource(value: unknown): boolean {
 }
 
 function bindingKey(tokenId: string): string {
-  return `token:${requiredText(tokenId, "tokenId")}`;
+  return `token:${requiredBindingText(tokenId, "tokenId")}`;
 }
 
 function digest32(value: Uint8Array, name: string): string {
@@ -267,21 +267,21 @@ function digest32(value: Uint8Array, name: string): string {
   return Buffer.from(value).toString("base64url");
 }
 
-function requiredPositiveInteger(value: unknown, name: string): number {
+function requiredBindingPositiveInteger(value: unknown, name: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 1) {
     throw new Error(`AUTHORITY_PRODUCTION_FIELD_INVALID:${name}`);
   }
   return Number(value);
 }
 
-function nonNegativeInteger(value: unknown, name: string): number {
+function bindingNonNegativeInteger(value: unknown, name: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
     throw new Error(`AUTHORITY_PRODUCTION_FIELD_INVALID:${name}`);
   }
   return Number(value);
 }
 
-function requiredText(value: unknown, name: string): string {
+function requiredBindingText(value: unknown, name: string): string {
   if (!isRequiredText(value)) {
     throw new Error(`AUTHORITY_PRODUCTION_FIELD_INVALID:${name}`);
   }

@@ -18,11 +18,13 @@ export type {
 } from "./preset-uninstall-impact.ts";
 export { readModuleAttributionProjection } from "@harness-anything/kernel";
 export {
+  authorityFixedOperationBindingMatchesV1,
   authorityProtocolTuple,
   canonicalAuthorityRequestDigest,
   completeAuthorityCommittedReceiptV2,
   createDurableAuthorityCommittedEventPublisherV2,
   createAuthoritySubmissionService,
+  createAuthorityFixedOperationBindingV1,
   makeCompositeAuthoritySemanticCompilerV2,
   createInMemoryShadowPublicationLog,
   createInMemoryAuthorityOperationRegistry,
@@ -43,6 +45,7 @@ export type {
   AuthorityFenceWitness,
   AuthorityGenerationFence,
   AuthorityFenceStage,
+  AuthorityFixedOperationBindingV1,
   DaemonGenerationWriteRejectionV1,
   AuthorityIndeterminateReceipt,
   AuthorityIntegrityTupleV2,

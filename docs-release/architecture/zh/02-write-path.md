@@ -8,9 +8,11 @@
 
 ```text
 WriteCoordinator
-  enqueue(op)  -> WriteAck     把意图记进 journal
-  flush(reason)-> FlushReport  落盘、提交、盖水印
-  recover      -> RecoveryReport  重放任何做到一半的写入
+  enqueue(op)  -> WriteAck        记录意图；可返回精确 journal witness
+  flush(reason)-> FlushReport     应用本协调器 pending op、提交、盖水印
+  flushExactJournalRecord("recovery", witness)
+                -> FlushReport    只恢复 witness 指向的持久记录
+  recover       -> RecoveryReport 重放任何做到一半的写入
 ```
 
 调用方能做的每一件事都表达为一个 `WriteOp`:一个 `opId`、一个 `entityId`、一个 `kind` 和一份 payload。`kind` 取自一个封闭枚举——task 类(`package_create`、`transition_local`、`progress_append`、`doc_write`、`package_archive`、`package_delete_hard` 等)、decision 类(`decision_propose`、`decision_accept`、`decision_reject`、`decision_relate`、`decision_retire` 等)、fact 类(`fact_invalidate`),以及 module 类。这里根本没有"把这些字节写到那个路径"这种原语。一个操作只要不属于枚举内的某个 kind,就进不了系统。
@@ -31,6 +33,11 @@ WriteCoordinator
 具体的协调器是**带 journal** 的实现,位于 `packages/kernel/src/store/write-journal-coordinator.ts`(`makeJournaledWriteCoordinator`)。它把每一次写入拆成两个阶段,好让任何一处崩溃留下的都是可恢复的状态,而不是损坏的状态。
 
 **Enqueue** 记录的是*意图*。它校验 op,跑一遍预检(preflight),然后把描述这个 op 的一条 journal 记录追加进一个只追加(append-only)的 journal 文件。op 的 payload 被单独写成一个按内容寻址的 blob,记录里带着一个 `payloadHash`,这样 payload 在真正被应用之前,可以逐字节地被校验。此时授权目录(authored tree)里什么都还没变——只有 journal 知道有一次写入即将发生。
+
+`enqueue` 在把精确 operation 与 attribution 同持久 journal record 校验一致后，可以在
+`WriteAck` 中返回 `write-journal-record-witness/v1`。witness 包含 op id 与持久记录
+fingerprint 的 digest，并且只由签发它的 coordinator instance 授权；来自另一 coordinator
+的 witness、被拼接的 digest、或已不存在的 record 都会被拒绝。
 
 **Flush** 产生的是*效果*。它在一把仓库锁下,读取持久化的 journal 状态,过滤出尚未应用的记录,逐条应用到磁盘,把被触碰的路径提交到 git,最后写下一个**水印(watermark)**。水印(`writeWatermarkDurably`)才是"已提交内容"的权威记录;journal 本身随后会被压实(compact),那只是一项优化,即便压实失败,flush 依然算成功——因为重放信任的是水印,而不是 journal。
 
@@ -97,5 +104,12 @@ decision CAS 不匹配也属于同一家族：一个过期的 expected watermark
 - **Fact append delta** 有更窄的幂等规则。用同一个 `fact_id` 重放同一条格式化后的 `fact-record/v1`
   是 no-op；用同一个 id 重放不同字节，则作为重复记录被拒绝。
 - **水印是权威。** 重放信任 `lastCommittedOpIds`,而绝不信任那份可能过期的 journal,来判断还剩什么要做。
+
+恢复边界刻意分成两种。启动期 `recover` 重放协调器 pending journal domain；而恢复某个已由
+outer operation 授权的单一写入时，必须使用
+`flushExactJournalRecord("recovery", witness)`。该 API 会重新读取持久 record，校验其 digest
+与 coordinator-local authorization，并且只发布这一条记录；其他 pending record 继续保持
+pending。已经被 watermark 覆盖的 op 不再有 live journal record，因此不会取得 exact
+witness；调用方必须恢复其 Git/terminal anchor，而不能把它误判成新的 rejection。
 
 回报,就是整个系统赖以立足的不变式:只有一扇门,这扇门为每一次放行的写入盖章并提交,而任何经过它的东西,都不会被留在残缺或无从追溯的状态里。

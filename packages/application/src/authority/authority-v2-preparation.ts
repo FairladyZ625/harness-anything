@@ -37,6 +37,11 @@ import type { AuthorityAdmission } from "./service-admission-types.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 import type { VerifiedActorAxesBindingV2 } from "./actor-axes-binding-v2.ts";
 import type { AuthorityRecoveryPublicationPolicyV1 } from "./types.ts";
+import type { AuthorityFixedOperationBindingV1 } from "./types.ts";
+import {
+  authorityFixedOperationBindingMatchesV1,
+  createAuthorityFixedOperationBindingV1
+} from "./authority-fixed-operation-binding-v1.ts";
 
 type Persistence = ReturnType<typeof createAuthorityOperationRecordPersistence>;
 
@@ -71,6 +76,7 @@ export async function prepareAuthorityV2(input: {
   let computedIntegrity: AuthorityOperationIntegrity | undefined;
   let publicationRevalidation: (() => Promise<void>) | undefined;
   let recoveryPublicationPolicy: AuthorityRecoveryPublicationPolicyV1 | undefined;
+  let fixedOperationBinding: AuthorityFixedOperationBindingV1 | undefined;
   if (known) {
     if (known.semanticDigest !== semanticDigest) {
       return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
@@ -102,7 +108,8 @@ export async function prepareAuthorityV2(input: {
           known.authorityIntegrity,
           known.canonicalRequestEnvelope,
           known.canonicalOperation,
-          known.recoveryPublicationPolicy
+          known.recoveryPublicationPolicy,
+          known.fixedOperationBinding
         )
       });
       try {
@@ -124,7 +131,8 @@ export async function prepareAuthorityV2(input: {
       || (known.state !== "RECEIVED" && known.state !== "PREPARED")) {
       return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
     }
-    if (!known.canonicalOperation || !known.authorityIntegrity) {
+    if (!known.canonicalOperation || !known.authorityIntegrity
+      || !known.fixedOperationBinding) {
       return terminal(await input.persistTerminal(
         identity,
         semanticDigest,
@@ -133,7 +141,8 @@ export async function prepareAuthorityV2(input: {
         known.authorityIntegrity,
         canonicalRequestEnvelope,
         known.canonicalOperation,
-        known.recoveryPublicationPolicy
+        known.recoveryPublicationPolicy,
+        known.fixedOperationBinding
       ));
     }
     if (known.recoveryPublicationPolicy !== "EXACT_FIXED_OPERATION") {
@@ -146,7 +155,20 @@ export async function prepareAuthorityV2(input: {
     if (known.canonicalOperation.opId !== opId
       || known.authorityIntegrity.semanticRequestDigest !== semanticDigest
       || stableStringify(known.canonicalOperation.authorityIntegrity)
-        !== stableStringify(known.authorityIntegrity)) {
+        !== stableStringify(known.authorityIntegrity)
+      || !v2.recoveryScope
+      || !authorityFixedOperationBindingMatchesV1(
+        known.fixedOperationBinding,
+        {
+          ...v2.recoveryScope,
+          workspaceId: envelope.workspaceId,
+          authorityGeneration: Number(verified.token.claims.authorityGeneration),
+          opId,
+          semanticDigest,
+          canonicalRequestEnvelope,
+          operation: known.canonicalOperation
+        }
+      )) {
       return terminal(indeterminate(
         identity,
         semanticDigest,
@@ -156,6 +178,7 @@ export async function prepareAuthorityV2(input: {
     fixedOperation = known.canonicalOperation;
     computedIntegrity = known.authorityIntegrity;
     recoveryPublicationPolicy = known.recoveryPublicationPolicy;
+    fixedOperationBinding = known.fixedOperationBinding;
   }
 
   try {
@@ -175,6 +198,17 @@ export async function prepareAuthorityV2(input: {
       recoveryPublicationPolicy = publicationRevalidation
         ? "REVALIDATION_REQUIRED"
         : "EXACT_FIXED_OPERATION";
+      fixedOperationBinding = v2.recoveryScope
+        ? createAuthorityFixedOperationBindingV1({
+          ...v2.recoveryScope,
+          workspaceId: envelope.workspaceId,
+          authorityGeneration: Number(verified.token.claims.authorityGeneration),
+          opId,
+          semanticDigest,
+          canonicalRequestEnvelope,
+          operation: fixedOperation
+        })
+        : undefined;
       const intentRejection = await persistAuthorityIntentWhileGenerationCurrent({
         generationFence: options.generationFenceWitness,
         identity,
@@ -187,7 +221,8 @@ export async function prepareAuthorityV2(input: {
           computedIntegrity,
           canonicalRequestEnvelope,
           fixedOperation,
-          recoveryPublicationPolicy
+          recoveryPublicationPolicy,
+          fixedOperationBinding
         )
       });
       if (intentRejection) {
@@ -201,11 +236,12 @@ export async function prepareAuthorityV2(input: {
         identity,
         semanticDigest,
         "INDETERMINATE",
-        indeterminate(identity, semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`),
+        indeterminate(identity, semanticDigest, `AUTHORITY_FENCE_LOST:${describePreparationError(error)}`),
         computedIntegrity,
         canonicalRequestEnvelope,
         fixedOperation,
-        recoveryPublicationPolicy
+        recoveryPublicationPolicy,
+        fixedOperationBinding
       ));
     }
     await consumeAuthorityOperationForModeV2({ mode, verified, opId, options: v2 });
@@ -224,6 +260,7 @@ export async function prepareAuthorityV2(input: {
       actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),
       canonicalRequestEnvelope,
       recoveryPublicationPolicy,
+      fixedOperationBinding,
       ...(mode === "outer-proceeding-recovery"
         ? { recoveryMode: "outer-proceeding" as const }
         : {}),
@@ -233,7 +270,7 @@ export async function prepareAuthorityV2(input: {
   } catch (error) {
     const reason = error instanceof SemanticAdmissionErrorV2
       ? error.code
-      : `ADMISSION_REJECTED:${describe(error)}`;
+      : `ADMISSION_REJECTED:${describePreparationError(error)}`;
     return terminal(await input.persistTerminal(
       identity,
       semanticDigest,
@@ -242,11 +279,12 @@ export async function prepareAuthorityV2(input: {
       computedIntegrity,
       canonicalRequestEnvelope,
       fixedOperation,
-      recoveryPublicationPolicy
+      recoveryPublicationPolicy,
+      fixedOperationBinding
     ));
   }
 }
 
-function describe(error: unknown): string {
+function describePreparationError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

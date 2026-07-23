@@ -5,6 +5,7 @@ import type {
   AuthorityOperationReceipt,
   AuthorityOperationRegistry,
   AuthorityOperationState,
+  AuthorityFixedOperationBindingV1,
   AuthorityRecoveryPublicationPolicyV1,
   RecordedAuthorityProtocol
 } from "./types.ts";
@@ -22,7 +23,8 @@ export type PersistAuthorityTerminal = (
   authorityIntegrity?: AuthorityOperationIntegrity,
   canonicalRequestEnvelope?: string,
   canonicalOperation?: WriteOp,
-  recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
+  recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
+  fixedOperationBinding?: AuthorityFixedOperationBindingV1
 ) => Promise<AuthorityOperationReceipt>;
 
 export function createAuthorityOperationRecordPersistence(
@@ -38,7 +40,8 @@ export function createAuthorityOperationRecordPersistence(
     authorityIntegrity?: AuthorityOperationIntegrity,
     canonicalRequestEnvelope?: string,
     canonicalOperation?: WriteOp,
-    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
+    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
+    fixedOperationBinding?: AuthorityFixedOperationBindingV1
   ) => Promise<void>;
   readonly persistTerminal: PersistAuthorityTerminal;
 } {
@@ -51,7 +54,8 @@ export function createAuthorityOperationRecordPersistence(
     authorityIntegrity?: AuthorityOperationIntegrity,
     canonicalRequestEnvelope?: string,
     canonicalOperation?: WriteOp,
-    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1
+    recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1,
+    fixedOperationBinding?: AuthorityFixedOperationBindingV1
   ): Promise<void> => operationRegistry.put({
     workspaceId: envelope.workspaceId,
     opId: envelope.opId,
@@ -63,6 +67,7 @@ export function createAuthorityOperationRecordPersistence(
     ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {}),
     ...(canonicalOperation ? { canonicalOperation } : {}),
     ...(recoveryPublicationPolicy ? { recoveryPublicationPolicy } : {}),
+    ...(fixedOperationBinding ? { fixedOperationBinding } : {}),
     ...("recordedProtocol" in envelope && envelope.recordedProtocol
       ? { recordedProtocol: envelope.recordedProtocol }
       : "protocol" in envelope && envelope.protocol
@@ -79,7 +84,8 @@ export function createAuthorityOperationRecordPersistence(
       authorityIntegrity,
       canonicalRequestEnvelope,
       canonicalOperation,
-      recoveryPublicationPolicy
+      recoveryPublicationPolicy,
+      fixedOperationBinding
     ) => {
       const persist = async () => {
         await put(
@@ -91,7 +97,8 @@ export function createAuthorityOperationRecordPersistence(
           authorityIntegrity,
           canonicalRequestEnvelope,
           canonicalOperation,
-          recoveryPublicationPolicy
+          recoveryPublicationPolicy,
+          fixedOperationBinding
         );
         return receipt;
       };

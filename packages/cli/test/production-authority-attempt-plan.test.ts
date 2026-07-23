@@ -41,6 +41,7 @@ test("progress append planning is pure and activation validates exact durable re
   });
   try {
     const config = loadAuthorityProductionManifest(fixture.manifestPath).repos[0]!;
+    const writerGeneration = config.authorityGeneration + 1;
     const keyMaterial = openAuthorityProductionKeyMaterial({
       config,
       serviceStateRoot: fixture.serviceRoot
@@ -65,6 +66,7 @@ test("progress append planning is pure and activation validates exact durable re
     ];
     const compiler = createProductionCanonicalAttemptCompiler({
       config,
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,
@@ -122,7 +124,7 @@ test("progress append planning is pure and activation validates exact durable re
     const proceeding = createRepoWriteProceedingOutcomeV1({
       repoId: config.repoId,
       workspaceId: config.workspaceId,
-      generation: config.authorityGeneration,
+      generation: writerGeneration,
       outerOpId: "outer-progress-op",
       innerOpId: plan.innerOpId,
       authoritySemanticDigest: plan.semanticDigest,
@@ -156,6 +158,7 @@ test("progress append planning is pure and activation validates exact durable re
     let staleActivationRan = false;
     const staleCompiler = createProductionCanonicalAttemptCompiler({
       config,
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,
@@ -204,6 +207,7 @@ test("progress append planning is pure and activation validates exact durable re
     };
     const recoveryCompiler = createProductionCanonicalAttemptCompiler({
       config: recoveryConfig,
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,
@@ -230,12 +234,29 @@ test("progress append planning is pure and activation validates exact durable re
       (state.bindingState.get<{ readonly record: { readonly active: boolean } }>(bindingKey))?.record.active,
       false
     );
+    const staleWriterCompiler = createProductionCanonicalAttemptCompiler({
+      config: recoveryConfig,
+      writerGeneration: writerGeneration + 1,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: productionAuthorityConnection(actor),
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async (_witness, useDurableProceeding) =>
+        useDurableProceeding(proceeding)
+    });
+    await assert.rejects(
+      staleWriterCompiler.activateRecoveryProgressAppend(plan, outerWitness),
+      /AUTHORITY_ATTEMPT_RECOVERY_OUTER_BINDING_MISMATCH/u
+    );
     const mismatchedProceeding = createRepoWriteProceedingOutcomeV1({
       ...proceeding,
       recoveryContext: { ...plan, semanticDigest: "0".repeat(64) }
     });
     const mismatchedRecoveryCompiler = createProductionCanonicalAttemptCompiler({
       config: recoveryConfig,
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,
@@ -253,7 +274,7 @@ test("progress append planning is pure and activation validates exact durable re
     const actorMismatchedProceeding = createRepoWriteProceedingOutcomeV1({
       repoId: config.repoId,
       workspaceId: config.workspaceId,
-      generation: config.authorityGeneration,
+      generation: writerGeneration,
       outerOpId: proceeding.outerOpId,
       innerOpId: plan.innerOpId,
       authoritySemanticDigest: plan.semanticDigest,
@@ -270,6 +291,7 @@ test("progress append planning is pure and activation validates exact durable re
     });
     const actorMismatchedCompiler = createProductionCanonicalAttemptCompiler({
       config: recoveryConfig,
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,
@@ -347,6 +369,7 @@ test("progress append planning is pure and activation validates exact durable re
     assert.equal(JSON.stringify(state.bindingState.entries()), beforeTamper);
     const wrongConfigCompiler = createProductionCanonicalAttemptCompiler({
       config: { ...config, workspaceId: "workspace-spliced" },
+      writerGeneration,
       keyStore: keyMaterial.keyStore,
       keyRegistry: keyMaterial.registry,
       bindingRuntime,

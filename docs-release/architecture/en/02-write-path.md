@@ -17,9 +17,11 @@ purpose:
 
 ```text
 WriteCoordinator
-  enqueue(op)  -> WriteAck     record intent in the journal
-  flush(reason)-> FlushReport  apply pending ops, commit, watermark
-  recover      -> RecoveryReport  replay anything left half-applied
+  enqueue(op)  -> WriteAck        record intent; may return an exact journal witness
+  flush(reason)-> FlushReport     apply owned pending ops, commit, watermark
+  flushExactJournalRecord("recovery", witness)
+                -> FlushReport    recover only the witnessed durable record
+  recover       -> RecoveryReport replay anything left half-applied
 ```
 
 Everything a caller can do is expressed as a `WriteOp`: an `opId`, an
@@ -63,6 +65,13 @@ op's payload is written out separately as a content-addressed blob, and the
 record carries a `payloadHash` so the payload can be verified byte-for-byte
 before it is ever applied. Nothing in the authored tree has changed yet — only
 the journal knows a write is coming.
+
+After validating the exact operation and attribution against the durable
+record, `enqueue` may return a `write-journal-record-witness/v1` in its
+`WriteAck`. The witness carries the op id and a digest of the durable journal
+record fingerprint. It is authorized by that coordinator instance; a witness
+from another coordinator, a spliced digest, or a record that no longer exists
+is rejected.
 
 **Flush** produces the _effect_. Under a repository lock, it reads the durable
 journal state, filters to records not yet applied, applies each one to disk,
@@ -187,6 +196,16 @@ cover, under the same lock. Two subtleties keep replay honest:
   same id with different bytes is rejected as a duplicate.
 - **The watermark is authoritative.** Replay trusts `lastCommittedOpIds`, never
   the possibly-stale journal, to decide what still needs doing.
+
+There are two deliberately different recovery boundaries. Startup `recover`
+replays the coordinator's pending journal domain. A caller that is resuming one
+already-authorized outer operation must instead use
+`flushExactJournalRecord("recovery", witness)`. That API reads the durable
+record again, verifies its digest and coordinator-local authorization, and
+publishes only that one record; unrelated pending records remain pending. An op
+already covered by the watermark has no live journal record and therefore does
+not receive an exact witness—the caller must recover its Git/terminal anchor
+rather than classify it as a new rejection.
 
 The payoff is the invariant the whole system rests on: there is one door, the
 door stamps and commits every write it lets through, and nothing that passes

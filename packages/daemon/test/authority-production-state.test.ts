@@ -4,9 +4,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type {
-  ActorAxesBindingRecordV2,
-  ActorAxesProofKeyResolverV2
+import {
+  createAuthorityFixedOperationBindingV1,
+  type ActorAxesBindingRecordV2,
+  type ActorAxesProofKeyResolverV2
 } from "../../application/src/index.ts";
 import {
   createDurableAuthorityBindingRuntimeV2,
@@ -105,6 +106,16 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
     payload: { taskId: "task_A", text: "fixed\n" },
     authorityIntegrity
   };
+  const fixedOperationBinding = createAuthorityFixedOperationBindingV1({
+    repoId: "repo-1",
+    workspaceId: "workspace-1",
+    writerGeneration: 2,
+    authorityGeneration: 1,
+    opId: canonicalOperation.opId,
+    semanticDigest,
+    canonicalRequestEnvelope: "fixed-envelope",
+    operation: canonicalOperation
+  });
   try {
     const first = openDurableAuthorityServiceState({
       serviceStateRoot: root,
@@ -118,6 +129,7 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
       canonicalRequestEnvelope: "fixed-envelope",
       authorityIntegrity,
       canonicalOperation,
+      fixedOperationBinding,
       recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
     });
     await first.close();
@@ -126,11 +138,12 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
       serviceStateRoot: root,
       repoId: "repo-1"
     });
-    assert.deepEqual(
-      (await restarted.operationRegistry.get("workspace-1", canonicalOperation.opId))
-        ?.canonicalOperation,
-      canonicalOperation
+    const recovered = await restarted.operationRegistry.get(
+      "workspace-1",
+      canonicalOperation.opId
     );
+    assert.deepEqual(recovered?.canonicalOperation, canonicalOperation);
+    assert.deepEqual(recovered?.fixedOperationBinding, fixedOperationBinding);
     await assert.rejects(restarted.operationRegistry.put({
       workspaceId: "workspace-1",
       opId: canonicalOperation.opId,
@@ -139,8 +152,23 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
       canonicalRequestEnvelope: "fixed-envelope",
       authorityIntegrity,
       canonicalOperation: { ...canonicalOperation, opId: "namespace-1:spliced" },
+      fixedOperationBinding,
       recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
     }), /AUTHORITY_STORED_OPERATION_FIXED_MATERIAL_MISMATCH/u);
+    await assert.rejects(restarted.operationRegistry.put({
+      workspaceId: "workspace-1",
+      opId: canonicalOperation.opId,
+      semanticDigest,
+      state: "PREPARED",
+      canonicalRequestEnvelope: "fixed-envelope",
+      authorityIntegrity,
+      canonicalOperation: {
+        ...canonicalOperation,
+        payload: { taskId: "task_A", text: "spliced\n" }
+      },
+      fixedOperationBinding,
+      recoveryPublicationPolicy: "EXACT_FIXED_OPERATION"
+    }), /AUTHORITY_STORED_OPERATION_FIXED_BINDING_MISMATCH/u);
     await restarted.close();
   } finally {
     rmSync(root, { recursive: true, force: true });

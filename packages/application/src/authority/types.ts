@@ -180,7 +180,20 @@ export interface AuthorityStoredOperationRecord extends AuthorityOperationRecord
    * again for a known RECEIVED or PREPARED operation.
    */
   readonly canonicalOperation?: WriteOp;
+  readonly fixedOperationBinding?: AuthorityFixedOperationBindingV1;
   readonly recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1;
+}
+
+export interface AuthorityFixedOperationBindingV1 {
+  readonly schema: "authority-fixed-operation-binding/v1";
+  readonly repoId: string;
+  readonly workspaceId: string;
+  readonly writerGeneration: number;
+  readonly authorityGeneration: number;
+  readonly opId: string;
+  readonly semanticDigest: string;
+  readonly canonicalRequestEnvelopeDigest: string;
+  readonly recordDigest: string;
 }
 
 export type AuthorityRecoveryPublicationPolicyV1 =
@@ -356,9 +369,13 @@ export interface AuthorityRecoveryAttemptV2 {
   readonly schema: "authority-recovery-attempt/v1";
   readonly attempt: AuthorizedOperationAttemptV2;
   readonly witness: {
+    readonly repoId: string;
     readonly outerOpId: string;
     readonly outerRequestDigest: string;
+    /** Process-ownership generation of the durable outer PROCEEDING row. */
     readonly outerGeneration: number;
+    /** Independent signing/key authorization generation. */
+    readonly authorityGeneration: number;
     readonly requestId: string;
     readonly workspaceId: string;
     readonly opId: string;

@@ -95,6 +95,8 @@ export interface ProductionAuthorityAttemptPlanner {
 
 export function createProductionAuthorityAttemptPlanner(input: {
   readonly config: AuthorityProductionRepoConfigV1;
+  /** Process-ownership fence; independent from config.authorityGeneration. */
+  readonly writerGeneration?: number;
   readonly keyStore: KeyMaterial["keyStore"];
   readonly keyRegistry: KeyMaterial["registry"];
   readonly bindingRuntime: DurableAuthorityBindingRuntimeV2;
@@ -111,6 +113,10 @@ export function createProductionAuthorityAttemptPlanner(input: {
     useDurableProceeding: (outcome: RepoWriteProceedingOutcomeV1) => Result
   ) => Promise<Result>;
 }): ProductionAuthorityAttemptPlanner {
+  if (input.writerGeneration !== undefined
+    && (!Number.isSafeInteger(input.writerGeneration) || input.writerGeneration < 1)) {
+    throw new Error("AUTHORITY_WRITER_GENERATION_INVALID");
+  }
   const nowMs = input.nowMs ?? Date.now;
   const newUuid = input.randomUuid ?? randomUUID;
   const newRandom128 = input.random128 ?? (() => randomBytes(16));
@@ -265,6 +271,10 @@ export function createProductionAuthorityAttemptPlanner(input: {
       if (!input.runAuthorizedRecoveryPlan) {
         throw new Error("AUTHORITY_ATTEMPT_RECOVERY_AUTHORIZATION_UNAVAILABLE");
       }
+      if (input.writerGeneration === undefined) {
+        throw new Error("AUTHORITY_ATTEMPT_RECOVERY_WRITER_GENERATION_UNAVAILABLE");
+      }
+      const writerGeneration = input.writerGeneration;
       if (!boundedText(witness.outerOpId, 512)
         || !/^[a-f0-9]{64}$/u.test(witness.outerRequestDigest)
         || !Number.isSafeInteger(witness.outerGeneration)
@@ -274,7 +284,13 @@ export function createProductionAuthorityAttemptPlanner(input: {
       return input.runAuthorizedRecoveryPlan(
         witness,
         (candidate) => {
-          assertRecoveryOutcomeBindsPlan(input.config, plan, witness, candidate);
+          assertRecoveryOutcomeBindsPlan(
+            input.config,
+            writerGeneration,
+            plan,
+            witness,
+            candidate
+          );
           return activatePlannedAttempt(input, plan, true);
         }
       );
@@ -284,6 +300,7 @@ export function createProductionAuthorityAttemptPlanner(input: {
 
 function assertRecoveryOutcomeBindsPlan(
   config: AuthorityProductionRepoConfigV1,
+  writerGeneration: number,
   plan: ProductionAuthorityAttemptPlanV1,
   witness: ProductionAuthorityOuterRecoveryWitnessV1,
   candidate: RepoWriteProceedingOutcomeV1
@@ -294,7 +311,7 @@ function assertRecoveryOutcomeBindsPlan(
   }
   if (outcome.repoId !== config.repoId
     || outcome.workspaceId !== config.workspaceId
-    || outcome.generation !== config.authorityGeneration
+    || outcome.generation !== writerGeneration
     || witness.outerOpId !== outcome.outerOpId
     || witness.outerRequestDigest !== outcome.requestDigest
     || witness.outerGeneration !== outcome.generation) {

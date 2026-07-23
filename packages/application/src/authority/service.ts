@@ -252,7 +252,22 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
           if (entry.recoveryMode) {
             if (!acknowledgement.journalWitness || !entry.coordinator.flushExactJournalRecord) {
-              throw new Error("AUTHORITY_RECOVERY_EXACT_JOURNAL_WITNESS_UNAVAILABLE");
+              receipts.set(entry, await persistTerminal(
+                entry,
+                entry.semanticDigest,
+                "INDETERMINATE",
+                indeterminate(
+                  entry,
+                  entry.semanticDigest,
+                  "AUTHORITY_RECOVERY_EXACT_JOURNAL_WITNESS_UNAVAILABLE"
+                ),
+                entry.authorityIntegrity,
+                entry.canonicalRequestEnvelope,
+                entry.operation,
+                entry.recoveryPublicationPolicy,
+                entry.fixedOperationBinding
+              ));
+              continue;
             }
             journalWitnesses.set(entry, acknowledgement.journalWitness);
           }
@@ -266,7 +281,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry.authorityIntegrity,
             entry.canonicalRequestEnvelope,
             entry.operation,
-            entry.recoveryPublicationPolicy
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
           );
           candidates.push(entry);
         } catch (error) {
@@ -280,7 +296,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry.authorityIntegrity,
             entry.canonicalRequestEnvelope,
             entry.operation,
-            entry.recoveryPublicationPolicy
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
           ));
         }
       }
@@ -328,7 +345,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           entry.authorityIntegrity,
           entry.canonicalRequestEnvelope,
           entry.operation,
-          entry.recoveryPublicationPolicy
+          entry.recoveryPublicationPolicy,
+          entry.fixedOperationBinding
         );
       }
     } catch (error) {
@@ -375,7 +393,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           entry.authorityIntegrity,
           entry.canonicalRequestEnvelope,
           entry.operation,
-          entry.recoveryPublicationPolicy
+          entry.recoveryPublicationPolicy,
+          entry.fixedOperationBinding
         );
       }
     } catch (error) {
@@ -435,7 +454,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry.authorityIntegrity,
             entry.canonicalRequestEnvelope,
             entry.operation,
-            entry.recoveryPublicationPolicy
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
           );
           return receipt;
         };
@@ -486,7 +506,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         entry.authorityIntegrity,
         entry.canonicalRequestEnvelope,
         entry.operation,
-        entry.recoveryPublicationPolicy
+        entry.recoveryPublicationPolicy,
+        entry.fixedOperationBinding
       );
     } catch (error) {
       if (!isDaemonGenerationFenced(error)) throw error;
@@ -509,7 +530,8 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         entry.authorityIntegrity,
         entry.canonicalRequestEnvelope,
         entry.operation,
-        entry.recoveryPublicationPolicy
+        entry.recoveryPublicationPolicy,
+        entry.fixedOperationBinding
       ));
     }
   }

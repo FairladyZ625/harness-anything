@@ -23,7 +23,7 @@ import {
   type AuthoritySubmissionV2Options,
   type SemanticMutationEnvelopeV2
 } from "../src/index.ts";
-import { taskEntityId } from "../../kernel/src/index.ts";
+import { stablePayloadHash, taskEntityId } from "../../kernel/src/index.ts";
 import {
   validateAuthorityRecoveryAttemptV2,
   validateAuthorityRecoveryWitnessShape
@@ -67,9 +67,11 @@ test("exact outer recovery accepts elapsed temporal/revocation/disable axes but 
     schema: "authority-recovery-attempt/v1",
     attempt,
     witness: {
+      repoId: "repo-1",
       outerOpId: "outer-op-1",
       outerRequestDigest: "a".repeat(64),
-      outerGeneration: 3,
+      outerGeneration: 4,
+      authorityGeneration: 3,
       requestId: attempt.requestId,
       workspaceId: claims.workspaceId,
       opId: operationIdDiagnosticV2(envelope.operationId),
@@ -108,9 +110,17 @@ test("exact outer recovery accepts elapsed temporal/revocation/disable axes but 
   await assert.rejects(
     validateAuthorityRecoveryAttemptV2({
       workspaceId: claims.workspaceId,
+      recovery,
+      options: recoveryOptions(runtime, 5)
+    }),
+    /AUTHORITY_RECOVERY_OUTER_SCOPE_MISMATCH/u
+  );
+  await assert.rejects(
+    validateAuthorityRecoveryAttemptV2({
+      workspaceId: claims.workspaceId,
       recovery: {
         ...recovery,
-        witness: { ...recovery.witness, outerGeneration: 2 }
+        witness: { ...recovery.witness, authorityGeneration: 2 }
       },
       options: recoveryOptions(runtime)
     }),
@@ -125,8 +135,15 @@ test("exact outer recovery accepts elapsed temporal/revocation/disable axes but 
   );
 });
 
-for (const crashState of ["RECEIVED", "PREPARED"] as const) {
-  test(`${crashState} same-op recovery reuses fixed compilation and exact journal witness`, async () => {
+const recoveryCases = [
+  { name: "RECEIVED", crashState: "RECEIVED", spliceOperation: false, watermarked: false },
+  { name: "PREPARED", crashState: "PREPARED", spliceOperation: false, watermarked: false },
+  { name: "spliced fixed WriteOp", crashState: "RECEIVED", spliceOperation: true, watermarked: false },
+  { name: "watermarked PREPARED", crashState: "PREPARED", spliceOperation: false, watermarked: true }
+] as const;
+
+for (const recoveryCase of recoveryCases) {
+  test(`${recoveryCase.name} same-op recovery binds the signed attempt to one exact WriteOp`, async () => {
     const claims = actorClaims();
     const token = issueActorAxesBindingV2(claims, {
       algorithm: "HMAC-SHA-256",
@@ -172,13 +189,40 @@ for (const crashState of ["RECEIVED", "PREPARED"] as const) {
       payload: { taskId: "task-A", text: "fixed\n" },
       authorityIntegrity
     };
+    const canonicalRequestEnvelopeDigest = stablePayloadHash(canonicalRequestEnvelope);
+    const fixedOperationBinding = {
+      schema: "authority-fixed-operation-binding/v1" as const,
+      repoId: "repo-1",
+      workspaceId: claims.workspaceId,
+      writerGeneration: 4,
+      authorityGeneration: 3,
+      opId,
+      semanticDigest,
+      canonicalRequestEnvelopeDigest,
+      recordDigest: stablePayloadHash({
+        schema: "authority-fixed-operation-record/v1",
+        repoId: "repo-1",
+        workspaceId: claims.workspaceId,
+        writerGeneration: 4,
+        authorityGeneration: 3,
+        opId,
+        semanticDigest,
+        canonicalRequestEnvelopeDigest,
+        operation: canonicalOperation
+      })
+    };
+    const storedOperation = recoveryCase.spliceOperation
+      ? { ...canonicalOperation, payload: { taskId: "task-A", text: "spliced\n" } }
+      : canonicalOperation;
     const recovery: AuthorityRecoveryAttemptV2 = {
       schema: "authority-recovery-attempt/v1",
       attempt,
       witness: {
+        repoId: "repo-1",
         outerOpId: "outer-op-1",
         outerRequestDigest: "a".repeat(64),
-        outerGeneration: 3,
+        outerGeneration: 4,
+        authorityGeneration: 3,
         requestId: attempt.requestId,
         workspaceId: claims.workspaceId,
         opId,
@@ -193,9 +237,10 @@ for (const crashState of ["RECEIVED", "PREPARED"] as const) {
       workspaceId: claims.workspaceId,
       opId,
       semanticDigest,
-      state: crashState,
+      state: recoveryCase.crashState,
       authorityIntegrity,
-      canonicalOperation,
+      canonicalOperation: storedOperation,
+      fixedOperationBinding,
       canonicalRequestEnvelope,
       recoveryPublicationPolicy: "EXACT_FIXED_OPERATION",
       recordedProtocol: {
@@ -222,11 +267,11 @@ for (const crashState of ["RECEIVED", "PREPARED"] as const) {
             opId: operation.opId,
             entityId: operation.entityId,
             accepted: true as const,
-            journalWitness: {
+            ...(recoveryCase.watermarked ? {} : { journalWitness: {
               schema: "write-journal-record-witness/v1" as const,
               opId: operation.opId,
               recordDigest: "b".repeat(64)
-            }
+            } })
           }),
           flush: () => Effect.sync(() => {
             ordinaryFlushes += 1;
@@ -281,20 +326,34 @@ for (const crashState of ["RECEIVED", "PREPARED"] as const) {
 
     const receipt = await service.resumeV2!(recovery);
 
-    assert.equal(receipt.tag, "COMMITTED");
+    assert.equal(
+      receipt.tag,
+      recoveryCase.spliceOperation || recoveryCase.watermarked
+        ? "INDETERMINATE"
+        : "COMMITTED"
+    );
     assert.equal(compilerCalls, 0);
     assert.equal(ordinaryFlushes, 0);
-    assert.equal(exactFlushes, 1);
-    assert.ok(ordering.indexOf("fence:before-prepare") < ordering.indexOf("consume-recovery"));
-    assert.deepEqual((await registry.get(claims.workspaceId, opId))?.canonicalOperation, canonicalOperation);
-    assert.equal("canonicalOperation" in (await service.getOperation(claims.workspaceId, opId))!, false);
+    assert.equal(
+      exactFlushes,
+      recoveryCase.spliceOperation || recoveryCase.watermarked ? 0 : 1
+    );
+    if (!recoveryCase.spliceOperation && !recoveryCase.watermarked) {
+      assert.ok(ordering.indexOf("fence:before-prepare") < ordering.indexOf("consume-recovery"));
+    }
+    assert.deepEqual((await registry.get(claims.workspaceId, opId))?.canonicalOperation, storedOperation);
+    const publicRecord = (await service.getOperation(claims.workspaceId, opId))!;
+    assert.equal("canonicalOperation" in publicRecord, false);
+    assert.equal("fixedOperationBinding" in publicRecord, false);
   });
 }
 
 function recoveryOptions(
-  runtime: ActorAxesBindingRuntimeV2
+  runtime: ActorAxesBindingRuntimeV2,
+  writerGeneration = 4
 ): AuthoritySubmissionV2Options {
   return {
+    recoveryScope: { repoId: "repo-1", writerGeneration },
     schemaTuple,
     channelNonceDigest: Buffer.alloc(32, 0x99),
     bindingRuntime: runtime,

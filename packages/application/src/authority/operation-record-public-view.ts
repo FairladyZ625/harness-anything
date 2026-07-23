@@ -9,6 +9,7 @@ export function authorityOperationPublicView(
   const {
     canonicalRequestEnvelope: _canonicalRequestEnvelope,
     canonicalOperation: _canonicalOperation,
+    fixedOperationBinding: _fixedOperationBinding,
     recoveryPublicationPolicy: _recoveryPublicationPolicy,
     ...publicRecord
   } = stored;

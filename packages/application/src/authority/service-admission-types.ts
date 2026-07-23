@@ -6,6 +6,7 @@ import type {
 } from "@harness-anything/kernel";
 import type {
   AuthorityOperationReceipt,
+  AuthorityFixedOperationBindingV1,
   AuthorityRecoveryPublicationPolicyV1,
   RecordedAuthorityProtocol
 } from "./types.ts";
@@ -24,6 +25,7 @@ export interface PreparedAuthoritySubmission {
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;
   readonly recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1;
+  readonly fixedOperationBinding?: AuthorityFixedOperationBindingV1;
   readonly recoveryMode?: "outer-proceeding";
   readonly publicationRevalidation?: () => Promise<void>;
   readonly recordedProtocol: RecordedAuthorityProtocol;

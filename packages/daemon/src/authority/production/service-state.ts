@@ -9,6 +9,7 @@ import {
   writeSync
 } from "node:fs";
 import path from "node:path";
+import { authorityFixedOperationBindingMatchesV1 } from "@harness-anything/application";
 import type {
   AuthorityOperationRegistry,
   AuthorityStoredOperationRecord,
@@ -291,6 +292,19 @@ function validateStoredOperation(record: AuthorityStoredOperationRecord): void {
       || stableStringify(record.canonicalOperation.authorityIntegrity)
         !== stableStringify(record.authorityIntegrity)) {
       throw new Error("AUTHORITY_STORED_OPERATION_FIXED_MATERIAL_MISMATCH");
+    }
+    if (record.fixedOperationBinding && (!record.canonicalRequestEnvelope
+      || !authorityFixedOperationBindingMatchesV1(record.fixedOperationBinding, {
+        repoId: record.fixedOperationBinding.repoId,
+        workspaceId: record.workspaceId,
+        writerGeneration: record.fixedOperationBinding.writerGeneration,
+        authorityGeneration: record.fixedOperationBinding.authorityGeneration,
+        opId: record.opId,
+        semanticDigest: record.semanticDigest,
+        canonicalRequestEnvelope: record.canonicalRequestEnvelope,
+        operation: record.canonicalOperation
+      }))) {
+      throw new Error("AUTHORITY_STORED_OPERATION_FIXED_BINDING_MISMATCH");
     }
   }
 }
