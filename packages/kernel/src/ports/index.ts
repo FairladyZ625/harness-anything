@@ -38,6 +38,7 @@ export type {
   LocalTransitionWriteOp,
   ProvenancePayload,
   WriteAck,
+  JournalRecordWitnessV1,
   FlushReason,
   FlushReport,
   RecoveryReport

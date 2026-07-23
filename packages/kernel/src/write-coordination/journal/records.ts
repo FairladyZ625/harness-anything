@@ -12,6 +12,7 @@ import type {
   OperationalActor,
   ReadableJournalRecord
 } from "./types.ts";
+import type { JournalRecordWitnessV1 } from "../../ports/write-coordinator.ts";
 
 interface JournalRecordInput {
   readonly opId: string;
@@ -94,6 +95,20 @@ export function assertRecordMatchesOperationalOp(
   }
 }
 
+export function journalRecordWitnessV1(
+  record: ReadableJournalRecord | JournalRecordV1
+): JournalRecordWitnessV1 {
+  return {
+    schema: "write-journal-record-witness/v1",
+    opId: record.opId,
+    recordDigest: stablePayloadHash({
+      schema: "write-journal-record-witness-digest/v1",
+      opId: record.opId,
+      fingerprint: recordFingerprint(record)
+    })
+  };
+}
+
 export function uniquePendingRecords(
   records: ReadonlyArray<ReadableJournalRecord>,
   applied: ReadonlySet<string>
@@ -121,7 +136,7 @@ function inputFingerprint(op: JournalRecordInput, attribution: WriteAttribution 
   });
 }
 
-function recordFingerprint(record: ReadableJournalRecord): string {
+function recordFingerprint(record: ReadableJournalRecord | JournalRecordV1): string {
   const attribution = record.schema === "write-journal/v2"
     ? {
         actor: record.actor,

@@ -6,6 +6,7 @@ import type {
   FlushReport,
   RecoveryReport,
   WriteAck,
+  JournalRecordWitnessV1,
   WriteCoordinator,
   WriteOp
 } from "../../ports/write-coordinator.ts";
@@ -26,7 +27,6 @@ import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.t
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./operations/code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
-import { runLedgerMaterializer } from "../materialization/ledger-materializer.ts";
 import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/legacy-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./operations/entity.ts";
@@ -51,6 +51,12 @@ import { semanticCommitMessage } from "./publication/authority-trailer.ts";
 import { recoverJournalIntegrityDomains } from "./recovery/integrity-domains.ts";
 import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "./integrity-domain.ts";
 import { memoizePublicationVcs } from "./publication/memoized-vcs.ts";
+import {
+  authorizeExactJournalRecord,
+  createExactJournalRecordFlusher,
+  flushExactAuthorizedJournalRecord
+} from "./exact-journal-flush.ts";
+import { maybeAutoMaterialize } from "./publication/materialization.ts";
 import { rebuildProjectionHash } from "./publication/projection.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
@@ -104,6 +110,7 @@ function makeJournaledWriteCoordinatorInternal(
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
+  const exactJournalAuthorizations = new Map<string, JournalRecordWitnessV1>();
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, operationalActor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -142,6 +149,22 @@ function makeJournaledWriteCoordinatorInternal(
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
+  const flushExactJournalRecord = createExactJournalRecordFlusher({
+    run: (reason, witness) => flushExactAuthorizedJournalRecord({
+      rootDir, rootInput: runtimeContext, journalPath, watermarkPath,
+      operationalActor, lockTtlMs, ...(heldGlobalLock ? { heldGlobalLock } : {}),
+      witness, authorizations: exactJournalAuthorizations, pending,
+      flushRecord: (state, record) => flushRecords(
+        reason, rootDir, runtimeContext, journalPath, watermarkPath,
+        state.watermark, [record], state.fileApplied, sessionId, commitAuthor,
+        versionControlSystem, attributionEventStore, options.onProjectionChange
+      )
+    }),
+    mapError: (cause) => toJournalError(cause),
+    finish: (effect) => maybeAutoMaterialize(
+      effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem
+    )
+  });
 
   return {
     enqueue: (op) => Effect.try({
@@ -167,7 +190,11 @@ function makeJournaledWriteCoordinatorInternal(
         if (existing) {
           if (attribution) assertRecordMatchesAttributedOp(existing, journalOp, attribution);
           else assertRecordMatchesOperationalOp(existing, journalOp, operationalActor);
-          return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
+          return authorizeExactJournalRecord(
+            existing,
+            journalOp.entityId,
+            exactJournalAuthorizations
+          );
         }
         if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
         const record = attribution
@@ -175,7 +202,11 @@ function makeJournaledWriteCoordinatorInternal(
           : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);
         appendJsonLineDurably(journalPath, record);
         pending.push(journalOp);
-        return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
+        return authorizeExactJournalRecord(
+          record,
+          journalOp.entityId,
+          exactJournalAuthorizations
+        );
       },
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
@@ -197,6 +228,7 @@ function makeJournaledWriteCoordinatorInternal(
         }));
       return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
     },
+    flushExactJournalRecord,
     recover: lockConflictRetry
       ? retryLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
       : recoverOnce
@@ -268,30 +300,6 @@ function isLockConflict(error: WriteError): boolean {
 function cleanSessionId(sessionId: string | undefined): string | undefined {
   const trimmed = sessionId?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
-}
-
-function maybeAutoMaterialize(
-  effect: Effect.Effect<FlushReport, WriteError>,
-  rootInput: HarnessLayoutInput,
-  sessionId: string | undefined,
-  autoMaterialize: boolean,
-  versionControlSystem?: VersionControlSystem
-): Effect.Effect<FlushReport, WriteError> {
-  if (!sessionId || !autoMaterialize) return effect;
-  return effect.pipe(
-    Effect.tap((report) => {
-      if (report.opCount === 0 || !report.committed) return Effect.void;
-      return Effect.sync(() => {
-        try {
-          runLedgerMaterializer(rootInput, { versionControlSystem });
-        } catch {
-          // The op is already committed and covered by the durable watermark.
-          // Materialization is a separately retryable convergence step; letting
-          // its failure flip this receipt to false would invite a duplicate retry.
-        }
-      });
-    })
-  );
 }
 
 function flushRecords(
