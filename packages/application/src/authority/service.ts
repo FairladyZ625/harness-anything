@@ -65,6 +65,7 @@ import {
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
 import { authorityPublicationSegments } from "./publication-segments.ts";
 import { createReplicaPublicationChange } from "./replica-publication-change.ts";
+import { enqueueWithPreEnqueueRecovery } from "./pre-enqueue-recovery.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
@@ -373,10 +374,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         try {
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await entry.publicationRevalidation?.();
-          await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
-          await options.generationFenceWitness?.assertHeld("before-prepare", entry);
-          await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
-          candidates.push(entry);
+          const recoveryReceipt = await enqueueWithPreEnqueueRecovery(entry, options.generationFenceWitness, put);
+          if (recoveryReceipt) receipts.set(entry, recoveryReceipt);
+          else candidates.push(entry);
         } catch (error) {
           if (isDaemonGenerationFenced(error)) throw error;
           const reason = error instanceof SemanticAdmissionErrorV2 ? error.code : `ADMISSION_REJECTED:${describe(error)}`;
