@@ -43,6 +43,11 @@ export async function recoverProductionAuthorityCommittedReceiptV2(input: {
       commitSha: record.commitSha,
       previousCommit: evidence.previousCommit,
       changedAt: new Date().toISOString(),
+      manifest: {
+        digest: `sha256:${record.semanticDigest}`,
+        entryCount: 0
+      },
+      paths: [],
       authorityIntegrity: record.authorityIntegrity
     };
     await input.replicaChangeLog.append(change);

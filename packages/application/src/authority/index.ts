@@ -62,8 +62,20 @@ export type {
   DelegationTokenVerification,
   DelegationTokenVerifier,
   RecordedAuthorityProtocol,
+  AuthoritySnapshotCut,
+  AuthoritySnapshotLease,
+  AuthoritySnapshotManifest,
+  AuthoritySnapshotManifestEntry,
+  AuthoritySnapshotReservation,
+  AuthorityStreamReservation,
+  ReplicaChangeDraft,
+  ReplicaChangeListener,
   ReplicaChangeLog,
-  ReplicaChangeRecord
+  ReplicaChangeRecord,
+  ReplicaFileMode,
+  ReplicaManifestReference,
+  ReplicaPathChange,
+  Sha256Digest
 } from "./types.ts";
 export type {
   AttributionShadowComparison,

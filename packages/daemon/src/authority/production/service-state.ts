@@ -21,7 +21,7 @@ const serviceStateSchema = "authority-service-state/v1" as const;
 
 interface DurableStateEnvelope {
   readonly schema: typeof serviceStateSchema;
-  readonly table: "operation" | "replica-change" | "binding" | "namespace" | "cutover";
+  readonly table: "operation" | "replica-change" | "binding" | "namespace" | "cutover" | "replication";
   readonly key: string;
   readonly value: unknown;
 }
@@ -39,6 +39,7 @@ export interface DurableAuthorityServiceState {
   readonly bindingState: DurableAuthorityStateTable;
   readonly namespaceState: DurableAuthorityStateTable;
   readonly cutoverState: DurableAuthorityStateTable;
+  readonly replicationState: DurableAuthorityStateTable;
   readonly close: () => Promise<void>;
 }
 
@@ -62,6 +63,8 @@ export function openDurableAuthorityServiceState(input: {
   const bindingLog = openLog(stateDirectory, "bindings.jsonl", "binding");
   const namespaceLog = openLog(stateDirectory, "namespaces.jsonl", "namespace");
   const cutoverLog = openLog(stateDirectory, "cutover.jsonl", "cutover");
+  const replicationLog = openLog(stateDirectory, "replication.jsonl", "replication");
+  const replicaListeners = new Map<string, Set<(record: ReplicaChangeRecord) => void>>();
   let closed = false;
 
   const ensureOpen = (): void => {
@@ -90,14 +93,15 @@ export function openDurableAuthorityServiceState(input: {
   const replicaChangeLog: ReplicaChangeLog = {
     append: async (record) => {
       ensureOpen();
-      validateReplicaChange(record);
+      const normalized = normalizeReplicaChange(record);
+      validateReplicaChange(normalized);
       const operationKey = compoundKey(record.workspaceId, record.opId);
       const known = [...replicaLog.values.values()].find((candidate) => {
         const row = candidate as ReplicaChangeRecord;
         return compoundKey(row.workspaceId, row.opId) === operationKey;
       }) as ReplicaChangeRecord | undefined;
       if (known) {
-        if (stableStringify(known) !== stableStringify(record)) {
+        if (stableStringify(known) !== stableStringify(normalized)) {
           throw new Error(`AUTHORITY_REPLICA_CHANGE_CONFLICT:${record.workspaceId}:${record.opId}`);
         }
         return;
@@ -107,7 +111,8 @@ export function openDurableAuthorityServiceState(input: {
       if (record.revision !== expectedRevision) {
         throw new Error(`AUTHORITY_REPLICA_CHANGE_GAP:${record.workspaceId}:${record.revision}`);
       }
-      replicaLog.append(compoundKey(record.workspaceId, String(record.revision)), record);
+      replicaLog.append(compoundKey(record.workspaceId, String(record.revision)), normalized);
+      for (const listener of replicaListeners.get(record.workspaceId) ?? []) listener(structuredClone(normalized));
     },
     latest: async (workspaceId) => {
       ensureOpen();
@@ -128,6 +133,16 @@ export function openDurableAuthorityServiceState(input: {
           return row.workspaceId === workspaceId && row.revision > revision;
         })
         .sort((left, right) => left.revision - right.revision);
+    },
+    subscribe: (workspaceId, listener) => {
+      ensureOpen();
+      const listeners = replicaListeners.get(workspaceId) ?? new Set();
+      listeners.add(listener);
+      replicaListeners.set(workspaceId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) replicaListeners.delete(workspaceId);
+      };
     }
   };
 
@@ -138,6 +153,7 @@ export function openDurableAuthorityServiceState(input: {
     bindingState: stateTable(bindingLog, ensureOpen),
     namespaceState: stateTable(namespaceLog, ensureOpen),
     cutoverState: stateTable(cutoverLog, ensureOpen),
+    replicationState: stateTable(replicationLog, ensureOpen),
     close: async () => {
       closed = true;
     }
@@ -215,6 +231,17 @@ function stateTable(
       ensureOpen();
       return [...log.values.entries()] as ReadonlyArray<readonly [string, Value]>;
     }
+  };
+}
+
+function normalizeReplicaChange(record: Parameters<ReplicaChangeLog["append"]>[0]): ReplicaChangeRecord {
+  return {
+    ...record,
+    manifest: record.manifest ?? {
+      digest: `sha256:${record.semanticDigest}`,
+      entryCount: record.paths?.filter((entry) => !entry.tombstone).length ?? 0
+    },
+    paths: record.paths ?? []
   };
 }
 

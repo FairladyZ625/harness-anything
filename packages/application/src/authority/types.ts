@@ -182,6 +182,21 @@ export interface AuthorityOperationRegistry {
   readonly list: (workspaceId: string) => Promise<ReadonlyArray<AuthorityStoredOperationRecord>>;
 }
 
+export type Sha256Digest = `sha256:${string}`;
+export type ReplicaFileMode = "100644" | "100755" | "120000";
+
+export interface ReplicaManifestReference {
+  readonly digest: Sha256Digest;
+  readonly entryCount: number;
+}
+
+export interface ReplicaPathChange {
+  readonly path: string;
+  readonly blobDigest: Sha256Digest | null;
+  readonly mode: ReplicaFileMode | null;
+  readonly tombstone: boolean;
+}
+
 export interface ReplicaChangeRecord {
   readonly schema: "replica-change/v1";
   readonly workspaceId: string;
@@ -191,14 +206,64 @@ export interface ReplicaChangeRecord {
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly changedAt: string;
+  readonly manifest: ReplicaManifestReference;
+  readonly paths: ReadonlyArray<ReplicaPathChange>;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
 }
 
+export type ReplicaChangeDraft = Omit<ReplicaChangeRecord, "manifest" | "paths"> & {
+  readonly manifest?: ReplicaManifestReference;
+  readonly paths?: ReadonlyArray<ReplicaPathChange>;
+};
+
+export type ReplicaChangeListener = (record: ReplicaChangeRecord) => void;
+
 export interface ReplicaChangeLog {
-  readonly append: (record: ReplicaChangeRecord) => Promise<void>;
+  readonly append: (record: ReplicaChangeDraft) => Promise<void>;
   readonly latest: (workspaceId: string) => Promise<ReplicaChangeRecord | undefined>;
   readonly getByOperation: (workspaceId: string, opId: string) => Promise<ReplicaChangeRecord | undefined>;
   readonly changesAfter: (workspaceId: string, revision: number) => Promise<ReadonlyArray<ReplicaChangeRecord>>;
+  readonly subscribe: (workspaceId: string, listener: ReplicaChangeListener) => () => void;
+}
+
+export interface AuthoritySnapshotCut {
+  readonly workspaceId: string;
+  readonly epoch: string;
+  readonly revision: number;
+  readonly commitSha: string;
+  readonly manifestDigest: Sha256Digest;
+  readonly provenanceDigest: Sha256Digest;
+}
+
+export interface AuthoritySnapshotLease {
+  readonly leaseId: string;
+  readonly expiresAt: string;
+  readonly minRetainedRevision: number;
+  readonly pinnedBlobSetDigest: Sha256Digest;
+}
+
+export interface AuthorityStreamReservation {
+  readonly streamToken: string;
+  readonly fromRevision: number;
+}
+
+export interface AuthoritySnapshotReservation {
+  readonly schema: "authority-snapshot-reservation/v1";
+  readonly cut: AuthoritySnapshotCut;
+  readonly lease: AuthoritySnapshotLease;
+  readonly stream: AuthorityStreamReservation;
+}
+
+export interface AuthoritySnapshotManifestEntry extends Omit<ReplicaPathChange, "blobDigest" | "mode" | "tombstone"> {
+  readonly blobDigest: Sha256Digest;
+  readonly mode: ReplicaFileMode;
+  readonly tombstone: false;
+}
+
+export interface AuthoritySnapshotManifest {
+  readonly schema: "authority-snapshot-manifest/v1";
+  readonly cut: AuthoritySnapshotCut;
+  readonly entries: ReadonlyArray<AuthoritySnapshotManifestEntry>;
 }
 
 export interface CanonicalPublication {

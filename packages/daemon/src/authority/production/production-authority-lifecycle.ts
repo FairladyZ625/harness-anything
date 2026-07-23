@@ -9,14 +9,9 @@ import {
   type AuthoritySubmissionService,
   type DaemonLogService,
   type ProductionAuthorityHostServices,
+  type ReplicaChangeLog,
 } from "@harness-anything/application";
 import { createAuthoritySubmissionService } from "@harness-anything/application/authority/service";
-import {
-  answerAttestationChallenge,
-  createAttestationChallenge,
-  verifyAttestationAssertion
-} from "../../attestation/handshake.ts";
-import { createTransportObservedAttestationAdapter } from "../../attestation/transport-observed-adapter.ts";
 import type { PersonRegistry } from "../../identity/types.ts";
 import {
   createProductionCompoundReceiptComposition,
@@ -40,6 +35,12 @@ import {
   type AuthorityRepoLifecycleHooks
 } from "../authority-lifecycle.ts";
 import { serveAuthorityForcedCommand } from "../forced-command-session.ts";
+import { createAuthorityReadDownService } from "../read-down-service.ts";
+import {
+  createAuthorityReplicationContentStore,
+  createContentEnrichedReplicaChangeLog,
+  type AuthorityReplicationContentStore
+} from "../replication-content-store.ts";
 import { gateCutoverAdmission } from "./cutover-admission.ts";
 import {
   assertPublicationMatchesMutationSet,
@@ -72,6 +73,7 @@ import { createProductionCanonicalAttemptCompiler } from "./production-authority
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
 import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 import { waitForProductionRecovery } from "./production-recovery-admission.ts";
+import { attestSubmissionService } from "./transport-attested-submission-service.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -82,6 +84,9 @@ interface RepoProductionMaterial {
   readonly authoredRoot: string;
   readonly configurationDigest: string;
   readonly serviceStateRoot: string;
+  readonly replicationState: Parameters<typeof createAuthorityReplicationContentStore>[0]["state"];
+  readonly replicationContent: AuthorityReplicationContentStore;
+  readonly replicaChangeLog: ReplicaChangeLog;
   readonly recovery: ProductionRecoveryState;
 }
 
@@ -148,6 +153,14 @@ export function createProductionAuthorityLifecycle(input: {
         rootDir: repo.canonicalRoot,
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       }).authoredRoot;
+      const replicationContent = createAuthorityReplicationContentStore({
+        gitRoot: authoredRoot,
+        state: state.replicationState
+      });
+      const replicaChangeLog = createContentEnrichedReplicaChangeLog(
+        state.replicaChangeLog,
+        replicationContent
+      );
       const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
       const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
         runtime,
@@ -165,7 +178,7 @@ export function createProductionAuthorityLifecycle(input: {
           observe: async (request) => {
             const inspect = publicationObservers.get(repo.repoId);
             if (!inspect) throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVER_UNAVAILABLE");
-            const changes = await state.replicaChangeLog.changesAfter(request.workspaceId, 0);
+            const changes = await replicaChangeLog.changesAfter(request.workspaceId, 0);
             const expectedOpIds = changes
               .filter((change) => change.commitSha === request.commitSha)
               .sort((left, right) => left.revision - right.revision)
@@ -194,7 +207,7 @@ export function createProductionAuthorityLifecycle(input: {
       });
       const committedEventPublisher = withProductionRecoveryV2({
         publisher: basePublisher,
-        replicaChangeLog: state.replicaChangeLog,
+        replicaChangeLog,
         operationRegistry: state.operationRegistry,
         bindingRuntime,
         eventLog,
@@ -207,12 +220,12 @@ export function createProductionAuthorityLifecycle(input: {
         keyStore: keyMaterial.keyStore,
         keyRegistry: keyMaterial.registry,
         bindingRuntime,
-        authoredRoot: resolveHarnessLayout({
-          rootDir: repo.canonicalRoot,
-          ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
-        }).authoredRoot,
+        authoredRoot,
         configurationDigest: authorityManifestSourceDigest(input.manifestPath),
         serviceStateRoot: manifest.serviceStateRoot,
+        replicationState: state.replicationState,
+        replicationContent,
+        replicaChangeLog,
         recovery
       };
       materials.set(repo.repoId, material);
@@ -223,7 +236,7 @@ export function createProductionAuthorityLifecycle(input: {
       const runRecovery = async () => recoverPendingProductionEvents({
         workspaceId: config.workspaceId,
         operationRegistry: state.operationRegistry,
-        replicaChangeLog: state.replicaChangeLog,
+        replicaChangeLog,
         eventLog,
         publicationInspector,
         recover: committedEventPublisher.recoverCommittedReceipt,
@@ -314,6 +327,15 @@ function createRepoComponent(
 ): ProductionAuthorityRepoComponent {
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
+  const readDownService = createAuthorityReadDownService({
+    workspaceId: material.config.workspaceId,
+    epoch: String(material.config.authorityGeneration),
+    gitRoot: material.authoredRoot,
+    state: material.replicationState,
+    replicaChangeLog: material.replicaChangeLog,
+    content: material.replicationContent,
+    publicationExecutor
+  });
   const repoGenerationFence = createRuntimeDaemonGenerationAuthorityFence({
     runtime: input.runtime,
     authorityFence: input.fenceWitness,
@@ -362,7 +384,7 @@ function createRepoComponent(
     viewId: material.config.viewId,
     canonicalRoot: material.config.canonicalRoot,
     stateDirectory: `${material.serviceStateRoot}/compound-receipts/${Buffer.from(material.config.repoId, "utf8").toString("base64url")}`,
-    replicaChangeLog: input.replicaChangeLog,
+    replicaChangeLog: material.replicaChangeLog,
     ...(repoGenerationFence ? {
       generationFence: createProductionCompoundReceiptGenerationFence(
         repoGenerationFence,
@@ -430,7 +452,8 @@ function createRepoComponent(
             protocol: material.config.schemaTuple,
             serverChannelNonceDigest: context.channelBinding.digest,
             submissionService: authorityService,
-            replicaChangeLog: input.replicaChangeLog
+            replicaChangeLog: material.replicaChangeLog,
+            readDownService
           });
           sessions.add(session);
           readable.once("close", () => sessions.delete(session));
@@ -483,7 +506,7 @@ function createConnectionAuthorityService(
     coordinatorFactory: input.attributedCoordinatorFactory,
     tokenVerifier: { verify: async () => { throw new Error("AUTHORITY_LEGACY_TOKEN_DISABLED"); } },
     operationRegistry: input.operationRegistry,
-    replicaChangeLog: input.replicaChangeLog,
+    replicaChangeLog: material.replicaChangeLog,
     publicationInspector,
     publicationExecutor,
     fenceWitness: input.fenceWitness,
@@ -517,46 +540,6 @@ function createSerialPublicationExecutor(): {
       return result;
     }
   };
-}
-
-function attestSubmissionService(
-  service: AuthoritySubmissionService,
-  context: AuthorityConnectionContext
-): AuthoritySubmissionService {
-  const assertAttested = () => assertTransportObservedAttestation(context);
-  return {
-    submit: async (envelope) => {
-      await assertAttested();
-      return service.submit(envelope);
-    },
-    ...(service.submitV2 ? {
-      submitV2: async (attempt: Parameters<NonNullable<AuthoritySubmissionService["submitV2"]>>[0]) => {
-        await assertAttested();
-        return service.submitV2!(attempt);
-      }
-    } : {}),
-    getOperation: async (workspaceId, opId) => {
-      await assertAttested();
-      return service.getOperation(workspaceId, opId);
-    }
-  };
-}
-
-async function assertTransportObservedAttestation(context: AuthorityConnectionContext): Promise<void> {
-  const channel = Buffer.from(context.channelBinding.digest).toString("hex");
-  const adapter = createTransportObservedAttestationAdapter(context);
-  const challenge = createAttestationChallenge({ verifierRole: "broker", channelBinding: channel });
-  const assertion = await answerAttestationChallenge(
-    challenge,
-    context.actor.resolvedCredential,
-    adapter.proofProvider
-  );
-  await verifyAttestationAssertion({
-    challenge,
-    assertion,
-    observedCredential: context.actor.resolvedCredential,
-    verifier: adapter.proofVerifier
-  });
 }
 
 function assertConnectionContext(

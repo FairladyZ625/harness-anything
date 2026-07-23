@@ -8,6 +8,44 @@ import type {
 } from "@harness-anything/application";
 
 export const authorityWireFrameType = "harness-authority-wire/v1" as const;
+export type Sha256Digest = ReplicaChangeRecord["manifest"]["digest"];
+
+export interface AuthoritySnapshotCut {
+  readonly workspaceId: string;
+  readonly epoch: string;
+  readonly revision: number;
+  readonly commitSha: string;
+  readonly manifestDigest: Sha256Digest;
+  readonly provenanceDigest: Sha256Digest;
+}
+
+export interface AuthoritySnapshotReservation {
+  readonly schema: "authority-snapshot-reservation/v1";
+  readonly cut: AuthoritySnapshotCut;
+  readonly lease: {
+    readonly leaseId: string;
+    readonly expiresAt: string;
+    readonly minRetainedRevision: number;
+    readonly pinnedBlobSetDigest: Sha256Digest;
+  };
+  readonly stream: {
+    readonly streamToken: string;
+    readonly fromRevision: number;
+  };
+}
+
+export interface AuthoritySnapshotManifest {
+  readonly schema: "authority-snapshot-manifest/v1";
+  readonly cut: AuthoritySnapshotCut;
+  readonly entries: ReadonlyArray<AuthoritySnapshotManifestEntry>;
+}
+
+export interface AuthoritySnapshotManifestEntry {
+  readonly path: string;
+  readonly blobDigest: Sha256Digest;
+  readonly mode: NonNullable<ReplicaChangeRecord["paths"][number]["mode"]>;
+  readonly tombstone: false;
+}
 
 interface AuthorityWireFrameBase {
   readonly type: typeof authorityWireFrameType;
@@ -42,13 +80,68 @@ export interface AuthorityGetOperationFrame extends AuthorityWireFrameBase {
   readonly opId: string;
 }
 
-export type AuthorityRequestFrame = AuthorityHelloFrame | AuthoritySubmitFrame | AuthoritySubmitV2Frame | AuthorityGetOperationFrame;
+export interface AuthorityBeginSnapshotFrame extends AuthorityWireFrameBase {
+  readonly kind: "begin_snapshot_and_subscribe";
+  readonly requestId: string;
+  readonly workspaceId: string;
+}
+
+export interface AuthorityGetSnapshotManifestFrame extends AuthorityWireFrameBase {
+  readonly kind: "get_snapshot_manifest";
+  readonly requestId: string;
+  readonly streamToken: string;
+  readonly manifestDigest: Sha256Digest;
+}
+
+export interface AuthorityGetBlobFrame extends AuthorityWireFrameBase {
+  readonly kind: "get_blob";
+  readonly requestId: string;
+  readonly streamToken: string;
+  readonly digest: Sha256Digest;
+}
+
+export interface AuthorityChangesAfterFrame extends AuthorityWireFrameBase {
+  readonly kind: "changes_after";
+  readonly requestId: string;
+  readonly workspaceId: string;
+  readonly streamToken: string;
+  readonly sinceRevision: number;
+}
+
+export interface AuthorityBlobResult {
+  readonly schema: "authority-blob/v1";
+  readonly digest: Sha256Digest;
+  readonly bytes: string;
+}
+
+export interface AuthorityChangesAfterResult {
+  readonly schema: "authority-changes-after/v1";
+  readonly sinceRevision: number;
+  readonly throughRevision: number;
+  readonly changes: ReadonlyArray<ReplicaChangeRecord>;
+}
+
+export type AuthorityReadDownResult =
+  | AuthoritySnapshotReservation
+  | AuthoritySnapshotManifest
+  | AuthorityBlobResult
+  | AuthorityChangesAfterResult;
+
+export type AuthorityRequestFrame =
+  | AuthorityHelloFrame
+  | AuthoritySubmitFrame
+  | AuthoritySubmitV2Frame
+  | AuthorityGetOperationFrame
+  | AuthorityBeginSnapshotFrame
+  | AuthorityGetSnapshotManifestFrame
+  | AuthorityGetBlobFrame
+  | AuthorityChangesAfterFrame;
 
 export interface AuthorityResponseFrame extends AuthorityWireFrameBase {
   readonly kind: "response";
   readonly requestId: string;
   readonly ok: boolean;
-  readonly result?: AuthorityOperationReceipt | AuthorityOperationRecord | AuthorityHelloResult | null;
+  readonly result?: AuthorityOperationReceipt | AuthorityOperationRecord | AuthorityHelloResult | AuthorityReadDownResult | null;
   readonly error?: { readonly code: string; readonly message: string };
 }
 
@@ -83,6 +176,18 @@ export function isAuthorityRequestFrame(value: unknown): value is AuthorityReque
   if (value.kind === "submit") return isObject(value.envelope);
   if (value.kind === "submit_v2") return typeof value.presentationToken === "string" && typeof value.envelope === "string";
   if (value.kind === "get_operation") return typeof value.workspaceId === "string" && typeof value.opId === "string";
+  if (value.kind === "begin_snapshot_and_subscribe") return typeof value.workspaceId === "string";
+  if (value.kind === "get_snapshot_manifest") {
+    return typeof value.streamToken === "string" && isSha256Digest(value.manifestDigest);
+  }
+  if (value.kind === "get_blob") return typeof value.streamToken === "string" && isSha256Digest(value.digest);
+  if (value.kind === "changes_after") {
+    return typeof value.workspaceId === "string"
+      && typeof value.streamToken === "string"
+      && typeof value.sinceRevision === "number"
+      && Number.isSafeInteger(value.sinceRevision)
+      && value.sinceRevision >= 0;
+  }
   return false;
 }
 
@@ -125,4 +230,8 @@ function isProtocolTuple(value: unknown): value is AuthorityNegotiatedProtocol {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSha256Digest(value: unknown): value is Sha256Digest {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value);
 }

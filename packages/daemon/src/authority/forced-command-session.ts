@@ -9,8 +9,13 @@ import {
   isAuthorityRequestFrame,
   sameAuthorityProtocol,
   type AuthorityNegotiatedProtocol,
+  type AuthorityBlobResult,
+  type AuthorityChangesAfterResult,
+  type AuthoritySnapshotManifest,
+  type AuthoritySnapshotReservation,
   type AuthorityResponseFrame,
-  type AuthorityServerFrame
+  type AuthorityServerFrame,
+  type Sha256Digest
 } from "./protocol.ts";
 import {
   createLengthPrefixedFrameReader,
@@ -38,9 +43,17 @@ export interface AuthorityForcedCommandOptions {
   readonly serverChannelNonceDigest?: Uint8Array;
   readonly submissionService: AuthoritySubmissionService;
   readonly replicaChangeLog: ReplicaChangeLog;
+  readonly readDownService?: AuthorityReadDownService;
   readonly maxFrameBytes?: number;
   readonly maxQueuedFrames?: number;
   readonly observer?: AuthorityTransportObserver;
+}
+
+export interface AuthorityReadDownService {
+  readonly beginSnapshot: () => Promise<AuthoritySnapshotReservation>;
+  readonly getManifest: (streamToken: string, digest: Sha256Digest) => Promise<AuthoritySnapshotManifest>;
+  readonly getBlob: (streamToken: string, digest: Sha256Digest) => Promise<AuthorityBlobResult>;
+  readonly changesAfter: (streamToken: string, sinceRevision: number) => Promise<AuthorityChangesAfterResult>;
 }
 
 export interface AuthorityForcedCommandSession {
@@ -58,6 +71,9 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   let queueDepth = 0;
   let closed = false;
   let queue = Promise.resolve();
+  let unsubscribe: (() => void) | undefined;
+  let subscribedAfterRevision: number | undefined;
+  const pendingHints: import("@harness-anything/application").ReplicaChangeRecord[] = [];
 
   options.input.on("data", (chunk: Buffer) => {
     const batch = reader.push(chunk);
@@ -73,6 +89,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   return {
     close: async () => {
       closed = true;
+      unsubscribe?.();
       await queue;
       options.input.destroy();
       options.output.end();
@@ -127,6 +144,12 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
           "single-writer",
           "op-id-dedupe",
           "replica-change/v1",
+          ...(options.readDownService ? [
+            "begin-snapshot-and-subscribe/v1",
+            "authority-snapshot-manifest/v1",
+            "authority-blob/v1",
+            "authority-changes-after/v1"
+          ] : []),
           "view-scoped-delegation-token",
           ...(negotiatedV2 ? ["actor-axes-binding/v2", "semantic-mutation-envelope/v2"] : [])
         ]
@@ -140,6 +163,51 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     }
     if (value.connectionGeneration !== generation) return;
     options.observer?.observe({ kind: "request", connectionGeneration: generation, requestId: value.requestId, opId: value.kind === "submit" ? value.envelope.opId : undefined, queueDepth });
+    if (value.kind === "begin_snapshot_and_subscribe") {
+      if (!options.readDownService || value.workspaceId !== options.workspaceId) {
+        write(response(value.requestId, generation, false, undefined, "READ_DOWN_UNAVAILABLE", "Authority read-down is not available for this workspace."));
+        return;
+      }
+      unsubscribe?.();
+      subscribedAfterRevision = undefined;
+      pendingHints.length = 0;
+      unsubscribe = options.replicaChangeLog.subscribe(options.workspaceId, (change) => {
+        if (subscribedAfterRevision === undefined) {
+          pendingHints.push(change);
+        } else if (change.revision > subscribedAfterRevision) {
+          writeReplicaHint(change);
+        }
+      });
+      try {
+        const reservation = await options.readDownService.beginSnapshot();
+        subscribedAfterRevision = reservation.cut.revision;
+        write(response(value.requestId, generation, true, reservation));
+        for (const change of pendingHints.splice(0)) {
+          if (change.revision > reservation.cut.revision) writeReplicaHint(change);
+        }
+      } catch (error) {
+        unsubscribe?.();
+        unsubscribe = undefined;
+        writeReadDownError(value.requestId, error);
+      }
+      return;
+    }
+    if (value.kind === "get_snapshot_manifest") {
+      await handleReadDown(value.requestId, () => options.readDownService!.getManifest(value.streamToken, value.manifestDigest));
+      return;
+    }
+    if (value.kind === "get_blob") {
+      await handleReadDown(value.requestId, () => options.readDownService!.getBlob(value.streamToken, value.digest));
+      return;
+    }
+    if (value.kind === "changes_after") {
+      if (value.workspaceId !== options.workspaceId) {
+        write(response(value.requestId, generation, false, undefined, "WORKSPACE_MISMATCH", "Read-down cursor belongs to another workspace."));
+        return;
+      }
+      await handleReadDown(value.requestId, () => options.readDownService!.changesAfter(value.streamToken, value.sinceRevision));
+      return;
+    }
     if (value.kind === "get_operation") {
       if (negotiatedV2) {
         write(response(value.requestId, generation, false, undefined, "AUTHORIZATION_REQUIRED", "V2 outcome queries require a current coarse-authority presentation."));
@@ -181,7 +249,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
         });
         if (receipt.tag === "COMMITTED") {
           const change = await options.replicaChangeLog.getByOperation(receipt.workspaceId, receipt.opId);
-          if (change) write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+          if (change && !unsubscribe) writeReplicaHint(change);
         }
       } catch (error) {
         write(response(value.requestId, generation, false, undefined, "AUTHORITY_REJECTED", safeErrorMessage(error)));
@@ -208,7 +276,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     });
     if (receipt.tag === "COMMITTED") {
       const change = await options.replicaChangeLog.getByOperation(value.envelope.workspaceId, value.envelope.opId);
-      if (change) write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+      if (change && !unsubscribe) writeReplicaHint(change);
     }
   }
 
@@ -241,12 +309,14 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
       lastDurableRevision: latest?.revision ?? 0,
       message
     });
+    unsubscribe?.();
     closed = true;
     options.output.end();
   }
 
   function closeWithError(code: string, message: string): void {
     if (closed) return;
+    unsubscribe?.();
     write(response("transport", generation, false, undefined, code, message));
     closed = true;
     options.output.end();
@@ -254,6 +324,31 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
 
   function write(frame: AuthorityServerFrame): void {
     if (!closed) options.output.write(encodeLengthPrefixedFrame(frame, maxFrameBytes));
+  }
+
+  function writeReplicaHint(change: import("@harness-anything/application").ReplicaChangeRecord): void {
+    write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+  }
+
+  async function handleReadDown(
+    requestId: string,
+    read: () => Promise<NonNullable<AuthorityResponseFrame["result"]>>
+  ): Promise<void> {
+    if (!options.readDownService) {
+      write(response(requestId, generation, false, undefined, "READ_DOWN_UNAVAILABLE", "Authority read-down is not enabled."));
+      return;
+    }
+    try {
+      write(response(requestId, generation, true, await read()));
+    } catch (error) {
+      writeReadDownError(requestId, error);
+    }
+  }
+
+  function writeReadDownError(requestId: string, error: unknown): void {
+    const message = safeErrorMessage(error);
+    const knownCode = /^(?:SNAPSHOT_EXPIRED|RESYNC_REQUIRED|BLOB_DIGEST_MISMATCH|MANIFEST_DIGEST_MISMATCH)(?::|$)/u.exec(message)?.[0]?.replace(/:$/u, "");
+    write(response(requestId, generation, false, undefined, knownCode ?? "READ_DOWN_FAILED", message));
   }
 }
 
