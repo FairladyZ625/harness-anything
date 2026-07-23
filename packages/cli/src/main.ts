@@ -35,6 +35,7 @@ import { daemonRuntimeLayoutOverrides } from "./daemon/daemon-serve-launch-optio
 import {
   createCliProductionAuthorityLifecycle as createProductionAuthorityLifecycle
 } from "./composition/production-authority-lifecycle.ts";
+import { daemonServeAdmissionOptions } from "./daemon/daemon-serve-settings.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
 import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
@@ -249,7 +250,8 @@ async function runDaemonServe(
     entrypoint,
     idleMs: parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true }),
     preflightReplacement: preflightDaemonLaunch,
-    runtimePolicy: resolveDaemonRuntimePolicy(process.env, projectSettings.settings.daemonRuntime)
+    runtimePolicy: resolveDaemonRuntimePolicy(process.env, projectSettings.settings.daemonRuntime),
+    ...daemonServeAdmissionOptions(projectSettings.settings)
   }, cliDaemonServiceHostServices, {
     persistLaunchConfiguration: (userRoot, configuration, effectiveOptions) => restoredSpec
       .withEffectiveOptions(effectiveOptions)

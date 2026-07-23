@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon";
 import { readProjectHarnessSettings } from "../src/commands/settings.ts";
+import { daemonServeAdmissionOptions } from "../src/daemon/daemon-serve-settings.ts";
 import { readDaemonClientConfig, resolveLocalDaemonTarget } from "../src/daemon/client.ts";
 
 test("project daemon user root resolves once for config, registry target, socket, and autostart", () => {
@@ -157,6 +158,27 @@ test("daemon user root reads settings through an authored-root override", () => 
     const expected = path.join(rootDir, "state/authority-daemon");
     assert.equal(readDaemonClientConfig(env, rootDir, undefined, undefined, layoutOverrides).userRoot, expected);
     assert.equal(resolveLocalDaemonTarget({ rootDir, env, layoutOverrides }).userRoot, expected);
+  });
+});
+
+test("daemon serve maps settings.daemon.admission.maxBytes into runtime admission options", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  daemon:",
+      "    admission:",
+      "      maxBytes: 10485760",
+      ""
+    ]);
+
+    const settings = readProjectHarnessSettings(rootDir, "daemon-serve");
+    assert.equal(settings.ok, true);
+    if (!settings.ok) return;
+    assert.deepEqual(settings.settings.daemon?.admission, { maxBytes: 10 * 1024 * 1024 });
+    assert.deepEqual(daemonServeAdmissionOptions(settings.settings), {
+      admissionMaxBytes: 10 * 1024 * 1024
+    });
   });
 });
 

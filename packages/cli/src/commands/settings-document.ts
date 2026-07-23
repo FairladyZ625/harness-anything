@@ -45,6 +45,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inIdentity = false;
   let inDaemon = false;
   let inDaemonRemote = false;
+  let inDaemonAdmission = false;
   let inTasks = false;
   let inDaemonRuntime = false;
   let inExecution = false;
@@ -63,6 +64,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = false;
       inDaemon = false;
       inDaemonRemote = false;
+      inDaemonAdmission = false;
       inTasks = false;
       inDaemonRuntime = false;
       inExecution = false;
@@ -86,6 +88,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       inIdentity = key === "identity";
       inDaemon = key === "daemon";
       inDaemonRemote = false;
+      inDaemonAdmission = false;
       inTasks = key === "tasks";
       inDaemonRuntime = key === "daemonRuntime";
       inExecution = key === "execution";
@@ -151,13 +154,19 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
     }
     if (inDaemon && customNested) {
       const [, key, rawValue = ""] = customNested;
-      if (key !== "userRoot" && key !== "remote") throw new Error(`Unknown settings.daemon key: ${key}`);
+      if (key !== "userRoot" && key !== "remote" && key !== "admission") throw new Error(`Unknown settings.daemon key: ${key}`);
       const value = rawValue.trim();
       inDaemonRemote = key === "remote";
+      inDaemonAdmission = key === "admission";
       const priorDaemon = isRecord(settings.daemon) ? settings.daemon : {};
       if (inDaemonRemote) {
         if (value) throw new Error("settings.daemon.remote must be a mapping.");
         settings.daemon = { ...priorDaemon, remote: {} };
+        continue;
+      }
+      if (inDaemonAdmission) {
+        if (value) throw new Error("settings.daemon.admission must be a mapping.");
+        settings.daemon = { ...priorDaemon, admission: {} };
         continue;
       }
       if (!value) throw new Error("settings.daemon.userRoot must be a scalar value.");
@@ -213,6 +222,15 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       const priorDaemon = isRecord(settings.daemon) ? settings.daemon : {};
       const priorRemote = isRecord(priorDaemon.remote) ? priorDaemon.remote : {};
       settings.daemon = { ...priorDaemon, remote: { ...priorRemote, [key]: unquoteScalar(value) } };
+      continue;
+    }
+    if (inDaemon && inDaemonAdmission && deepNested) {
+      const [, key, rawValue = ""] = deepNested;
+      if (key !== "maxBytes") throw new Error(`Unknown settings.daemon.admission key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error("settings.daemon.admission.maxBytes must be a scalar value.");
+      const priorDaemon = isRecord(settings.daemon) ? settings.daemon : {};
+      settings.daemon = { ...priorDaemon, admission: { maxBytes: unquoteScalar(value) } };
       continue;
     }
     if (inAdapters && inMultica && deepNested) {

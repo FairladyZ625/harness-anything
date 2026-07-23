@@ -1,11 +1,22 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
 import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import { daemonAttribution } from "./helpers/daemon-runtime.ts";
 
 const admissionAttribution = daemonAttribution("person_admission", "agent_admission", "credential-admission");
+const tenMegabytes = 10 * 1024 * 1024;
+
+test("runtime admission keeps the 1MB fallback when maxBytes is not configured", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false
+    });
+    assert.equal(runtime.admissionBudget.snapshot().limits.maxBytes, 1024 * 1024);
+  });
+});
 
 test("JSON-RPC queue retries temporary admission pressure after the reservation is released", async () => {
   await withTempStoreAsync(async (rootDir) => {
@@ -63,6 +74,48 @@ test("JSON-RPC queue keeps rejecting an oversized batch as non-retryable", async
     });
     await assert.rejects(request(), oversizedPayloadError);
     await assert.rejects(request(), oversizedPayloadError);
+    await runtime.stop();
+  });
+});
+
+test("10MB runtime admission configuration allows a 3MB payload", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const runtime = createMultiRepoDaemonRuntime({
+      repos: [{ repoId: "canonical", rootDir }],
+      materializerPollMs: false,
+      admissionMaxBytes: tenMegabytes
+    });
+    await runtime.start();
+    await runtime.enqueueInteractiveWrite("canonical", {
+      commandId: "cmd-three-megabytes",
+      attribution: admissionAttribution,
+      ops: [docWrite("op-three-megabytes", "task-three-megabytes", "note.md", "x".repeat(3 * 1024 * 1024))]
+    });
+    assert.equal(runtime.getRepoRuntime("canonical")?.admissionBudget.snapshot().limits.maxBytes, tenMegabytes);
+    await runtime.stop();
+  });
+});
+
+test("10MB runtime admission configuration still rejects a payload above 10MB", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const runtime = createMultiRepoDaemonRuntime({
+      repos: [{ repoId: "canonical", rootDir }],
+      materializerPollMs: false,
+      admissionMaxBytes: tenMegabytes
+    });
+    await runtime.start();
+    await assert.rejects(
+      runtime.enqueueInteractiveWrite("canonical", {
+        commandId: "cmd-above-ten-megabytes",
+        attribution: admissionAttribution,
+        ops: [docWrite("op-above-ten-megabytes", "task-above-ten-megabytes", "note.md", "x".repeat(tenMegabytes + 1))]
+      }),
+      (error: unknown) => {
+        assert.equal(error !== null && typeof error === "object" && "code" in error ? error.code : undefined, "admission_payload_exceeds_limit");
+        assert.match(error !== null && typeof error === "object" && "reason" in error ? String(error.reason) : "", /limit 10420224/u);
+        return true;
+      }
+    );
     await runtime.stop();
   });
 });
