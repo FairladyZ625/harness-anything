@@ -78,6 +78,32 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    filesExistingAtCommit: (repoRoot, sha, input) => {
+      assertCanonicalFileMembershipInput(input);
+      const expectedByBytes = new Map(
+        input.relativePaths.map((relativePath) => [gitPathBytesKey(Buffer.from(relativePath, "utf8")), relativePath])
+      );
+      if (expectedByBytes.size === 0) return new Set();
+      const rootPathspec = input.relativeRoot.length === 0
+        ? []
+        : ["--", `:(top,literal)${input.relativeRoot}`];
+      const listing = runGitBytes(
+        repoRoot,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--full-tree",
+        "--name-only",
+        sha,
+        ...rootPathspec
+      );
+      const existing = new Set<string>();
+      for (const listedPath of nullDelimitedGitPaths(listing)) {
+        const expectedPath = expectedByBytes.get(gitPathBytesKey(listedPath));
+        if (expectedPath) existing.add(expectedPath);
+      }
+      return existing;
+    },
     checkout: (repoRoot, ref) => {
       runGit(repoRoot, "checkout", ref);
     },
@@ -200,6 +226,52 @@ function runGitBytes(repoRoot: string, ...args: ReadonlyArray<string>): Uint8Arr
     });
   } catch (error) {
     throw vcsCommandError(repoRoot, args, error);
+  }
+}
+
+function nullDelimitedGitPaths(input: Uint8Array): ReadonlyArray<Uint8Array> {
+  const paths: Uint8Array[] = [];
+  let start = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    if (input[index] !== 0) continue;
+    paths.push(input.subarray(start, index));
+    start = index + 1;
+  }
+  if (start !== input.length) {
+    throw new Error("GIT_PATH_LIST_NUL_TERMINATOR_MISSING");
+  }
+  return paths;
+}
+
+function gitPathBytesKey(input: Uint8Array): string {
+  return Buffer.from(input).toString("base64");
+}
+
+function assertCanonicalFileMembershipInput(input: {
+  readonly relativeRoot: string;
+  readonly relativePaths: ReadonlyArray<string>;
+}): void {
+  assertCanonicalGitPath(input.relativeRoot, "relativeRoot", true);
+  for (const relativePath of input.relativePaths) {
+    assertCanonicalGitPath(relativePath, "relativePath", false);
+    if (input.relativeRoot.length > 0 && !relativePath.startsWith(`${input.relativeRoot}/`)) {
+      throw new Error("GIT_FILE_MEMBERSHIP_PATH_OUTSIDE_ROOT");
+    }
+  }
+}
+
+function assertCanonicalGitPath(value: string, label: string, allowEmpty: boolean): void {
+  if (value.length === 0 && allowEmpty) return;
+  if (value.length === 0
+    || value === "."
+    || value.includes("\\")
+    || value.includes("\0")
+    || path.posix.isAbsolute(value)
+    || value === ".."
+    || value.startsWith("../")
+    || path.posix.normalize(value) !== value
+    || value.endsWith("/")) {
+    throw new Error(`GIT_FILE_MEMBERSHIP_${label.toUpperCase()}_INVALID`);
   }
 }
 

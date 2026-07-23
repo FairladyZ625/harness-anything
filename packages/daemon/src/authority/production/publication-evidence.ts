@@ -104,14 +104,28 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
       // satisfy its canonical bytes, key and digest contracts.
       makeLocalAuthorityAttributionEventV2Log(rootInput).scanIntegrity();
       const head = vcs.currentHead(repoRoot);
-      const pendingPaths = readdirSync(layout.authorityAttributionEventsV2Root, { withFileTypes: true })
+      const normalizedRepoRoot = vcs.normalizePath(repoRoot);
+      const relativeRoot = repoRelativePath(
+        normalizedRepoRoot,
+        vcs.normalizePath(layout.authorityAttributionEventsV2Root)
+      );
+      const localPaths = readdirSync(layout.authorityAttributionEventsV2Root, { withFileTypes: true })
         .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
         .map((entry) => repoRelativePath(
-          vcs.normalizePath(repoRoot),
+          normalizedRepoRoot,
           vcs.normalizePath(path.join(layout.authorityAttributionEventsV2Root, entry.name))
         ))
-        .filter((relativePath) => !vcs.pathExistsAtCommit(repoRoot, head, relativePath))
         .sort();
+      let existingPaths: ReadonlySet<string>;
+      try {
+        existingPaths = vcs.filesExistingAtCommit(repoRoot, head, {
+          relativeRoot,
+          relativePaths: localPaths
+        });
+      } catch (cause) {
+        throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_TREE_READ_FAILED", { cause });
+      }
+      const pendingPaths = localPaths.filter((relativePath) => !existingPaths.has(relativePath));
       if (pendingPaths.length === 0) return;
 
       const pending = new Set(pendingPaths);
