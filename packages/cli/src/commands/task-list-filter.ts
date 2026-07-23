@@ -14,7 +14,7 @@ export function filterTaskProjectionRows(
     if (filters.workKind && row.workKind !== filters.workKind) return false;
     if (filters.riskTier && row.riskTier !== filters.riskTier) return false;
     if (filters.urgency && row.urgency !== filters.urgency) return false;
-    if (filters.treeRoot && row.treeRoot !== filters.treeRoot) return false;
+    if (filters.parent && row.parentTaskId !== filters.parent) return false;
     if (filters.liveness && row.liveness !== filters.liveness) return false;
     if (filters.review && !matchesReview(row, filters.review)) return false;
     if (filters.lesson && !matchesLesson(row, filters.lesson)) return false;

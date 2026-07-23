@@ -37,6 +37,7 @@ export interface TaskListFilters {
   readonly riskTier?: PriorityTier;
   readonly urgency?: PriorityTier;
   readonly treeRoot?: string;
+  readonly parent?: string;
   readonly liveness?: "in_flight" | "stale";
   readonly review?: string;
   readonly lesson?: TaskListLessonFilter;
