@@ -16,7 +16,9 @@ import {
 } from "@harness-anything/application";
 import {
   createBrokerCompoundReceiptCoordinatorV2,
-  ReplicaBroker
+  RemoteBrokerRuntime,
+  ReplicaBroker,
+  type RemoteReadDownSessionOptions
 } from "@harness-anything/daemon";
 import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-store.ts";
 
@@ -26,6 +28,8 @@ import { createDurableCompoundReceiptStoreV2 } from "./durable-compound-receipt-
  * process-local cache.
  */
 export interface ProductionCompoundReceiptComposition {
+  readonly start: () => Promise<void>;
+  readonly stop: () => Promise<void>;
   readonly openWaiter: (input: { readonly requestId: string; readonly opId: string }) => Promise<WaiterOpenedFrameV1>;
   readonly recordAuthority: (identity: ReceiptIdentityV2, receipt: AuthorityOperationReceipt) => Promise<ResultPreparedFrameV1 | CompoundOperationReceiptV2>;
   readonly acknowledge: (input: Omit<Parameters<ProductionCompoundReceiptComposition["recover"]>[0], "requestId"> & {
@@ -60,7 +64,8 @@ export function createProductionCompoundReceiptComposition(input: {
   readonly viewId: string;
   readonly canonicalRoot: string;
   readonly stateDirectory: string;
-  readonly replicaChangeLog: ReplicaChangeLog;
+  readonly replicaChangeLog?: ReplicaChangeLog;
+  readonly remoteReadDown?: Omit<RemoteReadDownSessionOptions, "workspaceId" | "stateRoot">;
   readonly generationFence?: {
     readonly runExclusive: <Result>(
       input: { readonly workspaceId: string; readonly opId: string },
@@ -82,20 +87,42 @@ export function createProductionCompoundReceiptComposition(input: {
       ...(input.generationFence ? { generationFence: input.generationFence } : {})
     })
   });
-  const coordinator = createBrokerCompoundReceiptCoordinatorV2({
-    receipts,
-    broker: new ReplicaBroker({
+  const brokerStateRoot = path.join(input.stateDirectory, "broker");
+  const remoteRuntime = input.remoteReadDown
+    ? new RemoteBrokerRuntime({
+        workspaceId: input.workspaceId,
+        viewId: input.viewId,
+        viewRoot: input.canonicalRoot,
+        stateRoot: brokerStateRoot,
+        session: input.remoteReadDown,
+        writerExclusion: processWriterExclusion(),
+        watcherFence: processWatcherFence()
+      })
+    : undefined;
+  if (!remoteRuntime && !input.replicaChangeLog) {
+    throw new Error("local compound receipt composition requires a replica change log");
+  }
+  const broker = remoteRuntime?.broker ?? new ReplicaBroker({
       workspaceId: input.workspaceId,
       viewId: input.viewId,
       viewRoot: input.canonicalRoot,
-      stateRoot: path.join(input.stateDirectory, "broker"),
-      replicaChangeLog: input.replicaChangeLog,
+      stateRoot: brokerStateRoot,
+      replicaChangeLog: input.replicaChangeLog!,
       snapshotSource: { snapshotAt: (change) => gitSnapshot(input.canonicalRoot, change.workspaceId, change.revision, change.commitSha) },
       writerExclusion: processWriterExclusion(),
       watcherFence: processWatcherFence()
-    })
+    });
+  const coordinator = createBrokerCompoundReceiptCoordinatorV2({
+    receipts,
+    broker
   });
   return {
+    start: async () => {
+      if (remoteRuntime) await remoteRuntime.start();
+    },
+    stop: async () => {
+      await remoteRuntime?.stop();
+    },
     openWaiter: async ({ requestId, opId }) => {
       const frame = await coordinator.wire.handle({
         type: "harness-compound-receipt-wire/v1",

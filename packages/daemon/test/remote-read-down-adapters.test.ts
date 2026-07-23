@@ -468,7 +468,7 @@ class FakeReadDownClient {
     this.connectRequests += 1;
     if (this.connectFailures > 0) {
       this.connectFailures -= 1;
-      throw new Error("scripted connect failure");
+      throw new AuthorityTransportDisconnectedError("scripted connect failure");
     }
   }
 
@@ -476,7 +476,7 @@ class FakeReadDownClient {
     this.reconnectRequests += 1;
     if (this.connectFailures > 0) {
       this.connectFailures -= 1;
-      throw new Error("scripted reconnect failure");
+      throw new AuthorityTransportDisconnectedError("scripted reconnect failure");
     }
     if (this.advanceOnReconnect && this.snapshotIndex < this.snapshots.length - 1) this.snapshotIndex += 1;
   }
