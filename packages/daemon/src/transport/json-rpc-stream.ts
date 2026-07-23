@@ -1,14 +1,27 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import type { Readable, Writable } from "node:stream";
 import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import type { JsonRpcErrorResponse, JsonRpcId, JsonRpcNotification, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type {
+  JsonRpcErrorResponse,
+  JsonRpcId,
+  JsonRpcNotification,
+  JsonRpcRequest,
+  JsonRpcResponse
+} from "../protocol/json-rpc-types.ts";
 import type {
   AcceptedConnectionEvidence,
   DaemonAuthenticationContext,
   DaemonTransportKind
 } from "./auth-context.ts";
 import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
+import {
+  createDaemonRequestPerformanceTrace,
+  runWithDaemonRequestPerformanceTrace,
+  type DaemonRequestPerformanceOutcome,
+  type DaemonRequestPerformanceTrace
+} from "../observability/request-performance.ts";
 
 export interface DaemonTransportConnection {
   readonly connectionId: string;
@@ -67,6 +80,9 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
   let serverClosed = false;
+  let inputEnded = false;
+  let requestSequence = 0;
+  const activeRequestFinishes = new Set<(outcome: DaemonRequestPerformanceOutcome) => void>();
 
   options.input.on("data", (chunk: Buffer | string) => {
     const batch = reader.push(chunk);
@@ -74,14 +90,22 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     if (batch.error) failConnection(parseError(batch.error));
   });
   options.input.on("end", () => {
+    inputEnded = true;
     const batch = reader.flush();
     enqueueFrames(batch.frames);
     if (batch.error) failConnection(parseError(batch.error));
     queue = queue.then(closeProtocolServer);
   });
   options.input.on("error", (error: Error) => failConnection(error));
-  options.input.once("close", invalidateGeneration);
-  options.output.on("error", (error: Error) => options.onError?.(error));
+  options.input.once("close", () => {
+    if (!inputEnded) finishActiveRequests("connection-closed");
+    invalidateGeneration();
+  });
+  options.output.on("error", (error: Error) => {
+    finishActiveRequests("response-write-error");
+    options.onError?.(error);
+  });
+  options.output.once("close", () => finishActiveRequests("connection-closed"));
   options.input.resume();
 
   return {
@@ -104,14 +128,15 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   };
 
   function enqueueFrames(frames: ReadonlyArray<unknown>): void {
+    const receivedAtMs = performance.now();
     for (const frame of frames) {
-      queue = queue.then(() => handleFrame(frame)).catch((error: unknown) => {
+      queue = queue.then(() => handleFrame(frame, receivedAtMs)).catch((error: unknown) => {
         failConnection(error instanceof Error ? error : new Error(String(error)));
       });
     }
   }
 
-  async function handleFrame(frame: unknown): Promise<void> {
+  async function handleFrame(frame: unknown, receivedAtMs: number): Promise<void> {
     if (waitingForAuthentication) {
       const result = options.authenticateFirstFrame?.(frame, authContext);
       if (!result?.ok) {
@@ -129,20 +154,79 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
+    const request = frame as JsonRpcRequest | JsonRpcRequest[];
+    const requests = Array.isArray(request) ? request : [request];
+    const handled = await Promise.all(
+      requests.map((item) => handleProtocolRequest(item, receivedAtMs, ++requestSequence))
+    );
+    const responseItems = handled.filter((item) => item.response !== undefined);
+    for (const item of handled) {
+      if (item.response === undefined) item.finish(item.outcome);
+    }
+    if (responseItems.length === 0) return;
+
+    const endResponse = responseItems.map((item) => item.trace?.begin("response"));
+    const responses = responseItems.flatMap((item) =>
+      Array.isArray(item.response) ? item.response : [item.response!]
+    );
     try {
-      const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[]);
-      if (response !== undefined) {
-        writeFrame(response);
+      await writeResponseFrame(Array.isArray(request) ? responses : responseItems[0]!.response!);
+      endResponse.forEach((end) => end?.());
+      responseItems.forEach((item) => item.finish(item.outcome));
+      try {
         server.afterResponse?.();
+      } catch (error) {
+        options.onError?.(error instanceof Error ? error : new Error(String(error)));
       }
     } catch (error) {
+      endResponse.forEach((end) => end?.());
+      responseItems.forEach((item) => item.finish("response-write-error"));
       options.onError?.(error instanceof Error ? error : new Error(String(error)));
-      const response = handlerErrorResponse(frame as JsonRpcRequest | JsonRpcRequest[], error);
-      if (response !== undefined) writeFrame(response);
     }
   }
 
+  async function handleProtocolRequest(
+    request: JsonRpcRequest,
+    receivedAtMs: number,
+    sequence: number
+  ): Promise<{
+    readonly response: JsonRpcResponse | JsonRpcResponse[] | undefined;
+    readonly outcome: "response-written" | "handler-error";
+    readonly trace: DaemonRequestPerformanceTrace | undefined;
+    readonly finish: (outcome: DaemonRequestPerformanceOutcome) => void;
+  }> {
+    const trace = requestPerformanceTrace(request, receivedAtMs, connectionId, sequence);
+    const eventLoopUtilizationBaseline = performance.eventLoopUtilization();
+    let traceFinished = false;
+    function finishTrace(outcome: DaemonRequestPerformanceOutcome): void {
+      if (!trace || traceFinished) return;
+      traceFinished = true;
+      activeRequestFinishes.delete(finishTrace);
+      const eventLoop = performance.eventLoopUtilization(eventLoopUtilizationBaseline);
+      trace.finish(outcome, eventLoop.active, eventLoop.utilization);
+    }
+    if (trace) activeRequestFinishes.add(finishTrace);
+    return runWithDaemonRequestPerformanceTrace(trace, async () => {
+      const endHandler = trace?.begin("handler");
+      try {
+        const response = await server!.handle(request);
+        endHandler?.();
+        return { response, outcome: "response-written", trace, finish: finishTrace };
+      } catch (error) {
+        endHandler?.();
+        options.onError?.(error instanceof Error ? error : new Error(String(error)));
+        return {
+          response: handlerErrorResponse(request, error),
+          outcome: "handler-error",
+          trace,
+          finish: finishTrace
+        };
+      }
+    });
+  }
+
   function failConnection(error: Error): void {
+    finishActiveRequests("connection-closed");
     invalidateGeneration();
     options.onError?.(error);
     writeFrame(streamErrorResponse(null, -32700, error.message));
@@ -160,6 +244,23 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.output.write(encodeJsonLineFrame(frame));
   }
 
+  function writeResponseFrame(frame: unknown): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        options.output.write(encodeJsonLineFrame(frame), (error: Error | null | undefined) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function finishActiveRequests(outcome: DaemonRequestPerformanceOutcome): void {
+    for (const finish of [...activeRequestFinishes]) finish(outcome);
+  }
+
   function invalidateGeneration(): void {
     generationActive = false;
   }
@@ -175,6 +276,22 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       }
     });
   }
+}
+
+function requestPerformanceTrace(
+  request: JsonRpcRequest,
+  receivedAtMs: number,
+  connectionId: string,
+  sequence: number
+): DaemonRequestPerformanceTrace | undefined {
+  if (request.id === undefined || request.id === null) return undefined;
+  const trace = createDaemonRequestPerformanceTrace({
+    method: request.method,
+    requestId: `${connectionId}\0${sequence}\0${String(request.id)}`,
+    receivedAtMs
+  });
+  trace.record("transport-queue", performance.now() - receivedAtMs);
+  return trace;
 }
 
 function assertEvidenceMatchesConnection(
