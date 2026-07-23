@@ -21,6 +21,11 @@ import {
   testFilesFromProcessCommand
 } from "./node-test-runner-lib.mjs";
 import { createNodeTestStallPolicy } from "./node-test-stall-policy.mjs";
+import {
+  capturePreKillDiagnostics,
+  STALL_REPORT_GRACE_MS,
+  STALL_TOTAL_ABORT_GRACE_MS
+} from "./node-test-stall-diagnostics.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
@@ -105,6 +110,7 @@ const concurrencyArgs =
 const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
 const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
 const timingPath = path.join(timingRoot, "results.xml");
+const stallReportRoot = mkdtempSync(path.join(timingRoot, "stall-reports-"));
 const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
   DEFAULT_STALL_DIAGNOSTIC_MS
@@ -123,6 +129,10 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
     "--test-force-exit",
+    "--report-on-signal",
+    "--report-signal=SIGUSR2",
+    "--report-exclude-env",
+    `--report-directory=${stallReportRoot}`,
     ...concurrencyArgs,
     ...timeoutArgs,
     ...selection.files
@@ -190,7 +200,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
           : undefined,
         stalledFiles: decision.abort.kind === "isolation-wedge"
           ? decision.abort.files
-          : snapshotFiles
+          : snapshotFiles,
+        processGroupMembers
       });
     } finally {
       stallTickStarted = false;
@@ -296,7 +307,15 @@ function emitStallDiagnostics({
  * caught and fail, rather than stay silent until the CI job's own timeout kills
  * it with no test named.
  */
-async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyReported, isolationChildPid, stalledFiles }) {
+async function abortStalledRun({
+  child,
+  silentMs,
+  silentWindows,
+  timeoutAlreadyReported,
+  isolationChildPid,
+  stalledFiles,
+  processGroupMembers = []
+}) {
   // When `--test-timeout` already fired, the failing test is named and this is
   // just the timeout path's own cleanup arriving early: the run lingers only
   // because a leaked descendant holds the process group open.
@@ -307,9 +326,7 @@ async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyR
       return;
     }
     if (child.pid === undefined) return;
-    signalProcessGroup(child.pid, "SIGTERM");
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
-    signalProcessGroup(child.pid, "SIGKILL");
+    await diagnoseThenTerminateStalledTree(child.pid, processGroupMembers, isolationChildPid);
     return;
   }
   if (process.platform === "win32") {
@@ -326,9 +343,47 @@ async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyR
   console.error(namedFiles.length > 0
     ? `[node-test-stall] stalled test file(s): ${namedFiles.join(", ")}`
     : "[node-test-stall] stalled test file could not be identified from the process group");
-  signalProcessGroup(child.pid, "SIGTERM");
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
-  signalProcessGroup(child.pid, "SIGKILL");
+  await diagnoseThenTerminateStalledTree(child.pid, processGroupMembers, isolationChildPid);
+}
+
+async function diagnoseThenTerminateStalledTree(hostPid, processGroupMembers, isolationChildPid) {
+  const startedAt = performance.now();
+  let diagnosticDeadlineTimer;
+  await Promise.race([
+    capturePreKillDiagnostics({
+      members: processGroupMembers,
+      hostPid,
+      repoRoot,
+      reportDirectory: stallReportRoot,
+      preferredPid: isolationChildPid
+    }).catch((error) => {
+      console.error(
+        `[node-test-stall] pre-kill diagnostics failed; continuing termination: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }),
+    new Promise((resolveDeadline) => {
+      diagnosticDeadlineTimer = setTimeout(() => {
+        console.error(
+          `[node-test-stall] pre-kill diagnostics exceeded ${STALL_TOTAL_ABORT_GRACE_MS}ms total abort budget; continuing termination`
+        );
+        resolveDeadline();
+      }, STALL_TOTAL_ABORT_GRACE_MS);
+      diagnosticDeadlineTimer.unref?.();
+    })
+  ]);
+  clearTimeout(diagnosticDeadlineTimer);
+  signalProcessGroup(hostPid, "SIGTERM");
+  const remainingGraceMs = Math.max(
+    0,
+    STALL_TOTAL_ABORT_GRACE_MS - (performance.now() - startedAt)
+  );
+  if (remainingGraceMs > 0) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, remainingGraceMs));
+  }
+  signalProcessGroup(hostPid, "SIGKILL");
+  console.error(
+    `[node-test-stall] diagnostic grace ended; process tree kill completed within ${STALL_TOTAL_ABORT_GRACE_MS}ms budget (report grace ${STALL_REPORT_GRACE_MS}ms)`
+  );
 }
 
 /**

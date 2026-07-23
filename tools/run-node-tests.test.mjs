@@ -23,6 +23,13 @@ function assertNamedStallTermination(output, expectedFile) {
     true,
     output
   );
+  assert.match(output, /\[node-test-stall\] pre-kill diagnostics: report target pid=\d+; grace=2000ms/u);
+  assert.match(output, /\[node-test-stall\] sent SIGUSR2 to pid=\d+/u);
+  assert.match(
+    output,
+    /\[node-test-stall\] diagnostic report: no new file within 2000ms|\[node-test-stall\] diagnostic report file:/u
+  );
+  assert.match(output, /process tree kill completed within 3000ms budget/u);
 }
 
 test("parseRunnerArgs accepts tier and slow summary options", () => {
