@@ -29,3 +29,21 @@ The policy separates:
 Unsigned artifacts are development-only. Production desktop or daemon
 distribution must define platform signing policy first, and macOS production
 distribution must include notarization policy.
+
+## Installation and project selection contract
+
+The desktop artifact is the complete machine-level product: it carries the GUI,
+CLI distribution, daemon runtime dependencies, and a bundled Node runtime. A
+target Harness project does not install Electron or `@harness-anything/gui`.
+
+`ha gui` always separates two inputs:
+
+- the trusted installed product or verified source checkout that supplies the
+  GUI executable;
+- the caller's current Harness root, supplied to the GUI as
+  `HARNESS_GUI_ROOT`.
+
+This permits one installation to open any number of initialized Harness
+projects without using those projects as npm workspaces. The current release
+boundary remains unchanged: local unsigned packaging is development-only, and
+signed/notarized public installers are not yet shipped.
