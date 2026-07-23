@@ -265,4 +265,9 @@ registered as gates. `metadata-source-proof` looks up the latest successful
 `rewrite-ci/source-validation` commit status on the exact PR head SHA and fails
 closed to full execution on absence or API error. `source-validation-proof`
 records that status only after all source-validation jobs succeed; reuse runs do
-not record a new proof.
+not record a new proof. Every required job also routes a Mergify queue metadata
+edit to a unique `mergify-queue-metadata-edit-noop / *` check name. Because
+those names are outside `surfaces.branchProtection.requiredContexts`, repeated
+metadata edits on one unchanged queue SHA cannot publish a newer pending or
+skipped check run under a required name. Human `pull_request.edited` events
+retain the normal required names and full gate execution.

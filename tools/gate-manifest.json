@@ -487,10 +487,11 @@
       "id": "mergify-queue-metadata-edit-noop",
       "nonDeterminism": {
         "kind": "external-state",
-        "reason": "This control-flow marker is eligible only when GitHub reports same-head-SHA source-validation proof for Mergify queue orchestration.",
+        "reason": "This control-flow marker is eligible only when GitHub reports same-head-SHA source-validation proof, and its check names are routed outside the required-context namespace.",
         "evidence": [
           ".github/workflows/rewrite-ci.yml:jobs.metadata-source-proof",
-          ".github/workflows/rewrite-ci.yml:jobs.source-validation-proof"
+          ".github/workflows/rewrite-ci.yml:jobs.source-validation-proof",
+          "tools/check-mergify-queue-contexts.test.mjs"
         ]
       },
       "command": "echo \"Reusing successful source validation for the same head SHA.\"",
@@ -519,7 +520,8 @@
           "boundaries",
           "package-policy",
           "supply-chain",
-          "gui-build"
+          "gui-build",
+          "direct-recovery"
         ],
         "workflowJobs": [
           "pr-body-lint",
@@ -529,7 +531,8 @@
           "boundaries",
           "package-policy",
           "supply-chain",
-          "gui-build"
+          "gui-build",
+          "direct-recovery"
         ],
         "nodeVersions": [
           24
@@ -539,7 +542,7 @@
         "allowed": true,
         "location": ".github/workflows/rewrite-ci.yml",
         "adrOrDecisionRequired": false,
-        "notes": "This is not a human-authored PR bypass. It only lets required jobs complete quickly for Mergify synthetic queue PR body or metadata edits after source checks already ran for the queue head."
+        "notes": "This is not a human-authored PR bypass. Mergify synthetic queue metadata edits reuse same-SHA source proof under non-required check names; human edited events keep the required names and full validation."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -566,7 +569,8 @@
             "boundaries",
             "package-policy",
             "supply-chain",
-            "gui-build"
+            "gui-build",
+            "direct-recovery"
           ],
           "nonPullRequestJobs": []
         },
@@ -585,7 +589,8 @@
             "boundaries",
             "package-policy",
             "supply-chain",
-            "gui-build"
+            "gui-build",
+            "direct-recovery"
           ]
         },
         "classes": [

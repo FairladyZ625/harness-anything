@@ -13,6 +13,10 @@ on:
 env:
   MERGIFY_QUEUE_METADATA_EDIT: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/') }}
 
+# A Mergify-only metadata edit must not publish a newer check run under any
+# required context name. GitHub considers skipped jobs successful, but still
+# creates check runs for them, so each required job routes metadata-only runs
+# into a non-required namespace while human PR edits retain the normal names.
 # Cancel superseded ordinary PR runs (e.g. after a force-push). Never cancel
 # main/nightly runs or Mergify queue verification PR runs — Mergify
 # can otherwise observe the cancelled run before the replacement run finishes.
@@ -61,6 +65,7 @@ jobs:
             }
 
   pr-body-lint:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / pr-body-lint' || 'pr-body-lint' }}
     if: github.event_name == 'pull_request'
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -103,6 +108,7 @@ jobs:
       - run: npm run harness:check-enforcement-debt-sunset
 
   typecheck:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && format('mergify-queue-metadata-edit-noop / typecheck ({0})', matrix.node-version) || format('typecheck ({0})', matrix.node-version) }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -128,6 +134,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job typecheck --exclude mergify-queue-metadata-edit-noop
 
   fast-contract:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / fast-contract' || 'fast-contract' }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -154,7 +161,7 @@ jobs:
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
-    name: integration-shard (${{ matrix.shard }})
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && format('mergify-queue-metadata-edit-noop / integration-shard ({0})', matrix.shard) || format('integration-shard ({0})', matrix.shard) }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -177,6 +184,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
 
   boundaries:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / boundaries' || 'boundaries' }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -204,6 +212,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop
 
   package-policy:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / package-policy' || 'package-policy' }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -225,6 +234,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job package-policy --exclude mergify-queue-metadata-edit-noop
 
   supply-chain:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / supply-chain' || 'supply-chain' }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -249,19 +259,29 @@ jobs:
   # task_01KY36N9FN7XQ06TM49HHBYZFF. This advisory PR job intentionally is
   # not added to branch protection until the separately governed required-check step.
   direct-recovery:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / direct-recovery' || 'direct-recovery' }}
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     timeout-minutes: 10
+    needs: metadata-source-proof
     runs-on: ubuntu-latest
     steps:
+      - name: Reuse same-SHA source validation
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
+        run: echo "Reusing successful source validation for the same head SHA."
       - uses: actions/checkout@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: node tools/run-manifest-gates.mjs --workflow-job direct-recovery
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm ci
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job direct-recovery --exclude mergify-queue-metadata-edit-noop
 
   gui-build:
+    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / gui-build' || 'gui-build' }}
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
