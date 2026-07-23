@@ -13,7 +13,8 @@ import {
   isAuthorityServerFrame,
   type AuthorityNegotiatedProtocol,
   type AuthorityRequestFrame,
-  type AuthorityResponseFrame
+  type AuthorityResponseFrame,
+  type AuthoritySnapshotLease
 } from "../authority/protocol.ts";
 import {
   createLengthPrefixedFrameReader,
@@ -172,6 +173,35 @@ export class PersistentSshAuthorityClient {
     }, opId);
     if (!response.ok) throw new Error(response.error?.message ?? "GetOperation failed");
     return (response.result ?? undefined) as AuthorityOperationRecord | undefined;
+  }
+
+  async renewLease(streamToken: string): Promise<AuthoritySnapshotLease> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "renew_lease",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      workspaceId: this.options.workspaceId,
+      streamToken
+    });
+    if (!response.ok || !response.result) {
+      throw new Error(response.error?.message ?? "authority lease renewal failed without a lease");
+    }
+    return response.result as AuthoritySnapshotLease;
+  }
+
+  async getCutChange(streamToken: string): Promise<ReplicaChangeRecord | null> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "get_cut_change",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      streamToken
+    });
+    if (!response.ok) throw new Error(response.error?.message ?? "authority cut change read failed");
+    return (response.result ?? null) as ReplicaChangeRecord | null;
   }
 
   async close(): Promise<void> {

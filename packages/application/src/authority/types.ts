@@ -251,6 +251,7 @@ export interface AuthoritySnapshotCut {
 export interface AuthoritySnapshotLease {
   readonly leaseId: string;
   readonly expiresAt: string;
+  readonly renewableUntil: string;
   readonly minRetainedRevision: number;
   readonly pinnedBlobSetDigest: Sha256Digest;
 }

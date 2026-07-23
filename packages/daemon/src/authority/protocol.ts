@@ -19,15 +19,18 @@ export interface AuthoritySnapshotCut {
   readonly provenanceDigest: Sha256Digest;
 }
 
+export interface AuthoritySnapshotLease {
+  readonly leaseId: string;
+  readonly expiresAt: string;
+  readonly renewableUntil: string;
+  readonly minRetainedRevision: number;
+  readonly pinnedBlobSetDigest: Sha256Digest;
+}
+
 export interface AuthoritySnapshotReservation {
   readonly schema: "authority-snapshot-reservation/v1";
   readonly cut: AuthoritySnapshotCut;
-  readonly lease: {
-    readonly leaseId: string;
-    readonly expiresAt: string;
-    readonly minRetainedRevision: number;
-    readonly pinnedBlobSetDigest: Sha256Digest;
-  };
+  readonly lease: AuthoritySnapshotLease;
   readonly stream: {
     readonly streamToken: string;
     readonly fromRevision: number;
@@ -93,6 +96,12 @@ export interface AuthorityGetSnapshotManifestFrame extends AuthorityWireFrameBas
   readonly manifestDigest: Sha256Digest;
 }
 
+export interface AuthorityGetCutChangeFrame extends AuthorityWireFrameBase {
+  readonly kind: "get_cut_change";
+  readonly requestId: string;
+  readonly streamToken: string;
+}
+
 export interface AuthorityGetBlobFrame extends AuthorityWireFrameBase {
   readonly kind: "get_blob";
   readonly requestId: string;
@@ -106,6 +115,13 @@ export interface AuthorityChangesAfterFrame extends AuthorityWireFrameBase {
   readonly workspaceId: string;
   readonly streamToken: string;
   readonly sinceRevision: number;
+}
+
+export interface AuthorityRenewLeaseFrame extends AuthorityWireFrameBase {
+  readonly kind: "renew_lease";
+  readonly requestId: string;
+  readonly workspaceId: string;
+  readonly streamToken: string;
 }
 
 export interface AuthorityBlobResult {
@@ -124,10 +140,12 @@ export interface AuthorityChangesAfterResult {
 }
 
 export type AuthorityReadDownResult =
+  | ReplicaChangeRecord
   | AuthoritySnapshotReservation
   | AuthoritySnapshotManifest
   | AuthorityBlobResult
-  | AuthorityChangesAfterResult;
+  | AuthorityChangesAfterResult
+  | AuthoritySnapshotLease;
 
 export type AuthorityRequestFrame =
   | AuthorityHelloFrame
@@ -135,9 +153,11 @@ export type AuthorityRequestFrame =
   | AuthoritySubmitV2Frame
   | AuthorityGetOperationFrame
   | AuthorityBeginSnapshotFrame
+  | AuthorityGetCutChangeFrame
   | AuthorityGetSnapshotManifestFrame
   | AuthorityGetBlobFrame
-  | AuthorityChangesAfterFrame;
+  | AuthorityChangesAfterFrame
+  | AuthorityRenewLeaseFrame;
 
 export interface AuthorityResponseFrame extends AuthorityWireFrameBase {
   readonly kind: "response";
@@ -179,10 +199,14 @@ export function isAuthorityRequestFrame(value: unknown): value is AuthorityReque
   if (value.kind === "submit_v2") return typeof value.presentationToken === "string" && typeof value.envelope === "string";
   if (value.kind === "get_operation") return typeof value.workspaceId === "string" && typeof value.opId === "string";
   if (value.kind === "begin_snapshot_and_subscribe") return typeof value.workspaceId === "string";
+  if (value.kind === "get_cut_change") return typeof value.streamToken === "string";
   if (value.kind === "get_snapshot_manifest") {
     return typeof value.streamToken === "string" && isSha256Digest(value.manifestDigest);
   }
   if (value.kind === "get_blob") return typeof value.streamToken === "string" && isSha256Digest(value.digest);
+  if (value.kind === "renew_lease") {
+    return typeof value.workspaceId === "string" && typeof value.streamToken === "string";
+  }
   if (value.kind === "changes_after") {
     return typeof value.workspaceId === "string"
       && typeof value.streamToken === "string"
