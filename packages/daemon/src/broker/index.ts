@@ -22,6 +22,10 @@ export { CrashSafeNativeApplier, type NativeApplyResult } from "./native-applier
 export { BrokerSubmitPreflightError, ReplicaBroker } from "./replica-broker.ts";
 export { RemoteCanonicalSnapshotSource } from "./remote-canonical-snapshot-source.ts";
 export {
+  RemoteBrokerRuntime,
+  type RemoteBrokerRuntimeOptions
+} from "./remote-broker-runtime.ts";
+export {
   RemoteReadDownSession,
   RemoteReplicaResyncRequiredError,
   type RemoteReadDownBackoff,
@@ -40,6 +44,7 @@ export type {
   BrokerOptions,
   BrokerPathState,
   BrokerPathStatus,
+  BrokerResyncTarget,
   BrokerVersion,
   CanonicalSnapshot,
   CanonicalSnapshotEntry,

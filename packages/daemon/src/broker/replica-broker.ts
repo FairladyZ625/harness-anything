@@ -15,14 +15,24 @@ import {
   sameFingerprint,
   tombstoneFingerprint
 } from "./fingerprint.ts";
-import { replicaChangeOperationIdsForPath } from "../authority/replica-change-operation-paths.ts";
 import { CrashSafeNativeApplier } from "./native-applier.ts";
+import { RemoteReplicaResyncRequiredError } from "./remote-read-down-session.ts";
+import {
+  hasPathStatus,
+  isSubmittableDraft,
+  localTombstone,
+  mapConflictReason,
+  sameVersion,
+  versionFor,
+  versionOperationIds
+} from "./replica-broker-state.ts";
 import type {
   BrokerBarrierRequest,
   BrokerBarrierResult,
   BrokerDurableState,
   BrokerOptions,
   BrokerPathState,
+  BrokerResyncTarget,
   BrokerVersion,
   CanonicalSnapshot,
   ManagedFingerprint,
@@ -59,19 +69,29 @@ export class ReplicaBroker {
 
   async synchronize(): Promise<BrokerDurableState> {
     await this.ensureInitialized();
-    if (this.current().mode === "RESYNC_REQUIRED") return this.snapshotState();
-    while (this.current().resolvedCursor < this.current().receivedCursor) {
-      await this.resolveChange(await this.store.readInbox(this.current().resolvedCursor + 1));
+    for (;;) {
+      try {
+        if (this.current().mode === "RESYNC_REQUIRED") {
+          if (!this.current().resyncTarget) return this.snapshotState();
+          await this.bootstrapResync();
+        }
+        while (this.current().resolvedCursor < this.current().receivedCursor) {
+          await this.resolveChange(await this.store.readInbox(this.current().resolvedCursor + 1));
+        }
+        const changes = await this.options.replicaChangeLog.changesAfter(
+          this.options.workspaceId,
+          this.current().receivedCursor
+        );
+        for (const change of changes) {
+          await this.receiveChange(change);
+          await this.resolveChange(change);
+        }
+        return this.snapshotState();
+      } catch (error) {
+        if (!(error instanceof RemoteReplicaResyncRequiredError)) throw error;
+        await this.enterRemoteResync(error);
+      }
     }
-    const changes = await this.options.replicaChangeLog.changesAfter(
-      this.options.workspaceId,
-      this.current().receivedCursor
-    );
-    for (const change of changes) {
-      await this.receiveChange(change);
-      await this.resolveChange(change);
-    }
-    return this.snapshotState();
   }
 
   async onNotification(change: ReplicaChangeRecord): Promise<BrokerDurableState> {
@@ -289,6 +309,15 @@ export class ReplicaBroker {
   private async resolveChange(change: ReplicaChangeRecord): Promise<void> {
     const snapshot = await this.options.snapshotSource.snapshotAt(change);
     this.validateSnapshot(snapshot, change.revision, change.commitSha);
+    await this.resolveSnapshot(snapshot, change, this.current().epoch, false);
+  }
+
+  private async resolveSnapshot(
+    snapshot: CanonicalSnapshot,
+    change: ReplicaChangeRecord | null,
+    epoch: string,
+    resync: boolean
+  ): Promise<void> {
     const entries = new Map<string, { readonly fingerprint: ManagedFingerprint; readonly bytes: Uint8Array }>();
     const normalizedPaths: string[] = [];
     for (const entry of snapshot.entries) {
@@ -307,8 +336,12 @@ export class ReplicaBroker {
     for (const pathName of [...allPaths].sort()) {
       const old = current.paths[pathName];
       const targetFingerprint = entries.get(pathName)?.fingerprint ?? tombstoneFingerprint();
-      const changed = !old || !sameFingerprint(old.canonicalHidden.fingerprint, targetFingerprint);
-      const target = changed ? versionFor(change, pathName, targetFingerprint) : old.canonicalHidden;
+      const changed = !old
+        || old.canonicalHidden.epoch !== epoch
+        || !sameFingerprint(old.canonicalHidden.fingerprint, targetFingerprint);
+      const target = changed
+        ? versionFor(change, pathName, targetFingerprint, epoch, snapshot.revision, snapshot.commitSha)
+        : old.canonicalHidden;
       if (!old) {
         paths[pathName] = {
           canonicalHidden: target,
@@ -324,8 +357,11 @@ export class ReplicaBroker {
     }
     await this.persist({
       ...current,
-      resolvedCursor: change.revision,
-      resolvedCommit: change.commitSha,
+      epoch,
+      receivedCursor: resync ? snapshot.revision : current.receivedCursor,
+      receivedCommit: resync ? snapshot.commitSha : current.receivedCommit,
+      resolvedCursor: snapshot.revision,
+      resolvedCommit: snapshot.commitSha,
       nextJournalLSN: current.nextJournalLSN + 1,
       paths,
       pendingMaterializations: [...current.pendingMaterializations, ...pending]
@@ -447,6 +483,52 @@ export class ReplicaBroker {
     await this.persist({ ...this.current(), mode: "RESYNC_REQUIRED" });
   }
 
+  private async enterRemoteResync(error: RemoteReplicaResyncRequiredError): Promise<void> {
+    const { cut, cutChange } = error;
+    if (cut.workspaceId !== this.options.workspaceId
+      || (cutChange !== null && (cutChange.workspaceId !== this.options.workspaceId
+        || cutChange.revision !== cut.revision
+        || cutChange.commitSha !== cut.commitSha))
+      || (cut.revision > 0 && !cutChange)) {
+      throw new Error("remote resync cut identity does not match broker workspace");
+    }
+    const resyncTarget: BrokerResyncTarget = {
+      epoch: cut.epoch,
+      revision: cut.revision,
+      commitSha: cut.commitSha,
+      cutChange
+    };
+    const current = this.current();
+    await this.persist({
+      ...current,
+      mode: "RESYNC_REQUIRED",
+      resyncTarget,
+      nextJournalLSN: current.nextJournalLSN + 1
+    });
+  }
+
+  private async bootstrapResync(): Promise<void> {
+    const target = this.current().resyncTarget;
+    if (!target) return;
+    const snapshot: CanonicalSnapshot = target.cutChange
+      ? await this.options.snapshotSource.snapshotAt(target.cutChange)
+      : {
+          workspaceId: this.options.workspaceId,
+          revision: target.revision,
+          commitSha: target.commitSha,
+          entries: []
+        };
+    this.validateSnapshot(snapshot, target.revision, target.commitSha);
+    await this.resolveSnapshot(snapshot, target.cutChange, target.epoch, true);
+    const current = this.current();
+    await this.persist({
+      ...current,
+      mode: "READY",
+      resyncTarget: undefined,
+      nextJournalLSN: current.nextJournalLSN + 1
+    });
+  }
+
   private async updatePendingStatus(
     pathName: string,
     opId: string,
@@ -493,58 +575,4 @@ export class BrokerSubmitPreflightError extends Error {
     this.path = pathName;
     this.status = status;
   }
-}
-
-function versionFor(
-  change: ReplicaChangeRecord,
-  pathName: string,
-  fingerprint: ManagedFingerprint
-): BrokerVersion {
-  const operationIds = replicaChangeOperationIdsForPath(change, pathName);
-  return {
-    epoch: "epoch-1",
-    revision: change.revision,
-    lastChangeOpIds: operationIds,
-    lastChangeOpId: operationIds[0] ?? null,
-    commitSha: change.commitSha,
-    fingerprint
-  };
-}
-
-function localTombstone(epoch: string): BrokerVersion {
-  return {
-    epoch,
-    revision: 0,
-    lastChangeOpIds: [],
-    lastChangeOpId: null,
-    commitSha: null,
-    fingerprint: tombstoneFingerprint()
-  };
-}
-
-function sameVersion(left: BrokerVersion, right: BrokerVersion): boolean {
-  return left.epoch === right.epoch
-    && left.revision === right.revision
-    && JSON.stringify(versionOperationIds(left)) === JSON.stringify(versionOperationIds(right))
-    && left.commitSha === right.commitSha
-    && sameFingerprint(left.fingerprint, right.fingerprint);
-}
-
-function versionOperationIds(version: BrokerVersion): ReadonlyArray<string> {
-  return version.lastChangeOpIds
-    ?? (version.lastChangeOpId === null ? [] : [version.lastChangeOpId]);
-}
-
-function mapConflictReason(reason: string): ConflictReason {
-  return reason === "RECOVERY_GENERATION_AMBIGUOUS"
-    ? "RECOVERY_GENERATION_AMBIGUOUS"
-    : "PRECHECK_FINGERPRINT_MISMATCH";
-}
-
-function isSubmittableDraft(pathState: BrokerPathState): boolean {
-  return hasPathStatus(pathState, "DIRTY") || hasPathStatus(pathState, "LOCAL_ONLY");
-}
-
-function hasPathStatus(pathState: BrokerPathState, expected: BrokerPathState["status"]): boolean {
-  return pathState.status === expected;
 }

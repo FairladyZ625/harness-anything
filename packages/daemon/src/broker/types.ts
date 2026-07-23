@@ -72,9 +72,17 @@ export interface BrokerDurableState {
   readonly resolvedCommit: string | null;
   readonly nextJournalLSN: number;
   readonly mode: "READY" | "RESYNC_REQUIRED";
+  readonly resyncTarget?: BrokerResyncTarget;
   readonly paths: Readonly<Record<string, BrokerPathState>>;
   readonly pendingMaterializations: ReadonlyArray<PendingMaterialization>;
   readonly witnesses: Readonly<Record<string, MaterializationWitness>>;
+}
+
+export interface BrokerResyncTarget {
+  readonly epoch: string;
+  readonly revision: number;
+  readonly commitSha: string;
+  readonly cutChange: ReplicaChangeRecord | null;
 }
 
 export interface CanonicalSnapshotEntry {
