@@ -104,7 +104,7 @@ const dispositions = {
   "module-scaffold": excluded("module scaffolding writes local source and template assets"),
   "module-unregister": typed("generic"),
   "module-step": typed("generic"),
-  "gui": excluded("GUI launch is daemon orchestration and does not author a canonical entity")
+  "gui": excluded("GUI launch is client-local process orchestration and does not author a canonical entity")
 } as const satisfies Readonly<Record<string, ProductionAuthorityIngressDisposition>>;
 
 export function attachProductionAuthorityIngress<const Specs extends ReadonlyArray<CommandSpecDefinition>>(
