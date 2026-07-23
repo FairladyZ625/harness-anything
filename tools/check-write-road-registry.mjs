@@ -37,7 +37,7 @@ if (findings.length > 0) {
   console.log(`[write-road-coverage] current=${writePoints.length} previous=${previous.coverage} delta=${writePoints.length - previous.coverage}`);
   console.log(`[write-road-ratchet] current=${omissionDebt} previous=${previous.omissionDebt} delta=${omissionDebt - previous.omissionDebt}`);
   const intentItems = rows.flatMap((row) => asArray(row.intentCompilers));
-  console.log(`[intent-compiler-criterion] unified=${intentItems.filter((item) => item.parity === "unified").length} parity-debt=${intentItems.filter((item) => item.parity === "parity-debt").length} unknown=${intentItems.filter((item) => item.parity === "unknown").length}`);
+  console.log(`[intent-compiler-criterion] unified=${intentItems.filter((item) => item.parity === "unified").length} parity-debt=${intentItems.filter((item) => item.parity === "parity-debt").length} single-surface-debt=${intentItems.filter((item) => item.parity === "single-surface-debt").length} single-entry=${intentItems.filter((item) => item.parity === "single-entry").length} unknown=${intentItems.filter((item) => item.parity === "unknown").length}`);
   console.log(`Write-road registry check passed (${sourceRoots.length} production source root(s), ${rows.length} row(s), ${discoveries.length} discovered write surface(s)).`);
 }
 
@@ -167,8 +167,8 @@ function checkIntentCompilerCriterion() {
 }
 
 function validateIntentParity(item, label) {
-  if (!["unified", "parity-debt", "unknown"].includes(item.parity)) {
-    record(`${label}.parity must be unified, parity-debt, or unknown`);
+  if (!["unified", "parity-debt", "single-surface-debt", "single-entry", "unknown"].includes(item.parity)) {
+    record(`${label}.parity must be unified, parity-debt, single-surface-debt, single-entry, or unknown`);
     return;
   }
   if (item.parity === "unknown") {
@@ -180,7 +180,11 @@ function validateIntentParity(item, label) {
   }
 
   const compilers = asArray(item.compilers);
-  if (compilers.length < 2) record(`${label}: ${item.parity} must declare at least two entry compilers`);
+  if (item.parity === "single-entry") {
+    if (compilers.length !== 1) record(`${label}: single-entry must declare exactly one entry compiler`);
+  } else if (compilers.length < 2) {
+    record(`${label}: ${item.parity} must declare at least two entry compilers`);
+  }
   const entries = new Set();
   const refs = new Set();
   for (const [compilerIndex, compiler] of compilers.entries()) {
@@ -207,14 +211,31 @@ function validateIntentParity(item, label) {
   if (item.parity === "unified" && refs.size !== 1) {
     record(`${label}: unified entry compilers must resolve to one materializer ref`);
   }
+  const surfaceCount = ["cliActions", "apiRoutes", "guiBridgeMethods"]
+    .reduce((count, field) => count + asArray(item.surfaces?.[field]).length, 0);
   if (item.parity === "parity-debt") {
-    const surfaceCount = ["cliActions", "apiRoutes", "guiBridgeMethods"]
-      .reduce((count, field) => count + asArray(item.surfaces?.[field]).length, 0);
     if (surfaceCount < 2) record(`${label}: parity-debt must describe one intent with multiple ingress surfaces`);
     if (refs.size < 2) record(`${label}: parity-debt must identify multiple materializer refs`);
     if (typeof item.owner !== "string" || item.owner.trim() === "") record(`${label}: parity-debt must include owner`);
     if (typeof item.sunset !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(item.sunset)) {
       record(`${label}: parity-debt must include sunset as YYYY-MM-DD`);
+    }
+  }
+  if (item.parity === "single-surface-debt") {
+    if (surfaceCount !== 1) record(`${label}: single-surface-debt must describe exactly one authored ingress surface`);
+    if (refs.size < 2) record(`${label}: single-surface-debt must identify multiple materializer refs`);
+    if (typeof item.owner !== "string" || item.owner.trim() === "") record(`${label}: single-surface-debt must include owner`);
+    if (typeof item.sunset !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(item.sunset)) {
+      record(`${label}: single-surface-debt must include sunset as YYYY-MM-DD`);
+    }
+  }
+  if (item.parity === "single-entry") {
+    if (surfaceCount !== 1) record(`${label}: single-entry must describe exactly one authored ingress surface`);
+    if (typeof item.reviewWhen !== "string"
+      || item.reviewWhen.trim().length < 20
+      || !/\bunknown\b/iu.test(item.reviewWhen)
+      || !/\b(?:entry|ingress|surface)\b/iu.test(item.reviewWhen)) {
+      record(`${label}: single-entry must include a specific reviewWhen trigger`);
     }
   }
 }

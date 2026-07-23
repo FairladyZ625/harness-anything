@@ -46,6 +46,53 @@ test("write-road registry rejects an authored surface without a criterion item",
   }
 });
 
+test("write-road registry accepts a compliant single-surface-debt item", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { parity: "single-surface-debt" });
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry rejects single-surface-debt without owner and sunset", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { parity: "single-surface-debt", omitDispositionFields: true });
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /single-surface-debt must include owner/u);
+    assert.match(result.stderr, /single-surface-debt must include sunset as YYYY-MM-DD/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry accepts a compliant single-entry item", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { parity: "single-entry" });
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("write-road registry rejects single-entry without a review trigger", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, { parity: "single-entry", omitDispositionFields: true });
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /single-entry must include a specific reviewWhen trigger/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("write-road registry rejects an unregistered coordinated write callsite", () => {
   const root = makeFixtureRoot();
   try {
@@ -239,7 +286,9 @@ function writeFixture(root, overrides = {}) {
   ]);
   const taskCliPolicies = ["{ actionKind: 'registered-action' }"];
   if (overrides.extraTaskCliAction) taskCliPolicies.push(`{ actionKind: '${overrides.extraTaskCliAction}' }`);
-  const taskApiPolicies = ["{ id: 'registered.route', method: 'POST', guiBridgeMethod: 'registeredBridge' }"];
+  const taskApiPolicies = ["single-surface-debt", "single-entry"].includes(overrides.parity)
+    ? []
+    : ["{ id: 'registered.route', method: 'POST', guiBridgeMethod: 'registeredBridge' }"];
   if (overrides.extraTaskApiRoute) taskApiPolicies.push(overrides.extraTaskApiRoute);
   writeLines(root, "packages/application/src/task-write-route-policy.ts", [
     `export const taskWriteCliRoutePolicies = [${taskCliPolicies.join(", ")}] as const;`,
@@ -273,11 +322,32 @@ function writeFixture(root, overrides = {}) {
 }
 
 function makeRegistry(overrides = {}) {
+  const parity = overrides.parity ?? "unified";
   const surfaces = {
     cliActions: ["registered-action"],
-    apiRoutes: ["registered.route"],
-    guiBridgeMethods: overrides.omitGuiCriterionSurface ? [] : ["registeredBridge"]
+    apiRoutes: ["single-surface-debt", "single-entry"].includes(parity) ? [] : ["registered.route"],
+    guiBridgeMethods: overrides.omitGuiCriterionSurface || ["single-surface-debt", "single-entry"].includes(parity)
+      ? []
+      : ["registeredBridge"]
   };
+  const compilers = parity === "single-entry"
+    ? [{ entry: "direct", ref: "packages/application/src/fixture.ts#compileRegisteredIntent" }]
+    : [
+        { entry: "direct", ref: "packages/application/src/fixture.ts#compileRegisteredIntent" },
+        {
+          entry: "daemon",
+          ref: overrides.splitIntentCompiler || parity === "single-surface-debt"
+            ? "packages/application/src/fixture.ts#compileRegisteredIntentSeparately"
+            : "packages/application/src/fixture.ts#compileRegisteredIntent"
+        }
+      ];
+  const dispositionFields = overrides.omitDispositionFields
+    ? {}
+    : parity === "single-surface-debt"
+      ? { owner: "fixture.covered", sunset: "2026-10-31" }
+      : parity === "single-entry"
+        ? { reviewWhen: "Return to unknown when any second authored ingress surface is registered." }
+        : {};
   return {
     schema: "harness-anything/write-road-registry/v1",
     intentCompilerCriterion: {
@@ -303,21 +373,14 @@ function makeRegistry(overrides = {}) {
       writeKinds: ["registered_kind", "machine_artifact_write"],
       machineArtifactBoundaries: ["registered-boundary"],
       cliActions: ["registered-action"],
-      apiRoutes: ["registered.route"],
-      guiBridgeMethods: ["registeredBridge"],
+      apiRoutes: surfaces.apiRoutes,
+      guiBridgeMethods: ["single-surface-debt", "single-entry"].includes(parity) ? [] : ["registeredBridge"],
       intentCompilers: [{
         selector: "registered-action",
         surfaces,
-        parity: "unified",
-        compilers: [
-          { entry: "direct", ref: "packages/application/src/fixture.ts#compileRegisteredIntent" },
-          {
-            entry: "daemon",
-            ref: overrides.splitIntentCompiler
-              ? "packages/application/src/fixture.ts#compileRegisteredIntentSeparately"
-              : "packages/application/src/fixture.ts#compileRegisteredIntent"
-          }
-        ]
+        parity,
+        compilers,
+        ...dispositionFields
       }],
       presetWriteScopes: ["{{outputRoot}}/**"],
       presetProduces: ["{{outputRoot}}/ok.json"],

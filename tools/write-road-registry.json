@@ -42,8 +42,19 @@
               "new-task"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#createTask and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and new-task registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/adapters/local/src/index.ts#createTask"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "task.package.create",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -116,8 +127,19 @@
               "task-archive"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-archive.ts#runTaskArchive and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-archive registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-archive.ts#runTaskArchive"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-closeout",
@@ -126,8 +148,14 @@
               "task-closeout"
             ]
           },
-          "parity": "unknown",
-          "reason": "task-closeout registers only cliActions:task-closeout; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-lifecycle-facade.ts#taskCloseoutFacadeSteps"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "task-complete",
@@ -155,8 +183,19 @@
               "task-delete"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-lifecycle.ts#runTaskDelete and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-delete registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-lifecycle.ts#runTaskDelete"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-reopen",
@@ -165,8 +204,19 @@
               "task-reopen"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#reopenTask and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-reopen registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/adapters/local/src/index.ts#reopenTask"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-review",
@@ -182,7 +232,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "task-review still lacks path#symbol convergence evidence across cliActions:task-review, apiRoutes:tasks.review, guiBridgeMethods:reviewTask; task.lifecycle.transition owner must trace every listed authored ingress before choosing unified or parity-debt."
+          "reason": "CLI packages/cli/src/commands/core/task-gates.ts#runTaskGatesCommand reaches packages/application/src/task-lifecycle-orchestrator.ts#reviewTask, but API/GUI packages/application/src/local-controller-service.ts#makeLocalControllerService routes reviewTask to startTaskReview, which returns execution_submission_required without a materializer; the five dispositions do not express an existing second ingress with no materializer, so task.lifecycle.transition owner must decide that shape."
         },
         {
           "selector": "task-review-execution",
@@ -191,8 +241,19 @@
               "task-review-execution"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/application/src/review-execution-service.ts#makeReviewExecutionService and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and task-review-execution registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/review-execution-service.ts#makeReviewExecutionService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-start",
@@ -201,8 +262,14 @@
               "task-start"
             ]
           },
-          "parity": "unknown",
-          "reason": "task-start registers only cliActions:task-start; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-lifecycle-facade.ts#taskStartFacadeSteps"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "task-submit",
@@ -211,8 +278,14 @@
               "task-submit"
             ]
           },
-          "parity": "unknown",
-          "reason": "task-submit registers only cliActions:task-submit; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-submit-facade.ts#taskSubmitFacadeSteps"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "task-supersede",
@@ -221,8 +294,19 @@
               "task-supersede"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-supersede.ts#runTaskSupersede and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-supersede registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-supersede.ts#runTaskSupersede"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.lifecycle.transition",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -291,8 +375,19 @@
               "task-claim"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-holder.ts#runTaskClaim and packages/daemon/src/authority/production/production-authority-task-claim-intent.ts#taskClaimAttemptIntent; full variant convergence remains unverified, and task-claim registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-holder.ts#runTaskClaim"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-task-claim-intent.ts#taskClaimAttemptIntent"
+            }
+          ],
+          "owner": "task.execution.record",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -360,8 +455,19 @@
               "task-consent-record"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/application/src/record-execution-consent-service.ts#makeRecordExecutionConsentService and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and task-consent-record registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/record-execution-consent-service.ts#makeRecordExecutionConsentService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "task.execution-consent.record",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -495,8 +601,14 @@
               "task-release"
             ]
           },
-          "parity": "unknown",
-          "reason": "task-release registers only cliActions:task-release; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-holder.ts#runTaskRelease"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -583,8 +695,19 @@
               "task-amend"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-amend.ts#runTaskAmend and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-amend registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-amend.ts#runTaskAmend"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.document.write-stage",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-code-doc-reconcile",
@@ -593,8 +716,19 @@
               "task-code-doc-reconcile"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/adapters/local/src/index.ts#writeCodeDocReconciliation and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and task-code-doc-reconcile registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/adapters/local/src/index.ts#writeCodeDocReconciliation"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent"
+            }
+          ],
+          "owner": "task.document.write-stage",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "task-contract-migrate",
@@ -603,8 +737,14 @@
               "task-contract-migrate"
             ]
           },
-          "parity": "unknown",
-          "reason": "task-contract-migrate registers only cliActions:task-contract-migrate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/task-contract-migrate.ts#runTaskContractMigration"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "task-relate",
@@ -613,8 +753,19 @@
               "task-relate"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/task-relations.ts#runTaskRelate and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and task-relate registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/task-relations.ts#runTaskRelate"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "task.document.write-stage",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1218,8 +1369,14 @@
               "migrate-anchors"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-anchors registers only cliActions:migrate-anchors; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/anchor-backfill.ts#runMigrateAnchors"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "migrate-provenance",
@@ -1228,8 +1385,14 @@
               "migrate-provenance"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-provenance registers only cliActions:migrate-provenance; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/provenance-backfill.ts#runMigrateProvenance"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1269,8 +1432,14 @@
               "migrate-fact-execution"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-fact-execution registers only cliActions:migrate-fact-execution; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/fact-execution-migration.ts#runMigrateFactExecution"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1308,8 +1477,14 @@
               "migrate-retired-attribution-fields"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-retired-attribution-fields registers only cliActions:migrate-retired-attribution-fields; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/retired-attribution-field-migration.ts#runMigrateRetiredAttributionFields"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1351,8 +1526,14 @@
               "decision-reckon"
             ]
           },
-          "parity": "unknown",
-          "reason": "decision-reckon registers only cliActions:decision-reckon; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/decision-reckon.ts#runReckon"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "distill-commit",
@@ -1361,8 +1542,14 @@
               "distill-commit"
             ]
           },
-          "parity": "unknown",
-          "reason": "distill-commit registers only cliActions:distill-commit; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/distill.ts#runCommit"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "record-fact",
@@ -1371,8 +1558,19 @@
               "record-fact"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/application/src/fact-write-service.ts#makeFactWriteService and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and record-fact registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/fact-write-service.ts#makeFactWriteService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "fact.record",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1418,8 +1616,19 @@
               "fact-invalidate"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/application/src/fact-write-service.ts#makeFactWriteService and packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent; full variant convergence remains unverified, and fact-invalidate registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/fact-write-service.ts#makeFactWriteService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent"
+            }
+          ],
+          "owner": "fact.invalidate",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1593,8 +1802,19 @@
               "decision-amend"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision.ts#runAmend and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-amend registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision.ts#runAmend"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "decision.amend",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "decision-repin",
@@ -1603,8 +1823,14 @@
               "decision-repin"
             ]
           },
-          "parity": "unknown",
-          "reason": "decision-repin registers only cliActions:decision-repin; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/decision.ts#runDecisionRepin"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1703,8 +1929,19 @@
               "decision-relation-replace"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationReplace and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-relation-replace registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationReplace"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "decision.relation.mutate",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "decision-relation-retire",
@@ -1713,8 +1950,19 @@
               "decision-relation-retire"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationRetire and packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent; full variant convergence remains unverified, and decision-relation-retire registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/core/decision-relate.ts#runDecisionRelationRetire"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts#productionObservedWriteAttemptIntent"
+            }
+          ],
+          "owner": "decision.relation.mutate",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1760,8 +2008,19 @@
               "module-register"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-register registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "module.registry.canonical",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "module-step",
@@ -1770,8 +2029,19 @@
               "module-step"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-step registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "module.registry.canonical",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "module-unregister",
@@ -1780,8 +2050,19 @@
               "module-unregister"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and module-unregister registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/cli/src/commands/extensions/module.ts#moduleRegistryWrite"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "module.registry.canonical",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -1860,8 +2141,14 @@
               "module-scaffold"
             ]
           },
-          "parity": "unknown",
-          "reason": "module-scaffold registers only cliActions:module-scaffold; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/module.ts#runModuleCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1899,8 +2186,14 @@
               "session-backfill"
             ]
           },
-          "parity": "unknown",
-          "reason": "session-backfill registers only cliActions:session-backfill; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/session.ts#runSessionCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "session-export",
@@ -1909,8 +2202,19 @@
               "session-export"
             ]
           },
-          "parity": "unknown",
-          "reason": "Observed distinct candidate compiler refs packages/application/src/provenance-session-exporter.ts#makeProvenanceSessionExporter and packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent; full variant convergence remains unverified, and session-export registers only one authored ingress surface and the S3 checker rejects parity-debt for that shape; the S3 criterion owner must decide single-surface debt semantics."
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/provenance-session-exporter.ts#makeProvenanceSessionExporter"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-attempt-compiler.ts#canonicalAttemptIntent"
+            }
+          ],
+          "owner": "session.provenance.claim-check",
+          "sunset": "2026-10-31"
         },
         {
           "selector": "session-sync",
@@ -1919,8 +2223,14 @@
               "session-sync"
             ]
           },
-          "parity": "unknown",
-          "reason": "session-sync registers only cliActions:session-sync; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/session-cutover.ts#runSessionSync"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -1971,8 +2281,14 @@
               "runtime-event-append"
             ]
           },
-          "parity": "unknown",
-          "reason": "runtime-event-append registers only cliActions:runtime-event-append; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/runtime-event.ts#runAppend"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2017,8 +2333,14 @@
               "distill-candidate"
             ]
           },
-          "parity": "unknown",
-          "reason": "distill-candidate registers only cliActions:distill-candidate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/distill.ts#writeDistillCandidate"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2072,8 +2394,14 @@
               "legacy-copy-safe-docs"
             ]
           },
-          "parity": "unknown",
-          "reason": "legacy-copy-safe-docs registers only cliActions:legacy-copy-safe-docs; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/migration.ts#runLegacyCopySafeDocsEffect"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "legacy-index",
@@ -2082,8 +2410,14 @@
               "legacy-index"
             ]
           },
-          "parity": "unknown",
-          "reason": "legacy-index registers only cliActions:legacy-index; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/migration.ts#runLegacyIndex"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "legacy-intake-plan",
@@ -2092,8 +2426,14 @@
               "legacy-intake-plan"
             ]
           },
-          "parity": "unknown",
-          "reason": "legacy-intake-plan registers only cliActions:legacy-intake-plan; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/migration.ts#runLegacyIntakePlan"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "migrate-run",
@@ -2102,8 +2442,14 @@
               "migrate-run"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-run registers only cliActions:migrate-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/migration.ts#runMigrateRunEffect"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "migrate-structure",
@@ -2112,8 +2458,14 @@
               "migrate-structure"
             ]
           },
-          "parity": "unknown",
-          "reason": "migrate-structure registers only cliActions:migrate-structure; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/migration.ts#runMigrateStructureEffect"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2242,7 +2594,7 @@
             ]
           },
           "parity": "unknown",
-          "reason": "governance-rebuild still lacks path#symbol convergence evidence across cliActions:governance-rebuild, apiRoutes:governance.rebuild, guiBridgeMethods:rebuildGovernance; governance.projection.rebuild owner must trace every listed authored ingress before choosing unified or parity-debt."
+          "reason": "CLI packages/cli/src/commands/governance.ts#runGovernanceRebuild rebuilds and writes projection artifacts, but API/GUI packages/application/src/local-controller-service.ts#makeLocalControllerService implements rebuildGovernance as queryTaskProjection with no rebuild materializer; the five dispositions do not express an existing second ingress with no materializer, so governance.projection.rebuild owner must decide that shape."
         },
         {
           "selector": "materializer-run",
@@ -2251,8 +2603,14 @@
               "materializer-run"
             ]
           },
-          "parity": "unknown",
-          "reason": "materializer-run registers only cliActions:materializer-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/materializer.ts#runMaterializerCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2355,8 +2713,14 @@
               "graph"
             ]
           },
-          "parity": "unknown",
-          "reason": "graph registers only cliActions:graph; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/graph.ts#runGraphCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2406,8 +2770,14 @@
               "terminal.sessions.close"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.close registers only apiRoutes:terminal.sessions.close; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#closeSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "api:terminal.sessions.create",
@@ -2416,8 +2786,14 @@
               "terminal.sessions.create"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.create registers only apiRoutes:terminal.sessions.create; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#createSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "api:terminal.sessions.resize",
@@ -2426,8 +2802,14 @@
               "terminal.sessions.resize"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.resize registers only apiRoutes:terminal.sessions.resize; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#resizeSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "api:terminal.sessions.write",
@@ -2436,8 +2818,14 @@
               "terminal.sessions.write"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.write registers only apiRoutes:terminal.sessions.write; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#writeSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "gui",
@@ -2446,8 +2834,14 @@
               "gui"
             ]
           },
-          "parity": "unknown",
-          "reason": "gui registers only cliActions:gui; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/gui.ts#launchGui"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "init",
@@ -2456,8 +2850,14 @@
               "init"
             ]
           },
-          "parity": "unknown",
-          "reason": "init registers only cliActions:init; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/init.ts#runInitCommand"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2796,8 +3196,14 @@
               "preset-entrypoint"
             ]
           },
-          "parity": "unknown",
-          "reason": "preset-entrypoint registers only cliActions:preset-entrypoint; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#runPresetEntrypoint"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "preset-install",
@@ -2806,8 +3212,14 @@
               "preset-install"
             ]
           },
-          "parity": "unknown",
-          "reason": "preset-install registers only cliActions:preset-install; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/preset.ts#runPresetInstall"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "preset-seed",
@@ -2816,8 +3228,14 @@
               "preset-seed"
             ]
           },
-          "parity": "unknown",
-          "reason": "preset-seed registers only cliActions:preset-seed; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/preset.ts#runPresetSeed"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "preset-uninstall",
@@ -2826,8 +3244,14 @@
               "preset-uninstall"
             ]
           },
-          "parity": "unknown",
-          "reason": "preset-uninstall registers only cliActions:preset-uninstall; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/preset.ts#runPresetUninstall"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -2957,8 +3381,14 @@
               "script-run"
             ]
           },
-          "parity": "unknown",
-          "reason": "script-run registers only cliActions:script-run; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/extensions/script.ts#runScriptRun"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -3187,8 +3617,14 @@
               "adopt-multica"
             ]
           },
-          "parity": "unknown",
-          "reason": "adopt-multica registers only cliActions:adopt-multica; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/adopt.ts#runAdoptMultica"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "git-diff",
@@ -3197,8 +3633,14 @@
               "git-diff"
             ]
           },
-          "parity": "unknown",
-          "reason": "git-diff registers only cliActions:git-diff; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/git-diff.ts#runGitDiffEvidence"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "worktree-create",
@@ -3207,8 +3649,14 @@
               "worktree-create"
             ]
           },
-          "parity": "unknown",
-          "reason": "worktree-create registers only cliActions:worktree-create; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/commands/core/worktree.ts#createWorktree"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
@@ -5150,8 +5598,17 @@
               "restartDaemon"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:daemon.restart still lacks path#symbol convergence evidence across apiRoutes:daemon.restart, guiBridgeMethods:restartDaemon; daemon.control.restart.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "api-route",
+              "ref": "packages/daemon/src/lifecycle/daemon-control-service.ts#createDaemonControlService"
+            },
+            {
+              "entry": "gui-bridge",
+              "ref": "packages/daemon/src/lifecycle/daemon-control-service.ts#createDaemonControlService"
+            }
+          ]
         }
       ],
       "sourceInventoryRows": [
@@ -5197,8 +5654,17 @@
               "attachAgentRuntime"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:agent-runtimes.attach still lacks path#symbol convergence evidence across apiRoutes:agent-runtimes.attach, guiBridgeMethods:attachAgentRuntime; daemon.agent-runtime.control.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "api-route",
+              "ref": "packages/daemon/src/agent-runtime/session-service.ts#createAgentRuntimeSessionService"
+            },
+            {
+              "entry": "gui-bridge",
+              "ref": "packages/daemon/src/agent-runtime/session-service.ts#createAgentRuntimeSessionService"
+            }
+          ]
         },
         {
           "selector": "api:agent-runtimes.spawn",
@@ -5210,8 +5676,17 @@
               "spawnAgentRuntime"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:agent-runtimes.spawn still lacks path#symbol convergence evidence across apiRoutes:agent-runtimes.spawn, guiBridgeMethods:spawnAgentRuntime; daemon.agent-runtime.control.gui-ipc owner must trace every listed authored ingress before choosing unified or parity-debt."
+          "parity": "unified",
+          "compilers": [
+            {
+              "entry": "api-route",
+              "ref": "packages/daemon/src/agent-runtime/session-service.ts#createAgentRuntimeSessionService"
+            },
+            {
+              "entry": "gui-bridge",
+              "ref": "packages/daemon/src/agent-runtime/session-service.ts#createAgentRuntimeSessionService"
+            }
+          ]
         }
       ],
       "sourceInventoryRows": [
@@ -5303,8 +5778,14 @@
               "terminal.sessions.detach"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.detach registers only apiRoutes:terminal.sessions.detach; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#detachSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         },
         {
           "selector": "api:terminal.sessions.terminate",
@@ -5313,8 +5794,14 @@
               "terminal.sessions.terminate"
             ]
           },
-          "parity": "unknown",
-          "reason": "api:terminal.sessions.terminate registers only apiRoutes:terminal.sessions.terminate; no second authored ingress compiler can be truthfully declared under the current S3 shape, so the S3 criterion owner must decide single-entry/not-applicable semantics."
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/daemon/src/terminal/pty-host.ts#terminateSession"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
         }
       ],
       "sourceInventoryRows": [
