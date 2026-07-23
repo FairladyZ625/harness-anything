@@ -17,6 +17,12 @@ import {
   type DaemonQueueDrainTarget,
   type WriteIntegrityDomain
 } from "@harness-anything/kernel/daemon-runtime-support";
+import {
+  currentDaemonRequestPerformanceTrace,
+  measureCurrentDaemonRequestPerformancePhase,
+  runWithDaemonRequestPerformanceTrace,
+  type DaemonRequestPerformanceTrace
+} from "../observability/request-performance.ts";
 
 export type DaemonWritePriority = "interactive" | "normal" | "background" | "maintenance";
 
@@ -66,6 +72,9 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly enqueuedAt: number;
   started: boolean;
   timeout?: ReturnType<typeof setTimeout>;
+  readonly performanceTrace?: DaemonRequestPerformanceTrace;
+  readonly endQueueWait?: () => void;
+  endDurableFlush?: () => void;
   readonly resolve: (receipt: InteractiveWriteReceipt) => void;
   readonly reject: (error: WriteError) => void;
   readonly admission: DaemonAdmissionReservation;
@@ -81,6 +90,8 @@ interface BackgroundQueueItem<Result> {
   readonly source: string;
   readonly priority: Exclude<DaemonWritePriority, "interactive">;
   readonly run: () => Result | Promise<Result>;
+  readonly performanceTrace?: DaemonRequestPerformanceTrace;
+  readonly endQueueWait?: () => void;
   readonly resolve: (result: Result) => void;
   readonly reject: (error: unknown) => void;
   readonly admission: DaemonAdmissionReservation;
@@ -132,6 +143,7 @@ export class DaemonWriteQueue {
     if (!admission.ok) return Promise.reject(admission.error);
     this.coordinatorFor = coordinatorFor;
     return new Promise((resolve, reject) => {
+      const performanceTrace = currentDaemonRequestPerformanceTrace();
       const item: InteractiveQueueItem = {
         kind: "interactive",
         commandId: request.commandId,
@@ -142,6 +154,10 @@ export class DaemonWriteQueue {
         integrityDomain,
         enqueuedAt: Date.now(),
         started: false,
+        ...(performanceTrace ? {
+          performanceTrace,
+          endQueueWait: performanceTrace.begin("queue-wait")
+        } : {}),
         resolve,
         reject,
         admission: admission.reservation
@@ -150,6 +166,7 @@ export class DaemonWriteQueue {
         item.timeout = setTimeout(() => {
           if (item.started) return;
           this.removeInteractive(item);
+          item.endQueueWait?.();
           item.admission.release();
           reject({ _tag: "JournalUnavailable", cause: new Error(`daemon queue wait timeout after ${request.deadlineMs}ms`) } satisfies WriteError);
           this.resolveIdleIfNeeded();
@@ -169,11 +186,16 @@ export class DaemonWriteQueue {
     });
     if (!admission.ok) return Promise.reject(admission.error);
     return new Promise((resolve, reject) => {
+      const performanceTrace = currentDaemonRequestPerformanceTrace();
       const item: BackgroundQueueItem<Result> = {
         kind: "background",
         source: request.source,
         priority: request.priority ?? "background",
         run: request.run,
+        ...(performanceTrace ? {
+          performanceTrace,
+          endQueueWait: performanceTrace.begin("queue-wait")
+        } : {}),
         resolve,
         reject,
         admission: admission.reservation
@@ -222,10 +244,12 @@ export class DaemonWriteQueue {
     if (this.running) return;
     this.running = true;
     queueMicrotask(() => {
-      void this.drain().finally(() => {
-        this.running = false;
-        this.resolveIdleIfNeeded();
-        if (!this.isIdle()) this.schedule();
+      runWithDaemonRequestPerformanceTrace(undefined, () => {
+        void this.drain().finally(() => {
+          this.running = false;
+          this.resolveIdleIfNeeded();
+          if (!this.isIdle()) this.schedule();
+        });
       });
     });
   }
@@ -256,6 +280,7 @@ export class DaemonWriteQueue {
       if (batch.length > 0 && !sameAttribution(batch[0]!, next)) break;
       const item = this.interactive.shift()!;
       item.started = true;
+      item.endQueueWait?.();
       if (item.timeout) clearTimeout(item.timeout);
       batch.push(item);
       opCount += item.ops.length;
@@ -274,11 +299,13 @@ export class DaemonWriteQueue {
     }
     for (const item of batch) {
       try {
+        item.endDurableFlush = item.performanceTrace?.begin("durable-flush");
         for (const op of item.ops) {
           Effect.runSync(coordinator.enqueue(op));
         }
         accepted.push(item);
       } catch (error) {
+        item.endDurableFlush?.();
         item.reject(toDaemonQueueWriteError(error));
         item.admission.release();
       }
@@ -304,14 +331,19 @@ export class DaemonWriteQueue {
       for (const item of accepted) item.reject(writeError);
     } finally {
       this.activeDrainTarget = undefined;
-      for (const item of accepted) item.admission.release();
+      for (const item of accepted) {
+        item.endDurableFlush?.();
+        item.admission.release();
+      }
     }
   }
 
   private async runBackground(item: BackgroundQueueItem<unknown>): Promise<void> {
     this.activeDrainTarget = { kind: "background", source: item.source };
+    item.endQueueWait?.();
     try {
-      item.resolve(await item.run());
+      const run = () => backgroundPerformancePhase(item.source, item.run);
+      item.resolve(await runWithDaemonRequestPerformanceTrace(item.performanceTrace, run));
     } catch (error) {
       item.reject(error);
     } finally {
@@ -344,6 +376,16 @@ export class DaemonWriteQueue {
     const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
     for (const resolve of waiters) resolve();
   }
+}
+
+function backgroundPerformancePhase<Result>(
+  source: string,
+  operation: () => Result | Promise<Result>
+): Result | Promise<Result> {
+  if (source === "ledger-materializer") {
+    return measureCurrentDaemonRequestPerformancePhase("materializer", operation);
+  }
+  return operation();
 }
 
 function attributionFor(item: InteractiveQueueItem | undefined): InteractiveCoordinatorBatch {

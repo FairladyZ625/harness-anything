@@ -21,6 +21,7 @@ import type {
   WriteOp
 } from "@harness-anything/kernel";
 import { taskEntityId } from "@harness-anything/kernel";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export interface DaemonAuthorityAttemptCompilerV2 {
   /**
@@ -128,27 +129,33 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
       );
     }
   };
+  const compileAndSubmit = (
+    compile: () => Promise<AuthorizedOperationAttemptV2>
+  ): Promise<AuthorityOperationReceipt> => measureCurrentDaemonRequestPerformancePhase(
+    "authority",
+    async () => submitAttempt(await compileAttempt(compile))
+  );
   return {
-    submit: async (input) => submitAttempt(await compileAttempt(() => options.attemptCompiler.compile(input))),
+    submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input)),
     ...(options.attemptCompiler.compileProvenanceSession ? {
       submitProvenanceSession: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileProvenanceSession"]>>[0]) =>
-        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileProvenanceSession!(input)))
+        compileAndSubmit(() => options.attemptCompiler.compileProvenanceSession!(input))
     } : {}),
     ...(options.attemptCompiler.compileDecisionTransition ? {
       submitDecisionTransition: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileDecisionTransition"]>>[0]) =>
-        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileDecisionTransition!(input)))
+        compileAndSubmit(() => options.attemptCompiler.compileDecisionTransition!(input))
     } : {}),
     ...(options.attemptCompiler.compileTaskClaim ? {
       submitTaskClaim: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileTaskClaim"]>>[0]) =>
-        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileTaskClaim!(input)))
+        compileAndSubmit(() => options.attemptCompiler.compileTaskClaim!(input))
     } : {}),
     ...(options.attemptCompiler.compileObservedWrite ? {
       submitObservedWrite: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileObservedWrite"]>>[0]) =>
-        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileObservedWrite!(input)))
+        compileAndSubmit(() => options.attemptCompiler.compileObservedWrite!(input))
     } : {}),
     ...(options.attemptCompiler.compileScriptIngest ? {
       submitScriptIngest: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileScriptIngest"]>>[0]) =>
-        submitAttempt(await compileAttempt(() => options.attemptCompiler.compileScriptIngest!(input)))
+        compileAndSubmit(() => options.attemptCompiler.compileScriptIngest!(input))
     } : {})
   };
 }

@@ -1,5 +1,6 @@
 import type { FlushReport, LedgerMaterializerReport } from "@harness-anything/kernel";
 import type { DaemonWriteQueue } from "./write-queue.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export interface DaemonAuthorityPublicationOptions {
   readonly sessionId: string;
@@ -20,9 +21,18 @@ export function enqueueDaemonAuthorityPublication(
     source: "authority-publication",
     priority: "normal",
     run: async () => {
-      const flush = await options.publish();
+      const flush = await measureCurrentDaemonRequestPerformancePhase(
+        "durable-flush",
+        options.publish
+      );
       if (!flush.committed || flush.opCount === 0) return { flush };
-      return { flush, materialization: materialize(options.sessionId) };
+      return {
+        flush,
+        materialization: measureCurrentDaemonRequestPerformancePhase(
+          "materializer",
+          () => materialize(options.sessionId)
+        )
+      };
     }
   });
 }

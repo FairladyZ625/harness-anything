@@ -381,3 +381,10 @@ export const jsonRpcMethodContracts = [
   ...notificationContracts,
   ...adminReservedContracts
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
+
+const jsonRpcMethodContractByName: ReadonlyMap<string, JsonRpcMethodContract> =
+  new Map(jsonRpcMethodContracts.map((contract) => [contract.method, contract]));
+
+export function jsonRpcMethodContract(method: string): JsonRpcMethodContract | undefined {
+  return jsonRpcMethodContractByName.get(method);
+}

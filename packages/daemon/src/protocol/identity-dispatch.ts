@@ -5,6 +5,7 @@ import type {
   PersonRegistry
 } from "../identity/types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import type { JsonRpcMethodContract } from "./method-registry.ts";
 
 export interface IdentityDispatchOptions {
@@ -14,6 +15,23 @@ export interface IdentityDispatchOptions {
 }
 
 export async function resolveIdentityActorForMethod(
+  contract: JsonRpcMethodContract,
+  options: IdentityDispatchOptions
+): Promise<{ readonly ok: true; readonly actor: AuthenticatedActor } | IdentityProviderFailure | undefined> {
+  return measureCurrentDaemonRequestPerformancePhase(
+    "identity",
+    () => resolveIdentityActor(contract, options)
+  );
+}
+
+export function authorizeIdentityActorForMethod(
+  provider: IdentityProvider,
+  input: Parameters<IdentityProvider["authorize"]>[0]
+): ReturnType<IdentityProvider["authorize"]> {
+  return measureCurrentDaemonRequestPerformancePhase("identity", () => provider.authorize(input));
+}
+
+async function resolveIdentityActor(
   contract: JsonRpcMethodContract,
   options: IdentityDispatchOptions
 ): Promise<{ readonly ok: true; readonly actor: AuthenticatedActor } | IdentityProviderFailure | undefined> {
