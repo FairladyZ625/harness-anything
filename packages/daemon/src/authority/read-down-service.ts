@@ -59,6 +59,7 @@ export function createAuthorityReadDownService(input: {
       const reservation: AuthoritySnapshotReservation = {
         schema: "authority-snapshot-reservation/v1",
         cut,
+        cutChange: latest ?? null,
         lease: {
           leaseId: randomUUID(),
           expiresAt: new Date(now().getTime() + leaseTtlMs).toISOString(),
@@ -101,6 +102,21 @@ export function createAuthorityReadDownService(input: {
         encoding: "base64",
         bytes: Buffer.from(input.content.blob(digest)).toString("base64")
       };
+    },
+    renewLease: async (streamToken) => {
+      const current = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);
+      const renewed: DurableSnapshotLease = {
+        ...current,
+        reservation: {
+          ...current.reservation,
+          lease: {
+            ...current.reservation.lease,
+            expiresAt: new Date(now().getTime() + leaseTtlMs).toISOString()
+          }
+        }
+      };
+      writeLease(input.state, renewed);
+      return structuredClone(renewed.reservation.lease);
     },
     changesAfter: async (streamToken, sinceRevision): Promise<AuthorityChangesAfterResult> => {
       const lease = readLiveLease(input.state, streamToken, now, input.workspaceId, input.epoch);

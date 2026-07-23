@@ -12,6 +12,7 @@ import {
   type AuthorityBlobResult,
   type AuthorityChangesAfterResult,
   type AuthoritySnapshotManifest,
+  type AuthoritySnapshotLease,
   type AuthoritySnapshotReservation,
   type AuthorityResponseFrame,
   type AuthorityServerFrame,
@@ -53,6 +54,7 @@ export interface AuthorityReadDownService {
   readonly beginSnapshot: () => Promise<AuthoritySnapshotReservation>;
   readonly getManifest: (streamToken: string, digest: Sha256Digest) => Promise<AuthoritySnapshotManifest>;
   readonly getBlob: (streamToken: string, digest: Sha256Digest) => Promise<AuthorityBlobResult>;
+  readonly renewLease: (streamToken: string) => Promise<AuthoritySnapshotLease>;
   readonly changesAfter: (streamToken: string, sinceRevision: number) => Promise<AuthorityChangesAfterResult>;
 }
 
@@ -163,7 +165,8 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
             "begin-snapshot-and-subscribe/v1",
             "authority-snapshot-manifest/v1",
             "authority-blob/v1",
-            "authority-changes-after/v1"
+            "authority-changes-after/v1",
+            "authority-lease-renewal/v1"
           ] : []),
           "view-scoped-delegation-token",
           ...(negotiatedV2 ? ["actor-axes-binding/v2", "semantic-mutation-envelope/v2"] : [])
@@ -213,6 +216,18 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     }
     if (value.kind === "get_blob") {
       await handleReadDown(value.requestId, () => options.readDownService!.getBlob(value.streamToken, value.digest));
+      return;
+    }
+    if (value.kind === "renew_lease") {
+      if (!options.readDownService) {
+        write(response(value.requestId, generation, false, undefined, "READ_DOWN_UNAVAILABLE", "Authority read-down is not available for this workspace."));
+        return;
+      }
+      if (value.workspaceId !== options.workspaceId) {
+        write(response(value.requestId, generation, false, undefined, "WORKSPACE_MISMATCH", "Read-down lease belongs to another workspace."));
+        return;
+      }
+      await handleReadDown(value.requestId, () => options.readDownService!.renewLease(value.streamToken));
       return;
     }
     if (value.kind === "changes_after") {

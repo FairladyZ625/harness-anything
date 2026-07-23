@@ -45,6 +45,7 @@ test("read-down snapshot manifest and blob remain verifiable across service rest
     );
 
     assert.equal(reservation.cut.revision, 0);
+    assert.equal(reservation.cutChange, null);
     assert.equal(reservation.stream.fromRevision, 1);
     assert.deepEqual(manifest.entries.map((entry) => entry.path), ["docs/a-first.md", "z-last.md"]);
     const entry = manifest.entries[0]!;
@@ -100,6 +101,47 @@ test("read-down snapshot manifest and blob remain verifiable across service rest
       restarted.service.getBlob(reservation.stream.streamToken, entry.blobDigest),
       /BLOB_DIGEST_MISMATCH/u
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read-down reservation carries the authority's complete latest change without reconstruction", async () => {
+  const fixture = createReadDownFixture();
+  try {
+    writeFileSync(path.join(fixture.gitRoot, "seed.md"), "seed\n");
+    git(fixture.gitRoot, "add", ".");
+    git(fixture.gitRoot, "commit", "-m", "seed");
+    const opened = fixture.open("2026-07-23T04:00:00.000Z");
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+    await opened.changeLog.append({
+      schema: "replica-change/v2",
+      workspaceId: "workspace-read-down",
+      revision: 1,
+      opId: "op-seed",
+      semanticDigest: "semantic-seed",
+      operations: [{ opId: "op-seed", semanticDigest: "semantic-seed" }],
+      commitSha,
+      previousCommit: null,
+      changedAt: "2026-07-23T03:59:59.000Z",
+      manifest: {
+        digest: `sha256:${"1".repeat(64)}`,
+        entryCount: 1
+      },
+      paths: [{
+        path: "seed.md",
+        blobDigest: `sha256:${createHash("sha256").update("seed\n").digest("hex")}`,
+        mode: 0o100644,
+        tombstone: false
+      }]
+    });
+    const authorityLatest = await opened.changeLog.latest("workspace-read-down");
+
+    const reservation = await opened.service.beginSnapshot();
+
+    assert.deepEqual(reservation.cutChange, authorityLatest);
+    assert.equal(reservation.cutChange?.revision, reservation.cut.revision);
+    assert.equal(reservation.cutChange?.commitSha, reservation.cut.commitSha);
   } finally {
     fixture.cleanup();
   }

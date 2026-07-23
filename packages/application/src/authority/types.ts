@@ -263,6 +263,7 @@ export interface AuthorityStreamReservation {
 export interface AuthoritySnapshotReservation {
   readonly schema: "authority-snapshot-reservation/v1";
   readonly cut: AuthoritySnapshotCut;
+  readonly cutChange?: ReplicaChangeRecord | null;
   readonly lease: AuthoritySnapshotLease;
   readonly stream: AuthorityStreamReservation;
 }
