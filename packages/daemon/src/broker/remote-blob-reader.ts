@@ -2,6 +2,11 @@ import type { AuthoritySnapshotManifestEntry, AuthoritySnapshotReservation } fro
 import type { PersistentSshAuthorityClient } from "../transport/persistent-ssh-authority-client.ts";
 import type { BrokerCasStore } from "./cas-store.ts";
 import { isMissing } from "./errno.ts";
+import {
+  asRemoteReadDownError,
+  classifyRemoteReadDownFailure,
+  RemoteReadDownIntegrityError
+} from "./remote-read-down-failure.ts";
 
 export class RemoteBlobReader {
   private readonly flights = new Map<string, Promise<Buffer>>();
@@ -45,13 +50,23 @@ export class RemoteBlobReader {
     try {
       return await this.cas.get(digest);
     } catch (error) {
-      if (!isMissing(error)) throw error;
+      if (!isMissing(error)) {
+        throw new RemoteReadDownIntegrityError(asRemoteReadDownError(error).message);
+      }
     }
     this.assertOpen();
-    const bytes = await this.client.getBlob(reservation.stream.streamToken, digest);
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.client.getBlob(reservation.stream.streamToken, digest);
+    } catch (error) {
+      if (classifyRemoteReadDownFailure(error) !== "TERMINAL") throw error;
+      throw new RemoteReadDownIntegrityError(asRemoteReadDownError(error).message);
+    }
     this.assertOpen();
     const actual = await this.cas.put(bytes);
-    if (actual !== digest) throw new Error(`BLOB_DIGEST_MISMATCH:${digest}:${actual}`);
+    if (actual !== digest) {
+      throw new RemoteReadDownIntegrityError(`BLOB_DIGEST_MISMATCH:${digest}:${actual}`);
+    }
     return Buffer.from(bytes);
   }
 

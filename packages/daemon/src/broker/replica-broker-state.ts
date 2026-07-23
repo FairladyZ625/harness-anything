@@ -3,11 +3,13 @@ import { replicaChangeOperationIdsForPath } from "../authority/replica-change-op
 import type { ConflictReason } from "./conflict-store.ts";
 import { sameFingerprint, tombstoneFingerprint } from "./fingerprint.ts";
 import type {
+  BrokerDurableState,
   BrokerPathState,
   BrokerResyncTarget,
   BrokerVersion,
   ManagedFingerprint
 } from "./types.ts";
+import { BrokerReplicaIntegrityError } from "./broker-errors.ts";
 
 export const maxRemoteResyncTransitionsPerSynchronization = 3;
 
@@ -19,6 +21,16 @@ export function sameResyncTarget(
     && left.revision === right.revision
     && left.commitSha === right.commitSha
     && JSON.stringify(left.cutChange) === JSON.stringify(right.cutChange);
+}
+
+export function requireResyncTarget(
+  state: BrokerDurableState,
+  remoteTerminal: boolean
+): BrokerResyncTarget | undefined {
+  if (state.resyncTarget || !remoteTerminal) return state.resyncTarget;
+  throw new BrokerReplicaIntegrityError(
+    "remote broker has a durable targetless RESYNC state"
+  );
 }
 
 export function versionFor(

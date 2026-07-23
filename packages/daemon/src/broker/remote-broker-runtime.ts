@@ -2,13 +2,20 @@ import type {
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "@harness-anything/application";
-import { AuthorityTransportDisconnectedError } from "../transport/persistent-ssh-authority-client.ts";
 import { RemoteCanonicalSnapshotSource } from "./remote-canonical-snapshot-source.ts";
 import {
+  deriveRemoteBrokerRuntimeHealth,
+  type RemoteBrokerRuntimeHealth,
+  type RemoteBrokerRuntimeLifecycle
+} from "./remote-broker-runtime-health.ts";
+import {
   RemoteReadDownSession,
-  RemoteReplicaResyncRequiredError,
   type RemoteReadDownSessionOptions
 } from "./remote-read-down-session.ts";
+import {
+  asRemoteReadDownError,
+  classifyRemoteReadDownFailure
+} from "./remote-read-down-failure.ts";
 import { RemoteReplicaChangeLog } from "./remote-replica-change-log.ts";
 import { ReplicaBroker } from "./replica-broker.ts";
 import type {
@@ -21,13 +28,11 @@ export interface RemoteBrokerRuntimeOptions
   extends Omit<BrokerOptions, "replicaChangeLog" | "snapshotSource" | "replicaGapPolicy"> {
   readonly session: Omit<
     RemoteReadDownSessionOptions,
-    "workspaceId" | "stateRoot" | "expectedResume"
+    "workspaceId" | "stateRoot" | "expectedResume" | "onTerminal"
   >;
 }
 
-export type RemoteBrokerRuntimeHealth =
-  | { readonly status: "IDLE" | "STARTING" | "RUNNING" | "STOPPED" }
-  | { readonly status: "TERMINAL"; readonly failure: Error };
+export { type RemoteBrokerRuntimeHealth } from "./remote-broker-runtime-health.ts";
 
 export class RemoteBrokerRuntime {
   readonly broker: ReplicaBroker;
@@ -38,14 +43,22 @@ export class RemoteBrokerRuntime {
   private unsubscribe: (() => void) | undefined;
   private pendingNotification: ReplicaChangeRecord | undefined;
   private notificationTask: Promise<void> | undefined;
+  private retryTask: Promise<void> | undefined;
+  private terminalTask: Promise<void> | undefined;
   private startTask: Promise<BrokerDurableState> | undefined;
   private stopTask: Promise<void> | undefined;
-  private phase: "IDLE" | "STARTING" | "RUNNING" | "TERMINAL" | "STOPPED" = "IDLE";
+  private lifecycle: RemoteBrokerRuntimeLifecycle = "IDLE";
   private terminalFailure: Error | undefined;
+  private initialized = false;
   private stopped = false;
+  private readonly stoppedSignal: Promise<void>;
+  private resolveStopped!: () => void;
 
   constructor(options: RemoteBrokerRuntimeOptions) {
     this.options = options;
+    this.stoppedSignal = new Promise((resolve) => {
+      this.resolveStopped = resolve;
+    });
     const { session: _session, ...brokerOptions } = options;
     const replicaChangeLog: ReplicaChangeLog = {
       append: (record) => this.replicaChangeLog.append(record),
@@ -81,25 +94,27 @@ export class RemoteBrokerRuntime {
   }
 
   health(): RemoteBrokerRuntimeHealth {
-    if (this.terminalFailure) return { status: "TERMINAL", failure: this.terminalFailure };
-    if (this.phase === "TERMINAL") {
-      throw new Error("remote broker runtime terminal state is missing its failure");
-    }
-    return { status: this.phase };
+    return deriveRemoteBrokerRuntimeHealth({
+      lifecycle: this.lifecycle,
+      durable: this.initialized ? this.broker.snapshotState() : undefined,
+      session: this.activeSession?.health(),
+      hasPendingWork: Boolean(this.notificationTask || this.retryTask),
+      failure: this.terminalFailure
+    });
   }
 
   start(): Promise<BrokerDurableState> {
     if (this.stopped) return Promise.reject(new Error("remote broker runtime is stopped"));
-    if (this.terminalFailure) return Promise.reject(this.terminalFailure);
-    if (this.phase === "RUNNING") return Promise.resolve(this.broker.snapshotState());
+    const health = this.health();
+    if (health.status === "TERMINAL") return Promise.reject(health.failure);
+    if (this.lifecycle === "ACTIVE") return Promise.resolve(this.broker.snapshotState());
     if (this.startTask) return this.startTask;
-    this.phase = "STARTING";
+    this.lifecycle = "STARTING";
     const task = this.startRuntime();
     this.startTask = task;
     void task.then(
       () => {
         if (this.startTask === task) this.startTask = undefined;
-        if (!this.stopped && !this.terminalFailure) this.phase = "RUNNING";
       },
       () => {
         if (this.startTask === task) this.startTask = undefined;
@@ -111,14 +126,17 @@ export class RemoteBrokerRuntime {
   stop(): Promise<void> {
     if (this.stopTask) return this.stopTask;
     this.stopped = true;
-    if (!this.terminalFailure) this.phase = "STOPPED";
+    this.lifecycle = "STOPPED";
+    this.resolveStopped();
     this.unsubscribeNow();
     this.pendingNotification = undefined;
     const closeTask = this.activeSession?.close() ?? Promise.resolve();
     this.stopTask = Promise.allSettled([
       closeTask,
       this.startTask ?? Promise.resolve(),
-      this.notificationTask ?? Promise.resolve()
+      this.notificationTask ?? Promise.resolve(),
+      this.retryTask ?? Promise.resolve(),
+      this.terminalTask ?? Promise.resolve()
     ]).then((results) => {
       if (this.terminalFailure) throw this.terminalFailure;
       const closeResult = results[0]!;
@@ -132,23 +150,26 @@ export class RemoteBrokerRuntime {
   }
 
   private async startRuntime(): Promise<BrokerDurableState> {
-    const durable = await this.broker.initialize();
-    if (this.stopped) throw new Error("remote broker runtime is stopped");
-    this.bindRemoteComponents(durable);
-    this.unsubscribe = this.replicaChangeLog.subscribe(
-      this.session.workspaceId,
-      (change) => this.handleNotification(change)
-    );
     try {
-      return await this.broker.synchronize();
+      const durable = await this.broker.initialize();
+      this.initialized = true;
+      if (this.stopped) throw new Error("remote broker runtime is stopped");
+      this.bindRemoteComponents(durable);
+      this.unsubscribe = this.replicaChangeLog.subscribe(
+        this.session.workspaceId,
+        (change) => this.handleNotification(change)
+      );
+      const state = await this.broker.synchronize();
+      this.lifecycle = "ACTIVE";
+      if (this.pendingNotification) this.handleNotification(this.pendingNotification);
+      return state;
     } catch (error) {
-      const failure = remoteBrokerError(error);
+      const failure = this.terminalFailure ?? asRemoteReadDownError(error);
       await this.rollbackStart();
-      if (!this.stopped && !isRetryableRuntimeError(failure)) {
-        this.terminalFailure = failure;
-        this.phase = "TERMINAL";
+      if (!this.stopped && classifyRemoteReadDownFailure(failure) !== "TERMINAL") {
+        this.lifecycle = "IDLE";
       } else if (!this.stopped) {
-        this.phase = "IDLE";
+        this.latchTerminal(failure);
       }
       throw failure;
     }
@@ -162,7 +183,8 @@ export class RemoteBrokerRuntime {
       expectedResume: {
         epoch: durable.epoch,
         deliveredRevision: durable.receivedCursor
-      }
+      },
+      onTerminal: (failure) => this.latchTerminal(failure)
     });
     this.activeSession = session;
     this.activeReplicaChangeLog = new RemoteReplicaChangeLog(session);
@@ -173,8 +195,12 @@ export class RemoteBrokerRuntime {
     this.unsubscribeNow();
     this.pendingNotification = undefined;
     const session = this.activeSession;
-    if (session) await session.close();
-    if (this.notificationTask) await Promise.allSettled([this.notificationTask]);
+    const pending = [
+      ...(session ? [session.close()] : []),
+      ...(this.notificationTask ? [this.notificationTask] : []),
+      ...(this.retryTask ? [this.retryTask] : [])
+    ];
+    await Promise.allSettled(pending);
     this.activeSession = undefined;
     this.activeReplicaChangeLog = undefined;
     this.activeSnapshotSource = undefined;
@@ -183,18 +209,14 @@ export class RemoteBrokerRuntime {
   private handleNotification(change: ReplicaChangeRecord): void {
     if (this.stopped || this.terminalFailure) return;
     this.pendingNotification = change;
-    if (this.notificationTask) return;
+    if (this.lifecycle !== "ACTIVE" || this.notificationTask) return;
     const task = this.pumpNotifications();
     this.notificationTask = task;
     void task.then(
-      () => {
-        if (this.notificationTask === task) this.notificationTask = undefined;
-        if (this.pendingNotification && !this.stopped && !this.terminalFailure) {
-          this.handleNotification(this.pendingNotification);
-        }
-      },
-      () => {
-        if (this.notificationTask === task) this.notificationTask = undefined;
+      () => this.finishNotificationTask(task),
+      (error) => {
+        this.finishNotificationTask(task);
+        if (!this.stopped) this.latchTerminal(asRemoteReadDownError(error));
       }
     );
   }
@@ -206,43 +228,95 @@ export class RemoteBrokerRuntime {
       try {
         await this.broker.onNotification(change);
       } catch (error) {
-        const failure = remoteBrokerError(error);
-        if (this.stopped || this.phase === "STARTING") return;
-        if (isRetryableRuntimeError(failure)) {
-          this.options.session.onDiagnostic?.(
-            `remote broker notification synchronization deferred: ${failure.message}`
-          );
+        if (this.stopped) return;
+        const failure = asRemoteReadDownError(error);
+        if (classifyRemoteReadDownFailure(failure) !== "TERMINAL") {
+          this.scheduleRetry();
           return;
         }
-        await this.enterTerminal(failure);
+        this.latchTerminal(failure);
         return;
       }
     }
   }
 
-  private async enterTerminal(failure: Error): Promise<void> {
+  private scheduleRetry(): void {
+    if (this.retryTask || this.stopped || this.terminalFailure) return;
+    const task = this.retrySynchronization();
+    this.retryTask = task;
+    void task.then(
+      () => {
+        if (this.retryTask === task) this.retryTask = undefined;
+      },
+      (error) => {
+        if (this.retryTask === task) this.retryTask = undefined;
+        if (!this.stopped) this.latchTerminal(asRemoteReadDownError(error));
+      }
+    );
+  }
+
+  private async retrySynchronization(): Promise<void> {
+    const backoff = {
+      initialMs: this.options.session.backoff?.initialMs ?? 100,
+      maximumMs: this.options.session.backoff?.maximumMs ?? 5_000,
+      multiplier: this.options.session.backoff?.multiplier ?? 2
+    };
+    let delay = backoff.initialMs;
+    while (!this.stopped && !this.terminalFailure && this.lifecycle === "ACTIVE") {
+      await this.retryWait(delay);
+      if (this.stopped) return;
+      try {
+        await this.session.refresh();
+        const state = await this.broker.synchronize();
+        if (state.mode === "READY") return;
+      } catch (error) {
+        const failure = asRemoteReadDownError(error);
+        if (classifyRemoteReadDownFailure(failure) === "TERMINAL") {
+          this.latchTerminal(failure);
+          return;
+        }
+        this.options.session.onDiagnostic?.(
+          `remote broker synchronization retry deferred: ${failure.message}`
+        );
+      }
+      delay = Math.min(
+        backoff.maximumMs,
+        Math.max(delay + 1, Math.ceil(delay * backoff.multiplier))
+      );
+    }
+  }
+
+  private async retryWait(milliseconds: number): Promise<void> {
+    const sleep = this.options.session.sleep
+      ?? ((delay: number) => new Promise<void>((resolve) => setTimeout(resolve, delay)));
+    await Promise.race([sleep(milliseconds), this.stoppedSignal]);
+  }
+
+  private latchTerminal(failure: Error): void {
     if (this.terminalFailure) return;
     this.terminalFailure = failure;
-    this.phase = "TERMINAL";
     this.unsubscribeNow();
     this.pendingNotification = undefined;
     this.options.session.onDiagnostic?.(
-      `remote broker notification synchronization failed terminally: ${failure.message}`
+      `remote broker synchronization failed terminally: ${failure.message}`
     );
-    await this.activeSession?.close();
+    const task = this.activeSession?.close() ?? Promise.resolve();
+    this.terminalTask = task.catch((error) => {
+      this.options.session.onDiagnostic?.(
+        `remote broker terminal close failed: ${asRemoteReadDownError(error).message}`
+      );
+    });
   }
 
   private unsubscribeNow(): void {
     this.unsubscribe?.();
     this.unsubscribe = undefined;
   }
-}
 
-function isRetryableRuntimeError(error: Error): boolean {
-  return error instanceof RemoteReplicaResyncRequiredError
-    || error instanceof AuthorityTransportDisconnectedError;
-}
-
-function remoteBrokerError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
+  private finishNotificationTask(task: Promise<void>): void {
+    if (this.notificationTask === task) this.notificationTask = undefined;
+    if (this.pendingNotification && !this.stopped && !this.terminalFailure) {
+      this.handleNotification(this.pendingNotification);
+    }
+  }
 }

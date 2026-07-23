@@ -10,16 +10,17 @@ import {
   BrokerReplicaIntegrityError,
   BrokerSubmitPreflightError
 } from "./broker-errors.ts";
+import { BrokerOperationLatch } from "./broker-operation-latch.ts";
 import { LocalConflictStore, type ConflictReason } from "./conflict-store.ts";
 import { BrokerDurableStateStore } from "./durable-state-store.ts";
 import {
   fingerprintBytes,
-  fingerprintDigest,
   fingerprintPath,
   sameFingerprint,
   tombstoneFingerprint
 } from "./fingerprint.ts";
 import { CrashSafeNativeApplier } from "./native-applier.ts";
+import { runBrokerBarrier } from "./replica-broker-barrier.ts";
 import { RemoteReplicaResyncRequiredError } from "./remote-read-down-session.ts";
 import {
   hasPathStatus,
@@ -27,6 +28,7 @@ import {
   localTombstone,
   mapConflictReason,
   maxRemoteResyncTransitionsPerSynchronization,
+  requireResyncTarget,
   sameResyncTarget,
   sameVersion,
   versionFor,
@@ -42,7 +44,6 @@ import type {
   BrokerVersion,
   CanonicalSnapshot,
   ManagedFingerprint,
-  MaterializationWitness,
   PendingMaterialization
 } from "./types.ts";
 
@@ -52,8 +53,8 @@ export class ReplicaBroker {
   private readonly store: BrokerDurableStateStore;
   private readonly cas: BrokerCasStore;
   private readonly applier: CrashSafeNativeApplier;
+  private readonly operations = new BrokerOperationLatch();
   private state: BrokerDurableState | undefined;
-  private synchronizationTask: Promise<BrokerDurableState> | undefined;
 
   constructor(options: BrokerOptions) {
     this.options = options;
@@ -68,25 +69,19 @@ export class ReplicaBroker {
     });
   }
 
-  async initialize(): Promise<BrokerDurableState> {
+  initialize(): Promise<BrokerDurableState> {
+    return this.operations.run(() => this.initializeExclusive());
+  }
+
+  private async initializeExclusive(): Promise<BrokerDurableState> {
+    if (this.state) return this.snapshotState();
     this.state = await this.store.initialize(this.options.workspaceId);
     await this.materializePending();
     return this.snapshotState();
   }
 
   synchronize(): Promise<BrokerDurableState> {
-    if (this.synchronizationTask) return this.synchronizationTask;
-    const task = this.synchronizeExclusive();
-    this.synchronizationTask = task;
-    void task.then(
-      () => {
-        if (this.synchronizationTask === task) this.synchronizationTask = undefined;
-      },
-      () => {
-        if (this.synchronizationTask === task) this.synchronizationTask = undefined;
-      }
-    );
-    return task;
+    return this.operations.run(() => this.synchronizeExclusive());
   }
   private async synchronizeExclusive(): Promise<BrokerDurableState> {
     await this.ensureInitialized();
@@ -94,7 +89,10 @@ export class ReplicaBroker {
     for (;;) {
       try {
         if (this.current().mode === "RESYNC_REQUIRED") {
-          if (!this.current().resyncTarget) return this.snapshotState();
+          if (!requireResyncTarget(
+            this.current(),
+            this.options.replicaGapPolicy === "TERMINAL"
+          )) return this.snapshotState();
           await this.bootstrapResync();
         }
         while (this.current().resolvedCursor < this.current().receivedCursor) {
@@ -120,15 +118,25 @@ export class ReplicaBroker {
     }
   }
 
-  async onNotification(change: ReplicaChangeRecord): Promise<BrokerDurableState> {
+  onNotification(change: ReplicaChangeRecord): Promise<BrokerDurableState> {
+    return this.operations.run(() => this.onNotificationExclusive(change));
+  }
+
+  private async onNotificationExclusive(
+    change: ReplicaChangeRecord
+  ): Promise<BrokerDurableState> {
     await this.ensureInitialized();
     if (change.workspaceId !== this.options.workspaceId) throw new Error("replica notification belongs to another workspace");
     // Notifications are lossy hints. The durable ReplicaChangeLog query in
     // synchronize(), not the notification body, is the authoritative stream.
-    return this.synchronize();
+    return this.synchronizeExclusive();
   }
 
-  async recordLocalChange(pathName: string): Promise<BrokerPathState> {
+  recordLocalChange(pathName: string): Promise<BrokerPathState> {
+    return this.operations.run(() => this.recordLocalChangeExclusive(pathName));
+  }
+
+  private async recordLocalChangeExclusive(pathName: string): Promise<BrokerPathState> {
     await this.ensureInitialized();
     const safePath = normalizeRelativeDocumentPath(pathName);
     const current = this.current();
@@ -154,7 +162,16 @@ export class ReplicaBroker {
     return structuredClone(nextPath);
   }
 
-  async prepareSubmission(pathName: string, opId: string): Promise<{
+  prepareSubmission(pathName: string, opId: string): Promise<{
+    readonly path: string;
+    readonly content: Buffer;
+    readonly contentFingerprint: ManagedFingerprint;
+    readonly overlayBase: BrokerVersion | null;
+  }> {
+    return this.operations.run(() => this.prepareSubmissionExclusive(pathName, opId));
+  }
+
+  private async prepareSubmissionExclusive(pathName: string, opId: string): Promise<{
     readonly path: string;
     readonly content: Buffer;
     readonly contentFingerprint: ManagedFingerprint;
@@ -187,11 +204,20 @@ export class ReplicaBroker {
     return { path: safePath, content, contentFingerprint: observed, overlayBase: pathState.overlayBase ?? pathState.visibleBase };
   }
 
-  async markSubmissionUnknown(pathName: string, opId: string): Promise<void> {
-    await this.updatePendingStatus(pathName, opId, "PENDING_UNKNOWN");
+  markSubmissionUnknown(pathName: string, opId: string): Promise<void> {
+    return this.operations.run(
+      () => this.updatePendingStatus(pathName, opId, "PENDING_UNKNOWN")
+    );
   }
 
-  async markSubmissionRetryable(pathName: string, opId: string): Promise<void> {
+  markSubmissionRetryable(pathName: string, opId: string): Promise<void> {
+    return this.operations.run(() => this.markSubmissionRetryableExclusive(pathName, opId));
+  }
+
+  private async markSubmissionRetryableExclusive(
+    pathName: string,
+    opId: string
+  ): Promise<void> {
     await this.ensureInitialized();
     const safePath = normalizeRelativeDocumentPath(pathName);
     const current = this.current();
@@ -204,7 +230,21 @@ export class ReplicaBroker {
     });
   }
 
-  async returnRejectedSubmission(pathName: string, opId: string, authorityReason: string): Promise<string> {
+  returnRejectedSubmission(
+    pathName: string,
+    opId: string,
+    authorityReason: string
+  ): Promise<string> {
+    return this.operations.run(
+      () => this.returnRejectedSubmissionExclusive(pathName, opId, authorityReason)
+    );
+  }
+
+  private async returnRejectedSubmissionExclusive(
+    pathName: string,
+    opId: string,
+    authorityReason: string
+  ): Promise<string> {
     await this.ensureInitialized();
     const safePath = normalizeRelativeDocumentPath(pathName);
     const current = this.current();
@@ -259,60 +299,21 @@ export class ReplicaBroker {
     return structuredClone(this.current());
   }
 
-  async barrier(request: BrokerBarrierRequest = {}): Promise<BrokerBarrierResult> {
+  barrier(request: BrokerBarrierRequest = {}): Promise<BrokerBarrierResult> {
+    return this.operations.run(() => this.barrierExclusive(request));
+  }
+
+  private async barrierExclusive(
+    request: BrokerBarrierRequest
+  ): Promise<BrokerBarrierResult> {
     await this.ensureInitialized();
-    const current = this.current();
-    if (current.mode === "RESYNC_REQUIRED") return { tag: "RESYNC_REQUIRED" };
-    if (request.targetRevision !== undefined && current.resolvedCursor < request.targetRevision) {
-      return { tag: "TIMEOUT", resolvedCursor: current.resolvedCursor };
-    }
-    const selected = request.paths
-      ? request.paths.map((item) => normalizeRelativeDocumentPath(item)).sort()
-      : Object.keys(current.paths).sort();
-    const statuses = selected.map((item) => [item, current.paths[item]?.status] as const);
-    const conflicts = statuses.filter(([, status]) => status === "CONFLICT").map(([item]) => item);
-    if (conflicts.length) return { tag: "LOCAL_CONFLICT", paths: conflicts };
-    const blocked = statuses.filter(([, status]) => status === "APPLY_BLOCKED").map(([item]) => item);
-    if (blocked.length) return { tag: "APPLY_BLOCKED", paths: blocked };
-    const dirty = statuses.filter(([, status]) => status !== "CLEAN").map(([item]) => item);
-    if (dirty.length) return { tag: "DIRTY", paths: dirty };
-    if (!this.options.writerExclusion || !this.options.watcherFence) return { tag: "NONQUIESCENT" };
-    const lease = await this.options.writerExclusion.acquire(selected);
-    if (!lease) return { tag: "NONQUIESCENT" };
-    try {
-      const fingerprints: Record<string, ManagedFingerprint> = {};
-      for (const pathName of selected) {
-        const observed = await fingerprintPath(this.visiblePath(pathName));
-        const expected = this.current().paths[pathName]?.canonicalHidden.fingerprint;
-        if (!expected || !sameFingerprint(observed, expected)) return { tag: "DIRTY", paths: [pathName] };
-        fingerprints[pathName] = observed;
-      }
-      const watcherFenceVector = await this.options.watcherFence.fence(selected);
-      const fencedPaths = Object.keys(watcherFenceVector).sort();
-      if (JSON.stringify(fencedPaths) !== JSON.stringify(selected)) {
-        throw new Error("BROKER_WATCHER_FENCE_SET_MISMATCH");
-      }
-      const state = this.current();
-      const cutId = `cut-${state.epoch}-${state.resolvedCursor}-${state.nextJournalLSN}`;
-      const witness: MaterializationWitness = {
-        cutId,
-        selectedDigest: fingerprintDigest(selected),
-        cutKind: "HISTORICAL_EXCLUDED_SET",
-        epoch: state.epoch,
-        revision: state.resolvedCursor,
-        fingerprints,
-        watcherFenceVector,
-        journalLSN: state.nextJournalLSN
-      };
-      await this.persist({
-        ...state,
-        nextJournalLSN: state.nextJournalLSN + 1,
-        witnesses: { ...state.witnesses, [cutId]: witness }
-      });
-      return { tag: "SATISFIED_EXACT_AT_CUT", witness };
-    } finally {
-      await lease.release();
-    }
+    return runBrokerBarrier(request, {
+      current: () => this.current(),
+      persist: (state) => this.persist(state),
+      visiblePath: (pathName) => this.visiblePath(pathName),
+      writerExclusion: this.options.writerExclusion,
+      watcherFence: this.options.watcherFence
+    });
   }
 
   private async receiveChange(change: ReplicaChangeRecord): Promise<void> {
@@ -590,9 +591,8 @@ export class ReplicaBroker {
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (!this.state) await this.initialize();
+    if (!this.state) await this.initializeExclusive();
   }
-
   private visiblePath(pathName: string): string {
     return path.join(this.options.viewRoot, ...pathName.split("/"));
   }

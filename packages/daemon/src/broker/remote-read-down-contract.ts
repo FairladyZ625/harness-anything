@@ -27,6 +27,7 @@ export interface RemoteReadDownSessionOptions {
   readonly changeCache?: Partial<RemoteReadDownChangeCacheLimits>;
   readonly expectedResume?: ResumeCursor;
   readonly onDiagnostic?: (text: string) => void;
+  readonly onTerminal?: (failure: Error) => void;
 }
 
 /**
@@ -59,6 +60,7 @@ export interface ActiveSnapshot {
   readonly baseEntries: ReadonlyMap<string, AuthoritySnapshotManifestEntry>;
   readonly changes: Map<number, ReplicaChangeRecord>;
   readonly changeSizes: Map<number, number>;
+  readonly lossyHintRevisions: Set<number>;
   changeBytes: number;
   highestRevision: number;
   durableCursor: number;
@@ -73,6 +75,10 @@ export interface ResumeCursor {
   readonly epoch: string;
   readonly deliveredRevision: number;
 }
+
+export type RemoteReadDownSessionHealth =
+  | { readonly status: "IDLE" | "RECOVERING" | "READY" | "CLOSED" }
+  | { readonly status: "TERMINAL"; readonly failure: Error };
 
 export const defaultBackoff: RemoteReadDownBackoff = {
   initialMs: 100,

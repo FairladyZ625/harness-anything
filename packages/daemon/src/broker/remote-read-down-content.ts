@@ -8,7 +8,12 @@ import type {
 import {
   AuthorityReadDownRequestError
 } from "../transport/persistent-ssh-authority-client.ts";
-import type { ActiveSnapshot, RemoteReadDownChangeCacheLimits } from "./remote-read-down-contract.ts";
+import type {
+  ActiveSnapshot,
+  RemoteReadDownChangeCacheLimits,
+  ResumeCursor
+} from "./remote-read-down-contract.ts";
+import { RemoteReadDownIntegrityError } from "./remote-read-down-failure.ts";
 
 export function assertManifest(
   reservation: AuthoritySnapshotReservation,
@@ -17,11 +22,11 @@ export function assertManifest(
 ): void {
   if (manifest.cut.workspaceId !== workspaceId
     || !sameSnapshotCut(manifest.cut, reservation.cut)) {
-    throw new Error("authority snapshot manifest cut mismatch");
+    throw new RemoteReadDownIntegrityError("authority snapshot manifest cut mismatch");
   }
   const actual = manifestDigest(manifest.cut, manifest.entries);
   if (actual !== reservation.cut.manifestDigest) {
-    throw new Error(`MANIFEST_DIGEST_MISMATCH:${reservation.cut.manifestDigest}:${actual}`);
+    throw new RemoteReadDownIntegrityError(`MANIFEST_DIGEST_MISMATCH:${reservation.cut.manifestDigest}:${actual}`);
   }
 }
 
@@ -30,7 +35,9 @@ export function assertCutChange(
   change: ReplicaChangeRecord | null
 ): void {
   if (reservation.cut.revision === 0) {
-    if (change !== null) throw new Error("authority empty cut unexpectedly has a change");
+    if (change !== null) {
+      throw new RemoteReadDownIntegrityError("authority empty cut unexpectedly has a change");
+    }
     return;
   }
   if (!change
@@ -38,7 +45,7 @@ export function assertCutChange(
     || change.revision !== reservation.cut.revision
     || change.commitSha !== reservation.cut.commitSha
     || change.manifest.digest !== reservation.cut.manifestDigest) {
-    throw new Error("authority cut change does not match snapshot reservation");
+    throw new RemoteReadDownIntegrityError("authority cut change does not match snapshot reservation");
   }
 }
 
@@ -52,6 +59,45 @@ export async function mapInBatches<Value>(
   }
 }
 
+export function createActiveSnapshot(
+  reservation: AuthoritySnapshotReservation,
+  manifest: AuthoritySnapshotManifest,
+  cutChange: ReplicaChangeRecord | null,
+  resume: ResumeCursor | undefined
+): ActiveSnapshot {
+  const baseEntries = new Map(manifest.entries.map((entry) => [entry.path, entry]));
+  if (baseEntries.size !== manifest.entries.length) {
+    throw new RemoteReadDownIntegrityError(
+      "authority snapshot manifest contains duplicate paths"
+    );
+  }
+  const sameEpoch = resume?.epoch === reservation.cut.epoch;
+  const canResume = Boolean(
+    resume && sameEpoch && reservation.cut.revision <= resume.deliveredRevision
+  );
+  const resyncReason = resume && !sameEpoch
+    ? `EPOCH_CHANGED:${resume.epoch}:${reservation.cut.epoch}`
+    : resume && !canResume
+      ? `CURSOR_PRECEDES_RECONNECTED_CUT:${resume.deliveredRevision}:${reservation.cut.revision}`
+      : undefined;
+  return {
+    reservation,
+    cutChange,
+    baseEntries,
+    changes: new Map(),
+    changeSizes: new Map(),
+    lossyHintRevisions: new Set(),
+    changeBytes: 0,
+    highestRevision: reservation.cut.revision,
+    durableCursor: reservation.cut.revision,
+    adopted: canResume || (!resume && reservation.cut.revision === 0),
+    deliveredRevision: canResume ? resume!.deliveredRevision : reservation.cut.revision,
+    ...(resyncReason ? { resyncReason } : {}),
+    resyncSignaled: false,
+    resyncReported: false
+  };
+}
+
 export function validateChanges(
   changes: ReadonlyArray<ReplicaChangeRecord>,
   sinceRevision: number,
@@ -60,7 +106,9 @@ export function validateChanges(
   let expected = sinceRevision + 1;
   for (const change of changes) {
     if (change.workspaceId !== workspaceId || change.revision !== expected) {
-      throw new Error(`remote replica change gap at revision ${change.revision}; expected ${expected}`);
+      throw new RemoteReadDownIntegrityError(
+        `remote replica change gap at revision ${change.revision}; expected ${expected}`
+      );
     }
     expected += 1;
   }
@@ -74,7 +122,9 @@ export function applyChange(
     if (item.tombstone) {
       entries.delete(item.path);
     } else {
-      if (!item.blobDigest || !item.mode) throw new Error(`remote change lacks blob metadata for ${item.path}`);
+      if (!item.blobDigest || !item.mode) {
+        throw new RemoteReadDownIntegrityError(`remote change lacks blob metadata for ${item.path}`);
+      }
       entries.set(item.path, {
         path: item.path,
         blobDigest: item.blobDigest,
@@ -97,7 +147,7 @@ export function assertChangeManifest(
     commitSha: change.commitSha
   }, [...entries.values()]);
   if (actual !== change.manifest.digest || entries.size !== change.manifest.entryCount) {
-    throw new Error(`MANIFEST_DIGEST_MISMATCH:${change.manifest.digest}:${actual}`);
+    throw new RemoteReadDownIntegrityError(`MANIFEST_DIGEST_MISMATCH:${change.manifest.digest}:${actual}`);
   }
 }
 
@@ -126,27 +176,36 @@ export function storeCachedChange(
   const existing = active.changes.get(change.revision);
   if (existing) {
     if (!sameChangeIdentity(existing, change)) {
-      throw new Error(`remote replica change identity conflict at revision ${change.revision}`);
+      throw new RemoteReadDownIntegrityError(
+        `remote replica change identity conflict at revision ${change.revision}`
+      );
     }
+    if (!lossyHint) {
+      active.lossyHintRevisions.delete(change.revision);
+    }
+    active.highestRevision = Math.max(active.highestRevision, change.revision);
     return false;
   }
   const byteSize = Buffer.byteLength(JSON.stringify(change));
   if (byteSize > limits.maxBytes) {
-    throw new Error(`REMOTE_CHANGE_CACHE_LIMIT_EXCEEDED:bytes:${byteSize}:${limits.maxBytes}`);
+    throw new RemoteReadDownIntegrityError(
+      `REMOTE_CHANGE_CACHE_LIMIT_EXCEEDED:bytes:${byteSize}:${limits.maxBytes}`
+    );
   }
   if (lossyHint
     && (active.changes.size >= limits.maxCount
       || active.changeBytes + byteSize > limits.maxBytes)) {
     return false;
   }
-  if (active.changes.size >= limits.maxCount
-    || active.changeBytes + byteSize > limits.maxBytes) {
-    throw new Error(
+  if (!lossyHint) evictLossyHints(active, limits, byteSize);
+  if (active.changes.size >= limits.maxCount || active.changeBytes + byteSize > limits.maxBytes) {
+    throw new RemoteReadDownIntegrityError(
       `REMOTE_CHANGE_CACHE_LIMIT_EXCEEDED:${active.changes.size + 1}:${active.changeBytes + byteSize}`
     );
   }
   active.changes.set(change.revision, change);
   active.changeSizes.set(change.revision, byteSize);
+  if (lossyHint) active.lossyHintRevisions.add(change.revision);
   active.changeBytes += byteSize;
   active.highestRevision = Math.max(active.highestRevision, change.revision);
   return true;
@@ -162,11 +221,6 @@ export function compareManifestPaths(
 export function isResyncError(error: unknown): error is AuthorityReadDownRequestError {
   return error instanceof AuthorityReadDownRequestError
     && (error.code === "RESYNC_REQUIRED" || error.code === "SNAPSHOT_EXPIRED");
-}
-
-export function isIntegrityError(error: unknown): boolean {
-  const message = contentError(error).message;
-  return /(?:BLOB|MANIFEST)_DIGEST_MISMATCH|CAS object corrupted|manifest (?:cut mismatch|contains duplicate)|cut change does not match|blob response (?:metadata mismatch|is not canonical)/iu.test(message);
 }
 
 function sameSnapshotCut(
@@ -185,7 +239,23 @@ function deleteCachedChange(active: ActiveSnapshot, revision: number): void {
   const byteSize = active.changeSizes.get(revision) ?? 0;
   active.changes.delete(revision);
   active.changeSizes.delete(revision);
+  active.lossyHintRevisions.delete(revision);
   active.changeBytes -= byteSize;
+}
+
+function evictLossyHints(
+  active: ActiveSnapshot,
+  limits: RemoteReadDownChangeCacheLimits,
+  incomingBytes: number
+): void {
+  const revisions = [...active.lossyHintRevisions].sort((left, right) => right - left);
+  for (const revision of revisions) {
+    if (active.changes.size < limits.maxCount
+      && active.changeBytes + incomingBytes <= limits.maxBytes) {
+      return;
+    }
+    deleteCachedChange(active, revision);
+  }
 }
 
 function recomputeHighestRevision(active: ActiveSnapshot): void {
@@ -194,8 +264,4 @@ function recomputeHighestRevision(active: ActiveSnapshot): void {
     if (revision > highest) highest = revision;
   }
   active.highestRevision = highest;
-}
-
-function contentError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
