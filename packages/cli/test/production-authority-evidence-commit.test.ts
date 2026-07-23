@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { taskEntityId } from "../../kernel/src/index.ts";
@@ -63,9 +63,36 @@ test("the next publication commits a V2 event left durable before its evidence c
       /^\?\? authority-attribution-events\/v2\//u
     );
 
-    const second = await submit("second publication recovers evidence\n");
+    const gitTracePath = path.join(fixture.root, "evidence-git-trace.jsonl");
+    const priorGitTrace = process.env.GIT_TRACE2_EVENT;
+    process.env.GIT_TRACE2_EVENT = gitTracePath;
+    const second = await submit("second publication recovers evidence\n").finally(() => {
+      if (priorGitTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+      else process.env.GIT_TRACE2_EVENT = priorGitTrace;
+    });
     assert.equal(second.tag, "COMMITTED", JSON.stringify(second));
     if (second.tag !== "COMMITTED") return;
+    const tracedGitArgv = readFileSync(gitTracePath, "utf8")
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { readonly event?: string; readonly argv?: ReadonlyArray<string> })
+      .filter((event) => event.event === "start" && event.argv)
+      .map((event) => event.argv!);
+    const capturedHead = git(fixture.authoredRoot, "rev-parse", "HEAD^");
+    const perShardMembershipQueries = tracedGitArgv.filter((argv) =>
+      argv.includes("cat-file")
+      && argv.some((arg) =>
+        arg.startsWith(`${capturedHead}:authority-attribution-events/v2/`)
+        && arg.endsWith(".jsonl")
+      )
+    );
+    const bulkMembershipQueries = tracedGitArgv.filter((argv) =>
+      argv.includes("ls-tree")
+      && argv.includes(":(top,literal)authority-attribution-events/v2")
+    );
+    assert.equal(perShardMembershipQueries.length, 0);
+    assert.equal(bulkMembershipQueries.length, 1);
+    assert.equal(bulkMembershipQueries[0]!.includes(capturedHead), true);
     assert.equal(git(fixture.authoredRoot, "status", "--porcelain", "--untracked-files=all", "--", "authority-attribution-events/v2"), "");
     const committedEvidence = git(
       fixture.authoredRoot,

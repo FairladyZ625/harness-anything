@@ -660,6 +660,7 @@ function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
     refExists: (_repoRoot, ref) => ref === "refs/heads/main" || ref === "main",
     commitExists: () => true,
     pathExistsAtCommit: () => true,
+    filesExistingAtCommit: (_repoRoot, _sha, input) => new Set(input.relativePaths),
     checkout: () => undefined,
     createBranch: () => undefined,
     mergeNoFf: () => undefined,

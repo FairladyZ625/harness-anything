@@ -19,6 +19,19 @@ export interface VersionControlSystem {
   readonly refExists: (repoRoot: string, ref: string) => boolean;
   readonly commitExists: (repoRoot: string, sha: string) => boolean;
   readonly pathExistsAtCommit: (repoRoot: string, sha: string, relativePath: string) => boolean;
+  /**
+   * Returns requested canonical repo-relative file paths present below one
+   * canonical repo-relative root in an immutable commit tree. Inputs outside
+   * the root or using path aliases are rejected; Git read failures throw.
+   */
+  readonly filesExistingAtCommit: (
+    repoRoot: string,
+    sha: string,
+    input: {
+      readonly relativeRoot: string;
+      readonly relativePaths: ReadonlyArray<string>;
+    }
+  ) => ReadonlySet<string>;
   readonly checkout: (repoRoot: string, ref: string) => void;
   readonly createBranch: (repoRoot: string, branch: string) => void;
   readonly mergeNoFf: (repoRoot: string, branch: string, message: string, author?: VcsCommitAuthor) => void;
