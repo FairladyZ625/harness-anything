@@ -11,6 +11,10 @@ import {
   type RepoWriteCommandDto,
   type RepoWriteParentMessage
 } from "../src/runtime/repo-write-protocol.ts";
+import {
+  committedCommandReceipt,
+  committedTerminalOutcome
+} from "./support/repo-write-terminal-fixture.ts";
 
 test("host announces ready and executes only after the exact prepared handshake", async () => {
   const fixture = hostFixture();
@@ -19,7 +23,7 @@ test("host announces ready and executes only after the exact prepared handshake"
     opId: `op-${requestId}`,
     execute: async () => {
       executions += 1;
-      return { tag: "COMMITTED", commitSha: "a".repeat(40) };
+      return committedTerminalOutcome(`op-${requestId}`);
     }
   });
   const host = fixture.create();
@@ -36,7 +40,7 @@ test("host announces ready and executes only after the exact prepared handshake"
     requestId: "request-1",
     opId: "op-request-1",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", commitSha: "a".repeat(40) }
+    receipt: committedCommandReceipt()
   });
 });
 
@@ -62,7 +66,7 @@ test("prepare failures and bounded admission are definitely not started", async 
   const fixture = hostFixture({ maxAdmissions: 1 });
   const firstPrepare = deferred<{
     readonly opId: string;
-    readonly execute: () => Promise<{ tag: string }>;
+    readonly execute: () => Promise<ReturnType<typeof committedTerminalOutcome>>;
   }>();
   fixture.prepare = ({ requestId }) => {
     if (requestId === "request-1") return firstPrepare.promise;
@@ -82,7 +86,10 @@ test("prepare failures and bounded admission are definitely not started", async 
     code: "ADMISSION_FULL"
   });
 
-  firstPrepare.resolve({ opId: "op-1", execute: async () => ({ tag: "COMMITTED" }) });
+  firstPrepare.resolve({
+    opId: "op-1",
+    execute: async () => committedTerminalOutcome("op-1")
+  });
   await first;
   await host.receive(proceed("request-1", "op-1"));
 
@@ -106,7 +113,7 @@ test("retained request history is bounded without forgetting replay protection",
     opId: `op-${requestId}`,
     execute: async () => {
       executions += 1;
-      return { tag: "COMMITTED" };
+      return committedTerminalOutcome(`op-${requestId}`);
     }
   });
   const host = fixture.create();
@@ -185,7 +192,7 @@ test("stale generation, duplicate requests, and opId mismatch never execute", as
     opId: `op-${requestId}`,
     execute: async () => {
       executions += 1;
-      return { tag: "COMMITTED" };
+      return committedTerminalOutcome(`op-${requestId}`);
     }
   });
   const host = fixture.create();
@@ -250,9 +257,11 @@ test("execution errors are outcome-unknown without replay and status uses canoni
     lookups += 1;
     assert.equal(opId, "op-unknown");
     return {
-      state: "committed",
-      outcome: "committed",
-      receipt: { tag: "COMMITTED", source: "canonical" }
+      state: "terminal",
+      outcome: committedTerminalOutcome(
+        opId,
+        committedCommandReceipt("canonical recovery")
+      )
     };
   };
   const host = fixture.create();
@@ -277,16 +286,16 @@ test("execution errors are outcome-unknown without replay and status uses canoni
     opId: "op-unknown",
     state: "committed",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", source: "canonical" }
+    receipt: committedCommandReceipt("canonical recovery")
   });
 });
 
 test("terminal delivery failure does not erase a locally known committed receipt", async () => {
   const fixture = hostFixture();
-  const receipt = { tag: "COMMITTED", generatedAt: "2026-07-23T04:00:00.000Z" };
+  const receipt = committedCommandReceipt("terminal delivery");
   fixture.prepare = async () => ({
     opId: "op-terminal-delivery",
-    execute: async () => receipt
+    execute: async () => committedTerminalOutcome("op-terminal-delivery", receipt)
   });
   fixture.send = (message) => {
     if (message.kind === "terminal") throw new Error("fixture terminal delivery failed");
@@ -313,10 +322,10 @@ test("terminal delivery failure does not erase a locally known committed receipt
 
 test("status returns the same-generation terminal receipt only when canonical lookup is absent", async () => {
   const fixture = hostFixture();
-  const localReceipt = { tag: "COMMITTED", generatedAt: "2026-07-23T01:00:00.000Z" };
+  const localReceipt = committedCommandReceipt("local recovery");
   fixture.prepare = async () => ({
     opId: "op-local",
-    execute: async () => localReceipt
+    execute: async () => committedTerminalOutcome("op-local", localReceipt)
   });
   const host = fixture.create();
   await host.start();
@@ -334,9 +343,11 @@ test("status returns the same-generation terminal receipt only when canonical lo
   });
 
   fixture.lookup = async () => ({
-    state: "committed",
-    outcome: "committed",
-    receipt: { tag: "COMMITTED", source: "canonical-recovery" }
+    state: "terminal",
+    outcome: committedTerminalOutcome(
+      "op-local",
+      committedCommandReceipt("canonical recovery")
+    )
   });
   await host.receive(status("status-canonical", "op-local"));
   assert.deepEqual(fixture.messages.at(-1), {
@@ -345,7 +356,7 @@ test("status returns the same-generation terminal receipt only when canonical lo
     opId: "op-local",
     state: "committed",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", source: "canonical-recovery" }
+    receipt: committedCommandReceipt("canonical recovery")
   });
 });
 
@@ -391,11 +402,13 @@ test("shutdown waits for admitted status lookup and rejects new lookup admission
 
 test("shutdown cancels unproceeded admissions and drains after proceeded operations settle", async () => {
   const fixture = hostFixture({ shutdownTimeoutMs: 500 });
-  const execution = deferred<{ tag: string }>();
+  const execution = deferred<ReturnType<typeof committedTerminalOutcome>>();
   let shutdowns = 0;
   fixture.prepare = async ({ requestId }) => ({
     opId: `op-${requestId}`,
-    execute: () => requestId === "running" ? execution.promise : Promise.resolve({ tag: "unexpected" })
+    execute: () => requestId === "running"
+      ? execution.promise
+      : Promise.resolve(committedTerminalOutcome(`op-${requestId}`, committedCommandReceipt("unexpected")))
   });
   fixture.shutdown = async () => {
     shutdowns += 1;
@@ -419,7 +432,7 @@ test("shutdown cancels unproceeded admissions and drains after proceeded operati
   assert.equal(fixture.messages.some((message) => message.kind === "drained"), false);
   assert.equal(shutdowns, 0);
 
-  execution.resolve({ tag: "COMMITTED" });
+  execution.resolve(committedTerminalOutcome("op-running"));
   await running;
   assert.equal(shutdowns, 1);
   const terminalIndex = fixture.messages.findIndex((message) => message.kind === "terminal");
@@ -445,7 +458,7 @@ test("shutdown synchronously closes every prepared operation before sending canc
     opId: `op-${requestId}`,
     execute: async () => {
       executions += 1;
-      return { tag: "COMMITTED" };
+      return committedTerminalOutcome(`op-${requestId}`);
     }
   });
   fixture.send = (message) => {
@@ -481,7 +494,7 @@ test("shutdown synchronously closes every prepared operation before sending canc
 
 test("shutdown timeout never reports drained and a later retry can observe the real drain", async () => {
   const fixture = hostFixture({ shutdownTimeoutMs: 10 });
-  const execution = deferred<{ tag: string }>();
+  const execution = deferred<ReturnType<typeof committedTerminalOutcome>>();
   fixture.prepare = async () => ({
     opId: "op-slow",
     execute: () => execution.promise
@@ -503,7 +516,7 @@ test("shutdown timeout never reports drained and a later retry can observe the r
   });
   assert.equal(fixture.messages.some((message) => message.kind === "drained"), false);
 
-  execution.resolve({ tag: "COMMITTED" });
+  execution.resolve(committedTerminalOutcome("op-slow"));
   await running;
   assert.equal(fixture.messages.some((message) => message.kind === "drained"), false);
   await host.receive(shutdown("shutdown-retry"));
@@ -535,12 +548,13 @@ function hostFixture(limits: {
     },
     prepare: async ({ requestId }) => ({
       opId: `op-${requestId}`,
-      execute: async () => ({ tag: "COMMITTED" })
+      execute: async () => committedTerminalOutcome(`op-${requestId}`)
     }),
     lookup: async () => ({ state: "not-found" }),
     shutdown: async () => undefined,
     create: () => createRepoWriteChildHost({
       repoId: "repo-canonical",
+      workspaceId: "workspace-canonical",
       generation: 3,
       transport: {
         send: (message) => fixture.send(message)

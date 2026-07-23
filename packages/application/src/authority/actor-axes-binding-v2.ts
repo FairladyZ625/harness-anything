@@ -115,6 +115,17 @@ export interface ActorAxesBindingRecordV2 {
   readonly attribution: WriteAttribution;
 }
 
+export interface ActorAxesBindingOperationConsumeInputV2 {
+  readonly tokenId: string;
+  readonly maximum: number;
+  readonly opId: string;
+}
+
+export type ActorAxesBindingOperationConsumeResultV2 =
+  | "consumed"
+  | "already-consumed-by-same-op"
+  | "denied";
+
 export interface ActorAxesBindingRuntimeV2 {
   readonly proofKeys: ActorAxesProofKeyResolverV2;
   readonly validatePresentationToken: (input: {
@@ -126,8 +137,20 @@ export interface ActorAxesBindingRuntimeV2 {
   readonly currentAuthorityGeneration: () => bigint;
   readonly currentRevocationEpochs: (claims: ActorAxesBindingClaimsV2) => Promise<RevocationEpochTupleV2>;
   readonly nowMs: () => bigint;
-  readonly consumeOperation: (tokenId: string, maximum: number) => Promise<boolean>;
+  readonly consumeOperation: (
+    input: ActorAxesBindingOperationConsumeInputV2
+  ) => Promise<ActorAxesBindingOperationConsumeResultV2>;
+  /** Exact outer-PROCEEDING recovery only; new admission must never call this. */
+  readonly consumeRecoveryOperation?: (
+    input: ActorAxesBindingOperationConsumeInputV2
+  ) => Promise<ActorAxesBindingOperationConsumeResultV2>;
   readonly validateAdmissionTokenRef: (input: {
+    readonly bindingId: string;
+    readonly tokenId: string;
+    readonly tokenDigest: Uint8Array;
+  }) => Promise<boolean>;
+  /** Matches immutable registration even when the binding was later disabled. */
+  readonly validateRecoveryAdmissionTokenRef?: (input: {
     readonly bindingId: string;
     readonly tokenId: string;
     readonly tokenDigest: Uint8Array;
@@ -216,10 +239,38 @@ export async function validateActorAxesBindingPresentationV2(
 
 export async function consumeActorAxesBindingOperationV2(
   verified: VerifiedActorAxesBindingV2,
+  opId: string,
   runtime: ActorAxesBindingRuntimeV2
 ): Promise<void> {
-  if (!await runtime.consumeOperation(verified.token.claims.tokenId, verified.token.claims.maxOperations)) {
+  const result = await runtime.consumeOperation({
+    tokenId: verified.token.claims.tokenId,
+    maximum: verified.token.claims.maxOperations,
+    opId: nonBlank(opId, "opId")
+  });
+  if (result === "denied") {
     throw new Error("TOKEN_OPERATION_LIMIT_EXCEEDED");
+  }
+  if (result !== "consumed" && result !== "already-consumed-by-same-op") {
+    throw new Error("TOKEN_OPERATION_CONSUME_RESULT_INVALID");
+  }
+}
+
+export async function consumeRecoveredActorAxesBindingOperationV2(
+  verified: VerifiedActorAxesBindingV2,
+  opId: string,
+  runtime: ActorAxesBindingRuntimeV2
+): Promise<void> {
+  if (!runtime.consumeRecoveryOperation) {
+    throw new Error("TOKEN_OPERATION_RECOVERY_UNAVAILABLE");
+  }
+  const result = await runtime.consumeRecoveryOperation({
+    tokenId: verified.token.claims.tokenId,
+    maximum: verified.token.claims.maxOperations,
+    opId: nonBlank(opId, "opId")
+  });
+  if (result === "denied") throw new Error("TOKEN_OPERATION_LIMIT_EXCEEDED");
+  if (result !== "consumed" && result !== "already-consumed-by-same-op") {
+    throw new Error("TOKEN_OPERATION_CONSUME_RESULT_INVALID");
   }
 }
 

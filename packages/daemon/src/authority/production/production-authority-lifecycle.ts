@@ -327,6 +327,7 @@ function createRepoComponent(
   material: RepoProductionMaterial,
   hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): ProductionAuthorityRepoComponent {
+  const writerGeneration = input.runtime.daemonGenerationContext?.()?.daemonGeneration;
   const sessions = new Set<ReturnType<typeof serveAuthorityForcedCommand>>();
   const publicationExecutor = createSerialPublicationExecutor();
   const readDownService = createAuthorityReadDownService({
@@ -421,6 +422,7 @@ function createRepoComponent(
         authorityService,
         attemptCompiler: createProductionCanonicalAttemptCompiler({
           config: material.config,
+          ...(writerGeneration ? { writerGeneration } : {}),
           keyStore: material.keyStore,
           keyRegistry: material.keyRegistry,
           bindingRuntime: material.bindingRuntime,
@@ -499,6 +501,7 @@ function createConnectionAuthorityService(
   }
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
+  const writerGeneration = input.runtime.daemonGenerationContext?.()?.daemonGeneration;
   const generationFence = createRuntimeDaemonGenerationWitnessFence({
     runtime: input.runtime,
     workspaceId: material.config.workspaceId,
@@ -519,6 +522,9 @@ function createConnectionAuthorityService(
     v2: {
       schemaTuple: material.config.schemaTuple,
       channelNonceDigest: context.channelBinding.digest,
+      ...(writerGeneration ? {
+        recoveryScope: { repoId: material.config.repoId, writerGeneration }
+      } : {}),
       bindingRuntime: connectionBoundRuntime(material.bindingRuntime, material.config, context),
       entityRegistrations: productionAuthorityV2EntityKinds.map((kind) =>
         entityRegistry[kind] as unknown as EntityRegistration<string, typeof kind>

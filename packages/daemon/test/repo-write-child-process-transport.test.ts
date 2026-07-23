@@ -17,6 +17,7 @@ import {
   repoWriteProtocolType,
   type RepoWriteChildMessage
 } from "../src/runtime/repo-write-protocol.ts";
+import { committedCommandReceipt } from "./support/repo-write-terminal-fixture.ts";
 
 const fixturePath = fileURLToPath(new URL("./support/repo-write-ipc-child.ts", import.meta.url));
 
@@ -82,10 +83,7 @@ test("uses Node IPC for validated ready and command roundtrips", async (context)
     opId: "op-request-1",
     state: "committed",
     outcome: "committed",
-    receipt: {
-      tag: "COMMITTED",
-      generatedAt: "2026-07-23T03:00:00.000Z"
-    }
+    receipt: committedCommandReceipt("transport recovery")
   });
 
   const drained = nextMessage(transport);

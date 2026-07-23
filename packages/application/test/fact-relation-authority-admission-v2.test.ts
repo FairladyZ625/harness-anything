@@ -117,7 +117,7 @@ test("six W2 negative controls are REJECTED before PREPARED, enqueue, or token c
         nowMs: () => 2_000n,
         consumeOperation: async () => {
           consumed += 1;
-          return true;
+          return "consumed";
         },
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId
           && bytesEqual(input.tokenDigest, tokenDigest)

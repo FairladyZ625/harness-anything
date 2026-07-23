@@ -19,6 +19,10 @@ import {
   readyFrame,
   requestId
 } from "./support/repo-write-client-fixture.ts";
+import {
+  committedCommandReceipt,
+  rejectedCommandReceipt
+} from "./support/repo-write-terminal-fixture.ts";
 
 test("treats duplicate ready for the same repo generation as idempotent", () => {
   const transport = new FakeRepoWriteTransport();
@@ -102,6 +106,7 @@ test("queues lookup until ready, observes correlated telemetry, and returns the 
     requestId: requestId(statusRequest),
     opId: "op-recovery"
   });
+  const receipt = committedCommandReceipt();
   transport.emit({
     ...childFrame("telemetry"),
     requestId: requestId(statusRequest),
@@ -115,15 +120,38 @@ test("queues lookup until ready, observes correlated telemetry, and returns the 
     opId: "op-recovery",
     state: "committed",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", generatedAt: "2026-07-23T02:00:00.000Z" }
+    receipt
   });
 
   assert.deepEqual(await result, {
     state: "committed",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", generatedAt: "2026-07-23T02:00:00.000Z" }
+    receipt
   });
   assert.equal(telemetry.length, 1);
+});
+
+test("reconnect lookup returns the exact rejected terminal receipt", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = readyClient(transport);
+  const receipt = rejectedCommandReceipt();
+  const result = client.lookup("op-rejected");
+  const statusRequest = transport.sent.at(-1);
+
+  transport.emit({
+    ...childFrame("status"),
+    requestId: requestId(statusRequest),
+    opId: "op-rejected",
+    state: "rejected",
+    outcome: "rejected",
+    receipt
+  });
+
+  assert.deepEqual(await result, {
+    state: "rejected",
+    outcome: "rejected",
+    receipt
+  });
 });
 
 test("lookup failures stay retryable and do not enter mutation outcome semantics", async () => {

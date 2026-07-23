@@ -95,7 +95,7 @@ test("six W4 negative controls reject before PREPARED, enqueue, or token consump
         currentAuthorityGeneration: () => claims.authorityGeneration,
         currentRevocationEpochs: async () => claims.revocationEpochs,
         nowMs: () => 2_000n,
-        consumeOperation: async () => { consumed += 1; return true; },
+        consumeOperation: async () => { consumed += 1; return "consumed"; },
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId && bytesEqual(input.tokenDigest, tokenDigest)
       },
       entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review],

@@ -4,7 +4,12 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "@harness-anything/kernel";
-import type { AuthorityOperationReceipt, RecordedAuthorityProtocol } from "./types.ts";
+import type {
+  AuthorityOperationReceipt,
+  AuthorityFixedOperationBindingV1,
+  AuthorityRecoveryPublicationPolicyV1,
+  RecordedAuthorityProtocol
+} from "./types.ts";
 
 export const authorityPublicationBatchSize = 8;
 export const authorityPublicationMaxWaitMs = 10;
@@ -19,6 +24,9 @@ export interface PreparedAuthoritySubmission {
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;
+  readonly recoveryPublicationPolicy?: AuthorityRecoveryPublicationPolicyV1;
+  readonly fixedOperationBinding?: AuthorityFixedOperationBindingV1;
+  readonly recoveryMode?: "outer-proceeding";
   readonly publicationRevalidation?: () => Promise<void>;
   readonly recordedProtocol: RecordedAuthorityProtocol;
 }

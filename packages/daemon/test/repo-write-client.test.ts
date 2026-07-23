@@ -20,6 +20,10 @@ import {
   readyFrame,
   requestId
 } from "./support/repo-write-client-fixture.ts";
+import {
+  committedCommandReceipt,
+  rejectedCommandReceipt
+} from "./support/repo-write-terminal-fixture.ts";
 
 test("waits for ready, records prepared opId, proceeds, and resolves only at terminal", async () => {
   const transport = new FakeRepoWriteTransport();
@@ -31,6 +35,7 @@ test("waits for ready, records prepared opId, proceeds, and resolves only at ter
 
   const result = client.submit(command("task.create"));
   const submit = transport.sent.at(-1);
+  const receipt = committedCommandReceipt();
   assert.equal(submit?.kind, "submit");
 
   transport.emit({
@@ -49,9 +54,32 @@ test("waits for ready, records prepared opId, proceeds, and resolves only at ter
     requestId: requestId(submit),
     opId: "op-stable",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", commitSha: "a".repeat(40) }
+    receipt
   });
-  assert.deepEqual(await result, { tag: "COMMITTED", commitSha: "a".repeat(40) });
+  assert.deepEqual(await result, receipt);
+});
+
+test("resolves an exact rejected terminal receipt instead of converting it to transport failure", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = readyClient(transport);
+  const result = client.submit(command("progress.append"));
+  const submit = transport.sent.at(-1);
+  const receipt = rejectedCommandReceipt();
+
+  transport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(submit),
+    opId: "op-rejected"
+  });
+  transport.emit({
+    ...childFrame("terminal"),
+    requestId: requestId(submit),
+    opId: "op-rejected",
+    outcome: "rejected",
+    receipt
+  });
+
+  assert.deepEqual(await result, receipt);
 });
 
 test("binds one non-empty repo to one positive transport generation", () => {
@@ -222,7 +250,7 @@ test("fails closed on duplicate request frames and opId mismatches", async () =>
     requestId: requestId(mismatchSubmit),
     opId: "op-wrong",
     outcome: "committed",
-    receipt: { tag: "COMMITTED" }
+    receipt: committedCommandReceipt()
   });
   await assert.rejects(mismatch, (error) => {
     assert.ok(error instanceof RepoWriteOutcomeUnknownError);
@@ -230,6 +258,29 @@ test("fails closed on duplicate request frames and opId mismatches", async () =>
     assert.equal(error.opId, "op-expected");
     return true;
   });
+});
+
+test("fails the generation when terminal outcome disagrees with the exact receipt", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = readyClient(transport);
+  const pending = client.submit(command("progress.append"));
+  const submit = transport.sent.at(-1);
+
+  transport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(submit),
+    opId: "op-mismatch"
+  });
+  transport.emit({
+    ...childFrame("terminal"),
+    requestId: requestId(submit),
+    opId: "op-mismatch",
+    outcome: "committed",
+    receipt: rejectedCommandReceipt()
+  });
+
+  await assert.rejects(pending, RepoWriteOutcomeUnknownError);
+  await assert.rejects(client.submit(command("progress.append")), RepoWriteProtocolViolationError);
 });
 
 test("shutdown closes admission and resolves only after the matching drained frame", async () => {

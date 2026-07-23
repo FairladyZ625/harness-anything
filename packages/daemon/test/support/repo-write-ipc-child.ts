@@ -2,6 +2,7 @@ import {
   RepoWriteChildIpcTransport
 } from "../../src/runtime/repo-write-child-process-transport.ts";
 import { repoWriteProtocolType } from "../../src/runtime/repo-write-protocol.ts";
+import { committedCommandReceipt } from "./repo-write-terminal-fixture.ts";
 
 const mode = process.argv[2] ?? "roundtrip";
 
@@ -44,10 +45,7 @@ if (mode === "exit") {
         opId: message.opId,
         state: "committed",
         outcome: "committed",
-        receipt: {
-          tag: "COMMITTED",
-          generatedAt: "2026-07-23T03:00:00.000Z"
-        }
+        receipt: committedCommandReceipt("transport recovery")
       }));
       return;
     }

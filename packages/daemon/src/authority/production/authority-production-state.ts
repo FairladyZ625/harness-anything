@@ -28,9 +28,15 @@ import {
 import type { DurableAuthorityStateTable } from "./service-state.ts";
 import type { WriteAttribution } from "@harness-anything/kernel";
 import { stableStringify } from "@harness-anything/kernel";
+import {
+  authorityBindingRecord,
+  authorityBindingTokenMatches,
+  consumeAuthorityBindingOperation,
+  recoverAuthorityBindingRows,
+  registerAuthorityBindingRow
+} from "./authority-binding-state.ts";
 
 const productionManifestSchema = "authority-production-composition/v1" as const;
-const bindingStateSchema = "authority-binding-state/v1" as const;
 const namespaceStateSchema = "authority-operation-namespace-state/v1" as const;
 const operationNamespaceProofDomain = "ha/operation-namespace/v1\0";
 
@@ -73,15 +79,11 @@ export interface DurableAuthorityBindingRuntimeV2 extends ActorAxesBindingRuntim
     readonly token: Uint8Array;
     readonly attribution: WriteAttribution;
   }) => void;
-}
-
-interface DurableBindingRowV1 {
-  readonly schema: typeof bindingStateSchema;
-  readonly tokenId: string;
-  readonly tokenDigest: string;
-  readonly maxOperations: number;
-  readonly consumedOperations: number;
-  readonly record: ActorAxesBindingRecordV2;
+  readonly registerRecoveryIssuedToken: (input: {
+    readonly claims: ActorAxesBindingClaimsV2;
+    readonly token: Uint8Array;
+    readonly attribution: WriteAttribution;
+  }) => void;
 }
 
 interface DurableNamespaceRowV1 {
@@ -157,35 +159,34 @@ export function createDurableAuthorityBindingRuntimeV2(input: {
   readonly nowMs?: () => number;
 }): DurableAuthorityBindingRuntimeV2 {
   const nowMs = input.nowMs ?? Date.now;
+  recoverAuthorityBindingRows(input.table);
   for (const binding of input.config.bootstrapBindings) {
-    ensureBindingRow(input.table, bindingRow({
+    registerAuthorityBindingRow(input.table, {
       tokenId: binding.tokenId,
       tokenDigest: binding.tokenDigest,
       maxOperations: binding.maxOperations,
-      consumedOperations: 0,
       record: binding.record
-    }));
+    });
   }
   const runtime: DurableAuthorityBindingRuntimeV2 = {
     ...authorityDurableAdapterMarker,
     proofKeys: input.proofKeys,
-    validatePresentationToken: async (candidate) => tokenMatches(input.table, candidate),
-    getBinding: async (bindingId) => input.table.entries<DurableBindingRowV1>()
-      .map(([, row]) => row)
-      .find((row) => row.record.bindingId === bindingId)?.record,
+    validatePresentationToken: async (candidate) =>
+      authorityBindingTokenMatches(input.table, candidate),
+    getBinding: async (bindingId) => authorityBindingRecord(input.table, bindingId),
     currentAuthorityGeneration: () => BigInt(input.config.authorityGeneration),
     currentRevocationEpochs: async (claims) => claims.executorAgentId === null
       ? { ...input.config.revocationEpochs, executor: 0n }
       : input.config.revocationEpochs,
     nowMs: () => BigInt(nowMs()),
-    consumeOperation: async (tokenId, maximum) => {
-      const row = input.table.get<DurableBindingRowV1>(bindingKey(tokenId));
-      if (!validBindingRow(row) || maximum !== row.maxOperations
-        || row.consumedOperations >= row.maxOperations || !row.record.active) return false;
-      ensureBindingRow(input.table, { ...row, consumedOperations: row.consumedOperations + 1 }, true);
-      return true;
-    },
-    validateAdmissionTokenRef: async (candidate) => tokenMatches(input.table, candidate),
+    consumeOperation: async (consumeInput) =>
+      consumeAuthorityBindingOperation(input.table, consumeInput),
+    consumeRecoveryOperation: async (consumeInput) =>
+      consumeAuthorityBindingOperation(input.table, consumeInput, true),
+    validateAdmissionTokenRef: async (candidate) =>
+      authorityBindingTokenMatches(input.table, candidate),
+    validateRecoveryAdmissionTokenRef: async (candidate) =>
+      authorityBindingTokenMatches(input.table, candidate, true),
     registerIssuedToken: ({ claims, token, attribution }) => {
       const record: ActorAxesBindingRecordV2 = {
         bindingId: claims.bindingId,
@@ -198,13 +199,31 @@ export function createDurableAuthorityBindingRuntimeV2(input: {
         active: true,
         attribution
       };
-      ensureBindingRow(input.table, bindingRow({
+      registerAuthorityBindingRow(input.table, {
         tokenId: claims.tokenId,
         tokenDigest: actorAxesBindingTokenDigestV2(token),
         maxOperations: claims.maxOperations,
-        consumedOperations: 0,
         record
-      }));
+      });
+    },
+    registerRecoveryIssuedToken: ({ claims, token, attribution }) => {
+      const record: ActorAxesBindingRecordV2 = {
+        bindingId: claims.bindingId,
+        principalPersonId: claims.principalPersonId,
+        executorAgentId: claims.executorAgentId,
+        workspaceId: claims.workspaceId,
+        deviceId: claims.deviceId,
+        viewId: claims.viewId,
+        sessionId: claims.sessionId,
+        active: true,
+        attribution
+      };
+      registerAuthorityBindingRow(input.table, {
+        tokenId: claims.tokenId,
+        tokenDigest: actorAxesBindingTokenDigestV2(token),
+        maxOperations: claims.maxOperations,
+        record
+      }, true);
     }
   };
   return runtime;
@@ -222,31 +241,36 @@ export function createDurableOperationNamespaceVerifierV2(input: {
     throw new Error("AUTHORITY_OPERATION_NAMESPACE_DURABLE_MISMATCH");
   }
   if (!existing) input.table.put(namespaceKey(configured.namespaceId), configured);
+  const verifyConfigured = async (
+    operationId: OperationIdV2,
+    enforceExpiry: boolean
+  ): Promise<void> => {
+    const candidate = namespaceRow(operationId.namespace);
+    const durable = input.table.get<DurableNamespaceRowV1>(namespaceKey(candidate.namespaceId));
+    if (!durable || stableStringify(durable) !== stableStringify(candidate)
+      || stableStringify(candidate) !== stableStringify(configured)) {
+      throw new Error("OP_NAMESPACE_DURABLE_MISMATCH");
+    }
+    if (operationId.clientRandom128.byteLength !== 16
+      || (enforceExpiry && BigInt(input.nowMs?.() ?? Date.now()) > operationId.namespace.expiresAt)) {
+      throw new Error("OP_NAMESPACE_EXPIRED_OR_RANDOM_INVALID");
+    }
+    const key = input.proofKeys.resolve({
+      algorithm: "Ed25519",
+      issuer: candidate.issuer,
+      keyId: candidate.keyId
+    });
+    if (!key || key.algorithm !== "Ed25519" || !verify(
+      null,
+      namespaceProofBytes(operationId.namespace),
+      key.publicKey,
+      operationId.namespace.proof
+    )) throw new Error("OP_NAMESPACE_PROOF_INVALID");
+  };
   return {
     ...authorityDurableAdapterMarker,
-    verify: async (operationId) => {
-      const candidate = namespaceRow(operationId.namespace);
-      const durable = input.table.get<DurableNamespaceRowV1>(namespaceKey(candidate.namespaceId));
-      if (!durable || stableStringify(durable) !== stableStringify(candidate)
-        || stableStringify(candidate) !== stableStringify(configured)) {
-        throw new Error("OP_NAMESPACE_DURABLE_MISMATCH");
-      }
-      if (operationId.clientRandom128.byteLength !== 16
-        || BigInt(input.nowMs?.() ?? Date.now()) > operationId.namespace.expiresAt) {
-        throw new Error("OP_NAMESPACE_EXPIRED_OR_RANDOM_INVALID");
-      }
-      const key = input.proofKeys.resolve({
-        algorithm: "Ed25519",
-        issuer: candidate.issuer,
-        keyId: candidate.keyId
-      });
-      if (!key || key.algorithm !== "Ed25519" || !verify(
-        null,
-        namespaceProofBytes(operationId.namespace),
-        key.publicKey,
-        operationId.namespace.proof
-      )) throw new Error("OP_NAMESPACE_PROOF_INVALID");
-    }
+    verify: (operationId) => verifyConfigured(operationId, true),
+    verifyRecovery: (operationId) => verifyConfigured(operationId, false)
   };
 }
 
@@ -269,40 +293,6 @@ export function authorityNamespaceProofBytes(namespace: Omit<OperationIdV2["name
 function namespaceProofBytes(namespace: OperationIdV2["namespace"]): Uint8Array {
   const { proof: _proof, ...unsigned } = namespace;
   return authorityNamespaceProofBytes(unsigned);
-}
-
-function tokenMatches(
-  table: DurableAuthorityStateTable,
-  input: { readonly bindingId: string; readonly tokenId: string; readonly tokenDigest: Uint8Array }
-): boolean {
-  const row = table.get<DurableBindingRowV1>(bindingKey(input.tokenId));
-  return validBindingRow(row) && row.record.active && row.record.bindingId === input.bindingId
-    && row.tokenDigest === Buffer.from(input.tokenDigest).toString("base64url");
-}
-
-function bindingRow(input: Omit<DurableBindingRowV1, "schema" | "tokenDigest"> & { readonly tokenDigest: Uint8Array }): DurableBindingRowV1 {
-  return {
-    schema: bindingStateSchema,
-    tokenId: requiredText(input.tokenId, "tokenId"),
-    tokenDigest: digest32(input.tokenDigest, "tokenDigest"),
-    maxOperations: requiredPositiveInteger(input.maxOperations, "maxOperations"),
-    consumedOperations: nonNegativeInteger(input.consumedOperations, "consumedOperations"),
-    record: input.record
-  };
-}
-
-function ensureBindingRow(table: DurableAuthorityStateTable, row: DurableBindingRowV1, replace = false): void {
-  const key = bindingKey(row.tokenId);
-  const existing = table.get<DurableBindingRowV1>(key);
-  if (existing && !replace && JSON.stringify(existing) !== JSON.stringify(row)) {
-    throw new Error("AUTHORITY_BINDING_DURABLE_MISMATCH");
-  }
-  if (!existing || replace) table.put(key, row);
-}
-
-function validBindingRow(value: DurableBindingRowV1 | undefined): value is DurableBindingRowV1 {
-  return value?.schema === bindingStateSchema && value.tokenDigest.length === 43
-    && Number.isSafeInteger(value.maxOperations) && Number.isSafeInteger(value.consumedOperations);
 }
 
 function namespaceRow(value: OperationIdV2["namespace"]): DurableNamespaceRowV1 {
@@ -497,15 +487,6 @@ function base64Digest(value: unknown, name: string): Uint8Array {
   const bytes = base64Bytes(value, name);
   if (bytes.byteLength !== 32) throw new Error(`AUTHORITY_PRODUCTION_FIELD_INVALID:${name}`);
   return bytes;
-}
-
-function digest32(value: Uint8Array, name: string): string {
-  if (value.byteLength !== 32) throw new Error(`AUTHORITY_PRODUCTION_FIELD_INVALID:${name}`);
-  return Buffer.from(value).toString("base64url");
-}
-
-function bindingKey(tokenId: string): string {
-  return `token:${requiredText(tokenId, "tokenId")}`;
 }
 
 function namespaceKey(namespaceId: string): string {

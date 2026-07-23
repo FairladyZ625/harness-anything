@@ -17,6 +17,10 @@ import {
   type RepoWriteChildMessage,
   type RepoWriteParentMessage
 } from "../src/runtime/repo-write-protocol.ts";
+import {
+  committedCommandReceipt,
+  rejectedCommandReceipt
+} from "./support/repo-write-terminal-fixture.ts";
 
 test("submit codec carries command DTOs as JSON-safe values with explicit scalar text encodings", () => {
   const message: RepoWriteParentMessage = {
@@ -112,13 +116,14 @@ test("failure after proceed requires outcome-unknown, stable opId, and no replay
 });
 
 test("ready, terminal, status, telemetry, shutdown, and drained frames have exact schemas", () => {
+  const committedReceipt = committedCommandReceipt();
   const ready = decodeRepoWriteChildMessage(base("ready"));
   const terminal = decodeRepoWriteChildMessage({
     ...base("terminal"),
     requestId: "request-terminal",
     opId: "op-terminal",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", commitSha: "a".repeat(40) }
+    receipt: committedReceipt
   });
   const statusRequest = decodeRepoWriteParentMessage({
     ...base("status"),
@@ -131,7 +136,7 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     opId: "op-terminal",
     state: "committed",
     outcome: "committed",
-    receipt: { tag: "COMMITTED", generatedAt: "2026-07-23T00:00:00.000Z" }
+    receipt: committedReceipt
   });
   const telemetry = decodeRepoWriteChildMessage({
     ...base("telemetry"),
@@ -153,10 +158,10 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
   assert.equal(terminal.kind, "terminal");
   assert.equal(statusRequest.kind, "status");
   assert.equal(status.kind === "status" ? status.state : undefined, "committed");
-  assert.deepEqual(status.kind === "status" && status.state === "committed" ? status.receipt : undefined, {
-    tag: "COMMITTED",
-    generatedAt: "2026-07-23T00:00:00.000Z"
-  });
+  assert.deepEqual(
+    status.kind === "status" && status.state === "committed" ? status.receipt : undefined,
+    committedReceipt
+  );
   assert.equal(telemetry.kind === "telemetry" ? telemetry.elapsedMs : undefined, 12.5);
   assert.equal(shutdown.kind, "shutdown");
   assert.equal(drained.kind, "drained");
@@ -175,7 +180,57 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     opId: "op-prepared",
     state: "prepared",
     outcome: "committed",
-    receipt: { tag: "COMMITTED" }
+    receipt: committedReceipt
+  }), protocolInvalid);
+});
+
+test("rejected terminal receipts round-trip exactly through terminal and status frames", () => {
+  const receipt = rejectedCommandReceipt();
+  const terminal = decodeRepoWriteChildMessage({
+    ...base("terminal"),
+    requestId: "request-rejected",
+    opId: "op-rejected",
+    outcome: "rejected",
+    receipt
+  });
+  const status = decodeRepoWriteChildMessage({
+    ...base("status"),
+    requestId: "status-rejected",
+    opId: "op-rejected",
+    state: "rejected",
+    outcome: "rejected",
+    receipt
+  });
+
+  assert.deepEqual(terminal, {
+    ...base("terminal"),
+    requestId: "request-rejected",
+    opId: "op-rejected",
+    outcome: "rejected",
+    receipt
+  });
+  assert.deepEqual(status, {
+    ...base("status"),
+    requestId: "status-rejected",
+    opId: "op-rejected",
+    state: "rejected",
+    outcome: "rejected",
+    receipt
+  });
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...base("terminal"),
+    requestId: "request-mismatch",
+    opId: "op-mismatch",
+    outcome: "committed",
+    receipt
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...base("status"),
+    requestId: "status-mismatch",
+    opId: "op-mismatch",
+    state: "rejected",
+    outcome: "rejected",
+    receipt: committedCommandReceipt()
   }), protocolInvalid);
 });
 

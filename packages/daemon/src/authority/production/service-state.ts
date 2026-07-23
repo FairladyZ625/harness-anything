@@ -9,6 +9,7 @@ import {
   writeSync
 } from "node:fs";
 import path from "node:path";
+import { authorityFixedOperationBindingMatchesV1 } from "@harness-anything/application";
 import type {
   AuthorityOperationRegistry,
   AuthorityStoredOperationRecord,
@@ -276,6 +277,36 @@ function validateStoredOperation(record: AuthorityStoredOperationRecord): void {
   requiredKey(record.workspaceId, "workspaceId");
   requiredKey(record.opId, "opId");
   requiredKey(record.semanticDigest, "semanticDigest");
+  if (record.recoveryPublicationPolicy !== undefined
+    && record.recoveryPublicationPolicy !== "EXACT_FIXED_OPERATION"
+    && record.recoveryPublicationPolicy !== "REVALIDATION_REQUIRED") {
+    throw new Error("AUTHORITY_STORED_OPERATION_RECOVERY_POLICY_INVALID");
+  }
+  if (record.canonicalOperation) {
+    requiredKey(record.canonicalOperation.opId, "canonical operation opId");
+    requiredKey(record.canonicalOperation.entityId, "canonical operation entityId");
+    requiredKey(record.canonicalOperation.kind, "canonical operation kind");
+    if (record.canonicalOperation.opId !== record.opId
+      || !record.authorityIntegrity
+      || record.authorityIntegrity.semanticRequestDigest !== record.semanticDigest
+      || stableStringify(record.canonicalOperation.authorityIntegrity)
+        !== stableStringify(record.authorityIntegrity)) {
+      throw new Error("AUTHORITY_STORED_OPERATION_FIXED_MATERIAL_MISMATCH");
+    }
+    if (record.fixedOperationBinding && (!record.canonicalRequestEnvelope
+      || !authorityFixedOperationBindingMatchesV1(record.fixedOperationBinding, {
+        repoId: record.fixedOperationBinding.repoId,
+        workspaceId: record.workspaceId,
+        writerGeneration: record.fixedOperationBinding.writerGeneration,
+        authorityGeneration: record.fixedOperationBinding.authorityGeneration,
+        opId: record.opId,
+        semanticDigest: record.semanticDigest,
+        canonicalRequestEnvelope: record.canonicalRequestEnvelope,
+        operation: record.canonicalOperation
+      }))) {
+      throw new Error("AUTHORITY_STORED_OPERATION_FIXED_BINDING_MISMATCH");
+    }
+  }
 }
 
 function validateReplicaChange(record: ReplicaChangeRecord): void {

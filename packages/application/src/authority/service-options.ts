@@ -2,6 +2,7 @@ import type { DaemonAdmissionBudget } from "@harness-anything/kernel";
 import type {
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
+  AuthorityRecoveryAttemptV2,
   AttributedCoordinatorFactory,
   AuthorityFenceWitness,
   AuthorityGenerationFence,
@@ -48,5 +49,18 @@ export interface AuthoritySubmissionV2Options {
   readonly operationNamespaceVerifier: OperationNamespaceVerifierV2;
   readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
   readonly recoverCommittedReceipt?: (record: import("./types.ts").AuthorityStoredOperationRecord) => Promise<AuthorityCommittedReceipt>;
+  /** Current repo writer ownership axes, independent of key authority generation. */
+  readonly recoveryScope?: {
+    readonly repoId: string;
+    readonly writerGeneration: number;
+  };
+  /**
+   * Must prove this exact attempt belongs to a durable outer PROCEEDING record.
+   * Without this callback the temporal/revocation recovery API is not exposed.
+   */
+  readonly runAuthorizedRecoveryAttempt?: <Result>(
+    recovery: AuthorityRecoveryAttemptV2,
+    resume: () => Promise<Result>
+  ) => Promise<Result>;
   readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
 }

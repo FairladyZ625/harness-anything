@@ -1,10 +1,8 @@
 import { Effect } from "effect";
 import {
-  compileRegistryMutationPlan,
   createWritableEntityRegistry,
   daemonAdmissionBytes,
-  type AuthorityOperationIntegrity,
-  type WriteOp
+  type JournalRecordWitnessV1
 } from "@harness-anything/kernel";
 import type {
   AuthorityCommittedReceipt,
@@ -14,32 +12,17 @@ import type {
   AuthoritySubmissionService,
   DelegationTokenVerification,
 } from "./types.ts";
+import { validateActorAxesBindingPresentationV2 } from "./actor-axes-binding-v2.ts";
 import {
-  actorAxesBindingDigestV2,
-  consumeActorAxesBindingOperationV2,
-  sameProtocolSchemaTupleV2,
-  validateActorAxesBindingPresentationV2,
-  type VerifiedActorAxesBindingV2
-} from "./actor-axes-binding-v2.ts";
-import {
-  assertMutationClaimMatchesV2,
-  assertStoragePlanMatchesMutationSetV2,
   decodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
-  semanticMutationSetDigestV2,
   semanticRequestDigestV2,
   SemanticAdmissionErrorV2,
-  validateEnvelopeBindingV2,
-  type AuthorizedOperationAttemptV2,
-  type SemanticMutationEnvelopeV2
+  type AuthorizedOperationAttemptV2
 } from "./semantic-mutation-envelope-v2.ts";
 import { BoundedAuthorityBatcher, KeyedSerialAuthorityExecutor } from "./authority-batcher.ts";
-import {
-  authorizeSemanticCompilationV2
-} from "./semantic-authorizer-v2.ts";
 import { shadowPublicationSchema } from "./shadow.ts";
-import { actorAxesBindingCoreFromVerifiedV2, completeAuthorityCommittedReceiptV2 } from "./committed-event-publication-v2.ts";
-import { recoverKnownAuthorityOperationV2 } from "./authority-attribution-event-v2-operation-recovery.ts";
+import { completeAuthorityCommittedReceiptV2 } from "./committed-event-publication-v2.ts";
 import {
   validateLegacyAuthorityIngress,
   validateLegacyTokenEnvelopeClaims
@@ -66,6 +49,9 @@ import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./r
 import { authorityPublicationSegments } from "./publication-segments.ts";
 import { createReplicaPublicationChange } from "./replica-publication-change.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
+import { createAuthorityRecoverySubmitterV2 } from "./authority-recovery-submission-v2.ts";
+import { authorityOperationPublicView } from "./operation-record-public-view.ts";
+import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
@@ -84,6 +70,27 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     authorityPublicationBatchSize,
     authorityPublicationMaxWaitMs
   );
+  const resumeV2 = options.v2?.runAuthorizedRecoveryAttempt
+    ? createAuthorityRecoverySubmitterV2({
+      workspaceId: options.workspaceId,
+      options: options.v2,
+      admissionBudget: options.admissionBudget,
+      submitPrepared: (validated) => {
+        const opId = operationIdDiagnosticV2(validated.envelope.operationId);
+        return byOperation.run(
+          `${validated.envelope.workspaceId}\0${opId}`,
+          () => publications.run(prepareAuthorityV2({
+            ...validated,
+            mode: "outer-proceeding-recovery",
+            options,
+            writableEntityRegistry: writableEntityRegistry!,
+            put,
+            persistTerminal
+          }))
+        );
+      }
+    })
+    : undefined;
 
   return {
     submit: (envelope) => runWithAuthorityAdmission({
@@ -96,12 +103,13 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         () => publications.run(prepare(envelope))
       )
     }),
-    ...(options.v2 ? { submitV2 } : {}),
+    ...(options.v2 ? {
+      submitV2,
+      ...(resumeV2 ? { resumeV2 } : {})
+    } : {}),
     getOperation: async (workspaceId, opId) => {
       const stored = await options.operationRegistry.get(workspaceId, opId);
-      if (!stored) return undefined;
-      const { canonicalRequestEnvelope: _canonicalRequestEnvelope, ...publicRecord } = stored;
-      return publicRecord;
+      return stored ? authorityOperationPublicView(stored) : undefined;
     }
   };
 
@@ -123,155 +131,22 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     return runWithAuthorityAdmission({
       budget: options.admissionBudget,
       identity: { workspaceId: envelope.workspaceId, opId },
-      semanticDigest: hex(semanticRequestDigestV2(envelope)),
+      semanticDigest: Buffer.from(semanticRequestDigestV2(envelope)).toString("hex"),
       bytes: daemonAdmissionBytes(attempt),
       work: () => byOperation.run(
         `${envelope.workspaceId}\0${opId}`,
-        () => publications.run(prepareV2(envelope, verified, Buffer.from(attempt.envelope).toString("base64url")))
+        () => publications.run(prepareAuthorityV2({
+          envelope,
+          verified,
+          canonicalRequestEnvelope: Buffer.from(attempt.envelope).toString("base64url"),
+          mode: "new-admission",
+          options,
+          writableEntityRegistry: writableEntityRegistry!,
+          put,
+          persistTerminal
+        }))
       )
     });
-  }
-
-  async function prepareV2(
-    envelope: SemanticMutationEnvelopeV2,
-    verified: VerifiedActorAxesBindingV2,
-    canonicalRequestEnvelope: string
-  ): Promise<AuthorityAdmission> {
-    const v2 = options.v2!;
-    const opId = operationIdDiagnosticV2(envelope.operationId);
-    const recordedProtocol = {
-      kind: "semantic-mutation-envelope/v2" as const,
-      schemaTuple: envelope.schemaTuple
-    };
-    const identity = { workspaceId: envelope.workspaceId, opId, recordedProtocol };
-    const semanticDigest = hex(semanticRequestDigestV2(envelope));
-    const generationRejection = await rejectStaleGeneration(options.generationFenceWitness, identity, semanticDigest);
-    if (generationRejection) return terminal(generationRejection);
-    const known = await options.operationRegistry.get(envelope.workspaceId, opId);
-    if (known) {
-      if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
-      if (v2.recoverCommittedReceipt
-        && (known.state === "INDEXED" || known.state === "INDETERMINATE")
-        && known.recordedProtocol?.kind === "semantic-mutation-envelope/v2") {
-        const recoverCommittedReceipt = v2.recoverCommittedReceipt;
-        const recover = () => recoverKnownAuthorityOperationV2({
-            known,
-            semanticDigest,
-            canonicalRequestEnvelope,
-            verified,
-            recover: recoverCommittedReceipt,
-            ...(options.generationFenceWitness ? {
-              assertCurrent: () => options.generationFenceWitness!.assertHeld("before-terminal-journal", identity)
-            } : {}),
-            persist: (receipt) => put(identity, semanticDigest, "COMMITTED", receipt, known.commitSha, known.authorityIntegrity, known.canonicalRequestEnvelope)
-          });
-        let recovered: AuthorityCommittedReceipt | undefined;
-        try {
-          recovered = options.generationFenceWitness
-            ? await options.generationFenceWitness.runExclusive("before-terminal-journal", identity, recover)
-            : await recover();
-        } catch (error) {
-          if (!isDaemonGenerationFenced(error)) throw error;
-          return terminal(generationFencedReceipt(identity, semanticDigest, error));
-        }
-        if (recovered) return terminal(recovered);
-      }
-      if (known.receipt) return terminal(known.receipt);
-      return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
-    }
-    const intentRejection = await persistAuthorityIntentWhileGenerationCurrent({
-      generationFence: options.generationFenceWitness,
-      identity,
-      persist: () => put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope)
-    });
-    if (intentRejection) return terminal(generationFencedReceipt(identity, semanticDigest, intentRejection));
-    let computedIntegrity: AuthorityOperationIntegrity | undefined;
-    try {
-      if (!sameProtocolSchemaTupleV2(envelope.schemaTuple, v2.schemaTuple)) {
-        throw new SemanticAdmissionErrorV2("ENVELOPE_SCHEMA_TUPLE_MISMATCH");
-      }
-      validateEnvelopeBindingV2(envelope, verified.token.claims);
-      if (envelope.operationId.namespace.authorityGeneration !== verified.token.claims.authorityGeneration) {
-        throw new SemanticAdmissionErrorV2("OP_NAMESPACE_AUTHORITY_GENERATION_MISMATCH");
-      }
-      if (!await v2.bindingRuntime.validateAdmissionTokenRef({
-        bindingId: envelope.binding.bindingId,
-        tokenId: envelope.binding.admissionTokenRef.tokenId,
-        tokenDigest: envelope.binding.admissionTokenRef.tokenDigest
-      })) throw new SemanticAdmissionErrorV2("ADMISSION_TOKEN_REF_MISMATCH");
-      await v2.operationNamespaceVerifier.verify(envelope.operationId);
-
-      const semanticCompilation = await v2.semanticCompiler.compile(envelope, {
-        actor: {
-          principal: { personId: verified.token.claims.principalPersonId },
-          executor: verified.token.claims.executorAgentId
-            ? { kind: "agent", id: verified.token.claims.executorAgentId }
-            : null,
-          responsibleHuman: `person:${verified.token.claims.principalPersonId}`
-        },
-        sessionId: verified.token.claims.sessionId,
-        nowMs: v2.bindingRuntime.nowMs()
-      });
-      const compilation = compileRegistryMutationPlan(writableEntityRegistry!, semanticCompilation.mutationPlan);
-      assertStoragePlanMatchesMutationSetV2(compilation.mutationSet, compilation.storagePlan);
-      assertMutationClaimMatchesV2(envelope, compilation.mutationSet);
-      authorizeSemanticCompilationV2(envelope, compilation.storagePlan.touchedPaths, semanticCompilation.decodedBytes, verified, v2.matchEntityRefPrefix);
-
-      const mutationDigest = hex(semanticMutationSetDigestV2(compilation.mutationSet));
-      const bindingDigest = hex(actorAxesBindingDigestV2(verified.token.claims));
-      const authorityIntegrity: AuthorityOperationIntegrity = {
-        schema: "authority-operation-integrity/v2",
-        semanticRequestDigest: semanticDigest,
-        semanticMutationSetDigest: mutationDigest,
-        mutationRegistryVersion: compilation.mutationSet.registryVersion,
-        actorAxesBindingDigest: bindingDigest,
-        canonicalMutationSet: compilation.mutationSet
-      };
-      computedIntegrity = authorityIntegrity;
-      await consumeActorAxesBindingOperationV2(verified, v2.bindingRuntime);
-      try {
-        await options.fenceWitness.assertHeld("before-prepare", identity);
-      } catch (error) {
-        return terminal(await persistTerminal(
-          identity,
-          semanticDigest,
-          "INDETERMINATE",
-          indeterminate(identity, semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`),
-          authorityIntegrity,
-          canonicalRequestEnvelope
-        ));
-      }
-      const operation: WriteOp = { ...semanticCompilation.operation, opId, authorityIntegrity };
-      const coordinator = options.coordinatorFactory.create({
-        attribution: verified.attribution,
-        sessionId: verified.token.claims.sessionId
-      });
-      return {
-        kind: "prepared",
-        workspaceId: envelope.workspaceId,
-        opId,
-        operation,
-        semanticDigest,
-        coordinator,
-        authorityIntegrity,
-        actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),
-        canonicalRequestEnvelope,
-        ...(semanticCompilation.publicationRevalidation
-          ? { publicationRevalidation: semanticCompilation.publicationRevalidation }
-          : {}),
-        recordedProtocol
-      };
-    } catch (error) {
-      const reason = error instanceof SemanticAdmissionErrorV2 ? error.code : `ADMISSION_REJECTED:${describe(error)}`;
-      return terminal(await persistTerminal(
-        identity,
-        semanticDigest,
-        "REJECTED",
-        rejected(identity, semanticDigest, reason),
-        computedIntegrity,
-        canonicalRequestEnvelope
-      ));
-    }
   }
 
   async function prepare(envelope: AuthorityOperationEnvelope): Promise<AuthorityAdmission> {
@@ -367,15 +242,48 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
+    const journalWitnesses = new Map<PreparedAuthoritySubmission, JournalRecordWitnessV1>();
     let canonicalFlushCommitted = false;
     const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
       for (const entry of prepared) {
         try {
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await entry.publicationRevalidation?.();
-          await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+          const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+          if (entry.recoveryMode) {
+            if (!acknowledgement.journalWitness || !entry.coordinator.flushExactJournalRecord) {
+              receipts.set(entry, await persistTerminal(
+                entry,
+                entry.semanticDigest,
+                "INDETERMINATE",
+                indeterminate(
+                  entry,
+                  entry.semanticDigest,
+                  "AUTHORITY_RECOVERY_EXACT_JOURNAL_WITNESS_UNAVAILABLE"
+                ),
+                entry.authorityIntegrity,
+                entry.canonicalRequestEnvelope,
+                entry.operation,
+                entry.recoveryPublicationPolicy,
+                entry.fixedOperationBinding
+              ));
+              continue;
+            }
+            journalWitnesses.set(entry, acknowledgement.journalWitness);
+          }
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
-          await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+          await put(
+            entry,
+            entry.semanticDigest,
+            "PREPARED",
+            undefined,
+            undefined,
+            entry.authorityIntegrity,
+            entry.canonicalRequestEnvelope,
+            entry.operation,
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
+          );
           candidates.push(entry);
         } catch (error) {
           if (isDaemonGenerationFenced(error)) throw error;
@@ -384,14 +292,25 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry,
             entry.semanticDigest,
             "REJECTED",
-            rejected(entry, entry.semanticDigest, reason)
+            rejected(entry, entry.semanticDigest, reason),
+            entry.authorityIntegrity,
+            entry.canonicalRequestEnvelope,
+            entry.operation,
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
           ));
         }
       }
       if (candidates.length === 0) return batchReceipts(admissions, receipts);
       try {
       await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
-      const flush = await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
+      const recoveryCandidate = candidates[0]!.recoveryMode ? candidates[0] : undefined;
+      const flush = recoveryCandidate
+        ? await Effect.runPromise(recoveryCandidate.coordinator.flushExactJournalRecord!(
+          "recovery",
+          journalWitnesses.get(recoveryCandidate)!
+        ))
+        : await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
       if (!flush.committed || flush.opCount !== candidates.length) {
         // Keep the v1 wire reason stable; the invariant now means exactly the
         // operation set owned by this publication batch, still never a subset.
@@ -417,7 +336,18 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       commitSha = publication.commitSha;
       for (const entry of candidates) {
         await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
-        await put(entry, entry.semanticDigest, "PUBLISHED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+        await put(
+          entry,
+          entry.semanticDigest,
+          "PUBLISHED",
+          undefined,
+          commitSha,
+          entry.authorityIntegrity,
+          entry.canonicalRequestEnvelope,
+          entry.operation,
+          entry.recoveryPublicationPolicy,
+          entry.fixedOperationBinding
+        );
       }
     } catch (error) {
       if (isDaemonGenerationFenced(error)) throw error;
@@ -454,7 +384,18 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       }
       for (const entry of candidates) {
         await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-        await put(entry, entry.semanticDigest, "INDEXED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+        await put(
+          entry,
+          entry.semanticDigest,
+          "INDEXED",
+          undefined,
+          commitSha,
+          entry.authorityIntegrity,
+          entry.canonicalRequestEnvelope,
+          entry.operation,
+          entry.recoveryPublicationPolicy,
+          entry.fixedOperationBinding
+        );
       }
     } catch (error) {
       if (isDaemonGenerationFenced(error)) throw error;
@@ -504,7 +445,18 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             });
           }
           await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
-          await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
+          await put(
+            entry,
+            entry.semanticDigest,
+            "COMMITTED",
+            receipt,
+            commitSha,
+            entry.authorityIntegrity,
+            entry.canonicalRequestEnvelope,
+            entry.operation,
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
+          );
           return receipt;
         };
         receipt = options.generationFenceWitness
@@ -552,7 +504,10 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         "INDETERMINATE",
         receipt,
         entry.authorityIntegrity,
-        entry.canonicalRequestEnvelope
+        entry.canonicalRequestEnvelope,
+        entry.operation,
+        entry.recoveryPublicationPolicy,
+        entry.fixedOperationBinding
       );
     } catch (error) {
       if (!isDaemonGenerationFenced(error)) throw error;
@@ -573,15 +528,14 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         state,
         makeReceipt(entry),
         entry.authorityIntegrity,
-        entry.canonicalRequestEnvelope
+        entry.canonicalRequestEnvelope,
+        entry.operation,
+        entry.recoveryPublicationPolicy,
+        entry.fixedOperationBinding
       ));
     }
   }
 
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }
 
 function describe(error: unknown): string {

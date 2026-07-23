@@ -13,7 +13,7 @@ export function authorityPublicationSegments(
   };
 
   for (const entry of prepared) {
-    if (entry.publicationRevalidation) {
+    if (entry.publicationRevalidation || entry.recoveryMode) {
       flush();
       segments.push([entry]);
       continue;
@@ -29,7 +29,7 @@ export function authorityPublicationSegments(
 }
 
 function requiresSegmentation(prepared: ReadonlyArray<PreparedAuthoritySubmission>): boolean {
-  return prepared.some((entry) => entry.publicationRevalidation)
+  return prepared.some((entry) => entry.publicationRevalidation || entry.recoveryMode)
     || (prepared.some((entry) => entry.authorityIntegrity)
       && prepared.some((entry) => !entry.authorityIntegrity));
 }

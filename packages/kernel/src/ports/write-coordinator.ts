@@ -100,6 +100,17 @@ export interface WriteAck {
   readonly opId: string;
   readonly entityId: EntityId;
   readonly accepted: true;
+  /**
+   * Exact durable journal identity observed by this coordinator after it
+   * validated the submitted operation and attribution.
+   */
+  readonly journalWitness?: JournalRecordWitnessV1;
+}
+
+export interface JournalRecordWitnessV1 {
+  readonly schema: "write-journal-record-witness/v1";
+  readonly opId: string;
+  readonly recordDigest: string;
 }
 
 export interface FlushReport {
@@ -118,6 +129,14 @@ export interface RecoveryReport {
 export interface WriteCoordinator {
   readonly enqueue: (op: WriteOp) => Effect.Effect<WriteAck, WriteError>;
   readonly flush: (reason: FlushReason) => Effect.Effect<FlushReport, WriteError>;
+  /**
+   * Recovery-only boundary. It may publish only the journal record named by
+   * the exact witness returned from this coordinator's validated enqueue.
+   */
+  readonly flushExactJournalRecord?: (
+    reason: Extract<FlushReason, "recovery">,
+    witness: JournalRecordWitnessV1
+  ) => Effect.Effect<FlushReport, WriteError>;
   readonly recover: Effect.Effect<RecoveryReport, WriteError>;
 }
 

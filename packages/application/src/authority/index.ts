@@ -2,6 +2,10 @@
 export { createInMemoryAuthorityOperationRegistry, createInMemoryReplicaChangeLog } from "./memory-stores.ts";
 export { canonicalAuthorityRequestDigest } from "./admission.ts";
 export { createAuthoritySubmissionService } from "./service.ts";
+export {
+  authorityFixedOperationBindingMatchesV1,
+  createAuthorityFixedOperationBindingV1
+} from "./authority-fixed-operation-binding-v1.ts";
 export { makeCompositeAuthoritySemanticCompilerV2 } from "./composite-semantic-compiler-v2.ts";
 export {
   completeAuthorityCommittedReceiptV2,
@@ -43,6 +47,7 @@ export type {
   AuthorityFenceWitness,
   AuthorityGenerationFence,
   AuthorityFenceStage,
+  AuthorityFixedOperationBindingV1,
   DaemonGenerationWriteRejectionV1,
   AuthorityIndeterminateReceipt,
   AuthorityIntegrityTupleV2,

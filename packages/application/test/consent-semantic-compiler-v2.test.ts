@@ -353,7 +353,7 @@ test("an exact consent grant attempt replays one committed receipt after authore
         currentAuthorityGeneration: () => claims.authorityGeneration,
         currentRevocationEpochs: async () => claims.revocationEpochs,
         nowMs: () => 1_721_000_000_000n,
-        consumeOperation: async () => { consumed += 1; return true; },
+        consumeOperation: async () => { consumed += 1; return "consumed"; },
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId
           && bytesEqual(input.tokenDigest, tokenDigest)
       },

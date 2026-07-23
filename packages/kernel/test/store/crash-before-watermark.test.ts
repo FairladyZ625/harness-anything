@@ -27,6 +27,76 @@ test("WriteCoordinator recovers queued journal entries after crash before waterm
   });
 });
 
+test("exact journal recovery publishes only the witnessed operation", () => {
+  withTempStore((rootDir) => {
+    const attribution = testWriteAttribution();
+    const unrelated = makeJournaledWriteCoordinator({ attribution, rootDir });
+    const target = makeJournaledWriteCoordinator({ attribution, rootDir });
+    const unrelatedAck = Effect.runSync(unrelated.enqueue(
+      docWrite("op-unrelated", "task-unrelated", "progress.md", "unrelated")
+    ));
+    const targetAck = Effect.runSync(target.enqueue(
+      docWrite("op-target", "task-target", "progress.md", "target")
+    ));
+
+    assert.ok(unrelatedAck.journalWitness);
+    assert.ok(targetAck.journalWitness);
+    assert.ok(target.flushExactJournalRecord);
+    const report = Effect.runSync(
+      target.flushExactJournalRecord("recovery", targetAck.journalWitness)
+    );
+
+    assert.equal(report.committed, true);
+    assert.equal(report.opCount, 1);
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/tasks/task-target/progress.md"), "utf8"),
+      "target"
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, "harness/tasks/task-unrelated/progress.md")),
+      false
+    );
+
+    assert.ok(unrelated.flushExactJournalRecord);
+    const unrelatedReport = Effect.runSync(
+      unrelated.flushExactJournalRecord("recovery", unrelatedAck.journalWitness)
+    );
+    assert.equal(unrelatedReport.opCount, 1);
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/tasks/task-unrelated/progress.md"), "utf8"),
+      "unrelated"
+    );
+  });
+});
+
+test("exact journal recovery rejects a witness not authorized by validated enqueue", () => {
+  withTempStore((rootDir) => {
+    const first = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir
+    });
+    const second = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir
+    });
+    const ack = Effect.runSync(first.enqueue(
+      docWrite("op-exact-auth", "task-exact-auth", "progress.md", "entry")
+    ));
+
+    assert.ok(ack.journalWitness);
+    assert.ok(second.flushExactJournalRecord);
+    const result = Effect.runSync(Effect.either(
+      second.flushExactJournalRecord("recovery", ack.journalWitness)
+    ));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag === "Left") {
+      assert.equal(result.left._tag, "WriteRejected");
+      assert.match(result.left.reason, /exact journal witness is not authorized/u);
+    }
+  });
+});
+
 test("WriteCoordinator writes decision documents with per-decision coordinator watermark", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
