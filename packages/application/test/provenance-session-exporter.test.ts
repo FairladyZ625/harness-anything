@@ -471,6 +471,8 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
 test("provenance session exporter fails closed without writing when runtime log is missing", async () => {
   const rootDir = createHarnessRoot();
   try {
+    const logsRoot = path.join(rootDir, "missing-runtime-logs");
+    mkdirSync(logsRoot, { recursive: true });
     const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "codex",
@@ -478,14 +480,63 @@ test("provenance session exporter fails closed without writing when runtime log 
         source: "runtime",
         detectedAt: "2026-07-03T00:00:00.000Z"
       }),
-      runtimeLogRoots: { codex: [path.join(rootDir, "missing-runtime-logs")] },
+      runtimeLogRoots: { codex: [logsRoot] },
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
     const exported = await runEffectExit(exporter.exportCurrentSession());
     assert.equal(exported._tag, "Failure");
     assert.match(String(exported.cause), /No runtime JSONL log found for codex session missing-codex-session/u);
+    assert.match(String(exported.cause), /transcript_unavailable/u);
     assert.equal(existsSync(path.join(rootDir, "harness", "sessions", "missing-codex-session.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter does not call an existing but unreadable transcript unavailable", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "empty-codex-session.jsonl"), "{\"type\":\"metadata\"}\n", "utf8");
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "empty-codex-session",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [logsRoot] }
+    });
+
+    const exported = await runEffectExit(exporter.exportCurrentSession());
+    assert.equal(exported._tag, "Failure");
+    assert.match(String(exported.cause), /read_failed/u);
+    assert.doesNotMatch(String(exported.cause), /transcript_unavailable/u);
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", "empty-codex-session.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter keeps absence indeterminate when no configured root exists", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "unknown-home-session",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [path.join(rootDir, "nonexistent-root")] }
+    });
+
+    const exported = await runEffectExit(exporter.exportCurrentSession());
+    assert.equal(exported._tag, "Failure");
+    assert.match(String(exported.cause), /read_failed/u);
+    assert.doesNotMatch(String(exported.cause), /transcript_unavailable/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -547,6 +598,8 @@ test("provenance session exporter rejects legacy session markdown after cutover"
 test("automatic provenance binding keeps the session pointer when the transcript is unavailable", async () => {
   const rootDir = createHarnessRoot();
   try {
+    const logsRoot = path.join(rootDir, "missing-runtime-logs");
+    mkdirSync(logsRoot, { recursive: true });
     const currentSessionProbe = fixedSessionProbe({
       runtime: "codex",
       sessionId: "desktop-ephemeral-session",
@@ -555,7 +608,7 @@ test("automatic provenance binding keeps the session pointer when the transcript
     });
     const provenanceSessionExporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe,
-      runtimeLogRoots: { codex: [path.join(rootDir, "missing-runtime-logs")] }
+      runtimeLogRoots: { codex: [logsRoot] }
     });
 
     const provenance = await runEffect(bindCreateProvenance({
