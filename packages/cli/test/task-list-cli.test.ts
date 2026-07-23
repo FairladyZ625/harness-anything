@@ -90,6 +90,32 @@ test("CLI task list filters projection rows without treating generated cache as 
   });
 });
 
+test("CLI task list filters a subtree closure and direct children without returning unrelated tasks", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-root", "Umbrella", "active", { taskId: "task-root" });
+    writeIndex(rootDir, "task-child-a", "Child A", "planned", { taskId: "task-child-a", parent: "task-root" });
+    writeIndex(rootDir, "task-child-b", "Child B", "planned", { taskId: "task-child-b", parent: "task-root" });
+    writeIndex(rootDir, "task-grandchild", "Grandchild", "planned", { taskId: "task-grandchild", parent: "task-child-a" });
+    writeIndex(rootDir, "task-unrelated", "Unrelated", "planned", { taskId: "task-unrelated" });
+
+    const allTasks = runJson(rootDir, ["task", "list"]);
+    const tree = runJson(rootDir, ["task", "show", "task-root", "--view", "tree"]);
+    const subtree = runJson(rootDir, ["task", "list", "--tree-root", "task-root"]);
+    const children = runJson(rootDir, ["task", "list", "--parent", "task-root"]);
+
+    assert.equal(allTasks.tasks.length, 5);
+    assert.equal(subtree.tasks.length, tree.tasks.length);
+    assert.deepEqual(
+      subtree.tasks.map((row: Record<string, unknown>) => row.taskId).sort(),
+      tree.tasks.map((row: Record<string, unknown>) => row.taskId).sort()
+    );
+    assert.deepEqual(
+      children.tasks.map((row: Record<string, unknown>) => row.taskId),
+      ["task-child-a", "task-child-b"]
+    );
+  });
+});
+
 test("CLI task amend rejects invalid vertical enum field values", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-review", "Review Queue", "in_review", {
@@ -124,6 +150,7 @@ function writeIndex(
     readonly workKind?: string;
     readonly riskTier?: string;
     readonly urgency?: string;
+    readonly parent?: string;
     readonly taskClass?: string;
     readonly moduleKey?: string;
     readonly moduleTitle?: string;
@@ -147,6 +174,7 @@ function writeIndex(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     `packageDisposition: ${options.packageDisposition ?? "active"}`,
+    ...(options.parent ? [`parent: ${options.parent}`] : []),
     ...(options.workKind ? [`workKind: ${options.workKind}`] : []),
     ...(options.riskTier ? [`riskTier: ${options.riskTier}`] : []),
     ...(options.urgency ? [`urgency: ${options.urgency}`] : []),

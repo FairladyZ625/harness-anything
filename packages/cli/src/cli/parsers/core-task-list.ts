@@ -25,6 +25,7 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
   const review = readOption(args, "--review");
   const search = readOption(args, "--search");
   const treeRoot = readOption(args, "--tree-root");
+  const parent = readOption(args, "--parent");
   const liveness = readOption(args, "--liveness");
   if (liveness && liveness !== "in_flight" && liveness !== "stale") {
     return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --liveness in_flight or --liveness stale.") };
@@ -42,6 +43,7 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
       ...(riskTier.value ? { riskTier: riskTier.value } : {}),
       ...(urgency.value ? { urgency: urgency.value } : {}),
       ...(treeRoot ? { treeRoot } : {}),
+      ...(parent ? { parent } : {}),
       ...(livenessFilter ? { liveness: livenessFilter } : {}),
       ...(review ? { review } : {}),
       ...(args.includes("--lesson") ? { lesson } : {}),
