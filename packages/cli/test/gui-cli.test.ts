@@ -1,11 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { isTrustedGuiWorkspaceRoot } from "../src/commands/core/gui.ts";
+import { isTrustedGuiWorkspaceRoot, resolveGuiLaunchTarget } from "../src/commands/core/gui.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
@@ -20,6 +20,7 @@ test("CLI gui command delegates to the local desktop controller without importin
   assert.deepEqual(result.launchPlan, {
     packageName: "@harness-anything/gui",
     mode: "local-desktop-controller",
+    source: "source-checkout",
     apiHost: "127.0.0.1",
     delegated: true,
     dryRun: true,
@@ -68,12 +69,40 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     }, callerDir));
 
     assert.equal(result.ok, true);
+    assert.equal(result.launchPlan.source, "source-checkout");
     assert.notEqual(result.launchPlan.pid, undefined);
     const marker = waitForJsonMarker(npmMarkerPath);
     assert.equal(marker.cwd, process.cwd());
     assert.deepEqual(marker.argv, ["--workspace", "@harness-anything/gui", "run", "dev:electron"]);
     assert.equal(marker.electronRunAsNode, null);
     assert.equal(existsSync(evilMarkerPath), false);
+  });
+});
+
+test("CLI gui command launches an explicitly installed desktop product for the selected Harness root", () => {
+  withTempRoot((fixtureRoot) => {
+    const binDir = path.join(fixtureRoot, "bin");
+    const markerPath = path.join(fixtureRoot, "installed-gui-marker.json");
+    mkdirSync(binDir);
+    const executablePath = writeFakeGuiExecutable(binDir, markerPath);
+    const projectRoots = [path.join(fixtureRoot, "project-a"), path.join(fixtureRoot, "project-b")];
+    for (const rootDir of projectRoots) {
+      mkdirSync(rootDir);
+      const result = runJson(rootDir, ["gui"], true, {
+        HARNESS_GUI_EXECUTABLE: executablePath,
+        HARNESS_GUI_NPM_MARKER: markerPath,
+        ELECTRON_RUN_AS_NODE: "1"
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.launchPlan.source, "installed-product");
+      assert.deepEqual(result.launchPlan.command, [executablePath]);
+      const marker = waitForJsonMarker(markerPath);
+      assert.equal(marker.cwd, realpathSync(rootDir));
+      assert.equal(marker.rootDir, rootDir);
+      assert.equal(marker.electronRunAsNode, null);
+      rmSync(markerPath);
+    }
   });
 });
 
@@ -122,6 +151,27 @@ test("CLI gui workspace trust rejects nested CLI installs under caller-controlle
     assert.equal(isTrustedGuiWorkspaceRoot(rootDir, nestedCliEntrypoint), false);
     assert.equal(isTrustedGuiWorkspaceRoot(rootDir, sourceCliEntrypoint), true);
     assert.equal(isTrustedGuiWorkspaceRoot(rootDir, distCliEntrypoint), true);
+  });
+});
+
+test("GUI launcher discovers the desktop executable that contains its packaged CLI", () => {
+  withTempRoot((rootDir) => {
+    const appRoot = path.join(rootDir, "Harness Anything.app/Contents");
+    const cliEntrypoint = path.join(appRoot, "Resources/app/packages/cli/dist/cli/src/index.js");
+    const guiExecutable = path.join(appRoot, "MacOS/Harness Anything");
+    writeEntrypoint(cliEntrypoint);
+    writeEntrypoint(guiExecutable);
+    chmodSync(guiExecutable, 0o755);
+
+    const target = resolveGuiLaunchTarget({
+      cliEntrypointPath: cliEntrypoint,
+      environment: { PATH: "" },
+      platform: "darwin",
+      homeDir: path.join(rootDir, "home")
+    });
+
+    assert.equal(target?.source, "installed-product");
+    assert.deepEqual(target?.command, [realpathSync(guiExecutable)]);
   });
 });
 
@@ -177,6 +227,28 @@ function writeHarnessPackageJsons(rootDir: string): void {
 function writeEntrypoint(entrypointPath: string): void {
   mkdirSync(path.dirname(entrypointPath), { recursive: true });
   writeFileSync(entrypointPath, "");
+}
+
+function writeFakeGuiExecutable(binDir: string, markerPath: string): string {
+  const fakeGuiJs = [
+    "const { writeFileSync } = require('node:fs');",
+    `writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({`,
+    "  cwd: process.cwd(),",
+    "  rootDir: process.env.HARNESS_GUI_ROOT,",
+    "  electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null",
+    "}));"
+  ].join("\n");
+  if (process.platform === "win32") {
+    const scriptPath = path.join(binDir, "fake-installed-gui.js");
+    const executablePath = path.join(binDir, "harness-anything-gui.cmd");
+    writeFileSync(scriptPath, fakeGuiJs);
+    writeFileSync(executablePath, `@echo off\r\nnode "%~dp0fake-installed-gui.js"\r\n`);
+    return executablePath;
+  }
+  const executablePath = path.join(binDir, "harness-anything-gui");
+  writeFileSync(executablePath, `#!/usr/bin/env node\n${fakeGuiJs}\n`);
+  chmodSync(executablePath, 0o755);
+  return executablePath;
 }
 
 function waitForJsonMarker(markerPath: string): Record<string, any> {

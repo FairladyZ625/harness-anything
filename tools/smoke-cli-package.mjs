@@ -49,11 +49,18 @@ export function runCliPackageSmoke(root = process.cwd()) {
       encoding: "utf8",
       env: {
         ...smokeCliWriteEnv(),
-        HARNESS_GUI_DRY_RUN: "1"
+        HARNESS_GUI_DRY_RUN: "1",
+        // The CLI tarball is tested independently from the desktop artifact.
+        // Point dry-run discovery at an existing executable to model the
+        // complete product install without launching a process.
+        HARNESS_GUI_EXECUTABLE: binPath.file
       }
     });
     const result = unwrapReceipt(JSON.parse(stdout));
-    if (result.ok !== true || result.command !== "gui" || result.launchPlan?.packageName !== "@harness-anything/gui") {
+    if (result.ok !== true
+      || result.command !== "gui"
+      || result.launchPlan?.packageName !== "@harness-anything/gui"
+      || result.launchPlan?.source !== "installed-product") {
       throw new Error(`unexpected CLI smoke output: ${stdout}`);
     }
     const aliasOutput = execFileSync(aliasBinPath.file, [...aliasBinPath.argsPrefix, "--json", "doctor"], {
