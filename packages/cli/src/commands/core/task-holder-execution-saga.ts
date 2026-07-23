@@ -24,21 +24,14 @@ export function commandExecutionSaga(context: CommandRunnerContext) {
         } catch {
           // A missing or legacy Session is finalized through the existing exporter below.
         }
-        const exported = await Effect.runPromise(context.provenanceSessionExporter.exportSession(session)).catch((error: unknown) => {
-          if (isConfirmedTranscriptUnavailable(error)) return null;
-          throw error;
-        });
+        const exported = await Effect.runPromise(context.provenanceSessionExporter.exportSession(session).pipe(
+          Effect.catchAll((error) => error.code === "transcript_unavailable"
+            ? Effect.succeed(null)
+            : Effect.fail(error))
+        ));
         if (!exported) return;
         await Effect.runPromise(context.syncExportedSession(exported));
       }
     })
   };
-}
-
-function isConfirmedTranscriptUnavailable(error: unknown): boolean {
-  return Boolean(error && typeof error === "object"
-    && "_tag" in error
-    && (error as { readonly _tag?: unknown })._tag === "ProvenanceSessionExporterRejected"
-    && "code" in error
-    && (error as { readonly code?: unknown }).code === "transcript_unavailable");
 }
