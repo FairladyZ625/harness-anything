@@ -299,6 +299,15 @@ test("supply-chain check isolates local contract failures from npm commands", as
 test("supply-chain check reports a bounded npm command timeout", async (t) => {
   await withFixtureRepo((root) => {
     const hangPidPath = path.join(root, "hanging-npm.pid");
+    const slowNodeStartupPath = path.join(root, "slow-node-startup.cjs");
+    // The npm fixture must model fast audit commands independently of Node's
+    // cold-start time. This preload makes the old Node-based mock exceed the
+    // command timeout before reaching its immediate audit branch.
+    writeFile(
+      root,
+      "slow-node-startup.cjs",
+      "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5_500);"
+    );
     writeValidSupplyChainFixture(root, {
       hangNpmCommand: "sbom --sbom-format=cyclonedx --sbom-type=application",
       hangPidPath
@@ -307,12 +316,15 @@ test("supply-chain check reports a bounded npm command timeout", async (t) => {
     const result = runCheck(root, {
       env: {
         HARNESS_SUPPLY_CHAIN_COMMAND_TIMEOUT_MS: "5000",
-        HARNESS_SUPPLY_CHAIN_NETWORK_BUDGET_MS: "11000"
+        HARNESS_SUPPLY_CHAIN_NETWORK_BUDGET_MS: "20000",
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${slowNodeStartupPath}`.trim()
       },
-      timeoutMs: 20_000
+      timeoutMs: 30_000
     });
 
     assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /phase=audit-1 attempt=1\/2 .*status=completed/u);
+    assert.match(result.stdout, /phase=audit-2 attempt=1\/2 .*status=completed/u);
     assert.match(result.stderr, /phase=sbom attempt=2\/2 .*timed out/u);
     assert.match(result.stderr, /termination=SIGKILL/u);
     assert.doesNotMatch(result.stderr, /phase=audit-.*timed out/u);
@@ -491,26 +503,33 @@ function writeMockNpm(root, options) {
   options.sbomMutator?.(sbomValue);
   const sbom = JSON.stringify(sbomValue);
   writeFile(root, ".mock-bin/npm", [
-    "#!/usr/bin/env node",
-    "const { appendFileSync, writeFileSync } = require('node:fs');",
-    "const args = process.argv.slice(2).join(' ');",
-    ...(options.invocationLogPath ? [`appendFileSync(${JSON.stringify(options.invocationLogPath)}, args + '\\n');`] : []),
-    `if (args === ${JSON.stringify(options.hangNpmCommand)}) {`,
-    ...(options.hangPidPath ? [`  writeFileSync(${JSON.stringify(options.hangPidPath)}, String(process.pid));`] : []),
-    "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
-    "}",
-    "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-    "  console.log('found 0 vulnerabilities');",
-    "  process.exit(0);",
-    "}",
-    "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
-    `  console.log(${JSON.stringify(sbom)});`,
-    "  process.exit(0);",
-    "}",
-    "console.error(`unexpected npm args: ${args}`);",
-    "process.exit(1);"
+    "#!/bin/sh",
+    "args=\"$*\"",
+    ...(options.invocationLogPath
+      ? [`printf '%s\\n' "$args" >> ${shellQuote(options.invocationLogPath)}`]
+      : []),
+    `if [ "$args" = ${shellQuote(options.hangNpmCommand)} ]; then`,
+    ...(options.hangPidPath
+      ? [`  printf '%s' "$$" > ${shellQuote(options.hangPidPath)}`]
+      : []),
+    "  exec sleep 2147483647",
+    "fi",
+    "if [ \"$args\" = 'audit --audit-level=high' ] || [ \"$args\" = 'audit --omit=dev --audit-level=high' ]; then",
+    "  printf '%s\\n' 'found 0 vulnerabilities'",
+    "  exit 0",
+    "fi",
+    "if [ \"$args\" = 'sbom --sbom-format=cyclonedx --sbom-type=application' ]; then",
+    `  printf '%s\\n' ${shellQuote(sbom)}`,
+    "  exit 0",
+    "fi",
+    "printf 'unexpected npm args: %s\\n' \"$args\" >&2",
+    "exit 1"
   ].join("\n"));
   chmodSync(mockPath, 0o755);
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
 function processGroupExists(pid) {

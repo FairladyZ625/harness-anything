@@ -5,6 +5,7 @@ import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness
 } from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
+import { isTransientRegistryError } from "./supply-chain-transient-error.mjs";
 
 const root = process.cwd();
 const errors = [];
@@ -92,6 +93,16 @@ function runNetworkCommand(command, phase, networkStartedAt) {
     }
     if (result.status !== 0) {
       const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+      if (
+        attempt < networkAttempts &&
+        Date.now() - networkStartedAt < networkBudgetMs &&
+        isTransientRegistryError(output)
+      ) {
+        console.error(
+          `[supply-chain] ${receipt} status=registry-error-retry: ${output.split("\n", 1)[0]}`
+        );
+        continue;
+      }
       record(`[${receipt}] ${command} failed${output ? `:\n${output}` : ""}`);
       return "";
     }
