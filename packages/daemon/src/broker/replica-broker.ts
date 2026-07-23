@@ -15,6 +15,7 @@ import {
   sameFingerprint,
   tombstoneFingerprint
 } from "./fingerprint.ts";
+import { replicaChangeOperationIdsForPath } from "../authority/replica-change-operation-paths.ts";
 import { CrashSafeNativeApplier } from "./native-applier.ts";
 import type {
   BrokerBarrierRequest,
@@ -307,7 +308,7 @@ export class ReplicaBroker {
       const old = current.paths[pathName];
       const targetFingerprint = entries.get(pathName)?.fingerprint ?? tombstoneFingerprint();
       const changed = !old || !sameFingerprint(old.canonicalHidden.fingerprint, targetFingerprint);
-      const target = changed ? versionFor(change, targetFingerprint) : old.canonicalHidden;
+      const target = changed ? versionFor(change, pathName, targetFingerprint) : old.canonicalHidden;
       if (!old) {
         paths[pathName] = {
           canonicalHidden: target,
@@ -338,8 +339,9 @@ export class ReplicaBroker {
       const pending = this.current().pendingMaterializations[0]!;
       const pathState = this.current().paths[pending.path]!;
       const observed = await fingerprintPath(this.visiblePath(pending.path));
-      const matchingSubmittedCandidate = pending.target.lastChangeOpId !== null
-        && pathState.pendingOpIds.includes(pending.target.lastChangeOpId)
+      const matchingSubmittedOpId = versionOperationIds(pending.target)
+        .find((opId) => pathState.pendingOpIds.includes(opId));
+      const matchingSubmittedCandidate = matchingSubmittedOpId !== undefined
         && sameFingerprint(observed, pending.target.fingerprint);
       const expected = matchingSubmittedCandidate
         ? observed
@@ -364,8 +366,8 @@ export class ReplicaBroker {
               visibleBase: pending.target,
               visibleWorkingFingerprint: result.fingerprint,
               status: "CLEAN",
-              pendingOpIds: matchingSubmittedCandidate && pending.target.lastChangeOpId !== null
-                ? existing.pendingOpIds.filter((opId) => opId !== pending.target.lastChangeOpId)
+              pendingOpIds: matchingSubmittedCandidate
+                ? existing.pendingOpIds.filter((opId) => opId !== matchingSubmittedOpId)
                 : existing.pendingOpIds
             }
           },
@@ -495,27 +497,42 @@ export class BrokerSubmitPreflightError extends Error {
 
 function versionFor(
   change: ReplicaChangeRecord,
+  pathName: string,
   fingerprint: ManagedFingerprint
 ): BrokerVersion {
+  const operationIds = replicaChangeOperationIdsForPath(change, pathName);
   return {
     epoch: "epoch-1",
     revision: change.revision,
-    lastChangeOpId: change.opId,
+    lastChangeOpIds: operationIds,
+    lastChangeOpId: operationIds[0] ?? null,
     commitSha: change.commitSha,
     fingerprint
   };
 }
 
 function localTombstone(epoch: string): BrokerVersion {
-  return { epoch, revision: 0, lastChangeOpId: null, commitSha: null, fingerprint: tombstoneFingerprint() };
+  return {
+    epoch,
+    revision: 0,
+    lastChangeOpIds: [],
+    lastChangeOpId: null,
+    commitSha: null,
+    fingerprint: tombstoneFingerprint()
+  };
 }
 
 function sameVersion(left: BrokerVersion, right: BrokerVersion): boolean {
   return left.epoch === right.epoch
     && left.revision === right.revision
-    && left.lastChangeOpId === right.lastChangeOpId
+    && JSON.stringify(versionOperationIds(left)) === JSON.stringify(versionOperationIds(right))
     && left.commitSha === right.commitSha
     && sameFingerprint(left.fingerprint, right.fingerprint);
+}
+
+function versionOperationIds(version: BrokerVersion): ReadonlyArray<string> {
+  return version.lastChangeOpIds
+    ?? (version.lastChangeOpId === null ? [] : [version.lastChangeOpId]);
 }
 
 function mapConflictReason(reason: string): ConflictReason {

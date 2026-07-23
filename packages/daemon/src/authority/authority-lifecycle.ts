@@ -79,6 +79,7 @@ export interface AuthorityRepoLifecycleHooks {
     readonly attributedCoordinatorFactory: AttributedCoordinatorFactory;
     readonly operationRegistry: DurableAuthorityServiceState["operationRegistry"];
     readonly cutoverState: DurableAuthorityServiceState["cutoverState"];
+    readonly replicationState: DurableAuthorityServiceState["replicationState"];
     readonly replicaChangeLog: DurableAuthorityServiceState["replicaChangeLog"];
     readonly bindingRuntime: ActorAxesBindingRuntimeV2;
     readonly namespaceVerifier: OperationNamespaceVerifierV2;
@@ -254,6 +255,7 @@ export function createAuthorityRepoLifecycleController(input: {
         attributedCoordinatorFactory,
         operationRegistry: state.operationRegistry,
         cutoverState: state.cutoverState,
+        replicationState: state.replicationState,
         replicaChangeLog: state.replicaChangeLog,
         bindingRuntime: serverData.bindingRuntime,
         namespaceVerifier: serverData.namespaceVerifier,

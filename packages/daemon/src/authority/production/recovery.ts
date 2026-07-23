@@ -11,11 +11,11 @@ import type {
 } from "@harness-anything/application";
 import type { makeLocalAuthorityAttributionEventV2Log } from "@harness-anything/kernel";
 import {
-  assertPublicationMatchesMutationSet,
   AuthorityCanonicalPublicationNotFoundError,
   AuthorityRecoveryWatermarkInvalidError,
   type GitCanonicalPublicationInspector
 } from "./publication-evidence.ts";
+import { recoverReplicaPublicationGroup } from "./publication-recovery-group.ts";
 
 interface ProductionRecoveryInput {
   readonly workspaceId: string;
@@ -192,28 +192,19 @@ async function recoverPublishedRecord(
   if (record.commitSha && record.commitSha !== evidence.commitSha) {
     throw new Error("AUTHORITY_V2_RECOVERY_COMMIT_MISMATCH");
   }
-  assertPublicationMatchesMutationSet(evidence, record.authorityIntegrity!.canonicalMutationSet);
-  const change = await input.replicaChangeLog.getByOperation(record.workspaceId, record.opId);
-  if (change && (change.commitSha !== evidence.commitSha
+  const change = await recoverReplicaPublicationGroup({
+    record,
+    operationRegistry: input.operationRegistry,
+    replicaChangeLog: input.replicaChangeLog,
+    evidence,
+    beforeAppend: () => assertRecoveryGeneration(input, record)
+  });
+  const changeOperation = change?.operations.find((operation) => operation.opId === record.opId);
+  if (change.commitSha !== evidence.commitSha
     || change.previousCommit !== evidence.previousCommit
-    || change.semanticDigest !== record.semanticDigest
-    || change.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest)) {
+    || changeOperation?.semanticDigest !== record.semanticDigest
+    || changeOperation.authorityIntegrity?.semanticMutationSetDigest !== record.authorityIntegrity!.semanticMutationSetDigest) {
     throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
-  }
-  if (!change) {
-    const latest = await input.replicaChangeLog.latest(record.workspaceId);
-    await assertRecoveryGeneration(input, record);
-    await input.replicaChangeLog.append({
-      schema: "replica-change/v1",
-      workspaceId: record.workspaceId,
-      revision: (latest?.revision ?? 0) + 1,
-      opId: record.opId,
-      semanticDigest: record.semanticDigest,
-      commitSha: evidence.commitSha,
-      previousCommit: evidence.previousCommit,
-      changedAt: new Date().toISOString(),
-      authorityIntegrity: record.authorityIntegrity!
-    });
   }
   const indexed = { ...record, state: "INDEXED" as const, commitSha: evidence.commitSha };
   await assertRecoveryGeneration(input, record);

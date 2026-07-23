@@ -64,6 +64,7 @@ import {
 } from "./generation-fence-enforcement.ts";
 import { batchReceipts, indeterminate, rejected, retryable, terminal } from "./receipt-builders.ts";
 import { authorityPublicationSegments } from "./publication-segments.ts";
+import { createReplicaPublicationChange } from "./replica-publication-change.ts";
 import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
@@ -426,22 +427,18 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const latest = await options.replicaChangeLog.latest(candidates[0]!.workspaceId);
-    const changes = candidates.map((entry, index) => ({
-      schema: "replica-change/v1" as const,
-      workspaceId: entry.workspaceId,
-      revision: (latest?.revision ?? 0) + index + 1,
-      opId: entry.opId,
-      semanticDigest: entry.semanticDigest,
+    const change = createReplicaPublicationChange({
+      revision: (latest?.revision ?? 0) + 1,
+      operations: candidates,
       commitSha,
       previousCommit: previousHead,
-      changedAt: now(),
-      ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
-    }));
+      changedAt: now()
+    });
     try {
-      for (const [index, change] of changes.entries()) {
-        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[index]);
-        await options.replicaChangeLog.append(change);
+      for (const entry of candidates) {
+        await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
       }
+      await options.replicaChangeLog.append(change);
       if (options.shadowPublicationLog) {
         const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
         await options.generationFenceWitness?.assertHeld("before-terminal-visibility", candidates[0]);
@@ -452,7 +449,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           commitSha,
           previousCommit: previousHead,
           opIds: candidates.map((entry) => entry.opId),
-          observedAt: changes[0]!.changedAt
+          observedAt: change.changedAt
         });
       }
       for (const entry of candidates) {
@@ -473,7 +470,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         workspaceId: entry.workspaceId,
         opId: entry.opId,
         semanticDigest: entry.semanticDigest,
-        revision: changes[index]!.revision,
+        revision: change.revision,
         commitSha,
         previousCommit: previousHead,
         ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
@@ -503,7 +500,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
               publisher: options.v2!.committedEventPublisher,
               receipt: baseReceipt,
               actorAxesBinding: entry.actorAxesBinding!,
-              occurredAt: changes[index]!.changedAt
+              occurredAt: change.changedAt
             });
           }
           await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);

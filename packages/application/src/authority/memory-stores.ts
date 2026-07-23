@@ -1,6 +1,7 @@
 import type {
   AuthorityStoredOperationRecord,
   AuthorityOperationRegistry,
+  ReplicaChangeDraft,
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./types.ts";
@@ -22,11 +23,14 @@ export function createInMemoryAuthorityOperationRegistry(): AuthorityOperationRe
 
 export function createInMemoryReplicaChangeLog(): ReplicaChangeLog {
   const records: ReplicaChangeRecord[] = [];
+  const listeners = new Map<string, Set<(record: ReplicaChangeRecord) => void>>();
   return {
     append: async (record) => {
-      const duplicate = records.find((candidate) => candidate.workspaceId === record.workspaceId && candidate.opId === record.opId);
+      const normalized = normalizeChange(record);
+      const duplicate = records.find((candidate) => candidate.workspaceId === record.workspaceId
+        && candidate.operations.some((operation) => normalized.operations.some((incoming) => incoming.opId === operation.opId)));
       if (duplicate) {
-        if (duplicate.semanticDigest !== record.semanticDigest || duplicate.commitSha !== record.commitSha) {
+        if (JSON.stringify(duplicate) !== JSON.stringify(normalized)) {
           throw new Error(`ReplicaChangeLog opId reuse: ${record.opId}`);
         }
         return;
@@ -35,14 +39,43 @@ export function createInMemoryReplicaChangeLog(): ReplicaChangeLog {
       if (record.revision !== (latest?.revision ?? 0) + 1) {
         throw new Error(`ReplicaChangeLog revision gap: expected ${(latest?.revision ?? 0) + 1}, received ${record.revision}`);
       }
-      records.push(structuredClone(record));
+      records.push(normalized);
+      for (const listener of listeners.get(record.workspaceId) ?? []) listener(structuredClone(normalized));
     },
     latest: async (workspaceId) => cloneOptional(records.filter((record) => record.workspaceId === workspaceId).at(-1)),
-    getByOperation: async (workspaceId, opId) => cloneOptional(records.find((record) => record.workspaceId === workspaceId && record.opId === opId)),
+    getByOperation: async (workspaceId, opId) => cloneOptional(records.find((record) => record.workspaceId === workspaceId
+      && record.operations.some((operation) => operation.opId === opId))),
     changesAfter: async (workspaceId, revision) => records
       .filter((record) => record.workspaceId === workspaceId && record.revision > revision)
-      .map((record) => structuredClone(record))
+      .map((record) => structuredClone(record)),
+    subscribe: (workspaceId, listener) => {
+      const workspaceListeners = listeners.get(workspaceId) ?? new Set();
+      workspaceListeners.add(listener);
+      listeners.set(workspaceId, workspaceListeners);
+      return () => {
+        workspaceListeners.delete(listener);
+        if (workspaceListeners.size === 0) listeners.delete(workspaceId);
+      };
+    }
   };
+}
+
+function normalizeChange(record: ReplicaChangeDraft): ReplicaChangeRecord {
+  const operations = record.operations ?? [{
+    opId: record.opId,
+    semanticDigest: record.semanticDigest,
+    ...(record.authorityIntegrity ? { authorityIntegrity: record.authorityIntegrity } : {})
+  }];
+  return structuredClone({
+    ...record,
+    schema: "replica-change/v2",
+    operations,
+    manifest: record.manifest ?? {
+      digest: `sha256:${record.semanticDigest}`,
+      entryCount: record.paths?.filter((entry) => !entry.tombstone).length ?? 0
+    },
+    paths: record.paths ?? []
+  });
 }
 
 function key(workspaceId: string, opId: string): string {
