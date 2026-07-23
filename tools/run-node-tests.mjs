@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { formatTestWeightDriftWarnings, parseJunitTestFileDurations } from "./test-weight-drift.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
@@ -19,6 +20,7 @@ import {
   selectTestFiles,
   testFilesFromProcessCommand
 } from "./node-test-runner-lib.mjs";
+import { createNodeTestStallPolicy } from "./node-test-stall-policy.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
@@ -103,9 +105,6 @@ const concurrencyArgs =
 const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
 const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
 const timingPath = path.join(timingRoot, "results.xml");
-const diagnosticReportArgs = process.platform === "win32"
-  ? []
-  : ["--report-on-signal", "--report-signal=SIGUSR2", `--report-directory=${timingRoot}`];
 const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
   DEFAULT_STALL_DIAGNOSTIC_MS
@@ -114,17 +113,6 @@ const stallAbortWindows = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_ABORT_WINDOWS,
   DEFAULT_STALL_ABORT_WINDOWS
 );
-// Never preempt `--test-timeout`: while a test is running, that timeout ends it
-// with the test named, which is strictly better evidence. Only silence outlasting
-// the timeout itself proves no test is running, and therefore that nothing else
-// will ever end this run.
-const stallAbortAfterMs = Math.max(stallAbortWindows * stallDiagnosticMs, options.testTimeoutMs + stallDiagnosticMs);
-// A process that remains in the runtime's futex wait channel across several
-// probes is stronger evidence than global silence: it identifies the isolated
-// file that is stuck in NodePlatform shutdown even while sibling files keep
-// printing. This path does not preempt ordinary quiet tests; only the strong
-// per-process signature can use the shorter multi-window bound.
-const isolationWedgeAfterMs = stallAbortWindows * stallDiagnosticMs;
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
@@ -134,7 +122,6 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
-    ...diagnosticReportArgs,
     "--test-force-exit",
     ...concurrencyArgs,
     ...timeoutArgs,
@@ -147,61 +134,70 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     env: testEnvironment.env,
     detached: process.platform !== "win32"
   });
+  const removeParentSignalForwarding = installTestTreeSignalForwarding(child);
 
   let output = "";
-  let lastOutputAt = Date.now();
-  let consecutiveStallWindows = 0;
   let stallAbortStarted = false;
-  let processGroupInspectionStarted = false;
-  const isolationWedgeObservations = new Map();
-  const seenDiagnosticReports = new Set();
+  let stallTickStarted = false;
+  const stallPolicy = createNodeTestStallPolicy({
+    diagnosticIntervalMs: stallDiagnosticMs,
+    abortWindows: stallAbortWindows,
+    testTimeoutMs: options.testTimeoutMs,
+    startedAt: performance.now()
+  });
   const noteOutput = (text) => {
-    // Asking a stalled host for a diagnostic report makes it print, and that
-    // print is the runner's own echo, not progress. Counting it would clear the
-    // stall streak on every window and the escalation could never be reached.
-    if (isDiagnosticReportEcho(text)) return;
-    lastOutputAt = Date.now();
-    consecutiveStallWindows = 0;
+    stallPolicy.noteOutput(text, performance.now());
   };
   const startStallAbort = (input) => {
     if (stallAbortStarted) return;
     stallAbortStarted = true;
     void abortStalledRun({ child, ...input });
   };
-  const inspectIsolationChildren = async () => {
-    if (process.platform === "win32" || child.pid === undefined || processGroupInspectionStarted || stallAbortStarted) return;
-    processGroupInspectionStarted = true;
+  const inspectStallState = async () => {
+    if (stallTickStarted || stallAbortStarted) return;
+    stallTickStarted = true;
     try {
-      const wedge = await detectWedgedIsolationChildren({
-        processGroupId: child.pid,
-        observations: isolationWedgeObservations,
-        wedgeAfterMs: isolationWedgeAfterMs
+      const processGroupLines = process.platform === "win32" || child.pid === undefined
+        ? []
+        : await readPosixProcessGroup(child.pid);
+      if (child.exitCode !== null || child.signalCode !== null || stallAbortStarted) return;
+      const processGroupMembers = processGroupLines
+        .map((line) => parsePosixProcessGroupLine(line))
+        .filter((member) => member !== null);
+      const isolationCandidates = isolationCandidatesFromProcessGroup(
+        processGroupMembers,
+        child.pid
+      );
+      const decision = stallPolicy.tick({
+        at: performance.now(),
+        isolationCandidates
       });
-      if (wedge === null) return;
+      if (decision.diagnostic !== null) {
+        emitStallDiagnostics({
+          child,
+          silentForMs: decision.diagnostic.silentForMs,
+          processGroupLines
+        });
+      }
+      if (decision.abort === null) return;
+      const snapshotFiles = stalledTestFilesFromProcessGroup(processGroupMembers, child.pid);
       startStallAbort({
-        silentMs: wedge.wedgedForMs,
-        silentWindows: Math.max(1, Math.ceil(wedge.wedgedForMs / stallDiagnosticMs)),
+        silentMs: decision.abort.silentMs,
+        silentWindows: decision.abort.silentWindows,
         timeoutAlreadyReported: /test timed out after \d+ms/u.test(output),
-        isolationChildPid: wedge.pid,
-        stalledFiles: wedge.files
+        isolationChildPid: decision.abort.kind === "isolation-wedge"
+          ? decision.abort.isolationChildPid
+          : undefined,
+        stalledFiles: decision.abort.kind === "isolation-wedge"
+          ? decision.abort.files
+          : snapshotFiles
       });
     } finally {
-      processGroupInspectionStarted = false;
+      stallTickStarted = false;
     }
   };
   const stallDiagnosticTimer = setInterval(() => {
-    void inspectIsolationChildren();
-    const silentForMs = Date.now() - lastOutputAt;
-    if (silentForMs < stallDiagnosticMs) return;
-    lastOutputAt = Date.now();
-    consecutiveStallWindows += 1;
-    emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports });
-    if (consecutiveStallWindows * stallDiagnosticMs < stallAbortAfterMs) return;
-    startStallAbort({
-      silentMs: consecutiveStallWindows * stallDiagnosticMs,
-      silentWindows: consecutiveStallWindows,
-      timeoutAlreadyReported: /test timed out after \d+ms/u.test(output)
-    });
+    void inspectStallState();
   }, stallDiagnosticMs);
   stallDiagnosticTimer.unref();
   let windowsTreeTerminationStarted = false;
@@ -229,6 +225,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   return new Promise((resolveExitCode) => {
     child.once("error", (error) => {
       clearInterval(stallDiagnosticTimer);
+      removeParentSignalForwarding();
       console.error(error.message);
       testEnvironment.cleanup();
       rmSync(timingRoot, { recursive: true, force: true });
@@ -236,7 +233,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     });
     child.once("close", async (code, signal) => {
       clearInterval(stallDiagnosticTimer);
-      emitNewDiagnosticReports(timingRoot, seenDiagnosticReports);
+      removeParentSignalForwarding();
       const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
       testEnvironment.cleanup();
       try {
@@ -278,32 +275,19 @@ function flushStream(stream) {
   return new Promise((resolveFlush) => stream.write("", resolveFlush));
 }
 
-/**
- * Recognizes output that exists only because the stall probe asked for a report.
- * Node writes these two lines when it handles the report signal; a chunk made of
- * nothing else carries no evidence that the run is moving again.
- */
-function isDiagnosticReportEcho(text) {
-  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0);
-  if (lines.length === 0) return true;
-  return lines.every((line) => /^Writing Node\.js report to file:/u.test(line) || /^Node\.js report completed$/u.test(line));
-}
-
-function emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports }) {
+function emitStallDiagnostics({
+  child,
+  silentForMs,
+  processGroupLines
+}) {
   console.error(`\n[node-test-stall] no test output for ${silentForMs}ms; test host pid=${child.pid ?? "unknown"}`);
   console.error(`[node-test-stall] runner active resources: ${JSON.stringify(process.getActiveResourcesInfo())}`);
   if (process.platform !== "win32" && child.pid !== undefined) {
-    // Ask every report-capable group member, not just the host. Under
-    // `--test-isolation=process` the host is only waiting on a per-file child,
-    // so asking the host alone yields a report with an empty JavaScript stack
-    // every time — the wedged process is the one that has to be asked. But a
-    // blanket group signal would terminate members that never installed a
-    // SIGUSR2 handler (a test's own spawned children), so only processes that
-    // advertise `--report-on-signal` are asked.
-    void signalReportCapableGroupMembers(child.pid);
-    void dumpPosixProcessGroup(child.pid);
+    // Diagnostics are deliberately observational. Signaling a process merely
+    // because its argv advertises `--report-on-signal` races Node's handler
+    // installation and can turn the probe itself into the cause of failure.
+    dumpPosixProcessGroup(processGroupLines, child.pid);
   }
-  setTimeout(() => emitNewDiagnosticReports(timingRoot, seenDiagnosticReports), 1_000).unref();
 }
 
 /**
@@ -334,7 +318,7 @@ async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyR
     return;
   }
   if (child.pid === undefined) return;
-  const namedFiles = stalledFiles ?? await stalledTestFilesInProcessGroup(child.pid);
+  const namedFiles = stalledFiles ?? [];
   const reason = isolationChildPid === undefined
     ? `no test output for ${silentMs}ms across ${silentWindows} windows`
     : `isolation child pid=${isolationChildPid} remained wedged for ${silentMs}ms across ${silentWindows} windows`;
@@ -348,17 +332,28 @@ async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyR
 }
 
 /**
- * Names the test files a wedged group is still holding. The test host lists every
- * selected file on its own command line, so only descendants are inspected: under
- * process isolation each of those runs exactly the file it is stuck on.
+ * Converts one process-group snapshot into the scheduler-independent evidence
+ * consumed by the stall policy.
  */
-async function stalledTestFilesInProcessGroup(processGroupId) {
-  const lines = await readPosixProcessGroup(processGroupId);
+function isolationCandidatesFromProcessGroup(members, processGroupId) {
+  return members
+    .filter((member) => member.pid !== processGroupId && hasIsolationWedgeSignature(member))
+    .map((member) => ({
+      pid: member.pid,
+      files: testFilesFromProcessCommand(member.command, repoRoot)
+    }))
+    .filter((candidate) => candidate.files.length > 0);
+}
+
+/**
+ * Names the test files a group is still holding from the same snapshot that
+ * triggered the policy decision. Re-reading after the decision introduces a
+ * race with process exit and can lose the only useful file evidence.
+ */
+function stalledTestFilesFromProcessGroup(members, processGroupId) {
   const descendantFiles = new Set();
   const hostFiles = new Set();
-  for (const line of lines) {
-    const member = parsePosixProcessGroupLine(line);
-    if (member === null) continue;
+  for (const member of members) {
     const target = member.pid === processGroupId ? hostFiles : descendantFiles;
     for (const file of testFilesFromProcessCommand(member.command, repoRoot)) target.add(file);
   }
@@ -369,64 +364,7 @@ async function stalledTestFilesInProcessGroup(processGroupId) {
   return hostFiles.size === 1 ? [...hostFiles] : [];
 }
 
-/**
- * Tracks process-isolated test children independently of aggregate reporter
- * output. Linux exposes the NodePlatform deadlock as `futex_do_wait`; fixture
- * processes use an explicit title so the same state machine is testable on
- * macOS, whose `ps` does not expose a useful wait channel.
- */
-async function detectWedgedIsolationChildren({ processGroupId, observations, wedgeAfterMs }) {
-  const now = Date.now();
-  const liveCandidates = new Set();
-  const wedged = [];
-  for (const line of await readPosixProcessGroup(processGroupId)) {
-    const member = parsePosixProcessGroupLine(line);
-    if (member === null || member.pid === processGroupId || !hasIsolationWedgeSignature(member)) continue;
-    const files = testFilesFromProcessCommand(member.command, repoRoot);
-    if (files.length === 0) continue;
-    liveCandidates.add(member.pid);
-    const fileKey = files.join("\0");
-    const previous = observations.get(member.pid);
-    const firstSeenAt = previous?.fileKey === fileKey ? previous.firstSeenAt : now;
-    observations.set(member.pid, { fileKey, firstSeenAt });
-    if (now - firstSeenAt >= wedgeAfterMs) {
-      wedged.push({ pid: member.pid, files, wedgedForMs: now - firstSeenAt });
-    }
-  }
-  for (const pid of observations.keys()) {
-    if (!liveCandidates.has(pid)) observations.delete(pid);
-  }
-  if (wedged.length === 0) return null;
-  return {
-    pid: wedged[0].pid,
-    files: [...new Set(wedged.flatMap((entry) => entry.files))],
-    wedgedForMs: Math.max(...wedged.map((entry) => entry.wedgedForMs))
-  };
-}
-
-
-/**
- * Sends SIGUSR2 only to group members that run with `--report-on-signal` on
- * their command line. For anything else the default SIGUSR2 disposition is
- * termination, and killing a test's own child processes would corrupt the very
- * run the probe is trying to observe.
- */
-async function signalReportCapableGroupMembers(processGroupId) {
-  const lines = await readPosixProcessGroup(processGroupId);
-  for (const line of lines) {
-    if (!line.includes("--report-on-signal")) continue;
-    const pid = Number(/^\s*(\d+)\s+/u.exec(line)?.[1]);
-    if (!Number.isSafeInteger(pid)) continue;
-    try {
-      process.kill(pid, "SIGUSR2");
-    } catch {
-      // The process may have exited between the listing and the signal.
-    }
-  }
-}
-
-async function dumpPosixProcessGroup(processGroupId) {
-  const lines = await readPosixProcessGroup(processGroupId);
+function dumpPosixProcessGroup(lines, processGroupId) {
   const columnDescription = process.platform === "darwin"
     ? "pid ppid pgid stat elapsed argv"
     : "pid ppid pgid stat elapsed wait-channel argv";
@@ -468,37 +406,37 @@ function readPosixProcessGroup(processGroupId) {
   });
 }
 
-function emitNewDiagnosticReports(timingRoot, seenDiagnosticReports) {
-  let reportNames;
-  try {
-    reportNames = readdirSync(timingRoot).filter((name) => /^report\..+\.json$/u.test(name));
-  } catch {
-    return;
+/**
+ * The test host owns a detached process group on POSIX so ordinary cleanup can
+ * terminate every descendant. That also means a signal sent only to this
+ * wrapper would otherwise orphan the group. Forward parent termination before
+ * the local-resource lease handler re-raises the signal with its default
+ * disposition.
+ */
+function installTestTreeSignalForwarding(child) {
+  const handlers = new Map();
+  const remove = () => {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    const handler = () => {
+      remove();
+      try {
+        if (process.platform === "win32") {
+          terminateWindowsProcessTree(child);
+        } else if (child.pid !== undefined) {
+          signalProcessGroup(child.pid, signal);
+        }
+      } finally {
+        // This listener intentionally runs first. Re-raising preserves the
+        // caller-visible signal exit after the process tree has been cleaned.
+        process.kill(process.pid, signal);
+      }
+    };
+    handlers.set(signal, handler);
+    process.prependOnceListener(signal, handler);
   }
-  for (const reportName of reportNames) {
-    if (seenDiagnosticReports.has(reportName)) continue;
-    seenDiagnosticReports.add(reportName);
-    try {
-      const report = JSON.parse(readFileSync(path.join(timingRoot, reportName), "utf8"));
-      const activeLibuv = Array.isArray(report.libuv)
-        ? report.libuv.filter((handle) => handle?.is_active || handle?.is_referenced)
-          .map((handle) => ({
-            type: handle.type,
-            isActive: handle.is_active,
-            isReferenced: handle.is_referenced,
-            pid: handle.pid,
-            fd: handle.fd,
-            signal: handle.signal,
-            firesInMsFromNow: handle.firesInMsFromNow
-          }))
-        : [];
-      console.error(`[node-test-stall] diagnostic report ${reportName}`);
-      console.error(`[node-test-stall] javascript stack: ${report.javascriptStack?.message ?? "unavailable"}`);
-      console.error(`[node-test-stall] active libuv handles: ${JSON.stringify(activeLibuv)}`);
-    } catch (error) {
-      console.error(`[node-test-stall] unable to read ${reportName}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
+  return remove;
 }
 
 function terminateWindowsProcessTree(child) {

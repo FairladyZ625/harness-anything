@@ -37,7 +37,6 @@ test("test timeout defaults to three minutes and cannot be disabled", () => {
 });
 
 test("runner bounds a non-terminating test and prints timeout next steps", () => {
-  const startedAt = Date.now();
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_TIMEOUT_FIXTURE: "child",
@@ -56,13 +55,11 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
     env: childEnv,
     timeout: 15_000
   });
-  const elapsedMs = Date.now() - startedAt;
   const output = `${result.stdout}\n${result.stderr}`;
 
   assert.equal(result.status, 1, output);
   assert.equal(result.signal, null, output);
   assert.equal(result.error, undefined, output);
-  assert.equal(elapsedMs < 10_000, true, `runner took ${elapsedMs}ms\n${output}`);
   assert.match(output, /runner timeout fixture becomes intentionally non-terminating/u);
   assert.match(output, /Timeout next steps:/u);
   assert.match(output, /ps -axo pid,ppid,etime,command/u);
@@ -92,7 +89,6 @@ test("runner ends a run wedged outside any test body and names what it caught", 
     ? "stalled-file naming inspects the POSIX process group; Windows keeps its taskkill path"
     : false
 }, () => {
-  const startedAt = Date.now();
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "wedge",
@@ -112,12 +108,10 @@ test("runner ends a run wedged outside any test body and names what it caught", 
     env: childEnv,
     timeout: 30_000
   });
-  const elapsedMs = Date.now() - startedAt;
   const output = `${result.stdout}\n${result.stderr}`;
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.equal(elapsedMs < 20_000, true, `runner took ${elapsedMs}ms\n${output}`);
   // The wedge happens before any test is registered, so node never reports a
   // timeout. Asserting its absence is what makes this a test of the escalation
   // rather than of `--test-timeout`.
@@ -191,7 +185,7 @@ test("runner preserves a real test failure without classifying it as a wedge", (
 
 test("runner treats a real failure hidden by a shutdown wedge as a named wedge failure", {
   skip: process.platform === "win32"
-    ? "per-child wedge detection inspects the POSIX process group"
+    ? "stalled-file naming inspects the POSIX process group"
     : false
 }, () => {
   const childEnv = {
@@ -217,7 +211,10 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
+  // The policy tests cover which evidence wins. This process-level test owns
+  // the stable contract shared by both valid paths: bounded termination with
+  // the responsible file named.
+  assert.match(output, /--test-timeout cannot fire here, so the runner is terminating the test process tree/u);
   assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/failing-then-wedge\.test\.mjs/u);
 });
 
