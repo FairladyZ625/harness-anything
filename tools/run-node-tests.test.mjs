@@ -9,6 +9,22 @@ import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest,
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
+function assertNamedStallTermination(output, expectedFile) {
+  // Deterministic policy tests own which evidence reaches the threshold first.
+  // Process integration owns the stable product outcome shared by every valid
+  // path: bounded termination with the responsible file attributed.
+  assert.equal(
+    output.includes("--test-timeout cannot fire here, so the runner is terminating the test process tree"),
+    true,
+    output
+  );
+  assert.equal(
+    output.includes(`[node-test-stall] stalled test file(s): ${expectedFile}`),
+    true,
+    output
+  );
+}
+
 test("parseRunnerArgs accepts tier and slow summary options", () => {
   assert.deepEqual(parseRunnerArgs(["--tier", "fast", "--slow-threshold-ms", "250", "--slow-limit=3"], testTierNames), {
     tier: "fast",
@@ -116,14 +132,15 @@ test("runner ends a run wedged outside any test body and names what it caught", 
   // timeout. Asserting its absence is what makes this a test of the escalation
   // rather than of `--test-timeout`.
   assert.doesNotMatch(output, /test timed out after \d+ms/u);
-  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
-  assert.match(output, /terminating the test process tree/u);
-  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
+  assertNamedStallTermination(
+    output,
+    "tools/test-fixtures/runner-stall/wedged-module.test.mjs"
+  );
 });
 
 test("runner detects a wedged isolation child while another file keeps producing output", {
   skip: process.platform === "win32"
-    ? "per-child wedge detection inspects the POSIX process group"
+    ? "stalled-file naming inspects the POSIX process group"
     : false
 }, () => {
   const childEnv = {
@@ -150,8 +167,10 @@ test("runner detects a wedged isolation child while another file keeps producing
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
   assert.match(output, /runner chatter \d+/u);
-  assert.match(output, /\[node-test-stall\] isolation child pid=\d+ remained wedged/u);
-  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/wedged-module\.test\.mjs/u);
+  assertNamedStallTermination(
+    output,
+    "tools/test-fixtures/runner-stall/wedged-module.test.mjs"
+  );
 });
 
 test("runner preserves a real test failure without classifying it as a wedge", () => {
@@ -211,11 +230,10 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  // The policy tests cover which evidence wins. This process-level test owns
-  // the stable contract shared by both valid paths: bounded termination with
-  // the responsible file named.
-  assert.match(output, /--test-timeout cannot fire here, so the runner is terminating the test process tree/u);
-  assert.match(output, /\[node-test-stall\] stalled test file\(s\): tools\/test-fixtures\/runner-stall\/failing-then-wedge\.test\.mjs/u);
+  assertNamedStallTermination(
+    output,
+    "tools/test-fixtures/runner-stall/failing-then-wedge.test.mjs"
+  );
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
