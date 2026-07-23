@@ -1,3 +1,4 @@
+// @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 export const repoWriteProtocolType = "harness-repo-write-ipc/v1" as const;
 
 export interface RepoWriteProtocolLimits {
@@ -91,9 +92,15 @@ export interface RepoWriteOutcomeUnknownFailureFrame extends RepoWriteOperationF
 export type RepoWriteFailureFrame = RepoWriteNotStartedFailureFrame | RepoWriteOutcomeUnknownFailureFrame;
 export type RepoWriteOperationState = "not-found" | "prepared" | "proceeding" | "committed" | "failed" | "unknown";
 
-export interface RepoWriteStatusFrame extends RepoWriteOperationFrame<"status"> {
-  readonly state: RepoWriteOperationState;
-}
+export type RepoWriteOperationLookupResult =
+  | { readonly state: Exclude<RepoWriteOperationState, "committed"> }
+  | {
+      readonly state: "committed";
+      readonly outcome: "committed";
+      readonly receipt: RepoWriteJsonObject;
+    };
+
+export type RepoWriteStatusFrame = RepoWriteOperationFrame<"status"> & RepoWriteOperationLookupResult;
 export type RepoWriteTelemetryPhase =
   "queue" | "compile" | "journal" | "git" | "fsync" | "materializer" | "projection" | "total";
 
@@ -192,7 +199,7 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "prepared") return decodeOperationFrame(frame, limits, "prepared");
   if (frame.kind === "terminal") return decodeTerminal(frame, limits, budget);
   if (frame.kind === "failure") return decodeFailure(frame, limits);
-  if (frame.kind === "status") return decodeStatus(frame, limits);
+  if (frame.kind === "status") return decodeStatus(frame, limits, budget);
   if (frame.kind === "telemetry") return decodeTelemetry(frame, limits);
   if (frame.kind === "drained") return decodeRequestFrame(frame, limits, "drained");
   invalid("$.kind", "child message kind");
@@ -310,19 +317,33 @@ function decodeFailure(frame: FrameRecord, limits: RepoWriteProtocolLimits): Rep
   }
   invalid("$.phase", "failure phase");
 }
-function decodeStatus(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteStatusFrame {
-  assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
+function decodeStatus(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits,
+  budget: { nodes: number }
+): RepoWriteStatusFrame {
   const states: ReadonlyArray<RepoWriteOperationState> = [
     "not-found", "prepared", "proceeding", "committed", "failed", "unknown"
   ];
   if (!states.includes(frame.state as RepoWriteOperationState)) invalid("$.state", "operation state");
-  return {
+  const common = {
     ...baseFields(frame),
-    kind: "status",
+    kind: "status" as const,
     requestId: identifier(frame.requestId, "$.requestId", limits),
-    opId: identifier(frame.opId, "$.opId", limits),
-    state: frame.state as RepoWriteOperationState
+    opId: identifier(frame.opId, "$.opId", limits)
   };
+  if (frame.state === "committed") {
+    assertExactKeys(frame, baseKeys(["requestId", "opId", "state", "outcome", "receipt"]), [], "$");
+    if (frame.outcome !== "committed") invalid("$.outcome", "committed terminal outcome");
+    return {
+      ...common,
+      state: "committed",
+      outcome: "committed",
+      receipt: jsonObject(frame.receipt, "$.receipt", limits, budget, 1)
+    };
+  }
+  assertExactKeys(frame, baseKeys(["requestId", "opId", "state"]), [], "$");
+  return { ...common, state: frame.state as Exclude<RepoWriteOperationState, "committed"> };
 }
 function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
   assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");

@@ -1,16 +1,16 @@
+// @slice-activation P5-W2 repo-writer foundation; production composition and durable recovery remain activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import {
-  boundedRepoWriteDiagnostic,
-  repoWriteProtocolType,
-  type RepoWriteChildMessage,
   type RepoWriteCommandDto,
   type RepoWriteJsonObject,
-  type RepoWriteOperationState,
+  type RepoWriteOperationLookupResult,
   type RepoWriteParentMessage
 } from "./repo-write-protocol.ts";
+import {
+  RepoWriteChildResponseWriter,
+  type RepoWriteChildTransport
+} from "./repo-write-child-response-writer.ts";
 
-export interface RepoWriteChildTransport {
-  readonly send: (message: RepoWriteChildMessage) => void | Promise<void>;
-}
+export type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 
 export interface RepoWritePrepareInput {
   readonly repoId: string;
@@ -45,7 +45,7 @@ export interface RepoWriteChildHostHooks {
   ) => RepoWritePreparedOperation | Promise<RepoWritePreparedOperation>;
   readonly lookup: (
     input: RepoWriteLookupInput
-  ) => RepoWriteOperationState | Promise<RepoWriteOperationState>;
+  ) => RepoWriteOperationLookupResult | Promise<RepoWriteOperationLookupResult>;
   readonly shutdown: (input: RepoWriteShutdownInput) => void | Promise<void>;
 }
 
@@ -57,6 +57,12 @@ export interface RepoWriteChildHostLimits {
    * must drain and replace the generation before this fail-closed bound.
    */
   readonly maxRetainedOperations: number;
+  /**
+   * Bounds concurrent idempotent status requests and retained shutdown
+   * request IDs independently. Status IDs are released after lookup so their
+   * capacity can never prevent the drain needed to replace this generation.
+   */
+  readonly maxControlRequests: number;
   readonly shutdownTimeoutMs: number;
 }
 
@@ -77,6 +83,7 @@ interface HostedOperation {
   execute?: RepoWritePreparedOperation["execute"];
   receipt?: RepoWriteJsonObject;
   admitted: boolean;
+  cancelledBeforeProceed?: boolean;
 }
 
 interface ShutdownAttempt {
@@ -89,23 +96,26 @@ interface ShutdownAttempt {
 const defaultLimits: RepoWriteChildHostLimits = {
   maxAdmissions: 64,
   maxRetainedOperations: 16_384,
+  maxControlRequests: 16_384,
   shutdownTimeoutMs: 5_000
 };
 
 export class RepoWriteChildHost {
   private readonly options: RepoWriteChildHostOptions;
   private readonly limits: RepoWriteChildHostLimits;
+  private readonly responses: RepoWriteChildResponseWriter;
   private readonly operationsByRequest = new Map<string, HostedOperation>();
   private readonly operationsById = new Map<string, HostedOperation>();
-  private readonly controlRequestIds = new Set<string>();
+  private readonly activeStatusRequestIds = new Set<string>();
+  private readonly shutdownRequestIds = new Set<string>();
   private activeAdmissions = 0;
+  private activeLookups = 0;
   private admissionOpen = true;
   private started = false;
   private starting = false;
   private drained = false;
   private shutdownAttempt: ShutdownAttempt | undefined;
   private shutdownHookPromise: Promise<void> | undefined;
-  private outbound = Promise.resolve();
 
   constructor(options: RepoWriteChildHostOptions) {
     if (!options.repoId.trim()) throw new Error("repoId is required");
@@ -113,13 +123,16 @@ export class RepoWriteChildHost {
       throw new Error("generation must be a positive safe integer");
     }
     this.options = options;
+    this.responses = new RepoWriteChildResponseWriter(options);
     this.limits = {
       maxAdmissions: options.limits?.maxAdmissions ?? defaultLimits.maxAdmissions,
       maxRetainedOperations: options.limits?.maxRetainedOperations ?? defaultLimits.maxRetainedOperations,
+      maxControlRequests: options.limits?.maxControlRequests ?? defaultLimits.maxControlRequests,
       shutdownTimeoutMs: options.limits?.shutdownTimeoutMs ?? defaultLimits.shutdownTimeoutMs
     };
     assertPositiveLimit(this.limits.maxAdmissions, "maxAdmissions");
     assertPositiveLimit(this.limits.maxRetainedOperations, "maxRetainedOperations");
+    assertPositiveLimit(this.limits.maxControlRequests, "maxControlRequests");
     assertPositiveLimit(this.limits.shutdownTimeoutMs, "shutdownTimeoutMs");
   }
 
@@ -127,12 +140,12 @@ export class RepoWriteChildHost {
     if (this.started) return;
     if (this.starting) throw new Error("repo writer child host start is already in progress");
     this.starting = true;
+    this.started = true;
     try {
-      await this.send({
-        ...this.frameBase(),
-        kind: "ready"
-      });
-      this.started = true;
+      await this.responses.ready();
+    } catch (error) {
+      this.started = false;
+      throw error;
     } finally {
       this.starting = false;
     }
@@ -149,7 +162,7 @@ export class RepoWriteChildHost {
   private async handleSubmit(message: Extract<RepoWriteParentMessage, { kind: "submit" }>): Promise<void> {
     const boundaryError = this.boundaryError(message);
     if (boundaryError) {
-      await this.sendNotStarted(message.requestId, boundaryError, "submit rejected by capsule boundary");
+      await this.responses.notStarted(message.requestId, boundaryError, "submit rejected by capsule boundary");
       return;
     }
     const existing = this.operationsByRequest.get(message.requestId);
@@ -158,11 +171,11 @@ export class RepoWriteChildHost {
       return;
     }
     if (!this.admissionOpen) {
-      await this.sendNotStarted(message.requestId, "ADMISSION_CLOSED", "writer admission is closed");
+      await this.responses.notStarted(message.requestId, "ADMISSION_CLOSED", "writer admission is closed");
       return;
     }
     if (this.operationsByRequest.size >= this.limits.maxRetainedOperations) {
-      await this.sendNotStarted(
+      await this.responses.notStarted(
         message.requestId,
         "RETAINED_HISTORY_FULL",
         "writer request history reached its fail-closed generation bound"
@@ -170,7 +183,7 @@ export class RepoWriteChildHost {
       return;
     }
     if (this.activeAdmissions >= this.limits.maxAdmissions) {
-      await this.sendNotStarted(message.requestId, "ADMISSION_FULL", "writer admission limit reached");
+      await this.responses.notStarted(message.requestId, "ADMISSION_FULL", "writer admission limit reached");
       return;
     }
 
@@ -193,7 +206,7 @@ export class RepoWriteChildHost {
       if (this.operationsById.has(prepared.opId)) {
         operation.phase = "failed";
         this.release(operation);
-        await this.sendNotStarted(
+        await this.responses.notStarted(
           message.requestId,
           "DUPLICATE_OPERATION",
           "prepare returned an opId already owned by this capsule",
@@ -205,7 +218,7 @@ export class RepoWriteChildHost {
       if (!this.admissionOpen) {
         operation.phase = "failed";
         this.release(operation);
-        await this.sendNotStarted(
+        await this.responses.notStarted(
           message.requestId,
           "ADMISSION_CLOSED",
           "writer shutdown began before proceed",
@@ -215,17 +228,12 @@ export class RepoWriteChildHost {
       }
       operation.execute = prepared.execute;
       operation.phase = "prepared";
-      await this.send({
-        ...this.frameBase(),
-        kind: "prepared",
-        requestId: message.requestId,
-        opId: prepared.opId
-      });
+      await this.responses.prepared(message.requestId, prepared.opId);
     } catch (error) {
       if (operation.phase === "preparing") {
         operation.phase = "failed";
         this.release(operation);
-        await this.sendNotStarted(message.requestId, "PREPARE_FAILED", error, operation.opId);
+        await this.responses.notStarted(message.requestId, "PREPARE_FAILED", error, operation.opId);
       } else if (operation.phase === "prepared") {
         operation.phase = "failed";
         this.release(operation);
@@ -246,11 +254,25 @@ export class RepoWriteChildHost {
       return;
     }
     if (!operation) {
-      await this.sendNotStarted(message.requestId, "REQUEST_NOT_FOUND", "no prepared request matches proceed");
+      await this.responses.notStarted(message.requestId, "REQUEST_NOT_FOUND", "no prepared request matches proceed");
       return;
     }
     if (operation.opId !== message.opId) {
       await this.sendRejectedProceed(operation, message.requestId, "OP_ID_MISMATCH", "proceed opId does not match prepared opId");
+      return;
+    }
+    if (!this.admissionOpen && (operation.phase === "prepared" || operation.cancelledBeforeProceed)) {
+      if (operation.phase === "prepared") {
+        operation.phase = "failed";
+        operation.cancelledBeforeProceed = true;
+        this.release(operation);
+      }
+      await this.responses.notStarted(
+        operation.requestId,
+        "SHUTDOWN_BEFORE_PROCEED",
+        "writer shutdown cancelled a prepared operation before proceed",
+        operation.opId
+      );
       return;
     }
     if (operation.phase !== "prepared") {
@@ -260,20 +282,24 @@ export class RepoWriteChildHost {
 
     operation.phase = "proceeding";
     try {
-      const receipt = await operation.execute!();
+      let receipt: RepoWriteJsonObject;
+      try {
+        receipt = await operation.execute!();
+      } catch (error) {
+        operation.phase = "unknown";
+        this.release(operation);
+        await this.responses.unknown(
+          operation.requestId,
+          operation.opId!,
+          "EXECUTION_OUTCOME_UNKNOWN",
+          error
+        );
+        return;
+      }
       operation.receipt = receipt;
       operation.phase = "committed";
       this.release(operation);
-      await this.sendTerminal(operation);
-    } catch (error) {
-      operation.phase = "unknown";
-      this.release(operation);
-      await this.sendUnknown(
-        operation.requestId,
-        operation.opId!,
-        "EXECUTION_OUTCOME_UNKNOWN",
-        error
-      );
+      await this.responses.terminal(operation.requestId, operation.opId!, operation.receipt);
     } finally {
       await this.maybeCompleteShutdown();
     }
@@ -282,14 +308,28 @@ export class RepoWriteChildHost {
   private async handleStatus(message: Extract<RepoWriteParentMessage, { kind: "status" }>): Promise<void> {
     const boundaryError = this.boundaryError(message);
     if (boundaryError) {
-      await this.sendNotStarted(message.requestId, boundaryError, "status rejected by capsule boundary", message.opId);
+      await this.responses.notStarted(message.requestId, boundaryError, "status rejected by capsule boundary", message.opId);
       return;
     }
-    if (this.controlRequestIds.has(message.requestId)) {
-      await this.sendNotStarted(message.requestId, "DUPLICATE_REQUEST", "duplicate status request", message.opId);
+    if (this.activeStatusRequestIds.has(message.requestId)) {
+      await this.responses.notStarted(message.requestId, "DUPLICATE_REQUEST", "duplicate status request", message.opId);
       return;
     }
-    this.controlRequestIds.add(message.requestId);
+    if (!this.admissionOpen) {
+      await this.responses.notStarted(message.requestId, "ADMISSION_CLOSED", "writer admission is closed", message.opId);
+      return;
+    }
+    if (this.activeStatusRequestIds.size >= this.limits.maxControlRequests) {
+      await this.responses.notStarted(
+        message.requestId,
+        "CONTROL_ADMISSION_FULL",
+        "writer status lookup admission reached its fail-closed bound",
+        message.opId
+      );
+      return;
+    }
+    this.activeStatusRequestIds.add(message.requestId);
+    this.activeLookups += 1;
     try {
       const canonical = await this.options.hooks.lookup({
         repoId: this.options.repoId,
@@ -297,41 +337,49 @@ export class RepoWriteChildHost {
         opId: message.opId
       });
       const local = this.operationsById.get(message.opId);
-      const state = canonical === "not-found" && local ? publicState(local.phase) : canonical;
-      await this.send({
-        ...this.frameBase(),
-        kind: "status",
-        requestId: message.requestId,
-        opId: message.opId,
-        state
-      });
+      const result = canonical.state === "not-found" && local
+        ? localLookupResult(local)
+        : canonical;
+      await this.responses.status(message.requestId, message.opId, result);
     } catch (error) {
-      await this.sendNotStarted(
+      await this.responses.notStarted(
         message.requestId,
         "STATUS_LOOKUP_FAILED",
-        boundedRepoWriteDiagnostic(error),
+        error,
         message.opId
       );
+    } finally {
+      this.activeLookups -= 1;
+      this.activeStatusRequestIds.delete(message.requestId);
+      await this.maybeCompleteShutdown();
     }
   }
 
   private async handleShutdown(message: Extract<RepoWriteParentMessage, { kind: "shutdown" }>): Promise<void> {
     const boundaryError = this.boundaryError(message);
     if (boundaryError) {
-      await this.sendNotStarted(message.requestId, boundaryError, "shutdown rejected by capsule boundary");
+      await this.responses.notStarted(message.requestId, boundaryError, "shutdown rejected by capsule boundary");
       return;
     }
-    if (this.controlRequestIds.has(message.requestId)) {
-      await this.sendNotStarted(message.requestId, "DUPLICATE_REQUEST", "duplicate shutdown request");
+    if (this.shutdownRequestIds.has(message.requestId)) {
+      await this.responses.notStarted(message.requestId, "DUPLICATE_REQUEST", "duplicate shutdown request");
       return;
     }
-    this.controlRequestIds.add(message.requestId);
+    if (this.shutdownRequestIds.size >= this.limits.maxControlRequests) {
+      await this.responses.notStarted(
+        message.requestId,
+        "SHUTDOWN_HISTORY_FULL",
+        "writer shutdown request history reached its fail-closed generation bound"
+      );
+      return;
+    }
+    this.shutdownRequestIds.add(message.requestId);
     if (this.drained) {
-      await this.sendDrained(message.requestId);
+      await this.responses.drained(message.requestId);
       return;
     }
     if (this.shutdownAttempt) {
-      await this.sendNotStarted(message.requestId, "SHUTDOWN_IN_PROGRESS", "writer shutdown is already in progress");
+      await this.responses.notStarted(message.requestId, "SHUTDOWN_IN_PROGRESS", "writer shutdown is already in progress");
       return;
     }
 
@@ -345,11 +393,16 @@ export class RepoWriteChildHost {
     attempt.timer.unref?.();
     this.shutdownAttempt = attempt;
 
+    const cancelled: HostedOperation[] = [];
     for (const operation of this.operationsByRequest.values()) {
       if (operation.phase !== "prepared") continue;
       operation.phase = "failed";
+      operation.cancelledBeforeProceed = true;
       this.release(operation);
-      await this.sendNotStarted(
+      cancelled.push(operation);
+    }
+    for (const operation of cancelled) {
+      await this.responses.notStarted(
         operation.requestId,
         "SHUTDOWN_BEFORE_PROCEED",
         "writer shutdown cancelled a prepared operation before proceed",
@@ -361,7 +414,7 @@ export class RepoWriteChildHost {
 
   private async sendDuplicateSubmit(operation: HostedOperation): Promise<void> {
     if (operation.opId && ["proceeding", "committed", "unknown"].includes(operation.phase)) {
-      await this.sendUnknown(
+      await this.responses.unknown(
         operation.requestId,
         operation.opId,
         "DUPLICATE_REQUEST",
@@ -369,7 +422,7 @@ export class RepoWriteChildHost {
       );
       return;
     }
-    await this.sendNotStarted(
+    await this.responses.notStarted(
       operation.requestId,
       "DUPLICATE_REQUEST",
       "requestId is already admitted",
@@ -384,19 +437,19 @@ export class RepoWriteChildHost {
     diagnostic: string
   ): Promise<void> {
     if (operation?.opId && ["proceeding", "committed", "unknown"].includes(operation.phase)) {
-      await this.sendUnknown(requestId, operation.opId, code, diagnostic);
+      await this.responses.unknown(requestId, operation.opId, code, diagnostic);
       return;
     }
-    await this.sendNotStarted(requestId, code, diagnostic, operation?.opId);
+    await this.responses.notStarted(requestId, code, diagnostic, operation?.opId);
   }
 
   private async sendRepeatedProceed(operation: HostedOperation): Promise<void> {
     if (operation.phase === "committed" && operation.receipt) {
-      await this.sendTerminal(operation);
+      await this.responses.terminal(operation.requestId, operation.opId!, operation.receipt);
       return;
     }
     if (operation.phase === "proceeding" || operation.phase === "unknown") {
-      await this.sendUnknown(
+      await this.responses.unknown(
         operation.requestId,
         operation.opId!,
         "DUPLICATE_PROCEED",
@@ -404,64 +457,12 @@ export class RepoWriteChildHost {
       );
       return;
     }
-    await this.sendNotStarted(
+    await this.responses.notStarted(
       operation.requestId,
       operation.phase === "preparing" ? "NOT_PREPARED" : "OPERATION_NOT_PROCEEDABLE",
       "operation is not in prepared state",
       operation.opId
     );
-  }
-
-  private async sendTerminal(operation: HostedOperation): Promise<void> {
-    await this.send({
-      ...this.frameBase(),
-      kind: "terminal",
-      requestId: operation.requestId,
-      opId: operation.opId!,
-      outcome: "committed",
-      receipt: operation.receipt!
-    });
-  }
-
-  private async sendNotStarted(
-    requestId: string,
-    code: string,
-    diagnostic: unknown,
-    opId?: string
-  ): Promise<void> {
-    await this.send({
-      ...this.frameBase(),
-      kind: "failure",
-      requestId,
-      ...(opId ? { opId } : {}),
-      phase: "before-proceed",
-      outcome: "not-started",
-      replay: "caller-may-retry",
-      code,
-      diagnostic: safeDiagnostic(diagnostic)
-    });
-  }
-
-  private async sendUnknown(requestId: string, opId: string, code: string, diagnostic: unknown): Promise<void> {
-    await this.send({
-      ...this.frameBase(),
-      kind: "failure",
-      requestId,
-      opId,
-      phase: "after-proceed",
-      outcome: "unknown",
-      replay: "forbidden",
-      code,
-      diagnostic: safeDiagnostic(diagnostic)
-    });
-  }
-
-  private async sendDrained(requestId: string): Promise<void> {
-    await this.send({
-      ...this.frameBase(),
-      kind: "drained",
-      requestId
-    });
   }
 
   private boundaryError(message: RepoWriteParentMessage): string | undefined {
@@ -477,6 +478,7 @@ export class RepoWriteChildHost {
   }
 
   private hasUnsettledOperations(): boolean {
+    if (this.activeLookups > 0) return true;
     for (const operation of this.operationsByRequest.values()) {
       if (operation.phase === "preparing" || operation.phase === "prepared" || operation.phase === "proceeding") {
         return true;
@@ -493,7 +495,7 @@ export class RepoWriteChildHost {
       await this.shutdownHook();
       if (this.shutdownAttempt?.token !== attempt.token) return;
       clearTimeout(attempt.timer);
-      await this.sendDrained(attempt.requestId);
+      await this.responses.drained(attempt.requestId);
       this.drained = true;
       this.shutdownAttempt = undefined;
     } catch (error) {
@@ -501,7 +503,7 @@ export class RepoWriteChildHost {
       clearTimeout(attempt.timer);
       this.shutdownAttempt = undefined;
       this.shutdownHookPromise = undefined;
-      await this.sendNotStarted(
+      await this.responses.notStarted(
         attempt.requestId,
         "SHUTDOWN_FAILED",
         error
@@ -520,27 +522,11 @@ export class RepoWriteChildHost {
   private timeoutShutdown(attempt: ShutdownAttempt): void {
     if (this.shutdownAttempt?.token !== attempt.token) return;
     this.shutdownAttempt = undefined;
-    void this.sendNotStarted(
+    void this.responses.notStarted(
       attempt.requestId,
       "SHUTDOWN_TIMEOUT",
       `writer did not drain within ${this.limits.shutdownTimeoutMs}ms`
     ).catch(() => undefined);
-  }
-
-  private send(message: RepoWriteChildMessage): Promise<void> {
-    const write = this.outbound
-      .catch(() => undefined)
-      .then(() => this.options.transport.send(message));
-    this.outbound = write.then(() => undefined, () => undefined);
-    return write;
-  }
-
-  private frameBase() {
-    return {
-      protocol: repoWriteProtocolType,
-      repoId: this.options.repoId,
-      generation: this.options.generation
-    } as const;
   }
 }
 
@@ -548,18 +534,20 @@ export function createRepoWriteChildHost(options: RepoWriteChildHostOptions): Re
   return new RepoWriteChildHost(options);
 }
 
-function publicState(phase: OperationPhase): RepoWriteOperationState {
-  if (phase === "preparing" || phase === "prepared") return "prepared";
-  if (phase === "proceeding") return "proceeding";
-  return phase;
+function localLookupResult(operation: HostedOperation): RepoWriteOperationLookupResult {
+  if (operation.phase === "preparing" || operation.phase === "prepared") return { state: "prepared" };
+  if (operation.phase === "proceeding") return { state: "proceeding" };
+  if (operation.phase !== "committed") return { state: operation.phase };
+  if (!operation.receipt) throw new Error("committed repo writer operation is missing its terminal receipt");
+  return {
+    state: "committed",
+    outcome: "committed",
+    receipt: operation.receipt
+  };
 }
 
 function assertPositiveLimit(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive safe integer`);
   }
-}
-
-function safeDiagnostic(value: unknown): string {
-  return boundedRepoWriteDiagnostic(typeof value === "string" ? new Error(value) : value);
 }

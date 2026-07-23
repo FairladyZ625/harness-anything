@@ -40,6 +40,24 @@ test("host announces ready and executes only after the exact prepared handshake"
   });
 });
 
+test("host accepts an immediate submit as soon as ready becomes observable", async () => {
+  const fixture = hostFixture();
+  const readyDelivery = deferred<void>();
+  fixture.send = (message) => {
+    fixture.messages.push(message);
+    if (message.kind === "ready") return readyDelivery.promise;
+  };
+  const host = fixture.create();
+
+  const starting = host.start();
+  await Promise.resolve();
+  const submitted = host.receive(submit("request-immediate"));
+  readyDelivery.resolve();
+  await Promise.all([starting, submitted]);
+
+  assert.deepEqual(fixture.messages.map((message) => message.kind), ["ready", "prepared"]);
+});
+
 test("prepare failures and bounded admission are definitely not started", async () => {
   const fixture = hostFixture({ maxAdmissions: 1 });
   const firstPrepare = deferred<{
@@ -117,6 +135,49 @@ test("retained request history is bounded without forgetting replay protection",
   assert.equal(executions, 1);
 });
 
+test("status admission is bounded but releases capacity and never blocks shutdown", async () => {
+  const fixture = hostFixture({ maxControlRequests: 1 });
+  const firstLookup = deferred<{ readonly state: "not-found" }>();
+  let lookups = 0;
+  fixture.lookup = async ({ opId }) => {
+    lookups += 1;
+    if (opId === "op-1") return firstLookup.promise;
+    return { state: "not-found" };
+  };
+  const host = fixture.create();
+  await host.start();
+
+  const pending = host.receive(status("status-1", "op-1"));
+  await Promise.resolve();
+  await host.receive(status("status-2", "op-2"));
+  assertFailure(fixture.messages.at(-1), {
+    requestId: "status-2",
+    phase: "before-proceed",
+    outcome: "not-started",
+    replay: "caller-may-retry",
+    code: "CONTROL_ADMISSION_FULL",
+    opId: "op-2"
+  });
+
+  await host.receive(status("status-1", "op-1"));
+  assertFailure(fixture.messages.at(-1), {
+    requestId: "status-1",
+    phase: "before-proceed",
+    outcome: "not-started",
+    replay: "caller-may-retry",
+    code: "DUPLICATE_REQUEST",
+    opId: "op-1"
+  });
+  firstLookup.resolve({ state: "not-found" });
+  await pending;
+
+  await host.receive(status("status-1", "op-1"));
+  assert.equal(fixture.messages.at(-1)?.kind, "status");
+  await host.receive(shutdown("shutdown-after-status"));
+  assert.equal(fixture.messages.at(-1)?.kind, "drained");
+  assert.equal(lookups, 2);
+});
+
 test("stale generation, duplicate requests, and opId mismatch never execute", async () => {
   const fixture = hostFixture();
   let executions = 0;
@@ -188,7 +249,11 @@ test("execution errors are outcome-unknown without replay and status uses canoni
   fixture.lookup = async ({ opId }) => {
     lookups += 1;
     assert.equal(opId, "op-unknown");
-    return "committed";
+    return {
+      state: "committed",
+      outcome: "committed",
+      receipt: { tag: "COMMITTED", source: "canonical" }
+    };
   };
   const host = fixture.create();
   await host.start();
@@ -210,8 +275,118 @@ test("execution errors are outcome-unknown without replay and status uses canoni
     ...childBase("status"),
     requestId: "status-1",
     opId: "op-unknown",
-    state: "committed"
+    state: "committed",
+    outcome: "committed",
+    receipt: { tag: "COMMITTED", source: "canonical" }
   });
+});
+
+test("terminal delivery failure does not erase a locally known committed receipt", async () => {
+  const fixture = hostFixture();
+  const receipt = { tag: "COMMITTED", generatedAt: "2026-07-23T04:00:00.000Z" };
+  fixture.prepare = async () => ({
+    opId: "op-terminal-delivery",
+    execute: async () => receipt
+  });
+  fixture.send = (message) => {
+    if (message.kind === "terminal") throw new Error("fixture terminal delivery failed");
+    fixture.messages.push(message);
+  };
+  const host = fixture.create();
+  await host.start();
+  await host.receive(submit("request-terminal-delivery"));
+  await assert.rejects(
+    host.receive(proceed("request-terminal-delivery", "op-terminal-delivery")),
+    /terminal delivery failed/u
+  );
+
+  await host.receive(status("status-terminal-delivery", "op-terminal-delivery"));
+  assert.deepEqual(fixture.messages.at(-1), {
+    ...childBase("status"),
+    requestId: "status-terminal-delivery",
+    opId: "op-terminal-delivery",
+    state: "committed",
+    outcome: "committed",
+    receipt
+  });
+});
+
+test("status returns the same-generation terminal receipt only when canonical lookup is absent", async () => {
+  const fixture = hostFixture();
+  const localReceipt = { tag: "COMMITTED", generatedAt: "2026-07-23T01:00:00.000Z" };
+  fixture.prepare = async () => ({
+    opId: "op-local",
+    execute: async () => localReceipt
+  });
+  const host = fixture.create();
+  await host.start();
+  await host.receive(submit("request-local"));
+  await host.receive(proceed("request-local", "op-local"));
+
+  await host.receive(status("status-local", "op-local"));
+  assert.deepEqual(fixture.messages.at(-1), {
+    ...childBase("status"),
+    requestId: "status-local",
+    opId: "op-local",
+    state: "committed",
+    outcome: "committed",
+    receipt: localReceipt
+  });
+
+  fixture.lookup = async () => ({
+    state: "committed",
+    outcome: "committed",
+    receipt: { tag: "COMMITTED", source: "canonical-recovery" }
+  });
+  await host.receive(status("status-canonical", "op-local"));
+  assert.deepEqual(fixture.messages.at(-1), {
+    ...childBase("status"),
+    requestId: "status-canonical",
+    opId: "op-local",
+    state: "committed",
+    outcome: "committed",
+    receipt: { tag: "COMMITTED", source: "canonical-recovery" }
+  });
+});
+
+test("shutdown waits for admitted status lookup and rejects new lookup admission", async () => {
+  const fixture = hostFixture({ shutdownTimeoutMs: 500 });
+  const lookup = deferred<{ readonly state: "not-found" }>();
+  let shutdowns = 0;
+  fixture.lookup = () => lookup.promise;
+  fixture.shutdown = async () => {
+    shutdowns += 1;
+  };
+  const host = fixture.create();
+  await host.start();
+
+  const pendingLookup = host.receive(status("status-pending", "op-pending"));
+  await Promise.resolve();
+  await host.receive(shutdown("shutdown-with-lookup"));
+  assert.equal(fixture.messages.some((message) => message.kind === "drained"), false);
+  assert.equal(shutdowns, 0);
+
+  await host.receive(status("status-after-shutdown", "op-after-shutdown"));
+  assertFailure(fixture.messages.at(-1), {
+    requestId: "status-after-shutdown",
+    phase: "before-proceed",
+    outcome: "not-started",
+    replay: "caller-may-retry",
+    code: "ADMISSION_CLOSED",
+    opId: "op-after-shutdown"
+  });
+
+  lookup.resolve({ state: "not-found" });
+  await pendingLookup;
+  assert.equal(shutdowns, 1);
+  const statusIndex = fixture.messages.findIndex(
+    (message) => message.kind === "status" && message.requestId === "status-pending"
+  );
+  const drainedIndex = fixture.messages.findIndex(
+    (message) => message.kind === "drained" && message.requestId === "shutdown-with-lookup"
+  );
+  assert.ok(statusIndex >= 0);
+  assert.ok(drainedIndex > statusIndex);
 });
 
 test("shutdown cancels unproceeded admissions and drains after proceeded operations settle", async () => {
@@ -261,6 +436,49 @@ test("shutdown cancels unproceeded admissions and drains after proceeded operati
   });
 });
 
+test("shutdown synchronously closes every prepared operation before sending cancellations", async () => {
+  const fixture = hostFixture({ shutdownTimeoutMs: 500 });
+  const firstCancellationSent = deferred<void>();
+  let blockFirstCancellation = true;
+  let executions = 0;
+  fixture.prepare = async ({ requestId }) => ({
+    opId: `op-${requestId}`,
+    execute: async () => {
+      executions += 1;
+      return { tag: "COMMITTED" };
+    }
+  });
+  fixture.send = (message) => {
+    fixture.messages.push(message);
+    if (message.kind === "failure" && message.code === "SHUTDOWN_BEFORE_PROCEED" && blockFirstCancellation) {
+      blockFirstCancellation = false;
+      return firstCancellationSent.promise;
+    }
+  };
+  const host = fixture.create();
+  await host.start();
+  await host.receive(submit("waiting-1"));
+  await host.receive(submit("waiting-2"));
+
+  const shuttingDown = host.receive(shutdown("shutdown-atomic"));
+  const rejectedProceed = host.receive(proceed("waiting-2", "op-waiting-2"));
+  assert.equal(executions, 0);
+
+  firstCancellationSent.resolve();
+  await Promise.all([shuttingDown, rejectedProceed]);
+  assert.equal(executions, 0);
+  for (const requestId of ["waiting-1", "waiting-2"]) {
+    assertFailure(findMessage(fixture.messages, "failure", requestId), {
+      requestId,
+      phase: "before-proceed",
+      outcome: "not-started",
+      replay: "caller-may-retry",
+      code: "SHUTDOWN_BEFORE_PROCEED",
+      opId: `op-${requestId}`
+    });
+  }
+});
+
 test("shutdown timeout never reports drained and a later retry can observe the real drain", async () => {
   const fixture = hostFixture({ shutdownTimeoutMs: 10 });
   const execution = deferred<{ tag: string }>();
@@ -297,6 +515,7 @@ test("shutdown timeout never reports drained and a later retry can observe the r
 
 interface HostFixture {
   readonly messages: RepoWriteChildMessage[];
+  send: (message: RepoWriteChildMessage) => void | Promise<void>;
   prepare: RepoWriteChildHostHooks["prepare"];
   lookup: RepoWriteChildHostHooks["lookup"];
   shutdown: RepoWriteChildHostHooks["shutdown"];
@@ -306,23 +525,25 @@ interface HostFixture {
 function hostFixture(limits: {
   maxAdmissions?: number;
   maxRetainedOperations?: number;
+  maxControlRequests?: number;
   shutdownTimeoutMs?: number;
 } = {}): HostFixture {
   const fixture: HostFixture = {
     messages: [],
+    send: (message) => {
+      fixture.messages.push(message);
+    },
     prepare: async ({ requestId }) => ({
       opId: `op-${requestId}`,
       execute: async () => ({ tag: "COMMITTED" })
     }),
-    lookup: async () => "not-found",
+    lookup: async () => ({ state: "not-found" }),
     shutdown: async () => undefined,
     create: () => createRepoWriteChildHost({
       repoId: "repo-canonical",
       generation: 3,
       transport: {
-        send: (message) => {
-          fixture.messages.push(message);
-        }
+        send: (message) => fixture.send(message)
       },
       hooks: {
         prepare: (input) => fixture.prepare(input),

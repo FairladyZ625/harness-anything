@@ -1,4 +1,4 @@
-// harness-test-tier: fast
+// harness-test-tier: integration
 import assert from "node:assert/strict";
 import {
   fork,
@@ -12,6 +12,7 @@ import {
   RepoWriteParentProcessTransport,
   RepoWriteProcessDisconnectError,
 } from "../src/runtime/repo-write-child-process-transport.ts";
+import { RepoWriteSendDeliveryError } from "../src/runtime/repo-write-client.ts";
 import {
   repoWriteProtocolType,
   type RepoWriteChildMessage
@@ -51,6 +52,40 @@ test("uses Node IPC for validated ready and command roundtrips", async (context)
     kind: "prepared",
     requestId: "request-1",
     opId: "op-request-1"
+  });
+
+  const telemetry = nextMessage(transport);
+  await transport.send({
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "status",
+    requestId: "status-1",
+    opId: "op-request-1"
+  });
+  assert.deepEqual(await telemetry, {
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "telemetry",
+    requestId: "status-1",
+    opId: "op-request-1",
+    phase: "total",
+    elapsedMs: 2.5
+  });
+  assert.deepEqual(await nextMessage(transport), {
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "status",
+    requestId: "status-1",
+    opId: "op-request-1",
+    state: "committed",
+    outcome: "committed",
+    receipt: {
+      tag: "COMMITTED",
+      generatedAt: "2026-07-23T03:00:00.000Z"
+    }
   });
 
   const drained = nextMessage(transport);
@@ -139,6 +174,21 @@ test("reports exit codes and signals with one terminal disconnect", async (conte
   assert.equal((signalError as RepoWriteProcessDisconnectError).signal, "SIGTERM");
 });
 
+test("one failing disconnect observer cannot suppress remaining observers", async () => {
+  const child = stalledChild();
+  const transport = new RepoWriteParentProcessTransport(child);
+  transport.onDisconnect(() => {
+    throw new Error("fixture observer failed");
+  });
+  const observed = nextDisconnect(transport);
+
+  child.emit("exit", 29, null);
+
+  const error = await observed;
+  assertDisconnect(error, "exit");
+  assert.equal((error as RepoWriteProcessDisconnectError).exitCode, 29);
+});
+
 test("forks once and never hides an exit behind an implicit restart", async (context) => {
   let forks = 0;
   const transport = forkRepoWriteProcess({
@@ -173,6 +223,33 @@ test("terminal process failure rejects sends whose callbacks never settled", asy
   await assert.rejects(pending, (error) => {
     assertDisconnect(error as Error, "exit");
     assert.equal((error as RepoWriteProcessDisconnectError).exitCode, 31);
+    assert.equal((error as RepoWriteSendDeliveryError).delivery, "possibly-sent");
+    return true;
+  });
+});
+
+test("marks synchronous IPC rejection as definitely not sent before disconnect notification", async () => {
+  const child = throwingChild();
+  const transport = new RepoWriteParentProcessTransport(child);
+  const disconnected = nextDisconnect(transport);
+
+  assert.throws(() => transport.send(shutdownFrame("shutdown-sync-throw")), (error) => {
+    assertDisconnect(error as Error, "send");
+    assert.equal((error as RepoWriteSendDeliveryError).delivery, "definitely-not-sent");
+    return true;
+  });
+
+  const disconnect = await disconnected;
+  assertDisconnect(disconnect, "send");
+});
+
+test("marks callback send failure as possibly sent", async () => {
+  const child = callbackFailureChild();
+  const transport = new RepoWriteParentProcessTransport(child);
+
+  await assert.rejects(transport.send(shutdownFrame("shutdown-callback-error")), (error) => {
+    assertDisconnect(error as Error, "send");
+    assert.equal((error as RepoWriteSendDeliveryError).delivery, "possibly-sent");
     return true;
   });
 });
@@ -227,4 +304,41 @@ function stalledChild(): ChildProcess {
     kill: () => true
   });
   return child as unknown as ChildProcess;
+}
+
+function throwingChild(): ChildProcess {
+  const child = Object.assign(new EventEmitter(), {
+    connected: true,
+    exitCode: null,
+    signalCode: null,
+    send: () => {
+      throw new Error("fixture synchronous IPC rejection");
+    },
+    kill: () => true
+  });
+  return child as unknown as ChildProcess;
+}
+
+function callbackFailureChild(): ChildProcess {
+  const child = Object.assign(new EventEmitter(), {
+    connected: true,
+    exitCode: null,
+    signalCode: null,
+    send: (_message: unknown, callback: (error: Error) => void) => {
+      callback(new Error("fixture callback IPC rejection"));
+      return false;
+    },
+    kill: () => true
+  });
+  return child as unknown as ChildProcess;
+}
+
+function shutdownFrame(requestId: string) {
+  return {
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "shutdown",
+    requestId
+  } as const;
 }

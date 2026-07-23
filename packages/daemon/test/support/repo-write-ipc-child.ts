@@ -25,6 +25,32 @@ if (mode === "exit") {
       });
       return;
     }
+    if (message.kind === "status") {
+      void transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: message.repoId,
+        generation: message.generation,
+        kind: "telemetry",
+        requestId: message.requestId,
+        opId: message.opId,
+        phase: "total",
+        elapsedMs: 2.5
+      }).then(() => transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: message.repoId,
+        generation: message.generation,
+        kind: "status",
+        requestId: message.requestId,
+        opId: message.opId,
+        state: "committed",
+        outcome: "committed",
+        receipt: {
+          tag: "COMMITTED",
+          generatedAt: "2026-07-23T03:00:00.000Z"
+        }
+      }));
+      return;
+    }
     if (message.kind === "shutdown") {
       void transport.send({
         protocol: repoWriteProtocolType,

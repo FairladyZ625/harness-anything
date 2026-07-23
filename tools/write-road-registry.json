@@ -3938,11 +3938,11 @@
         "authority-daemon"
       ],
       "callsiteFiles": [
-        "packages/application/src/authority/pre-enqueue-recovery.ts"
+        "packages/application/src/authority/service.ts"
       ],
       "evidence": [
         "packages/application/src/authority/admission.ts:23",
-        "packages/application/src/authority/pre-enqueue-recovery.ts:27",
+        "packages/application/src/authority/service.ts:376",
         "packages/daemon/src/authority/forced-command-session.ts:1"
       ],
       "freshness": "authority-serialized-first-parent"
@@ -6068,8 +6068,8 @@
           "key": "packages/daemon/src/runtime/repo-write-child-process-transport.ts#fork@1",
           "owner": "production.process.execution-boundaries",
           "classification": "design-exemption",
-          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
-          "reason": "Design exemption: the daemon transport forks one supervised per-repository writer capsule; process lifecycle is not itself a canonical mutation, while every child-owned write remains governed by the registered authority and coordinator roads."
+          "ref": "task_01KY6ZD1YJF3HV437BTB647VBH",
+          "reason": "Design exemption: this foundation transport defines the future per-repository writer capsule process boundary but is not production-activated or supervised yet; process lifecycle is not itself a canonical mutation, and activation must keep every child-owned write on the registered authority and coordinator roads."
         },
         {
           "key": "packages/daemon/src/platform/mount-observation.ts#execFileSync@1",

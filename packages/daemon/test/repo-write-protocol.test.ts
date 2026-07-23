@@ -129,7 +129,9 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     ...base("status"),
     requestId: "status-query-1",
     opId: "op-terminal",
-    state: "committed"
+    state: "committed",
+    outcome: "committed",
+    receipt: { tag: "COMMITTED", generatedAt: "2026-07-23T00:00:00.000Z" }
   });
   const telemetry = decodeRepoWriteChildMessage({
     ...base("telemetry"),
@@ -151,12 +153,30 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
   assert.equal(terminal.kind, "terminal");
   assert.equal(statusRequest.kind, "status");
   assert.equal(status.kind === "status" ? status.state : undefined, "committed");
+  assert.deepEqual(status.kind === "status" && status.state === "committed" ? status.receipt : undefined, {
+    tag: "COMMITTED",
+    generatedAt: "2026-07-23T00:00:00.000Z"
+  });
   assert.equal(telemetry.kind === "telemetry" ? telemetry.elapsedMs : undefined, 12.5);
   assert.equal(shutdown.kind, "shutdown");
   assert.equal(drained.kind, "drained");
   assert.throws(() => decodeRepoWriteChildMessage({ ...ready, requestId: "not-allowed" }), protocolInvalid);
   assert.throws(() => decodeRepoWriteParentMessage({ ...shutdown, deadlineMs: 5_000 }), protocolInvalid);
   assert.throws(() => decodeRepoWriteChildMessage({ ...telemetry, payload: "not telemetry" }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...base("status"),
+    requestId: "status-missing-receipt",
+    opId: "op-terminal",
+    state: "committed"
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...base("status"),
+    requestId: "status-non-terminal-receipt",
+    opId: "op-prepared",
+    state: "prepared",
+    outcome: "committed",
+    receipt: { tag: "COMMITTED" }
+  }), protocolInvalid);
 });
 
 test("strict decoders reject unknown kinds, extra fields, invalid numbers, and implicit typed values", () => {

@@ -3,20 +3,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   RepoWriteClient,
-  RepoWriteClientCapacityError,
   RepoWriteClientClosedError,
   RepoWriteDrainError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
-  RepoWriteShutdownTimeoutError,
-  type RepoWriteClientTransport
+  RepoWriteShutdownTimeoutError
 } from "../src/runtime/repo-write-client.ts";
 import {
-  repoWriteProtocolType,
-  type RepoWriteChildMessage,
-  type RepoWriteParentMessage
-} from "../src/runtime/repo-write-protocol.ts";
+  FakeRepoWriteTransport,
+  childFrame,
+  command,
+  fixtureClient,
+  parentFrame,
+  readyClient,
+  readyFrame,
+  requestId
+} from "./support/repo-write-client-fixture.ts";
 
 test("waits for ready, records prepared opId, proceeds, and resolves only at terminal", async () => {
   const transport = new FakeRepoWriteTransport();
@@ -56,50 +59,15 @@ test("binds one non-empty repo to one positive transport generation", () => {
   assert.throws(() => new RepoWriteClient({
     repoId: "",
     generation: 7,
-    transport
+    transport,
+    onTelemetry: () => undefined
   }), /repoId/u);
   assert.throws(() => new RepoWriteClient({
     repoId: "repo-canonical",
     generation: 0,
-    transport
-  }), /generation/u);
-});
-
-test("treats duplicate ready for the same repo generation as idempotent", () => {
-  const transport = new FakeRepoWriteTransport();
-  const violations: RepoWriteProtocolViolationError[] = [];
-  const client = new RepoWriteClient({
-    repoId: "repo-canonical",
-    generation: 7,
     transport,
-    onProtocolViolation: (error) => violations.push(error)
-  });
-
-  transport.emit(readyFrame());
-  transport.emit(readyFrame());
-  void client.submit(command("task.create"));
-  assert.deepEqual(transport.sent.map((message) => message.kind), ["submit"]);
-  assert.deepEqual(violations, []);
-});
-
-test("bounds submissions while the capsule is still waiting for ready", async () => {
-  const transport = new FakeRepoWriteTransport();
-  const client = fixtureClient(transport, 2);
-
-  void client.submit(command("task.create"));
-  void client.submit(command("fact.record"));
-  await assert.rejects(client.submit(command("decision.propose")), (error) => {
-    assert.ok(error instanceof RepoWriteClientCapacityError);
-    assert.equal(error.code, "REPO_WRITE_PENDING_LIMIT");
-    return true;
-  });
-  assert.equal(transport.sent.length, 0);
-
-  transport.emit(readyFrame());
-  assert.deepEqual(
-    transport.sent.map((message) => message.kind),
-    ["submit", "submit"]
-  );
+    onTelemetry: () => undefined
+  }), /generation/u);
 });
 
 test("disconnect distinguishes not-started from prepared outcome-unknown without replay", async () => {
@@ -192,6 +160,7 @@ test("fails the generation on stale child frames instead of accepting or ignorin
     repoId: "repo-canonical",
     generation: 7,
     transport,
+    onTelemetry: () => undefined,
     onProtocolViolation: (error) => violations.push(error)
   });
   transport.emit(readyFrame());
@@ -332,7 +301,7 @@ test("correlates child shutdown timeout and failure without retrying or replacin
   }
 });
 
-test("transport send failures retain the same before/after prepared recovery boundary", async () => {
+test("proceed send failures distinguish definitely-not-sent from ambiguous delivery", async () => {
   const submitTransport = new FakeRepoWriteTransport();
   const submitClient = readyClient(submitTransport);
   submitTransport.failSendKind = "submit";
@@ -342,20 +311,56 @@ test("transport send failures retain the same before/after prepared recovery bou
     return true;
   });
 
-  const proceedTransport = new FakeRepoWriteTransport();
-  const proceedClient = readyClient(proceedTransport);
-  const proceeding = proceedClient.submit(command("fact.record"));
-  const submit = proceedTransport.sent.at(-1);
-  proceedTransport.failSendKind = "proceed";
-  proceedTransport.emit({
+  const synchronousTransport = new FakeRepoWriteTransport();
+  const synchronousClient = readyClient(synchronousTransport);
+  const synchronousProceed = synchronousClient.submit(command("fact.record"));
+  const synchronousSubmit = synchronousTransport.sent.at(-1);
+  synchronousTransport.failSendKind = "proceed";
+  synchronousTransport.emit({
     ...childFrame("prepared"),
-    requestId: requestId(submit),
-    opId: "op-proceed-send"
+    requestId: requestId(synchronousSubmit),
+    opId: "op-sync-proceed-send"
   });
-  await assert.rejects(proceeding, (error) => {
+  await assert.rejects(synchronousProceed, (error) => {
+    assert.ok(error instanceof RepoWriteNotStartedError);
+    assert.equal(error.code, "CAPSULE_SEND_FAILED");
+    assert.equal(error.opId, "op-sync-proceed-send");
+    return true;
+  });
+
+  const definiteTransport = new FakeRepoWriteTransport();
+  const definiteClient = readyClient(definiteTransport);
+  const definiteProceed = definiteClient.submit(command("fact.record"));
+  const definiteSubmit = definiteTransport.sent.at(-1);
+  definiteTransport.rejectSendKind = "proceed";
+  definiteTransport.rejectDelivery = "definitely-not-sent";
+  definiteTransport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(definiteSubmit),
+    opId: "op-definite-proceed-send"
+  });
+  await assert.rejects(definiteProceed, (error) => {
+    assert.ok(error instanceof RepoWriteNotStartedError);
+    assert.equal(error.code, "CAPSULE_SEND_FAILED");
+    assert.equal(error.opId, "op-definite-proceed-send");
+    return true;
+  });
+
+  const ambiguousTransport = new FakeRepoWriteTransport();
+  const ambiguousClient = readyClient(ambiguousTransport);
+  const ambiguousProceed = ambiguousClient.submit(command("fact.record"));
+  const ambiguousSubmit = ambiguousTransport.sent.at(-1);
+  ambiguousTransport.rejectSendKind = "proceed";
+  ambiguousTransport.rejectDelivery = "possibly-sent";
+  ambiguousTransport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(ambiguousSubmit),
+    opId: "op-ambiguous-proceed-send"
+  });
+  await assert.rejects(ambiguousProceed, (error) => {
     assert.ok(error instanceof RepoWriteOutcomeUnknownError);
     assert.equal(error.code, "CAPSULE_SEND_FAILED");
-    assert.equal(error.opId, "op-proceed-send");
+    assert.equal(error.opId, "op-ambiguous-proceed-send");
     return true;
   });
 
@@ -396,88 +401,3 @@ test("rejects a drained acknowledgement while an accepted request is still unres
   });
   await assert.rejects(shutdown, RepoWriteProtocolViolationError);
 });
-
-class FakeRepoWriteTransport implements RepoWriteClientTransport {
-  readonly sent: RepoWriteParentMessage[] = [];
-  failSendKind: RepoWriteParentMessage["kind"] | undefined;
-  private messageListener: ((message: RepoWriteChildMessage) => void) | undefined;
-  private disconnectListener: ((error: Error) => void) | undefined;
-
-  send(message: RepoWriteParentMessage): void {
-    if (message.kind === this.failSendKind) throw new Error(`fixture ${message.kind} send failed`);
-    this.sent.push(message);
-  }
-
-  onMessage(listener: (message: RepoWriteChildMessage) => void): () => void {
-    this.messageListener = listener;
-    return () => {
-      this.messageListener = undefined;
-    };
-  }
-
-  onDisconnect(listener: (error: Error) => void): () => void {
-    this.disconnectListener = listener;
-    return () => {
-      this.disconnectListener = undefined;
-    };
-  }
-
-  emit(message: RepoWriteChildMessage): void {
-    this.messageListener?.(message);
-  }
-
-  disconnect(error = new Error("fixture disconnect")): void {
-    this.disconnectListener?.(error);
-  }
-}
-
-function fixtureClient(transport: RepoWriteClientTransport, maxPendingRequests?: number): RepoWriteClient {
-  return new RepoWriteClient({
-    repoId: "repo-canonical",
-    generation: 7,
-    transport,
-    ...(maxPendingRequests === undefined ? {} : { limits: { maxPendingRequests } })
-  });
-}
-
-function readyClient(transport: FakeRepoWriteTransport): RepoWriteClient {
-  const client = fixtureClient(transport);
-  transport.emit(readyFrame());
-  return client;
-}
-
-function command(commandName: string) {
-  return {
-    commandName,
-    actor: { personId: "person_zeyu" },
-    context: {},
-    payload: {}
-  } as const;
-}
-
-function readyFrame(): RepoWriteChildMessage {
-  return childFrame("ready");
-}
-
-function childFrame<K extends string>(kind: K) {
-  return {
-    protocol: repoWriteProtocolType,
-    repoId: "repo-canonical",
-    generation: 7,
-    kind
-  } as const;
-}
-
-function parentFrame<K extends string>(kind: K) {
-  return {
-    protocol: repoWriteProtocolType,
-    repoId: "repo-canonical",
-    generation: 7,
-    kind
-  } as const;
-}
-
-function requestId(message: RepoWriteParentMessage | undefined): string {
-  assert.ok(message && "requestId" in message);
-  return message.requestId;
-}

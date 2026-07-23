@@ -1,10 +1,20 @@
+// @slice-activation P5-W2 repo-writer foundation; production composition and supervision remain activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import {
   fork,
   type ChildProcess,
   type ForkOptions
 } from "node:child_process";
 import type { RepoWriteChildTransport } from "./repo-write-child-host.ts";
-import type { RepoWriteClientTransport } from "./repo-write-client.ts";
+import {
+  RepoWriteSendDeliveryError,
+  type RepoWriteClientTransport,
+  type RepoWriteSendDelivery
+} from "./repo-write-client.ts";
+import {
+  notifyRepoWriteDisconnectListeners,
+  repoWriteIpcJsonText,
+  serializeRepoWriteIpcFrame
+} from "./repo-write-ipc-shared.ts";
 import {
   parseRepoWriteChildMessage,
   parseRepoWriteParentMessage,
@@ -41,7 +51,7 @@ export type RepoWriteFork = (
 export type RepoWriteDisconnectReason =
   "protocol" | "capacity" | "send" | "spawn" | "exit" | "signal" | "disconnect" | "listener";
 
-export class RepoWriteProcessDisconnectError extends Error {
+export class RepoWriteProcessDisconnectError extends RepoWriteSendDeliveryError {
   readonly code = "REPO_WRITE_PROCESS_DISCONNECTED" as const;
   readonly reason: RepoWriteDisconnectReason;
   readonly exitCode: number | undefined;
@@ -50,9 +60,14 @@ export class RepoWriteProcessDisconnectError extends Error {
   constructor(
     reason: RepoWriteDisconnectReason,
     message: string,
-    details: { readonly exitCode?: number; readonly signal?: NodeJS.Signals; readonly cause?: unknown } = {}
+    details: {
+      readonly exitCode?: number;
+      readonly signal?: NodeJS.Signals;
+      readonly cause?: unknown;
+      readonly delivery?: RepoWriteSendDelivery;
+    } = {}
   ) {
-    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    super(details.delivery ?? "possibly-sent", message, { cause: details.cause });
     this.name = "RepoWriteProcessDisconnectError";
     this.reason = reason;
     this.exitCode = details.exitCode;
@@ -60,11 +75,11 @@ export class RepoWriteProcessDisconnectError extends Error {
   }
 }
 
-export class RepoWriteProcessCapacityError extends Error {
+export class RepoWriteProcessCapacityError extends RepoWriteSendDeliveryError {
   readonly code = "REPO_WRITE_PROCESS_CAPACITY" as const;
 
   constructor(message: string) {
-    super(message);
+    super("definitely-not-sent", message);
     this.name = "RepoWriteProcessCapacityError";
   }
 }
@@ -122,12 +137,8 @@ export class RepoWriteParentProcessTransport implements RepoWriteClientTransport
   }
 
   send(message: RepoWriteParentMessage): Promise<void> {
-    let payload: object;
-    try {
-      payload = JSON.parse(stringifyRepoWriteParentMessage(message, this.protocolLimits)) as object;
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    const payload = serializeRepoWriteIpcFrame(message, (frame) =>
+      stringifyRepoWriteParentMessage(frame, this.protocolLimits), "parent");
     return this.sendPayload(payload);
   }
 
@@ -162,7 +173,7 @@ export class RepoWriteParentProcessTransport implements RepoWriteClientTransport
     if (this.terminalError) return;
     let message: RepoWriteChildMessage;
     try {
-      message = parseRepoWriteChildMessage(jsonText(value), this.protocolLimits);
+      message = parseRepoWriteChildMessage(repoWriteIpcJsonText(value), this.protocolLimits);
     } catch (error) {
       this.fail(new RepoWriteProcessDisconnectError(
         "protocol",
@@ -223,55 +234,69 @@ export class RepoWriteParentProcessTransport implements RepoWriteClientTransport
   };
 
   private sendPayload(payload: object): Promise<void> {
-    if (this.terminalError) return Promise.reject(this.terminalError);
+    if (this.terminalError) {
+      throw new RepoWriteSendDeliveryError(
+        "definitely-not-sent",
+        "Repo writer child process is already disconnected.",
+        { cause: this.terminalError }
+      );
+    }
     if (!this.child.connected) {
       const error = new RepoWriteProcessDisconnectError(
         "disconnect",
-        "Repo writer child IPC channel is not connected."
+        "Repo writer child IPC channel is not connected.",
+        { delivery: "definitely-not-sent" }
       );
-      this.fail(error);
-      return Promise.reject(error);
+      this.fail(error, false, true);
+      throw error;
     }
     if (this.pendingSends >= this.limits.maxPendingSends) {
-      return Promise.reject(new RepoWriteProcessCapacityError(
+      throw new RepoWriteProcessCapacityError(
         "Repo writer parent exceeded the bounded pending-send limit."
-      ));
+      );
     }
     this.pendingSends += 1;
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const settle = (error?: RepoWriteProcessDisconnectError) => {
-        if (settled) return;
-        settled = true;
-        this.pendingSendRejectors.delete(abort);
-        this.pendingSends -= 1;
-        if (error) reject(error);
-        else resolve();
-      };
-      const abort = (error: RepoWriteProcessDisconnectError) => settle(error);
-      this.pendingSendRejectors.add(abort);
-      try {
-        this.child.send(payload, (error) => {
-          if (!error) {
-            settle();
-            return;
-          }
-          const disconnect = new RepoWriteProcessDisconnectError(
-            "send",
-            `Repo writer parent IPC send failed: ${error.message}`,
-            { cause: error }
-          );
-          this.fail(disconnect);
-        });
-      } catch (error) {
+    let resolveSend: (() => void) | undefined;
+    let rejectSend: ((error: RepoWriteProcessDisconnectError) => void) | undefined;
+    const result = new Promise<void>((resolve, reject) => {
+      resolveSend = resolve;
+      rejectSend = reject;
+    });
+    let settled = false;
+    const settle = (error?: RepoWriteProcessDisconnectError) => {
+      if (settled) return;
+      settled = true;
+      this.pendingSendRejectors.delete(abort);
+      this.pendingSends -= 1;
+      if (error) rejectSend!(error);
+      else resolveSend!();
+    };
+    const abort = (error: RepoWriteProcessDisconnectError) => settle(error);
+    this.pendingSendRejectors.add(abort);
+    try {
+      this.child.send(payload, (error) => {
+        if (!error) {
+          settle();
+          return;
+        }
         const disconnect = new RepoWriteProcessDisconnectError(
           "send",
-          "Repo writer parent IPC send threw before completion.",
+          `Repo writer parent IPC send failed: ${error.message}`,
           { cause: error }
         );
         this.fail(disconnect);
-      }
-    });
+      });
+    } catch (error) {
+      settle();
+      const disconnect = new RepoWriteProcessDisconnectError(
+        "send",
+        "Repo writer parent IPC send threw before accepting the frame.",
+        { cause: error, delivery: "definitely-not-sent" }
+      );
+      this.fail(disconnect, false, true);
+      throw disconnect;
+    }
+    return result;
   }
 
   private flushBuffered(): void {
@@ -292,20 +317,32 @@ export class RepoWriteParentProcessTransport implements RepoWriteClientTransport
     }
   }
 
-  private fail(error: RepoWriteProcessDisconnectError, terminate = false): void {
+  private fail(
+    error: RepoWriteProcessDisconnectError,
+    terminate = false,
+    deferDisconnectNotification = false
+  ): void {
     if (this.terminalError) return;
     this.terminalError = error;
     if (this.pendingDisconnect) clearTimeout(this.pendingDisconnect);
     this.pendingDisconnect = undefined;
     this.buffered.length = 0;
     this.removeProcessListeners();
-    for (const reject of [...this.pendingSendRejectors]) reject(error);
+    const pendingSendError = error.delivery === "possibly-sent"
+      ? error
+      : new RepoWriteProcessDisconnectError(error.reason, error.message, {
+          cause: error,
+          exitCode: error.exitCode,
+          signal: error.signal
+        });
+    for (const reject of [...this.pendingSendRejectors]) reject(pendingSendError);
     if (terminate && this.child.exitCode === null && this.child.signalCode === null) {
       this.child.kill("SIGTERM");
     }
-    for (const listener of this.disconnects) listener(error);
+    const disconnectListeners = [...this.disconnects];
     this.disconnects.clear();
     this.messages.clear();
+    notifyRepoWriteDisconnectListeners(disconnectListeners, error, deferDisconnectNotification);
   }
 
   private removeProcessListeners(): void {
@@ -345,12 +382,8 @@ export class RepoWriteChildIpcTransport implements RepoWriteChildTransport {
   }
 
   send(message: RepoWriteChildMessage): Promise<void> {
-    let payload: object;
-    try {
-      payload = JSON.parse(stringifyRepoWriteChildMessage(message, this.protocolLimits)) as object;
-    } catch (error) {
-      return Promise.reject(error);
-    }
+    const payload = serializeRepoWriteIpcFrame(message, (frame) =>
+      stringifyRepoWriteChildMessage(frame, this.protocolLimits), "child");
     return this.sendPayload(payload);
   }
 
@@ -381,7 +414,7 @@ export class RepoWriteChildIpcTransport implements RepoWriteChildTransport {
     if (this.terminalError) return;
     let message: RepoWriteParentMessage;
     try {
-      message = parseRepoWriteParentMessage(jsonText(value), this.protocolLimits);
+      message = parseRepoWriteParentMessage(repoWriteIpcJsonText(value), this.protocolLimits);
     } catch (error) {
       this.fail(new RepoWriteProcessDisconnectError(
         "protocol",
@@ -412,55 +445,69 @@ export class RepoWriteChildIpcTransport implements RepoWriteChildTransport {
   };
 
   private sendPayload(payload: object): Promise<void> {
-    if (this.terminalError) return Promise.reject(this.terminalError);
+    if (this.terminalError) {
+      throw new RepoWriteSendDeliveryError(
+        "definitely-not-sent",
+        "Repo writer parent process is already disconnected.",
+        { cause: this.terminalError }
+      );
+    }
     if (!this.endpoint.send || this.endpoint.connected !== true) {
       const error = new RepoWriteProcessDisconnectError(
         "disconnect",
-        "Repo writer parent IPC channel is not connected."
+        "Repo writer parent IPC channel is not connected.",
+        { delivery: "definitely-not-sent" }
       );
-      this.fail(error);
-      return Promise.reject(error);
+      this.fail(error, false, true);
+      throw error;
     }
     if (this.pendingSends >= this.limits.maxPendingSends) {
-      return Promise.reject(new RepoWriteProcessCapacityError(
+      throw new RepoWriteProcessCapacityError(
         "Repo writer child exceeded the bounded pending-send limit."
-      ));
+      );
     }
     this.pendingSends += 1;
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const settle = (error?: RepoWriteProcessDisconnectError) => {
-        if (settled) return;
-        settled = true;
-        this.pendingSendRejectors.delete(abort);
-        this.pendingSends -= 1;
-        if (error) reject(error);
-        else resolve();
-      };
-      const abort = (error: RepoWriteProcessDisconnectError) => settle(error);
-      this.pendingSendRejectors.add(abort);
-      try {
-        this.endpoint.send!(payload, (error) => {
-          if (!error) {
-            settle();
-            return;
-          }
-          const disconnect = new RepoWriteProcessDisconnectError(
-            "send",
-            `Repo writer child IPC send failed: ${error.message}`,
-            { cause: error }
-          );
-          this.fail(disconnect);
-        });
-      } catch (error) {
+    let resolveSend: (() => void) | undefined;
+    let rejectSend: ((error: RepoWriteProcessDisconnectError) => void) | undefined;
+    const result = new Promise<void>((resolve, reject) => {
+      resolveSend = resolve;
+      rejectSend = reject;
+    });
+    let settled = false;
+    const settle = (error?: RepoWriteProcessDisconnectError) => {
+      if (settled) return;
+      settled = true;
+      this.pendingSendRejectors.delete(abort);
+      this.pendingSends -= 1;
+      if (error) rejectSend!(error);
+      else resolveSend!();
+    };
+    const abort = (error: RepoWriteProcessDisconnectError) => settle(error);
+    this.pendingSendRejectors.add(abort);
+    try {
+      this.endpoint.send!(payload, (error) => {
+        if (!error) {
+          settle();
+          return;
+        }
         const disconnect = new RepoWriteProcessDisconnectError(
           "send",
-          "Repo writer child IPC send threw before completion.",
+          `Repo writer child IPC send failed: ${error.message}`,
           { cause: error }
         );
         this.fail(disconnect);
-      }
-    });
+      });
+    } catch (error) {
+      settle();
+      const disconnect = new RepoWriteProcessDisconnectError(
+        "send",
+        "Repo writer child IPC send threw before accepting the frame.",
+        { cause: error, delivery: "definitely-not-sent" }
+      );
+      this.fail(disconnect, false, true);
+      throw disconnect;
+    }
+    return result;
   }
 
   private flushBuffered(): void {
@@ -481,17 +528,25 @@ export class RepoWriteChildIpcTransport implements RepoWriteChildTransport {
     }
   }
 
-  private fail(error: RepoWriteProcessDisconnectError, disconnect = false): void {
+  private fail(
+    error: RepoWriteProcessDisconnectError,
+    disconnect = false,
+    deferDisconnectNotification = false
+  ): void {
     if (this.terminalError) return;
     this.terminalError = error;
     this.buffered.length = 0;
     this.endpoint.off("message", this.handleMessage);
     this.endpoint.off("disconnect", this.handleDisconnect);
-    for (const reject of [...this.pendingSendRejectors]) reject(error);
+    const pendingSendError = error.delivery === "possibly-sent"
+      ? error
+      : new RepoWriteProcessDisconnectError(error.reason, error.message, { cause: error });
+    for (const reject of [...this.pendingSendRejectors]) reject(pendingSendError);
     if (disconnect && this.endpoint.connected === true) this.endpoint.disconnect?.();
-    for (const listener of this.disconnects) listener(error);
+    const disconnectListeners = [...this.disconnects];
     this.disconnects.clear();
     this.messages.clear();
+    notifyRepoWriteDisconnectListeners(disconnectListeners, error, deferDisconnectNotification);
   }
 }
 
@@ -513,15 +568,4 @@ function resolveTransportLimits(
     }
   }
   return limits;
-}
-
-function jsonText(value: unknown): string {
-  let text: string | undefined;
-  try {
-    text = JSON.stringify(value);
-  } catch (error) {
-    throw new Error("Repo writer IPC value is not JSON serializable.", { cause: error });
-  }
-  if (text === undefined) throw new Error("Repo writer IPC value is not a JSON frame.");
-  return text;
 }
