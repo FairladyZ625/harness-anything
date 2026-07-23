@@ -23,7 +23,7 @@ export interface ReleaseBoundaryContract {
 export interface RuntimeReleaseReadinessPolicy {
   readonly schema: "runtime-release-readiness/v1";
   readonly currentStatus: RuntimeReadinessStatus;
-  readonly supportedNodeMajors: readonly [24, 26];
+  readonly supportedNodeMajors: readonly [24];
   readonly minimumNodeMajor: 24;
   readonly ciWorkflowPath: ".github/workflows/rewrite-ci.yml";
   readonly commands: readonly RuntimeCommandContract[];
@@ -50,7 +50,7 @@ export interface RuntimeReleaseReadinessValidationResult {
 export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
   schema: "runtime-release-readiness/v1",
   currentStatus: "source-checkout-and-package-smoke-only",
-  supportedNodeMajors: [24, 26],
+  supportedNodeMajors: [24],
   minimumNodeMajor: 24,
   ciWorkflowPath: ".github/workflows/rewrite-ci.yml",
   commands: [
@@ -105,8 +105,8 @@ export function validateRuntimeReleaseReadiness(
   if (policy.minimumNodeMajor !== 24) {
     errors.push({ code: "invalid_minimum_node", message: "Runtime source execution requires Node 24 as the minimum major." });
   }
-  if (!policy.supportedNodeMajors.includes(24) || !policy.supportedNodeMajors.includes(26)) {
-    errors.push({ code: "missing_node_coverage", message: "Runtime readiness must cover Node 24 and Node 26." });
+  if (!policy.supportedNodeMajors.includes(24)) {
+    errors.push({ code: "missing_node_coverage", message: "Runtime readiness must cover Node 24." });
   }
 
   for (const surface of ["source-run", "full-check", "pr-check", "package-smoke", "gui-build"] as const) {

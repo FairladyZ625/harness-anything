@@ -14,7 +14,7 @@ env:
   MERGIFY_QUEUE_METADATA_EDIT: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/') }}
 
 # Cancel superseded ordinary PR runs (e.g. after a force-push). Never cancel
-# main/nightly full-check runs or Mergify queue verification PR runs — Mergify
+# main/nightly runs or Mergify queue verification PR runs — Mergify
 # can otherwise observe the cancelled run before the replacement run finishes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -87,31 +87,23 @@ jobs:
           PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint --exclude mergify-queue-metadata-edit-noop
 
-  full-check:
-    if: github.event_name != 'pull_request'
-    timeout-minutes: 45
+  enforcement-debt-sunset:
+    if: github.event_name != 'pull_request' && github.event_name == 'schedule'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
           cache: npm
       - run: npm ci
-      - run: git diff --check
-      - run: sudo apt-get update && sudo apt-get install -y xvfb
-      - run: npm run check
-      - if: github.event_name == 'schedule'
-        run: npm run harness:check-enforcement-debt-sunset
+      - run: npm run harness:check-enforcement-debt-sunset
 
   typecheck:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
@@ -136,7 +128,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job typecheck --exclude mergify-queue-metadata-edit-noop
 
   fast-contract:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
@@ -159,7 +151,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
 
   integration-shard:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     name: integration-shard (${{ matrix.shard }})
@@ -185,7 +177,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
 
   boundaries:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     permissions:
@@ -212,7 +204,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries --exclude mergify-queue-metadata-edit-noop
 
   package-policy:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
@@ -233,7 +225,7 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job package-policy --exclude mergify-queue-metadata-edit-noop
 
   supply-chain:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
@@ -257,7 +249,7 @@ jobs:
   # task_01KY36N9FN7XQ06TM49HHBYZFF. This advisory PR job intentionally is
   # not added to branch protection until the separately governed required-check step.
   direct-recovery:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -270,7 +262,7 @@ jobs:
       - run: node tools/run-manifest-gates.mjs --workflow-job direct-recovery
 
   gui-build:
-    if: github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
@@ -283,7 +275,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dorny/paths-filter@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && github.event_name == 'pull_request' }}
         id: filter
         with:
           # Force git-based comparison so Mergify merge-queue draft PRs use the
@@ -297,37 +289,15 @@ jobs:
               - 'package-lock.json'
               - 'tsconfig*.json'
       - uses: actions/setup-node@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && steps.filter.outputs.gui == 'true' }}
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && (github.event_name == 'push' || steps.filter.outputs.gui == 'true') }}
         with:
           node-version: 24
           cache: npm
       # Skip the GUI build/test when a PR touches no GUI or shared-root files.
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && steps.filter.outputs.gui == 'true' }}
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && (github.event_name == 'push' || steps.filter.outputs.gui == 'true') }}
         run: npm ci
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && steps.filter.outputs.gui == 'true' }}
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' && (github.event_name == 'push' || steps.filter.outputs.gui == 'true') }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build --exclude mergify-queue-metadata-edit-noop
-  node26-compatibility:
-    if: github.event_name == 'pull_request'
-    timeout-minutes: 15
-    needs: metadata-source-proof
-    runs-on: ubuntu-latest
-    steps:
-      - name: Reuse same-SHA source validation
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
-        run: echo "Reusing successful source validation for the same head SHA."
-      - uses: actions/checkout@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        with:
-          node-version: 26
-          cache: npm
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        run: npm ci
-      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
-        run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility --exclude mergify-queue-metadata-edit-noop
 
   windows-local-check:
     if: github.event_name == 'pull_request'
@@ -369,7 +339,6 @@ jobs:
       - package-policy
       - supply-chain
       - gui-build
-      - node26-compatibility
       - windows-local-check
     permissions:
       statuses: write

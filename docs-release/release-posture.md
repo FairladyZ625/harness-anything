@@ -28,7 +28,7 @@ docs should link here instead of restating status tables.
 | Local daemon, including single-machine multi-repo | Shipped      | `ha daemon start`, auto-start, `ha daemon repo register`, hot registration reconciliation, and repo-scoped CLI routing use a daemon-held per-repo global lock. Initialized local repositories default to this path; `HARNESS_DAEMON_MODE=direct` is explicit bootstrap/test recovery only. Evidence: canon 1.3 plus the daemon single-writer cutover.                                                                                                  |
 | Desktop GUI source surface                        | Foundation   | The GUI can be built and run from source and can read real ledger data for several views, but status changes, review, progress append, archive, decision adjudication, terminal, presets, adapters, and parts of relations are either state-only, read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2.                                                             |
 | Remote SSH daemon mode                            | Experimental | Remote mode opens `ssh <host> ha daemon connect --stdio` to an existing daemon. Team principals require per-key `authorized_keys` forced commands and roster credentials; the relay verifies the sshd process context, exact original command, and pinned root. It is not GUI-to-remote-daemon, a tunnel product, TCP, HTTP, or WebSocket. Evidence: `packages/cli/src/commands/daemon/connect.ts`.                                               |
-| Runtime/release readiness                         | Foundation   | Source checkout, Node 24 and Node 26 CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2.                                                                                                                                                                                                                |
+| Runtime/release readiness                         | Foundation   | Source checkout, Node 24-only CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2.                                                                                                                                                                                                                       |
 | Supply-chain/license gate                         | Foundation   | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                                        |
 | M3-M7 backlog                                     | Planned      | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                                |
 
@@ -91,9 +91,9 @@ desktop release artifacts remain future work.
 
 ### Runtime contract
 
-Harness Anything runs from source on Node 24 or newer. The public CI matrix
-covers Node 24 and Node 26 so source-entry commands, typecheck, and tests stay
-aligned with the documented runtime.
+Harness Anything runs from source on Node 24 or newer. Public CI runs on Node 24
+so source-entry commands, typecheck, and tests stay aligned with the documented
+runtime. Node 24-only CI is the supported release-readiness contract.
 
 Use the source CLI entrypoint for the smallest runtime smoke:
 

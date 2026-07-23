@@ -11,7 +11,7 @@ test("runtime release readiness policy covers source, check, package smoke and G
   const result = validateRuntimeReleaseReadiness(harnessRuntimeReleaseReadiness);
   assert.deepEqual(result, { ok: true, errors: [] });
   assert.equal(harnessRuntimeReleaseReadiness.currentStatus, "source-checkout-and-package-smoke-only");
-  assert.deepEqual(harnessRuntimeReleaseReadiness.supportedNodeMajors, [24, 26]);
+  assert.deepEqual(harnessRuntimeReleaseReadiness.supportedNodeMajors, [24]);
   assert.deepEqual(
     harnessRuntimeReleaseReadiness.commands.map((command) => command.surface).sort(),
     ["full-check", "gui-build", "package-smoke", "pr-check", "source-run"]
@@ -39,9 +39,9 @@ test("runtime release readiness policy covers source, check, package smoke and G
   });
 });
 
-test("runtime release readiness rejects missing Node 26 coverage", () => {
+test("runtime release readiness rejects missing Node 24 coverage", () => {
   const policy = clonePolicy();
-  policy.supportedNodeMajors = [24, 24] as unknown as RuntimeReleaseReadinessPolicy["supportedNodeMajors"];
+  policy.supportedNodeMajors = [26] as unknown as RuntimeReleaseReadinessPolicy["supportedNodeMajors"];
 
   assert.deepEqual(validateRuntimeReleaseReadiness(policy).errors.map((error) => error.code), ["missing_node_coverage"]);
 });

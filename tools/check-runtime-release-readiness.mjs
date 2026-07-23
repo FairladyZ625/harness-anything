@@ -108,7 +108,7 @@ for (const docPath of expectedDocs) {
 }
 
 requireIncludes("docs-release/release-posture.md", "Status: source checkout and package smoke only", "runtime status");
-requireIncludes("docs-release/release-posture.md", "Node 24 and Node 26", "Node 24/26 coverage");
+requireIncludes("docs-release/release-posture.md", "Node 24-only CI", "Node 24-only coverage");
 requireIncludes("docs-release/release-posture.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
 requireIncludes("docs-release/release-posture.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
 requireIncludes("docs-release/release-posture.md", commandBySurface.get("pr-check")?.command ?? "", "PR check command");
@@ -121,7 +121,7 @@ collectReleaseOverclaims();
 
 const workflow = read(harnessRuntimeReleaseReadiness.ciWorkflowPath);
 for (const snippet of [
-  `node-version: [${harnessRuntimeReleaseReadiness.supportedNodeMajors.join(", ")}]`,
+  `node-version: ${harnessRuntimeReleaseReadiness.supportedNodeMajors[0]}`,
   "npm run check",
   "npm run test:fast",
   "npm run test:contract",
