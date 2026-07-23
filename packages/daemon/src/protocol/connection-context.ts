@@ -4,6 +4,7 @@ import type {
   OsObservedPeerCredential
 } from "../transport/auth-context.ts";
 import type { AuthenticatedActor } from "../identity/types.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export interface AcceptedConnectionBinding {
   readonly evidence: AcceptedConnectionEvidence;
@@ -54,6 +55,18 @@ export type AuthorityPeerPolicy = (input: {
 }) => boolean | Promise<boolean>;
 
 export async function resolveAuthorityConnectionForRequest(input: {
+  readonly acceptedConnection?: AcceptedConnectionBinding;
+  readonly actor?: AuthenticatedActor;
+  readonly repo?: AuthorityConnectionRepo;
+  readonly peerPolicy?: AuthorityPeerPolicy;
+}): Promise<AuthorityConnectionDispatch | undefined> {
+  return measureCurrentDaemonRequestPerformancePhase(
+    "identity",
+    () => resolveAuthorityConnection(input)
+  );
+}
+
+async function resolveAuthorityConnection(input: {
   readonly acceptedConnection?: AcceptedConnectionBinding;
   readonly actor?: AuthenticatedActor;
   readonly repo?: AuthorityConnectionRepo;

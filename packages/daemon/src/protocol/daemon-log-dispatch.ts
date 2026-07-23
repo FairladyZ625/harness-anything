@@ -1,8 +1,19 @@
 import { isDaemonLogContractError, type DaemonLogService } from "@harness-anything/application";
-import type { DaemonRepoNamespace } from "./json-rpc-server.ts";
+import type { DaemonRepoNamespace, JsonRpcServerOptions } from "./json-rpc-server.ts";
 import type { JsonRpcMethodContract } from "./method-registry.ts";
+import { resolveServicesForRepo } from "./repo-service-resolution.ts";
 import { failureReceipt, successReceipt } from "./receipt-envelope.ts";
-import { isJsonObject, type JsonObject, type JsonRpcRequest } from "./json-rpc-types.ts";
+import {
+  isJsonObject,
+  type JsonObject,
+  type JsonRpcRequest,
+  type JsonRpcResponse
+} from "./json-rpc-types.ts";
+import {
+  serializeDaemonRequestPerformanceSummary,
+  setCurrentDaemonRequestPerformanceTerminalSink,
+  type DaemonRequestPerformanceSummary
+} from "../observability/request-performance.ts";
 
 export function isRepoDiagnosticMethod(contract: JsonRpcMethodContract): boolean {
   return contract.method === "repo.daemon.status"
@@ -57,4 +68,57 @@ export async function appendDaemonLogOutcome(
   } catch {
     // Operational logging must not change the command receipt outcome.
   }
+}
+
+export function daemonLoggedResponse(
+  service: DaemonLogService | undefined,
+  request: JsonRpcRequest,
+  repo: DaemonRepoNamespace | undefined
+): (result: unknown) => Promise<JsonRpcResponse | undefined> {
+  return async (result) => {
+    void appendDaemonLogOutcome(service, request, result, repo);
+    return request.id === undefined ? undefined : { jsonrpc: "2.0", id: request.id ?? null, result };
+  };
+}
+
+export async function appendDaemonRequestPerformance(
+  service: DaemonLogService | undefined,
+  summary: DaemonRequestPerformanceSummary,
+  repo: DaemonRepoNamespace | undefined
+): Promise<void> {
+  if (!service || !repo) return;
+  try {
+    await service.append({
+      level: summary.outcome === "response-written" ? "debug" : "warn",
+      source: summary.method === "repo.command.run" ? "cli" : "daemon",
+      component: "protocol.json-rpc",
+      event: "request.performance",
+      message: serializeDaemonRequestPerformanceSummary(summary),
+      requestId: summary.requestId
+    }, { repo });
+  } catch {
+    // Operational telemetry must not change the command receipt outcome.
+  }
+}
+
+export function bindDaemonRequestPerformanceLog(
+  service: DaemonLogService | undefined,
+  repo: DaemonRepoNamespace | undefined
+): void {
+  if (!service || !repo) return;
+  setCurrentDaemonRequestPerformanceTerminalSink(
+    (summary) => appendDaemonRequestPerformance(service, summary, repo)
+  );
+}
+
+export function bindDaemonRequestPerformanceForRepo(
+  method: string,
+  repo: DaemonRepoNamespace | undefined,
+  options: JsonRpcServerOptions
+): DaemonLogService | undefined {
+  const service = repo
+    ? resolveServicesForRepo(method, repo, options)?.DaemonLogService ?? options.services.DaemonLogService
+    : undefined;
+  bindDaemonRequestPerformanceLog(service, repo);
+  return service;
 }

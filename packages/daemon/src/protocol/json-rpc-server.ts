@@ -15,11 +15,15 @@ import {
 } from "@harness-anything/application";
 import type { RuntimeEventAppendInput } from "@harness-anything/application/runtime-event-ledger-service";
 import type { TerminalSessionService } from "@harness-anything/application/terminal-session-contract";
-import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
+import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContract, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
-import { appendDaemonLogOutcome, callDaemonLogList } from "./daemon-log-dispatch.ts";
+import {
+  bindDaemonRequestPerformanceForRepo,
+  callDaemonLogList,
+  daemonLoggedResponse
+} from "./daemon-log-dispatch.ts";
 import { daemonStatusValidationFailure, validateDaemonStatusRequest, validateDaemonStatusResult } from "./daemon-status-validation.ts";
 import { validateRepoRuntime } from "./repo-runtime-validation.ts";
 import { resolveServicesForRepo } from "./repo-service-resolution.ts";
@@ -31,7 +35,10 @@ import {
 } from "./projection-notification-subscription.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { daemonControlRequest } from "./daemon-control-request.ts";
-import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
+import {
+  authorizeIdentityActorForMethod,
+  resolveIdentityActorForMethod
+} from "./identity-dispatch.ts";
 import {
   resolveAuthorityConnectionForRequest,
   type AcceptedConnectionBinding,
@@ -39,6 +46,7 @@ import {
   type AuthorityPeerPolicy
 } from "./connection-context.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import {
   actorStampJson,
   type AuthenticatedActor,
@@ -134,8 +142,6 @@ interface ProtocolSession {
   handshaken: boolean;
 }
 
-const methodByName: ReadonlyMap<string, JsonRpcMethodContract> = new Map(jsonRpcMethodContracts.map((contract) => [contract.method, contract]));
-
 export function createJsonRpcProtocolServer(options: JsonRpcServerOptions): JsonRpcProtocolServer {
   const session: ProtocolSession = { handshaken: false };
   const repos = new Map(options.repos.map((repo) => [repo.repoId, repo]));
@@ -171,18 +177,13 @@ async function handleRequest(
   const id = request.id ?? null;
   if (!isJsonRpcRequest(request)) return errorResponse(id, -32600, "Invalid Request");
 
-  const contract = methodByName.get(request.method);
+  const contract = jsonRpcMethodContract(request.method);
   if (!contract) return errorResponse(id, -32601, "Method not found");
 
   const requestParams = request.params ?? {};
   const requestRepo = repoForContract(contract, requestParams, repos);
-  const response = async (result: unknown): Promise<JsonRpcResponse | undefined> => {
-    const logService = requestRepo
-      ? resolveServicesForRepo(request.method, requestRepo, options)?.DaemonLogService ?? options.services.DaemonLogService
-      : undefined;
-    void appendDaemonLogOutcome(logService, request, result, requestRepo);
-    return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
-  };
+  const logService = bindDaemonRequestPerformanceForRepo(request.method, requestRepo, options);
+  const response = daemonLoggedResponse(logService, request, requestRepo);
 
   if (request.method === "protocol.hello") {
     return response(handleHello(request.params ?? {}, session, options, repos));
@@ -218,7 +219,7 @@ async function handleRequest(
   }
   const actor = actorResult?.actor;
   if (actor && identityOptions.identityProvider) {
-    const authz = await identityOptions.identityProvider.authorize({
+    const authz = await authorizeIdentityActorForMethod(identityOptions.identityProvider, {
       personId: actor.personId,
       action: { method: effectiveContract.method, commandClass: effectiveContract.commandClass },
       ...(repo ? { resource: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot } } : {})
@@ -251,13 +252,16 @@ async function handleRequest(
     return response(receipt);
   }
 
-  const result = await callServiceMethod(
-    effectiveContract,
-    params,
-    options,
-    actor,
-    repo,
-    authorityConnection
+  const result = await measureCurrentDaemonRequestPerformancePhase(
+    "service",
+    () => callServiceMethod(
+      effectiveContract,
+      params,
+      options,
+      actor,
+      repo,
+      authorityConnection
+    )
   );
   const receipt = stampReceipt(result, actor);
   await appendJsonRpcWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);

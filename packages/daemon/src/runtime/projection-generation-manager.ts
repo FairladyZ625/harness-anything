@@ -15,6 +15,7 @@ import {
   type ReadyProjectionGeneration,
   type StableProjectionSourceFence
 } from "@harness-anything/kernel/daemon-runtime-support";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export type DaemonProjectionGenerationState = "unknown" | "validating" | "ready";
 
@@ -112,7 +113,10 @@ export function createDaemonProjectionGenerationManager(
     if (closing) {
       return Promise.reject(new ProjectionGenerationChangedError("projection generation manager is closing"));
     }
-    const read = queryManagedExecutionEvidencePage(query);
+    const read = measureCurrentDaemonRequestPerformancePhase(
+      "projection",
+      () => queryManagedExecutionEvidencePage(query)
+    );
     activeReads.add(read);
     void read.finally(() => activeReads.delete(read)).catch(() => undefined);
     return read;

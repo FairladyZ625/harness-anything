@@ -31,6 +31,7 @@ import {
   makeDaemonQueuedWriteCoordinator,
   type CliDaemonRuntime
 } from "../lifecycle/queued-write-coordinator.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -62,9 +63,17 @@ export function createDaemonCommandService<
       options.onCommandStart?.();
       let command: Command | undefined;
       try {
-        const wireCommand = hostServices.parseCommandPayload(payload);
-        const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
-        const parsedCommand = await hostServices.normalizeCommand(wireCommand, currentSession);
+        const { wireCommand, currentSession } = measureCurrentDaemonRequestPerformancePhase(
+          "command-parse",
+          () => ({
+            wireCommand: hostServices.parseCommandPayload(payload),
+            currentSession: readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession)
+          })
+        );
+        const parsedCommand = await measureCurrentDaemonRequestPerformancePhase(
+          "command-normalize",
+          () => hostServices.normalizeCommand(wireCommand, currentSession)
+        );
         command = parsedCommand;
         const daemonActor = context?.actor;
         if (isAuthorityCutoverAction(parsedCommand.action)) {
@@ -99,45 +108,50 @@ export function createDaemonCommandService<
         const dryRunCoordinator = dryRun
           ? dryRunWriteBarrier()
           : undefined;
-        const result = await hostServices.executeCommand(parsedCommand, {
-          requireProvidedActorAttribution: true,
-          ...(attribution ? { actorAttribution: attribution } : {}),
-          ...(currentSession ? { currentSession } : {}),
-          ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
-          syncExportedSession: dryRun
-            ? () => Effect.void
-            : (exported) => materializeExportedSessionEffect(runtime, exported),
-          makeWriteCoordinator: (actor) => dryRunCoordinator ?? (attribution
-            ? authorityCoordinator
+        const result = await measureCurrentDaemonRequestPerformancePhase(
+          "command-execute",
+          () => hostServices.executeCommand(parsedCommand, {
+            requireProvidedActorAttribution: true,
+            ...(attribution ? { actorAttribution: attribution } : {}),
+            ...(currentSession ? { currentSession } : {}),
+            ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
+            syncExportedSession: dryRun
+              ? () => Effect.void
+              : (exported) => materializeExportedSessionEffect(runtime, exported),
+            makeWriteCoordinator: (actor) => dryRunCoordinator ?? (attribution
               ? authorityCoordinator
-              : makeDaemonQueuedWriteCoordinator(
+                ? authorityCoordinator
+                : makeDaemonQueuedWriteCoordinator(
+                  runtime,
+                  `${parsedCommand.action.kind}:${actor.kind}:${actor.id}`,
+                  {
+                    attribution: attribution.writeAttribution,
+                    commitAuthor: attribution.commitAuthor,
+                    ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
+                  }
+                )
+              : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
+            makeMigrationWriteCoordinator: (actor, evidenceRef) => dryRunCoordinator ?? (attribution
+              ? makeDaemonQueuedWriteCoordinator(
                 runtime,
-                `${parsedCommand.action.kind}:${actor.kind}:${actor.id}`,
+                `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:migration`,
                 {
-                  attribution: attribution.writeAttribution,
+                  attribution: hostServices.migrationWriteAttribution(attribution.writeAttribution, evidenceRef),
                   commitAuthor: attribution.commitAuthor,
                   ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
                 }
               )
-            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
-          makeMigrationWriteCoordinator: (actor, evidenceRef) => dryRunCoordinator ?? (attribution
-            ? makeDaemonQueuedWriteCoordinator(
-              runtime,
-              `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:migration`,
-              {
-                attribution: hostServices.migrationWriteAttribution(attribution.writeAttribution, evidenceRef),
-                commitAuthor: attribution.commitAuthor,
-                ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
-              }
-            )
-            : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
-          makeOperationalWriteCoordinator: (actor) => dryRunCoordinator ?? makeDaemonQueuedOperationalWriteCoordinator(
-              runtime,
-              `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:operational`,
-              actor
-            )
-        });
-        return hostServices.toReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices));
+              : missingDaemonActorCoordinator(parsedCommand.action.kind, actor)),
+            makeOperationalWriteCoordinator: (actor) => dryRunCoordinator ?? makeDaemonQueuedOperationalWriteCoordinator(
+                runtime,
+                `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:operational`,
+                actor
+              )
+          })
+        );
+        return hostServices.toReceipt(
+          await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices)
+        );
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
           return hostServices.toErrorReceipt({
@@ -167,7 +181,7 @@ export function materializeExportedSession(
   exported: ProvenanceSessionExportResult
 ): Promise<void> {
   const sessionId = exported.session.sessionId;
-  return (async () => {
+  return measureCurrentDaemonRequestPerformancePhase("materializer", async () => {
     try {
       const report = await runtime.enqueueMaterializerBatch({ sessionId });
       const target = report.branches.find((branch) => branch.branch === `sessions/${sessionId}`);
@@ -176,7 +190,7 @@ export function materializeExportedSession(
     } catch (error) {
       throw sessionMaterializationRejection(sessionId, error);
     }
-  })();
+  });
 }
 
 function materializeExportedSessionEffect(
@@ -217,7 +231,10 @@ async function withSessionMaterialization<Command extends DaemonHostCommand, Res
   if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
 
   try {
-    const report = await runtime.enqueueMaterializerBatch({ sessionId: currentSession.sessionId });
+    const report = await measureCurrentDaemonRequestPerformancePhase(
+      "materializer",
+      () => runtime.enqueueMaterializerBatch({ sessionId: currentSession.sessionId })
+    );
     const target = report.branches.find((branch) => branch.branch === `sessions/${currentSession.sessionId}`);
     if (!target || target.commitCount === 0 || target.status === "merged") return result;
     return appendPendingMaterializationWarning(result, currentSession.sessionId, target.warning);
