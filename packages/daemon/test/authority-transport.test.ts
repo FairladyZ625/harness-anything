@@ -225,7 +225,7 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
           currentAuthorityGeneration: () => claims.authorityGeneration,
           currentRevocationEpochs: async () => claims.revocationEpochs,
           nowMs: () => 2_000n,
-          consumeOperation: async (_tokenId, maximum) => ++consumed <= maximum,
+          consumeOperation: async ({ maximum }) => ++consumed <= maximum ? "consumed" : "denied",
           validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId
             && Buffer.from(input.tokenDigest).equals(Buffer.from(tokenDigest))
         },

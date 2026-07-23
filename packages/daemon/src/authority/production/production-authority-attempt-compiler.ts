@@ -1,36 +1,24 @@
-import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  actorAxesBindingDigestV2,
-  actorAxesBindingTokenDigestV2,
-  canonicalPayloadDigestV2,
   encodeFactRelationCommandPayloadV2,
   encodeConsentCommandPayloadV2,
-  encodeSemanticMutationEnvelopeV2,
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
-  issueActorAxesBindingV2,
-  semanticMutationEnvelopeV2Schema,
-  semanticMutationSetDigestV2,
-  semanticRequestDigestV2,
+  type AuthorizedOperationAttemptV2,
   type FactRelationCommandPayloadV2,
   type ConsentCommandPayloadV2,
   type ProductionAuthorityCommand,
   type ProductionAuthorityCompilerHostServices,
   type SessionExecutionReviewCommandPayloadV2,
-  type SemanticMutationEnvelopeV2,
   type TaskDecisionModuleCommandPayloadV2
 } from "@harness-anything/application";
 import {
   decisionEntityId,
   decisionSemanticMutationActions,
-  encodeCanonicalCbor,
   moduleEntityId,
   parseDecisionDocument,
   sha256Text,
-  semanticMutationWireV2,
   taskEntityId,
-  type CanonicalCborValue,
   type DecisionPackage,
   type EntityRelationRecord,
   type RegistryEntityRefV2,
@@ -47,8 +35,18 @@ import {
 import { productionLifecycleAttemptIntent } from "./production-authority-lifecycle-intents.ts";
 import { provenanceSessionAttemptIntent } from "./production-authority-provenance-session-intent.ts";
 import { taskClaimAttemptIntent } from "./production-authority-task-claim-intent.ts";
-import { executorDerivedFromPresetScript, productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
+import { productionScriptIngestAttemptIntent } from "./production-authority-script-ingest.ts";
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
+import {
+  createProductionAuthorityAttemptPlanner,
+  type ProductionAuthorityProgressAppendPlanV1
+} from "./production-authority-attempt-plan.ts";
+export {
+  attemptFromProgressAppendPlan,
+  productionAuthorityAttemptPlanV1Schema,
+  type ProductionAuthorityAttemptPlanV1,
+  type ProductionAuthorityProgressAppendPlanV1
+} from "./production-authority-attempt-plan.ts";
 export { createProductionCanonicalSemanticState } from "./semantic-state.ts";
 
 type KeyMaterial = ReturnType<typeof openAuthorityProductionKeyMaterial>;
@@ -71,6 +69,19 @@ export interface CanonicalAttemptIntent {
   readonly physicalEntityId: string;
 }
 
+type CanonicalCompileInput =
+  Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
+
+export interface ProductionCanonicalAttemptCompilerV2
+  extends DaemonAuthorityAttemptCompilerV2 {
+  readonly planProgressAppend: (
+    input: CanonicalCompileInput
+  ) => Promise<ProductionAuthorityProgressAppendPlanV1>;
+  readonly activatePlannedProgressAppend: (
+    plan: ProductionAuthorityProgressAppendPlanV1
+  ) => AuthorizedOperationAttemptV2;
+}
+
 export function createProductionCanonicalAttemptCompiler(input: {
   readonly config: AuthorityProductionRepoConfigV1;
   readonly keyStore: KeyMaterial["keyStore"];
@@ -79,118 +90,51 @@ export function createProductionCanonicalAttemptCompiler(input: {
   readonly context: AuthorityConnectionContext;
   readonly authoredRoot: string;
   readonly hostServices: ProductionAuthorityCompilerHostServices;
-}): DaemonAuthorityAttemptCompilerV2 {
+  readonly nowMs?: () => number;
+  readonly randomUuid?: () => string;
+  readonly random128?: () => Uint8Array;
+}): ProductionCanonicalAttemptCompilerV2 {
+  const attemptPlanner = createProductionAuthorityAttemptPlanner(input);
   const compileIntent = async (
     command: ProductionAuthorityCommand,
     attribution: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"],
     currentSession: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["currentSession"],
     canonicalEntityId: WriteOp["entityId"],
     intent: CanonicalAttemptIntent | null
-  ) => {
-      if (!intent) {
-        throw new Error(
-          `AUTHORITY_TYPED_COMMAND_UNSUPPORTED:${command.action.kind}`
-        );
-      }
-      if (canonicalEntityId !== intent.physicalEntityId) {
-        throw new Error(
-          `AUTHORITY_CANONICAL_ENTITY_MISMATCH:submittedEntityId=${canonicalEntityId};intentEntityId=${intent.physicalEntityId}`
-        );
-      }
-      const executorAgentId = attribution.executor?.id ?? null;
-      if (executorAgentId && !input.config.allowedExecutorAgentIds.includes(executorAgentId)
-        && !executorDerivedFromPresetScript(command, executorAgentId)) {
-        throw new Error("AUTHORITY_EXECUTOR_NOT_SERVER_APPROVED");
-      }
-      const now = Date.now();
-      const allowedEntityKinds = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.entity.entityKind));
-      const allowedActions = canonicalBindingTextSet(intent.mutations.map((mutation) => mutation.action));
-      const resourceScopes = canonicalBindingResourceScopes([...intent.mutations.map((mutation) => ({
-        kind: "entity-ref" as const,
-        entityRef: mutation.entity
-      })), ...intent.portablePaths.map((portablePath) => ({
-        kind: "portable-path" as const,
-        path: portablePath
-      }))]);
-      const claims = {
-        tokenId: `${input.config.admissionTokenRef}:${randomUUID()}`,
-        bindingId: `binding:${randomUUID()}`,
-        principalPersonId: input.context.actor.personId,
-        executorAgentId,
-        workspaceId: input.config.workspaceId,
-        deviceId: input.config.deviceId,
-        viewId: input.config.viewId,
-        sessionId: currentSession.sessionId,
-        allowedEntityKinds,
-        allowedActions,
-        resourceScopes,
-        pathFootprint: null,
-        maxBytes: BigInt(intent.payload.byteLength) + 4_096n,
-        maxMutations: intent.mutations.length,
-        maxOperations: 1,
-        authorityGeneration: BigInt(input.config.authorityGeneration),
-        channelNonceDigest: input.context.channelBinding.digest,
-        schemaTuple: input.config.schemaTuple,
-        issuedAt: BigInt(now),
-        notBefore: BigInt(now),
-        expiresAt: BigInt(now + 5 * 60_000),
-        revocationEpochs: executorAgentId === null
-          ? { ...input.config.revocationEpochs, executor: 0n }
-          : input.config.revocationEpochs
-      };
-      const token = issueActorAxesBindingV2(
-        claims,
-        input.keyStore.signingProfile(input.keyRegistry, now)
-      );
-      input.bindingRuntime.registerIssuedToken({ claims, token, attribution: attribution.writeAttribution });
-      const tokenDigest = actorAxesBindingTokenDigestV2(token);
-      const mutationSet = {
-        registryVersion: 1,
-        mutations: intent.mutations.map((mutation) => ({
-          entity: mutation.entity,
-          action: { registryVersion: 1, action: mutation.action }
-        })).sort((left, right) => Buffer.compare(
-          Buffer.from(encodeCanonicalCbor(semanticMutationWireV2(left))),
-          Buffer.from(encodeCanonicalCbor(semanticMutationWireV2(right)))
-        ))
-      } as const;
-      const base: SemanticMutationEnvelopeV2 = {
-        schema: semanticMutationEnvelopeV2Schema,
-        workspaceId: input.config.workspaceId,
-        operationId: { namespace: input.config.operationNamespace, clientRandom128: randomBytes(16) },
-        binding: {
-          bindingId: claims.bindingId,
-          actorAxesBindingDigest: actorAxesBindingDigestV2(claims),
-          deviceId: claims.deviceId,
-          viewId: claims.viewId,
-          sessionId: claims.sessionId,
-          admissionTokenRef: { tokenId: claims.tokenId, tokenDigest }
-        },
-        schemaTuple: input.config.schemaTuple,
-        intent: {
-          kind: "typed",
-          command: { registryVersion: 1, name: intent.commandName, version: 1 },
-          canonicalPayload: { kind: "inline", size: BigInt(intent.payload.byteLength), bytes: intent.payload },
-          canonicalPayloadDigest: canonicalPayloadDigestV2(intent.payload),
-          baseCas: intent.baseRefs.map((entityRef) => ({
-            entityRef,
-            expectedSemanticVersion: null,
-            expectedStateDigest: null
-          })),
-          declaredPathCas: intent.declaredPathCas
-        },
-        claimedMutationSet: mutationSet,
-        claimedSemanticMutationSetDigest: semanticMutationSetDigestV2(mutationSet),
-        claimedSemanticRequestDigest: Buffer.alloc(32)
-      };
-      const envelope = { ...base, claimedSemanticRequestDigest: semanticRequestDigestV2(base) };
-      return {
-        requestId: `authority-command:${randomUUID()}`,
-        presentationToken: token,
-        envelope: encodeSemanticMutationEnvelopeV2(envelope)
-      };
-  };
+  ): Promise<AuthorizedOperationAttemptV2> =>
+    attemptPlanner.activatePlan(
+      await attemptPlanner.planIntent(command, attribution, currentSession, canonicalEntityId, intent)
+    );
   return {
+    planProgressAppend: async ({ command, attribution, currentSession, canonicalEntityId }) => {
+      if (command.action.kind !== "progress-append") {
+        throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${command.action.kind}`);
+      }
+      const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
+      const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
+        ? await canonicalAttemptIntent(
+          command,
+          currentSession,
+          canonicalEntityId,
+          input.authoredRoot,
+          attribution.writeAttribution.actor,
+          input.hostServices
+        )
+        : null;
+      return attemptPlanner.planIntent(
+        command,
+        attribution,
+        currentSession,
+        canonicalEntityId,
+        intent
+      ) as Promise<ProductionAuthorityProgressAppendPlanV1>;
+    },
+    activatePlannedProgressAppend: (plan) => {
+      if (plan.commandKind !== "progress-append") {
+        throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${plan.commandKind}`);
+      }
+      return attemptPlanner.activatePlan(plan);
+    },
     compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
       const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
       const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
@@ -543,41 +487,4 @@ function moduleCanonicalIntent(commandName: string, payload: Uint8Array, entity:
 
 function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
   return { registryVersion: 1, entityKind, canonicalRef };
-}
-
-function resourceScopeWire(scope: {
-  readonly kind: "entity-ref";
-  readonly entityRef: RegistryEntityRefV2;
-} | {
-  readonly kind: "portable-path";
-  readonly path: string;
-}): CanonicalCborValue {
-  if (scope.kind === "portable-path") return { kind: scope.kind, path: scope.path };
-  return {
-    kind: scope.kind,
-    entityRef: {
-      registryVersion: scope.entityRef.registryVersion,
-      entityKind: scope.entityRef.entityKind,
-      canonicalRef: scope.entityRef.canonicalRef
-    }
-  };
-}
-
-function canonicalBindingResourceScopes(
-  scopes: ReadonlyArray<Parameters<typeof resourceScopeWire>[0]>
-): ReadonlyArray<Parameters<typeof resourceScopeWire>[0]> {
-  const keyed = new Map<string, Parameters<typeof resourceScopeWire>[0]>();
-  for (const scope of scopes) {
-    keyed.set(Buffer.from(encodeCanonicalCbor(resourceScopeWire(scope))).toString("hex"), scope);
-  }
-  return [...keyed.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, scope]) => scope);
-}
-
-function canonicalBindingTextSet(values: ReadonlyArray<string>): ReadonlyArray<string> {
-  return [...new Set(values)].sort((left, right) => Buffer.compare(
-    Buffer.from(encodeCanonicalCbor(left)),
-    Buffer.from(encodeCanonicalCbor(right))
-  ));
 }

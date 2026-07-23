@@ -235,7 +235,7 @@ function bindingRuntime(admission?: { readonly firstTokenId: string; readonly fi
     currentAuthorityGeneration: () => 3n,
     currentRevocationEpochs: async () => ({ global: 1n, workspace: 2n, device: 3n, view: 4n, principal: 5n, executor: 6n }),
     nowMs: () => 2_000n,
-    consumeOperation: async () => true,
+    consumeOperation: async () => "consumed",
     validateAdmissionTokenRef: async (input) => Boolean(admission)
       && input.bindingId === "binding-1"
       && input.tokenId === admission.firstTokenId

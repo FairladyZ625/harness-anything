@@ -228,7 +228,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         canonicalMutationSet: compilation.mutationSet
       };
       computedIntegrity = authorityIntegrity;
-      await consumeActorAxesBindingOperationV2(verified, v2.bindingRuntime);
+      await consumeActorAxesBindingOperationV2(verified, opId, v2.bindingRuntime);
       try {
         await options.fenceWitness.assertHeld("before-prepare", identity);
       } catch (error) {

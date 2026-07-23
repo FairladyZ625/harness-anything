@@ -246,7 +246,7 @@ function authority(
         currentAuthorityGeneration: () => claims.authorityGeneration,
         currentRevocationEpochs: async () => claims.revocationEpochs,
         nowMs: () => 2_000n,
-        consumeOperation: async () => true,
+        consumeOperation: async () => "consumed",
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId && bytesEqual(input.tokenDigest, tokenDigest)
       },
       entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review, entityRegistry.task],

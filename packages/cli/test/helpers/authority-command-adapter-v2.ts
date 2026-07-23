@@ -115,7 +115,7 @@ export async function submitThroughActualAuthorityServiceV2(): Promise<Authority
         currentAuthorityGeneration: () => claims.authorityGeneration,
         currentRevocationEpochs: async () => claims.revocationEpochs,
         nowMs: () => 2_000n,
-        consumeOperation: async () => true,
+    consumeOperation: async () => "consumed",
         validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId
           && Buffer.from(input.tokenDigest).equals(Buffer.from(tokenDigest))
       },
