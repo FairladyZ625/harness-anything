@@ -237,6 +237,16 @@ function initAuthoredGit(rootDir: string): void {
   execFileSync("git", ["-C", harnessRoot, "init", "-b", "master"], {
     stdio: "ignore"
   });
+  // Persist a local committer identity so the production write-coordination
+  // commit path (which reads ambient git config, not the test's per-invocation
+  // -c flags) succeeds under hermetic CI where no global/implicit identity
+  // exists. Mirrors what a real `ha init` seeds into a harness root.
+  execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Harness Test"], {
+    stdio: "ignore"
+  });
+  execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], {
+    stdio: "ignore"
+  });
   writeFileSync(path.join(harnessRoot, ".gitkeep"), "", "utf8");
   git(rootDir, "add", "--", ".gitkeep");
   git(rootDir, "commit", "-m", "seed");
