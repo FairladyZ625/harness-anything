@@ -12,9 +12,12 @@ import {
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   formatTestTimeoutGuidance,
+  hasIsolationWedgeSignature,
+  parsePosixProcessGroupLine,
   parseRunnerArgs,
   resolveTestConcurrency,
-  selectTestFiles
+  selectTestFiles,
+  testFilesFromProcessCommand
 } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
@@ -116,6 +119,12 @@ const stallAbortWindows = positiveIntegerOrDefault(
 // the timeout itself proves no test is running, and therefore that nothing else
 // will ever end this run.
 const stallAbortAfterMs = Math.max(stallAbortWindows * stallDiagnosticMs, options.testTimeoutMs + stallDiagnosticMs);
+// A process that remains in the runtime's futex wait channel across several
+// probes is stronger evidence than global silence: it identifies the isolated
+// file that is stuck in NodePlatform shutdown even while sibling files keep
+// printing. This path does not preempt ordinary quiet tests; only the strong
+// per-process signature can use the shorter multi-window bound.
+const isolationWedgeAfterMs = stallAbortWindows * stallDiagnosticMs;
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
@@ -143,6 +152,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   let lastOutputAt = Date.now();
   let consecutiveStallWindows = 0;
   let stallAbortStarted = false;
+  let processGroupInspectionStarted = false;
+  const isolationWedgeObservations = new Map();
   const seenDiagnosticReports = new Set();
   const noteOutput = (text) => {
     // Asking a stalled host for a diagnostic report makes it print, and that
@@ -152,16 +163,41 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     lastOutputAt = Date.now();
     consecutiveStallWindows = 0;
   };
+  const startStallAbort = (input) => {
+    if (stallAbortStarted) return;
+    stallAbortStarted = true;
+    void abortStalledRun({ child, ...input });
+  };
+  const inspectIsolationChildren = async () => {
+    if (process.platform === "win32" || child.pid === undefined || processGroupInspectionStarted || stallAbortStarted) return;
+    processGroupInspectionStarted = true;
+    try {
+      const wedge = await detectWedgedIsolationChildren({
+        processGroupId: child.pid,
+        observations: isolationWedgeObservations,
+        wedgeAfterMs: isolationWedgeAfterMs
+      });
+      if (wedge === null) return;
+      startStallAbort({
+        silentMs: wedge.wedgedForMs,
+        silentWindows: Math.max(1, Math.ceil(wedge.wedgedForMs / stallDiagnosticMs)),
+        timeoutAlreadyReported: /test timed out after \d+ms/u.test(output),
+        isolationChildPid: wedge.pid,
+        stalledFiles: wedge.files
+      });
+    } finally {
+      processGroupInspectionStarted = false;
+    }
+  };
   const stallDiagnosticTimer = setInterval(() => {
+    void inspectIsolationChildren();
     const silentForMs = Date.now() - lastOutputAt;
     if (silentForMs < stallDiagnosticMs) return;
     lastOutputAt = Date.now();
     consecutiveStallWindows += 1;
     emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticReports });
-    if (consecutiveStallWindows * stallDiagnosticMs < stallAbortAfterMs || stallAbortStarted) return;
-    stallAbortStarted = true;
-    void abortStalledRun({
-      child,
+    if (consecutiveStallWindows * stallDiagnosticMs < stallAbortAfterMs) return;
+    startStallAbort({
       silentMs: consecutiveStallWindows * stallDiagnosticMs,
       silentWindows: consecutiveStallWindows,
       timeoutAlreadyReported: /test timed out after \d+ms/u.test(output)
@@ -276,7 +312,7 @@ function emitStallDiagnostics({ child, silentForMs, timingRoot, seenDiagnosticRe
  * caught and fail, rather than stay silent until the CI job's own timeout kills
  * it with no test named.
  */
-async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyReported }) {
+async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyReported, isolationChildPid, stalledFiles }) {
   // When `--test-timeout` already fired, the failing test is named and this is
   // just the timeout path's own cleanup arriving early: the run lingers only
   // because a leaked descendant holds the process group open.
@@ -298,10 +334,13 @@ async function abortStalledRun({ child, silentMs, silentWindows, timeoutAlreadyR
     return;
   }
   if (child.pid === undefined) return;
-  const stalledFiles = await stalledTestFilesInProcessGroup(child.pid);
-  console.error(`\n[node-test-stall] no test output for ${silentMs}ms across ${silentWindows} windows; --test-timeout cannot fire here, so the runner is terminating the test process tree`);
-  console.error(stalledFiles.length > 0
-    ? `[node-test-stall] stalled test file(s): ${stalledFiles.join(", ")}`
+  const namedFiles = stalledFiles ?? await stalledTestFilesInProcessGroup(child.pid);
+  const reason = isolationChildPid === undefined
+    ? `no test output for ${silentMs}ms across ${silentWindows} windows`
+    : `isolation child pid=${isolationChildPid} remained wedged for ${silentMs}ms across ${silentWindows} windows`;
+  console.error(`\n[node-test-stall] ${reason}; --test-timeout cannot fire here, so the runner is terminating the test process tree`);
+  console.error(namedFiles.length > 0
+    ? `[node-test-stall] stalled test file(s): ${namedFiles.join(", ")}`
     : "[node-test-stall] stalled test file could not be identified from the process group");
   signalProcessGroup(child.pid, "SIGTERM");
   await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
@@ -318,12 +357,10 @@ async function stalledTestFilesInProcessGroup(processGroupId) {
   const descendantFiles = new Set();
   const hostFiles = new Set();
   for (const line of lines) {
-    const pid = /^\s*(\d+)\s+/u.exec(line)?.[1];
-    if (pid === undefined) continue;
-    const target = pid === String(processGroupId) ? hostFiles : descendantFiles;
-    for (const token of line.split(/\s+/u)) {
-      if (/\.test\.(?:ts|tsx|mjs|cjs|js)$/u.test(token)) target.add(token);
-    }
+    const member = parsePosixProcessGroupLine(line);
+    if (member === null) continue;
+    const target = member.pid === processGroupId ? hostFiles : descendantFiles;
+    for (const file of testFilesFromProcessCommand(member.command, repoRoot)) target.add(file);
   }
   if (descendantFiles.size > 0) return [...descendantFiles];
   // Without process isolation the host itself is the wedged process, and its
@@ -331,6 +368,42 @@ async function stalledTestFilesInProcessGroup(processGroupId) {
   // useful when the selection happens to be a single file.
   return hostFiles.size === 1 ? [...hostFiles] : [];
 }
+
+/**
+ * Tracks process-isolated test children independently of aggregate reporter
+ * output. Linux exposes the NodePlatform deadlock as `futex_do_wait`; fixture
+ * processes use an explicit title so the same state machine is testable on
+ * macOS, whose `ps` does not expose a useful wait channel.
+ */
+async function detectWedgedIsolationChildren({ processGroupId, observations, wedgeAfterMs }) {
+  const now = Date.now();
+  const liveCandidates = new Set();
+  const wedged = [];
+  for (const line of await readPosixProcessGroup(processGroupId)) {
+    const member = parsePosixProcessGroupLine(line);
+    if (member === null || member.pid === processGroupId || !hasIsolationWedgeSignature(member)) continue;
+    const files = testFilesFromProcessCommand(member.command, repoRoot);
+    if (files.length === 0) continue;
+    liveCandidates.add(member.pid);
+    const fileKey = files.join("\0");
+    const previous = observations.get(member.pid);
+    const firstSeenAt = previous?.fileKey === fileKey ? previous.firstSeenAt : now;
+    observations.set(member.pid, { fileKey, firstSeenAt });
+    if (now - firstSeenAt >= wedgeAfterMs) {
+      wedged.push({ pid: member.pid, files, wedgedForMs: now - firstSeenAt });
+    }
+  }
+  for (const pid of observations.keys()) {
+    if (!liveCandidates.has(pid)) observations.delete(pid);
+  }
+  if (wedged.length === 0) return null;
+  return {
+    pid: wedged[0].pid,
+    files: [...new Set(wedged.flatMap((entry) => entry.files))],
+    wedgedForMs: Math.max(...wedged.map((entry) => entry.wedgedForMs))
+  };
+}
+
 
 /**
  * Sends SIGUSR2 only to group members that run with `--report-on-signal` on
