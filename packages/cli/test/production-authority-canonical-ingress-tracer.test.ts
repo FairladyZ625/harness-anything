@@ -82,6 +82,7 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0";
   const planPath = path.join(fixture.authoredRoot, `tasks/${taskId}/task_plan.md`);
+  const sessionBranch = "sessions/doc-sync-production-writer-child";
   const env = {
     HARNESS_ACTOR: "agent:codex",
     HARNESS_DAEMON_MODE: "local",
@@ -107,6 +108,10 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
       "-c", "user.email=harness@example.test",
       "commit", "-q", "-m", "seed doc sync fixture"
     ], { cwd: fixture.authoredRoot });
+    const trunkHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: fixture.authoredRoot,
+      encoding: "utf8"
+    }).trim();
 
     const registered = runDaemonCommand(fixture.repoRoot, [
       "daemon", "repo", "register", "--repo-id", "canonical",
@@ -147,7 +152,21 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
       `tasks/${taskId}/task_plan.md`,
       JSON.stringify(submitted.receipt)
     );
-    assert.match(readFileSync(planPath, "utf8"), /Updated through the writer child/u);
+    assert.equal(
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: fixture.authoredRoot,
+        encoding: "utf8"
+      }).trim(),
+      trunkHead
+    );
+    assert.match(readFileSync(planPath, "utf8"), /Original governed prose/u);
+    assert.match(
+      execFileSync("git", ["show", `${sessionBranch}:tasks/${taskId}/task_plan.md`], {
+        cwd: fixture.authoredRoot,
+        encoding: "utf8"
+      }),
+      /Updated through the writer child/u
+    );
     assert.equal(
       execFileSync("git", ["status", "--short", "--", `tasks/${taskId}/task_plan.md`], {
         cwd: fixture.authoredRoot,
@@ -156,7 +175,7 @@ test("doc sync submit dispatches prose to the production writer child", { timeou
       ""
     );
     assert.match(
-      execFileSync("git", ["log", "-1", "--format=%s"], {
+      execFileSync("git", ["log", "-1", "--format=%s", sessionBranch], {
         cwd: fixture.authoredRoot,
         encoding: "utf8"
       }).trim(),

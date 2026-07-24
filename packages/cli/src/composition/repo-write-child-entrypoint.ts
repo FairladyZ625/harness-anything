@@ -197,7 +197,10 @@ export async function runRepoWriteChildEntrypoint(
           `doc-sync-submit:${wireCommand.request.payload.intentId}`,
           {
             attribution: attribution.writeAttribution,
-            commitAuthor: attribution.commitAuthor
+            commitAuthor: attribution.commitAuthor,
+            ...(wireCommand.request.session?.sessionId
+              ? { sessionId: wireCommand.request.session.sessionId }
+              : {})
           }
         )
       }).submit(wireCommand.request);

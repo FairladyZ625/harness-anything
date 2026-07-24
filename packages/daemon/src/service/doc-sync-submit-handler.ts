@@ -53,7 +53,10 @@ export function makeDocSyncSubmitHandler(options: {
           `doc-sync-submit:${request.payload.intentId}`,
           {
             attribution: attribution.writeAttribution,
-            commitAuthor: attribution.commitAuthor
+            commitAuthor: attribution.commitAuthor,
+            ...(request.session?.sessionId
+              ? { sessionId: request.session.sessionId }
+              : {})
           }
         )
       } : {})
