@@ -40,6 +40,9 @@ export function createHermeticTestEnvironment(baseEnv = process.env) {
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "user.useConfigOnly",
     GIT_CONFIG_VALUE_0: "true",
+    // Tests exercise msgpackr behavior, not its optional native accelerator.
+    // Keeping isolation children on the JS path removes addon exit state.
+    MSGPACKR_NATIVE_ACCELERATION_DISABLED: "true",
     npm_config_cache: npmCache
   };
   for (const key of [...inheritedIdentityKeys, ...inheritedAgentSessionKeys]) delete env[key];

@@ -63,9 +63,61 @@ test("hermetic test environment removes Git author and agent-session fallbacks",
   }
 });
 
+test("hermetic test children exclude optional native exit state", () => {
+  const compileCache = mkdtempSync(path.join(tmpdir(), "ha-shared-compile-cache-"));
+  const environment = createHermeticTestEnvironment({
+    ...process.env,
+    NODE_COMPILE_CACHE: compileCache,
+    MSGPACKR_NATIVE_ACCELERATION_DISABLED: "false"
+  });
+  try {
+    const positiveControlEnv = {
+      ...environment.env,
+      MSGPACKR_NATIVE_ACCELERATION_DISABLED: "false"
+    };
+    const positiveControl = runNativeLifecycleProbe(positiveControlEnv);
+    assert.equal(typeof positiveControl.compileCacheDir, "string");
+    assert.equal(positiveControl.msgpackrNativeAcceleration, true);
+    assert.equal(positiveControl.nativeAddons.some((addon) => addon.includes("msgpackr-extract")), true);
+
+    const isolated = runNativeLifecycleProbe(environment.env);
+    assert.equal(environment.env.NODE_COMPILE_CACHE, compileCache);
+    assert.equal(environment.env.MSGPACKR_NATIVE_ACCELERATION_DISABLED, "true");
+    assert.equal(typeof isolated.compileCacheDir, "string");
+    assert.equal(isolated.msgpackrNativeAcceleration, false);
+    assert.equal(isolated.nativeAddons.some((addon) => addon.includes("msgpackr-extract")), false);
+  } finally {
+    environment.cleanup();
+    rmSync(compileCache, { recursive: true, force: true });
+  }
+});
+
 function readEnvironmentValue(env, name) {
   const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name.toUpperCase());
   return key === undefined ? undefined : env[key];
+}
+
+function runNativeLifecycleProbe(env) {
+  const result = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    [
+      'import { getCompileCacheDir } from "node:module";',
+      'import { isNativeAccelerationEnabled } from "msgpackr";',
+      "const report = process.report.getReport();",
+      "console.log(JSON.stringify({",
+      "  compileCacheDir: getCompileCacheDir() ?? null,",
+      "  msgpackrNativeAcceleration: isNativeAccelerationEnabled,",
+      '  nativeAddons: report.sharedObjects.filter((entry) => entry.endsWith(".node"))',
+      "}));"
+    ].join("\n")
+  ], {
+    cwd: path.resolve(import.meta.dirname, ".."),
+    encoding: "utf8",
+    env
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
 }
 
 test("Git identity failures teach the fixture-local repair command", () => {
