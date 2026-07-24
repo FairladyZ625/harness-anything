@@ -12,6 +12,7 @@ import type { AuthorityWireIngressHandler } from "../transport/authority-wire-in
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { JsonObject, JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { DaemonRepoAvailabilityFailure, DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
+import { noRepoBindingsError } from "../authority/authority-lifecycle.ts";
 import type { AuthorityRepoComponent, AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 import type { AuthenticatedActor, IdentityAdminSnapshot, IdentityProvider, PersonRegistry } from "../identity/types.ts";
 import type { DaemonActiveControlStatus, DaemonControlService, DaemonStatusResultV2 } from "@harness-anything/application/daemon-status-contract";
@@ -224,7 +225,7 @@ export async function createDaemonServiceHost<
     ));
   }
   const selectedFallbackBinding = repoBindings.get(defaultRepoId) ?? repoBindings.values().next().value;
-  if (!selectedFallbackBinding) throw new Error("daemon service host has no repo bindings");
+  if (!selectedFallbackBinding) throw noRepoBindingsError(repos, runtime.status().repos, authorityLifecycle);
   const serviceFallbackBinding: RepoServiceBinding = selectedFallbackBinding;
   return {
     daemonId,
