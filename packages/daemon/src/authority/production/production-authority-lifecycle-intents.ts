@@ -85,6 +85,9 @@ export function productionLifecycleAttemptIntent(input: {
     ], portableLifecyclePaths(taskLifecyclePath(input.authoredRoot, action.taskId, "facts.md")), taskEntityId(action.taskId));
   }
   if (action.kind === "task-code-doc-reconcile") return codeDocIntent(input.authoredRoot, action);
+  if (action.kind === "task-retire-execution") {
+    return executionRetirementIntent(input.authoredRoot, action, input.actor);
+  }
   if (action.kind === "task-review-execution" && action.verdict === "approved") {
     return approvedReviewIntent(input.authoredRoot, input.canonicalEntityId, action);
   }
@@ -112,6 +115,43 @@ export function productionLifecycleAttemptIntent(input: {
     return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId, input.canonicalEntityId);
   }
   return null;
+}
+
+function executionRetirementIntent(
+  authoredRoot: string,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-retire-execution" }>,
+  actor: ExecutionRecord["primary_actor"]
+): CanonicalAttemptIntent {
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${action.executionId}.md`);
+  const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
+  const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
+  if (current.execution_id !== action.executionId || current.task_ref !== `task/${action.taskId}`) {
+    throw new Error("AUTHORITY_EXECUTION_RETIREMENT_IDENTITY_MISMATCH");
+  }
+  if (current.state !== "active") {
+    throw new Error(`AUTHORITY_EXECUTION_RETIREMENT_ACTIVE_REQUIRED: execution ${action.executionId} is ${current.state}`);
+  }
+  const retiredBy = actor.executor
+    ? `person:${actor.principal.personId}/agent:${actor.executor.id}`
+    : `person:${actor.principal.personId}`;
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "execution.close/v1",
+    taskId: action.taskId,
+    execution: { ...current, state: "abandoned", closed_at: action.retiredAt },
+    retirement: { reason: action.reason, retiredAt: action.retiredAt, retiredBy }
+  };
+  const progressPath = taskLifecyclePath(authoredRoot, action.taskId, "progress.md");
+  const progressSnapshot = optionalLifecycleSnapshot(authoredRoot, progressPath.logical, progressPath.physical);
+  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+    lifecycleMutation("execution", `execution/${action.taskId}/${action.executionId}`, "close"),
+    lifecycleMutation("task", `task/${action.taskId}`, "append")
+  ], [
+    lifecycleRef("execution", `execution/${action.taskId}/${action.executionId}`),
+    lifecycleRef("task", `task/${action.taskId}`)
+  ], portableLifecyclePaths(executionPath, progressPath), `entity/execution/${action.executionId}`, [
+    executionSnapshot,
+    ...(progressSnapshot ? [progressSnapshot] : [])
+  ]);
 }
 
 function executionSubmitIntent(

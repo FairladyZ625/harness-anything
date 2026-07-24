@@ -26,6 +26,7 @@ const cases = {
   "task-supersede": ["task", "supersede", missingTask, "--by", `${missingTask}2`, "--confirm", missingTask, "--reason", "parity"],
   "task-delete": ["task", "delete", "--soft", missingTask, "--reason", "parity"],
   "task-reopen": ["task", "reopen", missingTask, "--reason", "parity"],
+  "task-retire-execution": ["task", "retire-execution", missingTask, "--execution-id", missingExecution, "--reason", "parity"],
   "task-relate": ["task", "relate", missingTask, "depends-on", `${missingTask}2`, "--rationale", "parity"],
   "task-code-doc-reconcile": ["task", "code-doc", "reconcile", missingTask, "--commit", "0123456789abcdef0123456789abcdef01234567", "--path", "README.md"],
   "task-consent-record": ["task", "consent-record", missingTask, "--execution-id", missingExecution, "--utterance", "Approved"],

@@ -6,7 +6,7 @@ import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
-import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
+import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionReadiness, ExecutionCompletionService } from "./execution-completion-service.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 
@@ -83,7 +83,7 @@ export interface TaskLifecycleOrchestrator {
   readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
   readonly startTaskReview: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleResult>;
   readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
-  readonly completeTask: (payload: { readonly taskId: string; readonly reviewerId: string; readonly ciGate?: "passed" | "failed"; readonly actor?: TaskHolderPrincipal }) => Effect.Effect<TaskLifecycleResult>;
+  readonly completeTask: (payload: { readonly taskId: string; readonly reviewerId: string; readonly ciGate?: CompletionCiGateStatus; readonly actor?: TaskHolderPrincipal }) => Effect.Effect<TaskLifecycleResult>;
 }
 
 export interface TaskLifecyclePolicy {

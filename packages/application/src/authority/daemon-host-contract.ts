@@ -108,6 +108,7 @@ export type AuthorityHostDecisionProposeAction = {
 export type AuthorityHostCommandAction =
   | AuthorityHostNewTaskAction
   | { readonly kind: "task-claim"; readonly taskId: string; readonly executionId?: string }
+  | { readonly kind: "task-retire-execution"; readonly taskId: string; readonly executionId: string; readonly reason: string; readonly retiredAt: string }
   | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken?: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
   | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<AuthorityHostEvidenceInput> }
   | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }

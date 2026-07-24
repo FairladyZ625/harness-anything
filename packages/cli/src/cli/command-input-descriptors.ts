@@ -162,7 +162,7 @@ const explicitInputDescriptors = {
       consentStandingPolicyDecisionId: { type: "string", description: "Active decision granting standing consent." },
       consentAssertedRationale: { type: "string", description: "Rationale for externally obtained consent." },
       consentActions: { type: "array", description: "Consent actions granted by the human.", items: { type: "string" } },
-      ci: { type: "string", description: "Human-supplied CI result: passed or failed." },
+      ci: { type: "string", description: "Human-supplied CI result: passed, failed, or not-applicable." },
       commit: { type: "string", description: "Git ref resolved to a full SHA; defaults to HEAD." },
       paths: { type: "array", description: "Optional repository-relative code-doc anchors.", items: { type: "string" } },
       prRef: { type: "string", description: "Optional pull request reference." },

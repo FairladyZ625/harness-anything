@@ -33,6 +33,7 @@ import type {
   HostedDocumentSnapshotV2,
   SemanticEntityBaseV2
 } from "./fact-relation-semantic-compiler-v2.ts";
+import { renderStaleExecutionRetirementAudit } from "../execution-retirement-service.ts";
 
 export {
   encodeSessionExecutionReviewCommandPayloadV2,
@@ -135,7 +136,7 @@ async function compileExecution(
   const path = storagePath("execution", { taskId: payload.taskId, executionId: execution.execution_id });
   const snapshot = await state.readHostedDocument(path);
   const current = snapshot ? decodeExecutionDocument(snapshot.body) : null;
-  assertExecutionTransition(action, current, execution);
+  assertExecutionTransition(action, current, execution, payload.retirement);
   const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
   const taskSnapshot = payload.taskIndexBody === undefined ? null : await state.readHostedDocument(taskPath);
   if (payload.taskIndexBody !== undefined) {
@@ -152,12 +153,21 @@ async function compileExecution(
       throw admission("EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
     }
   }
+  if (payload.retirement !== undefined && (action !== "close" || payload.taskIndexBody !== undefined)) {
+    throw admission("EXECUTION_RETIREMENT_TRANSACTION_INVALID");
+  }
+  const retirementProgress = payload.retirement === undefined
+    ? null
+    : await retirementProgressTransaction(state, payload.taskId, execution.execution_id, payload.retirement);
   const mutations: RegistryMutationPlanInput["mutations"] = [{
     entityKind: "execution", identity: { taskId: payload.taskId, executionId: execution.execution_id }, action
   }, ...(payload.taskIndexBody === undefined ? [] : [{
     entityKind: "task", identity: { taskId: payload.taskId }, action: "transition",
     storageContext: { documentPath: "INDEX.md" }
-  }])];
+  }]), ...(retirementProgress ? [{
+    entityKind: "task", identity: { taskId: payload.taskId }, action: "append",
+    storageContext: { documentPath: "progress.md" }
+  }] : [])];
   return {
     mutationPlan: plan(mutations),
     operation: declaredDocumentOperation(
@@ -167,23 +177,47 @@ async function compileExecution(
       { taskId: payload.taskId, executionId: execution.execution_id },
       executionDeclaration.documentCodec.encode(execution),
       undefined,
-      payload.taskIndexBody === undefined ? undefined : {
-        companionWrites: [{ taskId: payload.taskId, path: "INDEX.md", body: payload.taskIndexBody }],
+      payload.taskIndexBody === undefined && retirementProgress === null ? undefined : {
+        companionWrites: [
+          ...(payload.taskIndexBody === undefined ? [] : [{ taskId: payload.taskId, path: "INDEX.md", body: payload.taskIndexBody }]),
+          ...(retirementProgress ? [{ taskId: payload.taskId, path: "progress.md", body: retirementProgress.body }] : [])
+        ],
         preconditions: [
           { taskId: payload.taskId, path: `executions/${execution.execution_id}.md`, bodySha256: sha256Text(snapshot!.body) },
-          { taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot!.body) }
+          ...(taskSnapshot ? [{ taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) }] : []),
+          ...(retirementProgress ? [{ taskId: payload.taskId, path: "progress.md", bodySha256: retirementProgress.snapshot ? sha256Text(retirementProgress.snapshot.body) : null }] : [])
         ]
       }
     ),
     requiredBaseRefs: [
       ref("execution", `execution/${encodeURIComponent(payload.taskId)}/${encodeURIComponent(execution.execution_id)}`),
-      ...(payload.taskIndexBody === undefined ? [] : [ref("task", `task/${payload.taskId}`)])
+      ...(payload.taskIndexBody === undefined && retirementProgress === null ? [] : [ref("task", `task/${payload.taskId}`)])
     ],
     requiredPathSnapshots: [
       ...(snapshot ? [{ path, snapshot }] : []),
-      ...(taskSnapshot ? [{ path: taskPath, snapshot: taskSnapshot }] : [])
+      ...(taskSnapshot ? [{ path: taskPath, snapshot: taskSnapshot }] : []),
+      ...(retirementProgress?.snapshot ? [{ path: retirementProgress.path, snapshot: retirementProgress.snapshot }] : [])
     ]
   };
+}
+
+async function retirementProgressTransaction(
+  state: SessionExecutionReviewAuthorityStateV2,
+  taskId: string,
+  executionId: string,
+  retirement: NonNullable<ExecutionActionPayloadV2["retirement"]>
+): Promise<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 | null; readonly body: string }> {
+  const path = `tasks/${encodeURIComponent(taskId)}/progress.md`;
+  const snapshot = await state.readHostedDocument(path);
+  const existing = snapshot?.body ?? "# Progress\n\n## Entries\n\n";
+  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  const audit = renderStaleExecutionRetirementAudit({
+    executionId,
+    retiredAt: retirement.retiredAt,
+    retiredBy: retirement.retiredBy,
+    reason: retirement.reason
+  });
+  return { path, snapshot, body: `${existing}${separator}${audit}\n` };
 }
 
 async function compileReview(
@@ -368,7 +402,8 @@ function assertExecutionIdentity(taskId: string, execution: ExecutionRecord): vo
 function assertExecutionTransition(
   action: "claim" | "submit" | "close",
   current: ExecutionRecord | null,
-  next: ExecutionRecord
+  next: ExecutionRecord,
+  retirement: ExecutionActionPayloadV2["retirement"]
 ): void {
   if (action === "claim") {
     if (current) throw admission("EXECUTION_ALREADY_EXISTS");
@@ -386,7 +421,12 @@ function assertExecutionTransition(
     }
     return;
   }
-  if ((current.state !== "submitted" && current.state !== "changes_requested")
+  if (retirement !== undefined) {
+    if (current.state !== "active" || next.state !== "abandoned" || next.closed_at !== retirement.retiredAt
+      || next.submitted_at !== null || next.submission !== null) {
+      throw admission("EXECUTION_RETIREMENT_STATE_INVALID");
+    }
+  } else if ((current.state !== "submitted" && current.state !== "changes_requested")
     || (next.state !== "accepted" && next.state !== "abandoned") || next.closed_at === null) {
     throw admission("EXECUTION_CLOSE_STATE_INVALID");
   }

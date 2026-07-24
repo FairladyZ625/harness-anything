@@ -42,6 +42,8 @@ export function collectCompletionRequirementIssues(input: {
       message: issue.message,
       ...(issue.code === "missing_ci_gate" || issue.code === "ci_not_passed"
         ? { nextCommand: `ha task complete ${input.taskId} --ci passed` }
+        : issue.code === "ci_not_applicable_for_contract"
+          ? { nextCommand: `ha task complete ${input.taskId} --ci passed` }
         : issue.code === "closeout_not_ready"
           ? { nextCommand: "Complete closeout.md and let the projection reach ready, then rerun ha task complete." }
           : {})
@@ -86,7 +88,8 @@ export function isExecutionCompletionRequirement(code: string): boolean {
   return code === "execution_submission_required"
     || code === "execution_task_not_in_review"
     || code === "execution_review_required"
-    || code === "archive_warnings_acknowledgement_required";
+    || code === "archive_warnings_acknowledgement_required"
+    || code === "stale_execution_retirement_required";
 }
 
 export function validateCompletionDocumentPlaceholders(

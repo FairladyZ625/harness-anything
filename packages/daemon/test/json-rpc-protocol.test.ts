@@ -110,6 +110,7 @@ test("production authority ingress covers or explicitly excludes every write-cla
     "task-delete",
     "task-relate",
     "task-reopen",
+    "task-retire-execution",
     "task-review-execution",
     "task-supersede"
   ]);

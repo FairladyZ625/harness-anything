@@ -44,6 +44,7 @@ const dispositions = {
     }
   }),
   "task-claim": typed("task-claim"),
+  "task-retire-execution": typed("generic"),
   "status-set": typed("generic"),
   "progress-append": typed("generic"),
   "task-code-doc-reconcile": typed("generic"),

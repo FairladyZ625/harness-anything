@@ -34,7 +34,8 @@ export interface ExecutionCompletionReadinessIssue {
     | "execution_submission_required"
     | "execution_task_not_in_review"
     | "execution_review_required"
-    | "archive_warnings_acknowledgement_required";
+    | "archive_warnings_acknowledgement_required"
+    | "stale_execution_retirement_required";
   readonly message: string;
   readonly nextCommand?: string;
 }
@@ -65,25 +66,13 @@ export function makeExecutionCompletionService(options: {
       const execution = readiness.execution;
 
       const completedAt = now();
-      const staleActiveWrites = readiness.staleActive.map((candidate) => ({
-        taskId,
-        path: `executions/${candidate.execution_id}.md`,
-        body: executionDeclaration.documentCodec.encode({
-          ...candidate,
-          state: "abandoned" as const,
-          closed_at: completedAt
-        })
-      }));
       await Effect.runPromise(writeDeclaredEntityTransaction(
         options.coordinator,
         stablePayloadHash,
         executionDeclaration,
         { taskId, executionId: execution.execution_id },
         { ...execution, state: "accepted", closed_at: completedAt },
-        [
-          { taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) },
-          ...staleActiveWrites
-        ],
+        [{ taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) }],
         completionPreconditions(task.documents, taskId)
       ));
       return { executionId: execution.execution_id };
@@ -159,6 +148,15 @@ function resolveExecutionCompletionReadiness(input: {
 
   const execution = submitted[0]!;
   const issues: ExecutionCompletionReadinessIssue[] = [];
+  if (staleActive.length > 0) {
+    issues.push({
+      code: "stale_execution_retirement_required",
+      message: `Task completion requires no active Execution rounds; found ${staleActive.length}: ${staleActive.map((candidate) => candidate.execution_id).join(", ")}.`,
+      nextCommand: staleActive
+        .map((candidate) => `ha task retire-execution ${input.taskId} --execution-id ${candidate.execution_id} --reason "<why this active round is abandoned>"`)
+        .join("\n")
+    });
+  }
   try {
     assertExecutionTaskCompletable(input.documents, input.taskId);
   } catch (error) {

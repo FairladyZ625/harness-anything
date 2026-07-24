@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   makeExecutionCompletionService,
+  makeExecutionRetirementService,
   makeExecutionSagaService,
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
@@ -129,7 +130,7 @@ test("changes_requested keeps another submitted round reviewable and the remaini
   }
 });
 
-test("X5-shaped five-round state completes from an active Task projection and abandons stale active rounds", async () => {
+test("X5-shaped five-round state requires explicit audited retirement before regular completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-x5-recovery-"));
   try {
     const taskRoot = createTask(rootDir, "in_review");
@@ -160,11 +161,6 @@ test("X5-shaped five-round state completes from an active Task projection and ab
     writeExecutionFixture(taskRoot, executionFixture(executionIds[1], "changes_requested"));
     writeExecutionFixture(taskRoot, executionFixture(executionIds[3], "changes_requested"));
     writeExecutionFixture(taskRoot, executionFixture(executionIds[4], "active"));
-    writeFileSync(
-      path.join(taskRoot, "INDEX.md"),
-      readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace(/^(  status:\s*).+$/mu, "$1active"),
-      "utf8"
-    );
     const completion = makeExecutionCompletionService({
       rootInput: rootDir,
       coordinator,
@@ -172,11 +168,86 @@ test("X5-shaped five-round state completes from an active Task projection and ab
       now: () => "2026-07-11T00:03:00.000Z"
     });
 
+    await assert.rejects(
+      completion.completeTaskExecution({ taskId, actor: aliceCodex }),
+      /requires no active Execution rounds/u
+    );
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+    for (const executionId of [executionIds[0], executionIds[4]]) {
+      await retirement.retireStaleExecution({
+        taskId,
+        executionId,
+        reason: "Legacy abandoned claim with no live lease.",
+        retiredAt: "2026-07-11T00:02:30.000Z",
+        actor: aliceCodex
+      });
+    }
+    const progress = readFileSync(path.join(taskRoot, "progress.md"), "utf8");
+    assert.match(progress, /STALE_EXECUTION_RETIRED_AUDIT/u);
+    assert.match(progress, /retiredBy=person:alice\/agent:codex/u);
+    assert.match(progress, new RegExp(`execution=${executionIds[0]}`, "u"));
+    assert.match(progress, /reason=Legacy abandoned claim with no live lease\./u);
+
     assert.deepEqual(await completion.completeTaskExecution({ taskId, actor: aliceCodex }), { executionId: executionIds[2] });
     assert.deepEqual(executionIds.map((id) => readExecutionState(taskRoot, id)), [
       "abandoned", "changes_requested", "accepted", "changes_requested", "abandoned"
     ]);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retirement rejects submitted rounds and active rounds with a live lease", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-negative-"));
+  try {
+    const taskRoot = createTask(rootDir, "in_review");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "submitted"));
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[1], "active"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+
+    await assert.rejects(retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[0],
+      reason: "must reject submitted",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceCodex
+    }), /is submitted; only an active Execution/u);
+
+    const lease = await holder.reserveExecution({
+      taskId,
+      executionId: executionIds[1],
+      principal: aliceCodex
+    });
+    await holder.activateExecution({
+      taskId,
+      executionId: executionIds[1],
+      leaseToken: lease.leaseToken,
+      principal: aliceCodex
+    });
+    await assert.rejects(retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[1],
+      reason: "must reject live lease",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceClaude
+    }), /claim conflicts|live lease/u);
+    assert.equal(readExecutionState(taskRoot, executionIds[1]), "active");
+    assert.equal(existsSync(path.join(taskRoot, "progress.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

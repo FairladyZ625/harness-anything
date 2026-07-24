@@ -387,6 +387,27 @@
           ],
           "owner": "task.execution.record",
           "sunset": "2026-10-31"
+        },
+        {
+          "selector": "task-retire-execution",
+          "surfaces": {
+            "cliActions": [
+              "task-retire-execution"
+            ]
+          },
+          "parity": "single-surface-debt",
+          "compilers": [
+            {
+              "entry": "direct",
+              "ref": "packages/application/src/execution-retirement-service.ts#makeExecutionRetirementService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/daemon/src/authority/production/production-authority-lifecycle-intents.ts#productionLifecycleAttemptIntent"
+            }
+          ],
+          "owner": "task.execution.record",
+          "sunset": "2026-10-31"
         }
       ],
       "sourceInventoryRows": [
@@ -408,6 +429,7 @@
       ],
       "cliActions": [
         "task-claim",
+        "task-retire-execution",
         "status-set",
         "task-complete"
       ],
