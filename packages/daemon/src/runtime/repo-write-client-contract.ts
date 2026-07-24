@@ -1,6 +1,7 @@
 import type {
   RepoWriteChildMessage,
   RepoWriteParentMessage,
+  RepoWriteRecoveryDeferredFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import type {
@@ -35,6 +36,7 @@ export interface RepoWriteClientOptions {
   readonly expectedArtifactIdentity?: string;
   readonly limits?: Partial<RepoWriteClientLimits>;
   readonly onTelemetry: (frame: RepoWriteTelemetryFrame) => void;
+  readonly onDiagnostic?: (frame: RepoWriteRecoveryDeferredFrame) => void;
   readonly onProtocolViolation?: (
     error: RepoWriteProtocolViolationError
   ) => void;

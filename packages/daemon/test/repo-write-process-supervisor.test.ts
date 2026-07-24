@@ -51,6 +51,31 @@ test("supervisor submits through one child and drains it without inline fallback
   assert.equal(supervisor.status().connected, false);
 });
 
+test("supervisor forwards startup recovery diagnostics before READY", async (context) => {
+  const diagnostics: unknown[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    spawn: () => forkRepoWriteProcess({
+      modulePath: fixturePath,
+      args: ["recovery-deferred"]
+    }),
+    onDiagnostic: (frame) => diagnostics.push(frame)
+  });
+  context.after(() => supervisor.stop().catch(() => undefined));
+
+  await supervisor.start();
+  assert.deepEqual(diagnostics, [{
+    protocol: "harness-repo-write-ipc/v1",
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "recovery-deferred",
+    outerOpId: "repo-write:historical",
+    code: "GIT_PATH_NOT_SAFE",
+    diagnostic: "historical recovery remains fail-closed"
+  }]);
+});
+
 test("post-proceed child crash performs one exact op lookup in a replacement capsule", async (context) => {
   let forks = 0;
   const supervisor = new RepoWriteProcessSupervisor({

@@ -143,13 +143,20 @@ export async function runRepoWriteChildEntrypoint(
     }
     return started.component.recoverCommittedReceipt(outcome.innerOpId);
   };
+  const transport = new RepoWriteChildIpcTransport();
   for (const proceeding of outcomes.listHistoricalProceedings()) {
     try {
       await recoveryGate.recoverHistoricalProceeding(proceeding);
     } catch (error) {
-      process.stderr.write(
-        `repo-write historical recovery deferred outerOpId=${proceeding.outerOpId}: ${recoveryErrorMessage(error)}\n`
-      );
+      await transport.send({
+        protocol: "harness-repo-write-ipc/v1",
+        repoId: config.repoId,
+        generation: config.generation,
+        kind: "recovery-deferred",
+        outerOpId: proceeding.outerOpId,
+        code: recoveryErrorCode(error),
+        diagnostic: boundedRecoveryError(error)
+      });
     }
   }
   const operation = new ProductionRepoWriteOperationHost({
@@ -163,7 +170,6 @@ export async function runRepoWriteChildEntrypoint(
     resolveHistoricalPublication,
     recoverHistoricalCommittedReceipt: historicalRecovery.recover
   });
-  const transport = new RepoWriteChildIpcTransport();
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     cleanupPromise ??= (async () => {
@@ -205,4 +211,23 @@ export async function runRepoWriteChildEntrypoint(
 
 function recoveryErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function recoveryErrorCode(error: unknown): string {
+  if (error instanceof Error && "code" in error
+    && typeof error.code === "string" && error.code.trim()) {
+    return error.code;
+  }
+  const message = recoveryErrorMessage(error);
+  const match = /^([A-Z][A-Z0-9_]+)(?::|$)/u.exec(message);
+  return match?.[1] ?? "HISTORICAL_RECOVERY_DEFERRED";
+}
+
+function boundedRecoveryError(error: unknown): string {
+  const value = `${error instanceof Error ? `${error.name}: ` : ""}${recoveryErrorMessage(error)}`
+    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
+    .trim();
+  const bytes = Buffer.from(value || "Historical recovery deferred.", "utf8");
+  if (bytes.length <= 2_048) return bytes.toString("utf8");
+  return bytes.subarray(0, 2_048).toString("utf8").replace(/\uFFFD$/u, "");
 }

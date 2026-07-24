@@ -4,8 +4,7 @@ import type {
   ReplicaChangeRecord
 } from "@harness-anything/application";
 import {
-  foldPortableComponent,
-  validatePortableManagedPath
+  foldPortableComponent
 } from "@harness-anything/application";
 import type { AuthoritySnapshotManifestEntry } from "./protocol.ts";
 import type { DurableAuthorityStateTable } from "./production/service-state.ts";
@@ -13,6 +12,7 @@ import {
   readAuthorityGitBatchBytes,
   readAuthorityGitBytes
 } from "./production/publication-evidence.ts";
+import { validateReadDownManagedPath } from "./read-down-managed-path.ts";
 
 type ReplicaChangeDraft = Parameters<ReplicaChangeLog["append"]>[0];
 type ReplicaFileMode = NonNullable<ReplicaChangeRecord["paths"][number]["mode"]>;
@@ -264,11 +264,7 @@ function decodePortableGitPath(pathBytes: Uint8Array): string {
   if (!Buffer.from(pathName, "utf8").equals(Buffer.from(pathBytes))) {
     throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_UTF8_ROUND_TRIP:${Buffer.from(pathBytes).toString("hex").slice(0, 80)}`);
   }
-  try {
-    validatePortableManagedPath(pathName);
-  } catch {
-    throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_PORTABLE:${pathName}`);
-  }
+  validateReadDownManagedPath(pathName);
   return pathName;
 }
 

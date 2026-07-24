@@ -1,6 +1,5 @@
 // @slice-activation P5-W2 repo-writer foundation; production dispatch and durable receipt lookup remain activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import {
-  repoWriteProtocolType,
   type RepoWriteChildMessage,
   type RepoWriteCommandDto,
   type RepoWriteJsonObject,
@@ -17,6 +16,11 @@ import type {
 } from "./repo-write-client-pending.ts";
 import { defaultRepoWriteRequestTimeoutMs } from "./repo-write-client-contract.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
+import {
+  observeRepoWriteRecoveryDiagnostic,
+  observeRepoWriteTelemetry,
+  repoWriteClientFrameBase
+} from "./repo-write-client-observers.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
@@ -223,7 +227,7 @@ export class RepoWriteClient {
     pending.phase = "submitted";
     try {
       const sent = this.options.transport.send({
-        ...this.frameBase(),
+        ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
         kind: "submit",
         requestId,
         command: pending.command
@@ -320,11 +324,15 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer telemetry does not match a pending request.");
         return;
       }
-      try {
-        this.options.onTelemetry(message);
-      } catch {
-        this.failProtocol("Repo writer telemetry observer failed.");
-      }
+      observeRepoWriteTelemetry(
+        this.options.onTelemetry,
+        message,
+        () => this.failProtocol("Repo writer telemetry observer failed.")
+      );
+      return;
+    }
+    if (message.kind === "recovery-deferred") {
+      observeRepoWriteRecoveryDiagnostic(this.options.onDiagnostic, message);
       return;
     }
     if (message.kind === "failure") {
@@ -462,7 +470,7 @@ export class RepoWriteClient {
     pending.phase = "sent";
     try {
       const sent = this.options.transport.send({
-        ...this.frameBase(),
+        ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
         kind: "status",
         requestId,
         opId: pending.opId
@@ -509,7 +517,7 @@ export class RepoWriteClient {
     shutdown.sent = true;
     try {
       const sent = this.options.transport.send({
-        ...this.frameBase(),
+        ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
         kind: "shutdown",
         requestId: shutdown.requestId
       });
@@ -552,7 +560,7 @@ export class RepoWriteClient {
   private dispatchProceed(pending: PendingSubmit): void {
     try {
       const sent = this.options.transport.send({
-        ...this.frameBase(),
+        ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
         kind: "proceed",
         requestId: pending.requestId,
         opId: pending.opId!
@@ -582,14 +590,6 @@ export class RepoWriteClient {
 
   private pendingRequestCount(): number {
     return this.pending.size + this.directLane.size + this.pendingLookups.size;
-  }
-
-  private frameBase() {
-    return {
-      protocol: repoWriteProtocolType,
-      repoId: this.options.repoId,
-      generation: this.options.generation
-    } as const;
   }
 
   private nextRequestId(): string {
