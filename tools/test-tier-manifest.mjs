@@ -5,6 +5,18 @@ const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 
+function isExcludedPathSegment(segment) {
+  return segment.startsWith(".") || ignoredDirectoryNames.has(segment);
+}
+
+// Single source of truth for which paths test discovery ignores. `walk` applies
+// it per directory entry; consumers that enumerate paths another way (e.g. the
+// shard ratchet resolving a Git baseline via `git ls-tree`) must apply it too,
+// or discovery and the baseline disagree about which files are tests.
+export function hasExcludedPathSegment(file) {
+  return file.split("/").some(isExcludedPathSegment);
+}
+
 export const testTierNames = Object.freeze(["fast", "contract", "integration", "nightly"]);
 export const defaultTestTierNames = Object.freeze(["fast", "contract", "integration"]);
 
@@ -59,7 +71,7 @@ export function discoverTestTierManifest(repoRoot, options = {}) {
 function walk(directory, repoRoot, files) {
   if (!existsSync(directory)) return;
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
+    if (isExcludedPathSegment(entry.name)) continue;
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       walk(entryPath, repoRoot, files);
