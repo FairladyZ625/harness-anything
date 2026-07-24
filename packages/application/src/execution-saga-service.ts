@@ -139,13 +139,20 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
           ttlMs: input.ttlMs
         });
         try {
+          const current = await options.authoredStore.readExecution({
+            taskId: input.taskId,
+            executionId: selected.execution_id
+          });
+          if (!current || current.state !== "active") {
+            throw new Error(`active execution is unavailable for reserved lease: ${selected.execution_id}`);
+          }
           const resumed = await options.taskHolderService.activateExecution({
             taskId: input.taskId,
             executionId: selected.execution_id,
             leaseToken: reservation.leaseToken,
             principal: input.principal
           });
-          return { ...resumed, execution: selected, reused: true };
+          return { ...resumed, execution: current, reused: true };
         } catch (error) {
           await options.taskHolderService.releaseExecution({
             taskId: input.taskId,

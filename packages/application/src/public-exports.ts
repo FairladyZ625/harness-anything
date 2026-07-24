@@ -185,6 +185,12 @@ export {
 } from "./execution-consent-helpers.ts";
 export { makeExecutionCompletionService } from "./execution-completion-service.ts";
 export type { ExecutionCompletionService } from "./execution-completion-service.ts";
+export {
+  makeExecutionRetirementService,
+  renderStaleExecutionRetirementAudit,
+  STALE_EXECUTION_RETIRED_AUDIT_MARKER
+} from "./execution-retirement-service.ts";
+export type { ExecutionRetirementResult, ExecutionRetirementService } from "./execution-retirement-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
   taskWriteApiRoutePolicies,

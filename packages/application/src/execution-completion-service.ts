@@ -26,6 +26,7 @@ export interface ExecutionCompletionService {
   readonly completeTaskExecution: (input: {
     readonly taskId: string;
     readonly actor: TaskHolderPrincipal;
+    readonly contractPrecondition?: { readonly bodySha256: string | null };
   }) => Promise<{ readonly executionId: string } | null>;
 }
 
@@ -34,7 +35,8 @@ export interface ExecutionCompletionReadinessIssue {
     | "execution_submission_required"
     | "execution_task_not_in_review"
     | "execution_review_required"
-    | "archive_warnings_acknowledgement_required";
+    | "archive_warnings_acknowledgement_required"
+    | "stale_execution_retirement_required";
   readonly message: string;
   readonly nextCommand?: string;
 }
@@ -54,7 +56,7 @@ export function makeExecutionCompletionService(options: {
   const now = options.now ?? (() => new Date().toISOString());
   return {
     inspectTaskExecutionCompletion: inspectExecutionCompletionReadiness,
-    completeTaskExecution: async ({ taskId, actor }) => {
+    completeTaskExecution: async ({ taskId, actor, contractPrecondition }) => {
       const task = await Effect.runPromise(options.artifactStore.readTaskPackage(taskId));
       const readiness = resolveExecutionCompletionReadiness({ taskId, actor, documents: task.documents });
       if (!readiness.execution) {
@@ -63,28 +65,23 @@ export function makeExecutionCompletionService(options: {
       }
       if (!readiness.ok) throw new Error(readiness.issues[0]?.message ?? `task ${taskId} is not ready for Execution completion`);
       const execution = readiness.execution;
+      const currentContract = task.documents.find((document) => document.path === "task-contract.json");
 
       const completedAt = now();
-      const staleActiveWrites = readiness.staleActive.map((candidate) => ({
-        taskId,
-        path: `executions/${candidate.execution_id}.md`,
-        body: executionDeclaration.documentCodec.encode({
-          ...candidate,
-          state: "abandoned" as const,
-          closed_at: completedAt
-        })
-      }));
       await Effect.runPromise(writeDeclaredEntityTransaction(
         options.coordinator,
         stablePayloadHash,
         executionDeclaration,
         { taskId, executionId: execution.execution_id },
         { ...execution, state: "accepted", closed_at: completedAt },
-        [
-          { taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) },
-          ...staleActiveWrites
-        ],
-        completionPreconditions(task.documents, taskId)
+        [{ taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) }],
+        completionPreconditions(
+          task.documents,
+          taskId,
+          contractPrecondition ?? {
+            bodySha256: currentContract ? sha256Text(currentContract.body) : null
+          }
+        )
       ));
       return { executionId: execution.execution_id };
     }
@@ -93,14 +90,18 @@ export function makeExecutionCompletionService(options: {
 
 function completionPreconditions(
   documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
-  taskId: string
-): ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string }> {
-  return documents
+  taskId: string,
+  contractPrecondition: { readonly bodySha256: string | null }
+): ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string | null }> {
+  return [
+    ...documents
     .filter((document) => document.path === "INDEX.md"
       || /^executions\/[^/]+\.md$/u.test(document.path)
       || /^reviews\/[^/]+\.md$/u.test(document.path)
       || /^consents\/[^/]+\.md$/u.test(document.path))
-    .map((document) => ({ taskId, path: document.path, bodySha256: sha256Text(document.body) }));
+      .map((document) => ({ taskId, path: document.path, bodySha256: sha256Text(document.body) })),
+    { taskId, path: "task-contract.json", bodySha256: contractPrecondition.bodySha256 }
+  ];
 }
 
 export function inspectExecutionCompletionReadiness(input: {
@@ -159,6 +160,15 @@ function resolveExecutionCompletionReadiness(input: {
 
   const execution = submitted[0]!;
   const issues: ExecutionCompletionReadinessIssue[] = [];
+  if (staleActive.length > 0) {
+    issues.push({
+      code: "stale_execution_retirement_required",
+      message: `Task completion requires no active Execution rounds; found ${staleActive.length}: ${staleActive.map((candidate) => candidate.execution_id).join(", ")}.`,
+      nextCommand: staleActive
+        .map((candidate) => `ha task retire-execution ${input.taskId} --execution-id ${candidate.execution_id} --reason "<why this active round is abandoned>"`)
+        .join("\n")
+    });
+  }
   try {
     assertExecutionTaskCompletable(input.documents, input.taskId);
   } catch (error) {

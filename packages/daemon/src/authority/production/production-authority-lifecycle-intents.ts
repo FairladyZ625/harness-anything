@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,
+  absentHostedDocumentSnapshotV2,
   encodeConsentCommandPayloadV2,
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
@@ -85,6 +86,9 @@ export function productionLifecycleAttemptIntent(input: {
     ], portableLifecyclePaths(taskLifecyclePath(input.authoredRoot, action.taskId, "facts.md")), taskEntityId(action.taskId));
   }
   if (action.kind === "task-code-doc-reconcile") return codeDocIntent(input.authoredRoot, action);
+  if (action.kind === "task-retire-execution") {
+    return executionRetirementIntent(input.authoredRoot, action, input.actor);
+  }
   if (action.kind === "task-review-execution" && action.verdict === "approved") {
     return approvedReviewIntent(input.authoredRoot, input.canonicalEntityId, action);
   }
@@ -109,9 +113,52 @@ export function productionLifecycleAttemptIntent(input: {
     );
   }
   if (action.kind === "task-complete") {
-    return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId, input.canonicalEntityId);
+    return taskCompletionIntent(
+      input.authoredRoot,
+      input.currentSession.detectedAt,
+      action.taskId,
+      input.canonicalEntityId,
+      action.completionContractBodySha256
+    );
   }
   return null;
+}
+
+function executionRetirementIntent(
+  authoredRoot: string,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-retire-execution" }>,
+  actor: ExecutionRecord["primary_actor"]
+): CanonicalAttemptIntent {
+  const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${action.executionId}.md`);
+  const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
+  const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
+  if (current.execution_id !== action.executionId || current.task_ref !== `task/${action.taskId}`) {
+    throw new Error("AUTHORITY_EXECUTION_RETIREMENT_IDENTITY_MISMATCH");
+  }
+  if (current.state !== "active") {
+    throw new Error(`AUTHORITY_EXECUTION_RETIREMENT_ACTIVE_REQUIRED: execution ${action.executionId} is ${current.state}`);
+  }
+  const retiredBy = actor.executor
+    ? `person:${actor.principal.personId}/agent:${actor.executor.id}`
+    : `person:${actor.principal.personId}`;
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "execution.close/v1",
+    taskId: action.taskId,
+    execution: { ...current, state: "abandoned", closed_at: action.retiredAt },
+    retirement: { reason: action.reason, retiredAt: action.retiredAt, retiredBy }
+  };
+  const progressPath = taskLifecyclePath(authoredRoot, action.taskId, "progress.md");
+  const progressSnapshot = optionalLifecycleSnapshot(authoredRoot, progressPath.logical, progressPath.physical);
+  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+    lifecycleMutation("execution", `execution/${action.taskId}/${action.executionId}`, "close"),
+    lifecycleMutation("task", `task/${action.taskId}`, "append")
+  ], [
+    lifecycleRef("execution", `execution/${action.taskId}/${action.executionId}`),
+    lifecycleRef("task", `task/${action.taskId}`)
+  ], portableLifecyclePaths(executionPath, progressPath), `entity/execution/${action.executionId}`, [
+    executionSnapshot,
+    ...(progressSnapshot ? [progressSnapshot] : [])
+  ]);
 }
 
 function executionSubmitIntent(
@@ -345,7 +392,13 @@ function requiredReviewExecutionId(
   return action.executionId;
 }
 
-function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId: string, canonicalEntityId: string): CanonicalAttemptIntent {
+function taskCompletionIntent(
+  authoredRoot: string,
+  completedAt: string,
+  taskId: string,
+  canonicalEntityId: string,
+  evaluatedContractBodySha256: string | null | undefined
+): CanonicalAttemptIntent {
   const executionRoot = path.join(resolvedTaskRoot(authoredRoot, taskId), "executions");
   const executions = existsSync(executionRoot)
     ? readdirSync(executionRoot).filter((name) => name.endsWith(".md")).map((name) => ({
@@ -366,14 +419,36 @@ function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId:
     schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody
   };
   const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
-  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+  const contractPath = taskLifecyclePath(authoredRoot, taskId, "task-contract.json");
+  const contractSnapshot = optionalLifecycleSnapshot(authoredRoot, contractPath.logical, contractPath.physical);
+  const absentContract = absentHostedDocumentSnapshotV2(contractPath.logical);
+  const contractCas = contractSnapshot ?? {
+    path: contractPath.logical,
+    expectedEpoch: absentContract.epoch,
+    expectedRevision: absentContract.revision,
+    expectedBlobDigest: absentContract.blobDigest
+  };
+  const currentContractBodySha256 = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
+  const contractBodySha256 = evaluatedContractBodySha256 === undefined
+    ? currentContractBodySha256
+    : evaluatedContractBodySha256;
+  if (contractBodySha256 !== currentContractBodySha256) {
+    throw new Error("AUTHORITY_TASK_COMPLETE_CONTRACT_CHANGED");
+  }
+  const fencedPayload: SessionExecutionReviewCommandPayloadV2 = {
+    ...payload,
+    completionContractBodySha256: contractBodySha256
+  };
+  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(fencedPayload), [
     lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
     lifecycleMutation("task", `task/${taskId}`, "transition")
   ], [
     lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
     lifecycleRef("task", `task/${taskId}`)
-  ], portableLifecyclePaths(executionPath, taskPath), canonicalEntityId, [
-    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical), taskSnapshot
+  ], portableLifecyclePaths(executionPath, taskPath, contractPath), canonicalEntityId, [
+    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
+    taskSnapshot,
+    contractCas
   ]);
 }
 

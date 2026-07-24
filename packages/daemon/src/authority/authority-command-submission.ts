@@ -267,6 +267,7 @@ export function makeDaemonAuthorityWriteCoordinator(
             ? submission.submitObservedWrite!({ ...input, operation: pending })
           : submission.submit({
             ...input,
+            command: commandWithCompletionContractFence(input.command, pending),
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
           });
         const receipt = await settled;
@@ -283,6 +284,37 @@ export function makeDaemonAuthorityWriteCoordinator(
       catch: authoritySubmissionWriteError
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
+  };
+}
+
+function commandWithCompletionContractFence(
+  command: AuthorityHostCommand,
+  operation: WriteOp
+): AuthorityHostCommand {
+  if (command.action.kind !== "task-complete") return command;
+  const action = command.action;
+  const payload = operation.kind === "doc_write" && operation.payload && typeof operation.payload === "object"
+    ? operation.payload as {
+        readonly preconditions?: ReadonlyArray<{
+          readonly taskId?: unknown;
+          readonly path?: unknown;
+          readonly bodySha256?: unknown;
+        }>;
+      }
+    : null;
+  const contract = payload?.preconditions?.find((entry) =>
+    entry.taskId === action.taskId && entry.path === "task-contract.json"
+  );
+  if (!contract || (contract.bodySha256 !== null
+    && (typeof contract.bodySha256 !== "string" || !/^[a-f0-9]{64}$/u.test(contract.bodySha256)))) {
+    throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_CONTRACT_PRECONDITION_REQUIRED");
+  }
+  return {
+    ...command,
+    action: {
+      ...action,
+      completionContractBodySha256: contract.bodySha256
+    }
   };
 }
 

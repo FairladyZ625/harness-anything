@@ -180,6 +180,15 @@ test("non-coding contract can complete without CI while coding contract still re
   assert.equal(coding.ok, false);
   assert.deepEqual(coding.issues.map((issue) => issue.code), ["missing_ci_gate"]);
   assert.equal(evaluateCompletionGate({ ...base, applicableGates: ["ci"], ciGate: "passed" }).ok, true);
+  assert.equal(evaluateCompletionGate({ ...base, applicableGates: [], ciGate: "not-applicable" }).ok, true);
+  assert.equal(evaluateCompletionGate({ ...base, applicableGates: [], ciGate: "failed" }).ok, true);
+  const invalidNotApplicable = evaluateCompletionGate({
+    ...base,
+    applicableGates: ["ci"],
+    ciGate: "not-applicable"
+  });
+  assert.equal(invalidNotApplicable.ok, false);
+  assert.deepEqual(invalidNotApplicable.issues.map((issue) => issue.code), ["ci_not_applicable_for_contract"]);
 });
 
 test("decision reckon gate fails closed on uncovered load-bearing claims", () => {

@@ -116,6 +116,109 @@ test("closeout failures retain the true gate cause, partial receipts, and one co
   });
 });
 
+test("task retire-execution rejects live and submitted rounds, then records an audited stale retirement", () => {
+  withTempRoot((liveRoot) => {
+    const fixture = prepareActiveTask(liveRoot, "Retirement Live Lease");
+    const taskRoot = path.join(liveRoot, fixture.packagePath);
+    writeFileSync(
+      path.join(taskRoot, "INDEX.md"),
+      readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace(/^(  status:\s*)active$/mu, "$1in_review"),
+      "utf8"
+    );
+    const liveRejected = runJson(liveRoot, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "abandoned worker claim"
+    ], false, fixture.env);
+    assert.equal(liveRejected.error.code, "write_rejected");
+    assert.match(liveRejected.error.hint, /claim conflicts|live lease/iu);
+
+    runJson(liveRoot, ["task", "release", fixture.taskId], true, fixture.env);
+    const retired = runJson(liveRoot, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "abandoned worker claim"
+    ], true, fixture.env);
+    assert.equal(retired.executionId, fixture.executionId);
+    assert.equal(retired.report.auditMarker, "STALE_EXECUTION_RETIRED_AUDIT");
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${fixture.executionId}.md`), "utf8")).state, "abandoned");
+    const progress = readFileSync(path.join(taskRoot, "progress.md"), "utf8");
+    assert.match(progress, new RegExp(`STALE_EXECUTION_RETIRED_AUDIT: execution=${fixture.executionId}`, "u"));
+    assert.match(progress, /retiredBy=person:/u);
+    assert.match(progress, /retiredAt=/u);
+    assert.match(progress, /reason=abandoned worker claim/u);
+
+    const claimed = runJson(liveRoot, ["task", "claim", fixture.taskId, "--execution"], true, fixture.env);
+    assert.notEqual(claimed.executionId, fixture.executionId);
+    runJson(liveRoot, [
+      "task", "transition", fixture.taskId, "in_review",
+      "--execution-id", claimed.executionId, "--completion-claim", "Replacement round is complete.",
+      "--deliverable", "replacement", "--verification", "verified", "--residual-risk", "none"
+    ], true, fixture.env);
+    runJson(liveRoot, [
+      "task", "review-execution", fixture.taskId, "--execution-id", claimed.executionId,
+      "--verdict", "approved", "--findings", "Replacement round passes.",
+      "--rationale", "The replacement evidence satisfies the task.",
+      "--consent-asserted", "The human approved through an external channel.",
+      "--consent-action", "approve_execution", "--consent-action", "complete_task"
+    ], true, fixture.env);
+    runJson(liveRoot, [
+      "task", "code-doc", "reconcile", fixture.taskId,
+      "--commit", fixture.sha, "--path", "evidence/facade.txt"
+    ], true, fixture.env);
+    const completed = runJson(liveRoot, [
+      "task", "complete", fixture.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
+    ], true, fixture.env);
+    assert.equal(completed.status, "done");
+  });
+
+  withTempRoot((submittedRoot) => {
+    const fixture = prepareActiveTask(submittedRoot, "Retirement Submitted");
+    runJson(submittedRoot, [
+      "task", "transition", fixture.taskId, "in_review",
+      "--execution-id", fixture.executionId,
+      "--completion-claim", "submitted round", "--residual-risk", "none"
+    ], true, fixture.env);
+    const rejected = runJson(submittedRoot, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "must not retire submitted"
+    ], false, fixture.env);
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /is submitted; only an active Execution/iu);
+  });
+});
+
+test("docs contract completes with not-applicable while a CI contract rejects it", () => {
+  withTempRoot((docsRoot) => {
+    const fixture = prepareActiveTask(docsRoot, "Docs No CI", "docs-task");
+    runJson(docsRoot, [
+      "task", "transition", fixture.taskId, "in_review",
+      "--execution-id", fixture.executionId, "--completion-claim", "Docs are complete.",
+      "--deliverable", "documentation", "--verification", "reviewed", "--residual-risk", "none"
+    ], true, fixture.env);
+    runJson(docsRoot, [
+      "task", "review-execution", fixture.taskId, "--execution-id", fixture.executionId,
+      "--verdict", "approved", "--findings", "Documentation requirements pass.",
+      "--rationale", "The reviewed docs satisfy the contract.",
+      "--consent-asserted", "The human approved through an external channel.",
+      "--consent-action", "approve_execution", "--consent-action", "complete_task"
+    ], true, fixture.env);
+    const completed = runJson(docsRoot, [
+      "task", "complete", fixture.taskId, "--ci", "not-applicable", "--reviewer", "person_reviewer"
+    ], true, fixture.env);
+    assert.equal(completed.status, "done");
+  });
+
+  withTempRoot((codingRoot) => {
+    const fixture = prepareActiveTask(codingRoot, "Coding CI Required");
+    const packet = writeCloseoutPacket(codingRoot, { ci: "not-applicable" });
+    const rejected = runJson(codingRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
+    assert.equal(rejected.error.code, "ci_not_applicable_for_contract");
+    assert.match(rejected.error.hint, /declares a CI obligation; not-applicable is not allowed/iu);
+  });
+});
+
 type ChainMode = "manual" | "implicit" | "explicit";
 
 function executeChain(rootDir: string, mode: ChainMode): { readonly snapshot: Record<string, unknown>; readonly receipt: Record<string, any>; readonly sha: string } {
@@ -149,11 +252,11 @@ function executeChain(rootDir: string, mode: ChainMode): { readonly snapshot: Re
   return { snapshot: terminalSnapshot(rootDir, fixture.packagePath, fixture.executionId), receipt, sha: fixture.sha };
 }
 
-function prepareActiveTask(rootDir: string, title: string): {
+function prepareActiveTask(rootDir: string, title: string, preset = "standard-task"): {
   readonly taskId: string; readonly packagePath: string; readonly executionId: string; readonly leaseToken: string;
   readonly sha: string; readonly env: Record<string, string>;
 } {
-  const created = runJson(rootDir, ["task", "create", "--title", title, "--vertical", "software/coding", "--preset", "standard-task"]);
+  const created = runJson(rootDir, ["task", "create", "--title", title, "--vertical", "software/coding", "--preset", preset]);
   writeSubstantiveTaskPlan(rootDir, created.packagePath);
   const env = prepareSession(rootDir, `codex-${title.toLowerCase().replaceAll(" ", "-")}`);
   const started = runJson(rootDir, ["task", "start", created.taskId], true, env);
@@ -187,7 +290,7 @@ function prepareSession(rootDir: string, sessionId: string): Record<string, stri
   return { ...workerEnv, HOME: homeDir, CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
 }
 
-function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed" | "failed"; readonly omitConsent?: boolean } = {}): string {
+function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed" | "failed" | "not-applicable"; readonly omitConsent?: boolean } = {}): string {
   const packet = path.join(rootDir, `closeout-${overrides.ci ?? "passed"}.json`);
   writeFileSync(packet, JSON.stringify({
     completionClaim: "The implementation is ready for review.",

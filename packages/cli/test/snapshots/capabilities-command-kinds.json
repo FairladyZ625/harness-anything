@@ -165,6 +165,7 @@
     "task-relate",
     "task-release",
     "task-reopen",
+    "task-retire-execution",
     "task-review",
     "task-review-execution",
     "task-show",

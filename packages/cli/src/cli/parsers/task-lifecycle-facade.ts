@@ -53,7 +53,9 @@ export function parseTaskCloseout(
     return lifecycleFacadeParseFailure("Closeout field paths must be an array of repository-relative paths.");
   }
   const ciGate = payload.ci;
-  if (ciGate !== "passed" && ciGate !== "failed") return lifecycleFacadeParseFailure("Closeout field ci must be passed or failed.");
+  if (ciGate !== "passed" && ciGate !== "failed" && ciGate !== "not-applicable") {
+    return lifecycleFacadeParseFailure("Closeout field ci must be passed, failed, or not-applicable.");
+  }
   const consent = parseConsent(payload, verdict.value);
   if (!consent.ok) return consent;
   const executionId = textOverride(readOption(args, "--execution-id"), payload.executionId);

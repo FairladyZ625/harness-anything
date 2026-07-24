@@ -108,6 +108,7 @@ export type AuthorityHostDecisionProposeAction = {
 export type AuthorityHostCommandAction =
   | AuthorityHostNewTaskAction
   | { readonly kind: "task-claim"; readonly taskId: string; readonly executionId?: string }
+  | { readonly kind: "task-retire-execution"; readonly taskId: string; readonly executionId: string; readonly reason: string; readonly retiredAt: string }
   | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken?: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
   | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<AuthorityHostEvidenceInput> }
   | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
@@ -118,7 +119,11 @@ export type AuthorityHostCommandAction =
   | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
   | { readonly kind: "task-consent-record"; readonly taskId: string; readonly executionId: string; readonly utterance?: string; readonly standingPolicyDecisionId?: string; readonly assertedRationale?: string; readonly consentActions: ReadonlyArray<ConsentAction> }
   | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId?: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly generatedConsentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
-  | { readonly kind: "task-complete"; readonly taskId: string }
+  | {
+      readonly kind: "task-complete";
+      readonly taskId: string;
+      readonly completionContractBodySha256?: string | null;
+    }
   | { readonly kind: "task-relate"; readonly sourceTaskId: string; readonly relationType: "depends-on"; readonly targetTaskId: string; readonly rationale: string }
   | AuthorityHostDecisionProposeAction
   | { readonly kind: "decision-transition"; readonly transition: "accept" | "reject" | "defer" | "supersede" | "retire"; readonly decisionId: string }

@@ -1,9 +1,9 @@
 // @slice-activation MC-B1 exposes task holder lease runtime state over localRoot for daemon and CLI writer gates.
 import { randomBytes } from "node:crypto";
-import { hostname } from "node:os";
 import path from "node:path";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { isConcurrentRenameLoss, localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
+import type { HarnessLayoutInput } from "../layout/index.ts";
+import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
+import { taskHolderRecordPath, withTaskHolderMutationLock } from "./task-holder-mutation-lock.ts";
 import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
 import { hashExecutionLeaseToken, leaseDurationMs, renewExecutionLeaseCredential, requireExecutionCredential,
   sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
@@ -88,6 +88,7 @@ export interface TaskHolderSnapshot {
 export interface ExecutionLeaseReservation extends TaskHolderSnapshot {
   readonly executionId: string;
   readonly leaseToken: string;
+  readonly reservationVersion: string;
   readonly phase: "reserving";
 }
 
@@ -121,6 +122,13 @@ export interface TaskHolderService {
   readonly release: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
   readonly assertActiveLease: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
   readonly reserveExecution: (input: { readonly taskId: string; readonly executionId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseReservation>;
+  readonly withExecutionReservation: <Result>(input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly leaseToken: string;
+    readonly reservationVersion: string;
+    readonly principal: TaskHolderPrincipal;
+  }, run: () => Promise<Result>) => Promise<Result>;
   readonly renewExecution: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseContext | null>;
   readonly activateExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<ExecutionLeaseContext>;
   readonly releaseExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken?: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
@@ -274,12 +282,61 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
           previousHolder: previous?.holder ?? (upgradesOwnedV1 ? current.holder : undefined)
         }));
         return {
-          result: { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken, phase: "reserving" } as ExecutionLeaseReservation,
+          result: {
+            ...holderSnapshot(input.taskId, record, at),
+            executionId: input.executionId,
+            leaseToken,
+            reservationVersion: record.version,
+            phase: "reserving"
+          } as ExecutionLeaseReservation,
           events
         };
       });
       await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
       return mutation.result;
+    },
+    withExecutionReservation: async (input, run) => {
+      let releaseEvent: ExecutionLeaseRuntimeEvent | null = null;
+      try {
+        return await withTaskHolderMutationLock(options.rootInput, input.taskId, async () => {
+          const acquiredAt = now();
+          const reserved = requireExecutionCredential(
+            readHolderRecord(options.rootInput, input.taskId),
+            input,
+            acquiredAt
+          );
+          if (reserved.phase !== "reserving" || reserved.version !== input.reservationVersion) {
+            throw new Error(`execution reservation generation changed: ${input.executionId}`);
+          }
+          let outcome:
+            | { readonly ok: true; readonly value: Awaited<ReturnType<typeof run>> }
+            | { readonly ok: false; readonly error: unknown };
+          try {
+            outcome = { ok: true, value: await run() };
+          } catch (error) {
+            outcome = { ok: false, error };
+          }
+          const current = readHolderRecord(options.rootInput, input.taskId);
+          if (current?.schema !== "task-holder/v2"
+            || current.phase !== "reserving"
+            || current.executionId !== input.executionId
+            || current.version !== input.reservationVersion
+            || current.tokenHash !== hashExecutionLeaseToken(input.leaseToken)
+            || !sameExecutionLeaseActor(current.holder, input.principal)) {
+            throw new Error(`execution reservation fence changed during transaction: ${input.executionId}`);
+          }
+          const releasedAt = now().toISOString();
+          writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, releasedAt));
+          releaseEvent = executionLeaseRuntimeEvent(current, "released", "released", {
+            releasedAt,
+            previousHolder: current.holder
+          });
+          if (!outcome.ok) throw outcome.error;
+          return outcome.value;
+        });
+      } finally {
+        await emitExecutionLeaseEvents(options.appendLeaseEvent, releaseEvent ? [releaseEvent] : []);
+      }
     },
     renewExecution: async (input) => {
       const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
@@ -434,7 +491,7 @@ function effectiveHolder(record: AnyTaskHolderRecord | null, at: Date): TaskHold
 }
 
 function readHolderRecord(rootInput: HarnessLayoutInput, taskId: string): AnyTaskHolderRecord | null {
-  const filePath = holderRecordPath(rootInput, taskId);
+  const filePath = taskHolderRecordPath(rootInput, taskId);
   if (!localRuntimeStateFileSystem.exists(filePath)) return null;
   const parsed = JSON.parse(localRuntimeStateFileSystem.readText(filePath)) as AnyTaskHolderRecord;
   if ((parsed.schema !== "task-holder/v1" && parsed.schema !== "task-holder/v2") || parsed.taskId !== taskId) {
@@ -444,133 +501,11 @@ function readHolderRecord(rootInput: HarnessLayoutInput, taskId: string): AnyTas
 }
 
 function writeHolderRecord(rootInput: HarnessLayoutInput, record: AnyTaskHolderRecord): void {
-  const filePath = holderRecordPath(rootInput, record.taskId);
+  const filePath = taskHolderRecordPath(rootInput, record.taskId);
   localRuntimeStateFileSystem.mkdirp(path.dirname(filePath));
   const tempPath = `${filePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   localRuntimeStateFileSystem.writeText(tempPath, `${JSON.stringify(record, null, 2)}\n`);
   localRuntimeStateFileSystem.rename(tempPath, filePath);
-}
-
-interface TaskHolderMutationLockRecord {
-  readonly schema: "task-holder-mutation-lock/v1";
-  readonly pid: number;
-  readonly hostname: string;
-  readonly acquiredAt: string;
-  readonly ownerToken: string;
-}
-
-const mutationLockRetryMs = 5;
-const mutationLockWaitMs = 5_000;
-const mutationLockStaleMs = 30_000;
-
-async function withTaskHolderMutationLock<Result>(
-  rootInput: HarnessLayoutInput,
-  taskId: string,
-  run: () => Result
-): Promise<Result> {
-  const lockPath = `${holderRecordPath(rootInput, taskId)}.lock`;
-  const ownerToken = await acquireTaskHolderMutationLock(lockPath, taskId);
-  try {
-    return run();
-  } finally {
-    releaseTaskHolderMutationLock(lockPath, ownerToken);
-  }
-}
-
-async function acquireTaskHolderMutationLock(lockPath: string, taskId: string): Promise<string> {
-  const ownerToken = randomBytes(12).toString("hex");
-  const startedAt = Date.now();
-  localRuntimeStateFileSystem.mkdirp(path.dirname(lockPath));
-  while (Date.now() - startedAt <= mutationLockWaitMs) {
-    const record: TaskHolderMutationLockRecord = {
-      schema: "task-holder-mutation-lock/v1",
-      pid: process.pid,
-      hostname: hostname(),
-      acquiredAt: new Date().toISOString(),
-      ownerToken
-    };
-    if (localRuntimeStateFileSystem.createExclusiveText(lockPath, JSON.stringify(record))) return ownerToken;
-    recoverAbandonedTaskHolderMutationLock(lockPath);
-    await new Promise<void>((resolve) => setTimeout(resolve, mutationLockRetryMs));
-  }
-  throw new Error(`timed out waiting for task holder mutation lock: ${taskId}`);
-}
-
-function recoverAbandonedTaskHolderMutationLock(lockPath: string): void {
-  const record = readTaskHolderMutationLock(lockPath);
-  const modifiedAtMs = record ? null : readTaskHolderMutationLockModifiedAtMs(lockPath);
-  const acquiredAtMs = record ? Date.parse(record.acquiredAt) : modifiedAtMs;
-  if (acquiredAtMs === null) return;
-  const ageMs = Date.now() - acquiredAtMs;
-  const abandoned = record?.hostname === hostname()
-    ? !processIsAlive(record.pid)
-    : Number.isFinite(ageMs) && ageMs > mutationLockStaleMs;
-  if (!abandoned) return;
-  const quarantinePath = `${lockPath}.stale.${randomBytes(6).toString("hex")}`;
-  try {
-    localRuntimeStateFileSystem.rename(lockPath, quarantinePath);
-    localRuntimeStateFileSystem.remove(quarantinePath);
-  } catch (error) {
-    if (!isMissingFileError(error) && !isConcurrentRenameLoss(error, lockPath)) throw error;
-  }
-}
-
-function readTaskHolderMutationLockModifiedAtMs(lockPath: string): number | null {
-  try {
-    return localRuntimeStateFileSystem.modifiedAtMs(lockPath);
-  } catch (error) {
-    if (isMissingFileError(error)) return null;
-    throw error;
-  }
-}
-
-function releaseTaskHolderMutationLock(lockPath: string, ownerToken: string): void {
-  const record = readTaskHolderMutationLock(lockPath);
-  if (record?.ownerToken === ownerToken) localRuntimeStateFileSystem.remove(lockPath);
-}
-
-function readTaskHolderMutationLock(lockPath: string): TaskHolderMutationLockRecord | null {
-  try {
-    const parsed = JSON.parse(localRuntimeStateFileSystem.readText(lockPath)) as Partial<TaskHolderMutationLockRecord>;
-    return parsed.schema === "task-holder-mutation-lock/v1" &&
-      typeof parsed.pid === "number" &&
-      typeof parsed.hostname === "string" &&
-      typeof parsed.acquiredAt === "string" &&
-      typeof parsed.ownerToken === "string"
-      ? parsed as TaskHolderMutationLockRecord
-      : null;
-  } catch (error) {
-    if (isMissingFileError(error) || error instanceof SyntaxError) return null;
-    throw error;
-  }
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return !isMissingProcessError(error);
-  }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return isNodeErrorCode(error, "ENOENT");
-}
-
-function isMissingProcessError(error: unknown): boolean {
-  return isNodeErrorCode(error, "ESRCH");
-}
-
-function isNodeErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
-function holderRecordPath(rootInput: HarnessLayoutInput, taskId: string): string {
-  if (!/^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u.test(taskId)) {
-    throw new Error(`invalid task id: ${taskId}`);
-  }
-  return path.join(resolveHarnessLayout(rootInput).localRoot, "task-holders", `${taskId}.json`);
 }
 
 function emptyHolderRecord(taskId: string, at: string): TaskHolderRecord {

@@ -1,20 +1,26 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Effect } from "effect";
 import {
+  makeCoordinatedExecutionAuthoredStore,
   makeExecutionCompletionService,
+  makeExecutionRetirementService,
   makeExecutionSagaService,
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
   makeReviewExecutionService,
   makeTaskHolderService,
   taskHolderActor,
-  type ExecutionRecord
+  type ExecutionRecord,
+  type WriteCoordinator
 } from "../src/index.ts";
+import { sha256Text } from "../../kernel/src/index.ts";
 import { memoryAuthoredStore, taskIndex } from "./execution-saga-fixtures.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 import { writeAttribution } from "./test-attribution.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
@@ -129,7 +135,7 @@ test("changes_requested keeps another submitted round reviewable and the remaini
   }
 });
 
-test("X5-shaped five-round state completes from an active Task projection and abandons stale active rounds", async () => {
+test("X5-shaped five-round state requires explicit audited retirement before regular completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-x5-recovery-"));
   try {
     const taskRoot = createTask(rootDir, "in_review");
@@ -160,11 +166,6 @@ test("X5-shaped five-round state completes from an active Task projection and ab
     writeExecutionFixture(taskRoot, executionFixture(executionIds[1], "changes_requested"));
     writeExecutionFixture(taskRoot, executionFixture(executionIds[3], "changes_requested"));
     writeExecutionFixture(taskRoot, executionFixture(executionIds[4], "active"));
-    writeFileSync(
-      path.join(taskRoot, "INDEX.md"),
-      readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace(/^(  status:\s*).+$/mu, "$1active"),
-      "utf8"
-    );
     const completion = makeExecutionCompletionService({
       rootInput: rootDir,
       coordinator,
@@ -172,11 +173,223 @@ test("X5-shaped five-round state completes from an active Task projection and ab
       now: () => "2026-07-11T00:03:00.000Z"
     });
 
+    await assert.rejects(
+      completion.completeTaskExecution({ taskId, actor: aliceCodex }),
+      /requires no active Execution rounds/u
+    );
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+    for (const executionId of [executionIds[0], executionIds[4]]) {
+      await retirement.retireStaleExecution({
+        taskId,
+        executionId,
+        reason: "Legacy abandoned claim with no live lease.",
+        retiredAt: "2026-07-11T00:02:30.000Z",
+        actor: aliceCodex
+      });
+    }
+    const progress = readFileSync(path.join(taskRoot, "progress.md"), "utf8");
+    assert.match(progress, /STALE_EXECUTION_RETIRED_AUDIT/u);
+    assert.match(progress, /retiredBy=person:alice\/agent:codex/u);
+    assert.match(progress, new RegExp(`execution=${executionIds[0]}`, "u"));
+    assert.match(progress, /reason=Legacy abandoned claim with no live lease\./u);
+
     assert.deepEqual(await completion.completeTaskExecution({ taskId, actor: aliceCodex }), { executionId: executionIds[2] });
     assert.deepEqual(executionIds.map((id) => readExecutionState(taskRoot, id)), [
       "abandoned", "changes_requested", "accepted", "changes_requested", "abandoned"
     ]);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retirement rejects submitted rounds and active rounds with a live lease", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-negative-"));
+  try {
+    const taskRoot = createTask(rootDir, "in_review");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "submitted"));
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[1], "active"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+
+    await assert.rejects(retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[0],
+      reason: "must reject submitted",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceCodex
+    }), /is submitted; only an active Execution/u);
+
+    const lease = await holder.reserveExecution({
+      taskId,
+      executionId: executionIds[1],
+      principal: aliceCodex
+    });
+    await holder.activateExecution({
+      taskId,
+      executionId: executionIds[1],
+      leaseToken: lease.leaseToken,
+      principal: aliceCodex
+    });
+    await assert.rejects(retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[1],
+      reason: "must reject live lease",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceClaude
+    }), /claim conflicts|live lease/u);
+    assert.equal(readExecutionState(taskRoot, executionIds[1]), "active");
+    assert.equal(existsSync(path.join(taskRoot, "progress.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retirement lease generation remains fenced while publish is blocked past expiry", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-fence-"));
+  try {
+    const taskRoot = createTask(rootDir, "active");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "active"));
+    const durable = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const publishEntered = deferred<void>();
+    const allowPublish = deferred<void>();
+    const coordinator: WriteCoordinator = {
+      ...durable,
+      flush: (reason) => Effect.promise(async () => {
+        publishEntered.resolve();
+        await allowPublish.promise;
+        return runEffect(durable.flush(reason));
+      })
+    };
+    let nowMs = Date.parse("2026-07-11T00:00:00.000Z");
+    const holder = makeTaskHolderService({
+      rootInput: rootDir,
+      now: () => new Date(nowMs),
+      defaultTtlMs: 10
+    });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+    const retirePromise = retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[0],
+      reason: "Abandoned round.",
+      retiredAt: "2026-07-11T00:01:00.000Z",
+      actor: aliceCodex
+    });
+    await publishEntered.promise;
+
+    nowMs += 20;
+    const baseAuthored = makeCoordinatedExecutionAuthoredStore({
+      rootInput: rootDir,
+      coordinator: durable,
+      artifactStore
+    });
+    const claimStarted = deferred<void>();
+    const staleClaim = (async () => {
+      claimStarted.resolve();
+      const reservation = await holder.reserveExecution({
+        taskId,
+        executionId: executionIds[0],
+        principal: aliceClaude
+      });
+      try {
+        const current = await baseAuthored.readExecution({ taskId, executionId: executionIds[0] });
+        if (!current || current.state !== "active") {
+          throw new Error(`active execution is unavailable for reserved lease: ${executionIds[0]}`);
+        }
+        return holder.activateExecution({
+          taskId,
+          executionId: executionIds[0],
+          leaseToken: reservation.leaseToken,
+          principal: aliceClaude
+        });
+      } catch (error) {
+        await holder.releaseExecution({
+          taskId,
+          executionId: executionIds[0],
+          leaseToken: reservation.leaseToken,
+          principal: aliceClaude
+        });
+        throw error;
+      }
+    })();
+    await claimStarted.promise;
+    allowPublish.resolve();
+
+    await retirePromise;
+    await assert.rejects(staleClaim, /active execution is unavailable for reserved lease/u);
+    assert.equal(readExecutionState(taskRoot, executionIds[0]), "abandoned");
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("completion fails closed when the evaluated task contract changes before publish", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-contract-fence-"));
+  try {
+    const taskRoot = createTask(rootDir, "in_review");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "submitted"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const reviews = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      generateReviewId: () => reviewIds[0],
+      now: () => "2026-07-11T00:02:00.000Z"
+    });
+    await reviews.reviewExecution({
+      taskId,
+      executionId: executionIds[0],
+      reviewer: aliceClaude,
+      reviewerSession: reviewSession("review-contract-fence"),
+      findings: "The submitted round is complete.",
+      evidenceChecked: [],
+      rationale: "The delivery satisfies the task.",
+      verdict: "approved",
+      archiveWarningsAcknowledged: false,
+      consentAssertedRationale: "Approval was received through an external channel."
+    });
+    const contractPath = path.join(taskRoot, "task-contract.json");
+    const evaluatedContract = "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n";
+    writeFileSync(contractPath, evaluatedContract, "utf8");
+    const completion = makeExecutionCompletionService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      now: () => "2026-07-11T00:03:00.000Z"
+    });
+
+    writeFileSync(contractPath, "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[\"ci\"]}\n", "utf8");
+    await assert.rejects(
+      completion.completeTaskExecution({
+        taskId,
+        actor: aliceCodex,
+        contractPrecondition: { bodySha256: sha256Text(evaluatedContract) }
+      }),
+      /precondition|changed|mismatch/iu
+    );
+    assert.equal(readExecutionState(taskRoot, executionIds[0]), "submitted");
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -237,4 +450,10 @@ function writeExecutionFixture(taskRoot: string, execution: ExecutionRecord): vo
 
 function readExecutionState(taskRoot: string, id: string): ExecutionRecord["state"] {
   return (JSON.parse(readFileSync(path.join(taskRoot, "executions", `${id}.md`), "utf8")) as ExecutionRecord).state;
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  const promise = new Promise<Value>((done) => { resolve = done; });
+  return { promise, resolve };
 }

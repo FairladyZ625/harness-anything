@@ -175,6 +175,61 @@ test("execution submit atomically transitions the task index to in_review", asyn
   ]);
 });
 
+test("execution retirement closes only an active round and atomically appends its audit record", async () => {
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+  const progressPath = `tasks/${taskId}/progress.md`;
+  const activeRecord = executionRecord("active");
+  const active = snapshot(JSON.stringify(activeRecord));
+  const progress = snapshot("# Progress\n\n## Entries\n\n");
+  const retirement = {
+    reason: "Legacy abandoned claim.",
+    retiredAt: "2026-07-14T00:20:00.000Z",
+    retiredBy: "person:person_zeyu/agent:agent_w4"
+  };
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, active], [progressPath, progress]])
+    )
+  }).compile(envelope({
+    schema: "execution.close/v1",
+    taskId,
+    execution: { ...activeRecord, state: "abandoned", closed_at: retirement.retiredAt },
+    retirement
+  }, [present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
+    cas(executionPath, active), cas(progressPath, progress)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `execution/${taskId}/${executionId}:close`,
+    `task/${taskId}:append`
+  ].sort());
+  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [{
+    taskId,
+    path: "progress.md",
+    body: `${progress.body}STALE_EXECUTION_RETIRED_AUDIT: execution=${executionId}; retiredBy=${retirement.retiredBy}; retiredAt=${retirement.retiredAt}; reason=${retirement.reason}\n`
+  }]);
+
+  const submitted = executionRecord("submitted");
+  const submittedSnapshot = snapshot(JSON.stringify(submitted));
+  await assert.rejects(makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-v2")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, submittedSnapshot]])
+    )
+  }).compile(envelope({
+    schema: "execution.close/v1",
+    taskId,
+    execution: { ...submitted, state: "abandoned", closed_at: retirement.retiredAt },
+    retirement
+  }, [present(executionRef, "execution-v2"), present(taskRef, "task-v1")], [
+    cas(executionPath, submittedSnapshot)
+  ])), /EXECUTION_RETIREMENT_STATE_INVALID/u);
+});
+
 test("review dismiss/record compile immutable hosted review documents without task-host attribution", async () => {
   const cases: ReadonlyArray<{ readonly schema: ReviewActionPayloadV2["schema"]; readonly verdict: ReviewRecord["verdict"]; readonly action: string }> = [
     { schema: "review.dismiss/v1", verdict: "dismissed", action: "dismiss" },

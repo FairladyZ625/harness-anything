@@ -11,6 +11,7 @@ import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 import { parseTaskConsentRecord } from "./core-task-consent.ts";
 import { parseTaskSubmit } from "./task-submit.ts";
 import { parseTaskCloseout, parseTaskStart } from "./task-lifecycle-facade.ts";
+import { parseTaskRetireExecution } from "./task-execution-retirement.ts";
 import type { CommandJsonInput } from "../json-input.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean, _commandSpecs?: ReadonlyArray<unknown>, input?: CommandJsonInput): ParseResult | null {
@@ -27,6 +28,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "start" && args[2]) return parseTaskStart(args, rootDir, json);
   if (args[0] === "task" && args[1] === "holder" && args[2]) return ok(rootDir, json, { kind: "task-holder", taskId: args[2] });
   if (args[0] === "task" && args[1] === "release" && args[2]) return ok(rootDir, json, { kind: "task-release", taskId: args[2] });
+  if (args[0] === "task" && args[1] === "retire-execution" && args[2]) return parseTaskRetireExecution(args, rootDir, json);
   if (args[0] === "task" && args[1] === "submit" && args[2]) return parseTaskSubmit(args, rootDir, json, input);
   if (args[0] === "task" && args[1] === "closeout" && args[2]) return parseTaskCloseout(args, rootDir, json, input);
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
@@ -186,8 +188,8 @@ function parseTaskReview(args: ReadonlyArray<string>, rootDir: string, json: boo
 
 function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const ciGate = readOption(args, "--ci");
-  if (ciGate !== undefined && ciGate !== "passed" && ciGate !== "failed") {
-    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}. Valid CI gate values: passed, failed.`) };
+  if (ciGate !== undefined && ciGate !== "passed" && ciGate !== "failed" && ciGate !== "not-applicable") {
+    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}. Valid CI gate values: passed, failed, not-applicable.`) };
   }
   return ok(rootDir, json, {
     kind: "task-complete",
