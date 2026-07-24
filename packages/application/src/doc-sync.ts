@@ -28,7 +28,13 @@ export interface DocSyncChangeV1 {
 
 export interface DocSyncSubmitRequestV1 {
   readonly repo: { readonly repoId: string };
-  readonly session?: { readonly sessionId?: string; readonly runtime?: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" };
+  readonly session?: {
+    readonly sessionId?: string;
+    readonly runtime?: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown";
+    readonly source?: "runtime" | "manual";
+    readonly detectedAt?: string;
+    readonly user?: string;
+  };
   readonly executor?: { readonly kind: "agent"; readonly id: string } | null;
   readonly payload: {
     readonly baseLedgerSha: string;
@@ -111,11 +117,11 @@ export type DocSyncSubmitResultV1 =
   }
   | {
     readonly ok: false;
-    readonly _tag?: "WriteRejected";
+    readonly _tag?: "WriteRejected" | "JournalUnavailable";
     readonly schema: "daemon.doc-sync-submit-result/v1";
     readonly status: "rejected";
     readonly intentId: string;
-    readonly code: "doc_sync_forbidden_touch" | "cas_watermark_mismatch" | "doc_sync_conflict" | "doc_sync_post_apply_bearing_changed" | "doc_sync_invalid_payload";
+    readonly code: "doc_sync_forbidden_touch" | "cas_watermark_mismatch" | "doc_sync_conflict" | "doc_sync_post_apply_bearing_changed" | "doc_sync_invalid_payload" | "journal_unavailable";
     readonly reason: string;
     readonly retryable: boolean;
     readonly currentWatermark?: string | null;

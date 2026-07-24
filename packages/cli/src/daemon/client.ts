@@ -261,7 +261,8 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
           target.repoId,
           docSyncSubmitPaths(command),
           commandExecutor(command),
-          docSyncHostServices
+          docSyncHostServices,
+          Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
         );
       } catch (error) {
         return withRootResolution(docSyncSubmitPreviewRejected(error), rootResolution);
@@ -370,7 +371,8 @@ async function runWithLineClient(
           repoId,
           docSyncSubmitPaths(command),
           commandExecutor(command),
-          docSyncHostServices
+          docSyncHostServices,
+          Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
         );
       } catch (error) {
         return docSyncSubmitPreviewRejected(error);

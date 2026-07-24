@@ -19,6 +19,7 @@ import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMet
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
+import type { DocSyncServiceContext } from "./doc-sync-service-context.ts";
 import {
   bindDaemonRequestPerformanceForRepo,
   callDaemonLogList,
@@ -84,7 +85,6 @@ export interface DaemonRepoAvailabilityFailure {
 export interface DaemonRepoServiceContext {
   readonly repo: DaemonRepoNamespace;
 }
-
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
@@ -104,7 +104,7 @@ export interface DaemonServiceHost {
     }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
   readonly DocSyncService?: {
-    readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
+    readonly submit: (request: DocSyncSubmitRequestV1, context?: DocSyncServiceContext) => Promise<DocSyncSubmitResultV1>;
   };
 }
 
@@ -393,7 +393,8 @@ async function callServiceMethod(
     const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, {
       actor,
       executor: readTaskHolderExecutor(params as JsonObject),
-      repo
+      repo,
+      ...(authorityConnection ? { authorityConnection } : {})
     });
     return result.ok
       ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)

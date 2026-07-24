@@ -10,7 +10,8 @@ import {
   type HarnessLayoutOverrides,
   type SemanticDiffCandidateTree,
   type SemanticDiffDocumentPolicy,
-  type WriteCoordinator
+  type WriteCoordinator,
+  type WriteError
 } from "@harness-anything/kernel";
 import { compileManagedCandidateTreeV2, type DaemonDocSyncHostServices } from "@harness-anything/application";
 import {
@@ -29,6 +30,7 @@ import {
   type RegistryRow,
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
+import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
 
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
@@ -91,7 +93,8 @@ export function buildDocSyncSubmitRequest(
   repoId: string,
   selectedPaths: ReadonlyArray<string> = [],
   executor?: { readonly kind: "agent"; readonly id: string } | null,
-  hostServices?: DaemonDocSyncHostServices
+  hostServices?: DaemonDocSyncHostServices,
+  session?: DocSyncSubmitRequestV1["session"]
 ): DocSyncSubmitRequestV1 {
   if (!hostServices) throw new Error("doc-sync host services are required");
   const report = buildDocSyncReport(rootInput, hostServices);
@@ -136,6 +139,7 @@ export function buildDocSyncSubmitRequest(
   return {
     repo: { repoId },
     ...(executor !== undefined ? { executor } : {}),
+    ...(session ? { session } : {}),
     payload: {
       baseLedgerSha: report.baseLedgerSha,
       intentId: `intent_${sha256Text(intentMaterial).slice(0, 24)}`,
@@ -273,7 +277,7 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
     }
     if (validation.acceptedChanges.length > 0) {
       coordinatorStarted = true;
-      await Effect.runPromise(options.coordinator!.enqueue({
+      await runDocSyncJournalEffect(options.coordinator!.enqueue({
         opId: request.payload.intentId,
         entityId: docSyncEntityId(request.payload.intentId),
         kind: "doc_sync_submit",
@@ -287,7 +291,7 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
           }))
         }
       }));
-      await Effect.runPromise(options.coordinator!.flush("explicit"));
+      await runDocSyncJournalEffect(options.coordinator!.flush("explicit"));
     }
     const appliedLedgerSha = gitText(layout.authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
     return {
@@ -307,8 +311,18 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
     };
   } catch (error) {
     if (!coordinatorStarted && beforeFiles) restoreFiles(layout.authoredRoot, beforeFiles);
+    const writeFailure = docSyncWriteFailure(request, error);
+    if (writeFailure) return writeFailure;
     return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
+}
+
+async function runDocSyncJournalEffect<A>(
+  effect: Effect.Effect<A, WriteError>
+): Promise<A> {
+  const result = await Effect.runPromise(Effect.either(effect));
+  if (result._tag === "Left") throw new DocSyncJournalFailure(result.left);
+  return result.right;
 }
 
 function compileDocSyncSemanticPlan(

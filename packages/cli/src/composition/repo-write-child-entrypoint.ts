@@ -10,11 +10,18 @@ import {
   ProductionRepoWriteOperationHost,
   RepoWriteAuthorityRecoveryGate,
   RepoWriteChildIpcTransport,
+  failureReceipt,
+  makeDaemonQueuedWriteCoordinator,
+  makeDocSyncService,
+  successReceipt,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
+import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
+import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts";
+import { daemonActorAttribution } from "./actor-attribution.ts";
 import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
@@ -168,7 +175,38 @@ export async function runRepoWriteChildEntrypoint(
     hostServices: cliDaemonCommandHostServices,
     outcomeStore: outcomes,
     resolveHistoricalPublication,
-    recoverHistoricalCommittedReceipt: historicalRecovery.recover
+    recoverHistoricalCommittedReceipt: historicalRecovery.recover,
+    executeDocSyncSubmit: async ({ command, decoded }) => {
+      const wireCommand = command.payload.command as {
+        readonly request?: DocSyncSubmitRequestV1;
+      };
+      if (!wireCommand.request) {
+        return failureReceipt(
+          "repo.doc.sync.submit",
+          "doc_sync_invalid_payload",
+          "The writer child received no doc-sync request."
+        );
+      }
+      const attribution = daemonActorAttribution(decoded.actor, decoded.executor);
+      const result = await makeDocSyncService({
+        rootDir: config.canonicalRoot,
+        ...(layoutOverrides ? { layoutOverrides } : {}),
+        hostServices: cliDaemonServiceHostServices.docSync,
+        coordinator: makeDaemonQueuedWriteCoordinator(
+          runtime,
+          `doc-sync-submit:${wireCommand.request.payload.intentId}`,
+          {
+            attribution: attribution.writeAttribution,
+            commitAuthor: attribution.commitAuthor
+          }
+        )
+      }).submit(wireCommand.request);
+      return result.ok
+        ? successReceipt("repo.doc.sync.submit", "completed repo.doc.sync.submit", result as unknown as import("@harness-anything/daemon").JsonObject)
+        : failureReceipt("repo.doc.sync.submit", result.code, result.reason, {
+          data: result as unknown as import("@harness-anything/daemon").JsonObject
+        });
+    }
   });
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {

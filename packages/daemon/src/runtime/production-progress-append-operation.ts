@@ -62,6 +62,10 @@ export class ProductionRepoWriteOperationHost<
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
     readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
     readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
+    readonly executeDocSyncSubmit?: (input: {
+      readonly command: RepoWriteCommandDto;
+      readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
+    }) => Promise<CommandReceiptEnvelope | undefined>;
     readonly now: () => Date;
     readonly newOuterOpId: () => string;
   };
@@ -78,6 +82,10 @@ export class ProductionRepoWriteOperationHost<
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
     readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
     readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
+    readonly executeDocSyncSubmit?: (input: {
+      readonly command: RepoWriteCommandDto;
+      readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
+    }) => Promise<CommandReceiptEnvelope | undefined>;
     readonly now?: () => Date;
     readonly newOuterOpId?: () => string;
   }) {
@@ -150,6 +158,13 @@ export class ProductionRepoWriteOperationHost<
 
   async direct(input: RepoWriteDirectInput): Promise<import("./repo-write-protocol.ts").RepoWriteJsonObject> {
     const decoded = decodeRepoWriteCommand(input.command);
+    const binding = this.options.authorityComponent.bindConnection(
+      decoded.authorityConnection
+    );
+    const directReceipt = input.command.commandName === "doc-sync-submit"
+      ? await this.options.executeDocSyncSubmit?.({ command: input.command, decoded })
+      : undefined;
+    if (directReceipt) return commandReceiptJsonObject(directReceipt);
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(input.command.payload),
       decoded.currentSession
@@ -157,9 +172,6 @@ export class ProductionRepoWriteOperationHost<
     if (this.options.hostServices.repoWriteChildExecutionMode(command) !== "direct") {
       throw new Error(`REPO_WRITE_DIRECT_MODE_REQUIRED:${command.action.kind}`);
     }
-    const binding = this.options.authorityComponent.bindConnection(
-      decoded.authorityConnection
-    );
     const commandService = createDaemonCommandService(
       this.options.runtime,
       this.options.hostServices,

@@ -93,6 +93,7 @@ export * from "./service/command-service.ts";
 export * from "./service/doc-sync-service.ts";
 export * from "./service/service-host.ts";
 export * from "./service/status-payload.ts";
+export * from "./protocol/receipt-envelope.ts";
 export * from "./transport/local-service-transport.ts";
 export * from "./agent-runtime/holder-projection-host.ts";
 export {
