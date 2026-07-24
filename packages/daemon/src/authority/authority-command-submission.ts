@@ -191,6 +191,16 @@ export function gateAuthoritySubmissionForRecovery(
           reason
         };
       }
+    } : {}),
+    ...(service.resumeV2 ? {
+      resumeV2: async (recovery) => {
+        const reason = await unavailableReason();
+        if (!reason) return service.resumeV2!(recovery);
+        // Unlike a fresh admission, a recovery candidate may already have
+        // canonical side effects. Preserve the outer PROCEEDING instead of
+        // manufacturing a not-committed receipt while recovery is unresolved.
+        throw new Error(reason);
+      }
     } : {})
   };
 }
