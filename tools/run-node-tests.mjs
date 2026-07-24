@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { formatTestWeightDriftWarnings, parseJunitTestFileDurations } from "./test-weight-drift.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
@@ -73,7 +74,7 @@ if (options.tier === "all") {
 // Daemon-focused tests opt into HARNESS_DAEMON_MODE=local with isolated roots;
 // no test re-enables the retired direct product writer.
 if (options.tier === "integration" || options.tier === "nightly" || options.tier === "all") {
-  const fixturePreload = `--import=${resolve(repoRoot, "tools/cli-test-fixture-register.mjs")}`;
+  const fixturePreload = `--import=${pathToFileURL(resolve(repoRoot, "tools/cli-test-fixture-register.mjs")).href}`;
   process.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD = "1";
   process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, fixturePreload].filter(Boolean).join(" ");
 }
@@ -137,7 +138,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, [
     "--test",
-    "--test-reporter=./tools/node-test-completion-reporter.mjs",
+    `--test-reporter=${pathToFileURL(resolve(repoRoot, "tools/node-test-completion-reporter.mjs")).href}`,
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
