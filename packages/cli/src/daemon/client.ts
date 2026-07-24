@@ -124,15 +124,6 @@ export function readDaemonClientConfig(
   };
 }
 
-export function daemonAutostartTimeoutMs(
-  env: NodeJS.ProcessEnv = process.env
-): number {
-  return parsePositiveIntegerOr(
-    env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS,
-    defaultDaemonAutostartTimeoutMs
-  );
-}
-
 export function readDaemonUserRoot(
   env: NodeJS.ProcessEnv = process.env,
   rootDir = process.cwd(),

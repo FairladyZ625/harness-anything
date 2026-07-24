@@ -20,7 +20,7 @@ import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
-import { daemonAutostartTimeoutMs, resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
+import { resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
 import { renderDaemonHelp } from "./help.ts";
 import { loadDaemonIdentityWithEmail } from "./identity.ts";
 import { runDaemonLogsCommand } from "./logs.ts";
@@ -159,7 +159,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       ...target,
       socketPath: readOption(launchConfiguration.args, "--socket") ?? target.socketPath
     };
-    const status = daemonStatusForCli(await waitForReachableStatus(launchTarget, daemonAutostartTimeoutMs()));
+    const status = daemonStatusForCli(await waitForReachableStatus(launchTarget, 6_000));
     emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath: launchTarget.socketPath }, input.json);
     return 0;
   }
@@ -418,7 +418,7 @@ async function startBootstrapDaemon(
     env: daemonServerHostEnvironment(process.env, target)
   });
   child.unref();
-  return waitForReachableStatus(target, daemonAutostartTimeoutMs());
+  return waitForReachableStatus(target, 6_000);
 }
 
 async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {
