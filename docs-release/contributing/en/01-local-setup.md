@@ -4,7 +4,7 @@
 
 Use the same baseline as the public docs:
 
-- Node.js 24 or newer. CI covers Node 24 and Node 26.
+- Node.js 24 or newer. CI uses Node 24.
 - git.
 - A clean source checkout of this repository.
 

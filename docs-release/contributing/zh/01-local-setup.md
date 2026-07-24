@@ -4,7 +4,7 @@
 
 使用公开文档里的同一条基线：
 
-- Node.js 24 或更新版本。CI 覆盖 Node 24 和 Node 26。
+- Node.js 24 或更新版本。CI 使用 Node 24。
 - git。
 - 本仓库的干净源码 checkout。
 
