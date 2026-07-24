@@ -8,6 +8,15 @@ import type { DurableAuthorityStateTable } from "./service-state.ts";
 
 const bindingStateSchema = "authority-binding-state/v2" as const;
 const legacyBindingStateSchema = "authority-binding-state/v1" as const;
+/**
+ * Reserved witness prefix for consumption a v1 row counted but never named.
+ * v1 stored only a count, so the identity of an already-spent operation cannot
+ * be reconstructed. Recovery mints one reserved witness per counted operation:
+ * the count-derived invariants (exhaustion, remaining capacity) carry over
+ * exactly, and the witness text states on its face that no operation id was
+ * ever observed. Callers may never present a reserved witness as an opId.
+ */
+const legacyUnwitnessedPrefix = "legacy-unwitnessed:" as const;
 
 interface DurableBindingRowV2 {
   readonly schema: typeof bindingStateSchema;
@@ -31,7 +40,7 @@ interface LegacyDurableBindingRowV1 {
 export function recoverAuthorityBindingRows(
   table: DurableAuthorityStateTable
 ): void {
-  const unconsumedLegacyRows: Array<readonly [string, LegacyDurableBindingRowV1]> = [];
+  const legacyRows: Array<readonly [string, LegacyDurableBindingRowV1]> = [];
   for (const [key, value] of table.entries<unknown>()) {
     if (validBindingRow(value)) {
       if (key !== bindingKey(value.tokenId)) {
@@ -42,20 +51,29 @@ export function recoverAuthorityBindingRows(
     if (!validLegacyBindingRow(value) || key !== bindingKey(value.tokenId)) {
       throw new Error("AUTHORITY_BINDING_DURABLE_MISMATCH");
     }
-    if (value.consumedOperations > 0) {
-      throw new Error(
-        `AUTHORITY_BINDING_LEGACY_CONSUMPTION_WITNESS_REQUIRED:${value.tokenId}:${value.consumedOperations}`
-      );
-    }
-    unconsumedLegacyRows.push([key, value]);
+    legacyRows.push([key, value]);
   }
-  for (const [key, row] of unconsumedLegacyRows) {
+  for (const [key, row] of legacyRows) {
     table.put(key, {
       ...row,
       schema: bindingStateSchema,
-      consumedOperationIds: []
+      consumedOperationIds: legacyUnwitnessedOperationIds(row)
     } satisfies DurableBindingRowV2);
   }
+}
+
+/** One reserved witness per operation a v1 row counted but never named. */
+export function legacyUnwitnessedOperationIds(
+  row: Pick<LegacyDurableBindingRowV1, "tokenId" | "consumedOperations">
+): ReadonlyArray<string> {
+  return Array.from(
+    { length: row.consumedOperations },
+    (_unused, index) => `${legacyUnwitnessedPrefix}${row.tokenId}:${index + 1}`
+  );
+}
+
+function isLegacyUnwitnessedOperationId(opId: string): boolean {
+  return opId.startsWith(legacyUnwitnessedPrefix);
 }
 
 export function registerAuthorityBindingRow(
@@ -92,6 +110,7 @@ export function consumeAuthorityBindingOperation(
 ): ActorAxesBindingOperationConsumeResultV2 {
   const { tokenId, maximum, opId } = input;
   if (!isRequiredText(tokenId) || !isRequiredText(opId)
+    || isLegacyUnwitnessedOperationId(opId)
     || !Number.isSafeInteger(maximum) || maximum < 1) return "denied";
   const row = table.get<unknown>(bindingKey(tokenId));
   if (!validBindingRow(row) || maximum !== row.maxOperations
