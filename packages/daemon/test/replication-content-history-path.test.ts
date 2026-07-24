@@ -9,23 +9,34 @@ import type { ReplicaChangeLog, ReplicaChangeRecord } from "../../application/sr
 import { validateReadDownManagedPath } from "../src/authority/read-down-managed-path.ts";
 import {
   createAuthorityReplicationContentStore,
-  createContentEnrichedReplicaChangeLog
+  createContentEnrichedReplicaChangeLog,
+  manifestDigest
 } from "../src/authority/replication-content-store.ts";
 
 test("read-down accepts immutable UTF-8 and legacy long paths but rejects disk escape", () => {
   const fixture = createFixture();
   try {
+    const longPath = `历史/${"long-".repeat(38)}fact.txt`;
     mkdirSync(path.join(fixture.gitRoot, "历史"));
     writeFileSync(path.join(fixture.gitRoot, "历史", "设计.txt"), "immutable history\n");
-    writeFileSync(path.join(fixture.gitRoot, "历史", `${"long-".repeat(38)}fact.txt`), "legacy long path\n");
+    writeFileSync(path.join(fixture.gitRoot, longPath), "legacy long path\n");
     git(fixture.gitRoot, "add", ".");
     git(fixture.gitRoot, "commit", "-m", "historical paths");
 
-    const snapshot = fixture.content.snapshot(git(fixture.gitRoot, "rev-parse", "HEAD"), 0);
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+    const snapshot = fixture.content.snapshot(commitSha, 0);
+    // Read-down exposes canonical UTF-8 byte order; callers must not inherit
+    // filesystem locale or directory enumeration order.
     assert.deepEqual(snapshot.entries.map((entry) => entry.path), [
-      "历史/设计.txt",
-      `历史/${"long-".repeat(38)}fact.txt`
+      longPath,
+      "历史/设计.txt"
     ]);
+    assert.equal(manifestDigest({
+      workspaceId: "workspace-read-down",
+      epoch: "7",
+      revision: 0,
+      commitSha
+    }, [...snapshot.entries].reverse()), snapshot.manifestDigest);
   } finally {
     fixture.cleanup();
   }
@@ -50,6 +61,7 @@ test("historical operation lookup hydrates an incomplete replica change containi
     const previousCommit = git(fixture.gitRoot, "rev-parse", "HEAD");
     mkdirSync(path.join(fixture.gitRoot, "历史"));
     writeFileSync(path.join(fixture.gitRoot, "历史", "设计.txt"), "immutable history\n");
+    writeFileSync(path.join(fixture.gitRoot, "历史", "long-fact.txt"), "legacy path\n");
     git(fixture.gitRoot, "add", ".");
     git(fixture.gitRoot, "commit", "-m", "historical operation");
     const historical = {
@@ -74,8 +86,11 @@ test("historical operation lookup hydrates an incomplete replica change containi
     const recovered = await createContentEnrichedReplicaChangeLog(incompleteLog, fixture.content)
       .getByOperation("workspace-read-down", "op-historical-cjk");
     assert.ok(recovered);
-    assert.equal(recovered.manifest.entryCount, 2);
-    assert.ok(recovered.paths.some((entry) => entry.path === "历史/设计.txt"));
+    assert.equal(recovered.manifest.entryCount, 3);
+    assert.deepEqual(recovered.paths.map((entry) => entry.path), [
+      "历史/long-fact.txt",
+      "历史/设计.txt"
+    ]);
   } finally {
     fixture.cleanup();
   }
