@@ -14,6 +14,7 @@ import {
 import {
   discoverTestFiles,
   discoverTestTierManifest,
+  hasExcludedPathSegment,
   parseTestTierMarker
 } from "./test-tier-manifest.mjs";
 import { validateManifest } from "./node-test-runner-lib.mjs";
@@ -135,7 +136,9 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     });
-    const files = output.split(/\r?\n/u).filter((file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file));
+    const files = output
+      .split(/\r?\n/u)
+      .filter((file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file) && !hasExcludedPathSegment(file));
     const tiers = files.map((file) => {
       const source = execFileSync("git", ["show", `${ref}:${file}`], {
         cwd: repoRoot,

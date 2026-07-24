@@ -285,6 +285,47 @@ test("integration count ratchet fails closed when the Git baseline is unavailabl
   }
 });
 
+test("integration count ratchet excludes hidden-directory fixtures from the Git baseline", () => {
+  // A hidden-directory fixture (e.g. tools/test-fixtures/.runner-stall/*.test.mjs)
+  // is intentionally undiscoverable: current discovery's `walk` skips dot-directories
+  // so it is never a counted test. The baseline resolver reads the tree with
+  // `git ls-tree`, which lists every tracked file including those under
+  // dot-directories; it must apply the same exclusion, or the unmarked fixture
+  // poisons marker resolution and the ratchet fails closed with
+  // "unable to resolve previous integration test count".
+  const root = mkdtempSync(path.join(tmpdir(), "ha-integration-hidden-fixture-"));
+  try {
+    const testRoot = path.join(root, "tools");
+    mkdirSync(testRoot, { recursive: true });
+    for (let index = 1; index <= 6; index += 1) {
+      writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
+    }
+    const hiddenFixtureDir = path.join(testRoot, "test-fixtures/.runner-stall");
+    mkdirSync(hiddenFixtureDir, { recursive: true });
+    writeFileSync(path.join(hiddenFixtureDir, "wedge.test.mjs"), "// intentional wedge fixture, no tier marker\n", "utf8");
+    writeDeletionAllowlist(root);
+
+    git(root, ["init", "-q"]);
+    git(root, ["config", "user.name", "Harness Test"]);
+    git(root, ["config", "user.email", "harness@example.test"]);
+    git(root, ["add", "."]);
+    git(root, ["commit", "-qm", "register integration tests and a hidden fixture"]);
+
+    // Dirty the worktree so resolveBaselineRef returns HEAD, forcing the ls-tree
+    // baseline path against the commit that carries the hidden fixture.
+    writeFileSync(path.join(testRoot, "unrelated.txt"), "later change\n", "utf8");
+    const result = checkIntegrationTestShards({
+      repoRoot: root,
+      weightOverrides: {}
+    });
+
+    assert.equal(result.ok, true, result.errors.join("\n"));
+    assert.equal(result.delta, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function writeDeletionAllowlist(root, entries = []) {
   const allowlistRoot = path.join(root, "tools/gate-allowlists");
   mkdirSync(allowlistRoot, { recursive: true });

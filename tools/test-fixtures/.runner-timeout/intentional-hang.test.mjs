@@ -1,4 +1,3 @@
-// harness-test-tier: fast
 import test from "node:test";
 import { spawn } from "node:child_process";
 

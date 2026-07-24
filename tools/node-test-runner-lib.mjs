@@ -31,7 +31,7 @@ export function hasIsolationWedgeSignature(member) {
 export function testFilesFromProcessCommand(command, repoRoot) {
   return command.split(/\s+/u)
     .map((token) => token.startsWith(`${repoRoot}/`) ? token.slice(repoRoot.length + 1) : token)
-    .filter((token) => /\.test\.(?:ts|tsx|mjs|cjs|js)$/u.test(token));
+    .filter((token) => /\.(?:test|fixture)\.(?:ts|tsx|mjs|cjs|js)$/u.test(token));
 }
 
 export function parseRunnerArgs(args, tierNames) {
@@ -43,7 +43,8 @@ export function parseRunnerArgs(args, tierNames) {
     testTimeoutMs: DEFAULT_TEST_TIMEOUT_MS,
     concurrency: undefined,
     shard: undefined,
-    prefixes: []
+    prefixes: [],
+    fixtures: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -129,6 +130,17 @@ export function parseRunnerArgs(args, tierNames) {
       options.prefixes.push(normalizeTestPrefix(arg.slice("--prefix=".length)));
       continue;
     }
+    if (arg === "--fixture") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--fixture requires a value");
+      options.fixtures.push(normalizeRunnerFixture(value));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--fixture=")) {
+      options.fixtures.push(normalizeRunnerFixture(arg.slice("--fixture=".length)));
+      continue;
+    }
 
     throw new Error(`unknown run-node-tests option: ${arg}`);
   }
@@ -139,6 +151,17 @@ export function parseRunnerArgs(args, tierNames) {
   if (options.shard !== undefined && options.tier !== "integration") {
     throw new Error("--shard is only supported with --tier integration");
   }
+  if (
+    options.fixtures.length > 0
+    && (
+      options.tier !== "all"
+      || options.list
+      || options.shard !== undefined
+      || options.prefixes.length > 0
+    )
+  ) {
+    throw new Error("--fixture cannot be combined with tier, list, shard, or prefix selection");
+  }
 
   return options;
 }
@@ -148,6 +171,19 @@ function normalizeTestPrefix(value) {
     throw new Error(`--prefix must be a POSIX repository-relative path; received ${JSON.stringify(value)}`);
   }
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function normalizeRunnerFixture(value) {
+  if (
+    !/^tools\/test-fixtures\/\.runner-(?:stall|timeout)\//u.test(value)
+    || value.startsWith("/")
+    || value.split("/").includes("..")
+    || value.includes("\\")
+    || !value.endsWith(".test.mjs")
+  ) {
+    throw new Error(`--fixture must name a hidden tools/test-fixtures/.runner-*/*.test.mjs file; received ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 
 function parsePositiveInteger(value, label) {
