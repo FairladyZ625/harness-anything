@@ -23,7 +23,6 @@ import {
 import type { HarnessDaemonRuntime, MultiRepoHarnessDaemonRuntime } from "../runtime/repo-runtime.ts";
 import { makeLocalLifecycleEngine } from "@harness-anything/adapter-local";
 import { createDaemonCommandService, type DaemonCommandServiceOptions } from "./command-service.ts";
-import { makeDocSyncService } from "./doc-sync-service.ts";
 import {
   createDaemonControlService,
   type DaemonLaunchConfiguration
@@ -31,7 +30,6 @@ import {
 import { failClosedReservationReconcilerCoordinator } from "../lifecycle/reservation-reconciler.ts";
 import { makeDaemonLogFileStore } from "../lifecycle/daemon-log-file-store.ts";
 import { drainDaemonRuntime, isDaemonDrainTimeout } from "../lifecycle/daemon-drain.ts";
-import { makeDaemonQueuedWriteCoordinator } from "../lifecycle/queued-write-coordinator.ts";
 import { makeLocalAgentHolderServices } from "../agent-runtime/holder-projection-host.ts";
 import { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonReconcileState } from "../runtime/registry-reconciler.ts";
@@ -56,6 +54,7 @@ import {
   sortedDaemonRepos
 } from "./daemon-host-boundary-policy.ts";
 import { repoWriteCommandDispatch } from "./repo-write-command-dispatch.ts";
+import { makeDocSyncSubmitHandler } from "./doc-sync-submit-handler.ts";
 
 export { localAuthorityPeerPolicy } from "./daemon-host-boundary-policy.ts";
 
@@ -519,23 +518,14 @@ function createRepoServiceBinding<
       } : {}),
       CliCommandService: daemonCommandService,
       DocSyncService: {
-        submit: (request, context) => {
-          const actor = context?.actor;
-          const attribution = actor ? hostServices.daemonActorAttribution(actor, context?.executor ?? null) : undefined;
-          const docSyncService = makeDocSyncService({
-            rootDir,
-            layoutOverrides,
-            hostServices: hostServices.docSync,
-            ...(attribution ? {
-              coordinator: makeDaemonQueuedWriteCoordinator(runtime, `doc-sync-submit:${request.payload.intentId}`, {
-                attribution: attribution.writeAttribution,
-                commitAuthor: attribution.commitAuthor,
-                ...(request.session?.sessionId ? { sessionId: request.session.sessionId } : {})
-              })
-            } : {})
-          });
-          return docSyncService.submit(request);
-        }
+        submit: makeDocSyncSubmitHandler({
+          rootDir,
+          layoutOverrides,
+          runtime,
+          hostServices: hostServices.docSync,
+          actorAttribution: hostServices.daemonActorAttribution,
+          ...(repoWriteSupervisor ? { supervisor: repoWriteSupervisor } : {})
+        })
       }
     },
     appendRuntimeEvent

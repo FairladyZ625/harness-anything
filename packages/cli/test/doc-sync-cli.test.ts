@@ -110,6 +110,7 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
+    const sessionBranch = "sessions/doc-sync-cli-test";
     mkdirSync(taskRoot, { recursive: true });
     seedDocSyncWriteRoadRegistry(rootDir);
     writeFileSync(path.join(harnessRoot, "harness.yaml"), [
@@ -138,11 +139,15 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
     assert.equal(submitted.report.appliedChanges[0].path, "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md");
     assert.match(gitStatus(harnessRoot), /facts\.md/u);
     const author = await pollUntil(
-      () => execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>"], { encoding: "utf8" }).trim(),
+      () => execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%an <%ae>", sessionBranch], { encoding: "utf8" }).trim(),
       (candidate) => candidate === "Doc Sync User <harness@example.test>",
       (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), submitted })
     );
     assert.equal(author, "Doc Sync User <harness@example.test>");
+    assert.match(
+      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md`], { encoding: "utf8" }),
+      /Updated through daemon/u
+    );
   });
 });
 
@@ -210,7 +215,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: cliTestEnv({ HARNESS_ACTOR: "agent:doc-sync-cli-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", HARNESS_DAEMON_MODE: daemonMode, HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", GIT_CONFIG_GLOBAL: "/dev/null" })
+      env: cliTestEnv({ CODEX_THREAD_ID: "doc-sync-cli-test", HARNESS_ACTOR: "agent:doc-sync-cli-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", HARNESS_DAEMON_MODE: daemonMode, HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", GIT_CONFIG_GLOBAL: "/dev/null" })
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
