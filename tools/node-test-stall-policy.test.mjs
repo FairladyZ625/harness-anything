@@ -27,7 +27,7 @@ test("stable isolation evidence aborts even when another test keeps producing ou
   const policy = createPolicy();
   const candidate = {
     pid: 42,
-    files: ["tools/test-fixtures/runner-stall/wedged-module.test.mjs"]
+    files: ["tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"]
   };
 
   assert.equal(policy.tick({ at: 250, isolationCandidates: [candidate] }).abort, null);
@@ -40,7 +40,7 @@ test("stable isolation evidence aborts even when another test keeps producing ou
     abort: {
       kind: "isolation-wedge",
       isolationChildPid: 42,
-      files: ["tools/test-fixtures/runner-stall/wedged-module.test.mjs"],
+      files: ["tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"],
       silentMs: 500,
       silentWindows: 2
     }
@@ -51,7 +51,7 @@ test("aggregate silence wins when Linux exposes the isolation signature too late
   const policy = createPolicy();
   const lateCandidate = {
     pid: 43,
-    files: ["tools/test-fixtures/runner-stall/failing-then-wedge.test.mjs"]
+    files: ["tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs"]
   };
 
   for (const at of [250, 500, 750]) {
@@ -97,4 +97,12 @@ test("a chosen abort is emitted once", () => {
   }
   assert.equal(policy.tick({ at: 1_250 }).abort?.kind, "aggregate-silence");
   assert.deepEqual(policy.tick({ at: 1_500 }), { diagnostic: null, abort: null });
+});
+
+test("a completed child reap resets the policy for later files", () => {
+  const policy = createPolicy();
+  assert.equal(policy.tick({ at: 1_250 }).abort?.kind, "aggregate-silence");
+  policy.resumeAfterReap(1_300);
+  assert.equal(policy.tick({ at: 1_500 }).abort, null);
+  assert.equal(policy.tick({ at: 2_550 }).abort?.kind, "aggregate-silence");
 });

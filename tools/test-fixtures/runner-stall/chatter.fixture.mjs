@@ -1,4 +1,3 @@
-// harness-test-tier: fast
 import test from "node:test";
 
 if (process.env.HARNESS_RUNNER_STALL_FIXTURE === "chatter") {

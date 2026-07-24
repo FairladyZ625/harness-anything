@@ -74,6 +74,14 @@ export function createNodeTestStallPolicy({
       const abort = isolationAbort ?? aggregateAbort;
       if (abort !== null) abortChosen = true;
       return { diagnostic, abort };
+    },
+
+    resumeAfterReap(at) {
+      assertTimestamp(at, "reap timestamp");
+      isolationObservations.clear();
+      lastProgressAt = at;
+      lastDiagnosticAt = at;
+      abortChosen = false;
     }
   };
 }

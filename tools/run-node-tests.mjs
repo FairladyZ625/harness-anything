@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -26,6 +26,11 @@ import {
   STALL_REPORT_GRACE_MS,
   STALL_TOTAL_ABORT_GRACE_MS
 } from "./node-test-stall-diagnostics.mjs";
+import {
+  canIgnoreReapedFileFailures,
+  completedIsolationFile,
+  parseCompletionLedger
+} from "./node-test-completion-ledger.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
@@ -84,6 +89,14 @@ if (options.shard !== undefined) {
   selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
 selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
+if (options.fixtures.length > 0) {
+  const missingFixtures = options.fixtures.filter((file) => !existsSync(resolve(repoRoot, file)));
+  if (missingFixtures.length > 0) {
+    for (const file of missingFixtures) console.error(`runner fixture does not exist: ${file}`);
+    await exitAfterStreamFlush(1);
+  }
+  selection.files = [...new Set(options.fixtures)].sort();
+}
 
 if (selection.files.length === 0) {
   console.log(`No node test files found for tier ${options.tier}.`);
@@ -124,7 +137,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, [
     "--test",
-    "--test-reporter=spec",
+    "--test-reporter=./tools/node-test-completion-reporter.mjs",
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=${timingPath}`,
@@ -140,15 +153,18 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
   const child = spawn(invocation.command, invocation.args, {
     cwd: repoRoot,
-    stdio: ["inherit", "pipe", "pipe"],
+    stdio: ["inherit", "pipe", "pipe", "pipe"],
     env: testEnvironment.env,
     detached: process.platform !== "win32"
   });
   const removeParentSignalForwarding = installTestTreeSignalForwarding(child);
 
   let output = "";
+  let completionOutput = "";
   let stallAbortStarted = false;
   let stallTickStarted = false;
+  const reapingPids = new Set();
+  const reapedFiles = new Set();
   const stallPolicy = createNodeTestStallPolicy({
     diagnosticIntervalMs: stallDiagnosticMs,
     abortWindows: stallAbortWindows,
@@ -163,8 +179,23 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     stallAbortStarted = true;
     void abortStalledRun({ child, ...input });
   };
+  const startPostCompleteReap = ({ isolationChildPid, file, processGroupMembers }) => {
+    if (reapingPids.has(isolationChildPid)) return;
+    reapingPids.add(isolationChildPid);
+    void reapPostCompletionChild({
+      hostPid: child.pid,
+      isolationChildPid,
+      file,
+      processGroupMembers
+    }).then((reaped) => {
+      if (reaped) reapedFiles.add(file);
+    }).finally(() => {
+      reapingPids.delete(isolationChildPid);
+      stallPolicy.resumeAfterReap(performance.now());
+    });
+  };
   const inspectStallState = async () => {
-    if (stallTickStarted || stallAbortStarted) return;
+    if (stallTickStarted || stallAbortStarted || reapingPids.size > 0) return;
     stallTickStarted = true;
     try {
       const processGroupLines = process.platform === "win32" || child.pid === undefined
@@ -190,6 +221,22 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         });
       }
       if (decision.abort === null) return;
+      if (decision.abort.kind === "isolation-wedge") {
+        const candidate = isolationCandidates.find(
+          ({ pid }) => pid === decision.abort.isolationChildPid
+        );
+        const completion = candidate === undefined
+          ? null
+          : completedIsolationFile(readCompletionLedger(), candidate.files);
+        if (completion !== null) {
+          startPostCompleteReap({
+            isolationChildPid: decision.abort.isolationChildPid,
+            file: completion.file,
+            processGroupMembers
+          });
+          return;
+        }
+      }
       const snapshotFiles = stalledTestFilesFromProcessGroup(processGroupMembers, child.pid);
       startStallAbort({
         silentMs: decision.abort.silentMs,
@@ -232,6 +279,9 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     process.stderr.write(text);
     terminateTimedOutWindowsTree();
   });
+  child.stdio[3].on("data", (chunk) => {
+    completionOutput += chunk.toString();
+  });
 
   return new Promise((resolveExitCode) => {
     child.once("error", (error) => {
@@ -247,6 +297,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       removeParentSignalForwarding();
       const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
       testEnvironment.cleanup();
+      const completionLedger = readCompletionLedger();
       try {
         const measured = parseJunitTestFileDurations(readFileSync(timingPath, "utf8"), repoRoot);
         for (const warning of formatTestWeightDriftWarnings(measured)) console.warn(warning);
@@ -266,9 +317,28 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       }
       const slowTests = collectSlowTests(output, options.slowThresholdMs);
       console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-      resolveExitCode(signal === null && !leakedDescendants ? (code ?? 1) : 1);
+      const ignoredSyntheticFailures = code === 1
+        && signal === null
+        && !leakedDescendants
+        && canIgnoreReapedFileFailures({
+          ledger: completionLedger,
+          selectedFiles: selection.files,
+          reapedFiles
+        });
+      if (ignoredSyntheticFailures) {
+        console.error(
+          `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated SIGKILL file failure(s)`
+        );
+      }
+      resolveExitCode(signal === null && !leakedDescendants
+        ? (ignoredSyntheticFailures ? 0 : (code ?? 1))
+        : 1);
     });
   });
+
+  function readCompletionLedger() {
+    return parseCompletionLedger(completionOutput, repoRoot);
+  }
 });
 
 function positiveIntegerOrDefault(value, fallback) {
@@ -348,6 +418,45 @@ async function abortStalledRun({
 
 async function diagnoseThenTerminateStalledTree(hostPid, processGroupMembers, isolationChildPid) {
   const startedAt = performance.now();
+  await captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, isolationChildPid);
+  signalProcessGroup(hostPid, "SIGTERM");
+  const remainingGraceMs = Math.max(
+    0,
+    STALL_TOTAL_ABORT_GRACE_MS - (performance.now() - startedAt)
+  );
+  if (remainingGraceMs > 0) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, remainingGraceMs));
+  }
+  signalProcessGroup(hostPid, "SIGKILL");
+  console.error(
+    `[node-test-stall] diagnostic grace ended; process tree kill completed within ${STALL_TOTAL_ABORT_GRACE_MS}ms budget (report grace ${STALL_REPORT_GRACE_MS}ms)`
+  );
+}
+
+async function reapPostCompletionChild({
+  hostPid,
+  isolationChildPid,
+  file,
+  processGroupMembers
+}) {
+  console.error(
+    `\n[node-test-stall] isolation child pid=${isolationChildPid} completed reporter summary for ${file}; collecting diagnostics before post-completion reap`
+  );
+  await captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, isolationChildPid);
+  const reaped = signalProcess(isolationChildPid, "SIGKILL");
+  if (reaped) {
+    console.error(
+      `[node-test-stall] reaped post-completion child pid=${isolationChildPid} file=${file} signal=SIGKILL`
+    );
+  } else {
+    console.error(
+      `[node-test-stall] post-completion child pid=${isolationChildPid} exited before SIGKILL; no result override recorded`
+    );
+  }
+  return reaped;
+}
+
+async function captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, preferredPid) {
   let diagnosticDeadlineTimer;
   await Promise.race([
     capturePreKillDiagnostics({
@@ -355,7 +464,7 @@ async function diagnoseThenTerminateStalledTree(hostPid, processGroupMembers, is
       hostPid,
       repoRoot,
       reportDirectory: stallReportRoot,
-      preferredPid: isolationChildPid
+      preferredPid
     }).catch((error) => {
       console.error(
         `[node-test-stall] pre-kill diagnostics failed; continuing termination: ${error instanceof Error ? error.message : String(error)}`
@@ -372,18 +481,6 @@ async function diagnoseThenTerminateStalledTree(hostPid, processGroupMembers, is
     })
   ]);
   clearTimeout(diagnosticDeadlineTimer);
-  signalProcessGroup(hostPid, "SIGTERM");
-  const remainingGraceMs = Math.max(
-    0,
-    STALL_TOTAL_ABORT_GRACE_MS - (performance.now() - startedAt)
-  );
-  if (remainingGraceMs > 0) {
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, remainingGraceMs));
-  }
-  signalProcessGroup(hostPid, "SIGKILL");
-  console.error(
-    `[node-test-stall] diagnostic grace ended; process tree kill completed within ${STALL_TOTAL_ABORT_GRACE_MS}ms budget (report grace ${STALL_REPORT_GRACE_MS}ms)`
-  );
 }
 
 /**
@@ -511,6 +608,16 @@ async function terminateLingeringPosixProcessGroup(pid) {
 function signalProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
+    return true;
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+    return false;
+  }
+}
+
+function signalProcess(pid, signal) {
+  try {
+    process.kill(pid, signal);
     return true;
   } catch (error) {
     if (error?.code !== "ESRCH") throw error;
