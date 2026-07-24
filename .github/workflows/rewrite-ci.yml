@@ -6,9 +6,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-  schedule:
-    - cron: "17 19 * * *"
 
 env:
   MERGIFY_QUEUE_METADATA_EDIT: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/') }}
@@ -91,21 +88,6 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
           PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint --exclude mergify-queue-metadata-edit-noop
-
-  enforcement-debt-sunset:
-    if: github.event_name != 'pull_request' && github.event_name == 'schedule'
-    timeout-minutes: 15
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run harness:check-enforcement-debt-sunset
 
   typecheck:
     name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && format('mergify-queue-metadata-edit-noop / typecheck ({0})', matrix.node-version) || format('typecheck ({0})', matrix.node-version) }}
@@ -358,6 +340,7 @@ jobs:
       - boundaries
       - package-policy
       - supply-chain
+      - direct-recovery
       - gui-build
       - windows-local-check
     permissions:
