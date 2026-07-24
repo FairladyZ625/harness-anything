@@ -172,6 +172,7 @@ export async function submitThroughActualAuthorityServiceV2(): Promise<Authority
       }
     }
   }).submit({
+    ingress: "generic",
     command: {
       rootDir: "/repo",
       json: true,

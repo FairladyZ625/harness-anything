@@ -208,10 +208,16 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
       expected: compileInput,
       plan
     });
-    assert.equal((await plannedSubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal((await plannedSubmission.submit({
+      ...compileInput,
+      ingress: "generic"
+    })).tag, "REJECTED");
     assert.equal(freshSubmissions, 1);
     await assert.rejects(
-      plannedSubmission.submit(compileInput),
+      plannedSubmission.submit({
+        ...compileInput,
+        ingress: "generic"
+      }),
       /PLANNED_SUBMISSION_REUSED/u
     );
     const mismatchedSubmission = createProductionProgressAppendSubmission({
@@ -228,6 +234,7 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     });
     await assert.rejects(mismatchedSubmission.submit({
       ...compileInput,
+      ingress: "generic",
       canonicalEntityId: taskEntityId("task_other")
     }), /PLANNED_INPUT_MISMATCH/u);
     compiler.activatePlannedProgressAppend(plan);
@@ -307,7 +314,10 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
       plan,
       recovery: outerWitness
     });
-    assert.equal((await recoverySubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal((await recoverySubmission.submit({
+      ...compileInput,
+      ingress: "generic"
+    })).tag, "REJECTED");
     assert.equal(recoveredWitness?.repoId, config.repoId);
     assert.equal(recoveredWitness?.outerOpId, proceeding.outerOpId);
     assert.equal(recoveredWitness?.outerRequestDigest, proceeding.requestDigest);
@@ -499,6 +509,15 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     assert.equal(productionAuthorityCommandHasPurePlan({
       rootDir: fixture.repoRoot,
       action: {
+        kind: "new-task",
+        title: "Multi-operation task",
+        titleProvided: true,
+        taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9"
+      }
+    }), false);
+    assert.equal(productionAuthorityCommandHasPurePlan({
+      rootDir: fixture.repoRoot,
+      action: {
         kind: "task-complete",
         taskId: "task_A"
       }
@@ -610,6 +629,7 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     await assert.rejects(
       recoveredDecisionSubmission.submit({
         ...decisionInput,
+        ingress: "generic",
         canonicalEntityId: taskEntityId("task_other")
       }),
       /AUTHORITY_PLANNED_INPUT_MISMATCH/u
@@ -617,6 +637,7 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     assert.equal(
       (await recoveredDecisionSubmission.submit({
         ...decisionInput,
+        ingress: "generic",
         canonicalEntityId: decisionPlan.targetEntityId
       })).tag,
       "REJECTED"

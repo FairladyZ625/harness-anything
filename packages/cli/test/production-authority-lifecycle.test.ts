@@ -53,6 +53,7 @@ test("production lifecycle uses external Ed25519 material, durable state, live c
     const actor = productionAuthorityActor();
     const submission = started.component.bindConnection(productionAuthorityConnection(actor));
     const receipt = await submission.submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,
@@ -107,6 +108,7 @@ test("authority publication records an out-of-band first-parent gap and commits 
     if (!started.ok) return;
     const submission = started.component.bindConnection(productionAuthorityConnection(actor));
     const first = await submission.submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,
@@ -131,6 +133,7 @@ test("authority publication records an out-of-band first-parent gap and commits 
     const outOfBandCommit = git(fixture.authoredRoot, "rev-parse", "HEAD");
 
     const acrossGap = await submission.submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,
@@ -174,6 +177,7 @@ test("restart reconciles a durable published operation whose replica-change row 
     assert.equal(started.ok, true, started.ok ? "" : started.error);
     if (!started.ok) return;
     const committed = await started.component.bindConnection(productionAuthorityConnection(actor)).submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,
@@ -251,6 +255,7 @@ test("frozen production restart reuses an indexed append event below a direct do
     const actor = productionAuthorityActor();
     const submission = started.component.bindConnection(productionAuthorityConnection(actor));
     const receipt = await submission.submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,

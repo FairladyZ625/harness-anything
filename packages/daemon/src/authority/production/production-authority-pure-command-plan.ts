@@ -51,5 +51,8 @@ export function productionAuthorityCommandHasPurePlan(
   command: ProductionAuthorityCommand
 ): boolean {
   return directTypedCommandEntityId(command) !== undefined
-    && !(command.action.kind === "new-task" && command.action.registerModule);
+    // Task creation may first publish a provenance-session operation. A single
+    // fixed durable plan cannot represent both canonical operations, so keep
+    // the whole command on the direct child lane.
+    && command.action.kind !== "new-task";
 }
