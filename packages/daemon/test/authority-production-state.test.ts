@@ -175,7 +175,50 @@ test("durable operation state preserves the exact fixed WriteOp across restart",
   }
 });
 
-test("legacy count-only binding rows with consumed slots block startup without an op witness", () => {
+test("startup upgrades legacy count-only consumption into reserved unwitnessed witnesses", async () => {
+  const config = productionConfig(2);
+  const binding = config.bootstrapBindings[0]!;
+  const table = memoryTable([[
+    "token:token-1",
+    {
+      schema: "authority-binding-state/v1",
+      tokenId: binding.tokenId,
+      tokenDigest: Buffer.from(binding.tokenDigest).toString("base64url"),
+      maxOperations: 2,
+      consumedOperations: 1,
+      record: binding.record
+    }
+  ]]);
+  const runtime = createDurableAuthorityBindingRuntimeV2({
+    config: { ...config, bootstrapBindings: [] },
+    table,
+    proofKeys: emptyProofKeys
+  });
+
+  assert.deepEqual(table.get<Record<string, unknown>>("token:token-1"), {
+    schema: "authority-binding-state/v2",
+    tokenId: "token-1",
+    tokenDigest: Buffer.from(binding.tokenDigest).toString("base64url"),
+    maxOperations: 2,
+    consumedOperations: 1,
+    consumedOperationIds: ["legacy-unwitnessed:token-1:1"],
+    record: binding.record
+  });
+  // A reserved witness is never a presentable opId: it may not be replayed into
+  // an idempotent hit, and it may not spend the surviving slot either.
+  assert.equal(await runtime.consumeOperation({
+    tokenId: "token-1",
+    maximum: 2,
+    opId: "legacy-unwitnessed:token-1:1"
+  }), "denied");
+  assert.equal(await runtime.consumeOperation({
+    tokenId: "token-1",
+    maximum: 2,
+    opId: "namespace-1:operation-a"
+  }), "consumed");
+});
+
+test("startup preserves exhaustion for a fully consumed legacy binding row", async () => {
   const config = productionConfig(1);
   const binding = config.bootstrapBindings[0]!;
   const table = memoryTable([[
@@ -185,15 +228,21 @@ test("legacy count-only binding rows with consumed slots block startup without a
       tokenId: binding.tokenId,
       tokenDigest: Buffer.from(binding.tokenDigest).toString("base64url"),
       maxOperations: binding.maxOperations,
-      consumedOperations: 1,
+      consumedOperations: binding.maxOperations,
       record: binding.record
     }
   ]]);
-  assert.throws(() => createDurableAuthorityBindingRuntimeV2({
+  const runtime = createDurableAuthorityBindingRuntimeV2({
     config,
     table,
     proofKeys: emptyProofKeys
-  }), /AUTHORITY_BINDING_LEGACY_CONSUMPTION_WITNESS_REQUIRED:token-1:1/u);
+  });
+
+  assert.equal(await runtime.consumeOperation({
+    tokenId: "token-1",
+    maximum: 1,
+    opId: "namespace-1:operation-a"
+  }), "denied");
 });
 
 test("startup upgrades every unconsumed legacy binding row even when it is not bootstrapped", async () => {

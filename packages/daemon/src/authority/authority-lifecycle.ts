@@ -206,6 +206,27 @@ export type AuthorityRepoStartResult =
   | { readonly ok: true; readonly component: AuthorityRepoComponent }
   | { readonly ok: false; readonly error: string };
 
+/**
+ * Why no repo produced a service binding. A repo is skipped when its runtime is
+ * not attached or when its authority component refused to start; both reasons
+ * are otherwise only visible inside the skip, so the empty binding set alone
+ * cannot explain itself. Carry the aggregate cause into the failure instead.
+ */
+export function noRepoBindingsError(
+  repos: ReadonlyArray<DaemonRepoNamespace>,
+  runtimeRepos: ReadonlyArray<{ readonly repoId: string; readonly state: string }>,
+  lifecycle?: Pick<AuthorityRepoLifecycleController, "unavailableReason">
+): Error {
+  const detail = repos.length === 0 ? "no repos are registered" : repos.map((repo) => {
+    const runtimeState = runtimeRepos
+      .find((candidate) => candidate.repoId === repo.repoId)?.state ?? "missing";
+    const authorityReason = lifecycle?.unavailableReason(repo.repoId);
+    const authority = authorityReason === undefined ? "" : `, authority ${authorityReason}`;
+    return `${repo.repoId} (runtime ${runtimeState}${authority})`;
+  }).join("; ");
+  return new Error(`daemon service host has no repo bindings: ${detail}`);
+}
+
 interface StartedAuthorityRepo {
   readonly repo: DaemonRepoNamespace;
   readonly component: AuthorityRepoComponent;
