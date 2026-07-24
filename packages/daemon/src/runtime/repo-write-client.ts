@@ -15,6 +15,7 @@ import type {
   PendingShutdown,
   PendingSubmit
 } from "./repo-write-client-pending.ts";
+import { defaultRepoWriteRequestTimeoutMs } from "./repo-write-client-contract.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
@@ -68,7 +69,7 @@ export class RepoWriteClient {
     this.limits = {
       maxPendingRequests: options.limits?.maxPendingRequests ?? 1_024,
       readyTimeoutMs: options.limits?.readyTimeoutMs ?? 30_000,
-      requestTimeoutMs: options.limits?.requestTimeoutMs ?? 30_000
+      requestTimeoutMs: options.limits?.requestTimeoutMs ?? defaultRepoWriteRequestTimeoutMs
     };
     for (const [name, value] of Object.entries(this.limits)) {
       if (!Number.isSafeInteger(value) || value <= 0) {

@@ -6,10 +6,16 @@ import {
   gateAuthoritySubmissionForRecovery
 } from "../src/index.ts";
 import { receiptToFlushReport } from "../src/authority/authority-command-submission.ts";
-import { waitForProductionRecovery } from "../src/authority/production/production-recovery-admission.ts";
+import {
+  defaultProductionRecoveryAdmissionTimeoutMs,
+  waitForProductionRecovery
+} from "../src/authority/production/production-recovery-admission.ts";
+import { defaultRepoWriteRequestTimeoutMs } from "../src/runtime/repo-write-client-contract.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
+  semanticRequestDigestV2,
+  type AuthorityRecoveryAttemptV2,
   type ProtocolSchemaTupleV2
 } from "@harness-anything/application";
 import { v2Claims, v2Envelope } from "./authority-v2-fixtures.ts";
@@ -29,7 +35,7 @@ test("authority JournalUnavailable errors serialize diagnostic fields without st
   assert.doesNotMatch(JSON.stringify(writeError), /stack/u);
 });
 
-test("recovery gate waits before admitting both legacy and V2 authority ingress", async () => {
+test("recovery gate waits before admitting legacy, V2, and V2 recovery ingress", async () => {
   let submissions = 0;
   let releaseRecovery!: () => void;
   let recovering = true;
@@ -63,6 +69,17 @@ test("recovery gate waits before admitting both legacy and V2 authority ingress"
         receiptId: Buffer.from(attempt.requestId).toString("hex")
       };
     },
+    resumeV2: async (recoveryAttempt) => {
+      submissions += 1;
+      return {
+        tag: "COMMITTED",
+        workspaceId: recoveryAttempt.witness.workspaceId,
+        opId: recoveryAttempt.witness.opId,
+        semanticDigest: recoveryAttempt.witness.semanticDigest,
+        commitSha: "f".repeat(40),
+        receiptId: recoveryAttempt.attempt.requestId
+      };
+    },
     getOperation: async () => undefined
   }, async () => {
     if (!recovering) return undefined;
@@ -81,16 +98,49 @@ test("recovery gate waits before admitting both legacy and V2 authority ingress"
   });
   const fixture = authorityCommandAttemptFixture();
   const v2Promise = service.submitV2!(fixture.attempt);
+  const recoveryAttempt = authorityRecoveryAttemptFixture(fixture);
+  const recoveryV2Promise = service.resumeV2!(recoveryAttempt);
 
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(submissions, 0);
   releaseRecovery();
-  const [legacy, v2] = await Promise.all([legacyPromise, v2Promise]);
+  const [legacy, v2, recoveryV2] = await Promise.all([
+    legacyPromise,
+    v2Promise,
+    recoveryV2Promise
+  ]);
 
   assert.equal(legacy.tag, "COMMITTED");
   assert.equal(v2.tag, "COMMITTED");
   assert.equal(v2.opId, fixture.expectedOpId);
-  assert.equal(submissions, 2);
+  assert.equal(recoveryV2.tag, "COMMITTED");
+  assert.equal(recoveryV2.opId, fixture.expectedOpId);
+  assert.equal(submissions, 3);
+});
+
+test("production recovery admission expires before the repo-write transport deadline", () => {
+  assert.ok(defaultProductionRecoveryAdmissionTimeoutMs < defaultRepoWriteRequestTimeoutMs);
+});
+
+test("recovery gate preserves unresolved outer recovery instead of returning a terminal receipt", async () => {
+  let recoverySubmissions = 0;
+  const fixture = authorityCommandAttemptFixture();
+  const service = gateAuthoritySubmissionForRecovery({
+    submit: async () => {
+      throw new Error("legacy admission not used");
+    },
+    resumeV2: async () => {
+      recoverySubmissions += 1;
+      throw new Error("unresolved recovery must remain gated");
+    },
+    getOperation: async () => undefined
+  }, () => "AUTHORITY_RECOVERY_IN_PROGRESS:repoId=canonical");
+
+  await assert.rejects(
+    service.resumeV2!(authorityRecoveryAttemptFixture(fixture)),
+    /AUTHORITY_RECOVERY_IN_PROGRESS:repoId=canonical/u
+  );
+  assert.equal(recoverySubmissions, 0);
 });
 
 test("production recovery admission times out with a reachable service-daemon next step", async () => {
@@ -214,5 +264,38 @@ function authorityCommandAttemptFixture() {
       envelope: encodeSemanticMutationEnvelopeV2(envelope)
     },
     expectedOpId: operationIdDiagnosticV2(envelope.operationId)
+  };
+}
+
+function authorityRecoveryAttemptFixture(
+  fixture: ReturnType<typeof authorityCommandAttemptFixture>
+): AuthorityRecoveryAttemptV2 {
+  return {
+    schema: "authority-recovery-attempt/v1",
+    attempt: fixture.attempt,
+    witness: {
+      repoId: "canonical",
+      outerOpId: "repo-write:outer",
+      outerRequestDigest: "a".repeat(64),
+      outerGeneration: 404,
+      authorityGeneration: 3,
+      requestId: fixture.attempt.requestId,
+      workspaceId: fixture.envelope.workspaceId,
+      opId: fixture.expectedOpId,
+      semanticDigest: Buffer.from(semanticRequestDigestV2(fixture.envelope)).toString("hex"),
+      admittedAtMs: "1",
+      canonicalRequestEnvelope: Buffer.from(fixture.attempt.envelope).toString("base64url"),
+      attribution: {
+        actor: {
+          principal: { kind: "person", personId: "person_zeyu" },
+          executor: null
+        },
+        principalSource: {
+          kind: "daemon-authenticated",
+          providerId: "local-socket"
+        },
+        executorSource: "absent"
+      }
+    }
   };
 }

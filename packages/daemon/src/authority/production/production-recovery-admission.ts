@@ -4,7 +4,9 @@ interface ProductionRecoveryAdmissionState {
   readonly promise: Promise<void>;
 }
 
-export const defaultProductionRecoveryAdmissionTimeoutMs = 30_000;
+// Return a fail-closed recovery receipt before the repo-write transport's 30s
+// request deadline so the supervisor leaves the recovering child alive.
+export const defaultProductionRecoveryAdmissionTimeoutMs = 25_000;
 
 export async function waitForProductionRecovery(
   material: {
