@@ -98,7 +98,7 @@ export function createAuthorityReplicationContentStore(input: {
     const digest = digestBlobBytes(bytes);
     const key = blobStateKey(digest);
     const known = input.state.get<string>(key);
-    if (known) {
+    if (known !== undefined) {
       const knownBytes = Buffer.from(known, "base64");
       if (knownBytes.toString("base64") !== known || digestBlobBytes(knownBytes) !== digest) {
         throw new Error(`BLOB_DIGEST_MISMATCH:${digest}`);

@@ -57,6 +57,47 @@ test("replication snapshot reads a large Git tree with bounded subprocess work",
   assert.ok(starts.length <= 2, `expected at most two Git subprocesses, observed ${starts.length}`);
 });
 
+test("replication snapshot retains empty blobs without rewriting them", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "replication-content-restart-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  mkdirSync(path.join(root, "files"));
+  for (let index = 0; index < 64; index += 1) {
+    writeFileSync(path.join(root, "files", `${index}.txt`), "");
+  }
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "initial tree");
+
+  const values = new Map<string, unknown>();
+  let putCalls = 0;
+  const state = {
+    get: <Value>(key: string) => values.get(key) as Value | undefined,
+    put: (key: string, value: unknown) => {
+      putCalls += 1;
+      values.set(key, structuredClone(value));
+    },
+    entries: <Value>() => [...values.entries()] as ReadonlyArray<readonly [string, Value]>
+  };
+  createAuthorityReplicationContentStore({
+    gitRoot: root,
+    workspaceId: "workspace-restart",
+    epoch: "1",
+    state
+  }).snapshot(git(root, "rev-parse", "HEAD"), 1);
+
+  const snapshot = createAuthorityReplicationContentStore({
+    gitRoot: root,
+    workspaceId: "workspace-restart",
+    epoch: "1",
+    state
+  }).snapshot(git(root, "rev-parse", "HEAD"), 1);
+
+  assert.equal(snapshot.entries.length, 64);
+  assert.equal(putCalls, 1, "the shared empty blob should be retained exactly once");
+});
+
 function git(root: string, ...args: ReadonlyArray<string>): string {
   return execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8",
