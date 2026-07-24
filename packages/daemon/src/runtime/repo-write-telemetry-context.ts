@@ -1,0 +1,59 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { performance } from "node:perf_hooks";
+import type { RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
+
+type RepoWriteTelemetryReporter = (
+  phase: RepoWriteTelemetryPhase,
+  elapsedMs: number
+) => void;
+
+export interface RepoWriteTelemetryDelivery {
+  readonly report: RepoWriteTelemetryReporter;
+  readonly flush: () => Promise<void>;
+}
+
+const storage = new AsyncLocalStorage<{
+  readonly startedAt: number;
+  readonly report: RepoWriteTelemetryReporter;
+}>();
+
+export function runWithRepoWriteTelemetry<Result>(
+  report: RepoWriteTelemetryReporter,
+  operation: () => Result
+): Result {
+  return storage.run({ startedAt: performance.now(), report }, operation);
+}
+
+export function reportCurrentRepoWriteTelemetry(
+  phase: RepoWriteTelemetryPhase
+): void {
+  const current = storage.getStore();
+  if (!current) return;
+  current.report(phase, Math.max(0, performance.now() - current.startedAt));
+}
+
+export function bindCurrentRepoWriteTelemetry<Result>(
+  operation: () => Result
+): () => Result {
+  const current = storage.getStore();
+  return current
+    ? () => storage.run(current, operation)
+    : operation;
+}
+
+export function createRepoWriteTelemetryDelivery(
+  deliver: (
+    phase: RepoWriteTelemetryPhase,
+    elapsedMs: number
+  ) => Promise<void>
+): RepoWriteTelemetryDelivery {
+  let pending = Promise.resolve();
+  return {
+    report: (phase, elapsedMs) => {
+      pending = pending
+        .then(() => deliver(phase, elapsedMs))
+        .catch(() => undefined);
+    },
+    flush: () => pending
+  };
+}

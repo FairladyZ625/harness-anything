@@ -4,6 +4,11 @@ import type {
 } from "./repo-write-protocol.ts";
 import type { RepoWriteChildResponseWriter } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
+import {
+  createRepoWriteTelemetryDelivery,
+  reportCurrentRepoWriteTelemetry,
+  runWithRepoWriteTelemetry
+} from "./repo-write-telemetry-context.ts";
 
 export interface RepoWriteDirectInput {
   readonly repoId: string;
@@ -82,15 +87,25 @@ export async function executeRepoWriteChildDirect(
   options.requestIds.add(message.requestId);
   options.admit();
   try {
-    const receipt = await options.sequencer.run(() =>
-      options.execute({
-        repoId: options.repoId,
-        workspaceId: options.workspaceId,
-        generation: options.generation,
-        requestId: message.requestId,
-        command: message.command
+    await options.responses.telemetry(message.requestId, "queue", 0);
+    const telemetry = createRepoWriteTelemetryDelivery(
+      (phase, elapsedMs) =>
+        options.responses.telemetry(message.requestId, phase, elapsedMs)
+    );
+    const receipt = await runWithRepoWriteTelemetry(
+      telemetry.report,
+      () => options.sequencer.run(() => {
+        reportCurrentRepoWriteTelemetry("compile");
+        return options.execute({
+          repoId: options.repoId,
+          workspaceId: options.workspaceId,
+          generation: options.generation,
+          requestId: message.requestId,
+          command: message.command
+        });
       })
     );
+    await telemetry.flush();
     await options.responses.directResult(message.requestId, receipt);
   } catch (error) {
     await options.responses.directUnknown(

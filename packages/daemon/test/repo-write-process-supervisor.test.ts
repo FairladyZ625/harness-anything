@@ -20,6 +20,8 @@ import {
 import {
   calculateDaemonArtifactIdentity
 } from "../src/protocol/daemon-artifact-identity.ts";
+import type { RepoWriteRequestTimeoutDiagnostic } from "../src/runtime/repo-write-client-contract.ts";
+import { formatRepoWriteTimeoutDiagnostic } from "../src/runtime/repo-write-stall-diagnostic.ts";
 
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
@@ -151,6 +153,7 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-direct-"));
   const tracePath = path.join(root, "trace.log");
   let forks = 0;
+  let timeoutDiagnostic: RepoWriteRequestTimeoutDiagnostic | undefined;
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
@@ -161,6 +164,9 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
         modulePath: fixturePath,
         args: [forks === 1 ? "swallow-direct" : "roundtrip", tracePath]
       });
+    },
+    onRequestTimeout: (diagnostic) => {
+      timeoutDiagnostic = diagnostic;
     }
   });
   context.after(async () => {
@@ -173,6 +179,11 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
     (error) => error instanceof RepoWriteDirectOutcomeUnknownError
   );
   assert.equal(forks, 2);
+  assert.ok(timeoutDiagnostic);
+  assert.match(
+    formatRepoWriteTimeoutDiagnostic(timeoutDiagnostic),
+    /command=task-claim;lane=direct;waiting=daemon-write-queue:authority-publication;lastPhase=projection/u
+  );
   assert.deepEqual(
     readFileSync(tracePath, "utf8").trim().split("\n"),
     ["direct:task-claim"]

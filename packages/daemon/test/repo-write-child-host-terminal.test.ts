@@ -96,7 +96,18 @@ test("volatile direct returns an exact receipt without durable frames or lookup"
 
   assert.equal(preparations, 0);
   assert.equal(lookups, 0);
-  assert.deepEqual(messages.map((message) => message.kind), ["ready", "direct-result"]);
+  assert.deepEqual(messages.map((message) => message.kind), [
+    "ready",
+    "telemetry",
+    "telemetry",
+    "direct-result"
+  ]);
+  assert.deepEqual(
+    messages
+      .filter((message) => message.kind === "telemetry")
+      .map((message) => message.phase),
+    ["queue", "compile"]
+  );
   assert.deepEqual(messages.at(-1), {
     ...childBase("direct-result"),
     requestId: "direct-receipt",

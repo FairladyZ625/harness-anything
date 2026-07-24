@@ -9,6 +9,15 @@ import {
   type RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import type { RepoWriteClientTransport } from "./repo-write-client-contract.ts";
+import type {
+  RepoWriteRequestFailureDiagnostic,
+  RepoWriteRequestTimeoutDiagnostic
+} from "./repo-write-client-contract.ts";
+import {
+  observeRepoWriteRequestFailure,
+  observeRepoWriteRequestTimeout,
+  repoWriteTelemetryTimeoutSuffix
+} from "./repo-write-client-timeout.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
   RepoWriteNotStartedError,
@@ -22,6 +31,7 @@ interface PendingDirect {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
   phase: "queued" | "sent";
+  lastTelemetry?: RepoWriteTelemetryFrame;
 }
 
 export interface RepoWriteDirectClientLaneOptions {
@@ -30,6 +40,10 @@ export interface RepoWriteDirectClientLaneOptions {
   readonly requestTimeoutMs: number;
   readonly transport: RepoWriteClientTransport;
   readonly failProtocol: (message: string) => void;
+  readonly onRequestTimeout?: (diagnostic: RepoWriteRequestTimeoutDiagnostic) => void;
+  readonly onRequestFailure?: (
+    diagnostic: RepoWriteRequestFailureDiagnostic
+  ) => void;
 }
 
 export class RepoWriteDirectClientLane {
@@ -96,6 +110,14 @@ export class RepoWriteDirectClientLane {
     }
     clearTimeout(pending.timer);
     this.pending.delete(message.requestId);
+    observeRepoWriteRequestFailure(this.options.onRequestFailure, {
+      requestId: message.requestId,
+      commandName: pending.command.commandName,
+      lane: "direct",
+      code: message.code,
+      diagnostic: message.diagnostic,
+      ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
+    });
     pending.reject(new RepoWriteDirectOutcomeUnknownError(message.code, message.diagnostic));
   }
 
@@ -109,6 +131,14 @@ export class RepoWriteDirectClientLane {
     }
     clearTimeout(pending.timer);
     this.pending.delete(message.requestId);
+    observeRepoWriteRequestFailure(this.options.onRequestFailure, {
+      requestId: message.requestId,
+      commandName: pending.command.commandName,
+      lane: "direct",
+      code: message.code,
+      diagnostic: message.diagnostic,
+      ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
+    });
     pending.reject(new RepoWriteNotStartedError(message.code, message.diagnostic));
     return true;
   }
@@ -144,6 +174,11 @@ export class RepoWriteDirectClientLane {
     return pending?.phase === "sent" && message.opId === undefined;
   }
 
+  recordTelemetry(message: RepoWriteTelemetryFrame): void {
+    const pending = this.pending.get(message.requestId);
+    if (pending?.phase === "sent") pending.lastTelemetry = message;
+  }
+
   private dispatch(requestId: string): void {
     const pending = this.pending.get(requestId);
     if (!pending || pending.phase !== "queued") return;
@@ -170,7 +205,15 @@ export class RepoWriteDirectClientLane {
     if (!pending) return;
     this.pending.delete(requestId);
     const diagnostic =
-      `Repo writer direct request exceeded its ${this.options.requestTimeoutMs}ms deadline.`;
+      `Repo writer direct request exceeded its ${this.options.requestTimeoutMs}ms deadline.`
+      + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
+    observeRepoWriteRequestTimeout(this.options.onRequestTimeout, {
+      requestId,
+      commandName: pending.command.commandName,
+      lane: "direct",
+      deadlineMs: this.options.requestTimeoutMs,
+      ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
+    });
     pending.reject(pending.phase === "sent"
       ? new RepoWriteDirectOutcomeUnknownError("REPO_WRITE_DIRECT_TIMEOUT", diagnostic)
       : new RepoWriteNotStartedError("REPO_WRITE_DIRECT_TIMEOUT", diagnostic));

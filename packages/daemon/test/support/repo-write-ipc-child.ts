@@ -19,7 +19,18 @@ if (mode === "exit") {
   transport.onMessage((message) => {
     if (message.kind === "direct") {
       trace(`direct:${message.command.commandName}`);
-      if (mode === "swallow-direct") return;
+      if (mode === "swallow-direct") {
+        void transport.send({
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "telemetry",
+          requestId: message.requestId,
+          phase: "projection",
+          elapsedMs: 2.5
+        });
+        return;
+      }
       void transport.send({
         protocol: repoWriteProtocolType,
         repoId: message.repoId,

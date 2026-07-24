@@ -68,6 +68,7 @@ import {
   type AuthorityProductionRepoConfigV1,
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
+import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
 import { createProductionProgressAppendConnectionBinding } from "./production-progress-append-submission.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
@@ -176,9 +177,13 @@ export function createProductionAuthorityLifecycle(input: {
       });
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
         eventLog,
-        commitEvidence: evidenceCommitter.commitPending,
+        commitEvidence: async (canonicalCommitSha) => {
+          reportCurrentRepoWriteTelemetry("fsync");
+          await evidenceCommitter.commitPending(canonicalCommitSha);
+        },
         observation: {
           observe: async (request) => {
+            reportCurrentRepoWriteTelemetry("git");
             const inspect = publicationObservers.get(repo.repoId);
             if (!inspect) throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVER_UNAVAILABLE");
             const changes = await replicaChangeLog.changesAfter(request.workspaceId, 0);

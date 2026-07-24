@@ -29,6 +29,23 @@ export interface RepoWriteClientLimits {
   readonly requestTimeoutMs: number;
 }
 
+export interface RepoWriteRequestDiagnostic {
+  readonly requestId: string;
+  readonly commandName: string;
+  readonly lane: "durable" | "direct" | "lookup";
+  readonly opId?: string;
+  readonly lastTelemetry?: RepoWriteTelemetryFrame;
+}
+
+export interface RepoWriteRequestTimeoutDiagnostic extends RepoWriteRequestDiagnostic {
+  readonly deadlineMs: number;
+}
+
+export interface RepoWriteRequestFailureDiagnostic extends RepoWriteRequestDiagnostic {
+  readonly code: string;
+  readonly diagnostic: string;
+}
+
 export interface RepoWriteClientOptions {
   readonly repoId: string;
   readonly generation: number;
@@ -37,6 +54,12 @@ export interface RepoWriteClientOptions {
   readonly limits?: Partial<RepoWriteClientLimits>;
   readonly onTelemetry: (frame: RepoWriteTelemetryFrame) => void;
   readonly onDiagnostic?: (frame: RepoWriteRecoveryDeferredFrame) => void;
+  readonly onRequestTimeout?: (
+    diagnostic: RepoWriteRequestTimeoutDiagnostic
+  ) => void;
+  readonly onRequestFailure?: (
+    diagnostic: RepoWriteRequestFailureDiagnostic
+  ) => void;
   readonly onProtocolViolation?: (
     error: RepoWriteProtocolViolationError
   ) => void;
