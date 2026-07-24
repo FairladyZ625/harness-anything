@@ -4,7 +4,8 @@ import type {
   ReplicaChangeRecord
 } from "@harness-anything/application";
 import {
-  foldPortableComponent
+  FoldedComponentTrie,
+  NamespaceAdmissionError
 } from "@harness-anything/application";
 import type { AuthoritySnapshotManifestEntry } from "./protocol.ts";
 import type { DurableAuthorityStateTable } from "./production/service-state.ts";
@@ -193,11 +194,14 @@ function readGitEntries(
       tombstone: false as const
     };
   }).sort(compareEntries);
-  const portableKeys = new Set<string>();
+  const portablePaths = new FoldedComponentTrie();
   for (const entry of entries) {
-    const portableKey = entry.path.split("/").map(foldPortableComponent).join("/");
-    if (portableKeys.has(portableKey)) throw new Error(`RESYNC_REQUIRED:PORTABLE_PATH_COLLISION:${portableKey}`);
-    portableKeys.add(portableKey);
+    try {
+      portablePaths.admit(entry.path.split("/"));
+    } catch (error) {
+      if (!(error instanceof NamespaceAdmissionError)) throw error;
+      throw new Error(`RESYNC_REQUIRED:PORTABLE_PATH_COLLISION:${entry.path}`, { cause: error });
+    }
   }
   return entries;
 }
