@@ -1,6 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { CanonicalPublicationInspector } from "@harness-anything/application";
@@ -19,6 +18,10 @@ import {
   publicationSubjectOperationIds,
   scanFirstParentPublicationMetadata
 } from "./publication-history.ts";
+import {
+  readAuthorityEvidencePendingPathsAtCommit,
+  readAuthorityEvidenceWorktreeState
+} from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
 import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
 
@@ -103,6 +106,8 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
 ): GitAuthorityAttributionEvidenceCommitterV2 {
   const layout = resolveHarnessLayout(rootInput);
   const vcs = makeLocalVersionControlSystem();
+  const log = makeLocalAuthorityAttributionEventV2Log(rootInput);
+  let verifiedHead: string | undefined;
   return {
     commitPending: async (canonicalCommitSha) => {
       const repoRoot = vcs.topLevel(layout.authoredRoot);
@@ -110,32 +115,31 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
       if (!vcs.commitExists(repoRoot, canonicalCommitSha)) {
         throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_CANONICAL_COMMIT_MISSING:${canonicalCommitSha}`);
       }
-      // Fail closed before staging: every shard in the durable V2 log must still
-      // satisfy its canonical bytes, key and digest contracts.
-      makeLocalAuthorityAttributionEventV2Log(rootInput).scanIntegrity();
       const head = vcs.currentHead(repoRoot);
-      const normalizedRepoRoot = vcs.normalizePath(repoRoot);
-      const relativeRoot = repoRelativePath(
-        normalizedRepoRoot,
-        vcs.normalizePath(layout.authorityAttributionEventsV2Root)
+      const { relativeRoot, pendingPaths } = readAuthorityEvidencePendingPathsAtCommit(
+        layout.authorityAttributionEventsV2Root,
+        repoRoot,
+        head,
+        vcs
       );
-      const localPaths = readdirSync(layout.authorityAttributionEventsV2Root, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-        .map((entry) => repoRelativePath(
-          normalizedRepoRoot,
-          vcs.normalizePath(path.join(layout.authorityAttributionEventsV2Root, entry.name))
-        ))
-        .sort();
-      let existingPaths: ReadonlySet<string>;
-      try {
-        existingPaths = vcs.filesExistingAtCommit(repoRoot, head, {
-          relativeRoot,
-          relativePaths: localPaths
-        });
-      } catch (cause) {
-        throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_TREE_READ_FAILED", { cause });
+      const worktree = readAuthorityEvidenceWorktreeState(
+        relativeRoot,
+        (args) => readAuthorityGitBytes(repoRoot, ...args)
+      );
+      if (verifiedHead !== head) {
+        // Establish a trustworthy baseline after startup or any unexpected HEAD change.
+        log.verifyIntegrity();
+        // A dirty historical tree may still be in crash recovery. Do not cache
+        // that transient worktree as the verified baseline.
+        if (!worktree.historicalShardChanged) verifiedHead = head;
+      } else {
+        // Historical shards were fully verified at this HEAD. Git now anchors
+        // their exact bytes, so only new immutable shards need decoding again.
+        if (worktree.historicalShardChanged) {
+          throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_VERIFIED_HISTORY_CHANGED");
+        }
+        log.verifyShards(pendingPaths.map((relativePath) => path.basename(relativePath)));
       }
-      const pendingPaths = localPaths.filter((relativePath) => !existingPaths.has(relativePath));
       if (pendingPaths.length === 0) return;
 
       const pending = new Set(pendingPaths);
@@ -149,6 +153,7 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         `authority: V2 attribution evidence for ${canonicalCommitSha.slice(0, 12)}`,
         materializerCommitter
       );
+      verifiedHead = vcs.currentHead(repoRoot);
     }
   };
 }
@@ -159,14 +164,6 @@ function assertEvidenceOnlyStaged(stagedText: string, pendingPaths: ReadonlySet<
   if (unrelated.length > 0) {
     throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_UNRELATED_STAGED_PATHS:${unrelated.join(",")}`);
   }
-}
-
-function repoRelativePath(repoRoot: string, filePath: string): string {
-  const relativePath = path.relative(repoRoot, filePath);
-  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-    throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_PATH_OUTSIDE_REPOSITORY");
-  }
-  return relativePath.split(path.sep).join("/");
 }
 
 export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {
