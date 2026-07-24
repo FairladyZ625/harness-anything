@@ -50,10 +50,9 @@ npm run check
 ## CI lanes
 
 Pull request 运行 `rewrite-ci` workflow。Required PR signals 包括仓库配置里的 typecheck、fast/contract、
-integration、boundary、package-policy、GUI build、Node 26 compatibility、supply-chain 和 PR body lint lanes。
+integration、boundary、package-policy、GUI build、Node 24、supply-chain、PR body lint 和 direct-recovery lanes。
 
-完整聚合 `npm run check` lane 保留给 `main`、scheduled run 和 manual dispatch。pull request 上 full-check
-job 按设计 skipped 时，不要把它当失败。
+Main push 运行对应的 source-validation topology。公开 workflow 只由 pull request 和 `main` 触发。
 
 ## 合并纪律
 

@@ -19,7 +19,7 @@
 | 本地 daemon，包括单机多仓 | Shipped      | `ha daemon start`、自动启动、`ha daemon repo register`、热注册 reconcile、按 repo 路由的 CLI 都使用 daemon 持有的 per-repo global lock。已初始化本地仓库默认走此路径；`HARNESS_DAEMON_MODE=direct` 只用于显式 bootstrap/测试恢复。证据：canon 1.3 与 daemon 单写入口收口。                                                                                                                     |
 | 桌面 GUI 源码界面         | Foundation   | GUI 可以从源码构建和运行，并且若干视图能读取真实 ledger 数据，但状态变更、review、追加进度、archive、决策裁决、terminal、presets、adapters，以及部分 relations，仍是仅 state、只读、deferred 或 mock-backed。仓库自我声明状态为 `source-checkout-and-package-smoke-only`。证据：canon 1.2。                                                                                        |
 | Remote SSH daemon 模式    | Experimental | remote 模式会打开 `ssh <host> ha daemon connect --stdio`，连接到已有 daemon。团队 principal 需要逐 key 配置 `authorized_keys` forced command 与 roster credential；relay 会验证 sshd 进程上下文、精确 original command 与固定 root。它不是“GUI 连接远端 daemon”、tunnel 产品、TCP、HTTP 或 WebSocket。证据：`packages/cli/src/commands/daemon/connect.ts`。                        |
-| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 和 Node 26 CI、package smoke、GUI build 都有可执行 gate。发布产物仍未 ship。证据：`packages/gui/src/distribution/runtime-release-readiness.ts:50-60` 与 canon 1.2。                                                                                                                                                                                         |
+| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 CI、package smoke、GUI build 都有可执行 gate。发布产物仍未 ship。证据：`packages/gui/src/distribution/runtime-release-readiness.ts:50-60` 与 canon 1.2。                                                                                                                                                                                                     |
 | 供应链与许可证 gate       | Foundation   | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                                         |
 | M3-M7 backlog             | Planned      | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                                 |
 
@@ -74,7 +74,7 @@ GUI/daemon 方向有真实的 foundation 切片：
 
 ### 运行时合同
 
-Harness Anything 从源码运行时要求 Node 24 或更新版本。公开 CI matrix 覆盖 Node 24 和 Node 26，以保证源码入口命令、typecheck、测试和文档化运行时保持一致。
+Harness Anything 从源码运行时要求 Node 24 或更新版本。公开 CI 使用 Node 24，以保证源码入口命令、typecheck、测试和文档化运行时保持一致。
 
 最小运行时 smoke 使用源码 CLI 入口：
 

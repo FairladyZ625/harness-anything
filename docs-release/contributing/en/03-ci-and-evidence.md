@@ -54,12 +54,11 @@ line. The runner rejects missing, repeated, or invalid declarations.
 
 Pull requests run the `rewrite-ci` workflow. Required PR signals include the
 typecheck, fast/contract, integration, boundary, package-policy, GUI build,
-Node 26 compatibility, supply-chain, and PR body lint lanes as configured by the
-repository.
+Node 24, supply-chain, PR body lint, and direct-recovery lanes as configured by
+the repository.
 
-The full aggregate `npm run check` lane is reserved for `main`, scheduled runs,
-and manual dispatch. Do not treat a pull-request skip of the full-check job as a
-failure when the PR lanes passed by design.
+Main pushes run the corresponding source-validation topology. The public
+workflow has no additional trigger surface beyond pull requests and `main`.
 
 ## Merge discipline
 
