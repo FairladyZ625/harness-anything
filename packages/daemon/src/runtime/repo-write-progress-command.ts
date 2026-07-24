@@ -15,6 +15,15 @@ import {
   type RepoWriteCommandDto,
   type RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
+import { makeRepoWriteStrictCodec } from "./repo-write-strict-codec.ts";
+
+const {
+  record,
+  exactKeys,
+  text,
+  nonNegativeInteger,
+  invalid
+} = makeRepoWriteStrictCodec("REPO_WRITE_PROGRESS_CONTEXT_INVALID");
 
 export interface RepoWriteProgressCommandContext {
   readonly actor: AuthenticatedActor;
@@ -34,7 +43,7 @@ export function encodeRepoWriteProgressCommand(input: {
   return {
     commandName: "progress-append",
     actor: actorStampJson(input.context.actor),
-    context: jsonObject({
+    context: progressJsonObject({
       authorityConnection: {
         schema: authority.schema,
         connectionId: authority.connectionId,
@@ -56,7 +65,7 @@ export function encodeRepoWriteProgressCommand(input: {
       currentSession: input.context.currentSession,
       executor: input.context.executor
     }),
-    payload: jsonObject({
+    payload: progressJsonObject({
       command: input.command,
       session: input.context.currentSession
     })
@@ -145,7 +154,7 @@ function decodePeerCredential(
       credential.platform,
       "$.context.authorityConnection.peerCredential.platform"
     ) as NodeJS.Platform,
-    source: credential.source,
+    source: credential.source as AuthorityConnectionContext["peerCredential"]["source"],
     uid: nonNegativeInteger(
       credential.uid,
       "$.context.authorityConnection.peerCredential.uid"
@@ -234,7 +243,7 @@ function decodeCurrentSession(value: unknown): CurrentSessionRef {
   return {
     runtime: session.runtime as CurrentSessionRef["runtime"],
     sessionId: text(session.sessionId, "$.context.currentSession.sessionId"),
-    source: session.source,
+    source: session.source as CurrentSessionRef["source"],
     detectedAt: text(session.detectedAt, "$.context.currentSession.detectedAt"),
     ...(session.user === undefined ? {} : {
       user: text(session.user, "$.context.currentSession.user")
@@ -250,41 +259,7 @@ function decodeExecutor(value: unknown): TaskHolderExecutor | null {
   return { kind: "agent", id: text(executor.id, "$.context.executor.id") };
 }
 
-function jsonObject(value: unknown): RepoWriteJsonObject {
+function progressJsonObject(value: unknown): RepoWriteJsonObject {
   const normalized = JSON.parse(JSON.stringify(value)) as unknown;
   return record(normalized, "$") as RepoWriteJsonObject;
-}
-
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) invalid(path);
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(
-  value: Record<string, unknown>,
-  required: ReadonlyArray<string>,
-  path: string,
-  optional: ReadonlyArray<string> = []
-): void {
-  const allowed = new Set([...required, ...optional]);
-  if (required.some((key) => !Object.hasOwn(value, key))
-    || Object.keys(value).some((key) => !allowed.has(key))) {
-    invalid(path);
-  }
-}
-
-function text(value: unknown, path: string): string {
-  if (typeof value !== "string" || !value.trim() || value.includes("\0")) invalid(path);
-  return value;
-}
-
-function nonNegativeInteger(value: unknown, path: string): number {
-  if (typeof value !== "number"
-    || !Number.isSafeInteger(value)
-    || value < 0) invalid(path);
-  return value;
-}
-
-function invalid(path: string): never {
-  throw new Error(`REPO_WRITE_PROGRESS_CONTEXT_INVALID:${path}`);
 }

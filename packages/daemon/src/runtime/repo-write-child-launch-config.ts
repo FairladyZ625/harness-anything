@@ -1,4 +1,13 @@
 import type { DaemonRuntimePolicy } from "./runtime-policy.ts";
+import { makeRepoWriteStrictCodec } from "./repo-write-strict-codec.ts";
+
+const {
+  record,
+  exactKeys,
+  text,
+  nonNegativeInteger,
+  invalid
+} = makeRepoWriteStrictCodec("REPO_WRITE_CHILD_LAUNCH_CONFIG_INVALID");
 
 export const repoWriteChildLaunchConfigSchema =
   "repo-write-child-launch/v1" as const;
@@ -36,23 +45,39 @@ export function decodeRepoWriteChildLaunchConfig(
   exactKeys(config, [
     "schema", "repoId", "canonicalRoot", "authorityManifest", "userRoot",
     "endpointIdentity", "machineId", "generation", "runtimePolicy"
-  ], ["authoredRoot", "admissionMaxBytes"]);
+  ], "$", ["authoredRoot", "admissionMaxBytes"]);
   if (config.schema !== repoWriteChildLaunchConfigSchema) invalid("$.schema");
   const runtime = record(config.runtimePolicy, "$.runtimePolicy");
-  exactKeys(runtime, ["write", "materializer", "projection", "registry"]);
+  exactKeys(
+    runtime,
+    ["write", "materializer", "projection", "registry"],
+    "$.runtimePolicy"
+  );
   const write = record(runtime.write, "$.runtimePolicy.write");
   exactKeys(write, [
     "lockTtlMs", "interactiveMicroBatchMs", "maxInteractiveOpsPerCommit"
-  ]);
+  ], "$.runtimePolicy.write");
   const materializer = record(
     runtime.materializer,
     "$.runtimePolicy.materializer"
   );
-  exactKeys(materializer, ["pollMs", "maxBranchesPerBatch"]);
+  exactKeys(
+    materializer,
+    ["pollMs", "maxBranchesPerBatch"],
+    "$.runtimePolicy.materializer"
+  );
   const projection = record(runtime.projection, "$.runtimePolicy.projection");
-  exactKeys(projection, ["reconcileIntervalMs"]);
+  exactKeys(
+    projection,
+    ["reconcileIntervalMs"],
+    "$.runtimePolicy.projection"
+  );
   const registry = record(runtime.registry, "$.runtimePolicy.registry");
-  exactKeys(registry, ["reconcileIntervalMs"]);
+  exactKeys(
+    registry,
+    ["reconcileIntervalMs"],
+    "$.runtimePolicy.registry"
+  );
   return {
     schema: repoWriteChildLaunchConfigSchema,
     repoId: text(config.repoId, "$.repoId"),
@@ -112,41 +137,8 @@ export function decodeRepoWriteChildLaunchConfig(
   };
 }
 
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) invalid(path);
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(
-  value: Record<string, unknown>,
-  required: ReadonlyArray<string>,
-  optional: ReadonlyArray<string> = []
-): void {
-  const allowed = new Set([...required, ...optional]);
-  if (required.some((key) => !Object.hasOwn(value, key))
-    || Object.keys(value).some((key) => !allowed.has(key))) invalid("$");
-}
-
-function text(value: unknown, path: string): string {
-  if (typeof value !== "string" || !value.trim() || value.includes("\0")) {
-    invalid(path);
-  }
-  return value;
-}
-
 function positiveInteger(value: unknown, path: string): number {
   const integer = nonNegativeInteger(value, path);
   if (integer === 0) invalid(path);
   return integer;
-}
-
-function nonNegativeInteger(value: unknown, path: string): number {
-  if (typeof value !== "number"
-    || !Number.isSafeInteger(value)
-    || value < 0) invalid(path);
-  return value;
-}
-
-function invalid(path: string): never {
-  throw new Error(`REPO_WRITE_CHILD_LAUNCH_CONFIG_INVALID:${path}`);
 }
