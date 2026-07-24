@@ -390,6 +390,7 @@ test("CLI task complete help explains the resolved completion contract", () => {
 
     assert.match(output, /exactly one submitted Execution and an approved typed Review/u);
     assert.match(output, /legacy review\.md is only a compatibility blocker check/u);
+    assert.match(output, /ha task retire-execution <id> --execution-id <execution-id> --reason <reason>/u);
     assert.match(output, /Pass --ci only when the contract declares ci/u);
     assert.match(output, /Facts are never a quantity gate/u);
   });
