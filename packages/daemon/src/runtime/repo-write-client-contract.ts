@@ -7,6 +7,8 @@ import type {
   RepoWriteProtocolViolationError
 } from "./repo-write-client-errors.ts";
 
+export const defaultRepoWriteRequestTimeoutMs = 30_000;
+
 export interface RepoWriteClientTransport {
   /**
    * A synchronous throw means the frame was definitely not sent. Asynchronous

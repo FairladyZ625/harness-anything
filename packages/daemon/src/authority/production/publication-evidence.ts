@@ -274,13 +274,19 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       .filter(Boolean)
       .map(canonicalGitPath)
       .sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
-    const physicalChanges = changedPaths.map((changedPath) => ({
-      path: changedPath,
-      beforeDigest: expectedPreviousHead ? blobDigest(rootDir, expectedPreviousHead, changedPath) : null,
-      afterDigest: blobDigest(rootDir, head, changedPath)
-    })).sort((left, right) => Buffer.compare(
-      Buffer.from(encodeCanonicalCbor(left)),
-      Buffer.from(encodeCanonicalCbor(right))
+    const physicalChanges: PhysicalChangeV2[] = [];
+    for (const changedPath of changedPaths) {
+      physicalChanges.push({
+        path: changedPath,
+        beforeDigest: expectedPreviousHead
+          ? await blobDigestAsync(rootDir, expectedPreviousHead, changedPath)
+          : null,
+        afterDigest: await blobDigestAsync(rootDir, head, changedPath)
+      });
+    }
+    physicalChanges.sort((left, right) => Buffer.compare(
+      Buffer.from(encodeCanonicalCbor({ ...left })),
+      Buffer.from(encodeCanonicalCbor({ ...right }))
     ));
     const pipelineGeneratedPaths = expectedOpIds.map((opId) => `attribution-events/${sha256Text(opId)}.jsonl`);
     const observedPipelinePaths = changedPaths.filter((changedPath) => changedPath.startsWith("attribution-events/"));
@@ -463,9 +469,14 @@ function publicationTreeMismatchError(
   ].join(";"));
 }
 
-function blobDigest(rootDir: string, revision: string, changedPath: string): string | null {
+async function blobDigestAsync(
+  rootDir: string,
+  revision: string,
+  changedPath: string
+): Promise<string | null> {
   try {
-    return createHash("sha256").update(readAuthorityGitBytes(rootDir, "show", `${revision}:${changedPath}`)).digest("hex");
+    const bytes = await publicationGitBytesAsync(rootDir, "show", `${revision}:${changedPath}`);
+    return createHash("sha256").update(bytes).digest("hex");
   } catch {
     return null;
   }
@@ -492,6 +503,15 @@ function publicationGitText(rootDir: string, ...args: ReadonlyArray<string>): st
 }
 
 const execFileAsync = promisify(execFile);
+
+async function publicationGitBytesAsync(rootDir: string, ...args: ReadonlyArray<string>): Promise<Buffer> {
+  const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
+    encoding: "buffer",
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024
+  });
+  return stdout;
+}
 
 async function publicationGitTextAsync(rootDir: string, ...args: ReadonlyArray<string>): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
