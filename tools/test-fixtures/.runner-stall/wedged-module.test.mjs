@@ -6,7 +6,7 @@ import test from "node:test";
 // without burning a core. Only the stall escalation in
 // tools/run-node-tests.mjs can end this run.
 if (["chatter", "wedge"].includes(process.env.HARNESS_RUNNER_STALL_FIXTURE)) {
-  process.title = "ha-node-test-wedge tools/test-fixtures/runner-stall/wedged-module.fixture.mjs";
+  process.title = "ha-node-test-wedge tools/test-fixtures/.runner-stall/wedged-module.test.mjs";
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 }
 

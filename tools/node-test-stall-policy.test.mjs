@@ -27,7 +27,7 @@ test("stable isolation evidence aborts even when another test keeps producing ou
   const policy = createPolicy();
   const candidate = {
     pid: 42,
-    files: ["tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"]
+    files: ["tools/test-fixtures/.runner-stall/wedged-module.test.mjs"]
   };
 
   assert.equal(policy.tick({ at: 250, isolationCandidates: [candidate] }).abort, null);
@@ -40,7 +40,7 @@ test("stable isolation evidence aborts even when another test keeps producing ou
     abort: {
       kind: "isolation-wedge",
       isolationChildPid: 42,
-      files: ["tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"],
+      files: ["tools/test-fixtures/.runner-stall/wedged-module.test.mjs"],
       silentMs: 500,
       silentWindows: 2
     }
@@ -51,7 +51,7 @@ test("aggregate silence wins when Linux exposes the isolation signature too late
   const policy = createPolicy();
   const lateCandidate = {
     pid: 43,
-    files: ["tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs"]
+    files: ["tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs"]
   };
 
   for (const at of [250, 500, 750]) {

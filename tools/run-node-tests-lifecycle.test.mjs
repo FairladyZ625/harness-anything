@@ -25,7 +25,7 @@ test("terminating the runner also terminates its detached test process group", {
   let testHostPid;
   const runner = spawn(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/wedged-module.test.mjs",
     "--test-timeout", "60000"
   ], {
     cwd: repoRoot,

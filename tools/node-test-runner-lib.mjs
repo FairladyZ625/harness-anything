@@ -175,13 +175,13 @@ function normalizeTestPrefix(value) {
 
 function normalizeRunnerFixture(value) {
   if (
-    !value.startsWith("tools/test-fixtures/")
+    !/^tools\/test-fixtures\/\.runner-(?:stall|timeout)\//u.test(value)
     || value.startsWith("/")
     || value.split("/").includes("..")
     || value.includes("\\")
-    || !value.endsWith(".fixture.mjs")
+    || !value.endsWith(".test.mjs")
   ) {
-    throw new Error(`--fixture must name a tools/test-fixtures/*.fixture.mjs file; received ${JSON.stringify(value)}`);
+    throw new Error(`--fixture must name a hidden tools/test-fixtures/.runner-*/*.test.mjs file; received ${JSON.stringify(value)}`);
   }
   return value;
 }

@@ -70,7 +70,7 @@ test("runner bounds a non-terminating test and prints timeout next steps", () =>
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-timeout/intentional-hang.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-timeout/intentional-hang.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -122,7 +122,7 @@ test("runner ends a run wedged outside any test body and names what it caught", 
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/wedged-module.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -140,7 +140,7 @@ test("runner ends a run wedged outside any test body and names what it caught", 
   assert.doesNotMatch(output, /test timed out after \d+ms/u);
   assertNamedStallTermination(
     output,
-    "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"
+    "tools/test-fixtures/.runner-stall/wedged-module.test.mjs"
   );
 });
 
@@ -159,8 +159,8 @@ test("runner detects a wedged isolation child while another file keeps producing
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/chatter.fixture.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/chatter.test.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/wedged-module.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -175,7 +175,7 @@ test("runner detects a wedged isolation child while another file keeps producing
   assert.match(output, /runner chatter \d+/u);
   assertNamedStallTermination(
     output,
-    "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"
+    "tools/test-fixtures/.runner-stall/wedged-module.test.mjs"
   );
 });
 
@@ -190,7 +190,7 @@ test("runner preserves a real test failure without classifying it as a wedge", (
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -222,7 +222,7 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -236,7 +236,7 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
   assert.equal(result.status, 1, output);
   assertNamedStallTermination(
     output,
-    "tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs"
+    "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs"
   );
 });
 
@@ -255,7 +255,7 @@ test("runner reaps a child only after its file summary is complete", {
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
-    "--fixture", "tools/test-fixtures/runner-stall/post-complete-wedge.fixture.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/post-complete-wedge.test.mjs",
     "--test-timeout", "1000"
   ], {
     cwd: repoRoot,
@@ -268,7 +268,7 @@ test("runner reaps a child only after its file summary is complete", {
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
   assert.match(output, /✔ post-complete wedge fixture passes before native-style exit deadlock/u);
-  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/runner-stall\/post-complete-wedge\.fixture\.mjs signal=SIGKILL/u);
+  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs signal=SIGKILL/u);
   assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated SIGKILL file failure/u);
 });
 
@@ -284,9 +284,9 @@ test("parseRunnerArgs accepts only explicit runner fixture paths", () => {
   assert.deepEqual(
     parseRunnerArgs([
       "--fixture",
-      "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"
+      "tools/test-fixtures/.runner-stall/wedged-module.test.mjs"
     ], testTierNames).fixtures,
-    ["tools/test-fixtures/runner-stall/wedged-module.fixture.mjs"]
+    ["tools/test-fixtures/.runner-stall/wedged-module.test.mjs"]
   );
   assert.throws(
     () => parseRunnerArgs(["--fixture", "packages/kernel/test/domain.test.ts"], testTierNames),
@@ -295,7 +295,7 @@ test("parseRunnerArgs accepts only explicit runner fixture paths", () => {
   assert.throws(
     () => parseRunnerArgs([
       "--fixture",
-      "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs",
+      "tools/test-fixtures/.runner-stall/wedged-module.test.mjs",
       "--prefix",
       "tools"
     ], testTierNames),
@@ -317,7 +317,6 @@ test("Linux process snapshots distinguish a futex-wedged isolation child", () =>
   });
   assert.equal(hasIsolationWedgeSignature(member), true);
   assert.deepEqual(testFilesFromProcessCommand(member.command, repoRoot), ["tools/graph-panorama.test.mjs"]);
-
   const healthy = parsePosixProcessGroupLine(
     " 8775 2519 2519 Sl 00:01 ep_poll /opt/node/bin/node --test-isolation=process tools/healthy.test.mjs",
     "linux"
@@ -441,10 +440,10 @@ test("intentional runner hang fixtures stay outside every production test tier",
   const manifest = discoverTestTierManifest(repoRoot);
   const discovered = Object.values(manifest).flat();
   const fixtures = [
-    "tools/test-fixtures/runner-stall/chatter.fixture.mjs",
-    "tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs",
-    "tools/test-fixtures/runner-stall/wedged-module.fixture.mjs",
-    "tools/test-fixtures/runner-timeout/intentional-hang.fixture.mjs"
+    "tools/test-fixtures/.runner-stall/chatter.test.mjs",
+    "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs",
+    "tools/test-fixtures/.runner-stall/wedged-module.test.mjs",
+    "tools/test-fixtures/.runner-timeout/intentional-hang.test.mjs"
   ];
 
   assert.deepEqual(discovered.filter((file) => fixtures.includes(file)), []);

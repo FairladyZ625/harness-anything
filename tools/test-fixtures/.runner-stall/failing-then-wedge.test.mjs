@@ -3,7 +3,7 @@ import { after, test } from "node:test";
 
 if (process.env.HARNESS_RUNNER_STALL_FIXTURE === "failing-wedge") {
   after(() => {
-    process.title = "ha-node-test-wedge tools/test-fixtures/runner-stall/failing-then-wedge.fixture.mjs";
+    process.title = "ha-node-test-wedge tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs";
     const signal = new Int32Array(new SharedArrayBuffer(4));
     Atomics.wait(signal, 0, 0);
   });
