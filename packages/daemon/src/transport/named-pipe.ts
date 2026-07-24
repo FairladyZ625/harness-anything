@@ -27,12 +27,14 @@ export interface NamedPipeTransportOptions {
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
   readonly acceptSshForcedCommand?: boolean | AcceptSshForcedCommand;
+  readonly deferConnectionsUntilActivated?: boolean;
 }
 
 export interface NamedPipeTransportServer {
   readonly kind: "named-pipe";
   readonly endpoint: string;
   readonly start: () => Promise<void>;
+  readonly activate: () => Promise<void>;
   readonly stop: () => Promise<void>;
 }
 
@@ -62,10 +64,19 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
   const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
     ?? createNodeSocketAcceptedConnectionEvidenceAdapter({ platform, transportKind: "named-pipe" });
   const sockets = new Set<net.Socket>();
+  const pendingSockets = new Set<net.Socket>();
+  let activated = options.deferConnectionsUntilActivated !== true;
   const server = net.createServer((socket) => {
     sockets.add(socket);
-    socket.once("close", () => sockets.delete(socket));
-    void acceptNamedPipeConnection(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+      pendingSockets.delete(socket);
+    });
+    if (activated) {
+      void acceptNamedPipeConnection(socket);
+    } else {
+      pendingSockets.add(socket);
+    }
   });
 
   async function acceptNamedPipeConnection(socket: net.Socket): Promise<void> {
@@ -127,6 +138,18 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
           resolve();
         });
       });
+    },
+    activate: async () => {
+      if (activated) return;
+      activated = true;
+      const accepting: Promise<void>[] = [];
+      for (const socket of pendingSockets) {
+        pendingSockets.delete(socket);
+        if (!socket.destroyed) {
+          accepting.push(acceptNamedPipeConnection(socket));
+        }
+      }
+      await Promise.all(accepting);
     },
     stop: async () => {
       await gracefullyCloseSocketServer(server, sockets);

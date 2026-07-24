@@ -10,6 +10,7 @@ import {
 import {
   committedTerminalOutcomeForAxes,
   committedTerminalOutcome,
+  committedCommandReceipt,
   rejectedCommandReceipt,
   rejectedTerminalOutcome
 } from "./support/repo-write-terminal-fixture.ts";
@@ -95,6 +96,41 @@ for (const mismatch of [
 
 test("canonical lookup rejects proof-valid terminal data with mismatched outer identity", async () => {
   await assertStatusLookupFails(committedTerminalOutcome("op-other"));
+});
+
+test("canonical lookup returns a proof-valid historical terminal from an earlier generation", async () => {
+  const messages: RepoWriteChildMessage[] = [];
+  const receipt = committedCommandReceipt();
+  const host = createRepoWriteChildHost({
+    repoId: "repo-canonical",
+    workspaceId: "workspace-canonical",
+    generation: 3,
+    transport: { send: (message) => messages.push(message) },
+    hooks: {
+      prepare: async () => {
+        throw new Error("not used");
+      },
+      lookup: async () => ({
+        state: "terminal",
+        outcome: committedTerminalOutcomeForAxes(
+          "op-historical",
+          { generation: 2 }
+        )
+      }),
+      shutdown: async () => undefined
+    }
+  });
+  await host.start();
+  await host.receive(status("status-historical", "op-historical"));
+
+  assert.deepEqual(messages.at(-1), {
+    ...childBase("status"),
+    requestId: "status-historical",
+    opId: "op-historical",
+    state: "committed",
+    outcome: "committed",
+    receipt
+  });
 });
 
 for (const mismatch of [

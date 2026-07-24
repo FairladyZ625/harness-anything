@@ -28,6 +28,16 @@ import { makeDaemonReservationReconciler } from "./reservation-reconciler.ts";
 import { recordDaemonStarted, recordDaemonTerminated } from "./daemon-lifecycle.ts";
 import { prepareDaemonGenerationForServe } from "./daemon-generation.ts";
 import { resolveDaemonRuntimePolicy, type DaemonRuntimePolicy } from "../runtime/runtime-policy.ts";
+import {
+  forkRepoWriteProcess
+} from "../runtime/repo-write-child-process-transport.ts";
+import {
+  RepoWriteProcessSupervisor
+} from "../runtime/repo-write-process-supervisor.ts";
+import {
+  encodeRepoWriteChildLaunchConfig,
+  repoWriteChildLaunchConfigSchema
+} from "../runtime/repo-write-child-launch-config.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -73,6 +83,18 @@ export async function runDaemonServe<
   const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
   const startedAt = new Date().toISOString();
   const runtimePolicy = input.runtimePolicy ?? resolveDaemonRuntimePolicy();
+  const productionChildCutover = authorityManifest !== undefined
+    && hooks.authorityLifecycle === undefined;
+  const cutoverManifest = productionChildCutover && authorityManifest
+    ? loadAuthorityProductionManifest(authorityManifest)
+    : undefined;
+  const activeServeRepos = cutoverManifest
+    ? serveRepos.filter((repo) => cutoverManifest.repos.some((configured) =>
+      configured.repoId === repo.repoId))
+    : serveRepos;
+  if (!activeServeRepos.some((repo) => repo.repoId === defaultRepoId)) {
+    throw new Error(`REPO_WRITE_CHILD_REPO_NOT_CONFIGURED:${defaultRepoId}`);
+  }
 
   return withDaemonSocketOwnership(endpoint, async () => {
     const daemonLogService = makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
@@ -81,13 +103,17 @@ export async function runDaemonServe<
     let transport: ReturnType<typeof createDaemonLocalTransport> | undefined;
     let transportStarted = false;
     let lifecycleStarted = false;
+    let writerChildrenOwnedByHost = false;
+    const repoWriteSupervisors =
+      new Map<string, RepoWriteProcessSupervisor>();
     let terminalReason: string | undefined;
     let terminalClean = false;
     let terminalMessage: string | undefined;
     let failure: unknown;
     try {
       const connections = { active: 0, total: 0 };
-      const authorityLifecycle = hooks.authorityLifecycle ?? (authorityManifest
+      const authorityLifecycle = hooks.authorityLifecycle ?? (
+        authorityManifest && !productionChildCutover
         ? serveHostServices.createAuthorityLifecycle({
           manifestPath: authorityManifest,
           daemonLogService,
@@ -117,7 +143,8 @@ export async function runDaemonServe<
         onConnectionClosed: () => {
           connections.active = Math.max(0, connections.active - 1);
           serviceHost?.onConnectionSettled();
-        }
+        },
+        deferConnectionsUntilActivated: true
       });
       await transport.start();
       transportStarted = true;
@@ -155,6 +182,7 @@ export async function runDaemonServe<
         } : {})
       });
       runtime = createMultiRepoDaemonRuntime({
+        ...(productionChildCutover ? { writeOwnership: "reader" as const } : {}),
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
         lockTtlMs: runtimePolicy.write.lockTtlMs,
         interactiveMicroBatchMs: runtimePolicy.write.interactiveMicroBatchMs,
@@ -175,10 +203,11 @@ export async function runDaemonServe<
         } : {}),
         reservationReconciler: async (rootInput) => {
           const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;
-          const repoId = serveRepos.find((repo) => repo.canonicalRoot === canonicalRoot)?.repoId;
+          const repoId = activeServeRepos.find((repo) =>
+            repo.canonicalRoot === canonicalRoot)?.repoId;
           return makeDaemonReservationReconciler(rootInput, repoId ? runtime?.getRepoRuntime(repoId) : undefined)();
         },
-        repos: serveRepos.map((repo) => ({
+        repos: activeServeRepos.map((repo) => ({
           repoId: repo.repoId,
           rootDir: repo.canonicalRoot,
           displayName: repo.displayName,
@@ -189,9 +218,62 @@ export async function runDaemonServe<
       if (startStatus.repoCount > 0 && startStatus.attachedCount === 0 && startStatus.unavailableCount > 0) {
         throw new Error(`daemon did not attach any registered repo: ${startStatus.repos.map((repo) => `${repo.repoId}:${repo.lastError ?? repo.state}`).join("; ")}`);
       }
+      if (productionChildCutover) {
+        if (generation.mode !== "generation" || !authorityManifest) {
+          throw new Error(
+            "REPO_WRITE_CHILD_REQUIRES_DURABLE_DAEMON_GENERATION"
+          );
+        }
+        for (const repo of activeServeRepos) {
+          const configured = cutoverManifest?.repos.find((candidate) =>
+            candidate.repoId === repo.repoId);
+          if (!configured) {
+            throw new Error(
+              `REPO_WRITE_CHILD_REPO_NOT_CONFIGURED:${repo.repoId}`
+            );
+          }
+          const supervisor = new RepoWriteProcessSupervisor({
+            repoId: repo.repoId,
+            generation: generation.daemonGeneration,
+            spawn: () => forkRepoWriteProcess({
+              modulePath: input.entrypoint,
+              args: [
+                "__repo-write-child",
+                encodeRepoWriteChildLaunchConfig({
+                  schema: repoWriteChildLaunchConfigSchema,
+                  repoId: repo.repoId,
+                  canonicalRoot: repo.canonicalRoot,
+                  ...(layoutOverrides?.authoredRoot ? {
+                    authoredRoot: layoutOverrides.authoredRoot
+                  } : {}),
+                  authorityManifest,
+                  userRoot,
+                  endpointIdentity: endpoint,
+                  machineId: generation.machineId,
+                  generation: generation.daemonGeneration,
+                  runtimePolicy,
+                  ...(input.admissionMaxBytes === undefined ? {} : {
+                    admissionMaxBytes: input.admissionMaxBytes
+                  })
+                })
+              ],
+              cwd: repo.canonicalRoot,
+              env: {
+                ...process.env,
+                HARNESS_DAEMON_SERVER_HOST: "1"
+              }
+            })
+          });
+          repoWriteSupervisors.set(repo.repoId, supervisor);
+        }
+        await Promise.all(
+          [...repoWriteSupervisors.values()].map((supervisor) =>
+            supervisor.start())
+        );
+      }
       serviceHost = await createDaemonServiceHost(
         runtime,
-        serveRepos,
+        activeServeRepos,
         defaultRepoId,
         layoutOverrides,
         input.idleMs,
@@ -211,8 +293,11 @@ export async function runDaemonServe<
         },
         serviceHostServices,
         authorityLifecycle,
-        daemonLogService
+        daemonLogService,
+        productionChildCutover ? repoWriteSupervisors : undefined
       );
+      writerChildrenOwnedByHost = productionChildCutover;
+      await transport.activate();
       serviceHost.onStop(async () => {
         if (!transportStarted || !transport) return;
         transportStarted = false;
@@ -225,7 +310,12 @@ export async function runDaemonServe<
         ...(authorityManifest ? { authorityManifest } : {}),
         ...(input.authoredRoot ? { authoredRoot: input.authoredRoot } : {})
       });
-      serviceHost.startRegistryReconcile(userRoot, runtimePolicy.registry.reconcileIntervalMs);
+      if (!productionChildCutover) {
+        serviceHost.startRegistryReconcile(
+          userRoot,
+          runtimePolicy.registry.reconcileIntervalMs
+        );
+      }
       await recordDaemonStarted({
         userRoot,
         logService: daemonLogService,
@@ -260,6 +350,12 @@ export async function runDaemonServe<
         }
       } finally {
         if (!stoppedByHost && serviceHost && runtime) await runtime.stop();
+        if (!writerChildrenOwnedByHost && repoWriteSupervisors.size > 0) {
+          await Promise.allSettled(
+            [...repoWriteSupervisors.values()].map((supervisor) =>
+              supervisor.stop())
+          );
+        }
         if (transportStarted && transport) {
           transportStarted = false;
           await transport.stop();

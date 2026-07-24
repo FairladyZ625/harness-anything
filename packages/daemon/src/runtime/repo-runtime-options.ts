@@ -37,6 +37,11 @@ export interface DaemonDrainOptions {
 
 export interface DaemonRuntimeOptions {
   readonly rootDir: string;
+  /**
+   * Reader runtimes serve projections only. Every write-capable port remains
+   * fail-closed so a child capsule can be the sole global-lock owner.
+   */
+  readonly writeOwnership?: "writer" | "reader";
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly operationalActor?: OperationalActor;
   readonly lockTtlMs?: number;
@@ -70,6 +75,7 @@ export interface DaemonRuntimeOptions {
 export interface DaemonRuntimeStatus {
   readonly started: boolean;
   readonly rootDir: string;
+  readonly writeOwnership?: "writer" | "reader";
   readonly lockPath?: string;
   readonly lockOwnerToken?: string;
   readonly queue: DaemonQueueSnapshot;

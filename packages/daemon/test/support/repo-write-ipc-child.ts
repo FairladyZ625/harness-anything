@@ -49,6 +49,22 @@ if (mode === "exit") {
       }));
       return;
     }
+    if (message.kind === "proceed") {
+      if (mode === "crash-after-proceed") {
+        process.exit(24);
+      }
+      void transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: message.repoId,
+        generation: message.generation,
+        kind: "terminal",
+        requestId: message.requestId,
+        opId: message.opId,
+        outcome: "committed",
+        receipt: committedCommandReceipt("transport submission")
+      });
+      return;
+    }
     if (message.kind === "shutdown") {
       void transport.send({
         protocol: repoWriteProtocolType,

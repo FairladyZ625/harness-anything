@@ -41,6 +41,7 @@ export interface UnixSocketTransportOptions {
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
   readonly acceptSshForcedCommand?: boolean | AcceptSshForcedCommand;
   readonly authorityWireIngress?: AuthorityWireIngressHandler;
+  readonly deferConnectionsUntilActivated?: boolean;
 }
 
 export interface UnixSocketPathOptions {
@@ -55,6 +56,7 @@ export interface UnixSocketTransportServer {
   readonly kind: "unix-socket";
   readonly endpoint: string;
   readonly start: () => Promise<void>;
+  readonly activate: () => Promise<void>;
   readonly stop: () => Promise<void>;
 }
 
@@ -131,10 +133,19 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
   const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
     ?? createNodeSocketAcceptedConnectionEvidenceAdapter();
   const sockets = new Set<net.Socket>();
+  const pendingSockets = new Set<net.Socket>();
+  let activated = options.deferConnectionsUntilActivated !== true;
   const server = net.createServer((socket) => {
     sockets.add(socket);
-    socket.once("close", () => sockets.delete(socket));
-    void acceptUnixSocket(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+      pendingSockets.delete(socket);
+    });
+    if (activated) {
+      void acceptUnixSocket(socket);
+    } else {
+      pendingSockets.add(socket);
+    }
   });
 
   async function acceptUnixSocket(socket: net.Socket): Promise<void> {
@@ -204,6 +215,16 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
           resolve();
         });
       });
+    },
+    activate: async () => {
+      if (activated) return;
+      activated = true;
+      const accepting: Promise<void>[] = [];
+      for (const socket of pendingSockets) {
+        pendingSockets.delete(socket);
+        if (!socket.destroyed) accepting.push(acceptUnixSocket(socket));
+      }
+      await Promise.all(accepting);
     },
     stop: async () => {
       await gracefullyCloseSocketServer(server, sockets);

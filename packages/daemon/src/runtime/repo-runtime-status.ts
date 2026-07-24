@@ -4,6 +4,7 @@ export function toDaemonRuntimeStatus(status: DaemonRepoRuntimeStatus): DaemonRu
   return {
     started: status.started,
     rootDir: status.rootDir,
+    writeOwnership: status.writeOwnership,
     ...(status.lockPath ? { lockPath: status.lockPath, lockOwnerToken: status.lockOwnerToken } : {}),
     queue: status.queue,
     projectionGeneration: status.projectionGeneration,

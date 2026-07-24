@@ -48,6 +48,7 @@ export interface DaemonLocalTransportOptions {
   ) => JsonRpcProtocolServer;
   readonly acceptSshForcedCommand: (frame: SshAuthenticatedBootstrapFrame) => boolean;
   readonly authorityWireIngress?: AuthorityWireIngressHandler;
+  readonly deferConnectionsUntilActivated?: boolean;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
@@ -65,7 +66,9 @@ export function createDaemonLocalTransport(
       acceptSshForcedCommand: options.acceptSshForcedCommand,
       createProtocolServer: options.createProtocolServer,
       onConnection: options.onConnection,
-      onConnectionClosed: options.onConnectionClosed
+      onConnectionClosed: options.onConnectionClosed,
+      deferConnectionsUntilActivated:
+        options.deferConnectionsUntilActivated
     });
   }
   return createUnixSocketTransportServer({
@@ -75,7 +78,9 @@ export function createDaemonLocalTransport(
     authorityWireIngress: options.authorityWireIngress,
     createProtocolServer: options.createProtocolServer,
     onConnection: options.onConnection,
-    onConnectionClosed: options.onConnectionClosed
+    onConnectionClosed: options.onConnectionClosed,
+    deferConnectionsUntilActivated:
+      options.deferConnectionsUntilActivated
   });
 }
 

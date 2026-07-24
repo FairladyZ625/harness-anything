@@ -297,6 +297,15 @@ function exactReceipt(
     action: proceeding.receiptSeed.action,
     details: {
       ...(receipt.details ?? {}),
+      data: {
+        ...receiptDetailsData(receipt),
+        repoWrite: {
+          schema: "repo-write-recovery/v1",
+          repoId: proceeding.repoId,
+          generation: proceeding.generation,
+          outerOpId: proceeding.outerOpId
+        }
+      },
       actor: proceeding.canonicalCommand.actor
     },
     meta: {
@@ -304,6 +313,15 @@ function exactReceipt(
       generatedAt: proceeding.receiptSeed.generatedAt
     }
   };
+}
+
+function receiptDetailsData(
+  receipt: CommandReceiptEnvelope
+): Record<string, import("./repo-write-protocol.ts").RepoWriteJsonValue> {
+  const data = receipt.details?.data;
+  return data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, import("./repo-write-protocol.ts").RepoWriteJsonValue>
+    : {};
 }
 
 function terminalEvidence(

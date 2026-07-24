@@ -146,6 +146,12 @@ operationTest("progress pilot orders outer fsync before read-only lease and inne
     ]);
     assert.equal(terminal.receipt.meta.generatedAt, "2026-07-24T00:00:00.000Z");
     assert.equal(terminal.receipt.details?.actor?.personId, actor.personId);
+    assert.deepEqual(terminal.receipt.details?.data?.repoWrite, {
+      schema: "repo-write-recovery/v1",
+      repoId: axes().repoId,
+      generation: axes().generation,
+      outerOpId: prepared.opId
+    });
     const restarted = new DurableRepoWriteOutcomeStoreV1({
       directory: outcomeDirectory,
       ...axes()
