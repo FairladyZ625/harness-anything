@@ -43,6 +43,8 @@ export interface AuthorityAttributionEventV2Log {
   readonly read: (workspaceId: string, opId: string) => AttributionEventV2 | undefined;
   readonly readBytes: (workspaceId: string, opId: string) => Uint8Array | undefined;
   readonly readAll: () => ReadonlyArray<AttributionEventV2>;
+  readonly verifyIntegrity: () => number;
+  readonly verifyShards: (fileNames: ReadonlyArray<string>) => number;
   readonly scanIntegrity: () => AuthorityAttributionEventV2IntegrityReport;
   readonly recoverFromOperationRecord: <RecordType extends RecoverableAuthorityOperationRecordV2>(
     input: Omit<RecoverAuthorityAttributionEventV2Input<RecordType>, "log">
@@ -57,6 +59,8 @@ export function makeLocalAuthorityAttributionEventV2Log(
     read: (workspaceId, opId) => readAuthorityAttributionEventV2(rootInput, workspaceId, opId),
     readBytes: (workspaceId, opId) => readAuthorityAttributionEventV2Bytes(rootInput, workspaceId, opId),
     readAll: () => readAllAuthorityAttributionEventsV2(rootInput),
+    verifyIntegrity: () => readAllAuthorityAttributionEventsV2(rootInput).length,
+    verifyShards: (fileNames) => verifyAuthorityAttributionEventV2Shards(rootInput, fileNames),
     scanIntegrity: () => scanAuthorityAttributionEventV2Integrity(rootInput),
     recoverFromOperationRecord: (input) => recoverAuthorityAttributionEventV2FromOperationRecord({
       ...input,
@@ -129,12 +133,7 @@ function readAllAuthorityAttributionEventsV2(
   const events = localLayoutFileSystem.readDirents(root)
     .filter((entry) => !entry.isDirectory() && entry.name.endsWith(".jsonl"))
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map((entry) => {
-      const eventPath = path.join(root, entry.name);
-      const event = decodeAuthorityAttributionEventV2Bytes(readFileBytes(eventPath));
-      assertEventKey(rootInput, event, event.workspaceId, event.opId, eventPath);
-      return event;
-    });
+    .map((entry) => readAuthorityAttributionEventV2Shard(rootInput, entry.name));
   const keys = new Set<string>();
   for (const event of events) {
     const key = `${event.workspaceId}\0${event.opId}`;
@@ -145,6 +144,36 @@ function readAllAuthorityAttributionEventsV2(
     left.revision - right.revision
       || left.workspaceId.localeCompare(right.workspaceId)
       || left.opId.localeCompare(right.opId));
+}
+
+function verifyAuthorityAttributionEventV2Shards(
+  rootInput: HarnessLayoutInput,
+  fileNames: ReadonlyArray<string>
+): number {
+  const keys = new Set<string>();
+  for (const fileName of fileNames) {
+    const event = readAuthorityAttributionEventV2Shard(rootInput, fileName);
+    const key = `${event.workspaceId}\0${event.opId}`;
+    if (keys.has(key)) {
+      throw authorityAttributionEventV2ProtocolDamage(`duplicate durable V2 key (${event.workspaceId}, ${event.opId})`);
+    }
+    keys.add(key);
+  }
+  return keys.size;
+}
+
+function readAuthorityAttributionEventV2Shard(
+  rootInput: HarnessLayoutInput,
+  fileName: string
+): AttributionEventV2 {
+  if (path.basename(fileName) !== fileName || !fileName.endsWith(".jsonl")) {
+    throw authorityAttributionEventV2ProtocolDamage(`invalid durable V2 shard name (${fileName})`);
+  }
+  const root = resolveHarnessLayout(rootInput).authorityAttributionEventsV2Root;
+  const eventPath = path.join(root, fileName);
+  const event = decodeAuthorityAttributionEventV2Bytes(readFileBytes(eventPath));
+  assertEventKey(rootInput, event, event.workspaceId, event.opId, eventPath);
+  return event;
 }
 
 function scanAuthorityAttributionEventV2Integrity(
