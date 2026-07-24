@@ -9,7 +9,10 @@ import {
 } from "@harness-anything/application";
 import type { AuthoritySnapshotManifestEntry } from "./protocol.ts";
 import type { DurableAuthorityStateTable } from "./production/service-state.ts";
-import { readAuthorityGitBytes } from "./production/publication-evidence.ts";
+import {
+  readAuthorityGitBatchBytes,
+  readAuthorityGitBytes
+} from "./production/publication-evidence.ts";
 
 type ReplicaChangeDraft = Parameters<ReplicaChangeLog["append"]>[0];
 type ReplicaFileMode = NonNullable<ReplicaChangeRecord["paths"][number]["mode"]>;
@@ -167,18 +170,26 @@ function readGitEntries(
   persistBlob: (bytes: Uint8Array) => Sha256Digest
 ): ReadonlyArray<AuthoritySnapshotManifestEntry> {
   const listing = readAuthorityGitBytes(root, "ls-tree", "-r", "-z", "--full-tree", commitSha);
-  const entries = splitNul(listing).map((row) => {
+  const rows = splitNul(listing).map((row) => {
     const separator = row.indexOf(0x09);
     const metadata = separator >= 0 ? row.subarray(0, separator).toString("ascii") : "";
     const match = /^(100644|100755|120000) blob ([0-9a-f]+)$/u.exec(metadata);
     if (!match || separator < 0) throw new Error(`RESYNC_REQUIRED:UNSUPPORTED_GIT_TREE_ENTRY:${metadata.slice(0, 80)}`);
     const pathBytes = row.subarray(separator + 1);
-    const pathName = decodePortableGitPath(pathBytes);
-    const bytes = readAuthorityGitBytes(root, "cat-file", "blob", match[2]!);
     return {
-      path: pathName,
+      path: decodePortableGitPath(pathBytes),
+      objectId: match[2]!,
+      mode: match[1] as ReplicaFileMode
+    };
+  });
+  const blobs = readGitBlobBatch(root, rows.map((row) => row.objectId));
+  const entries = rows.map((row) => {
+    const bytes = blobs.get(row.objectId);
+    if (!bytes) throw new Error(`RESYNC_REQUIRED:GIT_BLOB_MISSING:${row.objectId}`);
+    return {
+      path: row.path,
       blobDigest: persistBlob(bytes),
-      mode: match[1] as ReplicaFileMode,
+      mode: row.mode,
       tombstone: false as const
     };
   }).sort(compareEntries);
@@ -189,6 +200,45 @@ function readGitEntries(
     portableKeys.add(portableKey);
   }
   return entries;
+}
+
+function readGitBlobBatch(
+  root: string,
+  objectIds: ReadonlyArray<string>
+): ReadonlyMap<string, Buffer> {
+  const blobs = new Map<string, Buffer>();
+  const unique = [...new Set(objectIds)];
+  for (let start = 0; start < unique.length; start += 512) {
+    const batch = unique.slice(start, start + 512);
+    const output = readAuthorityGitBatchBytes(
+      root,
+      ["cat-file", "--batch"],
+      Buffer.from(`${batch.join("\n")}\n`, "ascii")
+    );
+    let offset = 0;
+    for (const objectId of batch) {
+      const headerEnd = output.indexOf(0x0a, offset);
+      if (headerEnd < 0) throw new Error("RESYNC_REQUIRED:GIT_BLOB_BATCH_HEADER");
+      const header = output.subarray(offset, headerEnd).toString("ascii");
+      const match = /^([0-9a-f]+) blob ([0-9]+)$/u.exec(header);
+      if (!match || match[1] !== objectId) {
+        throw new Error(`RESYNC_REQUIRED:GIT_BLOB_BATCH_ID:${objectId}`);
+      }
+      const byteLength = Number(match[2]);
+      const contentStart = headerEnd + 1;
+      const contentEnd = contentStart + byteLength;
+      if (!Number.isSafeInteger(byteLength)
+        || byteLength < 0
+        || contentEnd >= output.length
+        || output[contentEnd] !== 0x0a) {
+        throw new Error(`RESYNC_REQUIRED:GIT_BLOB_BATCH_LENGTH:${objectId}`);
+      }
+      blobs.set(objectId, Buffer.from(output.subarray(contentStart, contentEnd)));
+      offset = contentEnd + 1;
+    }
+    if (offset !== output.length) throw new Error("RESYNC_REQUIRED:GIT_BLOB_BATCH_TRAILING");
+  }
+  return blobs;
 }
 
 function splitNul(value: Uint8Array): ReadonlyArray<Buffer> {

@@ -15,6 +15,10 @@ import {
   type PhysicalChangeV2,
   type SemanticMutationSetV2
 } from "@harness-anything/kernel";
+import {
+  publicationSubjectOperationIds,
+  scanFirstParentPublicationMetadata
+} from "./publication-history.ts";
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",
@@ -161,7 +165,48 @@ function repoRelativePath(repoRoot: string, filePath: string): string {
 
 export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {
   const rootDir = path.resolve(canonicalRoot);
-  const currentHead = async (): Promise<string | null> => gitOptional(rootDir, "rev-parse", "--verify", "HEAD");
+  const currentHead = async (): Promise<string | null> =>
+    gitOptionalAsync(rootDir, "rev-parse", "--verify", "HEAD");
+  let indexedHistoryCache: {
+    readonly headCommit: string;
+    readonly value: Promise<{
+      readonly commits: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>;
+      readonly byOperationId: ReadonlyMap<string, ReadonlyArray<{
+        readonly commitSha: string;
+        readonly previousCommit: string;
+        readonly opIds: ReadonlyArray<string>;
+      }>>;
+    }>;
+  } | undefined;
+  const indexedHistory = async () => {
+    const headCommit = await currentHead();
+    if (!headCommit) return null;
+    if (indexedHistoryCache?.headCommit === headCommit) return indexedHistoryCache.value;
+    const value = scanFirstParentPublicationMetadata({ rootDir, headCommit }).then((commits) => {
+      const byOperationId = new Map<string, Array<{
+        readonly commitSha: string;
+        readonly previousCommit: string;
+        readonly opIds: ReadonlyArray<string>;
+      }>>();
+      for (const commit of commits) {
+        if (commit.parents.length !== 2) continue;
+        const opIds = publicationSubjectOperationIds(commit.sessionSubject ?? "");
+        const anchor = {
+          commitSha: commit.commitSha,
+          previousCommit: commit.parents[0]!,
+          opIds
+        };
+        for (const opId of opIds) {
+          const known = byOperationId.get(opId) ?? [];
+          known.push(anchor);
+          byOperationId.set(opId, known);
+        }
+      }
+      return { commits, byOperationId };
+    });
+    indexedHistoryCache = { headCommit, value };
+    return value;
+  };
   const scanFirstParentOperationAnchors = async (input: {
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
@@ -170,16 +215,15 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
   }): Promise<FirstParentOperationAnchorScan> => {
     const headCommit = await currentHead();
     if (!headCommit) return { headCommit: null, scannedCommitCount: 0, anchors: [] };
-    let commits: string[];
+    let commits: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>;
     try {
       commits = input.exclusiveCommit === headCommit
         ? []
-        : (await publicationGitTextAsync(
+        : await scanFirstParentPublicationMetadata({
           rootDir,
-          "rev-list",
-          "--first-parent",
-          input.exclusiveCommit ? `${input.exclusiveCommit}..${headCommit}` : headCommit
-        )).split("\n").filter(Boolean);
+          headCommit,
+          ...(input.exclusiveCommit ? { exclusiveCommit: input.exclusiveCommit } : {})
+        });
     } catch (error) {
       if (input.exclusiveCommit) throw new AuthorityRecoveryWatermarkInvalidError(input.exclusiveCommit);
       throw error;
@@ -187,16 +231,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     const recoveryWatermark = input.exclusiveCommit;
     if (recoveryWatermark && headCommit !== recoveryWatermark) {
       const oldest = commits.at(-1);
-      const oldestParents = await (async () => {
-        try {
-          return oldest
-            ? (await publicationGitTextAsync(rootDir, "rev-list", "--parents", "-n", "1", oldest)).split(" ").slice(1)
-            : [];
-        } catch {
-          throw new AuthorityRecoveryWatermarkInvalidError(recoveryWatermark);
-        }
-      })();
-      if (!oldest || oldestParents[0] !== recoveryWatermark) {
+      if (!oldest || oldest.parents[0] !== recoveryWatermark) {
         throw new AuthorityRecoveryWatermarkInvalidError(recoveryWatermark);
       }
     }
@@ -209,21 +244,31 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     let scannedCommitCount = 0;
     // A watermark may advance only from the old boundary toward HEAD. Scanning
     // oldest-to-newest makes every reported commit a complete prefix.
-    for (const commitSha of [...commits].reverse()) {
-      const parents = (await publicationGitTextAsync(rootDir, "rev-list", "--parents", "-n", "1", commitSha)).split(" ").slice(1);
-      if (parents.length === 2) {
-        const sessionSubject = await publicationGitTextAsync(rootDir, "show", "-s", "--format=%s", parents[1]!);
-        const opIds = commitSubjectOpIds(sessionSubject);
+    for (const commit of [...commits].reverse()) {
+      if (commit.parents.length === 2) {
+        const sessionSubject = commit.sessionSubject ?? "";
+        const opIds = publicationSubjectOperationIds(sessionSubject);
         if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
-          const anchor = { commitSha, previousCommit: parents[0]!, opIds };
+          const anchor = {
+            commitSha: commit.commitSha,
+            previousCommit: commit.parents[0]!,
+            opIds
+          };
           anchors.push(anchor);
           batchAnchors.push(anchor);
         }
       }
       scannedCommitCount += 1;
-      if (input.onProgress && (scannedCommitCount % progressBatchSize === 0 || scannedCommitCount === commits.length)) {
-        await input.onProgress({ commitSha, scannedCommitCount, anchors: batchAnchors });
-        batchAnchors = [];
+      if (scannedCommitCount % progressBatchSize === 0 || scannedCommitCount === commits.length) {
+        if (input.onProgress) {
+          await input.onProgress({
+            commitSha: commit.commitSha,
+            scannedCommitCount,
+            anchors: batchAnchors
+          });
+          batchAnchors = [];
+        }
+        await yieldToEventLoop();
       }
     }
     return { headCommit, scannedCommitCount, anchors };
@@ -324,16 +369,17 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     scanFirstParentOperationAnchors,
     findPublication: async (expectedOpIds) => {
       const expectedSessionSubjectSuffix = `[${expectedOpIds.join(",")}]`;
-      const firstParentCommits = publicationGitText(rootDir, "rev-list", "--first-parent", "HEAD")
-        .split("\n")
-        .filter(Boolean);
+      const history = await indexedHistory();
+      if (!history) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
       const matches: CanonicalPublicationEvidence[] = [];
-      for (const commitSha of firstParentCommits) {
-        const parents = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", commitSha).split(" ").slice(1);
-        if (parents.length !== 2) continue;
-        const sessionSubject = publicationGitText(rootDir, "show", "-s", "--format=%s", parents[1]!);
-        if (!sessionSubject.endsWith(expectedSessionSubjectSuffix)) continue;
-        matches.push(await inspectPublication(parents[0]!, expectedOpIds, commitSha));
+      for (const commit of history.commits) {
+        if (commit.parents.length !== 2
+          || !commit.sessionSubject?.endsWith(expectedSessionSubjectSuffix)) continue;
+        matches.push(await inspectPublication(
+          commit.parents[0]!,
+          expectedOpIds,
+          commit.commitSha
+        ));
       }
       if (matches.length !== 1) {
         throw new Error(
@@ -343,17 +389,15 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       return matches[0]!;
     },
     findPublicationForOperation: async (opId) => {
-      const firstParentCommits = publicationGitText(rootDir, "rev-list", "--first-parent", "HEAD")
-        .split("\n")
-        .filter(Boolean);
+      const history = await indexedHistory();
+      if (!history) throw new AuthorityCanonicalPublicationNotFoundError(opId);
       const matches: CanonicalPublicationEvidence[] = [];
-      for (const commitSha of firstParentCommits) {
-        const parents = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", commitSha).split(" ").slice(1);
-        if (parents.length !== 2) continue;
-        const sessionSubject = publicationGitText(rootDir, "show", "-s", "--format=%s", parents[1]!);
-        const opIds = commitSubjectOpIds(sessionSubject);
-        if (!opIds.includes(opId)) continue;
-        matches.push(await inspectPublication(parents[0]!, opIds, commitSha));
+      for (const anchor of history.byOperationId.get(opId) ?? []) {
+        matches.push(await inspectPublication(
+          anchor.previousCommit,
+          anchor.opIds,
+          anchor.commitSha
+        ));
       }
       if (matches.length === 0) throw new AuthorityCanonicalPublicationNotFoundError(opId);
       if (matches.length !== 1) {
@@ -366,10 +410,8 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
   };
 }
 
-function commitSubjectOpIds(subject: string): ReadonlyArray<string> {
-  const match = /\[([^\]]+)\]$/u.exec(subject);
-  if (!match?.[1]) return [];
-  return match[1].split(",").filter(Boolean);
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function publicationTopologyError(input: {
@@ -490,9 +532,9 @@ function canonicalGitPath(value: string): string {
   return normalized;
 }
 
-function gitOptional(rootDir: string, ...args: ReadonlyArray<string>): string | null {
+async function gitOptionalAsync(rootDir: string, ...args: ReadonlyArray<string>): Promise<string | null> {
   try {
-    return publicationGitText(rootDir, ...args);
+    return await publicationGitTextAsync(rootDir, ...args);
   } catch {
     return null;
   }
@@ -538,10 +580,15 @@ function gitExitCode(rootDir: string, ...args: ReadonlyArray<string>): number {
 
 /** Read-only Git observation shared by authority publication and cutover scanners. */
 export function readAuthorityGitBytes(rootDir: string, ...args: ReadonlyArray<string>): Buffer {
+  return readAuthorityGitBatchBytes(rootDir, args, Buffer.alloc(0));
+}
+
+export function readAuthorityGitBatchBytes(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  input: Buffer
+): Buffer {
   return execFileSync("git", ["-C", rootDir, ...args], {
-    encoding: "buffer",
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024
+    encoding: "buffer", input, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, maxBuffer: 64 * 1024 * 1024
   });
 }
