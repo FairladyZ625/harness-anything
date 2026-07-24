@@ -5,6 +5,7 @@ import {
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
   type AuthorizedOperationAttemptV2,
+  type AuthorityIngressAdapter,
   type FactRelationCommandPayloadV2,
   type ConsentCommandPayloadV2,
   type ProductionAuthorityCommand,
@@ -73,6 +74,10 @@ export interface CanonicalAttemptIntent {
 
 type CanonicalCompileInput =
   Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
+
+export type ProductionProgressAppendCompileInput = CanonicalCompileInput & {
+  readonly ingressAdapter?: AuthorityIngressAdapter;
+};
 
 export interface ProductionCanonicalAttemptCompilerV2
   extends DaemonAuthorityAttemptCompilerV2 {

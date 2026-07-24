@@ -69,7 +69,7 @@ import {
   type DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
 import { withProductionRecoveryV2 } from "./authority-attribution-event-v2-production-recovery.ts";
-import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
+import { createProductionProgressAppendConnectionBinding } from "./production-progress-append-submission.ts";
 import { createProductionAuthoritySemanticCompiler } from "./production-authority-semantic-compiler.ts";
 import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 import { waitForProductionRecovery } from "./production-recovery-admission.ts";
@@ -418,18 +418,22 @@ function createRepoComponent(
         ),
         () => waitForProductionRecovery({ repoId: material.config.repoId, recovery: material.recovery })
       );
+      const {
+        compiler: progressCompiler,
+        ...progressBinding
+      } = createProductionProgressAppendConnectionBinding({
+        material,
+        ...(writerGeneration ? { writerGeneration } : {}),
+        context,
+        hostServices,
+        authorityService,
+        ...(input.runtime.runAuthorizedRepoWriteRecoveryPlan ? {
+          runAuthorizedRecoveryPlan: input.runtime.runAuthorizedRepoWriteRecoveryPlan
+        } : {})
+      });
       const commandSubmission = createDaemonAuthorityCommandSubmissionV2({
         authorityService,
-        attemptCompiler: createProductionCanonicalAttemptCompiler({
-          config: material.config,
-          ...(writerGeneration ? { writerGeneration } : {}),
-          keyStore: material.keyStore,
-          keyRegistry: material.keyRegistry,
-          bindingRuntime: material.bindingRuntime,
-          context,
-          authoredRoot: material.authoredRoot,
-          hostServices
-        })
+        attemptCompiler: progressCompiler
       });
       const binding: AuthorityRepoConnectionBinding = {
         submit: commandSubmission.submit,
@@ -448,6 +452,7 @@ function createRepoComponent(
         ...(commandSubmission.submitScriptIngest ? {
           submitScriptIngest: commandSubmission.submitScriptIngest
         } : {}),
+        ...progressBinding,
         serveForcedCommand: ({ input: readable, output }) => {
           const session = serveAuthorityForcedCommand({
             input: readable,
@@ -534,7 +539,10 @@ function createConnectionAuthorityService(
       committedEventPublisher: input.committedEventPublisher,
       recoverCommittedReceipt: (input.committedEventPublisher as typeof input.committedEventPublisher & {
         recoverCommittedReceipt?: NonNullable<AuthoritySubmissionV2Options["recoverCommittedReceipt"]>
-      }).recoverCommittedReceipt
+      }).recoverCommittedReceipt,
+      ...(input.runtime.runAuthorizedRepoWriteRecoveryAttempt ? {
+        runAuthorizedRecoveryAttempt: input.runtime.runAuthorizedRepoWriteRecoveryAttempt
+      } : {})
     }
   });
 }

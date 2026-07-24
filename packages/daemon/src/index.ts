@@ -69,6 +69,8 @@ export * from "./runtime/repo-write-outcome-schema.ts";
 export * from "./runtime/durable-repo-write-outcome-store.ts";
 export * from "./runtime/repo-write-durable-operation-controller.ts";
 export * from "./runtime/repo-write-authority-recovery-gate.ts";
+export * from "./runtime/repo-write-progress-command.ts";
+export * from "./runtime/production-progress-append-operation.ts";
 export * from "./runtime/runtime-policy.ts";
 export * from "./lifecycle/daemon-lifecycle.ts";
 export * from "./lifecycle/daemon-generation.ts";

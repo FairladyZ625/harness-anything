@@ -32,6 +32,7 @@ import {
   createRepoWriteProceedingOutcomeV1,
   repoWriteActorStampDigestV1
 } from "../../daemon/src/runtime/repo-write-outcome-schema.ts";
+import { createProductionProgressAppendSubmission } from "../../daemon/src/authority/production/production-progress-append-submission.ts";
 
 test("progress append planning is pure and activation validates exact durable recovery material", async () => {
   const fixture = createFixture();
@@ -180,6 +181,50 @@ test("progress append planning is pure and activation validates exact durable re
     compiler.activatePlannedProgressAppend(plan);
     const afterFirstActivation = JSON.stringify(state.bindingState.entries());
     assert.equal(state.bindingState.entries().length, 1);
+    let freshSubmissions = 0;
+    const plannedSubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        submitV2: async () => {
+          freshSubmissions += 1;
+          return {
+            tag: "REJECTED",
+            workspaceId: config.workspaceId,
+            opId: plan.innerOpId,
+            semanticDigest: plan.semanticDigest,
+            reason: "known planned rejection"
+          };
+        },
+        getOperation: async () => undefined
+      },
+      compiler,
+      expected: compileInput,
+      plan
+    });
+    assert.equal((await plannedSubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal(freshSubmissions, 1);
+    await assert.rejects(
+      plannedSubmission.submit(compileInput),
+      /PLANNED_SUBMISSION_REUSED/u
+    );
+    const mismatchedSubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        submitV2: async () => { throw new Error("mismatched input reached inner submit"); },
+        getOperation: async () => undefined
+      },
+      compiler,
+      expected: compileInput,
+      plan
+    });
+    await assert.rejects(mismatchedSubmission.submit({
+      ...compileInput,
+      canonicalEntityId: taskEntityId("task_other")
+    }), /PLANNED_INPUT_MISMATCH/u);
     compiler.activatePlannedProgressAppend(plan);
     assert.equal(JSON.stringify(state.bindingState.entries()), afterFirstActivation);
     assert.equal(await bindingRuntime.consumeOperation({
@@ -234,6 +279,35 @@ test("progress append planning is pure and activation validates exact durable re
       (state.bindingState.get<{ readonly record: { readonly active: boolean } }>(bindingKey))?.record.active,
       false
     );
+    let recoveredWitness: Record<string, unknown> | undefined;
+    const recoverySubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        resumeV2: async (recovery) => {
+          recoveredWitness = recovery.witness as unknown as Record<string, unknown>;
+          return {
+            tag: "REJECTED",
+            workspaceId: config.workspaceId,
+            opId: plan.innerOpId,
+            semanticDigest: plan.semanticDigest,
+            reason: "known recovered rejection"
+          };
+        },
+        getOperation: async () => undefined
+      },
+      compiler: recoveryCompiler,
+      expected: compileInput,
+      plan,
+      recovery: outerWitness
+    });
+    assert.equal((await recoverySubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal(recoveredWitness?.repoId, config.repoId);
+    assert.equal(recoveredWitness?.outerOpId, proceeding.outerOpId);
+    assert.equal(recoveredWitness?.outerRequestDigest, proceeding.requestDigest);
+    assert.equal(recoveredWitness?.opId, plan.innerOpId);
+    assert.equal(recoveredWitness?.canonicalRequestEnvelope, plan.envelopeBase64url);
     const staleWriterCompiler = createProductionCanonicalAttemptCompiler({
       config: recoveryConfig,
       writerGeneration: writerGeneration + 1,

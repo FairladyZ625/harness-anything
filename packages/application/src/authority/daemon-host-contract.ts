@@ -203,6 +203,8 @@ export interface DaemonHostCommandResult {
 
 export interface DaemonHostCommandExecutionOptions {
   readonly requireProvidedActorAttribution: true;
+  /** Child-writer pilot admission must not renew/write a v1 holder lease. */
+  readonly taskLeaseGuardMode?: "read-only";
   readonly actorAttribution?: AuthorityHostAttribution;
   readonly currentSession?: CurrentSessionRef;
   readonly inlineCreateProvenanceOnly?: true;

@@ -210,6 +210,30 @@ test("a holder write refreshes the lease TTL", async () => {
   }
 });
 
+test("read-only admission accepts an active v1 holder without renewing or rewriting it", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-holder-read-only-"));
+  let now = new Date("2026-07-10T00:00:00.000Z");
+  try {
+    const service = makeTaskHolderService({ rootInput: rootDir, now: () => now });
+    await service.claim({ taskId, principal: aliceCodex, ttlMs: 60_000 });
+    const holderPath = path.join(rootDir, ".harness", "task-holders", `${taskId}.json`);
+    const before = readFileSync(holderPath, "utf8");
+
+    now = new Date("2026-07-10T00:00:10.000Z");
+    await service.assertActiveLeaseReadOnly({ taskId, principal: aliceCodex });
+
+    assert.equal(readFileSync(holderPath, "utf8"), before);
+    assert.equal((await service.holder({ taskId })).leaseExpiresAt, "2026-07-10T00:01:00.000Z");
+    await assert.rejects(
+      service.assertActiveLeaseReadOnly({ taskId, principal: bob }),
+      (error) => error instanceof TaskLeaseRequiredError
+    );
+    assert.equal(readFileSync(holderPath, "utf8"), before);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a principal write recovers its orphaned lease and records the current executor", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-holder-"));
   let now = new Date("2026-07-10T00:00:00.000Z");

@@ -185,12 +185,14 @@ export {
   TaskLeaseRequiredError,
   TaskReleaseNotHolderError,
   isTaskHolderError,
-  makeTaskHolderService,
+  makeTaskHolderService
+} from "./local/task-holder-state.ts";
+export {
   runtimeEventActorFromTaskHolderPrincipal,
   taskHolderActor,
   taskHolderExecutorFromJournalActor,
   taskHolderPrincipalFromActor
-} from "./local/task-holder-state.ts";
+} from "./local/task-holder-principal.ts";
 export {
   landedSettingDefaults,
   landedSettingsRegistry,

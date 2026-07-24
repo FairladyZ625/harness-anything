@@ -44,6 +44,7 @@ export interface DaemonCommandService {
 export interface DaemonCommandServiceOptions {
   readonly onCommandStart?: () => void;
   readonly onCommandSettled?: () => void;
+  readonly taskLeaseGuardMode?: "read-only";
   readonly resolveAuthoritySubmissionV2?: (
     connection: AuthorityConnectionDispatch | undefined
   ) => DaemonAuthorityCommandSubmissionV2 | undefined;
@@ -112,6 +113,9 @@ export function createDaemonCommandService<
           "command-execute",
           () => hostServices.executeCommand(parsedCommand, {
             requireProvidedActorAttribution: true,
+            ...(options.taskLeaseGuardMode ? {
+              taskLeaseGuardMode: options.taskLeaseGuardMode
+            } : {}),
             ...(attribution ? { actorAttribution: attribution } : {}),
             ...(currentSession ? { currentSession } : {}),
             ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),

@@ -39,6 +39,8 @@ export interface ParsedCommandExecutionOptions {
   readonly actorAttribution?: CliActorAttribution;
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
+  /** Production child-writer pilot admission must be side-effect free. */
+  readonly taskLeaseGuardMode?: "read-only";
   readonly currentSession?: CurrentSessionRef;
   /** Typed authority intents already carry the current-session provenance inline. */
   readonly inlineCreateProvenanceOnly?: boolean;
@@ -211,7 +213,7 @@ export async function runRegisteredCommandWithCliComposition(
         syncExportedSession
       })
     }, boundAt)
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
     const attribution = getActorAttribution().writeAttribution;
     const repin = command.action.kind === "decision-repin" ? command.action : undefined;
     return makeDecisionWriteService({
@@ -234,7 +236,7 @@ export async function runRegisteredCommandWithCliComposition(
       provenanceSessionExporter: makeSessionExporter(),
       syncExportedSession
     })
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer).pipe(
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
@@ -280,10 +282,16 @@ function withOptionalLeaseGuard(
   engine: LifecycleEngine,
   enabled: boolean,
   makeTaskHolder: TaskHolderServiceFactory,
-  getTaskHolderPrincipal: TaskHolderPrincipalFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory,
+  mode: ParsedCommandExecutionOptions["taskLeaseGuardMode"]
 ): LifecycleEngine {
   if (!enabled) return engine;
-  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getTaskHolderPrincipal);
+  const guard = (taskId: string) => assertTaskLease(
+    taskId,
+    makeTaskHolder,
+    getTaskHolderPrincipal,
+    mode
+  );
   return {
     ...engine,
     setStatus: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.setStatus(input))),
@@ -299,10 +307,16 @@ function withOptionalFactLeaseGuard(
   service: FactWriteService,
   enabled: boolean,
   makeTaskHolder: TaskHolderServiceFactory,
-  getTaskHolderPrincipal: TaskHolderPrincipalFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory,
+  mode: ParsedCommandExecutionOptions["taskLeaseGuardMode"]
 ): FactWriteService {
   if (!enabled) return service;
-  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getTaskHolderPrincipal);
+  const guard = (taskId: string) => assertTaskLease(
+    taskId,
+    makeTaskHolder,
+    getTaskHolderPrincipal,
+    mode
+  );
   return {
     ...service,
     record: (request) => guard(request.ownerTaskId).pipe(Effect.flatMap(() => service.record(request))),
@@ -313,10 +327,13 @@ function withOptionalFactLeaseGuard(
 function assertTaskLease(
   taskId: string,
   makeTaskHolder: TaskHolderServiceFactory,
-  getTaskHolderPrincipal: TaskHolderPrincipalFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory,
+  mode: ParsedCommandExecutionOptions["taskLeaseGuardMode"]
 ): Effect.Effect<void, WriteError> {
   return Effect.tryPromise({
-    try: () => makeTaskHolder().assertActiveLease({
+    try: () => makeTaskHolder()[
+      mode === "read-only" ? "assertActiveLeaseReadOnly" : "assertActiveLease"
+    ]({
       taskId,
       principal: getTaskHolderPrincipal()
     }),
