@@ -235,6 +235,7 @@ export async function runDaemonServe<
           const supervisor = new RepoWriteProcessSupervisor({
             repoId: repo.repoId,
             generation: generation.daemonGeneration,
+            expectedArtifactIdentity: loadedBuild.identity,
             spawn: () => forkRepoWriteProcess({
               modulePath: input.entrypoint,
               args: [
@@ -251,6 +252,7 @@ export async function runDaemonServe<
                   endpointIdentity: endpoint,
                   machineId: generation.machineId,
                   generation: generation.daemonGeneration,
+                  entrypointArtifactIdentity: loadedBuild.identity,
                   runtimePolicy,
                   ...(input.admissionMaxBytes === undefined ? {} : {
                     admissionMaxBytes: input.admissionMaxBytes

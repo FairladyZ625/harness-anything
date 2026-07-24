@@ -15,6 +15,7 @@ export interface RepoWriteChildTransport {
 export interface RepoWriteChildResponseWriterOptions {
   readonly repoId: string;
   readonly generation: number;
+  readonly artifactIdentity: string;
   readonly transport: RepoWriteChildTransport;
 }
 
@@ -34,7 +35,8 @@ export class RepoWriteChildResponseWriter {
   ready(): Promise<void> {
     return this.send({
       ...this.frameBase(),
-      kind: "ready"
+      kind: "ready",
+      artifactIdentity: this.options.artifactIdentity
     });
   }
 

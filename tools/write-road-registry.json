@@ -3999,6 +3999,7 @@
       ],
       "evidence": [
         "packages/daemon/src/runtime/durable-repo-write-outcome-store.ts:119",
+        "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts:23",
         "packages/daemon/src/runtime/repo-write-outcome-schema.ts:29"
       ],
       "freshness": "exclusive-link-proceeding-terminal-file-fsync-target-observer-fsync-directory-fsync",
@@ -4121,6 +4122,62 @@
           "classification": "design-exemption",
           "ref": "dec_01KY78WB1XJ67EWQB52Z6CKZPX",
           "reason": "The child writer closes the private recovery-index directory descriptor after its durability fsync completes."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#execFileSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "Fixed-attempt recovery reads the authored Git root so it can distinguish an already-materialized progress delta from an identical prior committed append before repairing the missing apply marker."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#execFileSync@2",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "Fixed-attempt recovery pins the current authored HEAD used as the immutable pre-effect baseline for one exact inner opId."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#spawnSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "The child checks whether the exact progress path exists at the pinned HEAD before choosing the canonical empty progress baseline."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#execFileSync@3",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "The child reads one exact path from the pinned HEAD to prove the worktree equals baseline plus the durable journal delta before any marker repair."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#openSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "After exact Git and journal proof, the sole child writer opens the existing kernel journal for one apply-marker repair belonging to the durable inner opId."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#writeSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "The child appends only the canonical apply-marker for an exact journal op whose materialized effect was proven byte-for-byte against Git HEAD."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#fsyncSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "The repaired apply-marker is fsynced before exact kernel replay may skip the already-materialized non-idempotent delta."
+        },
+        {
+          "key": "packages/daemon/src/runtime/repo-write-progress-recovery-guard.ts#closeSync@1",
+          "owner": "daemon child-writer capsule",
+          "classification": "design-exemption",
+          "ref": "task_01KY6QFFC306JRW8JW4Y2ND2TM",
+          "reason": "The child closes the journal descriptor after the repaired marker fsync completes."
         }
       ]
     },

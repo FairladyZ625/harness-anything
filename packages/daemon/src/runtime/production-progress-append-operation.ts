@@ -42,6 +42,9 @@ import { DurableRepoWriteOutcomeStoreV1 } from "./durable-repo-write-outcome-sto
 import type {
   ProductionAuthorityProgressAppendPlanV1
 } from "../authority/production/production-authority-attempt-compiler.ts";
+import {
+  guardProgressAppendRecoveryEffect
+} from "./repo-write-progress-recovery-guard.ts";
 
 export class ProductionProgressAppendOperationHost<
   Command extends DaemonHostCommand,
@@ -244,6 +247,18 @@ export class ProductionProgressAppendOperationHost<
     recovery = false
   ): Promise<RepoWriteDurableExecutionResult> {
     const decoded = decodeRepoWriteProgressCommand(proceeding.canonicalCommand);
+    if (recovery) {
+      guardProgressAppendRecoveryEffect({
+        rootInput: {
+          rootDir: expected.command.rootDir,
+          ...(expected.command.layoutOverrides ? {
+            layoutOverrides: expected.command.layoutOverrides
+          } : {})
+        },
+        opId: proceeding.innerOpId,
+        now: this.options.now
+      });
+    }
     const submission = binding.plannedProgressAppendSubmission!({
       expected,
       plan,

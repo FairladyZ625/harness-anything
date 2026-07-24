@@ -3,8 +3,10 @@ import {
 } from "../../src/runtime/repo-write-child-process-transport.ts";
 import { repoWriteProtocolType } from "../../src/runtime/repo-write-protocol.ts";
 import { committedCommandReceipt } from "./repo-write-terminal-fixture.ts";
+import { appendFileSync } from "node:fs";
 
 const mode = process.argv[2] ?? "roundtrip";
+const tracePath = process.argv[3];
 
 if (mode === "exit") {
   setImmediate(() => process.exit(23));
@@ -16,6 +18,7 @@ if (mode === "exit") {
   });
   transport.onMessage((message) => {
     if (message.kind === "submit") {
+      trace(`submit:${String(message.command.payload.label ?? "")}`);
       void transport.send({
         protocol: repoWriteProtocolType,
         repoId: message.repoId,
@@ -27,6 +30,19 @@ if (mode === "exit") {
       return;
     }
     if (message.kind === "status") {
+      trace(`status:${message.opId}`);
+      if (mode === "swallow-proceed") {
+        void transport.send({
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "status",
+          requestId: message.requestId,
+          opId: message.opId,
+          state: "not-found"
+        });
+        return;
+      }
       void transport.send({
         protocol: repoWriteProtocolType,
         repoId: message.repoId,
@@ -50,6 +66,7 @@ if (mode === "exit") {
       return;
     }
     if (message.kind === "proceed") {
+      if (mode === "swallow-proceed") return;
       if (mode === "crash-after-proceed") {
         process.exit(24);
       }
@@ -76,14 +93,21 @@ if (mode === "exit") {
     }
   });
 
-  if (mode === "malformed-child") {
+  if (mode === "never-ready") {
+    // Stay connected so the parent must enforce its readiness deadline.
+  } else if (mode === "malformed-child") {
     process.send?.({ protocol: "wrong", kind: "ready" });
   } else {
     await transport.send({
       protocol: repoWriteProtocolType,
       repoId: "repo-transport",
       generation: 1,
-      kind: "ready"
+      kind: "ready",
+      artifactIdentity: `sha256:${"a".repeat(64)}`
     });
   }
+}
+
+function trace(event: string): void {
+  if (tracePath) appendFileSync(tracePath, `${event}\n`, "utf8");
 }

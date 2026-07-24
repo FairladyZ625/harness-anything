@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   createDaemonGenerationWitness,
+  calculateDaemonArtifactIdentity,
   createRepoWriteChildHost,
   decodeRepoWriteChildLaunchConfig,
   DurableRepoWriteOutcomeStoreV1,
@@ -22,6 +23,12 @@ export async function runRepoWriteChildEntrypoint(
 ): Promise<void> {
   if (!encodedConfig) throw new Error("REPO_WRITE_CHILD_LAUNCH_CONFIG_REQUIRED");
   const config = decodeRepoWriteChildLaunchConfig(encodedConfig);
+  const entrypointArtifactIdentity = calculateDaemonArtifactIdentity(
+    process.argv[1] ?? ""
+  ).identity;
+  if (entrypointArtifactIdentity !== config.entrypointArtifactIdentity) {
+    throw new Error("REPO_WRITE_CHILD_ENTRYPOINT_ARTIFACT_MISMATCH");
+  }
   const manifest = loadAuthorityProductionManifest(config.authorityManifest);
   const authorityRepo = manifest.repos.find((repo) =>
     repo.repoId === config.repoId
@@ -131,6 +138,7 @@ export async function runRepoWriteChildEntrypoint(
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation,
+    artifactIdentity: entrypointArtifactIdentity,
     transport,
     hooks: {
       prepare: (input) => operation.prepare(input),

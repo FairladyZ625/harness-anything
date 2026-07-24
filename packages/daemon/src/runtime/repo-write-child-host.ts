@@ -87,6 +87,7 @@ export interface RepoWriteChildHostOptions {
   readonly repoId: string;
   readonly workspaceId: string;
   readonly generation: number;
+  readonly artifactIdentity: string;
   readonly transport: RepoWriteChildTransport;
   readonly hooks: RepoWriteChildHostHooks;
   readonly limits?: Partial<RepoWriteChildHostLimits>;

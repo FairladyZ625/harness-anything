@@ -44,6 +44,7 @@ export class RepoWriteDurableOperationController {
   private readonly axes: RepoWriteOutcomeAxesV1;
   private readonly store: DurableRepoWriteOutcomeStoreV1;
   private readonly recoverOperation: RepoWriteDurableOperationControllerOptions["recover"];
+  private executionTail: Promise<void> = Promise.resolve();
 
   constructor(options: RepoWriteDurableOperationControllerOptions) {
     this.axes = {
@@ -64,7 +65,13 @@ export class RepoWriteDurableOperationController {
     };
   }
 
-  async resume(outerOpId: string): Promise<RepoWriteTerminalOutcomeV1> {
+  resume(outerOpId: string): Promise<RepoWriteTerminalOutcomeV1> {
+    return this.serialize(() => this.resumeExclusive(outerOpId));
+  }
+
+  private async resumeExclusive(
+    outerOpId: string
+  ): Promise<RepoWriteTerminalOutcomeV1> {
     const current = this.store.lookup(outerOpId);
     if (current.state === "not-found") {
       throw new RepoWriteOutcomeConflictError(
@@ -81,6 +88,16 @@ export class RepoWriteDurableOperationController {
   }
 
   private async executePrepared(
+    candidate: RepoWriteProceedingOutcomeV1,
+    executeFresh: RepoWriteDurablePrepareInput["executeFresh"]
+  ): Promise<RepoWriteTerminalOutcomeV1> {
+    return this.serialize(() => this.executePreparedExclusive(
+      candidate,
+      executeFresh
+    ));
+  }
+
+  private async executePreparedExclusive(
     candidate: RepoWriteProceedingOutcomeV1,
     executeFresh: RepoWriteDurablePrepareInput["executeFresh"]
   ): Promise<RepoWriteTerminalOutcomeV1> {
@@ -113,5 +130,21 @@ export class RepoWriteDurableOperationController {
       receipt: result.receipt,
       authorityEvidence: result.authorityEvidence
     });
+  }
+
+  private async serialize<Result>(
+    execute: () => Promise<Result>
+  ): Promise<Result> {
+    const predecessor = this.executionTail;
+    let release: (() => void) | undefined;
+    this.executionTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await predecessor;
+    try {
+      return await execute();
+    } finally {
+      release!();
+    }
   }
 }

@@ -105,6 +105,7 @@ test("canonical lookup returns a proof-valid historical terminal from an earlier
     repoId: "repo-canonical",
     workspaceId: "workspace-canonical",
     generation: 3,
+    artifactIdentity: `sha256:${"a".repeat(64)}`,
     transport: { send: (message) => messages.push(message) },
     hooks: {
       prepare: async () => {
@@ -153,6 +154,7 @@ async function assertStatusLookupFails(
     repoId: "repo-canonical",
     workspaceId: "workspace-canonical",
     generation: 3,
+    artifactIdentity: `sha256:${"a".repeat(64)}`,
     transport: { send: (message) => messages.push(message) },
     hooks: {
       prepare: async () => {
@@ -184,6 +186,7 @@ function createHost(
     repoId: "repo-canonical",
     workspaceId: "workspace-canonical",
     generation: 3,
+    artifactIdentity: `sha256:${"a".repeat(64)}`,
     transport: { send: (message) => messages.push(message) },
     hooks: {
       prepare: async ({ requestId }) => {

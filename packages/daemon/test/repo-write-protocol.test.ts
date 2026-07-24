@@ -117,7 +117,10 @@ test("failure after proceed requires outcome-unknown, stable opId, and no replay
 
 test("ready, terminal, status, telemetry, shutdown, and drained frames have exact schemas", () => {
   const committedReceipt = committedCommandReceipt();
-  const ready = decodeRepoWriteChildMessage(base("ready"));
+  const ready = decodeRepoWriteChildMessage({
+    ...base("ready"),
+    artifactIdentity: `sha256:${"a".repeat(64)}`
+  });
   const terminal = decodeRepoWriteChildMessage({
     ...base("terminal"),
     requestId: "request-terminal",

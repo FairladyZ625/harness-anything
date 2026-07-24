@@ -22,6 +22,7 @@ export interface RepoWriteChildLaunchConfigV1 {
   readonly endpointIdentity: string;
   readonly machineId: string;
   readonly generation: number;
+  readonly entrypointArtifactIdentity: string;
   readonly runtimePolicy: DaemonRuntimePolicy;
   readonly admissionMaxBytes?: number;
 }
@@ -44,7 +45,8 @@ export function decodeRepoWriteChildLaunchConfig(
   const config = record(value, "$");
   exactKeys(config, [
     "schema", "repoId", "canonicalRoot", "authorityManifest", "userRoot",
-    "endpointIdentity", "machineId", "generation", "runtimePolicy"
+    "endpointIdentity", "machineId", "generation", "entrypointArtifactIdentity",
+    "runtimePolicy"
   ], "$", ["authoredRoot", "admissionMaxBytes"]);
   if (config.schema !== repoWriteChildLaunchConfigSchema) invalid("$.schema");
   const runtime = record(config.runtimePolicy, "$.runtimePolicy");
@@ -90,6 +92,10 @@ export function decodeRepoWriteChildLaunchConfig(
     endpointIdentity: text(config.endpointIdentity, "$.endpointIdentity"),
     machineId: text(config.machineId, "$.machineId"),
     generation: positiveInteger(config.generation, "$.generation"),
+    entrypointArtifactIdentity: artifactIdentity(
+      config.entrypointArtifactIdentity,
+      "$.entrypointArtifactIdentity"
+    ),
     runtimePolicy: {
       write: {
         lockTtlMs: positiveInteger(
@@ -141,4 +147,10 @@ function positiveInteger(value: unknown, path: string): number {
   const integer = nonNegativeInteger(value, path);
   if (integer === 0) invalid(path);
   return integer;
+}
+
+function artifactIdentity(value: unknown, path: string): string {
+  const identity = text(value, path);
+  if (!/^sha256:[a-f0-9]{64}$/u.test(identity)) invalid(path);
+  return identity;
 }

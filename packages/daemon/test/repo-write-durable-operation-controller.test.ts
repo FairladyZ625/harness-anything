@@ -115,6 +115,69 @@ controllerTest("duplicate execute and resume return the byte-stable terminal wit
   });
 });
 
+controllerTest("replacement recovery completes an earlier PROCEEDING before a later append", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-order-"));
+  const store = new DurableRepoWriteOutcomeStoreV1({
+    directory,
+    ...axes()
+  });
+  const first = proceedingInput();
+  store.begin(first);
+  const effects: string[] = [];
+  let releaseRecovery: (() => void) | undefined;
+  let observeRecovery: (() => void) | undefined;
+  const recoveryStarted = new Promise<void>((resolve) => {
+    observeRecovery = resolve;
+  });
+  const recoveryGate = new Promise<void>((resolve) => {
+    releaseRecovery = resolve;
+  });
+  const controller = new RepoWriteDurableOperationController({
+    ...axes(),
+    store,
+    recover: async (proceeding) => {
+      observeRecovery!();
+      await recoveryGate;
+      effects.push("A");
+      return {
+        receipt: committedCommandReceipt(),
+        authorityEvidence: terminalEvidence(proceeding, "committed")
+      };
+    }
+  });
+  try {
+    const recovering = controller.resume(first.outerOpId);
+    await recoveryStarted;
+    const second = {
+      ...first,
+      outerOpId: "outer-controller-B",
+      innerOpId: "inner-controller-B",
+      canonicalCommand: {
+        ...first.canonicalCommand,
+        payload: { taskId: "task_01KY", text: "B" }
+      }
+    };
+    const prepared = controller.prepare({
+      proceeding: second,
+      executeFresh: async (proceeding) => {
+        effects.push("B");
+        return {
+          receipt: committedCommandReceipt(),
+          authorityEvidence: terminalEvidence(proceeding, "committed")
+        };
+      }
+    });
+    const later = prepared.execute();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseRecovery!();
+    await Promise.all([recovering, later]);
+
+    assert.deepEqual(effects, ["A", "B"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 async function withController(
   run: (fixture: {
     readonly directory: string;

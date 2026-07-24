@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createDaemonGenerationWitness,
+  calculateDaemonArtifactIdentity,
   decodeRepoWriteCommandReceiptV2,
   defaultDaemonRuntimePolicy,
   encodeRepoWriteChildLaunchConfig,
@@ -41,6 +42,8 @@ import {
 const cutoverTest = process.platform === "win32" ? test.skip : test;
 const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4";
 const entrypoint = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+const entrypointArtifactIdentity =
+  calculateDaemonArtifactIdentity(entrypoint).identity;
 
 cutoverTest("production child owns the only writer lock and restart lookup returns the exact receipt", async () => {
   const fixture = createProductionAuthorityLifecycleFixture();
@@ -115,6 +118,7 @@ cutoverTest("production child owns the only writer lock and restart lookup retur
           endpointIdentity: endpoint,
           machineId,
           generation: daemonGeneration,
+          entrypointArtifactIdentity,
           runtimePolicy: defaultDaemonRuntimePolicy
         })
       ],
@@ -127,6 +131,7 @@ cutoverTest("production child owns the only writer lock and restart lookup retur
     first = new RepoWriteProcessSupervisor({
       repoId: "canonical",
       generation: generationRecord.daemonGeneration,
+      expectedArtifactIdentity: entrypointArtifactIdentity,
       spawn: () => spawnForGeneration(generationRecord.daemonGeneration)
     });
     await first.start();
@@ -195,6 +200,7 @@ cutoverTest("production child owns the only writer lock and restart lookup retur
     restarted = new RepoWriteProcessSupervisor({
       repoId: "canonical",
       generation: restartedGeneration.daemonGeneration,
+      expectedArtifactIdentity: entrypointArtifactIdentity,
       spawn: () =>
         spawnForGeneration(restartedGeneration.daemonGeneration)
     });

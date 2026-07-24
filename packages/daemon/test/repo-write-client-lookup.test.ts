@@ -255,3 +255,30 @@ test("counts lookup and mutation requests against one pending capacity bound", a
   void client.lookup("op-pending");
   await assert.rejects(client.submit(command("task.create")), RepoWriteClientCapacityError);
 });
+
+test("lookup releases its pending capacity when the child misses the request deadline", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    limits: {
+      maxPendingRequests: 1,
+      requestTimeoutMs: 20
+    },
+    onTelemetry: () => undefined
+  });
+  transport.emit(readyFrame());
+
+  await assert.rejects(client.lookup("op-timeout"), (error) => {
+    assert.ok(error instanceof RepoWriteLookupError);
+    assert.equal(error.code, "REPO_WRITE_LOOKUP_TIMEOUT");
+    return true;
+  });
+  const next = client.lookup("op-after-timeout");
+  assert.equal(
+    transport.sent.filter((message) => message.kind === "status").length,
+    2
+  );
+  void next.catch(() => undefined);
+});

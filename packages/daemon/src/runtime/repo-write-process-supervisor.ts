@@ -16,7 +16,9 @@ import type {
 export interface RepoWriteProcessSupervisorOptions {
   readonly repoId: string;
   readonly generation: number;
+  readonly expectedArtifactIdentity?: string;
   readonly spawn: () => RepoWriteParentProcessTransport;
+  readonly limits?: ConstructorParameters<typeof RepoWriteClient>[0]["limits"];
   readonly onTelemetry?: ConstructorParameters<typeof RepoWriteClient>[0]["onTelemetry"];
 }
 
@@ -50,7 +52,15 @@ export class RepoWriteProcessSupervisor {
       return decodeReceipt(await writer.client.submit(command));
     } catch (error) {
       if (error instanceof RepoWriteOutcomeUnknownError) {
+        if (error.code === "REPO_WRITE_REQUEST_TIMEOUT") {
+          await this.replace(writer);
+        }
         return this.recoverExact(error.opId, error);
+      }
+      if (error instanceof RepoWriteNotStartedError
+        && error.code === "REPO_WRITE_REQUEST_TIMEOUT") {
+        await this.replace(writer);
+        throw error;
       }
       if (!(error instanceof RepoWriteNotStartedError)
         || error.opId !== undefined
@@ -74,6 +84,11 @@ export class RepoWriteProcessSupervisor {
     try {
       return await writer.client.lookup(opId);
     } catch (error) {
+      if (error instanceof Error
+        && "code" in error
+        && error.code === "REPO_WRITE_LOOKUP_TIMEOUT") {
+        return (await this.replace(writer)).client.lookup(opId);
+      }
       if (this.writerConnected(writer)) throw error;
       return (await this.replace(writer)).client.lookup(opId);
     }
@@ -161,6 +176,10 @@ export class RepoWriteProcessSupervisor {
         repoId: this.options.repoId,
         generation: this.options.generation,
         transport,
+        ...(this.options.expectedArtifactIdentity === undefined ? {} : {
+          expectedArtifactIdentity: this.options.expectedArtifactIdentity
+        }),
+        ...(this.options.limits ? { limits: this.options.limits } : {}),
         onTelemetry: this.options.onTelemetry ?? (() => undefined)
       });
       const writer = { transport, client };

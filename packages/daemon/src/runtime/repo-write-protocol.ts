@@ -60,7 +60,10 @@ export type RepoWriteParentMessage =
   RepoWriteSubmitFrame | RepoWriteProceedFrame | RepoWriteStatusRequestFrame | RepoWriteShutdownFrame;
 export type RepoWritePreparedFrame = RepoWriteOperationFrame<"prepared">;
 export type RepoWriteDrainedFrame = RepoWriteRequestFrame<"drained">;
-export type RepoWriteReadyFrame = RepoWriteFrameBase & { readonly kind: "ready" };
+export type RepoWriteReadyFrame = RepoWriteFrameBase & {
+  readonly kind: "ready";
+  readonly artifactIdentity: string;
+};
 export type RepoWriteTerminalOutcome = "committed" | "rejected";
 export interface RepoWriteTerminalFrame extends RepoWriteOperationFrame<"terminal"> {
   readonly outcome: RepoWriteTerminalOutcome;
@@ -203,7 +206,7 @@ export function decodeRepoWriteChildMessage(
   const limits = resolveLimits(overrides);
   const budget = { nodes: 0 };
   const frame = frameBase(value, limits, budget);
-  if (frame.kind === "ready") return decodeReady(frame);
+  if (frame.kind === "ready") return decodeReady(frame, limits);
   if (frame.kind === "prepared") return decodeOperationFrame(frame, limits, "prepared");
   if (frame.kind === "terminal") return decodeTerminal(frame, limits, budget);
   if (frame.kind === "failure") return decodeFailure(frame, limits);
@@ -271,9 +274,20 @@ function decodeRequestFrame<K extends "shutdown" | "drained">(
   assertExactKeys(frame, baseKeys(["requestId"]), [], "$");
   return { ...baseFields(frame), kind, requestId: identifier(frame.requestId, "$.requestId", limits) };
 }
-function decodeReady(frame: FrameRecord): RepoWriteReadyFrame {
-  assertExactKeys(frame, baseKeys([]), [], "$");
-  return { ...baseFields(frame), kind: "ready" };
+function decodeReady(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits
+): RepoWriteReadyFrame {
+  assertExactKeys(frame, baseKeys(["artifactIdentity"]), [], "$");
+  const artifactIdentity = stringAt(
+    frame.artifactIdentity,
+    "$.artifactIdentity",
+    limits.maxStringBytes
+  );
+  if (!/^sha256:[a-f0-9]{64}$/u.test(artifactIdentity)) {
+    invalid("$.artifactIdentity", "sha256 artifact identity");
+  }
+  return { ...baseFields(frame), kind: "ready", artifactIdentity };
 }
 function decodeTerminal(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, budget: { nodes: number }

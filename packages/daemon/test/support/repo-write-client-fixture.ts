@@ -81,7 +81,10 @@ export function command(commandName: string) {
 }
 
 export function readyFrame(): RepoWriteChildMessage {
-  return childFrame("ready");
+  return {
+    ...childFrame("ready"),
+    artifactIdentity: `sha256:${"a".repeat(64)}`
+  };
 }
 
 export function childFrame<K extends string>(kind: K) {

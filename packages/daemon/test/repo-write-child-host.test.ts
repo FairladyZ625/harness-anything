@@ -556,6 +556,7 @@ function hostFixture(limits: {
       repoId: "repo-canonical",
       workspaceId: "workspace-canonical",
       generation: 3,
+      artifactIdentity: `sha256:${"a".repeat(64)}`,
       transport: {
         send: (message) => fixture.send(message)
       },
