@@ -17,6 +17,7 @@
     "./terminal-session-contract": "./src/terminal-session-contract.ts"
   },
   "dependencies": {
-    "@harness-anything/kernel": "0.1.0"
+    "@harness-anything/kernel": "0.1.0",
+    "@unicode/unicode-17.0.0": "1.6.17"
   }
 }

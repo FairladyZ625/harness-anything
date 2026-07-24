@@ -96,6 +96,44 @@ test("historical operation lookup hydrates an incomplete replica change containi
   }
 });
 
+test("read-down retains ASCII component-collision detection", () => {
+  assertPathCollision(["A/x.md", "a/y.md"]);
+});
+
+test("read-down rejects full Unicode case-folded component collisions", () => {
+  for (const paths of [["Ä/x.md", "ä/y.md"], ["Straße/x.md", "STRASSE/y.md"]]) {
+    assertPathCollision(paths);
+  }
+});
+
+test("read-down case folding does not normalize NFC and NFD spellings", () => {
+  const fixture = createFixture();
+  try {
+    const paths = ["café.md", "cafe\u0301.md"];
+    commitTreePaths(fixture.gitRoot, paths);
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+    const snapshot = fixture.content.snapshot(commitSha, 0);
+    assert.deepEqual([...snapshot.entries.map((entry) => entry.path)].sort(), [...paths].sort());
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function assertPathCollision(paths: ReadonlyArray<string>): void {
+  const fixture = createFixture();
+  try {
+    commitTreePaths(fixture.gitRoot, paths);
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+    assert.throws(
+      () => fixture.content.snapshot(commitSha, 0),
+      /RESYNC_REQUIRED:PORTABLE_PATH_COLLISION/u,
+      paths.join(" vs ")
+    );
+  } finally {
+    fixture.cleanup();
+  }
+}
+
 function createFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-read-down-history-"));
   const gitRoot = path.join(root, "canonical");
@@ -118,6 +156,43 @@ function createFixture() {
   };
 }
 
+type GitTree = Map<string, GitTree | string>;
+
+function commitTreePaths(root: string, paths: ReadonlyArray<string>): void {
+  const blobSha = gitWithInput(root, ["hash-object", "-w", "--stdin"], Buffer.from("content\n"));
+  const tree: GitTree = new Map();
+  for (const managedPath of paths) {
+    const segments = managedPath.split("/");
+    let current = tree;
+    for (const segment of segments.slice(0, -1)) {
+      const existing = current.get(segment);
+      if (typeof existing === "string") throw new Error(`test tree file ancestor: ${managedPath}`);
+      const child = existing ?? new Map<string, GitTree | string>();
+      current.set(segment, child);
+      current = child;
+    }
+    current.set(segments.at(-1)!, blobSha);
+  }
+  const treeSha = writeTree(tree);
+  const commitSha = git(root, "commit-tree", treeSha, "-m", "plumbed paths");
+  git(root, "update-ref", "HEAD", commitSha);
+
+  function writeTree(node: GitTree): string {
+    const rows = [...node.entries()]
+      .sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+      .map(([name, value]) => {
+        const objectId = typeof value === "string" ? value : writeTree(value);
+        const metadata = typeof value === "string" ? "100644 blob" : "040000 tree";
+        return Buffer.concat([Buffer.from(`${metadata} ${objectId}\t`), Buffer.from(name), Buffer.from([0])]);
+      });
+    return gitWithInput(root, ["mktree", "-z"], Buffer.concat(rows));
+  }
+}
+
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+}
+
+function gitWithInput(root: string, args: ReadonlyArray<string>, input: Buffer): string {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", input }).trim();
 }

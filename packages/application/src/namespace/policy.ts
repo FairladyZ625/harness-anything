@@ -1,3 +1,8 @@
+// The Unicode version is part of this collision-key contract. Keep both the
+// versioned package name and exact package version pinned; upgrades require an
+// explicit collision audit instead of inheriting Node/ICU data changes.
+import commonCaseFolding from "@unicode/unicode-17.0.0/Case_Folding/C/code-points.js";
+import fullCaseFolding from "@unicode/unicode-17.0.0/Case_Folding/F/code-points.js";
 import { NamespaceAdmissionError, portableAsciiV2, type PortablePathDescriptor, type PortablePathOptions } from "./types.ts";
 
 const portableSegment = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*|\.[A-Za-z0-9_][A-Za-z0-9._-]*)$/u;
@@ -44,9 +49,15 @@ export function validatePortableManagedPath(
 
 export function foldPortableComponent(segment: string): string {
   let folded = "";
-  for (let index = 0; index < segment.length; index += 1) {
-    const code = segment.charCodeAt(index);
-    folded += code >= 65 && code <= 90 ? String.fromCharCode(code + 32) : segment[index];
+  for (const character of segment) {
+    const codePoint = character.codePointAt(0)!;
+    const fullMapping = fullCaseFolding.get(codePoint);
+    if (fullMapping) {
+      folded += String.fromCodePoint(...fullMapping);
+      continue;
+    }
+    const commonMapping = commonCaseFolding.get(codePoint);
+    folded += commonMapping === undefined ? character : String.fromCodePoint(commonMapping);
   }
   return folded;
 }
