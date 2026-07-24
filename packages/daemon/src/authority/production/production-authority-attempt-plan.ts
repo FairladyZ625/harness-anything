@@ -336,7 +336,7 @@ export function attemptFromProgressAppendPlan(
   if (plan.commandKind !== "progress-append") {
     throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${plan.commandKind}`);
   }
-  return attemptFromPlan(plan);
+  return attemptFromAuthorityPlan(plan);
 }
 
 function activatePlannedAttempt(
@@ -344,7 +344,7 @@ function activatePlannedAttempt(
   plan: ProductionAuthorityAttemptPlanV1,
   recovery: boolean
 ): AuthorizedOperationAttemptV2 {
-  const attempt = attemptFromPlan(plan);
+  const attempt = attemptFromAuthorityPlan(plan);
   const token = verifyActorAxesBindingV2(
     attempt.presentationToken,
     input.bindingRuntime.proofKeys
@@ -418,7 +418,7 @@ function activatePlannedAttempt(
   return attempt;
 }
 
-function attemptFromPlan(
+export function attemptFromAuthorityPlan(
   plan: ProductionAuthorityAttemptPlanV1
 ): AuthorizedOperationAttemptV2 {
   if (plan.schema !== productionAuthorityAttemptPlanV1Schema) {

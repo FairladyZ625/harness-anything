@@ -15,6 +15,7 @@ export interface RepoWriteChildTransport {
 export interface RepoWriteChildResponseWriterOptions {
   readonly repoId: string;
   readonly generation: number;
+  readonly artifactIdentity: string;
   readonly transport: RepoWriteChildTransport;
 }
 
@@ -34,7 +35,8 @@ export class RepoWriteChildResponseWriter {
   ready(): Promise<void> {
     return this.send({
       ...this.frameBase(),
-      kind: "ready"
+      kind: "ready",
+      artifactIdentity: this.options.artifactIdentity
     });
   }
 
@@ -70,6 +72,27 @@ export class RepoWriteChildResponseWriter {
       opId,
       outcome,
       receipt
+    });
+  }
+
+  directResult(requestId: string, receipt: unknown): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "direct-result",
+      requestId,
+      receipt: receipt as RepoWriteJsonObject
+    });
+  }
+
+  directUnknown(requestId: string, code: string, diagnostic: unknown): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "direct-failure",
+      requestId,
+      outcome: "unknown",
+      replay: "forbidden",
+      code,
+      diagnostic: safeDiagnostic(diagnostic)
     });
   }
 

@@ -33,7 +33,6 @@ import { drainDaemonRuntime, isDaemonDrainTimeout } from "../lifecycle/daemon-dr
 import { makeDaemonQueuedWriteCoordinator } from "../lifecycle/queued-write-coordinator.ts";
 import { makeLocalAgentHolderServices } from "../agent-runtime/holder-projection-host.ts";
 import { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import { canonicalRootIdentity } from "../runtime/canonical-root.ts";
 import { createDaemonReconcileState, reconcileDaemonRepoRegistry, type DaemonReconcileState } from "../runtime/registry-reconciler.ts";
 import { publishRuntimeRegistrationSnapshot } from "../runtime/runtime-registration-projection.ts";
 import { createAuthorityWireIngressHandler } from "../authority/authority-wire-service.ts";
@@ -42,6 +41,22 @@ import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payloa
 import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
 import { daemonDeploymentStatusOptions } from "./deployment-status-options.ts";
+import type {
+  RepoWriteProcessSupervisor
+} from "../runtime/repo-write-process-supervisor.ts";
+import {
+  childOwnedTaskHolderService,
+  remainWedgedAfterFailedDrain,
+  registerRepoWriteSupervisorStops
+} from "./repo-write-service-policy.ts";
+import {
+  localAuthorityPeerPolicy,
+  sameCanonicalRoot,
+  sortedDaemonRepos
+} from "./daemon-host-boundary-policy.ts";
+import { repoWriteCommandDispatch } from "./repo-write-command-dispatch.ts";
+
+export { localAuthorityPeerPolicy } from "./daemon-host-boundary-policy.ts";
 
 export type DaemonServiceStopRequest =
   | { readonly reason: "idle-timeout" }
@@ -90,7 +105,8 @@ export async function createDaemonServiceHost<
   },
   hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity, PresentedControlError>,
   authorityLifecycle?: AuthorityRepoLifecycleController,
-  providedDaemonLogService?: DaemonLogService
+  providedDaemonLogService?: DaemonLogService,
+  repoWriteSupervisors?: ReadonlyMap<string, RepoWriteProcessSupervisor>
 ): Promise<{
   readonly daemonId: string;
   readonly createProtocolServer: (
@@ -115,6 +131,7 @@ export async function createDaemonServiceHost<
   const daemonLogService = providedDaemonLogService
     ?? makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
   const stopHandlers: Array<() => Promise<void>> = [];
+  registerRepoWriteSupervisorStops(stopHandlers, repoWriteSupervisors);
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
   let requestStop: ((request: DaemonServiceStopRequest) => void) | undefined;
   const stopRequested = new Promise<DaemonServiceStopRequest>((resolve) => {
@@ -202,7 +219,8 @@ export async function createDaemonServiceHost<
       commandOptions,
       { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
       hostServices,
-      authorityComponent
+      authorityComponent,
+      repoWriteSupervisors?.get(repo.repoId)
     ));
   }
   const selectedFallbackBinding = repoBindings.get(defaultRepoId) ?? repoBindings.values().next().value;
@@ -224,7 +242,9 @@ export async function createDaemonServiceHost<
       leaseEnforcementEnabled: (repo) => hostServices.leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
       ...(acceptedConnection ? { acceptedConnection } : {}),
-      ...(authorityLifecycle ? { authorityPeerPolicy: localAuthorityPeerPolicy } : {}),
+      ...(authorityLifecycle || repoWriteSupervisors?.size
+        ? { authorityPeerPolicy: localAuthorityPeerPolicy }
+        : {}),
       notificationSink,
       subscribeProjectionChanges: (repo, listener) => {
         const repoRuntime = runtime.getRepoRuntime(repo.repoId);
@@ -328,7 +348,8 @@ export async function createDaemonServiceHost<
           commandOptions,
           { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, daemonLogService, activeControl: () => activeControl },
           hostServices,
-          authorityComponent
+          authorityComponent,
+          repoWriteSupervisors?.get(repo.repoId)
         ));
       },
       detachRepo: async (repoId) => {
@@ -370,10 +391,6 @@ export async function createDaemonServiceHost<
   }
 }
 
-function remainWedgedAfterFailedDrain(): Promise<never> {
-  return new Promise(() => undefined);
-}
-
 function createRepoServiceBinding<
   Command extends DaemonHostCommand,
   Result extends DaemonHostCommandResult,
@@ -403,7 +420,8 @@ function createRepoServiceBinding<
     readonly activeControl?: () => DaemonActiveControlStatus | null;
   } | undefined,
   hostServices: DaemonServiceHostServices<Command, Result, AuthenticatedActor, HarnessDaemonRuntime, Identity>,
-  authorityComponent?: AuthorityRepoComponent
+  authorityComponent?: AuthorityRepoComponent,
+  repoWriteSupervisor?: RepoWriteProcessSupervisor
 ): {
   readonly repo: DaemonRepoNamespace;
   readonly identity: RepoIdentity;
@@ -439,6 +457,9 @@ function createRepoServiceBinding<
   });
   const daemonCommandService = createDaemonCommandService(runtime, hostServices.command, {
     ...commandOptions,
+    ...(repoWriteSupervisor ? {
+      repoWriteDispatch: repoWriteCommandDispatch(repoWriteSupervisor)
+    } : {}),
     ...(authorityComponent ? { authorityCutoverControl: authorityComponent.cutoverControl } : {}),
     ...(authorityComponent ? {
       resolveAuthoritySubmissionV2: (dispatch) => requireAuthoritySubmissionForDispatch(
@@ -454,7 +475,9 @@ function createRepoServiceBinding<
     services: {
       LocalControllerService: localController,
       TerminalSessionService: createPtyTerminalSessionService({ workspaceRoot: rootDir }),
-      TaskHolderService: taskHolderService,
+      TaskHolderService: repoWriteSupervisor
+        ? childOwnedTaskHolderService(taskHolderService)
+        : taskHolderService,
       ...(statusOptions?.daemonLogService ? { DaemonLogService: statusOptions.daemonLogService } : {}),
       DaemonStatusService: {
         getStatus: (context) => {
@@ -571,25 +594,4 @@ function repoAvailabilityFailure(
       lastError: authorityUnavailable ?? status.lastError ?? null
     }
   };
-}
-
-function sortedDaemonRepos(repos: ReadonlyArray<DaemonRepoNamespace>): ReadonlyArray<DaemonRepoNamespace> {
-  return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot));
-}
-
-function sameCanonicalRoot(left: string, right: string): boolean {
-  return canonicalRootIdentity(left) === canonicalRootIdentity(right);
-}
-
-export function localAuthorityPeerPolicy(input: Parameters<NonNullable<
-  Parameters<typeof createJsonRpcProtocolServer>[0]["authorityPeerPolicy"]
->>[0]): boolean {
-  if (input.actor.resolvedCredential.kind !== "unix-socket-owner-boundary") return false;
-  const credentialUid = Number(input.actor.resolvedCredential.subject);
-  const daemonUid = process.getuid?.();
-  return Number.isSafeInteger(credentialUid)
-    && credentialUid >= 0
-    && typeof daemonUid === "number"
-    && input.peerCredential.uid === credentialUid
-    && input.peerCredential.uid === daemonUid;
 }

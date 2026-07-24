@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   RepoWriteClient,
   RepoWriteClientClosedError,
+  RepoWriteDirectOutcomeUnknownError,
   RepoWriteDrainError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
@@ -80,6 +81,64 @@ test("resolves an exact rejected terminal receipt instead of converting it to tr
   });
 
   assert.deepEqual(await result, receipt);
+});
+
+test("volatile direct execution resolves the exact existing receipt without PREPARED or PROCEED", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = readyClient(transport);
+  const result = client.direct(command("task.claim"));
+  const request = transport.sent.at(-1);
+  const receipt = rejectedCommandReceipt();
+
+  assert.deepEqual(request, {
+    ...parentFrame("direct"),
+    requestId: requestId(request),
+    command: command("task.claim")
+  });
+  transport.emit({
+    ...childFrame("direct-result"),
+    requestId: requestId(request),
+    receipt
+  });
+
+  assert.deepEqual(await result, receipt);
+  assert.deepEqual(transport.sent.map((message) => message.kind), ["direct"]);
+});
+
+test("volatile direct timeout releases capacity without retry or durable lookup", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    limits: {
+      maxPendingRequests: 1,
+      requestTimeoutMs: 10
+    },
+    onTelemetry: () => undefined
+  });
+  transport.emit(readyFrame());
+
+  await assert.rejects(client.direct(command("task.claim")), (error) => {
+    assert.ok(error instanceof RepoWriteDirectOutcomeUnknownError);
+    assert.equal(error.code, "REPO_WRITE_DIRECT_TIMEOUT");
+    assert.equal(error.outcome, "unknown");
+    assert.equal(error.replay, "forbidden");
+    assert.equal("opId" in error, false);
+    return true;
+  });
+  assert.deepEqual(transport.sent.map((message) => message.kind), ["direct"]);
+
+  const lookup = client.lookup("op-unrelated-capacity-probe");
+  const status = transport.sent.at(-1);
+  transport.emit({
+    ...childFrame("status"),
+    requestId: requestId(status),
+    opId: "op-unrelated-capacity-probe",
+    state: "not-found"
+  });
+  assert.deepEqual(await lookup, { state: "not-found" });
+  assert.deepEqual(transport.sent.map((message) => message.kind), ["direct", "status"]);
 });
 
 test("binds one non-empty repo to one positive transport generation", () => {

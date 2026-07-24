@@ -29,7 +29,8 @@ test("uses Node IPC for validated ready and command roundtrips", async (context)
     protocol: repoWriteProtocolType,
     repoId: "repo-transport",
     generation: 1,
-    kind: "ready"
+    kind: "ready",
+    artifactIdentity: `sha256:${"a".repeat(64)}`
   });
 
   const prepared = nextMessage(transport);

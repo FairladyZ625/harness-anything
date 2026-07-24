@@ -4,6 +4,7 @@ import type {
   AuthorityCutoverControlService,
   AuthorityCommittedEventPublisherV2,
   AuthorityFenceWitness,
+  AuthoritySubmissionV2Options,
   OperationNamespaceVerifierV2,
   ProtocolSchemaTupleV2
 } from "@harness-anything/application";
@@ -28,6 +29,16 @@ import {
   type WriteCoordinator
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
+import type {
+  ProductionAuthorityAttemptPlanV1,
+  ProductionAuthorityCommandPlanInput,
+  ProductionProgressAppendCompileInput,
+  ProductionAuthorityProgressAppendPlanV1,
+  ProductionAuthorityOuterRecoveryWitnessV1
+} from "./production/production-authority-attempt-compiler.ts";
+import type {
+  ProductionPlannedCommandSubmission
+} from "./production/production-progress-append-submission.ts";
 import type { ProductionCompoundReceiptComposition } from "../lifecycle/compound-receipt-composition.ts";
 import type { DaemonGenerationWitness } from "../lifecycle/daemon-generation.ts";
 import type { AuthorityForcedCommandSession } from "@harness-anything/daemon";
@@ -65,6 +76,22 @@ export interface AuthorityRepoComponent {
 }
 
 export interface AuthorityRepoConnectionBinding extends DaemonAuthorityCommandSubmissionV2 {
+  readonly planCommand?: (
+    input: ProductionAuthorityCommandPlanInput
+  ) => Promise<ProductionAuthorityAttemptPlanV1>;
+  readonly plannedCommandSubmission?: (input: {
+    readonly expected: ProductionAuthorityCommandPlanInput;
+    readonly plan: ProductionAuthorityAttemptPlanV1;
+    readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
+  }) => ProductionPlannedCommandSubmission;
+  readonly planProgressAppend?: (
+    input: ProductionProgressAppendCompileInput
+  ) => Promise<ProductionAuthorityProgressAppendPlanV1>;
+  readonly plannedProgressAppendSubmission?: (input: {
+    readonly expected: ProductionProgressAppendCompileInput;
+    readonly plan: ProductionAuthorityProgressAppendPlanV1;
+    readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
+  }) => DaemonAuthorityCommandSubmissionV2;
   readonly serveForcedCommand?: (input: {
     readonly input: Readable;
     readonly output: Writable;
@@ -107,6 +134,15 @@ export interface AuthorityLifecycleRuntime {
     readonly commitAuthor?: { readonly name: string; readonly email: string };
   }) => WriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
+  readonly runAuthorizedRepoWriteRecoveryPlan?: <Result>(
+    witness: ProductionAuthorityOuterRecoveryWitnessV1,
+    useDurableProceeding: (
+      outcome: import("../runtime/repo-write-outcome-schema.ts").RepoWriteProceedingOutcomeV1
+    ) => Result
+  ) => Promise<Result>;
+  readonly runAuthorizedRepoWriteRecoveryAttempt?: NonNullable<
+    AuthoritySubmissionV2Options["runAuthorizedRecoveryAttempt"]
+  >;
   readonly daemonGenerationContext?: () => {
     readonly witness: DaemonGenerationWitness;
     readonly machineId: string;

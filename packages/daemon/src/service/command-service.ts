@@ -32,6 +32,13 @@ import {
   type CliDaemonRuntime
 } from "../lifecycle/queued-write-coordinator.ts";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
+import {
+  encodeRepoWriteCommand
+} from "../runtime/repo-write-progress-command.ts";
+import {
+  RepoWriteDirectOutcomeUnknownError,
+  RepoWriteOutcomeUnknownError
+} from "../runtime/repo-write-client.ts";
 
 export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -44,6 +51,16 @@ export interface DaemonCommandService {
 export interface DaemonCommandServiceOptions {
   readonly onCommandStart?: () => void;
   readonly onCommandSettled?: () => void;
+  readonly taskLeaseGuardMode?: "read-only";
+  readonly repoWriteDispatch?: {
+    readonly repoId: string;
+    readonly submit: (
+      command: ReturnType<typeof encodeRepoWriteCommand>
+    ) => Promise<CommandReceiptEnvelope>;
+    readonly direct: (
+      command: ReturnType<typeof encodeRepoWriteCommand>
+    ) => Promise<CommandReceiptEnvelope>;
+  };
   readonly resolveAuthoritySubmissionV2?: (
     connection: AuthorityConnectionDispatch | undefined
   ) => DaemonAuthorityCommandSubmissionV2 | undefined;
@@ -76,6 +93,50 @@ export function createDaemonCommandService<
         );
         command = parsedCommand;
         const daemonActor = context?.actor;
+        const commandClass = commandClassForCliActionKind(
+          parsedCommand.action.kind
+        );
+        const dryRun = hostServices.isDryRunAction(parsedCommand);
+        if (options.repoWriteDispatch
+          && !dryRun
+          && (commandClass === "repo-write" || commandClass === "arbiter")) {
+          const authority = context?.authorityConnection;
+          if (!daemonActor || !authority || !authority.available) {
+            return childRouteFailure(
+              parsedCommand.action.kind,
+              "repo_write_child_authority_unavailable",
+              "The child writer requires an active authenticated authority connection."
+            );
+          }
+          try {
+            authority.assertActive();
+            const childCommand = encodeRepoWriteCommand({
+                command: parsedCommand as unknown as Readonly<Record<string, unknown>>,
+                context: {
+                  actor: daemonActor,
+                  authorityConnection: authority.context,
+                  currentSession,
+                  executor: context?.executor ?? null
+                }
+              });
+            return await (hostServices.repoWriteChildExecutionMode(parsedCommand) === "durable"
+              ? options.repoWriteDispatch.submit(childCommand)
+              : options.repoWriteDispatch.direct(childCommand));
+          } catch (error) {
+            const outerOpId = error instanceof RepoWriteOutcomeUnknownError
+              ? error.opId
+              : undefined;
+            return childRouteFailure(
+              parsedCommand.action.kind,
+              error instanceof RepoWriteOutcomeUnknownError
+                || error instanceof RepoWriteDirectOutcomeUnknownError
+                ? "repo_write_outcome_unknown"
+                : "repo_write_child_unavailable",
+              error instanceof Error ? error.message : String(error),
+              outerOpId
+            );
+          }
+        }
         if (isAuthorityCutoverAction(parsedCommand.action)) {
           return hostServices.toReceipt(await runAuthorityCutoverControlCommand({
             action: parsedCommand.action as AuthorityCutoverCommandAction,
@@ -90,7 +151,6 @@ export function createDaemonCommandService<
         const attribution = daemonActor
           ? hostServices.actorAttribution(daemonActor, parsedCommand, context?.executor ?? null)
           : undefined;
-        const commandClass = commandClassForCliActionKind(parsedCommand.action.kind);
         const authoritySubmissionV2 = attribution
           && (commandClass === "repo-write" || commandClass === "arbiter")
           ? options.resolveAuthoritySubmissionV2?.(context?.authorityConnection)
@@ -104,7 +164,6 @@ export function createDaemonCommandService<
             ingressAdapter: hostServices.authorityIngressFor(parsedCommand.action.kind)
           })
           : undefined;
-        const dryRun = hostServices.isDryRunAction(parsedCommand);
         const dryRunCoordinator = dryRun
           ? dryRunWriteBarrier()
           : undefined;
@@ -112,6 +171,9 @@ export function createDaemonCommandService<
           "command-execute",
           () => hostServices.executeCommand(parsedCommand, {
             requireProvidedActorAttribution: true,
+            ...(options.taskLeaseGuardMode ? {
+              taskLeaseGuardMode: options.taskLeaseGuardMode
+            } : {}),
             ...(attribution ? { actorAttribution: attribution } : {}),
             ...(currentSession ? { currentSession } : {}),
             ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
@@ -173,6 +235,33 @@ export function createDaemonCommandService<
         options.onCommandSettled?.();
       }
     }
+  };
+}
+
+function childRouteFailure(
+  command: string,
+  code: string,
+  hint: string,
+  outerOpId?: string
+): CommandReceiptEnvelope {
+  return {
+    ok: false,
+    schema: "command-receipt/v2",
+    command,
+    action: "run",
+    summary: hint,
+    meta: {
+      generatedAt: new Date().toISOString(),
+      compatibility: { legacyReceipt: "CommandReceipt/v1" }
+    },
+    error: {
+      code,
+      hint,
+      ...(outerOpId ? { context: { outerOpId } } : {})
+    },
+    ...(outerOpId ? {
+      details: { data: { outerOpId, recovery: "lookup-only" } }
+    } : {})
   };
 }
 

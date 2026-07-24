@@ -98,6 +98,8 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
     createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
     assertWriteFenceHeld: () => context.assertWriteFenceHeld(),
+    daemonGenerationContext: () => context.daemonGenerationContext(),
+    daemonGenerationCapability: () => context.daemonGenerationCapability(),
     admissionBudget: context.admissionBudget,
     subscribeProjectionChanges: (listener) => context.subscribeProjectionChanges(listener)
   };
@@ -191,6 +193,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private readonly runtimeContext: ReturnType<typeof createHarnessRuntimeContext>;
   private readonly layout: ReturnType<typeof resolveHarnessLayout>;
   private readonly operationalActor: OperationalActor;
+  private readonly writeOwnership: "writer" | "reader";
   private readonly lockTtlMs: number;
   private readonly materializerMaxBranchesPerBatch: number;
   private readonly queue: DaemonWriteQueue;
@@ -214,6 +217,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.runtimeContext = createHarnessRuntimeContext(this.rootDir, options.layoutOverrides);
     this.layout = resolveHarnessLayout(this.runtimeContext);
     this.operationalActor = options.operationalActor ?? defaultDaemonOperationalActor;
+    this.writeOwnership = options.writeOwnership ?? "writer";
     this.lockTtlMs = options.lockTtlMs ?? defaultDaemonRuntimePolicy.write.lockTtlMs;
     this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultDaemonRuntimePolicy.materializer.maxBranchesPerBatch;
     this.admissionBudget = createRuntimeAdmissionBudget(options);
@@ -230,13 +234,22 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   async attach(input: { readonly failOnError: boolean }): Promise<DaemonRepoRuntimeStatus> {
-    if (this.lock && this.state === "attached") return this.status();
+    if (this.state === "attached"
+      && (this.writeOwnership === "reader" || this.lock)) return this.status();
     if (this.projectionGenerationClosed) {
       this.projectionGeneration = this.createProjectionGenerationManager();
       this.projectionGenerationClosed = false;
     }
     this.projectionGeneration.reset();
     try {
+      if (this.writeOwnership === "reader") {
+        this.lastRecovery = undefined;
+        this.lastError = undefined;
+        this.lastMaterializerError = undefined;
+        this.runtimeRegistrationId = undefined;
+        this.state = "attached";
+        return this.status();
+      }
       this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.operationalActor, this.lockTtlMs);
       this.lastRecovery = Effect.runSync(recoverJournaledWrites({
         rootDir: this.rootDir,
@@ -295,8 +308,10 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   status(): DaemonRepoRuntimeStatus {
     return {
-      started: Boolean(this.lock && this.state === "attached"),
+      started: this.state === "attached"
+        && (this.writeOwnership === "reader" || Boolean(this.lock)),
       rootDir: this.rootDir,
+      writeOwnership: this.writeOwnership,
       repoId: this.repoId,
       canonicalRoot: this.rootDir,
       ...(this.displayName ? { displayName: this.displayName } : {}),
@@ -315,7 +330,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   enqueueInteractiveWrite(request: InteractiveWriteRequest): Promise<InteractiveWriteReceipt> {
-    const started = this.requireAttached();
+    const started = this.requireWriterAttached();
     let touchedPaths: ReadonlyArray<string>;
     try {
       touchedPaths = request.ops.flatMap((op) => writeOpTouchedPaths(this.runtimeContext, op));
@@ -333,7 +348,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   enqueueBackgroundBatch<Result>(request: BackgroundBatchRequest<Result>): Promise<Result> {
-    this.requireAttached();
+    this.requireWriterAttached();
     return this.queue.enqueueBackground(request)
       .catch((error: unknown) => {
         this.lastError = describeRepoRuntimeError(error);
@@ -354,7 +369,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   enqueueAuthorityPublication(options: DaemonAuthorityPublicationOptions): Promise<DaemonAuthorityPublicationReport> {
-    this.requireAttached();
+    this.requireWriterAttached();
     return enqueueDaemonAuthorityPublication(
       this.queue,
       options,
@@ -366,7 +381,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   queryExecutionEvidencePage(query: ExecutionEvidencePageQuery): Promise<ExecutionEvidencePage> {
-    this.requireAttached();
+    this.requireReadAttached();
     return this.projectionGeneration.queryExecutionEvidencePage(query);
   }
 
@@ -375,18 +390,18 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     readonly sessionId: string;
     readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
   }): WriteCoordinator {
-    this.requireAttached();
+    this.requireWriterAttached();
     return makeDeferredAuthorityCoordinator({
       beginProjectionWrite: (op) => {
         const touchedPaths = writeOpTouchedPaths(this.runtimeContext, op);
         return this.projectionGeneration.beginCanonicalWrite(touchedPaths);
       },
-      makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireAttached(), input)
+      makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireWriterAttached(), input)
     });
   }
 
   async assertWriteFenceHeld(): Promise<void> {
-    const { lock } = this.requireAttached();
+    const { lock } = this.requireWriterAttached();
     assertDaemonGlobalLockHeld(lock);
   }
 
@@ -414,15 +429,25 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     return this.projectionChanges.subscribe(listener);
   }
 
-  private requireAttached(): { readonly lock: DaemonGlobalLock } {
-    if (!this.lock || this.state !== "attached") {
+  private requireReadAttached(): void {
+    if (this.state !== "attached") {
       throw { _tag: "JournalUnavailable", cause: new Error(`daemon repo "${this.repoId}" is not attached`) } satisfies WriteError;
+    }
+  }
+
+  private requireWriterAttached(): { readonly lock: DaemonGlobalLock } {
+    this.requireReadAttached();
+    if (this.writeOwnership !== "writer" || !this.lock) {
+      throw {
+        _tag: "JournalUnavailable",
+        cause: new Error(`daemon repo "${this.repoId}" write ownership belongs to its child capsule`)
+      } satisfies WriteError;
     }
     return { lock: this.lock };
   }
 
   private makeStartedCoordinator(
-    started: ReturnType<DaemonRepoRuntimeContext["requireAttached"]>,
+    started: ReturnType<DaemonRepoRuntimeContext["requireWriterAttached"]>,
     request: InteractiveWriteAttribution & { readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"]; readonly sessionId?: string }
   ) {
     const common = {
@@ -454,7 +479,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   private runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): LedgerMaterializerReport {
-    const started = this.requireAttached();
+    const started = this.requireWriterAttached();
     const report = runLedgerMaterializer(this.runtimeContext, {
       heldGlobalLock: started.lock,
       ...(batchOptions.dryRun ? { dryRun: true } : {}),
@@ -527,6 +552,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDaemonRuntimeOptions): DaemonRepoRuntimeOptions {
   return {
     ...repo,
+    ...(repo.writeOwnership ? {} : options.writeOwnership ? { writeOwnership: options.writeOwnership } : {}),
     ...(repo.operationalActor ? {} : options.operationalActor ? { operationalActor: options.operationalActor } : {}),
     ...(repo.lockTtlMs !== undefined ? {} : options.lockTtlMs !== undefined ? { lockTtlMs: options.lockTtlMs } : {}),
     ...(repo.interactiveMicroBatchMs !== undefined ? {} : options.interactiveMicroBatchMs !== undefined ? { interactiveMicroBatchMs: options.interactiveMicroBatchMs } : {}),

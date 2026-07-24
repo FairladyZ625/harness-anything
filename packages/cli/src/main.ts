@@ -48,6 +48,13 @@ type ParsedCommandRunner = (command: Parameters<typeof runRegisteredCommand>[0])
 const cliTestFixtureRunnerSymbol = Symbol.for("harness-anything.cli-test-fixture-runner");
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
+  if (argv[0] === "__repo-write-child") {
+    const { runRepoWriteChildEntrypoint } = await import(
+      "./composition/repo-write-child-entrypoint.ts"
+    );
+    await runRepoWriteChildEntrypoint(argv[1]);
+    return 0;
+  }
   const compoundExit = await runCompoundReceiptExitCommand(argv);
   if (compoundExit !== undefined) return compoundExit;
   const daemonOverrides = stripGlobalOptions(argv);

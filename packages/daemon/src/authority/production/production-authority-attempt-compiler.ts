@@ -5,6 +5,7 @@ import {
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
   type AuthorizedOperationAttemptV2,
+  type AuthorityIngressAdapter,
   type FactRelationCommandPayloadV2,
   type ConsentCommandPayloadV2,
   type ProductionAuthorityCommand,
@@ -39,10 +40,18 @@ import { productionScriptIngestAttemptIntent } from "./production-authority-scri
 import { productionObservedWriteAttemptIntent } from "./production-authority-observed-write-intents.ts";
 import {
   createProductionAuthorityAttemptPlanner,
+  type ProductionAuthorityAttemptPlanV1,
   type ProductionAuthorityOuterRecoveryWitnessV1,
   type ProductionAuthorityProgressAppendPlanV1
 } from "./production-authority-attempt-plan.ts";
+import {
+  directTypedCommandEntityId
+} from "./production-authority-pure-command-plan.ts";
 export {
+  productionAuthorityCommandHasPurePlan
+} from "./production-authority-pure-command-plan.ts";
+export {
+  attemptFromAuthorityPlan,
   attemptFromProgressAppendPlan,
   productionAuthorityAttemptPlanV1Schema,
   type ProductionAuthorityAttemptPlanV1,
@@ -74,8 +83,27 @@ export interface CanonicalAttemptIntent {
 type CanonicalCompileInput =
   Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
 
+export type ProductionProgressAppendCompileInput = CanonicalCompileInput & {
+  readonly ingressAdapter?: AuthorityIngressAdapter;
+};
+
+export type ProductionAuthorityCommandPlanInput =
+  Omit<CanonicalCompileInput, "canonicalEntityId">;
+
+export type ProductionAuthorityCommandSubmissionInput = CanonicalCompileInput;
+
 export interface ProductionCanonicalAttemptCompilerV2
   extends DaemonAuthorityAttemptCompilerV2 {
+  readonly planCommand: (
+    input: ProductionAuthorityCommandPlanInput
+  ) => Promise<ProductionAuthorityAttemptPlanV1>;
+  readonly activatePlannedCommand: (
+    plan: ProductionAuthorityAttemptPlanV1
+  ) => AuthorizedOperationAttemptV2;
+  readonly activateRecoveryCommand: (
+    plan: ProductionAuthorityAttemptPlanV1,
+    witness: ProductionAuthorityOuterRecoveryWitnessV1
+  ) => Promise<AuthorizedOperationAttemptV2>;
   readonly planProgressAppend: (
     input: CanonicalCompileInput
   ) => Promise<ProductionAuthorityProgressAppendPlanV1>;
@@ -108,6 +136,34 @@ export function createProductionCanonicalAttemptCompiler(input: {
   ) => Promise<Result>;
 }): ProductionCanonicalAttemptCompilerV2 {
   const attemptPlanner = createProductionAuthorityAttemptPlanner(input);
+  const planCommand = async ({
+    command,
+    attribution,
+    currentSession
+  }: ProductionAuthorityCommandPlanInput): Promise<ProductionAuthorityAttemptPlanV1> => {
+    assertTypedIngressAdapter(command.action.kind, "generic", input.hostServices);
+    const resolvedEntityId = directTypedCommandEntityId(command);
+    if (!resolvedEntityId) {
+      throw new Error(
+        `AUTHORITY_COMMAND_PLAN_ENTITY_ID_REQUIRED:${command.action.kind}`
+      );
+    }
+    const intent = await canonicalAttemptIntent(
+      command,
+      currentSession,
+      resolvedEntityId,
+      input.authoredRoot,
+      attribution.writeAttribution.actor,
+      input.hostServices
+    );
+    return attemptPlanner.planIntent(
+      command,
+      attribution,
+      currentSession,
+      resolvedEntityId,
+      intent
+    );
+  };
   const compileIntent = async (
     command: ProductionAuthorityCommand,
     attribution: Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0]["attribution"],
@@ -119,28 +175,24 @@ export function createProductionCanonicalAttemptCompiler(input: {
       await attemptPlanner.planIntent(command, attribution, currentSession, canonicalEntityId, intent)
     );
   return {
+    planCommand,
+    activatePlannedCommand: attemptPlanner.activatePlan,
+    activateRecoveryCommand: attemptPlanner.activateRecoveryPlan,
     planProgressAppend: async ({ command, attribution, currentSession, canonicalEntityId }) => {
       if (command.action.kind !== "progress-append") {
         throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${command.action.kind}`);
       }
-      const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
-      const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
-        ? await canonicalAttemptIntent(
-          command,
-          currentSession,
-          canonicalEntityId,
-          input.authoredRoot,
-          attribution.writeAttribution.actor,
-          input.hostServices
-        )
-        : null;
-      return attemptPlanner.planIntent(
+      const plan = await planCommand({
         command,
         attribution,
-        currentSession,
-        canonicalEntityId,
-        intent
-      ) as Promise<ProductionAuthorityProgressAppendPlanV1>;
+        currentSession
+      });
+      if (canonicalEntityId !== plan.targetEntityId) {
+        throw new Error(
+          `AUTHORITY_CANONICAL_ENTITY_MISMATCH:submittedEntityId=${canonicalEntityId};intentEntityId=${plan.targetEntityId}`
+        );
+      }
+      return plan as ProductionAuthorityProgressAppendPlanV1;
     },
     activatePlannedProgressAppend: (plan) => {
       if (plan.commandKind !== "progress-append") {

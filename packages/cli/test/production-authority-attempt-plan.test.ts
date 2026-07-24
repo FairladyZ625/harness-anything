@@ -12,12 +12,14 @@ import {
 } from "../../application/src/index.ts";
 import { taskEntityId } from "../../kernel/src/index.ts";
 import {
+  attemptFromAuthorityPlan,
   attemptFromProgressAppendPlan,
   createDurableAuthorityBindingRuntimeV2,
   createProductionCanonicalAttemptCompiler,
   loadAuthorityProductionManifest,
   openAuthorityProductionKeyMaterial,
-  openDurableAuthorityServiceState
+  openDurableAuthorityServiceState,
+  productionAuthorityCommandHasPurePlan
 } from "../../daemon/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { productionAuthorityHostServices } from "../src/composition/production-authority-host-services.ts";
@@ -32,8 +34,12 @@ import {
   createRepoWriteProceedingOutcomeV1,
   repoWriteActorStampDigestV1
 } from "../../daemon/src/runtime/repo-write-outcome-schema.ts";
+import {
+  createProductionPlannedCommandSubmission,
+  createProductionProgressAppendSubmission
+} from "../../daemon/src/authority/production/production-progress-append-submission.ts";
 
-test("progress append planning is pure and activation validates exact durable recovery material", async () => {
+test("fixed-attempt planning is pure and activation validates exact durable recovery material", async () => {
   const fixture = createFixture();
   const state = openDurableAuthorityServiceState({
     serviceStateRoot: fixture.serviceRoot,
@@ -180,6 +186,50 @@ test("progress append planning is pure and activation validates exact durable re
     compiler.activatePlannedProgressAppend(plan);
     const afterFirstActivation = JSON.stringify(state.bindingState.entries());
     assert.equal(state.bindingState.entries().length, 1);
+    let freshSubmissions = 0;
+    const plannedSubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        submitV2: async () => {
+          freshSubmissions += 1;
+          return {
+            tag: "REJECTED",
+            workspaceId: config.workspaceId,
+            opId: plan.innerOpId,
+            semanticDigest: plan.semanticDigest,
+            reason: "known planned rejection"
+          };
+        },
+        getOperation: async () => undefined
+      },
+      compiler,
+      expected: compileInput,
+      plan
+    });
+    assert.equal((await plannedSubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal(freshSubmissions, 1);
+    await assert.rejects(
+      plannedSubmission.submit(compileInput),
+      /PLANNED_SUBMISSION_REUSED/u
+    );
+    const mismatchedSubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        submitV2: async () => { throw new Error("mismatched input reached inner submit"); },
+        getOperation: async () => undefined
+      },
+      compiler,
+      expected: compileInput,
+      plan
+    });
+    await assert.rejects(mismatchedSubmission.submit({
+      ...compileInput,
+      canonicalEntityId: taskEntityId("task_other")
+    }), /PLANNED_INPUT_MISMATCH/u);
     compiler.activatePlannedProgressAppend(plan);
     assert.equal(JSON.stringify(state.bindingState.entries()), afterFirstActivation);
     assert.equal(await bindingRuntime.consumeOperation({
@@ -234,6 +284,35 @@ test("progress append planning is pure and activation validates exact durable re
       (state.bindingState.get<{ readonly record: { readonly active: boolean } }>(bindingKey))?.record.active,
       false
     );
+    let recoveredWitness: Record<string, unknown> | undefined;
+    const recoverySubmission = createProductionProgressAppendSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        resumeV2: async (recovery) => {
+          recoveredWitness = recovery.witness as unknown as Record<string, unknown>;
+          return {
+            tag: "REJECTED",
+            workspaceId: config.workspaceId,
+            opId: plan.innerOpId,
+            semanticDigest: plan.semanticDigest,
+            reason: "known recovered rejection"
+          };
+        },
+        getOperation: async () => undefined
+      },
+      compiler: recoveryCompiler,
+      expected: compileInput,
+      plan,
+      recovery: outerWitness
+    });
+    assert.equal((await recoverySubmission.submit(compileInput)).tag, "REJECTED");
+    assert.equal(recoveredWitness?.repoId, config.repoId);
+    assert.equal(recoveredWitness?.outerOpId, proceeding.outerOpId);
+    assert.equal(recoveredWitness?.outerRequestDigest, proceeding.requestDigest);
+    assert.equal(recoveredWitness?.opId, plan.innerOpId);
+    assert.equal(recoveredWitness?.canonicalRequestEnvelope, plan.envelopeBase64url);
     const staleWriterCompiler = createProductionCanonicalAttemptCompiler({
       config: recoveryConfig,
       writerGeneration: writerGeneration + 1,
@@ -382,6 +461,167 @@ test("progress append planning is pure and activation validates exact durable re
       /AUTHORITY_ATTEMPT_PLAN_TOKEN_CONFIG_MISMATCH/u
     );
     assert.equal(JSON.stringify(state.bindingState.entries()), beforeTamper);
+
+    const decisionInput = {
+      command: {
+        rootDir: fixture.repoRoot,
+        action: {
+          kind: "decision-propose" as const,
+          decisionId: "dec_GENERIC_PLAN",
+          proposedAt: "2026-07-23T00:00:00.000Z",
+          title: "Generic authority plan",
+          question: "Can a direct typed command use the fixed-attempt API?",
+          chosen: [{ text: "Use the command-neutral plan." }],
+          rejected: [{
+            text: "Keep progress-only planning.",
+            why_not: "It prevents the child from owning direct typed writes."
+          }],
+          claims: [{ text: "The plan binds the exact command operation." }],
+          claimLoadBearing: false,
+          fulfillments: [],
+          riskTier: "medium" as const,
+          urgency: "medium" as const,
+          modules: [],
+          productLines: [],
+          evidenceRelations: [],
+          dryRun: false
+        }
+      },
+      attribution: daemonActorAttribution(actor, { kind: "agent" as const, id: "codex" }),
+      currentSession: compileInput.currentSession
+    };
+    const beforeDecisionPlan = JSON.stringify(state.bindingState.entries());
+    assert.equal(productionAuthorityCommandHasPurePlan(decisionInput.command), true);
+    assert.equal(productionAuthorityCommandHasPurePlan({
+      rootDir: fixture.repoRoot,
+      action: { kind: "session-export" }
+    }), false);
+    assert.equal(productionAuthorityCommandHasPurePlan({
+      rootDir: fixture.repoRoot,
+      action: {
+        kind: "task-complete",
+        taskId: "task_A"
+      }
+    }), false);
+    assert.equal(productionAuthorityCommandHasPurePlan({
+      rootDir: fixture.repoRoot,
+      action: {
+        kind: "status-set",
+        taskId: "task_A",
+        status: "in_review",
+        force: false,
+        executionSubmission: {
+          completionClaim: "complete",
+          deliverables: [],
+          verificationNotes: [],
+          knownGaps: [],
+          residualRisks: [],
+          outputs: []
+        }
+      }
+    }), false);
+    const decisionPlan = await compiler.planCommand(decisionInput);
+
+    assert.equal(JSON.stringify(state.bindingState.entries()), beforeDecisionPlan);
+    assert.equal(decisionPlan.commandKind, "decision-propose");
+    assert.equal(decisionPlan.targetEntityId, "decision/dec_GENERIC_PLAN");
+    assert.match(decisionPlan.innerOpId, /:[a-f0-9]{32}$/u);
+    assert.equal(
+      decodeSemanticMutationEnvelopeV2(
+        attemptFromAuthorityPlan(decisionPlan).envelope
+      ).intent.command.name,
+      "decision.propose"
+    );
+
+    const decisionProceeding = createRepoWriteProceedingOutcomeV1({
+      repoId: config.repoId,
+      workspaceId: config.workspaceId,
+      generation: writerGeneration,
+      outerOpId: "outer-decision-op",
+      innerOpId: decisionPlan.innerOpId,
+      authoritySemanticDigest: decisionPlan.semanticDigest,
+      canonicalCommand: {
+        commandName: "decision.propose",
+        actor: actorStamp,
+        context: {},
+        payload: {}
+      },
+      authenticatedContext: { actor: actorStamp },
+      receiptSeed: {
+        schema: "repo-write-receipt-seed/v1",
+        renderer: "cli-command-receipt/v2@1",
+        generatedAt: "2026-07-23T00:00:00.000Z",
+        command: "decision propose",
+        action: "propose",
+        actorStampDigest: repoWriteActorStampDigestV1(actorStamp)
+      },
+      recoveryContext: decisionPlan
+    });
+    const decisionWitness = {
+      outerOpId: decisionProceeding.outerOpId,
+      outerRequestDigest: decisionProceeding.requestDigest,
+      outerGeneration: decisionProceeding.generation
+    };
+    const decisionRecoveryCompiler = createProductionCanonicalAttemptCompiler({
+      config: recoveryConfig,
+      writerGeneration,
+      keyStore: keyMaterial.keyStore,
+      keyRegistry: keyMaterial.registry,
+      bindingRuntime,
+      context: productionAuthorityConnection(actor),
+      authoredRoot: fixture.authoredRoot,
+      hostServices: productionAuthorityHostServices,
+      runAuthorizedRecoveryPlan: async (witness, useDurableProceeding) => {
+        assert.deepEqual(witness, decisionWitness);
+        return useDurableProceeding(decisionProceeding);
+      }
+    });
+    const recoveredDecisionAttempt = await decisionRecoveryCompiler.activateRecoveryCommand(
+      decisionPlan,
+      decisionWitness
+    );
+    assert.equal(
+      decodeSemanticMutationEnvelopeV2(recoveredDecisionAttempt.envelope).intent.command.name,
+      "decision.propose"
+    );
+    let resumedDecisionOpId: string | undefined;
+    const recoveredDecisionSubmission = createProductionPlannedCommandSubmission({
+      repoId: config.repoId,
+      authorityGeneration: config.authorityGeneration,
+      authorityService: {
+        submit: async () => { throw new Error("legacy submit forbidden"); },
+        resumeV2: async ({ witness }) => {
+          resumedDecisionOpId = witness.opId;
+          return {
+            tag: "REJECTED",
+            workspaceId: config.workspaceId,
+            opId: decisionPlan.innerOpId,
+            semanticDigest: decisionPlan.semanticDigest,
+            reason: "known recovered decision rejection"
+          };
+        },
+        getOperation: async () => undefined
+      },
+      compiler: decisionRecoveryCompiler,
+      expected: decisionInput,
+      plan: decisionPlan,
+      recovery: decisionWitness
+    });
+    await assert.rejects(
+      recoveredDecisionSubmission.submit({
+        ...decisionInput,
+        canonicalEntityId: taskEntityId("task_other")
+      }),
+      /AUTHORITY_PLANNED_INPUT_MISMATCH/u
+    );
+    assert.equal(
+      (await recoveredDecisionSubmission.submit({
+        ...decisionInput,
+        canonicalEntityId: decisionPlan.targetEntityId
+      })).tag,
+      "REJECTED"
+    );
+    assert.equal(resumedDecisionOpId, decisionPlan.innerOpId);
   } finally {
     await state.close();
     rmSync(fixture.root, { recursive: true, force: true });

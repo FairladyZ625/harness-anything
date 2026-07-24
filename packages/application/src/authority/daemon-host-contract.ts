@@ -203,6 +203,8 @@ export interface DaemonHostCommandResult {
 
 export interface DaemonHostCommandExecutionOptions {
   readonly requireProvidedActorAttribution: true;
+  /** Child-writer pilot admission must not renew/write a v1 holder lease. */
+  readonly taskLeaseGuardMode?: "read-only";
   readonly actorAttribution?: AuthorityHostAttribution;
   readonly currentSession?: CurrentSessionRef;
   readonly inlineCreateProvenanceOnly?: true;
@@ -223,6 +225,8 @@ export type DaemonCommandHostError =
   | { readonly code: "invalid_session"; readonly context: { readonly cause: string } }
   | { readonly code: "auth_missing"; readonly context: { readonly cause: string } };
 
+export type RepoWriteChildExecutionMode = "durable" | "direct";
+
 /** CLI-owned parser/executor/error/receipt adapters consumed by the daemon command service. */
 export interface DaemonCommandHostServices<
   Command extends DaemonHostCommand,
@@ -233,6 +237,11 @@ export interface DaemonCommandHostServices<
   readonly normalizeCommand: (command: Command, currentSession: CurrentSessionRef) => Promise<Command>;
   readonly authorityCommand: (command: Command) => AuthorityHostCommand | undefined;
   readonly authorityIngressFor: (kind: string) => AuthorityIngressAdapter | undefined;
+  readonly repoWriteChildExecutionMode: (command: Command) => RepoWriteChildExecutionMode;
+  readonly receiptSeed: (command: Command) => {
+    readonly command: string;
+    readonly action: string;
+  };
   readonly actorAttribution: (
     actor: Actor,
     command: Command,

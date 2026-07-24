@@ -121,6 +121,8 @@ export interface TaskHolderService {
   readonly holder: (input: { readonly taskId: string }) => Promise<TaskHolderSnapshot>;
   readonly release: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
   readonly assertActiveLease: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
+  /** Admission-only check that never renews or rewrites a legacy v1 lease. */
+  readonly assertActiveLeaseReadOnly: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
   readonly reserveExecution: (input: { readonly taskId: string; readonly executionId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseReservation>;
   readonly withExecutionReservation: <Result>(input: {
     readonly taskId: string;
@@ -237,6 +239,22 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         orphan: snapshot.orphan
       });
     }),
+    assertActiveLeaseReadOnly: async (input) => {
+      const at = now();
+      const current = readHolderRecord(options.rootInput, input.taskId);
+      const snapshot = holderSnapshot(input.taskId, current, at);
+      if (snapshot.effectiveHolder
+        && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) {
+        return;
+      }
+      throw new TaskLeaseRequiredError({
+        taskId: input.taskId,
+        principal: input.principal,
+        holder: current?.holder ?? null,
+        leaseExpiresAt: snapshot.leaseExpiresAt,
+        orphan: snapshot.orphan
+      });
+    },
     reserveExecution: async (input) => {
       const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
         const at = now();
@@ -417,54 +435,6 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       await emitExecutionLeaseEvents(options.appendLeaseEvent, events);
     },
     executionLeases: async () => listExecutionLeaseRefs(options.rootInput)
-  };
-}
-
-export function taskHolderPrincipalFromActor(input: {
-  readonly personId: string;
-  readonly displayName?: string;
-  readonly primaryEmail?: string;
-  readonly providerId?: string;
-  readonly resolvedCredential?: TaskHolderCredential;
-}, options: { readonly executor?: TaskHolderExecutor | null } = {}): TaskHolderPrincipal {
-  const principal = {
-    personId: input.personId,
-    ...(input.displayName ? { displayName: input.displayName } : {}),
-    ...(input.primaryEmail ? { primaryEmail: input.primaryEmail } : {}),
-    ...(input.providerId ? { providerId: input.providerId } : {}),
-    ...(input.resolvedCredential ? { credential: input.resolvedCredential } : {})
-  };
-  return taskHolderActor(principal, options.executor ?? null);
-}
-
-export function taskHolderExecutorFromJournalActor(input: {
-  readonly kind: "agent" | "human" | "system";
-  readonly id: string;
-}): TaskHolderExecutor | null {
-  if (input.kind === "system") {
-    throw new Error("system actor cannot be projected to a direct-human task holder; use an agent executor with a person principal");
-  }
-  return input.kind === "agent" ? { kind: "agent", id: input.id } : null;
-}
-
-export function taskHolderActor(
-  principal: TaskHolderPersonPrincipal,
-  executor: TaskHolderExecutor | null
-): TaskHolderPrincipal {
-  return {
-    principal,
-    executor,
-    responsibleHuman: `person:${principal.personId}`
-  };
-}
-
-export function runtimeEventActorFromTaskHolderPrincipal(input: TaskHolderPrincipal): {
-  readonly principal: { readonly kind: "person"; readonly personId: string };
-  readonly executor: TaskHolderExecutor | null;
-} {
-  return {
-    principal: { kind: "person", personId: input.principal.personId },
-    executor: input.executor
   };
 }
 

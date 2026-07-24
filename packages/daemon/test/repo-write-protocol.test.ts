@@ -64,6 +64,46 @@ test("prepared and proceed form an exact opId handshake before canonical mutatio
   assert.deepEqual(parseRepoWriteParentMessage(stringifyRepoWriteParentMessage(proceed)), proceed);
 });
 
+test("volatile direct execution carries an exact receipt without durable recovery fields", () => {
+  const request: RepoWriteParentMessage = {
+    ...base("direct"),
+    requestId: "request-direct",
+    command: {
+      commandName: "task.claim",
+      actor: { personId: "person_zeyu" },
+      context: {},
+      payload: { taskId: "task_direct" }
+    }
+  };
+  const result: RepoWriteChildMessage = {
+    ...base("direct-result"),
+    requestId: "request-direct",
+    receipt: rejectedCommandReceipt()
+  };
+  const unknown: RepoWriteChildMessage = {
+    ...base("direct-failure"),
+    requestId: "request-direct",
+    outcome: "unknown",
+    replay: "forbidden",
+    code: "DIRECT_EXECUTION_OUTCOME_UNKNOWN",
+    diagnostic: "direct execution did not return a receipt"
+  };
+
+  assert.deepEqual(parseRepoWriteParentMessage(stringifyRepoWriteParentMessage(request)), request);
+  assert.deepEqual(parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(result)), result);
+  assert.deepEqual(parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(unknown)), unknown);
+  assert.equal("opId" in result, false);
+  assert.equal("opId" in unknown, false);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...unknown,
+    replay: "caller-may-retry"
+  }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...result,
+    opId: "must-not-exist"
+  }), protocolInvalid);
+});
+
 test("failure before proceed is definitely not started and can retain a prepared opId", () => {
   const beforePreparation = decodeRepoWriteChildMessage({
     ...base("failure"),
@@ -117,7 +157,10 @@ test("failure after proceed requires outcome-unknown, stable opId, and no replay
 
 test("ready, terminal, status, telemetry, shutdown, and drained frames have exact schemas", () => {
   const committedReceipt = committedCommandReceipt();
-  const ready = decodeRepoWriteChildMessage(base("ready"));
+  const ready = decodeRepoWriteChildMessage({
+    ...base("ready"),
+    artifactIdentity: `sha256:${"a".repeat(64)}`
+  });
   const terminal = decodeRepoWriteChildMessage({
     ...base("terminal"),
     requestId: "request-terminal",

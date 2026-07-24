@@ -33,7 +33,15 @@ export function repoWriteCanonicalLookupResult(
   if (outcome.phase !== "TERMINAL" || outcome.outerOpId !== opId) {
     throw new Error("canonical lookup did not return the matching durable TERMINAL outer outcome");
   }
-  assertRepoWriteOutcomeAxesV1(outcome, axes);
+  assertRepoWriteOutcomeAxesV1(outcome, {
+    ...axes,
+    generation: outcome.generation
+  });
+  if (outcome.generation > axes.generation) {
+    throw new Error(
+      "canonical lookup returned a terminal outcome from a future writer generation"
+    );
+  }
   return outcome.terminalKind === "committed"
     ? {
         state: "committed",
