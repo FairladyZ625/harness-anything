@@ -6,7 +6,7 @@ import {
   decodeRepoWriteChildLaunchConfig,
   DurableRepoWriteOutcomeStoreV1,
   loadAuthorityProductionManifest,
-  ProductionProgressAppendOperationHost,
+  ProductionRepoWriteOperationHost,
   RepoWriteAuthorityRecoveryGate,
   RepoWriteChildIpcTransport,
   type HarnessDaemonRuntime
@@ -116,7 +116,7 @@ export async function runRepoWriteChildEntrypoint(
     await runtime.stop();
     throw new Error(started.error);
   }
-  const operation = new ProductionProgressAppendOperationHost({
+  const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation,
@@ -142,6 +142,7 @@ export async function runRepoWriteChildEntrypoint(
     transport,
     hooks: {
       prepare: (input) => operation.prepare(input),
+      direct: (input) => operation.direct(input),
       lookup: (input) => operation.lookup(input),
       shutdown: cleanup
     }

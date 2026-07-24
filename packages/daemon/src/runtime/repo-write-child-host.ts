@@ -1,97 +1,41 @@
 // @slice-activation P5-W2 repo-writer foundation; production composition and durable recovery remain activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import {
-  type RepoWriteCommandDto,
   type RepoWriteJsonObject,
   type RepoWriteParentMessage
 } from "./repo-write-protocol.ts";
 import {
   assertRepoWriteOutcomeAxesV1,
-  decodeRepoWriteOutcomeV1,
-  type RepoWriteTerminalOutcomeV1
+  decodeRepoWriteOutcomeV1
 } from "./repo-write-outcome-schema.ts";
 import {
   repoWriteCanonicalLookupResult,
   repoWriteLocalLookupResult,
-  type RepoWriteCanonicalLookupResult,
   type RepoWriteHostedOperationPhase
 } from "./repo-write-child-lookup.ts";
 import {
-  RepoWriteChildResponseWriter,
-  type RepoWriteChildTransport
+  RepoWriteChildResponseWriter
 } from "./repo-write-child-response-writer.ts";
+import { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
+import {
+  executeRepoWriteChildDirect
+} from "./repo-write-child-direct.ts";
+import type {
+  RepoWriteChildHostLimits,
+  RepoWriteChildHostOptions,
+  RepoWritePreparedOperation
+} from "./repo-write-child-contract.ts";
 
 export type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
-
-export interface RepoWritePrepareInput {
-  readonly repoId: string;
-  readonly generation: number;
-  readonly requestId: string;
-  readonly command: RepoWriteCommandDto;
-}
-
-export interface RepoWritePreparedOperation {
-  readonly opId: string;
-  /**
-   * Only a child-owned, proof-validated durable TERMINAL outcome may cross
-   * this hook. An application result or an inner indeterminate receipt is not
-   * a terminal repo-write outcome.
-   */
-  readonly execute: () => RepoWriteTerminalOutcomeV1 | Promise<RepoWriteTerminalOutcomeV1>;
-}
-
-export interface RepoWriteLookupInput {
-  readonly repoId: string;
-  readonly workspaceId: string;
-  readonly generation: number;
-  readonly opId: string;
-}
-
-export interface RepoWriteShutdownInput {
-  readonly repoId: string;
-  readonly workspaceId: string;
-  readonly generation: number;
-}
-
-export interface RepoWriteChildHostHooks {
-  /**
-   * Preparation must not perform canonical mutation. `execute` is the only
-   * callback the host invokes after an exact requestId/opId proceed handshake.
-   */
-  readonly prepare: (
-    input: RepoWritePrepareInput
-  ) => RepoWritePreparedOperation | Promise<RepoWritePreparedOperation>;
-  readonly lookup: (
-    input: RepoWriteLookupInput
-  ) => RepoWriteCanonicalLookupResult | Promise<RepoWriteCanonicalLookupResult>;
-  readonly shutdown: (input: RepoWriteShutdownInput) => void | Promise<void>;
-}
-
-export interface RepoWriteChildHostLimits {
-  readonly maxAdmissions: number;
-  /**
-   * Completed request history is never evicted inside a generation because
-   * forgetting a requestId could admit a non-idempotent replay. The supervisor
-   * must drain and replace the generation before this fail-closed bound.
-   */
-  readonly maxRetainedOperations: number;
-  /**
-   * Bounds concurrent idempotent status requests and retained shutdown
-   * request IDs independently. Status IDs are released after lookup so their
-   * capacity can never prevent the drain needed to replace this generation.
-   */
-  readonly maxControlRequests: number;
-  readonly shutdownTimeoutMs: number;
-}
-
-export interface RepoWriteChildHostOptions {
-  readonly repoId: string;
-  readonly workspaceId: string;
-  readonly generation: number;
-  readonly artifactIdentity: string;
-  readonly transport: RepoWriteChildTransport;
-  readonly hooks: RepoWriteChildHostHooks;
-  readonly limits?: Partial<RepoWriteChildHostLimits>;
-}
+export type { RepoWriteDirectInput } from "./repo-write-child-direct.ts";
+export type {
+  RepoWriteChildHostHooks,
+  RepoWriteChildHostLimits,
+  RepoWriteChildHostOptions,
+  RepoWriteLookupInput,
+  RepoWritePreparedOperation,
+  RepoWritePrepareInput,
+  RepoWriteShutdownInput
+} from "./repo-write-child-contract.ts";
 
 interface HostedOperation {
   readonly requestId: string;
@@ -124,7 +68,9 @@ export class RepoWriteChildHost {
   private readonly operationsByRequest = new Map<string, HostedOperation>();
   private readonly operationsById = new Map<string, HostedOperation>();
   private readonly activeStatusRequestIds = new Set<string>();
+  private readonly directRequestIds = new Set<string>();
   private readonly shutdownRequestIds = new Set<string>();
+  private readonly executionSequencer: RepoWriteExecutionSequencer;
   private activeAdmissions = 0;
   private activeLookups = 0;
   private admissionOpen = true;
@@ -142,6 +88,7 @@ export class RepoWriteChildHost {
     }
     this.options = options;
     this.responses = new RepoWriteChildResponseWriter(options);
+    this.executionSequencer = options.executionSequencer ?? new RepoWriteExecutionSequencer();
     this.limits = {
       maxAdmissions: options.limits?.maxAdmissions ?? defaultLimits.maxAdmissions,
       maxRetainedOperations: options.limits?.maxRetainedOperations ?? defaultLimits.maxRetainedOperations,
@@ -172,9 +119,47 @@ export class RepoWriteChildHost {
   async receive(message: RepoWriteParentMessage): Promise<void> {
     if (!this.started) throw new Error("repo writer child host must start before receiving messages");
     if (message.kind === "submit") return this.handleSubmit(message);
+    if (message.kind === "direct") return this.handleDirect(message);
     if (message.kind === "proceed") return this.handleProceed(message);
     if (message.kind === "status") return this.handleStatus(message);
     return this.handleShutdown(message);
+  }
+
+  private async handleDirect(message: Extract<RepoWriteParentMessage, { kind: "direct" }>): Promise<void> {
+    const executeDirect = this.options.hooks.direct;
+    if (!executeDirect) {
+      await this.responses.notStarted(
+        message.requestId,
+        "DIRECT_EXECUTION_UNAVAILABLE",
+        "writer capsule has no volatile direct execution hook"
+      );
+      return;
+    }
+    await executeRepoWriteChildDirect({
+      message,
+      repoId: this.options.repoId,
+      workspaceId: this.options.workspaceId,
+      generation: this.options.generation,
+      execute: executeDirect,
+      responses: this.responses,
+      sequencer: this.executionSequencer,
+      requestIds: this.directRequestIds,
+      requestIdOwnedByDurableLane: (requestId) =>
+        this.operationsByRequest.has(requestId),
+      admissionOpen: this.admissionOpen,
+      retainedRequestCount: this.retainedRequestCount(),
+      activeAdmissions: this.activeAdmissions,
+      maxRetainedOperations: this.limits.maxRetainedOperations,
+      maxAdmissions: this.limits.maxAdmissions,
+      boundaryError: this.boundaryError(message),
+      admit: () => {
+        this.activeAdmissions += 1;
+      },
+      release: () => {
+        this.activeAdmissions -= 1;
+      }
+    });
+    await this.maybeCompleteShutdown();
   }
 
   private async handleSubmit(message: Extract<RepoWriteParentMessage, { kind: "submit" }>): Promise<void> {
@@ -192,7 +177,7 @@ export class RepoWriteChildHost {
       await this.responses.notStarted(message.requestId, "ADMISSION_CLOSED", "writer admission is closed");
       return;
     }
-    if (this.operationsByRequest.size >= this.limits.maxRetainedOperations) {
+    if (this.retainedRequestCount() >= this.limits.maxRetainedOperations) {
       await this.responses.notStarted(
         message.requestId,
         "RETAINED_HISTORY_FULL",
@@ -302,7 +287,9 @@ export class RepoWriteChildHost {
     try {
       let receipt: RepoWriteJsonObject;
       try {
-        const durableOutcome = decodeRepoWriteOutcomeV1(await operation.execute!());
+        const durableOutcome = decodeRepoWriteOutcomeV1(
+          await this.executionSequencer.run(operation.execute!)
+        );
         if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
           throw new Error("execution did not return the matching durable TERMINAL outer outcome");
         }
@@ -359,12 +346,14 @@ export class RepoWriteChildHost {
     this.activeStatusRequestIds.add(message.requestId);
     this.activeLookups += 1;
     try {
-      const canonical = await this.options.hooks.lookup({
-        repoId: this.options.repoId,
-        workspaceId: this.options.workspaceId,
-        generation: this.options.generation,
-        opId: message.opId
-      });
+      const canonical = await this.executionSequencer.run(() =>
+        this.options.hooks.lookup({
+          repoId: this.options.repoId,
+          workspaceId: this.options.workspaceId,
+          generation: this.options.generation,
+          opId: message.opId
+        })
+      );
       const local = this.operationsById.get(message.opId);
       const result = canonical.state === "not-found" && local
         ? repoWriteLocalLookupResult(local)
@@ -512,13 +501,17 @@ export class RepoWriteChildHost {
   }
 
   private hasUnsettledOperations(): boolean {
-    if (this.activeLookups > 0) return true;
+    if (this.activeLookups > 0 || this.activeAdmissions > 0) return true;
     for (const operation of this.operationsByRequest.values()) {
       if (operation.phase === "preparing" || operation.phase === "prepared" || operation.phase === "proceeding") {
         return true;
       }
     }
     return false;
+  }
+
+  private retainedRequestCount(): number {
+    return this.operationsByRequest.size + this.directRequestIds.size;
   }
 
   private async maybeCompleteShutdown(): Promise<void> {

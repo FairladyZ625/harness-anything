@@ -85,6 +85,89 @@ replacementTest("replacement child exact recovery does not duplicate a materiali
   }
 });
 
+replacementTest("replacement child exact recovery keeps a materialized new-task package singular without an apply marker", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-new-task-replacement-"));
+  try {
+    const authoredRoot = path.join(root, "harness");
+    mkdirSync(authoredRoot, { recursive: true });
+    writeFileSync(path.join(authoredRoot, ".gitkeep"), "", "utf8");
+    git(authoredRoot, "init", "-q");
+    git(authoredRoot, "config", "user.name", "Harness Test");
+    git(authoredRoot, "config", "user.email", "harness@example.invalid");
+    git(authoredRoot, "add", ".");
+    git(authoredRoot, "commit", "-q", "-m", "seed repository");
+
+    const packagePath = path.join(
+      authoredRoot,
+      "tasks",
+      "task-2-new-task"
+    );
+    const operation: WriteOp = {
+      opId: "inner-new-task-A",
+      entityId: taskEntityId("task-2"),
+      kind: "package_create",
+      payload: {
+        writes: [
+          {
+            taskId: "task-2",
+            packageSlug: "new-task",
+            path: "INDEX.md",
+            body: "# New task\n"
+          },
+          {
+            taskId: "task-2",
+            packageSlug: "new-task",
+            path: "progress.md",
+            body: "# Progress\n\n## Entries\n\n"
+          }
+        ]
+      }
+    };
+    const crashed = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir: root,
+      autoMaterialize: false
+    });
+    Effect.runSync(crashed.enqueue(operation));
+    mkdirSync(packagePath, { recursive: true });
+    writeFileSync(path.join(packagePath, "INDEX.md"), "# New task\n", "utf8");
+    writeFileSync(
+      path.join(packagePath, "progress.md"),
+      "# Progress\n\n## Entries\n\n",
+      "utf8"
+    );
+    assert.doesNotMatch(
+      readFileSync(
+        path.join(root, ".harness/write-journal/writes.jsonl"),
+        "utf8"
+      ),
+      /apply-marker/u
+    );
+
+    const replacement = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir: root,
+      autoMaterialize: false
+    });
+    const ack = Effect.runSync(replacement.enqueue(operation));
+    assert.ok(ack.journalWitness);
+    Effect.runSync(
+      replacement.flushExactJournalRecord!("recovery", ack.journalWitness)
+    );
+
+    assert.deepEqual(
+      readFileSync(path.join(packagePath, "INDEX.md"), "utf8"),
+      "# New task\n"
+    );
+    assert.deepEqual(
+      readFileSync(path.join(packagePath, "progress.md"), "utf8"),
+      "# Progress\n\n## Entries\n\n"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function progressAppend(opId: string, append: string): WriteOp {
   return {
     opId,

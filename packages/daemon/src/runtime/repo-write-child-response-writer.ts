@@ -75,6 +75,27 @@ export class RepoWriteChildResponseWriter {
     });
   }
 
+  directResult(requestId: string, receipt: unknown): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "direct-result",
+      requestId,
+      receipt: receipt as RepoWriteJsonObject
+    });
+  }
+
+  directUnknown(requestId: string, code: string, diagnostic: unknown): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "direct-failure",
+      requestId,
+      outcome: "unknown",
+      replay: "forbidden",
+      code,
+      diagnostic: safeDiagnostic(diagnostic)
+    });
+  }
+
   notStarted(requestId: string, code: string, diagnostic: unknown, opId?: string): Promise<void> {
     return this.send({
       ...this.frameBase(),

@@ -9,7 +9,7 @@ import type {
 } from "@harness-anything/application";
 import type { HarnessDaemonRuntime } from "../src/runtime/repo-runtime.ts";
 import {
-  decodeRepoWriteProgressCommand
+  decodeRepoWriteCommand
 } from "../src/runtime/repo-write-progress-command.ts";
 import { createDaemonCommandService } from "../src/service/command-service.ts";
 import {
@@ -29,10 +29,10 @@ interface TestResult extends DaemonHostCommandResult {
   readonly command: string;
 }
 
-test("parent command service sends only progress to the child and never invokes inline execution", async () => {
+test("parent command service sends durable governed writes to the child and never invokes inline execution", async () => {
   const actor = productionAuthorityActor();
   const submitted: Array<ReturnType<
-    typeof decodeRepoWriteProgressCommand
+    typeof decodeRepoWriteCommand
   >> = [];
   let inlineExecutions = 0;
   const service = createDaemonCommandService(
@@ -44,9 +44,10 @@ test("parent command service sends only progress to the child and never invokes 
       repoWriteDispatch: {
         repoId: "canonical",
         submit: async (command) => {
-          submitted.push(decodeRepoWriteProgressCommand(command));
+          submitted.push(decodeRepoWriteCommand(command));
           return committedReceipt();
-        }
+        },
+        direct: async () => { throw new Error("unexpected direct route"); }
       }
     }
   );
@@ -78,9 +79,10 @@ test("parent command service sends only progress to the child and never invokes 
   assert.equal(inlineExecutions, 0);
 });
 
-test("parent command service fails closed for task claim after child activation", async () => {
+test("parent command service sends operation-derived writes to the child direct lane", async () => {
+  const actor = productionAuthorityActor();
   let inlineExecutions = 0;
-  let childSubmissions = 0;
+  const directKinds: string[] = [];
   const service = createDaemonCommandService(
     unusedRuntime(),
     hostServices(() => {
@@ -90,7 +92,10 @@ test("parent command service fails closed for task claim after child activation"
       repoWriteDispatch: {
         repoId: "canonical",
         submit: async () => {
-          childSubmissions += 1;
+          throw new Error("unexpected durable route");
+        },
+        direct: async (command) => {
+          directKinds.push(command.commandName);
           return committedReceipt();
         }
       }
@@ -106,11 +111,18 @@ test("parent command service fails closed for task claim after child activation"
       }
     },
     session: session()
+  }, {
+    actor,
+    executor: { kind: "agent", id: "codex" },
+    authorityConnection: {
+      available: true,
+      context: productionAuthorityConnection(actor),
+      assertActive: () => undefined
+    }
   });
 
-  assert.equal(receipt.ok, false);
-  assert.equal(receipt.error?.code, "repo_write_child_command_not_allowlisted");
-  assert.equal(childSubmissions, 0);
+  assert.equal(receipt.ok, true);
+  assert.deepEqual(directKinds, ["task-claim"]);
   assert.equal(inlineExecutions, 0);
 });
 
@@ -125,6 +137,12 @@ function hostServices(onExecute: () => void): DaemonCommandHostServices<
     normalizeCommand: async (command) => command,
     authorityCommand: () => undefined,
     authorityIngressFor: () => "generic",
+    repoWriteChildExecutionMode: (command) =>
+      command.action.kind === "progress-append" ? "durable" : "direct",
+    receiptSeed: (command) => ({
+      command: command.action.kind,
+      action: command.action.kind
+    }),
     actorAttribution: () => {
       throw new Error("parent actor attribution should not run");
     },

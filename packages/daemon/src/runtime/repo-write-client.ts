@@ -8,15 +8,15 @@ import {
   type RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
+import { RepoWriteDirectClientLane } from "./repo-write-client-direct.ts";
 import type {
-  RepoWriteClientLimits,
-  RepoWriteClientOptions
-} from "./repo-write-client-contract.ts";
-export type {
-  RepoWriteClientLimits,
-  RepoWriteClientOptions,
-  RepoWriteClientTransport
-} from "./repo-write-client-contract.ts";
+  PendingLookup,
+  PendingReady,
+  PendingShutdown,
+  PendingSubmit
+} from "./repo-write-client-pending.ts";
+import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
+export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
   RepoWriteClientClosedError,
@@ -42,46 +42,15 @@ export {
   RepoWriteShutdownTimeoutError,
   type RepoWriteSendDelivery
 } from "./repo-write-client-errors.ts";
-
-interface PendingSubmit {
-  readonly requestId: string;
-  readonly command: RepoWriteCommandDto;
-  readonly resolve: (receipt: RepoWriteJsonObject) => void;
-  readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
-  phase: "queued" | "submitted" | "prepared" | "proceeded";
-  opId?: string;
-}
-
-interface PendingLookup {
-  readonly requestId: string;
-  readonly opId: string;
-  readonly resolve: (result: RepoWriteOperationLookupResult) => void;
-  readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
-  phase: "queued" | "sent";
-}
-
-interface PendingShutdown {
-  readonly requestId: string;
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
-  sent: boolean;
-}
-
-interface PendingReady {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
-}
+export {
+  RepoWriteDirectOutcomeUnknownError
+} from "./repo-write-client-errors.ts";
 
 export class RepoWriteClient {
   private readonly options: RepoWriteClientOptions;
   private readonly limits: RepoWriteClientLimits;
   private readonly pending = new Map<string, PendingSubmit>();
+  private readonly directLane: RepoWriteDirectClientLane;
   private readonly pendingLookups = new Map<string, PendingLookup>();
   private readyPending: PendingReady | undefined;
   private ready = false;
@@ -106,6 +75,13 @@ export class RepoWriteClient {
         throw new Error(`${name} must be a positive safe integer`);
       }
     }
+    this.directLane = new RepoWriteDirectClientLane({
+      repoId: options.repoId,
+      generation: options.generation,
+      requestTimeoutMs: this.limits.requestTimeoutMs,
+      transport: options.transport,
+      failProtocol: (message) => this.failProtocol(message)
+    });
     options.transport.onMessage((message) => this.handleMessage(message));
     options.transport.onDisconnect((error) => this.handleDisconnect(error));
   }
@@ -167,6 +143,16 @@ export class RepoWriteClient {
     });
     if (this.ready) this.dispatchSubmit(requestId);
     return result;
+  }
+
+  direct(command: RepoWriteCommandDto): Promise<RepoWriteJsonObject> {
+    if (this.closing) return Promise.reject(new RepoWriteClientClosedError());
+    if (this.terminalError) return Promise.reject(this.terminalError);
+    if (this.pendingRequestCount() >= this.limits.maxPendingRequests) {
+      return Promise.reject(new RepoWriteClientCapacityError());
+    }
+    const requestId = this.nextRequestId();
+    return this.directLane.submit(requestId, command, this.ready);
   }
 
   lookup(opId: string): Promise<RepoWriteOperationLookupResult> {
@@ -266,6 +252,7 @@ export class RepoWriteClient {
       this.readyPending?.resolve();
       this.readyPending = undefined;
       for (const requestId of this.pending.keys()) this.dispatchSubmit(requestId);
+      this.directLane.dispatchAll();
       for (const requestId of this.pendingLookups.keys()) this.dispatchLookup(requestId);
       this.dispatchShutdown();
       return;
@@ -295,6 +282,14 @@ export class RepoWriteClient {
       clearTimeout(pending.timer);
       this.pending.delete(message.requestId);
       pending.resolve(message.receipt);
+      return;
+    }
+    if (message.kind === "direct-result") {
+      this.directLane.handleResult(message);
+      return;
+    }
+    if (message.kind === "direct-failure") {
+      this.directLane.handleUnknown(message);
       return;
     }
     if (message.kind === "status") {
@@ -353,6 +348,7 @@ export class RepoWriteClient {
         lookup.reject(new RepoWriteLookupError(message.code, message.diagnostic, lookup.opId));
         return;
       }
+      if (this.directLane.handleNotStarted(message)) return;
       const pending = this.pending.get(message.requestId);
       if (!pending || (message.opId !== undefined && pending.opId !== message.opId)) {
         this.failProtocol("Repo writer failure correlation does not match the pending request.");
@@ -371,7 +367,7 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer drained frame does not match the shutdown request.");
         return;
       }
-      if (this.pending.size > 0 || this.pendingLookups.size > 0) {
+      if (this.pending.size > 0 || this.directLane.size > 0 || this.pendingLookups.size > 0) {
         this.failProtocol("Repo writer reported drained while accepted requests remain unresolved.");
         return;
       }
@@ -408,6 +404,7 @@ export class RepoWriteClient {
             `Repo writer disconnected before the request started: ${error.message}`
           ));
     }
+    this.directLane.disconnect(error);
     for (const [requestId, pending] of this.pendingLookups) {
       clearTimeout(pending.timer);
       this.pendingLookups.delete(requestId);
@@ -445,6 +442,7 @@ export class RepoWriteClient {
         ? new RepoWriteOutcomeUnknownError(violation.code, violation.message, pending.opId)
         : new RepoWriteNotStartedError(violation.code, violation.message));
     }
+    this.directLane.fail(violation);
     for (const [requestId, pending] of this.pendingLookups) {
       clearTimeout(pending.timer);
       this.pendingLookups.delete(requestId);
@@ -574,6 +572,7 @@ export class RepoWriteClient {
     if (lookup) {
       return lookup.phase === "sent" && (message.opId === undefined || lookup.opId === message.opId);
     }
+    if (this.directLane.telemetryMatches(message)) return true;
     const shutdown = this.shutdownPending;
     return shutdown?.sent === true
       && shutdown.requestId === message.requestId
@@ -581,7 +580,7 @@ export class RepoWriteClient {
   }
 
   private pendingRequestCount(): number {
-    return this.pending.size + this.pendingLookups.size;
+    return this.pending.size + this.directLane.size + this.pendingLookups.size;
   }
 
   private frameBase() {

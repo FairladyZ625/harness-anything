@@ -2,6 +2,7 @@ import type { CommandReceiptEnvelope } from "@harness-anything/application";
 import { decodeRepoWriteCommandReceiptV2 } from "./repo-write-command-receipt.ts";
 import {
   RepoWriteClient,
+  RepoWriteDirectOutcomeUnknownError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError
 } from "./repo-write-client.ts";
@@ -76,6 +77,24 @@ export class RepoWriteProcessSupervisor {
         }
         throw retryError;
       }
+    }
+  }
+
+  /**
+   * Executes a pre-cutover non-durable command in the child exactly once.
+   * Once the request may have crossed IPC, neither replacement nor lookup can
+   * make replay safe, so any uncertain result is returned fail-closed.
+   */
+  async direct(command: RepoWriteCommandDto): Promise<CommandReceiptEnvelope> {
+    const writer = await this.current();
+    try {
+      return decodeReceipt(await writer.client.direct(command));
+    } catch (error) {
+      if (error instanceof RepoWriteDirectOutcomeUnknownError
+        || !this.writerConnected(writer)) {
+        await this.replace(writer).catch(() => undefined);
+      }
+      throw error;
     }
   }
 

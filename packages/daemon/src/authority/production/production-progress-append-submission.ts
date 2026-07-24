@@ -1,6 +1,7 @@
 import {
   decodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
+  type AuthorityOperationReceipt,
   type AuthoritySubmissionService,
   type ProductionAuthorityCompilerHostServices
 } from "@harness-anything/application";
@@ -11,11 +12,14 @@ import {
   type DaemonAuthorityCommandSubmissionV2
 } from "../authority-command-submission.ts";
 import type {
+  ProductionAuthorityCommandPlanInput,
+  ProductionAuthorityCommandSubmissionInput,
   ProductionCanonicalAttemptCompilerV2,
   ProductionProgressAppendCompileInput
 } from "./production-authority-attempt-compiler.ts";
 import { createProductionCanonicalAttemptCompiler } from "./production-authority-attempt-compiler.ts";
 import type {
+  ProductionAuthorityAttemptPlanV1,
   ProductionAuthorityOuterRecoveryWitnessV1,
   ProductionAuthorityProgressAppendPlanV1
 } from "./production-authority-attempt-plan.ts";
@@ -25,6 +29,12 @@ import type {
   DurableAuthorityBindingRuntimeV2
 } from "./authority-production-state.ts";
 import type { openAuthorityProductionKeyMaterial } from "./authority-production-state.ts";
+
+export interface ProductionPlannedCommandSubmission {
+  readonly submit: (
+    input: ProductionAuthorityCommandSubmissionInput
+  ) => Promise<AuthorityOperationReceipt>;
+}
 
 export function createProductionProgressAppendConnectionBinding(input: {
   readonly material: {
@@ -51,8 +61,17 @@ export function createProductionProgressAppendConnectionBinding(input: {
       runAuthorizedRecoveryPlan: input.runAuthorizedRecoveryPlan
     } : {})
   });
+  const plannedCommandSubmission =
+    createProductionPlannedCommandSubmissionFactory({
+      repoId: input.material.config.repoId,
+      authorityGeneration: input.material.config.authorityGeneration,
+      authorityService: input.authorityService,
+      compiler
+    });
   return {
     compiler,
+    planCommand: compiler.planCommand,
+    plannedCommandSubmission,
     planProgressAppend: compiler.planProgressAppend,
     plannedProgressAppendSubmission:
       createProductionProgressAppendSubmissionFactory({
@@ -62,6 +81,23 @@ export function createProductionProgressAppendConnectionBinding(input: {
         compiler
       })
   };
+}
+
+export function createProductionPlannedCommandSubmissionFactory(input: {
+  readonly repoId: string;
+  readonly authorityGeneration: number;
+  readonly authorityService: AuthoritySubmissionService;
+  readonly compiler: ProductionCanonicalAttemptCompilerV2;
+}) {
+  return (attempt: {
+    readonly expected: ProductionAuthorityCommandPlanInput;
+    readonly plan: ProductionAuthorityAttemptPlanV1;
+    readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
+  }): ProductionPlannedCommandSubmission =>
+    createProductionPlannedCommandSubmission({
+      ...input,
+      ...attempt
+    });
 }
 
 export function createProductionProgressAppendSubmissionFactory(input: {
@@ -90,24 +126,51 @@ export function createProductionProgressAppendSubmission(input: {
   readonly plan: ProductionAuthorityProgressAppendPlanV1;
   readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
 }): DaemonAuthorityCommandSubmissionV2 {
+  if (input.plan.commandKind !== "progress-append") {
+    throw new Error(`AUTHORITY_PROGRESS_APPEND_PLAN_REQUIRED:${input.plan.commandKind}`);
+  }
+  const {
+    canonicalEntityId: _canonicalEntityId,
+    ...expected
+  } = input.expected;
+  return createProductionPlannedCommandSubmission({
+    ...input,
+    expected
+  });
+}
+
+export function createProductionPlannedCommandSubmission(input: {
+  readonly repoId: string;
+  readonly authorityGeneration: number;
+  readonly authorityService: AuthoritySubmissionService;
+  readonly compiler: ProductionCanonicalAttemptCompilerV2;
+  readonly expected: ProductionAuthorityCommandPlanInput;
+  readonly plan: ProductionAuthorityAttemptPlanV1;
+  readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
+}): ProductionPlannedCommandSubmission {
   let submitted = false;
   return {
     submit: async (actual) => {
       if (submitted) {
-        throw new Error("AUTHORITY_PROGRESS_APPEND_PLANNED_SUBMISSION_REUSED");
+        throw new Error("AUTHORITY_PLANNED_SUBMISSION_REUSED");
       }
-      if (stableStringify(actual) !== stableStringify(input.expected)) {
-        throw new Error("AUTHORITY_PROGRESS_APPEND_PLANNED_INPUT_MISMATCH");
+      const {
+        canonicalEntityId,
+        ...actualPlanInput
+      } = actual;
+      if (canonicalEntityId !== input.plan.targetEntityId
+        || stableStringify(actualPlanInput) !== stableStringify(input.expected)) {
+        throw new Error("AUTHORITY_PLANNED_INPUT_MISMATCH");
       }
       submitted = true;
       const attempt = input.recovery
-        ? await input.compiler.activateRecoveryProgressAppend(input.plan, input.recovery)
-        : input.compiler.activatePlannedProgressAppend(input.plan);
+        ? await input.compiler.activateRecoveryCommand(input.plan, input.recovery)
+        : input.compiler.activatePlannedCommand(input.plan);
       const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
       const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
       const receipt = input.recovery
-        ? await resumeProgressAppend({ ...input, recovery: input.recovery }, attempt)
-        : await submitProgressAppend(input.authorityService, attempt);
+        ? await resumePlannedCommand({ ...input, recovery: input.recovery }, attempt)
+        : await submitPlannedCommand(input.authorityService, attempt);
       assertCompleteAuthorityReceiptV2(receipt);
       assertAuthorityReceiptOperation(receipt, expectedOpId);
       return receipt;
@@ -115,7 +178,7 @@ export function createProductionProgressAppendSubmission(input: {
   };
 }
 
-async function submitProgressAppend(
+async function submitPlannedCommand(
   service: AuthoritySubmissionService,
   attempt: Parameters<NonNullable<AuthoritySubmissionService["submitV2"]>>[0]
 ) {
@@ -123,8 +186,8 @@ async function submitProgressAppend(
   return service.submitV2(attempt);
 }
 
-async function resumeProgressAppend(
-  input: Parameters<typeof createProductionProgressAppendSubmission>[0] & {
+async function resumePlannedCommand(
+  input: Parameters<typeof createProductionPlannedCommandSubmission>[0] & {
     readonly recovery: ProductionAuthorityOuterRecoveryWitnessV1;
   },
   attempt: Parameters<NonNullable<AuthoritySubmissionService["resumeV2"]>>[0]["attempt"]

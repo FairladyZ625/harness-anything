@@ -25,23 +25,31 @@ const {
   invalid
 } = makeRepoWriteStrictCodec("REPO_WRITE_PROGRESS_CONTEXT_INVALID");
 
-export interface RepoWriteProgressCommandContext {
+export interface RepoWriteCommandContext {
   readonly actor: AuthenticatedActor;
   readonly authorityConnection: AuthorityConnectionContext;
   readonly currentSession: CurrentSessionRef;
   readonly executor: TaskHolderExecutor | null;
 }
 
-export function encodeRepoWriteProgressCommand(input: {
+export type RepoWriteProgressCommandContext = RepoWriteCommandContext;
+
+export function encodeRepoWriteCommand(input: {
   readonly command: Readonly<Record<string, unknown>>;
-  readonly context: RepoWriteProgressCommandContext;
+  readonly context: RepoWriteCommandContext;
 }): RepoWriteCommandDto {
+  const action = input.command.action;
+  if (!action || typeof action !== "object" || Array.isArray(action)
+    || typeof (action as { readonly kind?: unknown }).kind !== "string") {
+    throw new Error("REPO_WRITE_COMMAND_KIND_REQUIRED");
+  }
+  const commandName = (action as { readonly kind: string }).kind;
   const authority = input.context.authorityConnection;
   if (authority.actor.personId !== input.context.actor.personId) {
     throw new Error("REPO_WRITE_PROGRESS_ACTOR_CONTEXT_MISMATCH");
   }
   return {
-    commandName: "progress-append",
+    commandName,
     actor: actorStampJson(input.context.actor),
     context: progressJsonObject({
       authorityConnection: {
@@ -72,12 +80,20 @@ export function encodeRepoWriteProgressCommand(input: {
   };
 }
 
-export function decodeRepoWriteProgressCommand(
-  command: RepoWriteCommandDto
-): RepoWriteProgressCommandContext {
-  if (command.commandName !== "progress-append") {
-    throw new Error(`REPO_WRITE_COMMAND_NOT_ALLOWLISTED:${command.commandName}`);
+export function encodeRepoWriteProgressCommand(input: {
+  readonly command: Readonly<Record<string, unknown>>;
+  readonly context: RepoWriteProgressCommandContext;
+}): RepoWriteCommandDto {
+  const encoded = encodeRepoWriteCommand(input);
+  if (encoded.commandName !== "progress-append") {
+    throw new Error(`REPO_WRITE_COMMAND_NOT_ALLOWLISTED:${encoded.commandName}`);
   }
+  return encoded;
+}
+
+export function decodeRepoWriteCommand(
+  command: RepoWriteCommandDto
+): RepoWriteCommandContext {
   const context = record(command.context, "$.context");
   exactKeys(context, ["authorityConnection", "currentSession", "executor"], "$.context");
   const authority = record(context.authorityConnection, "$.context.authorityConnection");
@@ -101,7 +117,7 @@ export function decodeRepoWriteProgressCommand(
   if (digest.byteLength !== 32) invalid("$.context.authorityConnection.channelBinding.digest");
   const currentSession = decodeCurrentSession(context.currentSession);
   const executor = decodeExecutor(context.executor);
-  const decoded: RepoWriteProgressCommandContext = {
+  const decoded: RepoWriteCommandContext = {
     actor,
     authorityConnection: {
       schema: "authority-connection-context/v1",
@@ -124,7 +140,22 @@ export function decodeRepoWriteProgressCommand(
   if (stableStringify(command.actor) !== stableStringify(actorStampJson(actor))) {
     throw new Error("REPO_WRITE_PROGRESS_ACTOR_STAMP_MISMATCH");
   }
+  const payload = record(command.payload, "$.payload");
+  const payloadCommand = record(payload.command, "$.payload.command");
+  const payloadAction = record(payloadCommand.action, "$.payload.command.action");
+  if (text(payloadAction.kind, "$.payload.command.action.kind") !== command.commandName) {
+    throw new Error("REPO_WRITE_COMMAND_KIND_MISMATCH");
+  }
   return decoded;
+}
+
+export function decodeRepoWriteProgressCommand(
+  command: RepoWriteCommandDto
+): RepoWriteProgressCommandContext {
+  if (command.commandName !== "progress-append") {
+    throw new Error(`REPO_WRITE_COMMAND_NOT_ALLOWLISTED:${command.commandName}`);
+  }
+  return decodeRepoWriteCommand(command);
 }
 
 function decodePeerCredential(

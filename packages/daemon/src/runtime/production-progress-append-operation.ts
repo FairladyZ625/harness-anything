@@ -6,7 +6,6 @@ import {
   type DaemonHostCommand,
   type DaemonHostCommandResult
 } from "@harness-anything/application";
-import { taskEntityId } from "@harness-anything/kernel";
 import type {
   AuthorityRepoComponent,
   AuthorityRepoConnectionBinding
@@ -25,12 +24,13 @@ import {
 import type { RepoWriteCanonicalLookupResult } from "./repo-write-child-lookup.ts";
 import type {
   RepoWriteLookupInput,
+  RepoWriteDirectInput,
   RepoWritePrepareInput,
   RepoWritePreparedOperation
 } from "./repo-write-child-host.ts";
 import type { RepoWriteCommandDto } from "./repo-write-protocol.ts";
 import {
-  decodeRepoWriteProgressCommand
+  decodeRepoWriteCommand
 } from "./repo-write-progress-command.ts";
 import {
   repoWriteActorStampDigestV1,
@@ -40,13 +40,14 @@ import {
 } from "./repo-write-outcome-schema.ts";
 import { DurableRepoWriteOutcomeStoreV1 } from "./durable-repo-write-outcome-store.ts";
 import type {
-  ProductionAuthorityProgressAppendPlanV1
+  ProductionAuthorityAttemptPlanV1,
+  ProductionAuthorityCommandPlanInput
 } from "../authority/production/production-authority-attempt-compiler.ts";
 import {
   guardProgressAppendRecoveryEffect
 } from "./repo-write-progress-recovery-guard.ts";
 
-export class ProductionProgressAppendOperationHost<
+export class ProductionRepoWriteOperationHost<
   Command extends DaemonHostCommand,
   Result extends DaemonHostCommandResult
 > {
@@ -120,8 +121,7 @@ export class ProductionProgressAppendOperationHost<
         schema: repoWriteReceiptSeedSchema,
         renderer: "cli-command-receipt/v2@1" as const,
         generatedAt,
-        command: "progress append",
-        action: "append",
+        ...prepared.receiptSeed,
         actorStampDigest: repoWriteActorStampDigestV1(input.command.actor)
       },
       recoveryContext: prepared.plan as unknown as import("./repo-write-protocol.ts").RepoWriteJsonObject
@@ -135,6 +135,37 @@ export class ProductionProgressAppendOperationHost<
         prepared.plan
       )
     });
+  }
+
+  async direct(input: RepoWriteDirectInput): Promise<import("./repo-write-protocol.ts").RepoWriteJsonObject> {
+    const decoded = decodeRepoWriteCommand(input.command);
+    const command = await this.options.hostServices.normalizeCommand(
+      this.options.hostServices.parseCommandPayload(input.command.payload),
+      decoded.currentSession
+    );
+    if (this.options.hostServices.repoWriteChildExecutionMode(command) !== "direct") {
+      throw new Error(`REPO_WRITE_DIRECT_MODE_REQUIRED:${command.action.kind}`);
+    }
+    const binding = this.options.authorityComponent.bindConnection(
+      decoded.authorityConnection
+    );
+    const commandService = createDaemonCommandService(
+      this.options.runtime,
+      this.options.hostServices,
+      { resolveAuthoritySubmissionV2: () => binding }
+    );
+    return commandReceiptJsonObject(await commandService.runCommand(
+      input.command.payload as unknown as JsonObject,
+      {
+        actor: decoded.actor,
+        executor: decoded.executor,
+        authorityConnection: {
+          available: true,
+          context: decoded.authorityConnection,
+          assertActive: () => undefined
+        }
+      }
+    ));
   }
 
   async lookup(input: RepoWriteLookupInput): Promise<RepoWriteCanonicalLookupResult> {
@@ -151,23 +182,24 @@ export class ProductionProgressAppendOperationHost<
   }
 
   private async prepareCommand(dto: RepoWriteCommandDto) {
-    const decoded = decodeRepoWriteProgressCommand(dto);
+    const decoded = decodeRepoWriteCommand(dto);
     const binding = this.options.authorityComponent.bindConnection(
       decoded.authorityConnection
     );
-    if (!binding.planProgressAppend || !binding.plannedProgressAppendSubmission) {
-      throw new Error("AUTHORITY_PROGRESS_APPEND_PLANNING_UNAVAILABLE");
+    if (!binding.planCommand || !binding.plannedCommandSubmission) {
+      throw new Error("AUTHORITY_COMMAND_PLANNING_UNAVAILABLE");
     }
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(dto.payload),
       decoded.currentSession
     );
-    if (command.action.kind !== "progress-append" || command.action.dryRun === true) {
-      throw new Error(`REPO_WRITE_COMMAND_NOT_ALLOWLISTED:${command.action.kind}`);
+    if (command.action.dryRun === true
+      || this.options.hostServices.repoWriteChildExecutionMode(command) !== "durable") {
+      throw new Error(`REPO_WRITE_DURABLE_MODE_REQUIRED:${command.action.kind}`);
     }
     const authorityCommand = this.options.hostServices.authorityCommand(command);
-    if (!authorityCommand || authorityCommand.action.kind !== "progress-append") {
-      throw new Error("AUTHORITY_PROGRESS_APPEND_COMMAND_REQUIRED");
+    if (!authorityCommand) {
+      throw new Error(`AUTHORITY_COMMAND_REQUIRED:${command.action.kind}`);
     }
     const attribution = this.options.hostServices.actorAttribution(
       decoded.actor,
@@ -180,13 +212,13 @@ export class ProductionProgressAppendOperationHost<
       currentSession: decoded.currentSession,
       ingressAdapter: this.options.hostServices.authorityIngressFor(
         authorityCommand.action.kind
-      ),
-      canonicalEntityId: taskEntityId(authorityCommand.action.taskId)
+      )
     };
     return {
       binding,
       expected,
-      plan: await binding.planProgressAppend(expected)
+      receiptSeed: this.options.hostServices.receiptSeed(command),
+      plan: await binding.planCommand(expected)
     };
   }
 
@@ -195,7 +227,7 @@ export class ProductionProgressAppendOperationHost<
     recovery: boolean
   ): Promise<RepoWriteDurableExecutionResult> {
     const prepared = await this.prepareFixedCommand(proceeding.canonicalCommand);
-    const plan = proceeding.recoveryContext as unknown as ProductionAuthorityProgressAppendPlanV1;
+    const plan = proceeding.recoveryContext as unknown as ProductionAuthorityAttemptPlanV1;
     return this.executePrepared(
       proceeding,
       prepared.binding,
@@ -206,20 +238,21 @@ export class ProductionProgressAppendOperationHost<
   }
 
   private async prepareFixedCommand(dto: RepoWriteCommandDto) {
-    const decoded = decodeRepoWriteProgressCommand(dto);
+    const decoded = decodeRepoWriteCommand(dto);
     const binding = this.options.authorityComponent.bindConnection(
       decoded.authorityConnection
     );
-    if (!binding.plannedProgressAppendSubmission) {
-      throw new Error("AUTHORITY_PROGRESS_APPEND_PLANNING_UNAVAILABLE");
+    if (!binding.plannedCommandSubmission) {
+      throw new Error("AUTHORITY_COMMAND_PLANNING_UNAVAILABLE");
     }
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(dto.payload),
       decoded.currentSession
     );
     const authorityCommand = this.options.hostServices.authorityCommand(command);
-    if (!authorityCommand || authorityCommand.action.kind !== "progress-append") {
-      throw new Error("AUTHORITY_PROGRESS_APPEND_COMMAND_REQUIRED");
+    if (!authorityCommand
+      || this.options.hostServices.repoWriteChildExecutionMode(command) !== "durable") {
+      throw new Error(`AUTHORITY_DURABLE_COMMAND_REQUIRED:${command.action.kind}`);
     }
     return {
       binding,
@@ -233,8 +266,7 @@ export class ProductionProgressAppendOperationHost<
         currentSession: decoded.currentSession,
         ingressAdapter: this.options.hostServices.authorityIngressFor(
           authorityCommand.action.kind
-        ),
-        canonicalEntityId: taskEntityId(authorityCommand.action.taskId)
+        )
       }
     };
   }
@@ -242,12 +274,12 @@ export class ProductionProgressAppendOperationHost<
   private async executePrepared(
     proceeding: RepoWriteProceedingOutcomeV1,
     binding: AuthorityRepoConnectionBinding,
-    expected: Parameters<NonNullable<AuthorityRepoConnectionBinding["planProgressAppend"]>>[0],
-    plan: ProductionAuthorityProgressAppendPlanV1,
+    expected: ProductionAuthorityCommandPlanInput,
+    plan: ProductionAuthorityAttemptPlanV1,
     recovery = false
   ): Promise<RepoWriteDurableExecutionResult> {
-    const decoded = decodeRepoWriteProgressCommand(proceeding.canonicalCommand);
-    if (recovery) {
+    const decoded = decodeRepoWriteCommand(proceeding.canonicalCommand);
+    if (recovery && plan.commandKind === "progress-append") {
       guardProgressAppendRecoveryEffect({
         rootInput: {
           rootDir: expected.command.rootDir,
@@ -259,7 +291,7 @@ export class ProductionProgressAppendOperationHost<
         now: this.options.now
       });
     }
-    const submission = binding.plannedProgressAppendSubmission!({
+    const submission = binding.plannedCommandSubmission!({
       expected,
       plan,
       ...(recovery ? {
@@ -300,6 +332,16 @@ export class ProductionProgressAppendOperationHost<
     const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
     return { receipt, authorityEvidence: evidence };
   }
+}
+
+export {
+  ProductionRepoWriteOperationHost as ProductionProgressAppendOperationHost
+};
+
+function commandReceiptJsonObject(
+  value: unknown
+): import("./repo-write-protocol.ts").RepoWriteJsonObject {
+  return JSON.parse(JSON.stringify(value)) as import("./repo-write-protocol.ts").RepoWriteJsonObject;
 }
 
 function exactReceipt(

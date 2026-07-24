@@ -23,9 +23,10 @@ import { JsonRpcLineClient } from "../src/client/json-rpc-line-client.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { createFixture } from "../../cli/test/production-authority-canonical-ingress/fixture.ts";
 import { cliTestEnv } from "../../cli/test/helpers/cli-test-env.ts";
+import { parseNewTaskArgs } from "../../cli/src/cli/parsers/new-task.ts";
+import { createTaskPackagePath } from "@harness-anything/kernel";
 
 const integrationTest = process.platform === "win32" ? test.skip : test;
-const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4";
 const amplifierDelayMs = 5_250;
 const readerP95TargetMs = 2_000;
 const projectionMethods = [
@@ -57,6 +58,15 @@ integrationTest("production child keeps projection reader p95 below two seconds 
   const readerClients = await Promise.all(
     readerWorkload.map(() => probe.openClient())
   );
+  const parsed = parseNewTaskArgs([
+    "task",
+    "create",
+    "--title",
+    "Writer reader production cutover probe"
+  ], probe.repoRoot, true);
+  assert.ok(parsed?.ok);
+  if (!parsed?.ok || parsed.value.action.kind !== "new-task") return;
+  const action = parsed.value.action;
   probe.arm();
   const writer = request(
     writerClient,
@@ -65,13 +75,7 @@ integrationTest("production child keeps projection reader p95 below two seconds 
       command: {
         rootDir: probe.repoRoot,
         json: true,
-        action: {
-          kind: "progress-append",
-          taskId,
-          text: "writer-reader production cutover probe",
-          evidence: [],
-          dryRun: false
-        }
+        action
       },
       executor: { kind: "agent", id: "codex" }
     }),
@@ -84,6 +88,13 @@ integrationTest("production child keeps projection reader p95 below two seconds 
   const writerResult = await writer;
 
   assert.equal(writerResult.receipt.ok, true, JSON.stringify(writerResult.receipt));
+  const taskRoot = createTaskPackagePath(
+    probe.repoRoot,
+    action.taskId!,
+    action.slug
+  );
+  assert.equal(existsSync(path.join(taskRoot, "INDEX.md")), true);
+  assert.equal(existsSync(path.join(taskRoot, "task-contract.json")), true);
   assert.equal(
     observations.every(({ receipt }) => receipt.ok === true),
     true,
@@ -96,10 +107,19 @@ integrationTest("production child keeps projection reader p95 below two seconds 
     )
   ]));
   const p95 = p95ByClients[32]!;
+  const readerWalls = observations.map(({ wallMs }) => wallMs);
+  const readerSuccessCount = observations.filter(
+    ({ receipt }) => receipt.ok === true
+  ).length;
   t.diagnostic(JSON.stringify({
     schema: "daemon-writer-reader-cutover/v1",
     amplifierDelayMs,
     writerWallMs: writerResult.wallMs,
+    writerSuccessCount: writerResult.receipt.ok === true ? 1 : 0,
+    readerSuccessCount,
+    readerFailureCount: observations.length - readerSuccessCount,
+    readerP50Ms: percentile(readerWalls, 0.5),
+    readerP95Ms: p95,
     readers: observations.map(({ method, wallMs }) => ({ method, wallMs })),
     readerP95MsByClients: p95ByClients,
     readerP95TargetMs
@@ -318,8 +338,15 @@ function repoParams(payload: JsonObject): JsonObject {
 }
 
 function percentile95(samples: ReadonlyArray<number>): number {
+  return percentile(samples, 0.95);
+}
+
+function percentile(
+  samples: ReadonlyArray<number>,
+  quantile: number
+): number {
   const sorted = [...samples].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+  return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)] ?? 0;
 }
 
 async function connectWhenReady(

@@ -33,9 +33,10 @@ import {
 } from "../lifecycle/queued-write-coordinator.ts";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 import {
-  encodeRepoWriteProgressCommand
+  encodeRepoWriteCommand
 } from "../runtime/repo-write-progress-command.ts";
 import {
+  RepoWriteDirectOutcomeUnknownError,
   RepoWriteOutcomeUnknownError
 } from "../runtime/repo-write-client.ts";
 
@@ -54,7 +55,10 @@ export interface DaemonCommandServiceOptions {
   readonly repoWriteDispatch?: {
     readonly repoId: string;
     readonly submit: (
-      command: ReturnType<typeof encodeRepoWriteProgressCommand>
+      command: ReturnType<typeof encodeRepoWriteCommand>
+    ) => Promise<CommandReceiptEnvelope>;
+    readonly direct: (
+      command: ReturnType<typeof encodeRepoWriteCommand>
     ) => Promise<CommandReceiptEnvelope>;
   };
   readonly resolveAuthoritySubmissionV2?: (
@@ -96,13 +100,6 @@ export function createDaemonCommandService<
         if (options.repoWriteDispatch
           && !dryRun
           && (commandClass === "repo-write" || commandClass === "arbiter")) {
-          if (parsedCommand.action.kind !== "progress-append") {
-            return childRouteFailure(
-              parsedCommand.action.kind,
-              "repo_write_child_command_not_allowlisted",
-              `The child writer is active, but ${parsedCommand.action.kind} is not in the production allowlist.`
-            );
-          }
           const authority = context?.authorityConnection;
           if (!daemonActor || !authority || !authority.available) {
             return childRouteFailure(
@@ -113,8 +110,7 @@ export function createDaemonCommandService<
           }
           try {
             authority.assertActive();
-            return await options.repoWriteDispatch.submit(
-              encodeRepoWriteProgressCommand({
+            const childCommand = encodeRepoWriteCommand({
                 command: parsedCommand as unknown as Readonly<Record<string, unknown>>,
                 context: {
                   actor: daemonActor,
@@ -122,8 +118,10 @@ export function createDaemonCommandService<
                   currentSession,
                   executor: context?.executor ?? null
                 }
-              })
-            );
+              });
+            return await (hostServices.repoWriteChildExecutionMode(parsedCommand) === "durable"
+              ? options.repoWriteDispatch.submit(childCommand)
+              : options.repoWriteDispatch.direct(childCommand));
           } catch (error) {
             const outerOpId = error instanceof RepoWriteOutcomeUnknownError
               ? error.opId
@@ -131,6 +129,7 @@ export function createDaemonCommandService<
             return childRouteFailure(
               parsedCommand.action.kind,
               error instanceof RepoWriteOutcomeUnknownError
+                || error instanceof RepoWriteDirectOutcomeUnknownError
                 ? "repo_write_outcome_unknown"
                 : "repo_write_child_unavailable",
               error instanceof Error ? error.message : String(error),

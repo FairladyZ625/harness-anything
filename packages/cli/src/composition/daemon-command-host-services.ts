@@ -4,12 +4,16 @@ import {
   type AuthorityHostCommandAction,
   type DaemonCommandHostServices
 } from "@harness-anything/application";
-import type { AuthenticatedActor } from "@harness-anything/daemon";
+import {
+  productionAuthorityCommandHasPurePlan,
+  type AuthenticatedActor
+} from "@harness-anything/daemon";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isDryRunAction } from "../cli/dry-run-preview.ts";
 import { normalizeCommandSemantics } from "../cli/command-semantic-normalizer.ts";
 import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
-import { toCommandReceipt } from "../cli/receipt.ts";
+import { displayCommand, toCommandReceipt } from "../cli/receipt.ts";
+import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
@@ -49,6 +53,11 @@ export const cliDaemonCommandHostServices = {
     const ingress = productionAuthorityIngressFor(kind);
     return ingress?.status === "typed-v2" ? ingress.adapter : undefined;
   },
+  repoWriteChildExecutionMode: durableRepoWriteExecutionMode,
+  receiptSeed: (command) => {
+    const display = displayCommand(receiptCommandKind(command.action));
+    return { command: display.command, action: display.action };
+  },
   actorAttribution: daemonActorAttributionForParsedCommand,
   migrationWriteAttribution,
   isActorAttributionError: (error) => error instanceof CliActorAttributionError,
@@ -74,4 +83,16 @@ function isProductionAuthorityCommand(command: ParsedCommand): command is CliPro
   return ingress?.status === "typed-v2"
     || command.action.kind === "preset-entrypoint"
     || command.action.kind === "script-run";
+}
+
+function durableRepoWriteExecutionMode(
+  command: ParsedCommand
+): "durable" | "direct" {
+  const authorityCommand = isProductionAuthorityCommand(command)
+    ? command
+    : undefined;
+  return authorityCommand
+    && productionAuthorityCommandHasPurePlan(authorityCommand)
+    ? "durable"
+    : "direct";
 }

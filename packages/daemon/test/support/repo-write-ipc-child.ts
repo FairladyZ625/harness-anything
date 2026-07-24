@@ -17,6 +17,19 @@ if (mode === "exit") {
     setImmediate(() => process.exit());
   });
   transport.onMessage((message) => {
+    if (message.kind === "direct") {
+      trace(`direct:${message.command.commandName}`);
+      if (mode === "swallow-direct") return;
+      void transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: message.repoId,
+        generation: message.generation,
+        kind: "direct-result",
+        requestId: message.requestId,
+        receipt: committedCommandReceipt("transport direct")
+      });
+      return;
+    }
     if (message.kind === "submit") {
       trace(`submit:${String(message.command.payload.label ?? "")}`);
       void transport.send({

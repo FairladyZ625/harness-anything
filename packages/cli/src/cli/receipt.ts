@@ -344,7 +344,7 @@ function initSummary(path: string, report: unknown): string {
   return `${summary} Next: ha daemon repo register --root .; then ha daemon start --service; verify with ha doctor --json.`;
 }
 
-function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {
+export function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {
   const explicit: Record<string, string> = {
     "new-task": "task create",
     "status-set": "task transition",

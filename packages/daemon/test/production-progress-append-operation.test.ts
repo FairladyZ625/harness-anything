@@ -293,6 +293,33 @@ function authorityComponent(
 ): AuthorityRepoComponent {
   const bindConnection = (): AuthorityRepoConnectionBinding => ({
     submit: async () => { throw new Error("unplanned authority submit"); },
+    planCommand: async (expected) => {
+      events.push("plan-fixed-attempt");
+      return plan({
+        ...expected,
+        canonicalEntityId: `task/${taskId}`
+      });
+    },
+    plannedCommandSubmission: ({ expected, plan: fixed, recovery }) => ({
+      submit: async (actual) => {
+        assert.deepEqual(actual, {
+          ...expected,
+          canonicalEntityId: fixed.targetEntityId
+        });
+        assert.equal(fixed.innerOpId, "inner-progress-operation");
+        if (expectedRecovery) {
+          assert.deepEqual(recovery, {
+            ...expectedRecovery,
+            outerGeneration: axes().generation
+          });
+          events.push("inner-submit-recovery");
+        } else {
+          assert.equal(recovery, undefined);
+          events.push("inner-submit");
+        }
+        return committedEvidence(fixed.semanticDigest);
+      }
+    }),
     planProgressAppend: async (expected) => {
       events.push("plan-fixed-attempt");
       return plan(expected);

@@ -54,6 +54,7 @@ import {
   sameCanonicalRoot,
   sortedDaemonRepos
 } from "./daemon-host-boundary-policy.ts";
+import { repoWriteCommandDispatch } from "./repo-write-command-dispatch.ts";
 
 export { localAuthorityPeerPolicy } from "./daemon-host-boundary-policy.ts";
 
@@ -457,10 +458,7 @@ function createRepoServiceBinding<
   const daemonCommandService = createDaemonCommandService(runtime, hostServices.command, {
     ...commandOptions,
     ...(repoWriteSupervisor ? {
-      repoWriteDispatch: {
-        repoId: repo.repoId,
-        submit: (command) => repoWriteSupervisor.submit(command)
-      }
+      repoWriteDispatch: repoWriteCommandDispatch(repoWriteSupervisor)
     } : {}),
     ...(authorityComponent ? { authorityCutoverControl: authorityComponent.cutoverControl } : {}),
     ...(authorityComponent ? {

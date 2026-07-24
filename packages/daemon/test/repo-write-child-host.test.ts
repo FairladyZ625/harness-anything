@@ -530,6 +530,7 @@ interface HostFixture {
   readonly messages: RepoWriteChildMessage[];
   send: (message: RepoWriteChildMessage) => void | Promise<void>;
   prepare: RepoWriteChildHostHooks["prepare"];
+  direct: NonNullable<RepoWriteChildHostHooks["direct"]>;
   lookup: RepoWriteChildHostHooks["lookup"];
   shutdown: RepoWriteChildHostHooks["shutdown"];
   readonly create: () => ReturnType<typeof createRepoWriteChildHost>;
@@ -550,6 +551,7 @@ function hostFixture(limits: {
       opId: `op-${requestId}`,
       execute: async () => committedTerminalOutcome(`op-${requestId}`)
     }),
+    direct: async () => committedCommandReceipt("direct"),
     lookup: async () => ({ state: "not-found" }),
     shutdown: async () => undefined,
     create: () => createRepoWriteChildHost({
@@ -562,6 +564,7 @@ function hostFixture(limits: {
       },
       hooks: {
         prepare: (input) => fixture.prepare(input),
+        direct: (input) => fixture.direct(input),
         lookup: (input) => fixture.lookup(input),
         shutdown: (input) => fixture.shutdown(input)
       },

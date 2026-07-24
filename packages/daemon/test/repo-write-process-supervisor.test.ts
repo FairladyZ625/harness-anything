@@ -12,6 +12,7 @@ import {
   RepoWriteProcessSupervisor
 } from "../src/runtime/repo-write-process-supervisor.ts";
 import {
+  RepoWriteDirectOutcomeUnknownError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
   RepoWriteReadyTimeoutError
@@ -121,7 +122,39 @@ test("child that swallows PROCEED releases the pending request at its deadline",
   assert.equal(forks, 2);
 });
 
-test("replacement recovers an earlier PROCEEDING before admitting a queued append", async (context) => {
+test("non-durable task-claim timeout replaces the child without replay or lookup", async (context) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-direct-"));
+  const tracePath = path.join(root, "trace.log");
+  let forks = 0;
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    limits: { requestTimeoutMs: 40 },
+    spawn: () => {
+      forks += 1;
+      return forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: [forks === 1 ? "swallow-direct" : "roundtrip", tracePath]
+      });
+    }
+  });
+  context.after(async () => {
+    await supervisor.stop().catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    supervisor.direct(command("", "task-claim")),
+    (error) => error instanceof RepoWriteDirectOutcomeUnknownError
+  );
+  assert.equal(forks, 2);
+  assert.deepEqual(
+    readFileSync(tracePath, "utf8").trim().split("\n"),
+    ["direct:task-claim"]
+  );
+});
+
+test("replacement recovers new-task A before admitting decision-propose B", async (context) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-order-"));
   const tracePath = path.join(root, "trace.log");
   let forks = 0;
@@ -137,7 +170,7 @@ test("replacement recovers an earlier PROCEEDING before admitting a queued appen
       });
       if (forks === 1) {
         transport.onDisconnect(() => {
-          queued = supervisor.submit(command("B"));
+          queued = supervisor.submit(command("B", "decision-propose"));
         });
       }
       return transport;
@@ -148,7 +181,7 @@ test("replacement recovers an earlier PROCEEDING before admitting a queued appen
     rmSync(root, { recursive: true, force: true });
   });
 
-  const recovered = await supervisor.submit(command("A"));
+  const recovered = await supervisor.submit(command("A", "new-task"));
   await queued;
   assert.equal(recovered.ok, true);
   const trace = readFileSync(tracePath, "utf8").trim().split("\n");
@@ -187,16 +220,16 @@ test("replacement rejects an entrypoint whose artifact changed after initial REA
   process.kill(supervisor.status().pid!, "SIGKILL");
   await waitFor(() => !supervisor.status().connected);
 
-  await assert.rejects(supervisor.lookup("op-after-drift"), (error) => {
+  await assert.rejects(supervisor.submit(command("", "decision-propose")), (error) => {
     assert.ok(error instanceof RepoWriteProtocolViolationError);
     assert.match(error.message, /artifact identity/u);
     return true;
   });
 });
 
-function command(label = "") {
+function command(label = "", commandName = "decision-propose") {
   return {
-    commandName: "progress-append",
+    commandName,
     actor: { personId: "person-test" },
     context: {},
     payload: { command: "test", label }

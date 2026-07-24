@@ -95,6 +95,22 @@ export class RepoWriteOutcomeUnknownError extends Error {
   }
 }
 
+/**
+ * A volatile child-direct command may have crossed its mutation boundary but
+ * intentionally has no durable opId or reconnect lookup contract.
+ */
+export class RepoWriteDirectOutcomeUnknownError extends Error {
+  readonly code: string;
+  readonly outcome = "unknown" as const;
+  readonly replay = "forbidden" as const;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "RepoWriteDirectOutcomeUnknownError";
+    this.code = code;
+  }
+}
+
 export class RepoWriteReadyTimeoutError extends RepoWriteNotStartedError {
   constructor(timeoutMs: number) {
     super(
