@@ -23,86 +23,44 @@ import type {
 import { taskEntityId } from "@harness-anything/kernel";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
+interface DaemonAuthoritySubmissionInputBaseV2 {
+  readonly command: AuthorityHostCommand;
+  readonly attribution: AuthorityHostAttribution;
+  readonly currentSession: CurrentSessionRef;
+  readonly ingressAdapter?: AuthorityIngressAdapter;
+}
+
+export type DaemonAuthorityCommandSubmissionInputV2 =
+  | (DaemonAuthoritySubmissionInputBaseV2 & {
+      readonly ingress: "generic";
+      readonly canonicalEntityId: WriteOp["entityId"];
+    })
+  | (DaemonAuthoritySubmissionInputBaseV2 & {
+      readonly ingress:
+        | "provenance-session"
+        | "decision-transition"
+        | "task-claim"
+        | "observed-write"
+        | "script-ingest";
+      readonly operation: WriteOp;
+    });
+
 export interface DaemonAuthorityAttemptCompilerV2 {
   /**
-   * Compiles a server-observed parsed command into canonical typed semantic
-   * intent. Raw WriteOps are deliberately absent from this boundary.
+   * Add a governed ingress by extending the discriminated union above and the
+   * exhaustive production compiler switch. Do not add another submission
+   * method: wrappers forward this one capability and semantic differences live
+   * in the ingress payload and compiler handler.
    */
-  readonly compile: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly canonicalEntityId: WriteOp["entityId"];
-  }) => Promise<AuthorizedOperationAttemptV2>;
-  readonly compileProvenanceSession?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorizedOperationAttemptV2>;
-  readonly compileDecisionTransition?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorizedOperationAttemptV2>;
-  readonly compileTaskClaim?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorizedOperationAttemptV2>;
-  readonly compileObservedWrite?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorizedOperationAttemptV2>;
-  readonly compileScriptIngest?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorizedOperationAttemptV2>;
+  readonly compile: (
+    input: DaemonAuthorityCommandSubmissionInputV2
+  ) => Promise<AuthorizedOperationAttemptV2>;
 }
 
 export interface DaemonAuthorityCommandSubmissionV2 {
-  readonly submit: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly canonicalEntityId: WriteOp["entityId"];
-  }) => Promise<AuthorityOperationReceipt>;
-  readonly submitProvenanceSession?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorityOperationReceipt>;
-  readonly submitDecisionTransition?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorityOperationReceipt>;
-  readonly submitTaskClaim?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorityOperationReceipt>;
-  readonly submitObservedWrite?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorityOperationReceipt>;
-  readonly submitScriptIngest?: (input: {
-    readonly command: AuthorityHostCommand;
-    readonly attribution: AuthorityHostAttribution;
-    readonly currentSession: CurrentSessionRef;
-    readonly operation: WriteOp;
-  }) => Promise<AuthorityOperationReceipt>;
+  readonly submit: (
+    input: DaemonAuthorityCommandSubmissionInputV2
+  ) => Promise<AuthorityOperationReceipt>;
 }
 
 export function createDaemonAuthorityCommandSubmissionV2(options: {
@@ -136,27 +94,7 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
     async () => submitAttempt(await compileAttempt(compile))
   );
   return {
-    submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input)),
-    ...(options.attemptCompiler.compileProvenanceSession ? {
-      submitProvenanceSession: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileProvenanceSession"]>>[0]) =>
-        compileAndSubmit(() => options.attemptCompiler.compileProvenanceSession!(input))
-    } : {}),
-    ...(options.attemptCompiler.compileDecisionTransition ? {
-      submitDecisionTransition: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileDecisionTransition"]>>[0]) =>
-        compileAndSubmit(() => options.attemptCompiler.compileDecisionTransition!(input))
-    } : {}),
-    ...(options.attemptCompiler.compileTaskClaim ? {
-      submitTaskClaim: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileTaskClaim"]>>[0]) =>
-        compileAndSubmit(() => options.attemptCompiler.compileTaskClaim!(input))
-    } : {}),
-    ...(options.attemptCompiler.compileObservedWrite ? {
-      submitObservedWrite: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileObservedWrite"]>>[0]) =>
-        compileAndSubmit(() => options.attemptCompiler.compileObservedWrite!(input))
-    } : {}),
-    ...(options.attemptCompiler.compileScriptIngest ? {
-      submitScriptIngest: async (input: Parameters<NonNullable<DaemonAuthorityAttemptCompilerV2["compileScriptIngest"]>>[0]) =>
-        compileAndSubmit(() => options.attemptCompiler.compileScriptIngest!(input))
-    } : {})
+    submit: (input) => compileAndSubmit(() => options.attemptCompiler.compile(input))
   };
 }
 
@@ -245,38 +183,24 @@ export function makeDaemonAuthorityWriteCoordinator(
         if (provenanceSession && provenanceCommitted) {
           throw authorityWriteRejected("AUTHORITY_COMMAND_REQUIRES_SINGLE_PROVENANCE_SESSION");
         }
-        if (provenanceSession && !submission.submitProvenanceSession) {
-          throw authorityWriteRejected("AUTHORITY_PROVENANCE_SESSION_SUBMISSION_UNAVAILABLE");
-        }
         const ingressAdapter = input.ingressAdapter;
         const decisionTransition = ingressAdapter === "decision-transition";
-        if (decisionTransition && !submission.submitDecisionTransition) {
-          throw authorityWriteRejected("AUTHORITY_DECISION_TRANSITION_SUBMISSION_UNAVAILABLE");
-        }
         const taskClaim = ingressAdapter === "task-claim";
-        if (taskClaim && !submission.submitTaskClaim) {
-          throw authorityWriteRejected("AUTHORITY_TASK_CLAIM_SUBMISSION_UNAVAILABLE");
-        }
         const observedWrite = ingressAdapter === "observed-write";
-        if (observedWrite && !submission.submitObservedWrite) {
-          throw authorityWriteRejected("AUTHORITY_OBSERVED_WRITE_SUBMISSION_UNAVAILABLE");
-        }
         const scriptIngest = pending.kind === "script_ingest";
-        if (scriptIngest && !submission.submitScriptIngest) {
-          throw authorityWriteRejected("AUTHORITY_SCRIPT_SCOPE_SUBMISSION_UNAVAILABLE");
-        }
-        settled ??= scriptIngest
-          ? submission.submitScriptIngest!({ ...input, operation: pending })
+        settled ??= submission.submit(scriptIngest
+          ? { ...input, ingress: "script-ingest", operation: pending }
           : provenanceSession
-          ? submission.submitProvenanceSession!({ ...input, operation: pending })
+          ? { ...input, ingress: "provenance-session", operation: pending }
           : decisionTransition
-            ? submission.submitDecisionTransition!({ ...input, operation: pending })
+            ? { ...input, ingress: "decision-transition", operation: pending }
           : taskClaim
-            ? submission.submitTaskClaim!({ ...input, operation: pending })
+            ? { ...input, ingress: "task-claim", operation: pending }
           : observedWrite
-            ? submission.submitObservedWrite!({ ...input, operation: pending })
-          : submission.submit({
+            ? { ...input, ingress: "observed-write", operation: pending }
+          : {
             ...input,
+            ingress: "generic",
             command: commandWithCompletionContractFence(input.command, pending),
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
           });

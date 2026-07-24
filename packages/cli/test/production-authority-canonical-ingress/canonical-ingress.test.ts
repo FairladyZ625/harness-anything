@@ -12,7 +12,6 @@ import {
 import {
   decisionEntityId,
   createTaskPackagePath,
-  moduleEntityId,
   sha256Text,
   taskEntityId
 } from "../../../kernel/src/index.ts";
@@ -55,6 +54,7 @@ import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
 import { verifyOmittedIngressRegressions } from "./omitted-ingress-regressions.ts";
+import { verifyGenericIngressRejections } from "./generic-ingress-rejections.ts";
 import { verifySluggedTaskRelatePathCas } from "./slugged-path-cas.ts";
 import { assertProductionConsentIngress, productionConsentIngressCase } from "./consent-ingress.ts";
 
@@ -561,6 +561,7 @@ test("production generic canonical ingress accepts and journals one write for ev
     for (const [index, fixtureCase] of cases.entries()) {
       const sessionId = `real-cli-session-${index + 1}`;
       const receipt = await submission.submit({
+        ingress: "generic",
         command: { rootDir: fixture.repoRoot, json: true, action: fixtureCase.action },
         attribution: daemonActorAttribution(actor, index === 0 ? null : { kind: "agent", id: "codex" }),
         currentSession: { runtime: "codex", sessionId, source: "runtime", detectedAt: "2026-07-17T00:00:00.000Z" },
@@ -662,34 +663,10 @@ test("production generic canonical ingress accepts and journals one write for ev
         assert.equal(existsSync(path.join(taskRoot, "task-contract.json")), true);
       }
     }
-    await assert.rejects(submission.submit({
-      command: {
-        rootDir: fixture.repoRoot,
-        action: { kind: "task-claim", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0" }
-      },
-      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
-      currentSession: { runtime: "codex", sessionId: "session-production", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
-      canonicalEntityId: taskEntityId("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0")
-    }), (error: unknown) => {
-      const rejected = error as { readonly _tag?: unknown; readonly code?: unknown; readonly reason?: unknown };
-      return rejected?._tag === "WriteRejected"
-        && rejected.code === "authority_ingress_rejected"
-        && rejected.reason === "AUTHORITY_TYPED_COMMAND_UNSUPPORTED:task-claim";
-    });
-    await assert.rejects(submission.submit({
-      command: {
-        rootDir: fixture.repoRoot,
-        json: true,
-        action: { kind: "progress-append", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", text: "entity mismatch evidence", dryRun: false }
-      },
-      attribution: daemonActorAttribution(actor, { kind: "agent", id: "codex" }),
-      currentSession: { runtime: "codex", sessionId: "session-mismatch", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z" },
-      canonicalEntityId: moduleEntityId("wrong-entity")
-    }), (error: unknown) => {
-      const rejected = error as { readonly _tag?: unknown; readonly code?: unknown; readonly reason?: unknown };
-      return rejected?._tag === "WriteRejected"
-        && rejected.code === "authority_ingress_rejected"
-        && rejected.reason === "AUTHORITY_CANONICAL_ENTITY_MISMATCH:submittedEntityId=module/wrong-entity;intentEntityId=task/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0";
+    await verifyGenericIngressRejections({
+      submission,
+      repoRoot: fixture.repoRoot,
+      actor
     });
     await lifecycle.stopAll("daemon-shutdown");
   } finally {

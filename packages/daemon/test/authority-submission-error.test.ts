@@ -1,9 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Effect } from "effect";
 import {
+  createDaemonAuthorityCommandSubmissionV2,
   authoritySubmissionWriteError,
-  gateAuthoritySubmissionForRecovery
+  gateAuthoritySubmissionForRecovery,
+  makeDaemonAuthorityWriteCoordinator
 } from "../src/index.ts";
 import { receiptToFlushReport } from "../src/authority/authority-command-submission.ts";
 import { gateCutoverAdmission } from "../src/authority/production/cutover-admission.ts";
@@ -11,12 +14,26 @@ import {
   defaultProductionRecoveryAdmissionTimeoutMs,
   waitForProductionRecovery
 } from "../src/authority/production/production-recovery-admission.ts";
+import {
+  createProductionPlannedCommandSubmission
+} from "../src/authority/production/production-progress-append-submission.ts";
+import {
+  productionAuthorityCommandHasPurePlan
+} from "../src/authority/production/production-authority-pure-command-plan.ts";
+import type {
+  ProductionAuthorityCommandPlanInput,
+  ProductionCanonicalAttemptCompilerV2
+} from "../src/authority/production/production-authority-attempt-compiler.ts";
+import type {
+  ProductionAuthorityAttemptPlanV1
+} from "../src/authority/production/production-authority-attempt-plan.ts";
 import { defaultRepoWriteRequestTimeoutMs } from "../src/runtime/repo-write-client-contract.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
   semanticRequestDigestV2,
   type AuthorityRecoveryAttemptV2,
+  type AuthoritySubmissionService,
   type ProtocolSchemaTupleV2
 } from "@harness-anything/application";
 import { v2Claims, v2Envelope } from "./authority-v2-fixtures.ts";
@@ -147,6 +164,139 @@ test("cutover admission preserves V2 recovery admission", async () => {
   assert.equal(admitted, 1);
   assert.equal(resumed, 1);
 });
+
+test("planned durable submission exposes one forwarding method and rejects specialized ingress", async () => {
+  const submission = createProductionPlannedCommandSubmission({
+    repoId: "canonical",
+    authorityGeneration: 7,
+    authorityService: {} as AuthoritySubmissionService,
+    compiler: {} as ProductionCanonicalAttemptCompilerV2,
+    expected: {} as ProductionAuthorityCommandPlanInput,
+    plan: {} as ProductionAuthorityAttemptPlanV1
+  });
+
+  assert.deepEqual(Object.keys(submission), ["submit"]);
+  await assert.rejects(submission.submit({
+    ingress: "task-claim",
+    command: {} as never,
+    attribution: {} as never,
+    currentSession: {} as never,
+    operation: {
+      opId: "op-specialized",
+      entityId: "task/task_SPECIALIZED",
+      kind: "doc_write"
+    }
+  }), /AUTHORITY_PLANNED_INPUT_MISMATCH/u);
+});
+
+test("multi-operation task creation stays on the direct child lane", () => {
+  assert.equal(productionAuthorityCommandHasPurePlan({
+    rootDir: "/repo",
+    action: {
+      kind: "new-task",
+      title: "Task with provenance",
+      titleProvided: true,
+      taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9"
+    }
+  }), false);
+});
+
+test("one submission method carries every governed ingress discriminator", async () => {
+  const fixture = authorityCommandAttemptFixture();
+  const compiled: string[] = [];
+  const submission = createDaemonAuthorityCommandSubmissionV2({
+    authorityService: {
+      submit: async () => { throw new Error("unused"); },
+      submitV2: async () => { throw new Error("stop after compile"); },
+      getOperation: async () => undefined
+    },
+    attemptCompiler: {
+      compile: async (input) => {
+        compiled.push(input.ingress);
+        return fixture.attempt;
+      }
+    }
+  });
+  const common = {
+    command: {} as never,
+    attribution: {} as never,
+    currentSession: {} as never
+  };
+  const operation = {
+    opId: "op-ingress",
+    entityId: "task/task_INGRESS",
+    kind: "progress_append" as const
+  };
+  const inputs = [
+    { ...common, ingress: "generic" as const, canonicalEntityId: operation.entityId },
+    { ...common, ingress: "provenance-session" as const, operation },
+    { ...common, ingress: "decision-transition" as const, operation },
+    { ...common, ingress: "task-claim" as const, operation },
+    { ...common, ingress: "observed-write" as const, operation },
+    { ...common, ingress: "script-ingest" as const, operation }
+  ];
+  for (const input of inputs) {
+    await assert.rejects(submission.submit(input), /stop after compile/u);
+  }
+  assert.deepEqual(compiled, inputs.map((input) => input.ingress));
+});
+
+test("write coordinator routes specialized semantics through the single submission entry", async () => {
+  const cases = [
+    { ingressAdapter: "decision-transition", ingress: "decision-transition", actionKind: "decision-transition", operationKind: "doc_write" },
+    { ingressAdapter: "task-claim", ingress: "task-claim", actionKind: "task-claim", operationKind: "doc_write" },
+    { ingressAdapter: "observed-write", ingress: "observed-write", actionKind: "task-amend", operationKind: "doc_write" },
+    { ingressAdapter: undefined, ingress: "script-ingest", actionKind: "script-run", operationKind: "script_ingest" }
+  ] as const;
+  for (const fixture of cases) {
+    let observedIngress = "";
+    const coordinator = makeDaemonAuthorityWriteCoordinator({
+      submit: async (submission) => {
+        observedIngress = submission.ingress;
+        return {
+          tag: "COMMITTED",
+          workspaceId: "workspace-ingress",
+          opId: `op-${fixture.ingress}`,
+          semanticDigest: "a".repeat(64),
+          revision: 1,
+          commitSha: "b".repeat(40),
+          previousCommit: null
+        };
+      }
+    }, {
+      command: {
+        rootDir: "/fixture",
+        json: true,
+        action: { kind: fixture.actionKind }
+      } as never,
+      attribution: {} as never,
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-ingress",
+        source: "runtime",
+        detectedAt: "2026-07-24T00:00:00.000Z"
+      },
+      ...(fixture.ingressAdapter ? { ingressAdapter: fixture.ingressAdapter } : {})
+    });
+    await runEffect(coordinator.enqueue({
+      opId: `op-${fixture.ingress}`,
+      entityId: "task/task_INGRESS",
+      kind: fixture.operationKind
+    } as never));
+    await runEffect(coordinator.flush("explicit"));
+    assert.equal(observedIngress, fixture.ingress);
+  }
+});
+
+function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+  return new Promise((resolve, reject) => {
+    Effect.runCallback(effect, {
+      onExit: (exit) => exit._tag === "Success"
+        ? resolve(exit.value)
+        : reject(new Error(String(exit.cause)))
+    });
+  });
+}
 
 test("production recovery admission expires before the repo-write transport deadline", () => {
   assert.ok(defaultProductionRecoveryAdmissionTimeoutMs < defaultRepoWriteRequestTimeoutMs);

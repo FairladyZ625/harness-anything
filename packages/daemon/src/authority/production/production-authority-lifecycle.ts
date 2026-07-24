@@ -441,22 +441,7 @@ function createRepoComponent(
         attemptCompiler: progressCompiler
       });
       const binding: AuthorityRepoConnectionBinding = {
-        submit: commandSubmission.submit,
-        ...(commandSubmission.submitProvenanceSession ? {
-          submitProvenanceSession: commandSubmission.submitProvenanceSession
-        } : {}),
-        ...(commandSubmission.submitDecisionTransition ? {
-          submitDecisionTransition: commandSubmission.submitDecisionTransition
-        } : {}),
-        ...(commandSubmission.submitTaskClaim ? {
-          submitTaskClaim: commandSubmission.submitTaskClaim
-        } : {}),
-        ...(commandSubmission.submitObservedWrite ? {
-          submitObservedWrite: commandSubmission.submitObservedWrite
-        } : {}),
-        ...(commandSubmission.submitScriptIngest ? {
-          submitScriptIngest: commandSubmission.submitScriptIngest
-        } : {}),
+        ...commandSubmission,
         ...progressBinding,
         serveForcedCommand: ({ input: readable, output }) => {
           const session = serveAuthorityForcedCommand({

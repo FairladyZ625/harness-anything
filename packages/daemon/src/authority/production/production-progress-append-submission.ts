@@ -13,7 +13,6 @@ import {
 } from "../authority-command-submission.ts";
 import type {
   ProductionAuthorityCommandPlanInput,
-  ProductionAuthorityCommandSubmissionInput,
   ProductionCanonicalAttemptCompilerV2,
   ProductionProgressAppendCompileInput
 } from "./production-authority-attempt-compiler.ts";
@@ -30,11 +29,8 @@ import type {
 } from "./authority-production-state.ts";
 import type { openAuthorityProductionKeyMaterial } from "./authority-production-state.ts";
 
-export interface ProductionPlannedCommandSubmission {
-  readonly submit: (
-    input: ProductionAuthorityCommandSubmissionInput
-  ) => Promise<AuthorityOperationReceipt>;
-}
+export type ProductionPlannedCommandSubmission =
+  DaemonAuthorityCommandSubmissionV2;
 
 export function createProductionProgressAppendConnectionBinding(input: {
   readonly material: {
@@ -149,33 +145,40 @@ export function createProductionPlannedCommandSubmission(input: {
   readonly recovery?: ProductionAuthorityOuterRecoveryWitnessV1;
 }): ProductionPlannedCommandSubmission {
   let submitted = false;
-  return {
-    submit: async (actual) => {
-      if (submitted) {
-        throw new Error("AUTHORITY_PLANNED_SUBMISSION_REUSED");
-      }
-      const {
-        canonicalEntityId,
-        ...actualPlanInput
-      } = actual;
-      if (canonicalEntityId !== input.plan.targetEntityId
-        || stableStringify(actualPlanInput) !== stableStringify(input.expected)) {
-        throw new Error("AUTHORITY_PLANNED_INPUT_MISMATCH");
-      }
-      submitted = true;
-      const attempt = input.recovery
-        ? await input.compiler.activateRecoveryCommand(input.plan, input.recovery)
-        : input.compiler.activatePlannedCommand(input.plan);
-      const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
-      const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
-      const receipt = input.recovery
-        ? await resumePlannedCommand({ ...input, recovery: input.recovery }, attempt)
-        : await submitPlannedCommand(input.authorityService, attempt);
-      assertCompleteAuthorityReceiptV2(receipt);
-      assertAuthorityReceiptOperation(receipt, expectedOpId);
-      return receipt;
+  const submit = async (
+    actual: Parameters<DaemonAuthorityCommandSubmissionV2["submit"]>[0]
+  ): Promise<AuthorityOperationReceipt> => {
+    if (submitted) {
+      throw new Error("AUTHORITY_PLANNED_SUBMISSION_REUSED");
     }
+    if (actual.ingress !== "generic") {
+      throw new Error("AUTHORITY_PLANNED_INPUT_MISMATCH");
+    }
+    const canonicalEntityId = actual.canonicalEntityId;
+    const actualPlanInput: ProductionAuthorityCommandPlanInput = {
+      command: actual.command,
+      attribution: actual.attribution,
+      currentSession: actual.currentSession,
+      ...(actual.ingressAdapter ? { ingressAdapter: actual.ingressAdapter } : {})
+    };
+    if (canonicalEntityId !== input.plan.targetEntityId
+      || stableStringify(actualPlanInput) !== stableStringify(input.expected)) {
+      throw new Error("AUTHORITY_PLANNED_INPUT_MISMATCH");
+    }
+    submitted = true;
+    const attempt = input.recovery
+      ? await input.compiler.activateRecoveryCommand(input.plan, input.recovery)
+      : input.compiler.activatePlannedCommand(input.plan);
+    const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
+    const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
+    const receipt = input.recovery
+      ? await resumePlannedCommand({ ...input, recovery: input.recovery }, attempt)
+      : await submitPlannedCommand(input.authorityService, attempt);
+    assertCompleteAuthorityReceiptV2(receipt);
+    assertAuthorityReceiptOperation(receipt, expectedOpId);
+    return receipt;
   };
+  return { submit };
 }
 
 async function submitPlannedCommand(

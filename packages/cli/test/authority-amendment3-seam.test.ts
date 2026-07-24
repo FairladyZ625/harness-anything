@@ -14,13 +14,16 @@ test("cold task create submits provenance session and task as two ordered canoni
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9";
   const submittedEntityIds: string[] = [];
   const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submitProvenanceSession: async (input) => {
-      submittedEntityIds.push(input.operation.entityId);
-      return committedReceipt("fixture-session-op", 1);
-    },
     submit: async (input) => {
-      submittedEntityIds.push(input.canonicalEntityId);
-      return committedReceipt("fixture-task-op", 2);
+      if (input.ingress === "provenance-session") {
+        submittedEntityIds.push(input.operation.entityId);
+        return committedReceipt("fixture-session-op", 1);
+      }
+      if (input.ingress === "generic") {
+        submittedEntityIds.push(input.canonicalEntityId);
+        return committedReceipt("fixture-task-op", 2);
+      }
+      throw new Error(`unexpected ingress: ${input.ingress}`);
     }
   }, {
     command: {
@@ -83,8 +86,10 @@ test("task claim submits the observed execution write through its narrow typed i
   const executionId = "exe_01KXSVW65Q5QK3M8382FK4C0DR";
   let submittedOperation: unknown;
   const coordinator = makeDaemonAuthorityWriteCoordinator({
-    submit: async () => { throw new Error("generic authority submission must not compile task claim"); },
-    submitTaskClaim: async (input) => {
+    submit: async (input) => {
+      if (input.ingress !== "task-claim") {
+        throw new Error("task claim must use its typed ingress");
+      }
       submittedOperation = input.operation;
       return committedReceipt("fixture-task-claim-op", 1);
     }

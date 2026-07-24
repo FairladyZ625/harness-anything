@@ -32,6 +32,7 @@ test("the next publication commits a V2 event left durable before its evidence c
     const actor = productionAuthorityActor();
     const submission = started.component.bindConnection(productionAuthorityConnection(actor));
     const submit = (text: string) => submission.submit({
+      ingress: "generic",
       command: {
         rootDir: fixture.repoRoot,
         json: true,

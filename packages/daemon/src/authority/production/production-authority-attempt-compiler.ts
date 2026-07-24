@@ -16,7 +16,6 @@ import {
 import {
   decisionEntityId,
   decisionSemanticMutationActions,
-  moduleEntityId,
   parseDecisionDocument,
   sha256Text,
   taskEntityId,
@@ -26,8 +25,17 @@ import {
   type WriteOp
 } from "@harness-anything/kernel";
 import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
-import type { DaemonAuthorityAttemptCompilerV2 } from "../authority-command-submission.ts";
+import type {
+  DaemonAuthorityAttemptCompilerV2,
+  DaemonAuthorityCommandSubmissionInputV2
+} from "../authority-command-submission.ts";
 import { hostedSnapshot } from "./semantic-state.ts";
+import {
+  canonicalIntent,
+  decisionTransitionAttemptIntent,
+  moduleCanonicalIntent,
+  registryRef as ref
+} from "./production-authority-canonical-intents.ts";
 import {
   openAuthorityProductionKeyMaterial,
   type AuthorityProductionRepoConfigV1,
@@ -81,7 +89,10 @@ export interface CanonicalAttemptIntent {
 }
 
 type CanonicalCompileInput =
-  Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
+  Omit<
+    Extract<DaemonAuthorityCommandSubmissionInputV2, { readonly ingress: "generic" }>,
+    "ingress"
+  >;
 
 export type ProductionProgressAppendCompileInput = CanonicalCompileInput & {
   readonly ingressAdapter?: AuthorityIngressAdapter;
@@ -89,8 +100,6 @@ export type ProductionProgressAppendCompileInput = CanonicalCompileInput & {
 
 export type ProductionAuthorityCommandPlanInput =
   Omit<CanonicalCompileInput, "canonicalEntityId">;
-
-export type ProductionAuthorityCommandSubmissionInput = CanonicalCompileInput;
 
 export interface ProductionCanonicalAttemptCompilerV2
   extends DaemonAuthorityAttemptCompilerV2 {
@@ -206,38 +215,95 @@ export function createProductionCanonicalAttemptCompiler(input: {
       }
       return attemptPlanner.activateRecoveryPlan(plan, witness);
     },
-    compile: async ({ command, attribution, currentSession, canonicalEntityId }) => {
-      const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
-      const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
-        ? await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor, input.hostServices)
-        : null;
-      return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
-    },
-    compileProvenanceSession: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "generic", input.hostServices);
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        provenanceSessionAttemptIntent(command, currentSession, operation));
-    },
-    compileDecisionTransition: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "decision-transition", input.hostServices);
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        decisionTransitionAttemptIntent(command, operation, input.authoredRoot));
-    },
-    compileTaskClaim: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "task-claim", input.hostServices);
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        taskClaimAttemptIntent(command, attribution, currentSession, operation));
-    },
-    compileObservedWrite: async ({ command, attribution, currentSession, operation }) => {
-      assertTypedIngressAdapter(command.action.kind, "observed-write", input.hostServices);
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        productionObservedWriteAttemptIntent(command, operation, input.authoredRoot));
-    },
-    compileScriptIngest: async ({ command, attribution, currentSession, operation }) => {
-      return compileIntent(command, attribution, currentSession, operation.entityId,
-        productionScriptIngestAttemptIntent(command, operation, input.authoredRoot));
+    compile: async (submission) => {
+      switch (submission.ingress) {
+        case "generic": {
+          const {
+            command,
+            attribution,
+            currentSession,
+            canonicalEntityId
+          } = submission;
+          const disposition = input.hostServices.productionAuthorityIngressFor(command.action.kind);
+          const intent = disposition?.status === "typed-v2" && disposition.adapter === "generic"
+            ? await canonicalAttemptIntent(command, currentSession, canonicalEntityId, input.authoredRoot, attribution.writeAttribution.actor, input.hostServices)
+            : null;
+          return compileIntent(command, attribution, currentSession, canonicalEntityId, intent);
+        }
+        case "provenance-session":
+          assertTypedIngressAdapter(submission.command.action.kind, "generic", input.hostServices);
+          return compileIntent(
+            submission.command,
+            submission.attribution,
+            submission.currentSession,
+            submission.operation.entityId,
+            provenanceSessionAttemptIntent(
+              submission.command,
+              submission.currentSession,
+              submission.operation
+            )
+          );
+        case "decision-transition":
+          assertTypedIngressAdapter(submission.command.action.kind, "decision-transition", input.hostServices);
+          return compileIntent(
+            submission.command,
+            submission.attribution,
+            submission.currentSession,
+            submission.operation.entityId,
+            decisionTransitionAttemptIntent(
+              submission.command,
+              submission.operation,
+              input.authoredRoot
+            )
+          );
+        case "task-claim":
+          assertTypedIngressAdapter(submission.command.action.kind, "task-claim", input.hostServices);
+          return compileIntent(
+            submission.command,
+            submission.attribution,
+            submission.currentSession,
+            submission.operation.entityId,
+            taskClaimAttemptIntent(
+              submission.command,
+              submission.attribution,
+              submission.currentSession,
+              submission.operation
+            )
+          );
+        case "observed-write":
+          assertTypedIngressAdapter(submission.command.action.kind, "observed-write", input.hostServices);
+          return compileIntent(
+            submission.command,
+            submission.attribution,
+            submission.currentSession,
+            submission.operation.entityId,
+            productionObservedWriteAttemptIntent(
+              submission.command,
+              submission.operation,
+              input.authoredRoot
+            )
+          );
+        case "script-ingest":
+          return compileIntent(
+            submission.command,
+            submission.attribution,
+            submission.currentSession,
+            submission.operation.entityId,
+            productionScriptIngestAttemptIntent(
+              submission.command,
+              submission.operation,
+              input.authoredRoot
+            )
+          );
+        default:
+          return assertNeverSubmissionIngress(submission);
+      }
     }
   };
+}
+
+function assertNeverSubmissionIngress(input: never): never {
+  throw new Error(`AUTHORITY_SUBMISSION_INGRESS_UNHANDLED:${String(input)}`);
 }
 
 function assertTypedIngressAdapter(
@@ -249,52 +315,6 @@ function assertTypedIngressAdapter(
   if (disposition?.status !== "typed-v2" || disposition.adapter !== expected) {
     throw new Error(`AUTHORITY_TYPED_INGRESS_REGISTRY_MISMATCH:${kind}:${expected}`);
   }
-}
-
-function decisionTransitionAttemptIntent(
-  command: ProductionAuthorityCommand,
-  operation: WriteOp,
-  authoredRoot: string
-): CanonicalAttemptIntent {
-  const action = command.action;
-  if (action.kind !== "decision-transition") throw new Error("AUTHORITY_DECISION_TRANSITION_COMMAND_REQUIRED");
-  const expectedKind = `decision_${action.transition}`;
-  if (operation.entityId !== decisionEntityId(action.decisionId) || operation.kind !== expectedKind) {
-    throw new Error("AUTHORITY_DECISION_TRANSITION_OPERATION_MISMATCH");
-  }
-  const raw = operation.payload;
-  if (!raw || typeof raw !== "object" || !("decision" in raw)) {
-    throw new Error("AUTHORITY_DECISION_TRANSITION_PAYLOAD_INVALID");
-  }
-  const decision = (raw as { readonly decision?: DecisionPackage }).decision;
-  if (!decision || decision.decision_id !== action.decisionId) {
-    throw new Error("AUTHORITY_DECISION_TRANSITION_ENTITY_MISMATCH");
-  }
-  const body = (raw as { readonly body?: unknown }).body;
-  if (body !== undefined && typeof body !== "string") {
-    throw new Error("AUTHORITY_DECISION_TRANSITION_BODY_INVALID");
-  }
-  const documentPath = `decisions/decision-${action.decisionId}/decision.md`;
-  const snapshot = hostedSnapshot(authoredRoot, documentPath);
-  if (!snapshot) throw new Error("AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED: decision transition requires the current Decision document");
-  const entity = ref("decision", `decision/${action.decisionId}`);
-  const payload: TaskDecisionModuleCommandPayloadV2 = {
-    schema: "decision.state/v1",
-    transition: action.transition,
-    decision,
-    ...(body === undefined ? {} : { body })
-  };
-  return {
-    ...canonicalIntent(
-      "decision.state",
-      encodeTaskDecisionModuleCommandPayloadV2(payload),
-      [{ entity, action: decisionSemanticMutationActions.state }],
-      [entity],
-      [documentPath],
-      decisionEntityId(action.decisionId)
-    ),
-    declaredPathCas: [{ path: documentPath, ...snapshot.cas }]
-  };
 }
 
 async function canonicalAttemptIntent(
@@ -537,25 +557,4 @@ async function canonicalAttemptIntent(
     };
   }
   return productionLifecycleAttemptIntent({ command, currentSession, canonicalEntityId, authoredRoot, actor: executionActor }, hostServices);
-}
-
-function canonicalIntent(
-  commandName: string,
-  payload: Uint8Array,
-  mutations: CanonicalAttemptIntent["mutations"],
-  baseRefs: ReadonlyArray<RegistryEntityRefV2>,
-  portablePaths: ReadonlyArray<string>,
-  physicalEntityId: string
-): CanonicalAttemptIntent {
-  return { commandName, payload, mutations, baseRefs, portablePaths, declaredPathCas: [], physicalEntityId };
-}
-
-function moduleCanonicalIntent(commandName: string, payload: Uint8Array, entity: RegistryEntityRefV2, action: string, moduleKey: string, authoredRoot: string): CanonicalAttemptIntent {
-  const intent = canonicalIntent(commandName, payload, [{ entity, action }], [entity], ["modules.json"], moduleEntityId(moduleKey));
-  const snapshot = hostedSnapshot(authoredRoot, "modules.json");
-  return { ...intent, declaredPathCas: snapshot ? [{ path: "modules.json", ...snapshot.cas }] : [] };
-}
-
-function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
-  return { registryVersion: 1, entityKind, canonicalRef };
 }

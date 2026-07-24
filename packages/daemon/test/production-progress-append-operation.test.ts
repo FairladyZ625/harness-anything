@@ -304,6 +304,7 @@ function authorityComponent(
       submit: async (actual) => {
         assert.deepEqual(actual, {
           ...expected,
+          ingress: "generic",
           canonicalEntityId: fixed.targetEntityId
         });
         assert.equal(fixed.innerOpId, "inner-progress-operation");
@@ -326,7 +327,10 @@ function authorityComponent(
     },
     plannedProgressAppendSubmission: ({ expected, plan: fixed, recovery }) => ({
       submit: async (actual) => {
-        assert.deepEqual(actual, expected);
+        assert.deepEqual(actual, {
+          ...expected,
+          ingress: "generic"
+        });
         assert.equal(fixed.innerOpId, "inner-progress-operation");
         if (expectedRecovery) {
           assert.deepEqual(recovery, {
