@@ -64,6 +64,20 @@ test("prepared and proceed form an exact opId handshake before canonical mutatio
   assert.deepEqual(parseRepoWriteParentMessage(stringifyRepoWriteParentMessage(proceed)), proceed);
 });
 
+test("historical recovery diagnostics carry a bounded startup failure without request correlation", () => {
+  const diagnostic: RepoWriteChildMessage = {
+    ...base("recovery-deferred"),
+    outerOpId: "repo-write:historical",
+    code: "GIT_PATH_NOT_SAFE",
+    diagnostic: "historical recovery remains fail-closed"
+  };
+
+  assert.deepEqual(
+    parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(diagnostic)),
+    diagnostic
+  );
+});
+
 test("volatile direct execution carries an exact receipt without durable recovery fields", () => {
   const request: RepoWriteParentMessage = {
     ...base("direct"),

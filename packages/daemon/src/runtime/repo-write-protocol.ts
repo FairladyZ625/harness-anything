@@ -1,5 +1,6 @@
 // @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
+export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
   decodeRepoWriteBigInt,
   decodeRepoWriteBytes,
@@ -140,11 +141,18 @@ export interface RepoWriteTelemetryFrame extends RepoWriteRequestFrame<"telemetr
   readonly phase: RepoWriteTelemetryPhase;
   readonly elapsedMs: number;
 }
+export interface RepoWriteRecoveryDeferredFrame extends RepoWriteFrameBase {
+  readonly kind: "recovery-deferred";
+  readonly outerOpId: string;
+  readonly code: string;
+  readonly diagnostic: string;
+}
 
 export type RepoWriteChildMessage =
   RepoWriteReadyFrame | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
-  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteDrainedFrame;
+  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDeferredFrame
+  | RepoWriteDrainedFrame;
 
 export type RepoWriteMessage = RepoWriteParentMessage | RepoWriteChildMessage;
 export function parseRepoWriteParentMessage(
@@ -194,24 +202,9 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "failure") return decodeFailure(frame, limits);
   if (frame.kind === "status") return decodeStatus(frame, limits, budget);
   if (frame.kind === "telemetry") return decodeTelemetry(frame, limits);
+  if (frame.kind === "recovery-deferred") return decodeRecoveryDeferred(frame, limits);
   if (frame.kind === "drained") return decodeRequestFrame(frame, limits, "drained");
   invalid("$.kind", "child message kind");
-}
-
-export function boundedRepoWriteDiagnostic(
-  error: unknown, maxBytes = defaultRepoWriteProtocolLimits.maxDiagnosticBytes
-): string {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-    throw new Error("maxBytes must be a positive safe integer");
-  }
-  const source = error instanceof Error
-    ? `${error.name || "Error"}: ${error.message || "writer failure"}`
-    : "Unknown writer failure";
-  const sanitized = source
-    .slice(0, maxBytes * 4 + 1)
-    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
-    .trim();
-  return truncateUtf8(sanitized || "writer failure", maxBytes);
 }
 
 type FrameRecord = Record<string, unknown> & {
@@ -447,6 +440,19 @@ function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): R
     elapsedMs: frame.elapsedMs
   };
 }
+function decodeRecoveryDeferred(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits
+): RepoWriteRecoveryDeferredFrame {
+  assertExactKeys(frame, baseKeys(["outerOpId", "code", "diagnostic"]), [], "$");
+  return {
+    ...baseFields(frame),
+    kind: "recovery-deferred",
+    outerOpId: identifier(frame.outerOpId, "$.outerOpId", limits),
+    code: identifier(frame.code, "$.code", limits),
+    diagnostic: stringAt(frame.diagnostic, "$.diagnostic", limits.maxDiagnosticBytes)
+  };
+}
 function frameBase(value: unknown, limits: RepoWriteProtocolLimits, budget: { nodes: number }): FrameRecord {
   const frame = recordAt(value, "$");
   budget.nodes += 1;
@@ -567,17 +573,6 @@ function stringAt(value: unknown, path: string, maxBytes: number): string {
 }
 function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, "utf8");
-}
-function truncateUtf8(value: string, maxBytes: number): string {
-  let result = "";
-  let bytes = 0;
-  for (const character of value) {
-    const width = utf8Bytes(character);
-    if (bytes + width > maxBytes) break;
-    result += character;
-    bytes += width;
-  }
-  return result;
 }
 function boundedPathSegment(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;

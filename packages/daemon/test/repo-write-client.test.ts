@@ -60,6 +60,34 @@ test("waits for ready, records prepared opId, proceeds, and resolves only at ter
   assert.deepEqual(await result, receipt);
 });
 
+test("reports historical recovery diagnostics before READY without failing the writer", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const diagnostics: unknown[] = [];
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    onTelemetry: () => undefined,
+    onDiagnostic: (frame) => diagnostics.push(frame)
+  });
+  transport.emit({
+    ...childFrame("recovery-deferred"),
+    outerOpId: "repo-write:historical",
+    code: "GIT_PATH_NOT_SAFE",
+    diagnostic: "historical recovery remains fail-closed"
+  });
+  transport.emit(readyFrame());
+
+  await client.waitUntilReady();
+  assert.equal(diagnostics.length, 1);
+  assert.deepEqual(diagnostics[0], {
+    ...childFrame("recovery-deferred"),
+    outerOpId: "repo-write:historical",
+    code: "GIT_PATH_NOT_SAFE",
+    diagnostic: "historical recovery remains fail-closed"
+  });
+});
+
 test("resolves an exact rejected terminal receipt instead of converting it to transport failure", async () => {
   const transport = new FakeRepoWriteTransport();
   const client = readyClient(transport);

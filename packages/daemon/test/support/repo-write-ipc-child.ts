@@ -111,6 +111,17 @@ if (mode === "exit") {
   } else if (mode === "malformed-child") {
     process.send?.({ protocol: "wrong", kind: "ready" });
   } else {
+    if (mode === "recovery-deferred") {
+      await transport.send({
+        protocol: repoWriteProtocolType,
+        repoId: "repo-transport",
+        generation: 1,
+        kind: "recovery-deferred",
+        outerOpId: "repo-write:historical",
+        code: "GIT_PATH_NOT_SAFE",
+        diagnostic: "historical recovery remains fail-closed"
+      });
+    }
     await transport.send({
       protocol: repoWriteProtocolType,
       repoId: "repo-transport",

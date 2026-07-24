@@ -21,6 +21,7 @@ export interface RepoWriteProcessSupervisorOptions {
   readonly spawn: () => RepoWriteParentProcessTransport;
   readonly limits?: ConstructorParameters<typeof RepoWriteClient>[0]["limits"];
   readonly onTelemetry?: ConstructorParameters<typeof RepoWriteClient>[0]["onTelemetry"];
+  readonly onDiagnostic?: ConstructorParameters<typeof RepoWriteClient>[0]["onDiagnostic"];
 }
 
 interface ActiveWriter {
@@ -199,7 +200,8 @@ export class RepoWriteProcessSupervisor {
           expectedArtifactIdentity: this.options.expectedArtifactIdentity
         }),
         ...(this.options.limits ? { limits: this.options.limits } : {}),
-        onTelemetry: this.options.onTelemetry ?? (() => undefined)
+        onTelemetry: this.options.onTelemetry ?? (() => undefined),
+        onDiagnostic: this.options.onDiagnostic
       });
       const writer = { transport, client };
       this.active = writer;

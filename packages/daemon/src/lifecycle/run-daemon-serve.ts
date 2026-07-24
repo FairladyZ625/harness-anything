@@ -264,7 +264,18 @@ export async function runDaemonServe<
                 ...process.env,
                 HARNESS_DAEMON_SERVER_HOST: "1"
               }
-            })
+            }),
+            onDiagnostic: (frame) => {
+              void daemonLogService.append({
+                level: "error",
+                source: "daemon",
+                component: "repo-write-child",
+                event: "repo-write.historical-recovery.deferred",
+                message: `Deferred repo-write historical recovery for outerOpId=${frame.outerOpId}: ${frame.diagnostic}`,
+                errorCode: frame.code,
+                requestId: frame.outerOpId
+              }, { repo }).catch(() => undefined);
+            }
           });
           repoWriteSupervisors.set(repo.repoId, supervisor);
         }

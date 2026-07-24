@@ -9,7 +9,13 @@ import {
 } from "../../application/src/index.ts";
 
 test("portable-ascii-v2 rejects reserved, non-ASCII, overlong, and Windows-budget paths", () => {
-  for (const candidate of ["tasks/CON.md", "tasks/naïve.md", `tasks/${"a".repeat(113)}.md`, `${"a".repeat(181)}`]) {
+  for (const candidate of [
+    "tasks/CON.md",
+    "tasks/naïve.md",
+    "历史/设计.txt",
+    `tasks/${"a".repeat(113)}.md`,
+    `${"a".repeat(181)}`
+  ]) {
     assert.throws(() => validatePortableManagedPath(candidate), NamespaceAdmissionError, candidate);
   }
   assert.throws(
