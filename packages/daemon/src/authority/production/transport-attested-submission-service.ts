@@ -23,6 +23,12 @@ export function attestSubmissionService(
         return service.submitV2!(attempt);
       }
     } : {}),
+    ...(service.resumeV2 ? {
+      resumeV2: async (recovery: Parameters<NonNullable<AuthoritySubmissionService["resumeV2"]>>[0]) => {
+        await assertAttested();
+        return service.resumeV2!(recovery);
+      }
+    } : {}),
     getOperation: async (workspaceId, opId) => {
       await assertAttested();
       return service.getOperation(workspaceId, opId);

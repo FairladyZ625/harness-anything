@@ -14,6 +14,10 @@ export function gateCutoverAdmission(
       submitV2: (attempt: Parameters<NonNullable<AuthoritySubmissionService["submitV2"]>>[0]) =>
         control.runDuringOpenAdmission(() => service.submitV2!(attempt))
     } : {}),
+    ...(service.resumeV2 ? {
+      resumeV2: (recovery: Parameters<NonNullable<AuthoritySubmissionService["resumeV2"]>>[0]) =>
+        control.runDuringOpenAdmission(() => service.resumeV2!(recovery))
+    } : {}),
     getOperation: service.getOperation
   };
 }

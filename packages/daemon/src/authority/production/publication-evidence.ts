@@ -19,6 +19,8 @@ import {
   publicationSubjectOperationIds,
   scanFirstParentPublicationMetadata
 } from "./publication-history.ts";
+import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
+import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",
@@ -44,6 +46,10 @@ export interface GitCanonicalPublicationInspector extends CanonicalPublicationIn
   ) => Promise<CanonicalPublicationEvidence>;
   readonly findPublication: (expectedOpIds: ReadonlyArray<string>) => Promise<CanonicalPublicationEvidence>;
   readonly findPublicationForOperation: (opId: string) => Promise<CanonicalPublicationEvidence>;
+  readonly findHistoricalPublicationForOperation: (opId: string) => Promise<{
+    readonly commitSha: string;
+    readonly semanticDigest: string;
+  }>;
   readonly scanFirstParentOperationAnchors: (input: {
     readonly exclusiveCommit?: string;
     readonly interestedOpIds: ReadonlySet<string>;
@@ -359,6 +365,11 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       contentAddressedPaths
     };
   };
+  const findPublicationForOperation = createUniquePublicationOperationLookup({
+    anchors: async (opId) => (await indexedHistory())?.byOperationId.get(opId) ?? [],
+    inspect: (anchor) => inspectPublication(anchor.previousCommit, anchor.opIds, anchor.commitSha),
+    notFound: (opId) => new AuthorityCanonicalPublicationNotFoundError(opId)
+  });
   return {
     currentHead,
     inspectPublishedHead: async (expectedPreviousHead, expectedOpIds) => {
@@ -388,24 +399,15 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       }
       return matches[0]!;
     },
-    findPublicationForOperation: async (opId) => {
-      const history = await indexedHistory();
-      if (!history) throw new AuthorityCanonicalPublicationNotFoundError(opId);
-      const matches: CanonicalPublicationEvidence[] = [];
-      for (const anchor of history.byOperationId.get(opId) ?? []) {
-        matches.push(await inspectPublication(
-          anchor.previousCommit,
-          anchor.opIds,
-          anchor.commitSha
-        ));
-      }
-      if (matches.length === 0) throw new AuthorityCanonicalPublicationNotFoundError(opId);
-      if (matches.length !== 1) {
-        throw new Error(
-          `AUTHORITY_CANONICAL_PUBLICATION_NOT_UNIQUE:expectedOpId=${opId};matches=${matches.map((entry) => entry.commitSha).join(",") || "none"}`
-        );
-      }
-      return matches[0]!;
+    findPublicationForOperation,
+    findHistoricalPublicationForOperation: async (opId) => {
+      const publication = await findPublicationForOperation(opId);
+      return historicalPublicationEvidence({
+        opId,
+        publication,
+        readAtCommit: (commitSha, eventPath) =>
+          publicationGitBytesAsync(rootDir, "show", `${commitSha}:${eventPath}`)
+      });
     }
   };
 }

@@ -10,6 +10,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
@@ -101,6 +102,7 @@ export interface RepoWriteTerminalizeInputV1 extends RepoWriteOutcomeAxesV1 {
   readonly requestDigest: string;
   readonly receipt: CommandReceiptEnvelope;
   readonly authorityEvidence: RepoWriteTerminalEvidenceV1;
+  readonly historicalPublicationCommitSha?: string;
 }
 
 export type RepoWriteOutcomeLookupV1 =
@@ -220,6 +222,28 @@ export class DurableRepoWriteOutcomeStoreV1 {
     return terminal;
   }
 
+  listHistoricalProceedings(): ReadonlyArray<RepoWriteProceedingOutcomeV1> {
+    return readdirSync(this.directory)
+      .filter((name) => name.endsWith(proceedingSuffix))
+      .sort()
+      .flatMap((name) => {
+        const proceeding = repoWriteOutcomeReadCanonical(
+          path.join(this.directory, name),
+          this.durabilityHooks
+        );
+        if (proceeding.phase !== "PROCEEDING") {
+          throw new RepoWriteOutcomeCorruptionError(
+            `repo-write proceeding file has phase ${proceeding.phase}: ${name}`
+          );
+        }
+        this.assertIdentity(proceeding, proceeding.outerOpId);
+        const current = this.get(proceeding.outerOpId);
+        return current?.phase === "PROCEEDING" && current.generation < this.axes.generation
+          ? [current]
+          : [];
+      });
+  }
+
   begin(input: RepoWriteProceedingInputV1): RepoWriteOutcomeV1 {
     this.assertInputAxes(input);
     const candidate = createRepoWriteProceedingOutcomeV1(input);
@@ -250,7 +274,11 @@ export class DurableRepoWriteOutcomeStoreV1 {
         `cannot terminalize repo-write outcome before PROCEEDING: ${repoWriteOutcomeSafeIdentity(input.outerOpId)}`
       );
     }
-    if (current.generation !== this.axes.generation) {
+    const historicalPublication = input.historicalPublicationCommitSha;
+    if (current.generation !== this.axes.generation
+      && (current.generation >= this.axes.generation
+        || input.authorityEvidence.tag !== "COMMITTED"
+        || input.authorityEvidence.commitSha !== historicalPublication)) {
       throw new RepoWriteOutcomeConflictError(
         `historical-generation repo-write outcome requires fenced resume: ${repoWriteOutcomeSafeIdentity(input.outerOpId)}`
       );
@@ -269,7 +297,6 @@ export class DurableRepoWriteOutcomeStoreV1 {
       input.authorityEvidence
     );
     if (current.phase === "TERMINAL") return repoWriteOutcomeIdempotentTerminal(current, candidate);
-
     const published = repoWriteOutcomePublishOnce(
       this.directory,
       repoWriteOutcomePaths(this.directory, input.outerOpId).terminal,

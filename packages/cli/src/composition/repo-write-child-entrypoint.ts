@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   createDaemonGenerationWitness,
   calculateDaemonArtifactIdentity,
+  createGitCanonicalPublicationInspector,
   createRepoWriteChildHost,
   decodeRepoWriteChildLaunchConfig,
   DurableRepoWriteOutcomeStoreV1,
@@ -11,6 +12,7 @@ import {
   RepoWriteChildIpcTransport,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
 import {
@@ -88,12 +90,31 @@ export async function runRepoWriteChildEntrypoint(
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation
   });
+  const publicationInspector = createGitCanonicalPublicationInspector(
+    resolveHarnessLayout({
+      rootDir: config.canonicalRoot,
+      ...(layoutOverrides ? { layoutOverrides } : {})
+    }).authoredRoot
+  );
+  const resolveHistoricalPublication = (
+    outcome: import("@harness-anything/daemon").RepoWriteProceedingOutcomeV1
+  ) => publicationInspector.findHistoricalPublicationForOperation(outcome.innerOpId);
+  const historicalRecovery: {
+    recover?: import("@harness-anything/daemon").RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
+  } = {};
   const recoveryGate = new RepoWriteAuthorityRecoveryGate({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
     generation: config.generation,
     store: outcomes,
-    assertCurrentWriterFence: runtime.assertWriteFenceHeld
+    assertCurrentWriterFence: runtime.assertWriteFenceHeld,
+    resolveHistoricalPublication,
+    recoverHistoricalCommittedReceipt: (outcome) => {
+      if (!historicalRecovery.recover) {
+        throw new Error("AUTHORITY_COMMITTED_RECEIPT_RECOVERY_UNAVAILABLE");
+      }
+      return historicalRecovery.recover(outcome);
+    }
   });
   const lifecycleRuntime = {
     ...runtime,
@@ -116,6 +137,21 @@ export async function runRepoWriteChildEntrypoint(
     await runtime.stop();
     throw new Error(started.error);
   }
+  historicalRecovery.recover = (outcome) => {
+    if (!started.component.recoverCommittedReceipt) {
+      throw new Error("AUTHORITY_COMMITTED_RECEIPT_RECOVERY_UNAVAILABLE");
+    }
+    return started.component.recoverCommittedReceipt(outcome.innerOpId);
+  };
+  for (const proceeding of outcomes.listHistoricalProceedings()) {
+    try {
+      await recoveryGate.recoverHistoricalProceeding(proceeding);
+    } catch (error) {
+      process.stderr.write(
+        `repo-write historical recovery deferred outerOpId=${proceeding.outerOpId}: ${recoveryErrorMessage(error)}\n`
+      );
+    }
+  }
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
     workspaceId: authorityRepo.workspaceId,
@@ -123,7 +159,9 @@ export async function runRepoWriteChildEntrypoint(
     runtime,
     authorityComponent: started.component,
     hostServices: cliDaemonCommandHostServices,
-    outcomeStore: outcomes
+    outcomeStore: outcomes,
+    resolveHistoricalPublication,
+    recoverHistoricalCommittedReceipt: historicalRecovery.recover
   });
   const transport = new RepoWriteChildIpcTransport();
   let cleanupPromise: Promise<void> | undefined;
@@ -163,4 +201,8 @@ export async function runRepoWriteChildEntrypoint(
       reject(error);
     });
   });
+}
+
+function recoveryErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

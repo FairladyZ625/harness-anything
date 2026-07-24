@@ -15,7 +15,8 @@ import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { createDaemonCommandService } from "../service/command-service.ts";
 import type { HarnessDaemonRuntime } from "./repo-runtime.ts";
 import {
-  RepoWriteAuthorityRecoveryGate
+  RepoWriteAuthorityRecoveryGate,
+  type RepoWriteAuthorityRecoveryGateOptions
 } from "./repo-write-authority-recovery-gate.ts";
 import {
   RepoWriteDurableOperationController,
@@ -59,6 +60,8 @@ export class ProductionRepoWriteOperationHost<
     readonly authorityComponent: AuthorityRepoComponent;
     readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
+    readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
+    readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
     readonly now: () => Date;
     readonly newOuterOpId: () => string;
   };
@@ -73,6 +76,8 @@ export class ProductionRepoWriteOperationHost<
     readonly authorityComponent: AuthorityRepoComponent;
     readonly hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>;
     readonly outcomeStore: DurableRepoWriteOutcomeStoreV1;
+    readonly resolveHistoricalPublication?: RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
+    readonly recoverHistoricalCommittedReceipt?: RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
     readonly now?: () => Date;
     readonly newOuterOpId?: () => string;
   }) {
@@ -86,7 +91,13 @@ export class ProductionRepoWriteOperationHost<
       workspaceId: options.workspaceId,
       generation: options.generation,
       store: options.outcomeStore,
-      assertCurrentWriterFence: options.runtime.assertWriteFenceHeld
+      assertCurrentWriterFence: options.runtime.assertWriteFenceHeld,
+      ...(options.resolveHistoricalPublication ? {
+        resolveHistoricalPublication: options.resolveHistoricalPublication
+      } : {}),
+      ...(options.recoverHistoricalCommittedReceipt ? {
+        recoverHistoricalCommittedReceipt: options.recoverHistoricalCommittedReceipt
+      } : {})
     });
     this.operations = new RepoWriteDurableOperationController({
       repoId: options.repoId,

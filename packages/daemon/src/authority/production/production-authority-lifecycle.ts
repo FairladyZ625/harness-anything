@@ -74,6 +74,7 @@ import { createProductionAuthoritySemanticCompiler } from "./production-authorit
 import { connectionBoundRuntime } from "./connection-bound-runtime.ts";
 import { waitForProductionRecovery } from "./production-recovery-admission.ts";
 import { attestSubmissionService } from "./transport-attested-submission-service.ts";
+import { recoverProductionCommittedReceipt } from "./production-committed-receipt-recovery.ts";
 export { recoverPendingProductionEvents } from "./recovery.ts";
 
 interface RepoProductionMaterial {
@@ -399,6 +400,10 @@ function createRepoComponent(
     commandSubmissionV2: unbound,
     cutoverControl,
     compoundReceipt,
+    recoverCommittedReceipt: (opId) => recoverProductionCommittedReceipt({
+      recovery: material.recovery.promise, operationRegistry: input.operationRegistry,
+      publisher: input.committedEventPublisher, workspaceId: material.config.workspaceId, opId
+    }),
     setServing: (value) => {
       if (stopped && value) throw new Error("AUTHORITY_REPO_COMPONENT_STOPPED");
       serving = value;
