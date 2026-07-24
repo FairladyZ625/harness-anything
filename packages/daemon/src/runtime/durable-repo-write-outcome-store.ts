@@ -81,6 +81,8 @@ type TargetFsyncReason = "observe-existing" | "eexist-observer";
 export interface RepoWriteOutcomeDurabilityTestHooks {
   /** Test-only fault injection; native fsync still runs unless this throws. */
   readonly beforeDirectoryFsync?: (reason: DirectoryFsyncReason) => void;
+  /** Test-only observation emitted after the native directory fsync succeeds. */
+  readonly afterDirectoryFsync?: (reason: DirectoryFsyncReason) => void;
   /** Test-only race injection; cannot replace the native link/fsync sequence. */
   readonly beforePublishLink?: (input: { readonly target: string; readonly text: string }) => void;
   /** Test-only observation emitted after the native target-inode fsync succeeds. */
@@ -274,7 +276,15 @@ export class DurableRepoWriteOutcomeStoreV1 {
       canonicalRepoWriteOutcomeText(candidate),
       this.durabilityHooks
     );
-    if (published) return candidate;
+    if (published) {
+      const durable = this.get(input.outerOpId);
+      if (!durable || durable.phase !== "TERMINAL") {
+        throw new RepoWriteOutcomeCorruptionError(
+          `repo-write TERMINAL publication disappeared: ${repoWriteOutcomeSafeIdentity(input.outerOpId)}`
+        );
+      }
+      return durable;
+    }
     const raced = this.get(input.outerOpId);
     if (!raced || raced.phase !== "TERMINAL") {
       throw new RepoWriteOutcomeCorruptionError(
@@ -504,6 +514,7 @@ function repoWriteOutcomeFsyncDirectory(
   } finally {
     closeSync(descriptor);
   }
+  hooks?.afterDirectoryFsync?.(reason);
 }
 
 function repoWriteOutcomePaths(directory: string, outerOpId: string): {
