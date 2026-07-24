@@ -52,7 +52,13 @@ export function makeExecutionRetirementService(options: {
         executionId: input.executionId,
         principal: input.actor
       });
-      try {
+      return options.taskHolderService.withExecutionReservation({
+        taskId: input.taskId,
+        executionId: input.executionId,
+        leaseToken: reservation.leaseToken,
+        reservationVersion: reservation.reservationVersion,
+        principal: input.actor
+      }, async () => {
         const task = await Effect.runPromise(options.artifactStore.readTaskPackage(input.taskId));
         const executionDocument = task.documents.find((document) => document.path === `executions/${input.executionId}.md`);
         if (!executionDocument) throw new Error(`execution not found: ${input.executionId}`);
@@ -91,14 +97,7 @@ export function makeExecutionRetirementService(options: {
           auditPath: "progress.md",
           auditMarker: STALE_EXECUTION_RETIRED_AUDIT_MARKER
         };
-      } finally {
-        await options.taskHolderService.releaseExecution({
-          taskId: input.taskId,
-          executionId: input.executionId,
-          leaseToken: reservation.leaseToken,
-          principal: input.actor
-        });
-      }
+      });
     }
   };
 }

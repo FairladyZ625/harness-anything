@@ -139,6 +139,10 @@ async function compileExecution(
   assertExecutionTransition(action, current, execution, payload.retirement);
   const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
   const taskSnapshot = payload.taskIndexBody === undefined ? null : await state.readHostedDocument(taskPath);
+  const completionContractPath = `tasks/${encodeURIComponent(payload.taskId)}/task-contract.json`;
+  const completionContractSnapshot = payload.completionContractBodySha256 === undefined
+    ? null
+    : await state.readHostedDocument(completionContractPath);
   if (payload.taskIndexBody !== undefined) {
     if (!taskSnapshot || !(
       (action === "close" && execution.state === "accepted")
@@ -151,6 +155,15 @@ async function compileExecution(
     const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, `$1${toStatus}`);
     if (!new RegExp(`^  status:\\s*${fromStatus}$`, "mu").test(taskSnapshot.body) || payload.taskIndexBody !== expected) {
       throw admission("EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
+    }
+  }
+  if (payload.completionContractBodySha256 !== undefined) {
+    if (action !== "close" || execution.state !== "accepted" || payload.taskIndexBody === undefined) {
+      throw admission("EXECUTION_COMPLETION_CONTRACT_PRECONDITION_INVALID");
+    }
+    const actualDigest = completionContractSnapshot ? sha256Text(completionContractSnapshot.body) : null;
+    if (actualDigest !== payload.completionContractBodySha256) {
+      throw admission("EXECUTION_COMPLETION_CONTRACT_CHANGED");
     }
   }
   if (payload.retirement !== undefined && (action !== "close" || payload.taskIndexBody !== undefined)) {
@@ -185,6 +198,9 @@ async function compileExecution(
         preconditions: [
           { taskId: payload.taskId, path: `executions/${execution.execution_id}.md`, bodySha256: sha256Text(snapshot!.body) },
           ...(taskSnapshot ? [{ taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) }] : []),
+          ...(payload.completionContractBodySha256 === undefined
+            ? []
+            : [{ taskId: payload.taskId, path: "task-contract.json", bodySha256: payload.completionContractBodySha256 }]),
           ...(retirementProgress ? [{ taskId: payload.taskId, path: "progress.md", bodySha256: retirementProgress.snapshot ? sha256Text(retirementProgress.snapshot.body) : null }] : [])
         ]
       }
@@ -196,8 +212,24 @@ async function compileExecution(
     requiredPathSnapshots: [
       ...(snapshot ? [{ path, snapshot }] : []),
       ...(taskSnapshot ? [{ path: taskPath, snapshot: taskSnapshot }] : []),
+      ...(payload.completionContractBodySha256 === undefined
+        ? []
+        : [{
+            path: completionContractPath,
+            snapshot: completionContractSnapshot ?? absentHostedDocumentSnapshotV2(completionContractPath)
+          }]),
       ...(retirementProgress?.snapshot ? [{ path: retirementProgress.path, snapshot: retirementProgress.snapshot }] : [])
     ]
+  };
+}
+
+export function absentHostedDocumentSnapshotV2(path: string): HostedDocumentSnapshotV2 {
+  const digest = sha256Text(`harness-absent-hosted-document/v1:${path}`);
+  return {
+    body: "",
+    epoch: digest,
+    revision: 0n,
+    blobDigest: Buffer.from(digest, "hex")
   };
 }
 

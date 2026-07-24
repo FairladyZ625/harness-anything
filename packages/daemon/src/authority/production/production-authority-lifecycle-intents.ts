@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,
+  absentHostedDocumentSnapshotV2,
   encodeConsentCommandPayloadV2,
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
@@ -112,7 +113,13 @@ export function productionLifecycleAttemptIntent(input: {
     );
   }
   if (action.kind === "task-complete") {
-    return taskCompletionIntent(input.authoredRoot, input.currentSession.detectedAt, action.taskId, input.canonicalEntityId);
+    return taskCompletionIntent(
+      input.authoredRoot,
+      input.currentSession.detectedAt,
+      action.taskId,
+      input.canonicalEntityId,
+      action.completionContractBodySha256
+    );
   }
   return null;
 }
@@ -385,7 +392,13 @@ function requiredReviewExecutionId(
   return action.executionId;
 }
 
-function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId: string, canonicalEntityId: string): CanonicalAttemptIntent {
+function taskCompletionIntent(
+  authoredRoot: string,
+  completedAt: string,
+  taskId: string,
+  canonicalEntityId: string,
+  evaluatedContractBodySha256: string | null | undefined
+): CanonicalAttemptIntent {
   const executionRoot = path.join(resolvedTaskRoot(authoredRoot, taskId), "executions");
   const executions = existsSync(executionRoot)
     ? readdirSync(executionRoot).filter((name) => name.endsWith(".md")).map((name) => ({
@@ -406,14 +419,36 @@ function taskCompletionIntent(authoredRoot: string, completedAt: string, taskId:
     schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody
   };
   const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
-  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+  const contractPath = taskLifecyclePath(authoredRoot, taskId, "task-contract.json");
+  const contractSnapshot = optionalLifecycleSnapshot(authoredRoot, contractPath.logical, contractPath.physical);
+  const absentContract = absentHostedDocumentSnapshotV2(contractPath.logical);
+  const contractCas = contractSnapshot ?? {
+    path: contractPath.logical,
+    expectedEpoch: absentContract.epoch,
+    expectedRevision: absentContract.revision,
+    expectedBlobDigest: absentContract.blobDigest
+  };
+  const currentContractBodySha256 = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
+  const contractBodySha256 = evaluatedContractBodySha256 === undefined
+    ? currentContractBodySha256
+    : evaluatedContractBodySha256;
+  if (contractBodySha256 !== currentContractBodySha256) {
+    throw new Error("AUTHORITY_TASK_COMPLETE_CONTRACT_CHANGED");
+  }
+  const fencedPayload: SessionExecutionReviewCommandPayloadV2 = {
+    ...payload,
+    completionContractBodySha256: contractBodySha256
+  };
+  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(fencedPayload), [
     lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
     lifecycleMutation("task", `task/${taskId}`, "transition")
   ], [
     lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
     lifecycleRef("task", `task/${taskId}`)
-  ], portableLifecyclePaths(executionPath, taskPath), canonicalEntityId, [
-    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical), taskSnapshot
+  ], portableLifecyclePaths(executionPath, taskPath, contractPath), canonicalEntityId, [
+    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
+    taskSnapshot,
+    contractCas
   ]);
 }
 

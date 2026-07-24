@@ -43,6 +43,7 @@ export type ExecutionActionPayloadV2 = {
   readonly taskId: string;
   readonly execution: ExecutionRecord;
   readonly taskIndexBody?: string;
+  readonly completionContractBodySha256?: string | null;
   readonly retirement?: {
     readonly reason: string;
     readonly retiredAt: string;
@@ -120,7 +121,7 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
     case "execution.close/v1": {
       const row = exactSemanticObjectV2(value, ["schema", "taskId", "execution"], { allowAdditional: true });
       const actual = Object.keys(row);
-      if (actual.some((key) => !["schema", "taskId", "execution", "taskIndexBody", "retirement"].includes(key))) {
+      if (actual.some((key) => !["schema", "taskId", "execution", "taskIndexBody", "completionContractBodySha256", "retirement"].includes(key))) {
         throw semanticAdmissionV2("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD");
       }
       return {
@@ -128,6 +129,9 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
         taskId: nonBlankText(row.taskId),
         execution: decodeExecution(row.execution),
         ...(row.taskIndexBody === undefined ? {} : { taskIndexBody: semanticStringValueV2(row.taskIndexBody) }),
+        ...(row.completionContractBodySha256 === undefined
+          ? {}
+          : { completionContractBodySha256: nullableSha256(row.completionContractBodySha256) }),
         ...(row.retirement === undefined ? {} : { retirement: decodeExecutionRetirement(row.retirement) })
       };
     }
@@ -150,6 +154,13 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
     default:
       throw semanticAdmissionV2("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
   }
+}
+
+function nullableSha256(value: unknown): string | null {
+  if (value === null) return null;
+  const digest = semanticStringValueV2(value);
+  if (!/^[0-9a-f]{64}$/u.test(digest)) throw semanticAdmissionV2("COMPLETION_CONTRACT_DIGEST_INVALID");
+  return digest;
 }
 
 function decodeExecutionRetirement(value: unknown): NonNullable<ExecutionActionPayloadV2["retirement"]> {

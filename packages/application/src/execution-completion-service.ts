@@ -26,6 +26,7 @@ export interface ExecutionCompletionService {
   readonly completeTaskExecution: (input: {
     readonly taskId: string;
     readonly actor: TaskHolderPrincipal;
+    readonly contractPrecondition?: { readonly bodySha256: string | null };
   }) => Promise<{ readonly executionId: string } | null>;
 }
 
@@ -55,7 +56,7 @@ export function makeExecutionCompletionService(options: {
   const now = options.now ?? (() => new Date().toISOString());
   return {
     inspectTaskExecutionCompletion: inspectExecutionCompletionReadiness,
-    completeTaskExecution: async ({ taskId, actor }) => {
+    completeTaskExecution: async ({ taskId, actor, contractPrecondition }) => {
       const task = await Effect.runPromise(options.artifactStore.readTaskPackage(taskId));
       const readiness = resolveExecutionCompletionReadiness({ taskId, actor, documents: task.documents });
       if (!readiness.execution) {
@@ -64,6 +65,7 @@ export function makeExecutionCompletionService(options: {
       }
       if (!readiness.ok) throw new Error(readiness.issues[0]?.message ?? `task ${taskId} is not ready for Execution completion`);
       const execution = readiness.execution;
+      const currentContract = task.documents.find((document) => document.path === "task-contract.json");
 
       const completedAt = now();
       await Effect.runPromise(writeDeclaredEntityTransaction(
@@ -73,7 +75,13 @@ export function makeExecutionCompletionService(options: {
         { taskId, executionId: execution.execution_id },
         { ...execution, state: "accepted", closed_at: completedAt },
         [{ taskId, path: "INDEX.md", body: completedTaskIndex(task.documents, taskId) }],
-        completionPreconditions(task.documents, taskId)
+        completionPreconditions(
+          task.documents,
+          taskId,
+          contractPrecondition ?? {
+            bodySha256: currentContract ? sha256Text(currentContract.body) : null
+          }
+        )
       ));
       return { executionId: execution.execution_id };
     }
@@ -82,14 +90,18 @@ export function makeExecutionCompletionService(options: {
 
 function completionPreconditions(
   documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
-  taskId: string
-): ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string }> {
-  return documents
+  taskId: string,
+  contractPrecondition: { readonly bodySha256: string | null }
+): ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: string | null }> {
+  return [
+    ...documents
     .filter((document) => document.path === "INDEX.md"
       || /^executions\/[^/]+\.md$/u.test(document.path)
       || /^reviews\/[^/]+\.md$/u.test(document.path)
       || /^consents\/[^/]+\.md$/u.test(document.path))
-    .map((document) => ({ taskId, path: document.path, bodySha256: sha256Text(document.body) }));
+      .map((document) => ({ taskId, path: document.path, bodySha256: sha256Text(document.body) })),
+    { taskId, path: "task-contract.json", bodySha256: contractPrecondition.bodySha256 }
+  ];
 }
 
 export function inspectExecutionCompletionReadiness(input: {

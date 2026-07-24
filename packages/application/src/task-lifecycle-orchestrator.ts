@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ArtifactStore, DomainStatus, EngineError, TaskHolderPrincipal, TaskId, VersionControlSystem, WriteError } from "@harness-anything/kernel";
-import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout } from "@harness-anything/kernel";
+import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout, sha256Text } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
@@ -246,7 +246,11 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);
       if (taskTreeFailure) return taskTreeFailure;
       const completion = yield* Effect.tryPromise({
-        try: () => options.executionCompletionService!.completeTaskExecution({ taskId: payload.taskId, actor: payload.actor! }),
+        try: () => options.executionCompletionService!.completeTaskExecution({
+          taskId: payload.taskId,
+          actor: payload.actor!,
+          contractPrecondition: { bodySha256: contractBody === null ? null : sha256Text(contractBody) }
+        }),
         catch: (error) => error
       }).pipe(Effect.match({
         onFailure: (error) => ({ ok: false as const, error }),
