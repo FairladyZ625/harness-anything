@@ -18,7 +18,10 @@ import {
   publicationSubjectOperationIds,
   scanFirstParentPublicationMetadata
 } from "./publication-history.ts";
-import { readAuthorityEvidenceWorktreeState } from "./authority-evidence-worktree.ts";
+import {
+  readAuthorityEvidencePendingPathsAtCommit,
+  readAuthorityEvidenceWorktreeState
+} from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
 import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
 
@@ -113,10 +116,11 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_CANONICAL_COMMIT_MISSING:${canonicalCommitSha}`);
       }
       const head = vcs.currentHead(repoRoot);
-      const normalizedRepoRoot = vcs.normalizePath(repoRoot);
-      const relativeRoot = repoRelativePath(
-        normalizedRepoRoot,
-        vcs.normalizePath(layout.authorityAttributionEventsV2Root)
+      const { relativeRoot, pendingPaths } = readAuthorityEvidencePendingPathsAtCommit(
+        layout.authorityAttributionEventsV2Root,
+        repoRoot,
+        head,
+        vcs
       );
       const worktree = readAuthorityEvidenceWorktreeState(
         relativeRoot,
@@ -125,16 +129,17 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
       if (verifiedHead !== head) {
         // Establish a trustworthy baseline after startup or any unexpected HEAD change.
         log.verifyIntegrity();
-        verifiedHead = head;
+        // A dirty historical tree may still be in crash recovery. Do not cache
+        // that transient worktree as the verified baseline.
+        if (!worktree.historicalShardChanged) verifiedHead = head;
       } else {
         // Historical shards were fully verified at this HEAD. Git now anchors
         // their exact bytes, so only new immutable shards need decoding again.
         if (worktree.historicalShardChanged) {
           throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_VERIFIED_HISTORY_CHANGED");
         }
-        log.verifyShards(worktree.pendingPaths.map((relativePath) => path.basename(relativePath)));
+        log.verifyShards(pendingPaths.map((relativePath) => path.basename(relativePath)));
       }
-      const pendingPaths = worktree.pendingPaths;
       if (pendingPaths.length === 0) return;
 
       const pending = new Set(pendingPaths);
@@ -159,14 +164,6 @@ function assertEvidenceOnlyStaged(stagedText: string, pendingPaths: ReadonlySet<
   if (unrelated.length > 0) {
     throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_UNRELATED_STAGED_PATHS:${unrelated.join(",")}`);
   }
-}
-
-function repoRelativePath(repoRoot: string, filePath: string): string {
-  const relativePath = path.relative(repoRoot, filePath);
-  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-    throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_PATH_OUTSIDE_REPOSITORY");
-  }
-  return relativePath.split(path.sep).join("/");
 }
 
 export function createGitCanonicalPublicationInspector(canonicalRoot: string): GitCanonicalPublicationInspector {
