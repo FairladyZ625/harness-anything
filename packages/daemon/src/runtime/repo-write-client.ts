@@ -3,8 +3,7 @@ import {
   type RepoWriteChildMessage,
   type RepoWriteCommandDto,
   type RepoWriteJsonObject,
-  type RepoWriteOperationLookupResult,
-  type RepoWriteTelemetryFrame
+  type RepoWriteOperationLookupResult
 } from "./repo-write-protocol.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 import { RepoWriteDirectClientLane } from "./repo-write-client-direct.ts";
@@ -16,6 +15,16 @@ import type {
 } from "./repo-write-client-pending.ts";
 import { defaultRepoWriteRequestTimeoutMs } from "./repo-write-client-contract.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
+import {
+  expireRepoWriteLookup,
+  expireRepoWriteSubmit,
+  failRepoWriteLookup,
+  failRepoWriteSubmit
+} from "./repo-write-client-timeout.ts";
+import {
+  recordRepoWriteClientTelemetry,
+  repoWriteTelemetryMatchesPendingRequest
+} from "./repo-write-client-telemetry.ts";
 import {
   observeRepoWriteRecoveryDiagnostic,
   observeRepoWriteTelemetry,
@@ -85,7 +94,9 @@ export class RepoWriteClient {
       generation: options.generation,
       requestTimeoutMs: this.limits.requestTimeoutMs,
       transport: options.transport,
-      failProtocol: (message) => this.failProtocol(message)
+      failProtocol: (message) => this.failProtocol(message),
+      onRequestTimeout: options.onRequestTimeout,
+      onRequestFailure: options.onRequestFailure
     });
     options.transport.onMessage((message) => this.handleMessage(message));
     options.transport.onDisconnect((error) => this.handleDisconnect(error));
@@ -320,10 +331,22 @@ export class RepoWriteClient {
       return;
     }
     if (message.kind === "telemetry") {
-      if (!this.telemetryMatchesPendingRequest(message)) {
+      if (!repoWriteTelemetryMatchesPendingRequest(
+        message,
+        this.pending,
+        this.pendingLookups,
+        this.directLane,
+        this.shutdownPending
+      )) {
         this.failProtocol("Repo writer telemetry does not match a pending request.");
         return;
       }
+      recordRepoWriteClientTelemetry(
+        message,
+        this.pending,
+        this.pendingLookups,
+        this.directLane
+      );
       observeRepoWriteTelemetry(
         this.options.onTelemetry,
         message,
@@ -354,7 +377,7 @@ export class RepoWriteClient {
         }
         clearTimeout(lookup.timer);
         this.pendingLookups.delete(message.requestId);
-        lookup.reject(new RepoWriteLookupError(message.code, message.diagnostic, lookup.opId));
+        failRepoWriteLookup(lookup, message, this.options.onRequestFailure);
         return;
       }
       if (this.directLane.handleNotStarted(message)) return;
@@ -365,9 +388,7 @@ export class RepoWriteClient {
       }
       clearTimeout(pending.timer);
       this.pending.delete(message.requestId);
-      pending.reject(message.outcome === "not-started"
-        ? new RepoWriteNotStartedError(message.code, message.diagnostic, message.opId)
-        : new RepoWriteOutcomeUnknownError(message.code, message.diagnostic, message.opId));
+      failRepoWriteSubmit(pending, message, this.options.onRequestFailure);
       return;
     }
     if (message.kind === "drained") {
@@ -485,30 +506,22 @@ export class RepoWriteClient {
     const pending = this.pending.get(requestId);
     if (!pending) return;
     this.pending.delete(requestId);
-    const diagnostic =
-      `Repo writer request exceeded its ${this.limits.requestTimeoutMs}ms deadline.`;
-    pending.reject(pending.phase === "proceeded" && pending.opId
-      ? new RepoWriteOutcomeUnknownError(
-          "REPO_WRITE_REQUEST_TIMEOUT",
-          diagnostic,
-          pending.opId
-        )
-      : new RepoWriteNotStartedError(
-          "REPO_WRITE_REQUEST_TIMEOUT",
-          diagnostic,
-          pending.opId
-        ));
+    expireRepoWriteSubmit(
+      pending,
+      this.limits.requestTimeoutMs,
+      this.options.onRequestTimeout
+    );
   }
 
   private expireLookup(requestId: string): void {
     const pending = this.pendingLookups.get(requestId);
     if (!pending) return;
     this.pendingLookups.delete(requestId);
-    pending.reject(new RepoWriteLookupError(
-      "REPO_WRITE_LOOKUP_TIMEOUT",
-      `Repo writer lookup exceeded its ${this.limits.requestTimeoutMs}ms deadline.`,
-      pending.opId
-    ));
+    expireRepoWriteLookup(
+      pending,
+      this.limits.requestTimeoutMs,
+      this.options.onRequestTimeout
+    );
   }
 
   private dispatchShutdown(): void {
@@ -570,22 +583,6 @@ export class RepoWriteClient {
     } catch (error) {
       this.rejectSendFailure(pending.requestId, error, true);
     }
-  }
-
-  private telemetryMatchesPendingRequest(message: RepoWriteTelemetryFrame): boolean {
-    const submit = this.pending.get(message.requestId);
-    if (submit) {
-      return message.opId === undefined || submit.opId === message.opId;
-    }
-    const lookup = this.pendingLookups.get(message.requestId);
-    if (lookup) {
-      return lookup.phase === "sent" && (message.opId === undefined || lookup.opId === message.opId);
-    }
-    if (this.directLane.telemetryMatches(message)) return true;
-    const shutdown = this.shutdownPending;
-    return shutdown?.sent === true
-      && shutdown.requestId === message.requestId
-      && message.opId === undefined;
   }
 
   private pendingRequestCount(): number {

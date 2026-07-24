@@ -30,7 +30,18 @@ test("host announces ready and executes only after the exact prepared handshake"
 
   await host.start();
   await host.receive(submit("request-1"));
-  assert.deepEqual(fixture.messages.map((message) => message.kind), ["ready", "prepared"]);
+  assert.deepEqual(fixture.messages.map((message) => message.kind), [
+    "ready",
+    "telemetry",
+    "telemetry",
+    "prepared"
+  ]);
+  assert.deepEqual(
+    fixture.messages
+      .filter((message) => message.kind === "telemetry")
+      .map((message) => message.phase),
+    ["queue", "compile"]
+  );
   assert.equal(executions, 0);
 
   await host.receive(proceed("request-1", "op-request-1"));
@@ -59,7 +70,12 @@ test("host accepts an immediate submit as soon as ready becomes observable", asy
   readyDelivery.resolve();
   await Promise.all([starting, submitted]);
 
-  assert.deepEqual(fixture.messages.map((message) => message.kind), ["ready", "prepared"]);
+  assert.deepEqual(fixture.messages.map((message) => message.kind), [
+    "ready",
+    "telemetry",
+    "telemetry",
+    "prepared"
+  ]);
 });
 
 test("prepare failures and bounded admission are definitely not started", async () => {
@@ -78,7 +94,7 @@ test("prepare failures and bounded admission are definitely not started", async 
   const first = host.receive(submit("request-1"));
   await Promise.resolve();
   await host.receive(submit("request-2"));
-  assertFailure(fixture.messages.at(-1), {
+  assertFailure(findMessage(fixture.messages, "failure", "request-2"), {
     requestId: "request-2",
     phase: "before-proceed",
     outcome: "not-started",
@@ -97,7 +113,7 @@ test("prepare failures and bounded admission are definitely not started", async 
     throw new Error("compile rejected");
   };
   await host.receive(submit("request-3"));
-  assertFailure(fixture.messages.at(-1), {
+  assertFailure(findMessage(fixture.messages, "failure", "request-3"), {
     requestId: "request-3",
     phase: "before-proceed",
     outcome: "not-started",

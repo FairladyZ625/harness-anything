@@ -22,6 +22,8 @@ export interface RepoWriteProcessSupervisorOptions {
   readonly limits?: ConstructorParameters<typeof RepoWriteClient>[0]["limits"];
   readonly onTelemetry?: ConstructorParameters<typeof RepoWriteClient>[0]["onTelemetry"];
   readonly onDiagnostic?: ConstructorParameters<typeof RepoWriteClient>[0]["onDiagnostic"];
+  readonly onRequestTimeout?: ConstructorParameters<typeof RepoWriteClient>[0]["onRequestTimeout"];
+  readonly onRequestFailure?: ConstructorParameters<typeof RepoWriteClient>[0]["onRequestFailure"];
 }
 
 interface ActiveWriter {
@@ -201,7 +203,9 @@ export class RepoWriteProcessSupervisor {
         }),
         ...(this.options.limits ? { limits: this.options.limits } : {}),
         onTelemetry: this.options.onTelemetry ?? (() => undefined),
-        onDiagnostic: this.options.onDiagnostic
+        onDiagnostic: this.options.onDiagnostic,
+        onRequestTimeout: this.options.onRequestTimeout,
+        onRequestFailure: this.options.onRequestFailure
       });
       const writer = { transport, client };
       this.active = writer;

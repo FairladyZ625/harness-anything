@@ -32,6 +32,10 @@ import {
   forkRepoWriteProcess
 } from "../runtime/repo-write-child-process-transport.ts";
 import {
+  formatRepoWriteFailureDiagnostic,
+  formatRepoWriteTimeoutDiagnostic
+} from "../runtime/repo-write-stall-diagnostic.ts";
+import {
   RepoWriteProcessSupervisor
 } from "../runtime/repo-write-process-supervisor.ts";
 import {
@@ -274,6 +278,28 @@ export async function runDaemonServe<
                 message: `Deferred repo-write historical recovery for outerOpId=${frame.outerOpId}: ${frame.diagnostic}`,
                 errorCode: frame.code,
                 requestId: frame.outerOpId
+              }, { repo }).catch(() => undefined);
+            },
+            onRequestTimeout: (diagnostic) => {
+              void daemonLogService.append({
+                level: "error",
+                source: "daemon",
+                component: "repo-write-child",
+                event: "repo-write.request.timeout",
+                message: formatRepoWriteTimeoutDiagnostic(diagnostic),
+                errorCode: "REPO_WRITE_REQUEST_TIMEOUT",
+                requestId: diagnostic.requestId
+              }, { repo }).catch(() => undefined);
+            },
+            onRequestFailure: (diagnostic) => {
+              void daemonLogService.append({
+                level: "error",
+                source: "daemon",
+                component: "repo-write-child",
+                event: "repo-write.request.failure",
+                message: formatRepoWriteFailureDiagnostic(diagnostic),
+                errorCode: diagnostic.code,
+                requestId: diagnostic.requestId
               }, { repo }).catch(() => undefined);
             }
           });

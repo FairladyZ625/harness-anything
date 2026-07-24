@@ -19,6 +19,12 @@ import { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts
 import {
   executeRepoWriteChildDirect
 } from "./repo-write-child-direct.ts";
+import {
+  createRepoWriteTelemetryDelivery,
+  reportCurrentRepoWriteTelemetry,
+  runWithRepoWriteTelemetry,
+  type RepoWriteTelemetryDelivery
+} from "./repo-write-telemetry-context.ts";
 import type {
   RepoWriteChildHostLimits,
   RepoWriteChildHostOptions,
@@ -43,6 +49,7 @@ interface HostedOperation {
   opId?: string;
   execute?: RepoWritePreparedOperation["execute"];
   receipt?: RepoWriteJsonObject;
+  telemetry?: RepoWriteTelemetryDelivery;
   admitted: boolean;
   cancelledBeforeProceed?: boolean;
 }
@@ -198,12 +205,22 @@ export class RepoWriteChildHost {
     this.operationsByRequest.set(message.requestId, operation);
     this.activeAdmissions += 1;
     try {
-      const prepared = await this.options.hooks.prepare({
-        repoId: this.options.repoId,
-        generation: this.options.generation,
-        requestId: message.requestId,
-        command: message.command
+      await this.responses.telemetry(message.requestId, "queue", 0);
+      const telemetry = createRepoWriteTelemetryDelivery(
+        (phase, elapsedMs) =>
+          this.responses.telemetry(message.requestId, phase, elapsedMs)
+      );
+      operation.telemetry = telemetry;
+      const prepared = await runWithRepoWriteTelemetry(telemetry.report, () => {
+        reportCurrentRepoWriteTelemetry("compile");
+        return this.options.hooks.prepare({
+          repoId: this.options.repoId,
+          generation: this.options.generation,
+          requestId: message.requestId,
+          command: message.command
+        });
       });
+      await telemetry.flush();
       if (!prepared.opId.trim()) throw new Error("prepare returned an empty opId");
       operation.opId = prepared.opId;
       if (this.operationsById.has(prepared.opId)) {
@@ -229,7 +246,10 @@ export class RepoWriteChildHost {
         );
         return;
       }
-      operation.execute = prepared.execute;
+      operation.execute = () => runWithRepoWriteTelemetry(telemetry.report, () => {
+        reportCurrentRepoWriteTelemetry("journal");
+        return prepared.execute();
+      });
       operation.phase = "prepared";
       await this.responses.prepared(message.requestId, prepared.opId);
     } catch (error) {
@@ -290,6 +310,7 @@ export class RepoWriteChildHost {
         const durableOutcome = decodeRepoWriteOutcomeV1(
           await this.executionSequencer.run(operation.execute!)
         );
+        await operation.telemetry?.flush();
         if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
           throw new Error("execution did not return the matching durable TERMINAL outer outcome");
         }
@@ -297,6 +318,7 @@ export class RepoWriteChildHost {
         receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
         operation.phase = durableOutcome.terminalKind;
       } catch (error) {
+        await operation.telemetry?.flush();
         operation.phase = "unknown";
         this.release(operation);
         await this.responses.unknown(

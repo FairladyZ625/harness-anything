@@ -22,6 +22,7 @@ import type {
 } from "@harness-anything/kernel";
 import { taskEntityId } from "@harness-anything/kernel";
 import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
+import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
 
 interface DaemonAuthoritySubmissionInputBaseV2 {
   readonly command: AuthorityHostCommand;
@@ -71,6 +72,7 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
   const submitAttempt = async (attempt: AuthorizedOperationAttemptV2): Promise<AuthorityOperationReceipt> => {
     const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
     const expectedOpId = operationIdDiagnosticV2(envelope.operationId);
+    reportCurrentRepoWriteTelemetry("git");
     const receipt = await options.authorityService.submitV2!(attempt);
     assertCompleteAuthorityReceiptV2(receipt);
     assertAuthorityReceiptOperation(receipt, expectedOpId);
@@ -78,6 +80,7 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
   };
   const compileAttempt = async (compile: () => Promise<AuthorizedOperationAttemptV2>) => {
     try {
+      reportCurrentRepoWriteTelemetry("compile");
       return await compile();
     } catch (cause) {
       throw authorityWriteRejected(

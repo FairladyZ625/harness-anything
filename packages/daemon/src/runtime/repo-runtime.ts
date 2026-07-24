@@ -75,6 +75,7 @@ import {
 } from "./projection-generation-manager.ts";
 import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
 import { defaultDaemonRuntimePolicy } from "./runtime-policy.ts";
+import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 
@@ -207,6 +208,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private lastError: string | undefined;
   private lastMaterializerError: string | undefined;
   private materializerTimer: ReturnType<typeof setInterval> | undefined;
+  private readonly reservationReconciler: ReservationReconcilerRunner;
   private runtimeRegistrationId: string | undefined;
 
   constructor(options: DaemonRepoRuntimeOptions) {
@@ -227,6 +229,15 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.admissionBudget
     );
     this.projectionGeneration = this.createProjectionGenerationManager();
+    this.reservationReconciler = new ReservationReconcilerRunner(
+      options.reservationReconciler,
+      {
+        rootDir: this.rootDir,
+        ...(options.layoutOverrides ? {
+          layoutOverrides: options.layoutOverrides
+        } : {})
+      }
+    );
   }
 
   start(): Promise<DaemonRuntimeStatus> {
@@ -262,7 +273,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.lastError = undefined;
       this.lastMaterializerError = undefined;
       this.state = "attached";
-      await this.enqueueReservationReconciler();
+      await this.reservationReconciler.run();
       if (this.options.generationAxes) this.runtimeRegistrationId = randomUUID();
       this.startMaterializerTimer();
       return this.status();
@@ -472,7 +483,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       return;
     }
     this.materializerTimer = setInterval(() => {
-      void this.enqueueReservationReconciler().catch(() => undefined);
+      void this.reservationReconciler.run().catch(() => undefined);
       void this.enqueueMaterializerBatch().catch(() => undefined);
     }, this.options.materializerPollMs);
     this.materializerTimer.unref();
@@ -494,18 +505,6 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.lastMaterializerError = undefined;
     }
     return report;
-  }
-
-  private enqueueReservationReconciler(): Promise<void> {
-    if (!this.options.reservationReconciler) return Promise.resolve();
-    return this.enqueueBackgroundBatch({
-      source: "execution-reservation-reconciler",
-      priority: "background",
-      run: () => this.options.reservationReconciler!({
-        rootDir: this.rootDir,
-        ...(this.options.layoutOverrides ? { layoutOverrides: this.options.layoutOverrides } : {})
-      })
-    });
   }
 
   private stopMaterializerTimer(): void {

@@ -28,6 +28,7 @@ import type {
   ProductionAuthorityAttemptPlanV1
 } from "../src/authority/production/production-authority-attempt-plan.ts";
 import { defaultRepoWriteRequestTimeoutMs } from "../src/runtime/repo-write-client-contract.ts";
+import { runWithRepoWriteTelemetry } from "../src/runtime/repo-write-telemetry-context.ts";
 import {
   encodeSemanticMutationEnvelopeV2,
   operationIdDiagnosticV2,
@@ -235,10 +236,24 @@ test("one submission method carries every governed ingress discriminator", async
     { ...common, ingress: "observed-write" as const, operation },
     { ...common, ingress: "script-ingest" as const, operation }
   ];
+  const telemetry: Array<{ ingress: string; phase: string }> = [];
   for (const input of inputs) {
-    await assert.rejects(submission.submit(input), /stop after compile/u);
+    await assert.rejects(
+      runWithRepoWriteTelemetry(
+        (phase) => telemetry.push({ ingress: input.ingress, phase }),
+        () => submission.submit(input)
+      ),
+      /stop after compile/u
+    );
   }
   assert.deepEqual(compiled, inputs.map((input) => input.ingress));
+  assert.deepEqual(
+    telemetry,
+    inputs.flatMap((input) => [
+      { ingress: input.ingress, phase: "compile" },
+      { ingress: input.ingress, phase: "git" }
+    ])
+  );
 });
 
 test("write coordinator routes specialized semantics through the single submission entry", async () => {

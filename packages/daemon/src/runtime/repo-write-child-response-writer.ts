@@ -5,6 +5,7 @@ import {
   type RepoWriteChildMessage,
   type RepoWriteJsonObject,
   type RepoWriteOperationLookupResult,
+  type RepoWriteTelemetryPhase,
   type RepoWriteTerminalOutcome
 } from "./repo-write-protocol.ts";
 
@@ -81,6 +82,20 @@ export class RepoWriteChildResponseWriter {
       kind: "direct-result",
       requestId,
       receipt: receipt as RepoWriteJsonObject
+    });
+  }
+
+  telemetry(
+    requestId: string,
+    phase: RepoWriteTelemetryPhase,
+    elapsedMs: number
+  ): Promise<void> {
+    return this.send({
+      ...this.frameBase(),
+      kind: "telemetry",
+      requestId,
+      phase,
+      elapsedMs
     });
   }
 

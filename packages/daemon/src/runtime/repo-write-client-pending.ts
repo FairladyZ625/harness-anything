@@ -1,7 +1,8 @@
 import type {
   RepoWriteCommandDto,
   RepoWriteJsonObject,
-  RepoWriteOperationLookupResult
+  RepoWriteOperationLookupResult,
+  RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 
 export interface PendingSubmit {
@@ -12,6 +13,7 @@ export interface PendingSubmit {
   readonly timer: NodeJS.Timeout;
   phase: "queued" | "submitted" | "prepared" | "proceeded";
   opId?: string;
+  lastTelemetry?: RepoWriteTelemetryFrame;
 }
 
 export interface PendingLookup {
@@ -21,6 +23,7 @@ export interface PendingLookup {
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
   phase: "queued" | "sent";
+  lastTelemetry?: RepoWriteTelemetryFrame;
 }
 
 export interface PendingShutdown {
