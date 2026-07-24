@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -78,6 +79,177 @@ recoveryTest("request, generation, inner identity, and writer fence mismatches f
   });
 });
 
+recoveryTest("historical recovery terminalizes only from matching canonical publication evidence", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-recovery-"));
+  const historical = { ...proceedingInput(), generation: 403 };
+  const previous = new DurableRepoWriteOutcomeStoreV1({
+    directory,
+    repoId: historical.repoId,
+    workspaceId: historical.workspaceId,
+    generation: historical.generation
+  }).begin(historical);
+  const proceedingPath = path.join(
+    directory,
+    readdirSync(directory).find((name) => name.endsWith(".proceeding.json"))!
+  );
+  const proceedingBytes = readFileSync(proceedingPath);
+  const proceedingSha256 = createHash("sha256").update(proceedingBytes).digest("hex");
+  const publicationCommitSha = "a".repeat(40);
+  const evidence = committedEvidence(historical, publicationCommitSha);
+  const current = new DurableRepoWriteOutcomeStoreV1({
+    directory,
+    repoId: historical.repoId,
+    workspaceId: historical.workspaceId,
+    generation: 409
+  });
+  const gate = new RepoWriteAuthorityRecoveryGate({
+    repoId: historical.repoId,
+    workspaceId: historical.workspaceId,
+    generation: 409,
+    store: current,
+    assertCurrentWriterFence: () => undefined,
+    resolveHistoricalPublication: async () => ({
+      commitSha: publicationCommitSha,
+      semanticDigest: historical.authoritySemanticDigest
+    }),
+    recoverHistoricalCommittedReceipt: async () => evidence
+  });
+
+  const pending = current.listHistoricalProceedings();
+  assert.equal(pending.length, 1);
+  await gate.recoverHistoricalProceeding(pending[0]!);
+
+  const terminal = current.lookup(previous.outerOpId);
+  assert.equal(terminal.state, "terminal");
+  assert.equal(terminal.generation, "historical");
+  if (terminal.state !== "terminal") return;
+  assert.equal(terminal.outcome.terminalProof.evidence.commitSha, publicationCommitSha);
+  assert.equal(
+    (terminal.outcome.receipt.details?.data as {
+      readonly repoWrite?: { readonly recoveryEvidence?: string };
+    })?.repoWrite?.recoveryEvidence,
+    `cross-generation-publication:${publicationCommitSha}`
+  );
+  assert.deepEqual(readFileSync(proceedingPath), proceedingBytes);
+  assert.equal(
+    createHash("sha256").update(readFileSync(proceedingPath)).digest("hex"),
+    proceedingSha256
+  );
+});
+
+recoveryTest("historical recovery stays outcome-unknown when publication is absent", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-absent-"));
+  try {
+    const historical = { ...proceedingInput(), generation: 403 };
+    const previous = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: historical.generation
+    }).begin(historical);
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409
+    });
+    const gate = new RepoWriteAuthorityRecoveryGate({
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409,
+      store: current,
+      assertCurrentWriterFence: () => undefined,
+      resolveHistoricalPublication: async () => {
+        throw new Error("AUTHORITY_CANONICAL_PUBLICATION_NOT_FOUND");
+      }
+    });
+    await assert.rejects(
+      gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+      /AUTHORITY_CANONICAL_PUBLICATION_NOT_FOUND/u
+    );
+    assert.equal(current.lookup(previous.outerOpId).state, "outcome-unknown");
+    assert.equal(readdirSync(directory).filter((name) => name.endsWith(".terminal.json")).length, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+recoveryTest("historical recovery stays outcome-unknown when publication is not unique", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-nonunique-"));
+  try {
+    const historical = { ...proceedingInput(), generation: 403 };
+    const previous = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: historical.generation
+    }).begin(historical);
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409
+    });
+    const gate = new RepoWriteAuthorityRecoveryGate({
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409,
+      store: current,
+      assertCurrentWriterFence: () => undefined,
+      resolveHistoricalPublication: async () => {
+        throw new Error("AUTHORITY_CANONICAL_PUBLICATION_NOT_UNIQUE");
+      }
+    });
+
+    await assert.rejects(
+      gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+      /AUTHORITY_CANONICAL_PUBLICATION_NOT_UNIQUE/u
+    );
+    assert.equal(current.lookup(previous.outerOpId).state, "outcome-unknown");
+    assert.equal(readdirSync(directory).filter((name) => name.endsWith(".terminal.json")).length, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+recoveryTest("historical recovery stays outcome-unknown when publication semantic digest differs", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-digest-"));
+  try {
+    const historical = { ...proceedingInput(), generation: 403 };
+    const previous = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: historical.generation
+    }).begin(historical);
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409
+    });
+    const gate = new RepoWriteAuthorityRecoveryGate({
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409,
+      store: current,
+      assertCurrentWriterFence: () => undefined,
+      resolveHistoricalPublication: async () => ({
+        commitSha: "a".repeat(40),
+        semanticDigest: "9".repeat(64)
+      })
+    });
+    await assert.rejects(
+      gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+      /semantic digest does not match/u
+    );
+    assert.equal(current.lookup(previous.outerOpId).state, "outcome-unknown");
+    assert.equal(readdirSync(directory).filter((name) => name.endsWith(".terminal.json")).length, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 async function withGate(
   run: (fixture: {
     readonly directory: string;
@@ -104,6 +276,36 @@ async function withGate(
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+function committedEvidence(
+  proceeding: RepoWriteProceedingInputV1,
+  commitSha: string
+) {
+  return {
+    tag: "COMMITTED" as const,
+    workspaceId: proceeding.workspaceId,
+    opId: proceeding.innerOpId,
+    semanticDigest: proceeding.authoritySemanticDigest,
+    revision: 1,
+    commitSha,
+    previousCommit: "b".repeat(40),
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2" as const,
+      semanticRequestDigest: proceeding.authoritySemanticDigest,
+      semanticMutationSetDigest: "2".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "3".repeat(64),
+      canonicalMutationSet: { registryVersion: 1 as const, mutations: [] }
+    },
+    integrityTuple: {
+      schema: "authority-integrity-tuple/v2" as const,
+      canonicalEventDigest: "4".repeat(64),
+      changeSetDigest: "5".repeat(64),
+      semanticMutationSetDigest: "2".repeat(64),
+      actorAxesBindingDigest: "3".repeat(64)
+    }
+  };
 }
 
 function axes() {

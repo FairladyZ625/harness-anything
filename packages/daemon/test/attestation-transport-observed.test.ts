@@ -10,6 +10,7 @@ import {
   verifyAttestationAssertion,
   type AuthorityConnectionContext
 } from "../src/index.ts";
+import { attestSubmissionService } from "../src/authority/production/transport-attested-submission-service.ts";
 
 const context: AuthorityConnectionContext = {
   schema: "authority-connection-context/v1",
@@ -92,4 +93,26 @@ test("client-reported credential and channel data are ignored", async () => {
     canonicalTranscript: "client-reported-transcript",
     proof: "client-reported-proof"
   }), false);
+});
+
+test("transport attestation preserves V2 recovery admission", async () => {
+  let resumed = 0;
+  const service = attestSubmissionService({
+    submit: async () => { throw new Error("unused"); },
+    resumeV2: async () => {
+      resumed += 1;
+      return {
+        tag: "INDETERMINATE",
+        workspaceId: "workspace-attested-recovery",
+        opId: "op-attested-recovery",
+        semanticDigest: "a".repeat(64),
+        reason: "fixture"
+      };
+    },
+    getOperation: async () => undefined
+  }, context);
+
+  assert.equal(typeof service.resumeV2, "function");
+  await service.resumeV2!({} as Parameters<NonNullable<typeof service.resumeV2>>[0]);
+  assert.equal(resumed, 1);
 });

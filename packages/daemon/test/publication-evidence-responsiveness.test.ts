@@ -24,10 +24,15 @@ test("publication evidence yields between blob reads so recovery admission timer
 
   git(root, "checkout", "-q", "-b", "session");
   const opId = "namespace:test-responsive-recovery";
+  const semanticDigest = "a".repeat(64);
   mkdirSync(path.join(root, "attribution-events"));
   writeFileSync(
     path.join(root, "attribution-events", `${sha256Text(opId)}.jsonl`),
-    "{}\n"
+    `${JSON.stringify({
+      schema: "attribution-event/v1",
+      opId,
+      authorityIntegrity: { semanticRequestDigest: semanticDigest }
+    })}\n`
   );
   mkdirSync(path.join(root, "objects"));
   for (let index = 0; index < 16; index += 1) {
@@ -43,11 +48,16 @@ test("publication evidence yields between blob reads so recovery admission timer
   setTimeout(() => {
     timerFired = true;
   }, 0);
-  await createGitCanonicalPublicationInspector(root).inspectPublication(
+  const inspector = createGitCanonicalPublicationInspector(root);
+  await inspector.inspectPublication(
     previousCommit,
     [opId],
     mergeCommit
   );
+  assert.deepEqual(await inspector.findHistoricalPublicationForOperation(opId), {
+    commitSha: mergeCommit,
+    semanticDigest
+  });
 
   assert.equal(timerFired, true);
 });

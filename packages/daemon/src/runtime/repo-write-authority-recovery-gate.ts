@@ -1,3 +1,8 @@
+import {
+  isCompleteAuthorityCommittedReceiptV2,
+  type AuthorityCommittedReceipt,
+  type CommandReceiptEnvelope
+} from "@harness-anything/application";
 import type { ProductionAuthorityOuterRecoveryWitnessV1 } from "../authority/production/production-authority-attempt-plan.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
@@ -13,6 +18,15 @@ export interface RepoWriteAuthorityRecoveryGateOptions
   extends RepoWriteOutcomeAxesV1 {
   readonly store: DurableRepoWriteOutcomeStoreV1;
   readonly assertCurrentWriterFence: () => void | Promise<void>;
+  readonly resolveHistoricalPublication?: (
+    outcome: RepoWriteProceedingOutcomeV1
+  ) => Promise<{
+    readonly commitSha: string;
+    readonly semanticDigest: string;
+  }>;
+  readonly recoverHistoricalCommittedReceipt?: (
+    outcome: RepoWriteProceedingOutcomeV1
+  ) => Promise<AuthorityCommittedReceipt>;
 }
 
 export interface RepoWriteAuthorityRecoveryAttemptWitness {
@@ -36,6 +50,10 @@ export class RepoWriteAuthorityRecoveryGate {
   private readonly axes: RepoWriteOutcomeAxesV1;
   private readonly store: DurableRepoWriteOutcomeStoreV1;
   private readonly assertCurrentWriterFence: RepoWriteAuthorityRecoveryGateOptions["assertCurrentWriterFence"];
+  private readonly resolveHistoricalPublication:
+    RepoWriteAuthorityRecoveryGateOptions["resolveHistoricalPublication"];
+  private readonly recoverHistoricalCommittedReceipt:
+    RepoWriteAuthorityRecoveryGateOptions["recoverHistoricalCommittedReceipt"];
 
   constructor(options: RepoWriteAuthorityRecoveryGateOptions) {
     this.axes = {
@@ -45,6 +63,8 @@ export class RepoWriteAuthorityRecoveryGate {
     };
     this.store = options.store;
     this.assertCurrentWriterFence = options.assertCurrentWriterFence;
+    this.resolveHistoricalPublication = options.resolveHistoricalPublication;
+    this.recoverHistoricalCommittedReceipt = options.recoverHistoricalCommittedReceipt;
   }
 
   runPlannedRecovery<Result>(
@@ -65,7 +85,7 @@ export class RepoWriteAuthorityRecoveryGate {
       outerOpId: witness.outerOpId,
       outerRequestDigest: witness.outerRequestDigest,
       outerGeneration: witness.outerGeneration
-    }, async (outcome) => {
+    }, async (outcome, historicalPublication) => {
       if (witness.repoId !== outcome.repoId
         || witness.workspaceId !== outcome.workspaceId
         || witness.opId !== outcome.innerOpId
@@ -74,14 +94,95 @@ export class RepoWriteAuthorityRecoveryGate {
           `authority recovery witness does not bind the durable outer operation: ${witness.outerOpId}`
         );
       }
-      return useDurableProceeding();
+      const result: Result = historicalPublication
+        ? await this.recoverHistorical(outcome, historicalPublication) as Result
+        : await useDurableProceeding();
+      if (historicalPublication) {
+        const committed = result as AuthorityCommittedReceipt;
+        if (!committed || committed.tag !== "COMMITTED"
+          || !isCompleteAuthorityCommittedReceiptV2(committed)
+          || committed.workspaceId !== outcome.workspaceId
+          || committed.opId !== outcome.innerOpId
+          || committed.semanticDigest !== outcome.authoritySemanticDigest
+          || committed.commitSha !== historicalPublication.commitSha) {
+          throw new RepoWriteOutcomeGenerationFenceError(
+            `historical authority recovery did not return exact committed publication evidence: ${witness.outerOpId}`
+          );
+        }
+        this.terminalizeHistorical(outcome, historicalPublication, committed);
+      }
+      return result;
+    });
+  }
+
+  async recoverHistoricalProceeding(
+    outcome: RepoWriteProceedingOutcomeV1
+  ): Promise<void> {
+    if (outcome.generation >= this.axes.generation
+      || outcome.repoId !== this.axes.repoId
+      || outcome.workspaceId !== this.axes.workspaceId
+      || !this.resolveHistoricalPublication) {
+      throw new RepoWriteOutcomeGenerationFenceError(
+        `historical authority recovery cannot admit outer PROCEEDING: ${outcome.outerOpId}`
+      );
+    }
+    const publication = await this.resolveHistoricalPublication(outcome);
+    if (publication.semanticDigest !== outcome.authoritySemanticDigest) {
+      throw new RepoWriteOutcomeGenerationFenceError(
+        `historical publication semantic digest does not match outer PROCEEDING: ${outcome.outerOpId}`
+      );
+    }
+    await this.assertCurrentWriterFence();
+    const committed = await this.recoverHistorical(outcome, publication);
+    this.terminalizeHistorical(outcome, publication, committed);
+  }
+
+  private async recoverHistorical(
+    outcome: RepoWriteProceedingOutcomeV1,
+    publication: { readonly commitSha: string; readonly semanticDigest: string }
+  ): Promise<AuthorityCommittedReceipt> {
+    if (!this.recoverHistoricalCommittedReceipt) {
+      throw new RepoWriteOutcomeGenerationFenceError(
+        `historical authority committed receipt recovery is unavailable: ${outcome.outerOpId}`
+      );
+    }
+    const committed = await this.recoverHistoricalCommittedReceipt(outcome);
+    if (committed.tag !== "COMMITTED"
+      || !isCompleteAuthorityCommittedReceiptV2(committed)
+      || committed.workspaceId !== outcome.workspaceId
+      || committed.opId !== outcome.innerOpId
+      || committed.semanticDigest !== outcome.authoritySemanticDigest
+      || committed.commitSha !== publication.commitSha) {
+      throw new RepoWriteOutcomeGenerationFenceError(
+        `historical authority recovery did not return exact committed publication evidence: ${outcome.outerOpId}`
+      );
+    }
+    return committed;
+  }
+
+  private terminalizeHistorical(
+    outcome: RepoWriteProceedingOutcomeV1,
+    publication: { readonly commitSha: string },
+    committed: AuthorityCommittedReceipt
+  ): void {
+    this.store.terminalize({
+      ...this.axes,
+      outerOpId: outcome.outerOpId,
+      requestDigest: outcome.requestDigest,
+      historicalPublicationCommitSha: publication.commitSha,
+      receipt: historicalRecoveryReceipt(outcome, publication.commitSha),
+      authorityEvidence: committed
     });
   }
 
   private async authorize<Result>(
     witness: ProductionAuthorityOuterRecoveryWitnessV1,
     useDurableProceeding: (
-      outcome: RepoWriteProceedingOutcomeV1
+      outcome: RepoWriteProceedingOutcomeV1,
+      historicalPublication?: {
+        readonly commitSha: string;
+        readonly semanticDigest: string;
+      }
     ) => Result | Promise<Result>
   ): Promise<Result> {
     const current = this.store.lookup(witness.outerOpId);
@@ -91,9 +192,22 @@ export class RepoWriteAuthorityRecoveryGate {
       );
     }
     if (current.state === "outcome-unknown") {
-      throw new RepoWriteOutcomeGenerationFenceError(
-        `authority recovery cannot consume historical outer PROCEEDING: ${witness.outerOpId}`
-      );
+      const outcome = current.outcome;
+      if (witness.outerGeneration !== outcome.generation
+        || witness.outerRequestDigest !== outcome.requestDigest
+        || !this.resolveHistoricalPublication) {
+        throw new RepoWriteOutcomeGenerationFenceError(
+          `authority recovery cannot consume historical outer PROCEEDING: ${witness.outerOpId}`
+        );
+      }
+      const publication = await this.resolveHistoricalPublication(outcome);
+      if (publication.semanticDigest !== outcome.authoritySemanticDigest) {
+        throw new RepoWriteOutcomeGenerationFenceError(
+          `historical publication semantic digest does not match outer PROCEEDING: ${witness.outerOpId}`
+        );
+      }
+      await this.assertCurrentWriterFence();
+      return useDurableProceeding(outcome, publication);
     }
     const outcome = current.outcome;
     if (outcome.repoId !== this.axes.repoId
@@ -108,4 +222,33 @@ export class RepoWriteAuthorityRecoveryGate {
     await this.assertCurrentWriterFence();
     return useDurableProceeding(outcome);
   }
+}
+
+function historicalRecoveryReceipt(
+  outcome: RepoWriteProceedingOutcomeV1,
+  publicationCommitSha: string
+): CommandReceiptEnvelope {
+  return {
+    ok: true,
+    schema: "command-receipt/v2",
+    command: outcome.receiptSeed.command,
+    action: outcome.receiptSeed.action,
+    summary: "Recovered committed outcome from canonical publication.",
+    details: {
+      actor: outcome.canonicalCommand.actor,
+      data: {
+        repoWrite: {
+          schema: "repo-write-recovery/v1",
+          repoId: outcome.repoId,
+          generation: outcome.generation,
+          outerOpId: outcome.outerOpId,
+          recoveryEvidence: `cross-generation-publication:${publicationCommitSha}`
+        }
+      }
+    },
+    meta: {
+      generatedAt: outcome.receiptSeed.generatedAt,
+      compatibility: {}
+    }
+  };
 }

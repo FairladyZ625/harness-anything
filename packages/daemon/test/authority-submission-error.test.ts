@@ -6,6 +6,7 @@ import {
   gateAuthoritySubmissionForRecovery
 } from "../src/index.ts";
 import { receiptToFlushReport } from "../src/authority/authority-command-submission.ts";
+import { gateCutoverAdmission } from "../src/authority/production/cutover-admission.ts";
 import {
   defaultProductionRecoveryAdmissionTimeoutMs,
   waitForProductionRecovery
@@ -116,6 +117,35 @@ test("recovery gate waits before admitting legacy, V2, and V2 recovery ingress",
   assert.equal(recoveryV2.tag, "COMMITTED");
   assert.equal(recoveryV2.opId, fixture.expectedOpId);
   assert.equal(submissions, 3);
+});
+
+test("cutover admission preserves V2 recovery admission", async () => {
+  let admitted = 0;
+  let resumed = 0;
+  const fixture = authorityCommandAttemptFixture();
+  const service = gateCutoverAdmission({
+    submit: async () => { throw new Error("unused"); },
+    resumeV2: async (recovery) => {
+      resumed += 1;
+      return {
+        tag: "INDETERMINATE",
+        workspaceId: recovery.witness.workspaceId,
+        opId: recovery.witness.opId,
+        semanticDigest: recovery.witness.semanticDigest,
+        reason: "fixture"
+      };
+    },
+    getOperation: async () => undefined
+  }, {
+    runDuringOpenAdmission: async (operation) => {
+      admitted += 1;
+      return operation();
+    }
+  } as import("@harness-anything/application").AuthorityCutoverControlService);
+
+  await service.resumeV2!(authorityRecoveryAttemptFixture(fixture));
+  assert.equal(admitted, 1);
+  assert.equal(resumed, 1);
 });
 
 test("production recovery admission expires before the repo-write transport deadline", () => {

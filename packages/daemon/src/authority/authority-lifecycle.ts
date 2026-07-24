@@ -71,6 +71,10 @@ export interface AuthorityRepoComponent {
   readonly cutoverControl: AuthorityCutoverControlService;
   /** Present for production components; in-memory lifecycle fixtures omit it. */
   readonly compoundReceipt?: ProductionCompoundReceiptComposition;
+  /** Production-only recovery from the durable inner operation record. */
+  readonly recoverCommittedReceipt?: (
+    opId: string
+  ) => Promise<import("@harness-anything/application").AuthorityCommittedReceipt>;
   readonly bindConnection: (context: AuthorityConnectionContext) => AuthorityRepoConnectionBinding;
   readonly stop: (reason: AuthorityRepoStopReason) => Promise<void>;
 }
