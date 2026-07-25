@@ -133,6 +133,7 @@
         "check-write-coordinator-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
+        "check-cli-output-path-containment",
         "check-cli-daemon-parity",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
@@ -184,6 +185,7 @@
         "check-write-coordinator-boundary",
         "check-write-road-registry",
         "check-cli-direct-writer",
+        "check-cli-output-path-containment",
         "check-cli-daemon-parity",
         "check-kernel-dead-exports",
         "check-relation-cycle-substrate",
@@ -213,7 +215,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 47
+      "harnessLeafGateCount": 48
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2174,6 +2176,80 @@
         "status": "covered",
         "evidence": [
           "tools/check-cli-direct-writer.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-cli-output-path-containment",
+      "command": "npm run harness:check-cli-output-path-containment",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "dec_01KYCA4Q2MZNHX4N8T3K06JG02#CH1",
+        "task_01KYCF6WF7MD6VPEBR09XWNZ3S",
+        "tools/check-cli-output-path-containment.mjs"
+      ],
+      "consumerScope": [
+        "AST-derived user-controlled CLI output path flows into Node filesystem write sinks under packages/cli/src",
+        "shared containment resolver use before user-selected output writes"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No skip or allowlist is permitted; user-controlled output paths must pass the shared containment resolver before a filesystem write."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-output-path-containment.mjs",
+          "tools/check-cli-output-path-containment.test.mjs",
+          "package.json:scripts.harness:check-cli-output-path-containment",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-output-path-containment"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-output-path-containment.test.mjs"
         ]
       }
     },

@@ -33,6 +33,8 @@ import { makeDaemonLogService } from "@harness-anything/application";
 import { prepareDaemonServiceLaunch } from "../../daemon/daemon-service-launch.ts";
 import { parseDaemonLaunchArgv } from "../../daemon/daemon-launch-spec.ts";
 import type { DaemonCommandInput } from "./command-types.ts";
+import { requireDaemonProductOutputPath } from "./output-path.ts";
+import { daemonSafeId, requiredDaemonOption } from "./productization-options.ts";
 import { installSnapshotCommand, upgradeDaemonSnapshot } from "./snapshot-command.ts";
 import { readDaemonStatusWithGenerationFallback } from "./status-compatibility.ts";
 
@@ -231,8 +233,11 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
 }
 
 function installTemplates(input: DaemonCommandInput): number {
-  const outDir = readOption(input.args, "--out");
-  if (!outDir) throw new Error("Use ha daemon install-templates --out <directory>.");
+  const requestedOutDir = readOption(input.args, "--out");
+  if (!requestedOutDir) throw new Error("Use ha daemon install-templates --out <directory>.");
+  const outDir = requireDaemonProductOutputPath({
+    requestedPath: requestedOutDir, rootDir: input.rootDir, label: "Daemon template output path"
+  });
   mkdirSync(outDir, { recursive: true });
   cpSync(daemonAssetPath("systemd/harness-anything-daemon.service"), path.join(outDir, "harness-anything-daemon.service"));
   cpSync(daemonAssetPath("launchd/com.harness-anything.daemon.plist"), path.join(outDir, "com.harness-anything.daemon.plist"));
@@ -249,18 +254,21 @@ function installTemplates(input: DaemonCommandInput): number {
 }
 
 async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
-  const canonicalRoot = path.resolve(requiredOption(input.args, "--canonical-root"));
-  const sshHost = requiredOption(input.args, "--ssh-host");
+  const canonicalRoot = path.resolve(requiredDaemonOption(input.args, "--canonical-root"));
+  const sshHost = requiredDaemonOption(input.args, "--ssh-host");
   const sshUser = readOption(input.args, "--ssh-user") ?? os.userInfo().username;
-  const personId = readOption(input.args, "--person-id") ?? `person_${safeId(sshUser)}`;
+  const personId = readOption(input.args, "--person-id") ?? `person_${daemonSafeId(sshUser)}`;
   const displayName = readOption(input.args, "--display-name") ?? sshUser;
   const primaryEmail = readOption(input.args, "--email");
   const role = readOption(input.args, "--role") ?? "owner";
   const readonlyMirror = readOption(input.args, "--readonly-mirror");
-  const reportPath = readOption(input.args, "--report") ?? path.join(canonicalRoot, ".harness", "generated", "daemon-bootstrap-report.json");
+  const requestedReportPath = readOption(input.args, "--report") ?? path.join(canonicalRoot, ".harness", "generated", "daemon-bootstrap-report.json");
   const skipSshCheck = input.args.includes("--skip-ssh-check");
   const noStart = input.args.includes("--no-start");
   const registryRepoId = readOption(input.args, "--repo-id") ?? "canonical";
+  const reportPath = requireDaemonProductOutputPath({
+    requestedPath: requestedReportPath, rootDir: input.rootDir, canonicalRoot, label: "Daemon bootstrap report path"
+  });
 
   ensureCanonicalRepo(canonicalRoot);
   initializeHarness({ rootDir: canonicalRoot }, false, path.basename(canonicalRoot));
@@ -549,12 +557,6 @@ function readDaemonUserRootOption(args: ReadonlyArray<string>): string | undefin
   return readOption(args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT;
 }
 
-function requiredOption(args: ReadonlyArray<string>, name: string): string {
-  const value = readOption(args, name);
-  if (!value || value.startsWith("--")) throw new Error(`Use ${name} <value>.`);
-  return value;
-}
-
 function runDaemonGit(cwd: string, args: ReadonlyArray<string>): void {
   try {
     execFileSync("git", [...args], { cwd, stdio: "ignore", windowsHide: true });
@@ -580,10 +582,6 @@ function daemonAssetPath(relativePath: string): string {
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) throw new Error(`daemon asset not found: ${relativePath}`);
   return found;
-}
-
-function safeId(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "") || "user";
 }
 
 function waitDaemonPollInterval(ms: number): Promise<void> {

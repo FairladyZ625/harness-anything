@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { readEntityCascadeImpact } from "@harness-anything/kernel";
-import { readRelationGraphProjection } from "@harness-anything/kernel";
+import { readEntityCascadeImpact, readRelationGraphProjection, resolveHarnessLayout } from "@harness-anything/kernel";
+import { resolveContainedOutputPath } from "../cli/output-path.ts";
 
 const defaultProjectionPath = ".harness/cache/projections.sqlite";
 const defaultOutputPath = ".harness/generated/graph-panorama/index.html";
@@ -32,7 +32,17 @@ interface ProjectedEntity {
 export function generateGraphPanorama(input: GenerateGraphPanoramaInput = {}): Record<string, any> {
   const rootDir = path.resolve(input.rootDir ?? process.cwd());
   const projectionPath = path.resolve(rootDir, input.projectionPath ?? defaultProjectionPath);
-  const outputPath = path.resolve(rootDir, input.outputPath ?? defaultOutputPath);
+  const layout = resolveHarnessLayout({ rootDir });
+  const resolvedOutput = resolveContainedOutputPath({
+    requestedPath: input.outputPath ?? defaultOutputPath,
+    containerRoots: [rootDir],
+    canonicalRoots: [layout.authoredRoot],
+    relativeTo: rootDir
+  });
+  if (!resolvedOutput.ok) {
+    throw new Error(`Graph output path rejected (${resolvedOutput.reason}): output must remain in the repository, outside canonical authored paths, without symlinks.`);
+  }
+  const outputPath = resolvedOutput.path;
   if (!existsSync(projectionPath)) {
     throw new Error(`Projection database not found: ${projectionPath}`);
   }
