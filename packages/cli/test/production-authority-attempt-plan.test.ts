@@ -654,7 +654,8 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
         ingress: "generic",
         canonicalEntityId: taskEntityId("task_other")
       }),
-      /AUTHORITY_PLANNED_INPUT_MISMATCH/u
+      (error: unknown) => error instanceof Error
+        && error.message === "AUTHORITY_PLANNED_INPUT_MISMATCH"
     );
     assert.equal(
       (await recoveredDecisionSubmission.submit({

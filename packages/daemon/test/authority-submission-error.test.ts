@@ -166,28 +166,71 @@ test("cutover admission preserves V2 recovery admission", async () => {
   assert.equal(resumed, 1);
 });
 
-test("planned durable submission exposes one forwarding method and rejects specialized ingress", async () => {
-  const submission = createProductionPlannedCommandSubmission({
-    repoId: "canonical",
-    authorityGeneration: 7,
-    authorityService: {} as AuthoritySubmissionService,
-    compiler: {} as ProductionCanonicalAttemptCompilerV2,
-    expected: {} as ProductionAuthorityCommandPlanInput,
-    plan: {} as ProductionAuthorityAttemptPlanV1
-  });
-
-  assert.deepEqual(Object.keys(submission), ["submit"]);
-  await assert.rejects(submission.submit({
-    ingress: "task-claim",
-    command: {} as never,
-    attribution: {} as never,
-    currentSession: {} as never,
-    operation: {
-      opId: "op-specialized",
-      entityId: "task/task_SPECIALIZED",
-      kind: "doc_write"
+test("planned durable submission reports every specialized coordinator ingress as a channel mismatch", async (t) => {
+  const cases = [
+    {
+      ingress: "provenance-session",
+      command: { rootDir: "/fixture", action: { kind: "session-export", sessionId: "session-ingress" } },
+      operation: { entityId: "entity/session/session-ingress", kind: "doc_write" }
+    },
+    {
+      ingress: "decision-transition",
+      ingressAdapter: "decision-transition",
+      command: { rootDir: "/fixture", action: { kind: "decision-transition" } },
+      operation: { entityId: "decision/dec_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "task-claim",
+      ingressAdapter: "task-claim",
+      command: { rootDir: "/fixture", action: { kind: "task-claim" } },
+      operation: { entityId: "task/task_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "observed-write",
+      ingressAdapter: "observed-write",
+      command: { rootDir: "/fixture", action: { kind: "task-amend" } },
+      operation: { entityId: "task/task_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "script-ingest",
+      command: { rootDir: "/fixture", action: { kind: "script-run" } },
+      operation: { entityId: "task/task_INGRESS", kind: "script_ingest" }
     }
-  }), /AUTHORITY_PLANNED_INPUT_MISMATCH/u);
+  ] as const;
+
+  for (const fixture of cases) {
+    await t.test(fixture.ingress, async () => {
+      const submission = createProductionPlannedCommandSubmission({
+        repoId: "canonical",
+        authorityGeneration: 7,
+        authorityService: {} as AuthoritySubmissionService,
+        compiler: {} as ProductionCanonicalAttemptCompilerV2,
+        expected: {} as ProductionAuthorityCommandPlanInput,
+        plan: {} as ProductionAuthorityAttemptPlanV1
+      });
+      const coordinator = makeDaemonAuthorityWriteCoordinator(submission, {
+        command: fixture.command as never,
+        attribution: {} as never,
+        currentSession: {
+          runtime: "codex",
+          sessionId: "session-ingress",
+          source: "runtime",
+          detectedAt: "2026-07-24T00:00:00.000Z"
+        },
+        ...(fixture.ingressAdapter ? { ingressAdapter: fixture.ingressAdapter } : {})
+      });
+
+      assert.deepEqual(Object.keys(submission), ["submit"]);
+      await runEffect(coordinator.enqueue({
+        opId: `op-${fixture.ingress}`,
+        ...fixture.operation
+      } as never));
+      await assert.rejects(
+        runEffect(coordinator.flush("explicit")),
+        /AUTHORITY_PLANNED_INGRESS_MISMATCH/u
+      );
+    });
+  }
 });
 
 test("multi-operation task creation stays on the direct child lane", () => {

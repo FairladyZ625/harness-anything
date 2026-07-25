@@ -152,7 +152,7 @@ export function createProductionPlannedCommandSubmission(input: {
       throw new Error("AUTHORITY_PLANNED_SUBMISSION_REUSED");
     }
     if (actual.ingress !== "generic") {
-      throw new Error("AUTHORITY_PLANNED_INPUT_MISMATCH");
+      throw new Error("AUTHORITY_PLANNED_INGRESS_MISMATCH");
     }
     const canonicalEntityId = actual.canonicalEntityId;
     const actualPlanInput: ProductionAuthorityCommandPlanInput = {
