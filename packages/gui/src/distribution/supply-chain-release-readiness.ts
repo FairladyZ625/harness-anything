@@ -209,10 +209,10 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     reviewedDependencyLicenseChoices: [
       {
         packageName: "elkjs",
-        declaredLicenseExpression: "EPL-2.0",
+        declaredLicenseExpression: "EPL-2.0 OR GPL-3.0-or-later",
         electedLicense: "EPL-2.0",
-        reviewedAt: "2026-07-14",
-        rationale: "Runtime dependency of the GUI relationship graph: elkjs (Eclipse Layout Kernel JS) performs the orthogonal edge routing adopted for the ego/spotlight view (dec_01KXFABST0E47G3MJX9MQ2C72Q). EPL-2.0 is weak file-level copyleft in the same tier as the already-allowed MPL-2.0; as an unmodified bundled dependency it does not impose copyleft on the project's AGPL-3.0-or-later source. Reviewed and accepted by CEO-principal."
+        reviewedAt: "2026-07-25",
+        rationale: "Runtime dependency of the GUI relationship graph: elkjs (Eclipse Layout Kernel JS) performs the orthogonal edge routing adopted for the ego/spotlight view (dec_01KXFABST0E47G3MJX9MQ2C72Q). EPL-2.0 is weak file-level copyleft in the same tier as the already-allowed MPL-2.0; as an unmodified bundled dependency it does not impose copyleft on the project's AGPL-3.0-or-later source. elkjs 0.12.0 added GPL-3.0-or-later as an EPL-2.0 Secondary License, so the declared expression is now a disjunction. The project keeps electing the EPL-2.0 branch: it is the narrower obligation, it preserves the 2026-07-14 review unchanged, and electing the GPL branch would extend strong copyleft to any future non-AGPL distribution of the same combination. The GPL-3.0-or-later branch remains available and is the branch to elect if EPL-2.0/AGPL-3.0 combination compatibility is ever challenged. Reviewed and accepted by CEO-principal."
       },
       {
         packageName: "expand-template",
