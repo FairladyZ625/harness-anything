@@ -64,7 +64,7 @@ function runTaskCodeDocReconcile(
   return Effect.gen(function* () {
     const taskPackage = yield* context.artifactStore.readTaskPackage(action.taskId);
     const existing = taskPackage.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
-    if (existing && !action.force) {
+    if (existing && !action.force && !context.outerProceedingRecovery) {
       return {
         ok: false,
         command: action.kind,

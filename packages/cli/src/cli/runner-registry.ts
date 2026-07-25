@@ -40,6 +40,7 @@ export interface CommandRunnerContext {
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
   readonly taskHolderService: TaskHolderService;
+  readonly outerProceedingRecovery: boolean;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
 
@@ -124,7 +125,8 @@ export function runRegisteredCommand(
   makeFactWriteService: () => FactWriteService,
   makeTaskHolderService: () => TaskHolderService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
-  runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport
+  runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport,
+  execution: { readonly outerProceedingRecovery: boolean } = { outerProceedingRecovery: false }
 ): CommandRunnerEffect {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
@@ -188,6 +190,7 @@ export function runRegisteredCommand(
       taskHolderService ??= makeTaskHolderService();
       return taskHolderService;
     },
+    outerProceedingRecovery: execution.outerProceedingRecovery,
     get runtimeEventLedgerService() {
       runtimeEventLedgerService ??= makeRuntimeEventLedgerService();
       return runtimeEventLedgerService;

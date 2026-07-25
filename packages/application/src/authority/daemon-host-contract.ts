@@ -205,6 +205,8 @@ export interface DaemonHostCommandExecutionOptions {
   readonly requireProvidedActorAttribution: true;
   /** Child-writer pilot admission must not renew/write a v1 holder lease. */
   readonly taskLeaseGuardMode?: "read-only";
+  /** The child is resuming an already-durable outer proceeding with its fixed operation. */
+  readonly outerProceedingRecovery?: true;
   readonly actorAttribution?: AuthorityHostAttribution;
   readonly currentSession?: CurrentSessionRef;
   readonly inlineCreateProvenanceOnly?: true;
