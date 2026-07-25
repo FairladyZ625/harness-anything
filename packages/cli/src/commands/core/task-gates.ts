@@ -125,7 +125,7 @@ function runTaskCodeDocReconcile(
         recordIds: draft.recordIds,
         commit: action.sha,
         paths: action.paths,
-        prRef: action.prRef
+        ...(typeof action.prRef === "string" ? { prRef: action.prRef } : {})
       }
     } satisfies CliResult;
   });

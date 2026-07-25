@@ -254,6 +254,8 @@ test("production service route preserves progress dry-run and publishes canonica
       readonly report?: { readonly steps?: ReadonlyArray<{ readonly details?: { readonly data?: Record<string, unknown> } }> };
     } | undefined)?.report?.steps ?? [];
     assert.equal(facadeSteps.length, 2, JSON.stringify(transitioned.receipt));
+    const codeDocReport = facadeSteps[0]?.details?.data?.report as Record<string, unknown> | undefined;
+    assert.equal(Object.hasOwn(codeDocReport ?? {}, "prRef"), false, JSON.stringify(transitioned.receipt));
     assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeFacadeSubmit + 2,
       "task submit must publish one code-doc operation and one execution-submit operation");
     const facadeSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
