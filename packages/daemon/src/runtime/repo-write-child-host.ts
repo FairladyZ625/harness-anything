@@ -256,7 +256,13 @@ export class RepoWriteChildHost {
       if (operation.phase === "preparing") {
         operation.phase = "failed";
         this.release(operation);
-        await this.responses.notStarted(message.requestId, "PREPARE_FAILED", error, operation.opId);
+        const rejection = structuredNotStartedFailure(error);
+        await this.responses.notStarted(
+          message.requestId,
+          rejection?.code ?? "PREPARE_FAILED",
+          rejection?.diagnostic ?? error,
+          operation.opId
+        );
       } else if (operation.phase === "prepared") {
         operation.phase = "failed";
         this.release(operation);
@@ -586,6 +592,24 @@ export class RepoWriteChildHost {
       generation: this.options.generation
     } as const;
   }
+}
+
+function structuredNotStartedFailure(
+  value: unknown
+): { readonly code: string; readonly diagnostic: string } | undefined {
+  if (!(value instanceof Error)) return undefined;
+  const failure = value as {
+    readonly code?: unknown;
+    readonly outcome?: unknown;
+    readonly replay?: unknown;
+  };
+  if (failure.outcome !== "not-started"
+    || failure.replay !== "caller-may-retry"
+    || typeof failure.code !== "string"
+    || failure.code.trim() === "") {
+    return undefined;
+  }
+  return { code: failure.code, diagnostic: value.message };
 }
 
 export function createRepoWriteChildHost(options: RepoWriteChildHostOptions): RepoWriteChildHost {

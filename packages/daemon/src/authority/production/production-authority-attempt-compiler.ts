@@ -25,9 +25,10 @@ import {
   type WriteOp
 } from "@harness-anything/kernel";
 import type { AuthorityConnectionContext } from "../../protocol/connection-context.ts";
-import type {
-  DaemonAuthorityAttemptCompilerV2,
-  DaemonAuthorityCommandSubmissionInputV2
+import {
+  authorityCompileRejected,
+  type DaemonAuthorityAttemptCompilerV2,
+  type DaemonAuthorityCommandSubmissionInputV2
 } from "../authority-command-submission.ts";
 import { hostedSnapshot } from "./semantic-state.ts";
 import {
@@ -150,28 +151,32 @@ export function createProductionCanonicalAttemptCompiler(input: {
     attribution,
     currentSession
   }: ProductionAuthorityCommandPlanInput): Promise<ProductionAuthorityAttemptPlanV1> => {
-    assertTypedIngressAdapter(command.action.kind, "generic", input.hostServices);
-    const resolvedEntityId = directTypedCommandEntityId(command);
-    if (!resolvedEntityId) {
-      throw new Error(
-        `AUTHORITY_COMMAND_PLAN_ENTITY_ID_REQUIRED:${command.action.kind}`
+    try {
+      assertTypedIngressAdapter(command.action.kind, "generic", input.hostServices);
+      const resolvedEntityId = directTypedCommandEntityId(command);
+      if (!resolvedEntityId) {
+        throw new Error(
+          `AUTHORITY_COMMAND_PLAN_ENTITY_ID_REQUIRED:${command.action.kind}`
+        );
+      }
+      const intent = await canonicalAttemptIntent(
+        command,
+        currentSession,
+        resolvedEntityId,
+        input.authoredRoot,
+        attribution.writeAttribution.actor,
+        input.hostServices
       );
+      return attemptPlanner.planIntent(
+        command,
+        attribution,
+        currentSession,
+        resolvedEntityId,
+        intent
+      );
+    } catch (cause) {
+      throw authorityCompileRejected(cause);
     }
-    const intent = await canonicalAttemptIntent(
-      command,
-      currentSession,
-      resolvedEntityId,
-      input.authoredRoot,
-      attribution.writeAttribution.actor,
-      input.hostServices
-    );
-    return attemptPlanner.planIntent(
-      command,
-      attribution,
-      currentSession,
-      resolvedEntityId,
-      intent
-    );
   };
   const compileIntent = async (
     command: ProductionAuthorityCommand,

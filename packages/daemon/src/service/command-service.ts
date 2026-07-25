@@ -37,6 +37,7 @@ import {
 } from "../runtime/repo-write-progress-command.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
+  RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError
 } from "../runtime/repo-write-client.ts";
 
@@ -131,6 +132,8 @@ export function createDaemonCommandService<
               error instanceof RepoWriteOutcomeUnknownError
                 || error instanceof RepoWriteDirectOutcomeUnknownError
                 ? "repo_write_outcome_unknown"
+                : error instanceof RepoWriteNotStartedError
+                  ? error.code
                 : "repo_write_child_unavailable",
               error instanceof Error ? error.message : String(error),
               outerOpId
