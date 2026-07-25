@@ -322,7 +322,7 @@ export async function measureCase(size, outputsPerExecution) {
   } finally {
     if (electronApp) await closeElectronApp(electronApp);
     await sleep(6_000);
-    rmSync(ledgerRoot, { recursive: true, force: true });
+    rmSync(ledgerRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
   return result;
 }
@@ -402,5 +402,4 @@ export function runProjectionLayer(size, outputs) {
     },
   };
 }
-
 
