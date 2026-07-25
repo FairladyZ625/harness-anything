@@ -166,28 +166,136 @@ test("cutover admission preserves V2 recovery admission", async () => {
   assert.equal(resumed, 1);
 });
 
-test("planned durable submission exposes one forwarding method and rejects specialized ingress", async () => {
+test("planned durable submission accepts every specialized coordinator ingress with exact planned content", async (t) => {
+  const cases = [
+    {
+      ingress: "provenance-session",
+      command: { rootDir: "/fixture", action: { kind: "session-export", sessionId: "session-ingress" } },
+      operation: { entityId: "entity/session/session-ingress", kind: "doc_write" }
+    },
+    {
+      ingress: "decision-transition",
+      ingressAdapter: "decision-transition",
+      command: { rootDir: "/fixture", action: { kind: "decision-transition" } },
+      operation: { entityId: "decision/dec_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "task-claim",
+      ingressAdapter: "task-claim",
+      command: { rootDir: "/fixture", action: { kind: "task-claim" } },
+      operation: { entityId: "task/task_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "observed-write",
+      ingressAdapter: "observed-write",
+      command: { rootDir: "/fixture", action: { kind: "task-amend" } },
+      operation: { entityId: "task/task_INGRESS", kind: "doc_write" }
+    },
+    {
+      ingress: "script-ingest",
+      command: { rootDir: "/fixture", action: { kind: "script-run" } },
+      operation: { entityId: "task/task_INGRESS", kind: "script_ingest" }
+    }
+  ] as const;
+
+  for (const fixture of cases) {
+    await t.test(fixture.ingress, async () => {
+      const attempt = authorityCommandAttemptFixture();
+      const currentSession = {
+        runtime: "codex" as const,
+        sessionId: "session-ingress",
+        source: "runtime" as const,
+        detectedAt: "2026-07-24T00:00:00.000Z"
+      };
+      const expected = {
+        command: fixture.command,
+        attribution: {},
+        currentSession,
+        ...(fixture.ingressAdapter ? { ingressAdapter: fixture.ingressAdapter } : {})
+      } as unknown as ProductionAuthorityCommandPlanInput;
+      const submission = createProductionPlannedCommandSubmission({
+        repoId: "canonical",
+        authorityGeneration: 7,
+        authorityService: {
+          submitV2: async () => committedAttemptReceipt(attempt)
+        } as AuthoritySubmissionService,
+        compiler: {
+          activatePlannedCommand: () => attempt.attempt
+        } as unknown as ProductionCanonicalAttemptCompilerV2,
+        expected,
+        plan: {
+          targetEntityId: fixture.operation.entityId
+        } as ProductionAuthorityAttemptPlanV1
+      });
+      const coordinator = makeDaemonAuthorityWriteCoordinator(submission, {
+        command: fixture.command as never,
+        attribution: {} as never,
+        currentSession,
+        ...(fixture.ingressAdapter ? { ingressAdapter: fixture.ingressAdapter } : {})
+      });
+
+      assert.deepEqual(Object.keys(submission), ["submit"]);
+      await runEffect(coordinator.enqueue({
+        opId: `op-${fixture.ingress}`,
+        ...fixture.operation
+      } as never));
+      const report = await runEffect(coordinator.flush("explicit"));
+      assert.equal(report.committed, true);
+      assert.equal(report.watermark, attempt.expectedOpId);
+    });
+  }
+});
+
+test("planned durable submission still rejects specialized finalize content that differs from its plan", async () => {
+  const attempt = authorityCommandAttemptFixture();
+  const currentSession = {
+    runtime: "codex" as const,
+    sessionId: "session-ingress",
+    source: "runtime" as const,
+    detectedAt: "2026-07-24T00:00:00.000Z"
+  };
+  const plannedCommand = {
+    rootDir: "/fixture",
+    action: { kind: "task-claim", taskId: "task_PLANNED" }
+  };
   const submission = createProductionPlannedCommandSubmission({
     repoId: "canonical",
     authorityGeneration: 7,
-    authorityService: {} as AuthoritySubmissionService,
-    compiler: {} as ProductionCanonicalAttemptCompilerV2,
-    expected: {} as ProductionAuthorityCommandPlanInput,
-    plan: {} as ProductionAuthorityAttemptPlanV1
+    authorityService: {
+      submitV2: async () => committedAttemptReceipt(attempt)
+    } as AuthoritySubmissionService,
+    compiler: {
+      activatePlannedCommand: () => attempt.attempt
+    } as unknown as ProductionCanonicalAttemptCompilerV2,
+    expected: {
+      command: plannedCommand,
+      attribution: {},
+      currentSession,
+      ingressAdapter: "task-claim"
+    } as unknown as ProductionAuthorityCommandPlanInput,
+    plan: {
+      targetEntityId: "task/task_PLANNED"
+    } as ProductionAuthorityAttemptPlanV1
+  });
+  const coordinator = makeDaemonAuthorityWriteCoordinator(submission, {
+    command: {
+      ...plannedCommand,
+      action: { ...plannedCommand.action, taskId: "task_DIFFERENT" }
+    } as never,
+    attribution: {} as never,
+    currentSession,
+    ingressAdapter: "task-claim"
   });
 
-  assert.deepEqual(Object.keys(submission), ["submit"]);
-  await assert.rejects(submission.submit({
-    ingress: "task-claim",
-    command: {} as never,
-    attribution: {} as never,
-    currentSession: {} as never,
-    operation: {
-      opId: "op-specialized",
-      entityId: "task/task_SPECIALIZED",
-      kind: "doc_write"
-    }
-  }), /AUTHORITY_PLANNED_INPUT_MISMATCH/u);
+  await runEffect(coordinator.enqueue({
+    opId: "op-task-claim-different",
+    entityId: "task/task_PLANNED",
+    kind: "doc_write"
+  }));
+  await assert.rejects(
+    runEffect(coordinator.flush("explicit")),
+    /AUTHORITY_PLANNED_INPUT_MISMATCH/u
+  );
 });
 
 test("multi-operation task creation stays on the direct child lane", () => {
@@ -459,6 +567,40 @@ function authorityCommandAttemptFixture() {
       envelope: encodeSemanticMutationEnvelopeV2(envelope)
     },
     expectedOpId: operationIdDiagnosticV2(envelope.operationId)
+  };
+}
+
+function committedAttemptReceipt(
+  fixture: ReturnType<typeof authorityCommandAttemptFixture>
+) {
+  const semanticDigest =
+    Buffer.from(semanticRequestDigestV2(fixture.envelope)).toString("hex");
+  return {
+    tag: "COMMITTED" as const,
+    workspaceId: fixture.envelope.workspaceId,
+    opId: fixture.expectedOpId,
+    semanticDigest,
+    revision: 1,
+    commitSha: "a".repeat(40),
+    previousCommit: null,
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2" as const,
+      semanticRequestDigest: semanticDigest,
+      semanticMutationSetDigest: "b".repeat(64),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "c".repeat(64),
+      canonicalMutationSet: {
+        registryVersion: 1,
+        mutations: []
+      }
+    },
+    integrityTuple: {
+      schema: "authority-integrity-tuple/v2" as const,
+      canonicalEventDigest: "d".repeat(64),
+      changeSetDigest: "e".repeat(64),
+      semanticMutationSetDigest: "b".repeat(64),
+      actorAxesBindingDigest: "c".repeat(64)
+    }
   };
 }
 
