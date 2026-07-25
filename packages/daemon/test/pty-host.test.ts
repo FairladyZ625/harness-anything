@@ -90,7 +90,7 @@ test("daemon registry restores a durable tmux session and reattaches without res
       tmux: controller,
       spawnPty: (command, args) => {
         assert.equal(command, "tmux");
-        assert.deepEqual(args, ["attach-session", "-t", createdNamespace]);
+        assert.deepEqual(args, ["-u", "attach-session", "-t", createdNamespace]);
         return attachedPty.pty;
       }
     });
@@ -105,6 +105,48 @@ test("daemon registry restores a durable tmux session and reattaches without res
       confirmation: "terminate-terminal-session"
     }).ok, true);
     assert.equal(namespaceState.size, 0);
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("terminal children get a UTF-8 ctype and tmux runs in UTF-8 mode", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-pty-utf8-"));
+  const controller = {
+    probe: () => ({ available: true, executable: "tmux", version: "tmux 3.4" }),
+    hasSession: () => true,
+    killSession: () => undefined
+  };
+  try {
+    const spawns: Array<{ readonly args: ReadonlyArray<string>; readonly env: Record<string, string> }> = [];
+    const service = createPtyTerminalSessionService({
+      workspaceRoot,
+      tmux: controller,
+      env: { PATH: process.env.PATH ?? "", LANG: "", LC_CTYPE: "C" },
+      createId: () => "term-utf8",
+      spawnPty: (_command, args, options) => {
+        spawns.push({ args, env: options.env });
+        return fakePty().pty;
+      }
+    });
+    assert.equal(service.createSession({ name: "Locale" }).ok, true);
+    // `tmux -u` renders wide characters even when the daemon inherited no locale at all.
+    assert.equal(spawns[0]?.args[0], "-u");
+    assert.equal(spawns[0]?.env.LC_CTYPE, "C.UTF-8");
+
+    const utf8Inherited = createPtyTerminalSessionService({
+      workspaceRoot,
+      tmux: controller,
+      env: { PATH: process.env.PATH ?? "", LANG: "zh_CN.UTF-8" },
+      createId: () => "term-utf8-inherited",
+      spawnPty: (_command, args, options) => {
+        spawns.push({ args, env: options.env });
+        return fakePty().pty;
+      }
+    });
+    assert.equal(utf8Inherited.createSession({ name: "Locale inherited" }).ok, true);
+    assert.equal(spawns[1]?.env.LC_CTYPE, undefined);
+    assert.equal(spawns[1]?.env.LANG, "zh_CN.UTF-8");
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
   }
