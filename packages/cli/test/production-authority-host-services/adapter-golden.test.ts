@@ -32,7 +32,9 @@ test("all four production ingress adapters retain canonical envelope and receipt
   const daemon = defaultCliAdapterProvider().createMultiRepoDaemonRuntime({
     repos: [{ repoId: "canonical", rootDir: fixture.repoRoot }],
     materializerPollMs: 5,
-    materializerMaxBranchesPerBatch: 1
+    materializerMaxBranchesPerBatch: 1,
+    generationAxes: fixture.generationAxes,
+    generationWitness: fixture.generationWitness
   });
   const lifecycle = createCliProductionAuthorityLifecycle({ manifestPath: fixture.manifestPath });
   try {

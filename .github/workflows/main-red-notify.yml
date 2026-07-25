@@ -2,7 +2,7 @@ name: main-red-notify
 
 on:
   workflow_run:
-    workflows: ["rewrite-ci"]
+    workflows: ["rewrite-ci", "nightly-integration"]
     branches: [main]
     types: [completed]
 
