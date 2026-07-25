@@ -35,6 +35,10 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(existsSync(path.join(rootDir, result.report.configureVerify.smokeTaskPackagePath)), false);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
+    const decisionWriting = readFileSync(path.join(rootDir, "harness/standards/decision-writing.md"), "utf8");
+    assert.match(decisionWriting, /每个 `chosen\[\]\.text` 只写一句/u);
+    assert.match(decisionWriting, /三个判断就写成\s*三个 `--chosen`/u);
+    assert.match(decisionWriting, /Task 承接实施要求/u);
     // AGENTS.md is deterministically composed from L1 base + L2 overlay with an
     // empty L3 `## Repository Specifics` anchor reserved (ADR-0021 D2).
     const agents = readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");

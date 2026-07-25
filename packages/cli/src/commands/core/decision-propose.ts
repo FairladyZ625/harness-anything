@@ -15,6 +15,7 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { decisionFailure, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
+import { findOverlongDecisionChoices, overlongDecisionChoiceHint } from "./decision-writing-standard.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;
 
@@ -46,6 +47,14 @@ export function runPropose(
 export function materializeProposedDecision(action: ProposeAction):
   | { readonly ok: true; readonly decision: DecisionCreateInput }
   | { readonly ok: false; readonly code: CliErrorCode; readonly reason: string } {
+  const overlongChoice = findOverlongDecisionChoices(action.chosen)[0];
+  if (overlongChoice) {
+    return {
+      ok: false,
+      code: CliErrorCode.DecisionChosenTooLong,
+      reason: overlongDecisionChoiceHint(overlongChoice)
+    };
+  }
   const baseDecision = proposedDecision(action, []);
   const fulfilled = applyClaimFulfillments(baseDecision, action.fulfillments);
   if (!fulfilled.ok) return { ok: false, code: CliErrorCode.InvalidDecisionAmendPatch, reason: fulfilled.reason };

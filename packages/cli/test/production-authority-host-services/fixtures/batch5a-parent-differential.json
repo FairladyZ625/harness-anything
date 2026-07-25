@@ -4,7 +4,7 @@
     "packages/cli/src/cli/command-semantic-normalizer.ts": "714a6822fa65957f83c5136bcc19e32252b07e46",
     "packages/cli/src/cli/command-spec/index.ts": "36a906cadb9af3b5d6cc2849607644fa077904fd",
     "packages/cli/src/cli/decision-propose-normalizer.ts": "9855cbd743297bf74506b8964f1e84f9e015ff16",
-    "packages/cli/src/commands/core/decision-propose.ts": "1ddf29ec5168cb35c9906e500a91c0d5797aa376",
+    "packages/cli/src/commands/core/decision-propose.ts": "8b97336df933154a9b6bc7c85b92728ec33459ae",
     "packages/cli/src/commands/core/decision-relate.ts": "22b3eff78b8115c6c97e870d0218b6f779064dca",
     "packages/cli/src/commands/core/decision-relation-record.ts": "b802dcbb858030d86d40e2b928750afd7150d239",
     "packages/cli/src/commands/core/task-lifecycle.ts": "ca002e96498531aef065647cabe7ed6279caa54e",
@@ -333,7 +333,7 @@
       },
       "settingsPreset": {
         "byteLength": 7278,
-        "sha256": "fc00a87c397bff86ed49a7a2c1f2d1393560d1364ed5b4ccfffd665636d820be"
+        "sha256": "a44681c15f87b21d34ea957daeb6f44a7cd424b8ef04451b080fc7aca26b9386"
       },
       "settingsFailure": {
         "byteLength": 79,

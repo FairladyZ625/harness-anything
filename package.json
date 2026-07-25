@@ -71,6 +71,7 @@
     "harness:check-settings-examples": "node tools/check-settings-examples.mjs",
     "harness:check-gate-surface": "node tools/check-gate-surface.mjs",
     "harness:check-gate-manifest-invariants": "node tools/check-gate-manifest-invariants.mjs",
+    "harness:check-decision-chosen-length": "node tools/check-decision-chosen-length.mjs",
     "harness:check-ghost-task-packages": "node tools/check-ghost-task-packages.mjs",
     "harness:check-enforcement-constants": "node tools/check-enforcement-constants.mjs",
     "harness:check-retired-keys": "node tools/check-retired-keys.mjs",

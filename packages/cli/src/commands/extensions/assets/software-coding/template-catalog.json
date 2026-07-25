@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "owner": "harness-anything",
     "locales": [
       "zh-CN",
@@ -1781,6 +1781,67 @@
         },
         {
           "anchor": "## 相关命令 (Related commands)",
+          "writeMode": "free-prose",
+          "semanticClass": "host-prose-only"
+        }
+      ]
+    },
+    {
+      "id": "repository/decision-writing",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.decision-writing",
+      "materializeAs": "harness/standards/decision-writing.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## Chosen",
+        "## Body",
+        "## Task"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Chosen",
+            "## Body",
+            "## Task"
+          ],
+          "bodyPath": "templates/repository.decision-writing/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Chosen",
+            "## Body",
+            "## Task"
+          ],
+          "bodyPath": "templates/repository.decision-writing/en-US.md"
+        }
+      ],
+      "sectionPermissions": [
+        {
+          "anchor": "## Chosen",
+          "writeMode": "free-prose",
+          "semanticClass": "host-prose-only"
+        },
+        {
+          "anchor": "## Body",
+          "writeMode": "free-prose",
+          "semanticClass": "host-prose-only"
+        },
+        {
+          "anchor": "## Task",
+          "writeMode": "free-prose",
+          "semanticClass": "host-prose-only"
+        },
+        {
+          "anchor": "## 超限后怎么改",
+          "writeMode": "free-prose",
+          "semanticClass": "host-prose-only"
+        },
+        {
+          "anchor": "## Repairing an overlong entry",
           "writeMode": "free-prose",
           "semanticClass": "host-prose-only"
         }
