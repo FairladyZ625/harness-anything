@@ -20,6 +20,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "prebuild": "tsc -b",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "postbuild": "node dist/cli/src/build/write-build-provenance.js",
     "prepack": "npm run build"
