@@ -30,7 +30,7 @@ test("CLI github issue repair preset exposes agent guidance without a script run
 
     const inspected = runJson(rootDir, ["preset", "inspect", "github-issue-repair"]);
     assert.equal(inspected.preset.kind, "process-action");
-    assert.equal(inspected.preset.version, "2.0.0");
+    assert.equal(inspected.preset.version, "2.0.1");
     assert.deepEqual(inspected.preset.entrypoints, []);
     assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
     assert.deepEqual(inspected.preset.manifest.capabilityImports, []);
@@ -50,7 +50,7 @@ test("CLI github issue repair preset exposes agent guidance without a script run
     assert.equal(created.report.preset, "github-issue-repair");
     const contract = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "task-contract.json"), "utf8"));
     assert.equal(contract.preset.id, "github-issue-repair");
-    assert.equal(contract.preset.version, "2.0.0");
+    assert.equal(contract.preset.version, "2.0.1");
   });
 });
 

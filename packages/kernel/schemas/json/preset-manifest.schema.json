@@ -40,6 +40,13 @@
             "process-action"
           ]
         },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
+          ]
+        },
         "extends": {
           "type": "string"
         },
@@ -323,6 +330,13 @@
           "enum": [
             "template-content",
             "process-action"
+          ]
+        },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
           ]
         },
         "extends": {
@@ -617,6 +631,13 @@
           "enum": [
             "template-content",
             "process-action"
+          ]
+        },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
           ]
         },
         "extends": {

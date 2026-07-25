@@ -249,12 +249,14 @@ export const PresetDocumentFrontmatterSchema = Schema.Struct({
   inputs: Schema.optional(PresetDocumentFieldDescriptionsSchema),
   entrypoints: Schema.optional(PresetDocumentFieldDescriptionsSchema)
 });
+const PresetOutputShapeSchema = Schema.Literal("repository-diff", "task-package-artifact");
 const PresetManifestCommonFields = {
   id: Schema.String,
   title: Schema.String,
   vertical: Schema.String,
   version: Schema.String,
   kind: Schema.optional(Schema.Literal("template-content", "process-action")),
+  outputShape: Schema.optional(PresetOutputShapeSchema),
   extends: OptionalString,
   policyPath: Schema.optional(PresetPolicyPathSchema),
   kernelVersionRange: Schema.Struct({

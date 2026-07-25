@@ -14,6 +14,7 @@ const validFixture = JSON.parse(readFileSync(
 test("preset manifest v3 decodes the semantic capability fixture", () => {
   const decoded = Schema.decodeUnknownSync(PresetManifestSchema)(validFixture);
   assert.equal(decoded.schema, "preset-manifest/v3");
+  assert.equal(decoded.outputShape, "repository-diff");
   assert.equal(decoded.entrypoints?.audit?.requires.length, 12);
   assert.equal(decoded.entrypoints?.audit?.produces.length, 2);
 });
@@ -39,6 +40,15 @@ test("preset manifest v3 rejects unknown capability versions and selector shapes
   const audit = (candidate.entrypoints as Record<string, Record<string, unknown>>).audit;
   audit.requires = [{ capability: "tasks", version: "1", select: { scope: "all", view: "full-filesystem" } }];
   assert.throws(() => Schema.decodeUnknownSync(PresetManifestSchema)(candidate));
+});
+
+test("preset manifest output shape is additive and rejects unknown values", () => {
+  const legacy = structuredClone(validFixture);
+  delete legacy.outputShape;
+  assert.equal(Schema.decodeUnknownSync(PresetManifestSchema)(legacy).outputShape, undefined);
+
+  const unknown = { ...validFixture, outputShape: "external-deployment" };
+  assert.throws(() => Schema.decodeUnknownSync(PresetManifestSchema)(unknown));
 });
 
 test("capability catalog freezes each v1 data shape and authority envelope", () => {
