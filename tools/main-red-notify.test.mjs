@@ -23,7 +23,7 @@ function extractWorkflowScript() {
   return lines.slice(marker + 1).filter((line) => line.startsWith("            ")).map((line) => line.slice(12)).join("\n");
 }
 
-function workflowHarness({ conclusion, runId, headSha, openIssues = [], jobs = [] }) {
+function workflowHarness({ conclusion, runId, headSha, workflowName = "rewrite-ci", openIssues = [], jobs = [] }) {
   const calls = { comments: [], creates: [], labels: [], updates: [] };
   const listForRepo = () => {};
   const listJobsForWorkflowRun = () => {};
@@ -51,7 +51,8 @@ function workflowHarness({ conclusion, runId, headSha, openIssues = [], jobs = [
         conclusion,
         head_sha: headSha,
         html_url: `https://github.com/example/repo/actions/runs/${runId}`,
-        id: runId
+        id: runId,
+        name: workflowName
       }
     }
   };
@@ -113,7 +114,7 @@ test("workflow stays notify-only and uses the declared minimal permissions", () 
   const workflow = readFileSync(new URL("../.github/workflows/main-red-notify.yml", import.meta.url), "utf8");
 
   assert.match(workflow, /workflow_run:/u);
-  assert.match(workflow, /workflows: \["rewrite-ci"\]/u);
+  assert.match(workflow, /workflows: \["rewrite-ci", "nightly-integration"\]/u);
   assert.match(workflow, /branches: \[main\]/u);
   assert.match(workflow, /types: \[completed\]/u);
   assert.match(workflow, /permissions:\n  actions: read\n  issues: write/u);
@@ -143,6 +144,23 @@ test("workflow failure path creates the locally tested issue content", async () 
     headSha: "abc123",
     failedJobs: ["full-check (24)"]
   }));
+});
+
+test("nightly-integration failure follows the same main-red issue path", async () => {
+  const harness = workflowHarness({
+    conclusion: "failure",
+    runId: 44,
+    headSha: "nightly123",
+    workflowName: "nightly-integration",
+    jobs: [{ name: "production-authority-perf-matrix", conclusion: "failure" }]
+  });
+  await harness.run();
+
+  assert.equal(harness.calls.creates.length, 1);
+  assert.equal(harness.calls.creates[0].title, mainRedIssueTitle);
+  assert.deepEqual(harness.calls.creates[0].labels, [mainRedLabel]);
+  assert.match(harness.calls.creates[0].body, /production-authority-perf-matrix/u);
+  assert.match(harness.calls.creates[0].body, /actions\/runs\/44/u);
 });
 
 test("workflow does not duplicate the same run and ignores stale completions", async () => {

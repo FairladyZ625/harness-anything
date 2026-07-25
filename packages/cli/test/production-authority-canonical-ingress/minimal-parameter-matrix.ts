@@ -29,6 +29,7 @@ export function verifyTypedMinimalParameterMatrix(
     "task-relate": { argv: ["task", "relate", missingTask, "depends-on", "task_01KXT3E1MN1VBS64DCNZ4VX81E", "--rationale", "minimal"], outcome: "guided-error" },
     "task-code-doc-reconcile": { argv: ["task", "code-doc", "reconcile", missingTask, "--commit", fixture.publicHead, "--path", "README.md"], outcome: "guided-error" },
     "task-consent-record": { argv: ["task", "consent-record", missingTask, "--execution-id", missingExecution, "--utterance", "Approved"], outcome: "guided-error" },
+    "task-retire-execution": { argv: ["task", "retire-execution", missingTask, "--execution-id", missingExecution, "--reason", "minimal"], outcome: "guided-error" },
     "task-review-execution": { argv: ["task", "review-execution", missingTask, "--execution-id", missingExecution, "--verdict", "dismissed", "--findings", "none", "--rationale", "minimal"], outcome: "guided-error" },
     "task-complete": { argv: ["task", "complete", missingTask], outcome: "guided-error" },
     "decision-propose": { argv: ["decision", "propose", "--title", "Minimal ingress decision", "--question", "Minimal?", "--chosen", "Yes", "--rejected", "No", "--why-not", "Not selected"], outcome: "success" },

@@ -9,7 +9,13 @@ import {
   firstPinAuthorityKeyV1,
   type AuthorityStoredOperationRecord
 } from "../../../application/src/index.ts";
-import { openLocalAuthorityKeyStore } from "../../../daemon/src/index.ts";
+import {
+  createDaemonGenerationWitness,
+  localUserDaemonEndpoint,
+  openLocalAuthorityKeyStore,
+  publishNextDaemonGeneration,
+  readOrCreateDaemonMachineId
+} from "../../../daemon/src/index.ts";
 import { executionDeclaration, type ExecutionRecord } from "../../../kernel/src/index.ts";
 import { authorityNamespaceProofBytes } from "@harness-anything/daemon";
 
@@ -22,6 +28,21 @@ export function createFixture() {
   const auxiliaryRoot = path.join(root, "auxiliary");
   const auxiliaryAuthoredRoot = path.join(auxiliaryRoot, "harness");
   const serviceRoot = path.join(root, "service-state");
+  const daemonUserRoot = path.join(root, ".daemon-user");
+  const endpointIdentity = localUserDaemonEndpoint(daemonUserRoot);
+  const machineId = readOrCreateDaemonMachineId(daemonUserRoot);
+  const generation = publishNextDaemonGeneration({
+    userRoot: daemonUserRoot,
+    endpointIdentity,
+    machineId,
+    daemonInstanceId: `production-fixture-${process.pid}`
+  });
+  const generationAxes = { machineId, daemonGeneration: generation.daemonGeneration };
+  const generationWitness = createDaemonGenerationWitness({
+    userRoot: daemonUserRoot,
+    endpointIdentity,
+    ...generationAxes
+  });
   const keyStateDirectory = path.join(serviceRoot, "keys/canonical");
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0"), { recursive: true });
   mkdirSync(serviceRoot, { recursive: true, mode: 0o700 });
@@ -145,7 +166,7 @@ export function createFixture() {
       }]
     })
   );
-  const transcriptPath = path.join(root, "session-transcript.md");
+  const transcriptPath = path.join(root, "session-transcript.jsonl");
   writeFileSync(transcriptPath, `${JSON.stringify({ timestamp: "2026-07-17T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Production session ingress." } })}\n`);
   writeFileSync(path.join(authoredRoot, "people.yaml"), [
     "schema: harness-people/v1", "people:", "  - personId: person_alice", "    displayName: Alice",
@@ -194,7 +215,19 @@ export function createFixture() {
   mkdirSync(auxiliaryAuthoredRoot, { recursive: true });
   writeFileSync(path.join(auxiliaryAuthoredRoot, "harness.yaml"), "schema: harness-anything/v1\nproject: auxiliary-ingress\n");
   git(auxiliaryAuthoredRoot, "init", "-q"); git(auxiliaryAuthoredRoot, "add", "."); git(auxiliaryAuthoredRoot, "commit", "-q", "-m", "seed auxiliary ingress fixture");
-  return { root, repoRoot, authoredRoot, auxiliaryRoot, serviceRoot, manifestPath, actor, transcriptPath, publicHead };
+  return {
+    root,
+    repoRoot,
+    authoredRoot,
+    auxiliaryRoot,
+    serviceRoot,
+    manifestPath,
+    actor,
+    transcriptPath,
+    publicHead,
+    generationAxes,
+    generationWitness
+  };
 }
 
 export function enablePresetAwareTaskCreate(authoredRoot: string): void {

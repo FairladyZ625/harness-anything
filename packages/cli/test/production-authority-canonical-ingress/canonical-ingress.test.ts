@@ -12,6 +12,7 @@ import {
 import {
   decisionEntityId,
   createTaskPackagePath,
+  moduleEntityId,
   sha256Text,
   taskEntityId
 } from "../../../kernel/src/index.ts";
@@ -95,7 +96,12 @@ test("production service route preserves progress dry-run and publishes canonica
       (status, error) => JSON.stringify({ status, error: error instanceof Error ? error.message : String(error ?? "") }),
       { timeoutMs: 20_000 }
     );
-    assert.equal(status.repoCount, 2, JSON.stringify(status));
+    assert.equal(status.repoCount, 1, JSON.stringify(status));
+    assert.deepEqual(
+      (status.repos as ReadonlyArray<{ readonly repoId?: string }>).map((repo) => repo.repoId),
+      ["canonical"],
+      "the explicit production authority manifest must bound the active service inventory"
+    );
 
     verifyProductionPresetIngress(fixture, env);
 
@@ -410,7 +416,9 @@ test("production generic canonical ingress accepts and journals one write for ev
   const daemon = defaultCliAdapterProvider().createMultiRepoDaemonRuntime({
     repos: [{ repoId: "canonical", rootDir: fixture.repoRoot }],
     materializerPollMs: 5,
-    materializerMaxBranchesPerBatch: 1
+    materializerMaxBranchesPerBatch: 1,
+    generationAxes: fixture.generationAxes,
+    generationWitness: fixture.generationWitness
   });
   try {
     await daemon.start();
