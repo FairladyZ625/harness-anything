@@ -126,7 +126,7 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
       if (useTmux) tmuxNamespaces.set(sessionId, namespace);
       const pty = spawnPty(
         useTmux ? String(tmuxProbe.executable) : shell,
-        useTmux ? ["new-session", "-A", "-s", namespace, "-c", cwd, shell] : [],
+        useTmux ? ["-u", "new-session", "-A", "-s", namespace, "-c", cwd, shell] : [],
         {
         name: "xterm-256color",
         columns: defaultColumns,
@@ -230,7 +230,7 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
     const output = outputBySession.get(payload.sessionId) ?? createOutputState();
     outputBySession.set(payload.sessionId, output);
     try {
-      const pty = spawnPty(tmuxProbe.executable, ["attach-session", "-t", namespace], {
+      const pty = spawnPty(tmuxProbe.executable, ["-u", "attach-session", "-t", namespace], {
         name: "xterm-256color",
         columns: defaultColumns,
         rows: defaultRows,
@@ -421,12 +421,28 @@ function nodePtySpawner(shell: string, args: ReadonlyArray<string>, options: Pty
 }
 
 function terminalEnvironment(source: NodeJS.ProcessEnv, cwd: string): Record<string, string> {
+  const inherited = Object.fromEntries(
+    Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
   return {
-    ...Object.fromEntries(Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    ...inherited,
+    ...utf8CtypeOverride(inherited),
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     PWD: cwd
   };
+}
+
+/**
+ * A launchd-started daemon usually inherits no locale at all, so terminal children run under the
+ * C locale: tmux then renders every wide character as `_` and shells mangle multibyte input.
+ * Fill in a UTF-8 LC_CTYPE only when no inherited variable already selects one.
+ */
+function utf8CtypeOverride(inherited: Record<string, string>): Record<string, string> {
+  const selected = inherited.LC_ALL ?? inherited.LC_CTYPE ?? inherited.LANG ?? "";
+  if (/utf-?8/i.test(selected)) return {};
+  // LC_ALL outranks LC_CTYPE, so a non-UTF-8 LC_ALL has to be replaced rather than supplemented.
+  return inherited.LC_ALL === undefined ? { LC_CTYPE: "C.UTF-8" } : { LC_ALL: "C.UTF-8" };
 }
 
 function canonicalDirectory(value: string): string {
