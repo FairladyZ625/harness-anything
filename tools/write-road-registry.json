@@ -6540,6 +6540,13 @@
           "reason": "Design exemption: tools/check-runtime-release-readiness.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact execFileSync call does not author registered entity SoT."
         },
         {
+          "key": "tools/check-supply-chain-advisory.mjs#spawnSync@1",
+          "owner": "repository.tooling.mutation-surfaces",
+          "classification": "design-exemption",
+          "ref": "task_01KYBP01C1282GTQS6MJBRSFVV",
+          "reason": "Design exemption: tools/check-supply-chain-advisory.mjs runs the scheduled live npm audit lane relocated out of the required merge gate by dec_01KYB7TMSPAASW4XTAAA0CVH5W CH2; this exact spawnSync call invokes npm to read advisory findings and does not author registered entity SoT."
+        },
+        {
           "key": "tools/check-supply-chain.mjs#spawnSync@1",
           "owner": "repository.tooling.mutation-surfaces",
           "classification": "design-exemption",

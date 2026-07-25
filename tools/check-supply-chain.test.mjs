@@ -39,7 +39,24 @@ test("supply-chain check accepts an explicitly wider fail-closed command timeout
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /phase=audit-1 .*timeoutMs=120000 .*status=completed/u);
+    // The SBOM phase is the required lane's remaining network command; live audit runs in
+    // the scheduled advisory lane (dec_01KYB7TMSPAASW4XTAAA0CVH5W, CH2).
+    assert.match(result.stdout, /phase=sbom .*timeoutMs=120000 .*status=completed/u);
+  });
+});
+
+test("supply-chain check keeps live audit out of the required lane and says so", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root);
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    // Deferral must be announced. A gate that quietly stops running a command reads as
+    // "this was checked" when it was not.
+    assert.match(result.stdout, /npm-audit-all deferred to the nightly-supply-chain-advisory lane/u);
+    assert.match(result.stdout, /npm-audit-production deferred to the nightly-supply-chain-advisory lane/u);
+    assert.doesNotMatch(result.stdout, /phase=audit-/u);
   });
 });
 
@@ -263,7 +280,10 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
     }), "node tools/check-supply-chain.mjs", CHECK_PROCESS_TIMEOUT_MS);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /npm audit --audit-level=high failed/u);
+    // The point is that the checker really shells out to npm rather than trusting fixture
+    // output handed to it through the environment. With PATH emptied, the required lane's
+    // npm invocation must fail to start.
+    assert.match(result.stderr, /npm sbom --sbom-format=cyclonedx --sbom-type=application failed to start/u);
   });
 });
 
@@ -300,9 +320,9 @@ test("supply-chain check reports a bounded npm command timeout", async (t) => {
   await withFixtureRepo((root) => {
     const hangPidPath = path.join(root, "hanging-npm.pid");
     const slowNodeStartupPath = path.join(root, "slow-node-startup.cjs");
-    // The npm fixture must model fast audit commands independently of Node's
+    // The npm fixture must model fast non-hanging commands independently of Node's
     // cold-start time. This preload makes the old Node-based mock exceed the
-    // command timeout before reaching its immediate audit branch.
+    // command timeout before reaching its immediate non-hanging branch.
     writeFile(
       root,
       "slow-node-startup.cjs",
@@ -323,8 +343,10 @@ test("supply-chain check reports a bounded npm command timeout", async (t) => {
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stdout, /phase=audit-1 attempt=1\/2 .*status=completed/u);
-    assert.match(result.stdout, /phase=audit-2 attempt=1\/2 .*status=completed/u);
+    // Live audit is deferred to the advisory lane, so it consumes none of the network
+    // budget here; the hanging SBOM command must still be bounded and killed on its own.
+    assert.match(result.stdout, /npm-audit-all deferred to the nightly-supply-chain-advisory lane/u);
+    assert.match(result.stdout, /npm-audit-production deferred to the nightly-supply-chain-advisory lane/u);
     assert.match(result.stderr, /phase=sbom attempt=2\/2 .*timed out/u);
     assert.match(result.stderr, /termination=SIGKILL/u);
     assert.doesNotMatch(result.stderr, /phase=audit-.*timed out/u);
