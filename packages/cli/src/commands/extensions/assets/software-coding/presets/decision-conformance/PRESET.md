@@ -7,3 +7,8 @@ whenToUse: Use when a change is constrained by recorded architecture, policy, pr
 # Decision Conformance
 
 Selects the decision-conformance checker profile so task completion includes evidence against the applicable accepted decisions.
+
+When this work proposes a new decision, follow
+`harness/standards/decision-writing.md`: each chosen entry is one directly
+answerable judgment, rationale belongs in the decision body, and implementation
+requirements belong in tasks.

@@ -147,6 +147,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-decision-chosen-length",
         "check-enforcement-constants",
         "check-retired-keys",
         "check-staged-activation",
@@ -199,6 +200,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-decision-chosen-length",
         "check-enforcement-constants",
         "check-retired-keys",
         "check-staged-activation",
@@ -3367,6 +3369,91 @@
         "classes": [
           "local",
           "pr"
+        ]
+      }
+    },
+    {
+      "id": "check-decision-chosen-length",
+      "command": "npm run harness:check-decision-chosen-length",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "dec_01KYCF3V45ECWP90YCKZZZCZQ8",
+        "packages/cli/src/commands/extensions/assets/software-coding/templates/repository.decision-writing",
+        "packages/cli/src/commands/core/decision-writing-standard.ts"
+      ],
+      "consumerScope": [
+        "each chosen[].text accepted by ha decision propose",
+        "self-hosted harness/decisions historical debt ratchet"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/decision-chosen-length-baseline.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Exact content digests exempt only measured historical overlong chosen entries. New entries fail; remediated entries make the baseline stale so it can only shrink."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-decision-chosen-length.mjs",
+          "tools/decision-chosen-length-baseline.json",
+          "packages/cli/src/commands/core/decision-writing-standard.ts",
+          "package.json:scripts.harness:check-decision-chosen-length",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-decision-chosen-length"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": false,
+      "nonDeterminism": {
+        "kind": "local-authority",
+        "reason": "The runtime proposal contract and committed baseline are deterministic, but the historical ratchet additionally scans the private self-hosted decision ledger when that layout is available; public CI reports that ledger scan explicitly not applicable.",
+        "evidence": [
+          "harness/harness.yaml:layout.authoredRoot",
+          "tools/check-decision-chosen-length.mjs:resolveDecisionsRoot",
+          "tools/decision-chosen-length-baseline.json"
+        ]
+      },
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-decision-chosen-length.test.mjs",
+          "packages/cli/test/decision-writing-standard-cli.test.ts"
         ]
       }
     },
