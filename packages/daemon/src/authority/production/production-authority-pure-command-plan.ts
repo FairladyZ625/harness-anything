@@ -51,8 +51,9 @@ export function productionAuthorityCommandHasPurePlan(
   command: ProductionAuthorityCommand
 ): boolean {
   return directTypedCommandEntityId(command) !== undefined
-    // Task creation may first publish a provenance-session operation. A single
-    // fixed durable plan cannot represent both canonical operations, so keep
-    // the whole command on the direct child lane.
-    && command.action.kind !== "new-task";
+    // Task creation and execution submit may first publish a provenance-session
+    // operation. A single fixed durable plan cannot represent both canonical
+    // operations, so keep the whole command on the direct child lane.
+    && command.action.kind !== "new-task"
+    && !(command.action.kind === "status-set" && Boolean(command.action.executionSubmission));
 }

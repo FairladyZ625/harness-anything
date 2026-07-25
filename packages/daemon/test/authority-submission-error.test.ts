@@ -310,6 +310,39 @@ test("multi-operation task creation stays on the direct child lane", () => {
   }), false);
 });
 
+test("multi-operation execution submit stays on the direct child lane", () => {
+  assert.equal(productionAuthorityCommandHasPurePlan({
+    rootDir: "/repo",
+    action: {
+      kind: "status-set",
+      taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6",
+      status: "in_review",
+      force: false,
+      executionSubmission: {
+        executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+        completionClaim: "ready",
+        deliverables: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+        outputs: []
+      }
+    }
+  }), false);
+});
+
+test("ordinary status transition stays on the durable child lane", () => {
+  assert.equal(productionAuthorityCommandHasPurePlan({
+    rootDir: "/repo",
+    action: {
+      kind: "status-set",
+      taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6",
+      status: "active",
+      force: false
+    }
+  }), true);
+});
+
 test("one submission method carries every governed ingress discriminator", async () => {
   const fixture = authorityCommandAttemptFixture();
   const compiled: string[] = [];
