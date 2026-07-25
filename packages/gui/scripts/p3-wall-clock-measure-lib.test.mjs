@@ -1,3 +1,4 @@
+// harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateFiveKFirstScreenMet } from "./p3-wall-clock-measure-lib.mjs";
