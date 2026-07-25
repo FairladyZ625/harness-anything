@@ -602,6 +602,7 @@
         "title",
         "vertical",
         "version",
+        "outputShape",
         "kernelVersionRange",
         "capabilityImports",
         "defaultProfile",

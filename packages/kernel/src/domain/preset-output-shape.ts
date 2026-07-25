@@ -10,7 +10,8 @@ export function validatePresetOutputShape(
   preset: PresetManifest,
   presetIndex: number
 ): ReadonlyArray<PresetOutputShapeIssue> {
-  if (preset.schema === "preset-manifest/v1" || !preset.outputShape) return [];
+  if (preset.schema === "preset-manifest/v1") return [];
+  if (preset.schema === "preset-manifest/v2" && !preset.outputShape) return [];
   const issues: PresetOutputShapeIssue[] = [];
   for (const [profileIndex, profile] of preset.profiles.entries()) {
     const path = `presets[${presetIndex}].profiles[${profileIndex}].completionGates`;

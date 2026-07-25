@@ -5,6 +5,7 @@
   "vertical": "software/coding",
   "version": "2.0.0",
   "kind": "process-action",
+  "outputShape": "task-package-artifact",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [],
   "entrypoints": {
@@ -35,6 +36,6 @@
       "sideEffects": []
     }
   },
-  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": [], "templateSelections": [] }],
   "defaultProfile": "baseline"
 }

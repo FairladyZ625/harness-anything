@@ -33,8 +33,8 @@
     },
     {
       "id": "subtask-expansion",
-      "version": "2.0.0",
-      "digest": "sha256:452650411ac7f590caf2d4b091d9cc3fb9558de8a1b6686dafadd177801be698"
+      "version": "2.0.1",
+      "digest": "sha256:fd925aa824da11a1e1583a33c2340786a95cb9507319b70afed002aa813937db"
     },
     {
       "id": "github-issue-repair",
@@ -43,18 +43,18 @@
     },
     {
       "id": "legacy-migration",
-      "version": "2.0.0",
-      "digest": "sha256:5b3c223622753eb4067cd36f1e62ac5cdce6ceaefdd724aba17010f15784684e"
+      "version": "2.0.1",
+      "digest": "sha256:9908d28b609d6c958b18dab3f7f58f5d00474b152bf8845b80509f4a3b1f8802"
     },
     {
       "id": "create-milestone",
-      "version": "2.0.0",
-      "digest": "sha256:170b78b2e59770dcce83cb6fd54bd027d024aafb31500c7300afb5796ba14a30"
+      "version": "2.0.1",
+      "digest": "sha256:f856c059cf13ecb7d053c43faf5b2a09fa1570803f56d094605d77decdd84c63"
     },
     {
       "id": "milestone-closeout",
-      "version": "2.0.0",
-      "digest": "sha256:22064f8ecaa68f6d09863a2dd44bc171d25c4d68b914e52bc8b91762adf69baf"
+      "version": "2.0.1",
+      "digest": "sha256:f865b62c100f43bb4371d3b10f5f92c131e3259011e384155d976589a7da1ffb"
     },
     {
       "id": "decision-conformance",
@@ -73,8 +73,8 @@
     },
     {
       "id": "architecture-rot-audit",
-      "version": "2.0.0",
-      "digest": "sha256:a363ca400af04b19f52ab7043b1ca6887c2074ea649ff75eaa1215a80623d962"
+      "version": "2.0.1",
+      "digest": "sha256:e37799a474134a80d21eb7479fe352a0fe507e9d104b8939b5b7971664155687"
     }
   ]
 }

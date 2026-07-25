@@ -30,7 +30,7 @@ test("CLI create-milestone exposes v3 agent guidance without script entrypoints"
 
     const inspected = runJson(rootDir, ["preset", "inspect", presetId]);
     assert.equal(inspected.preset.kind, "process-action");
-    assert.equal(inspected.preset.version, "2.0.0");
+    assert.equal(inspected.preset.version, "2.0.1");
     assert.deepEqual(inspected.preset.entrypoints, []);
     assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
     assert.equal(Object.hasOwn(inspected.preset.manifest, "entrypoints"), false);
@@ -55,7 +55,7 @@ test("CLI create-milestone exposes v3 agent guidance without script entrypoints"
     assert.equal(created.report.preset, presetId);
     const contract = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "task-contract.json"), "utf8"));
     assert.equal(contract.preset.id, presetId);
-    assert.equal(contract.preset.version, "2.0.0");
+    assert.equal(contract.preset.version, "2.0.1");
   });
 });
 

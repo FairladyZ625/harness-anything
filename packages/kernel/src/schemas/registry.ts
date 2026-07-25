@@ -278,6 +278,7 @@ const PresetManifestCommonFields = {
 const PresetManifestV3Schema = Schema.Struct({
   schema: Schema.Literal("preset-manifest/v3"),
   ...PresetManifestCommonFields,
+  outputShape: PresetOutputShapeSchema,
   entrypoints: Schema.optional(Schema.Record({
     key: Schema.String,
     value: PresetEntrypointV3Schema
