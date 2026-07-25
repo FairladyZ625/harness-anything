@@ -203,13 +203,14 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
   function closeSession(payload: TerminalSessionIdPayload): TerminalSessionDetailResult {
     const current = registry.getSession(payload);
     if (!current.ok || ptySessionHasExited(current.session)) return current;
-    terminateBackend(payload.sessionId);
     const pty = processes.get(payload.sessionId);
     try {
       pty?.kill();
-    } catch {
-      // The process may have exited between the metadata read and kill.
+    } catch (error) {
+      return terminalFailure("terminal_termination_failed", error instanceof Error ? error.message : String(error));
     }
+    const backendFailure = terminateBackend(payload.sessionId);
+    if (backendFailure) return backendFailure;
     return finalizeExit(payload.sessionId, 0);
   }
 
@@ -248,22 +249,23 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
     if (payload.confirmation !== "terminate-terminal-session") return registry.terminateSession(payload);
     const current = registry.getSession(payload);
     if (!current.ok || ptySessionHasExited(current.session)) return current;
-    terminateBackend(payload.sessionId);
     try {
       processes.get(payload.sessionId)?.kill();
-    } catch {
-      // The terminal client may have exited while the explicit terminate was being handled.
+    } catch (error) {
+      return terminalFailure("terminal_termination_failed", error instanceof Error ? error.message : String(error));
     }
+    const backendFailure = terminateBackend(payload.sessionId);
+    if (backendFailure) return backendFailure;
     return registry.terminateSession(payload);
   }
 
-  function terminateBackend(sessionId: string): void {
+  function terminateBackend(sessionId: string): (TerminalSessionDetailResult & { readonly ok: false }) | undefined {
     const namespace = tmuxNamespaces.get(sessionId);
     if (!namespace || !tmuxProbe.executable) return;
     try {
       tmux.killSession(tmuxProbe.executable, namespace);
-    } catch {
-      // The tmux session may already have exited.
+    } catch (error) {
+      return terminalFailure("terminal_termination_failed", error instanceof Error ? error.message : String(error));
     }
     tmuxNamespaces.delete(sessionId);
   }

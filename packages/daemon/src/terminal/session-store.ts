@@ -5,17 +5,21 @@ import type { TerminalSessionInfo } from "@harness-anything/application/terminal
 const schema = "terminal-session-registry/v1" as const;
 
 export function loadTerminalSessionRegistry(filePath: string): ReadonlyArray<TerminalSessionInfo> {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
-    if (!isTerminalStoreRecord(parsed) || parsed.schema !== schema || !Array.isArray(parsed.sessions)) return [];
-    return parsed.sessions.flatMap((session) => {
-      const projected = readTerminalSessionInfo(session);
-      return projected ? [projected] : [];
-    });
+    parsed = JSON.parse(readFileSync(filePath, "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    return [];
+    throw error;
   }
+  if (!isTerminalStoreRecord(parsed) || parsed.schema !== schema || !Array.isArray(parsed.sessions)) {
+    throw new Error("invalid terminal session registry schema");
+  }
+  const sessions = parsed.sessions.map(readTerminalSessionInfo);
+  if (!sessions.every((session): session is TerminalSessionInfo => session !== undefined)) {
+    throw new Error("invalid terminal session registry record");
+  }
+  return sessions;
 }
 
 export function saveTerminalSessionRegistry(filePath: string, sessions: ReadonlyArray<TerminalSessionInfo>): void {
