@@ -149,6 +149,13 @@ export async function waitFirstUsable(page, view, timeoutMs) {
   }
 }
 
+export function evaluateFiveKFirstScreenMet({
+  size,
+  overviewLaunchToUsableMs,
+}) {
+  if (size < 5_000) return null;
+  return overviewLaunchToUsableMs < COLD_TARGET_MS;
+}
 
 export async function measureCase(size, outputsPerExecution) {
   const label = `${size}x${outputsPerExecution}`;
@@ -296,11 +303,11 @@ export async function measureCase(size, outputsPerExecution) {
     result.consoleErrors = consoleErrors.slice(0, 20);
     // Primary targets from task_plan Verification (Execution Evidence oriented).
     // 1k: cold first-usable < 10s, warm re-entry < 3s.
-    // 5k: operable first screen within 10s (Overview launch or EE first-nav).
-    const fiveKFirstScreenMet =
-      size < 5_000
-        ? null
-        : overviewLaunchToUsableMs < COLD_TARGET_MS || eeColdFirstNavMs < COLD_TARGET_MS;
+    // 5k: operable first screen within 10s of process launch.
+    const fiveKFirstScreenMet = evaluateFiveKFirstScreenMet({
+      size,
+      overviewLaunchToUsableMs,
+    });
     result.goals = {
       coldTargetMs: COLD_TARGET_MS,
       warmTargetMs: WARM_TARGET_MS,
@@ -322,7 +329,7 @@ export async function measureCase(size, outputsPerExecution) {
   } finally {
     if (electronApp) await closeElectronApp(electronApp);
     await sleep(6_000);
-    rmSync(ledgerRoot, { recursive: true, force: true });
+    rmSync(ledgerRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
   return result;
 }
@@ -402,5 +409,4 @@ export function runProjectionLayer(size, outputs) {
     },
   };
 }
-
 

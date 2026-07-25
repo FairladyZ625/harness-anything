@@ -22,7 +22,8 @@ import {
 import { captureProjectionSourceFingerprint } from "../../packages/kernel/src/projection/projection-source-snapshot.ts";
 import { readDeclaredSourceManifestRows } from "../../packages/kernel/src/projection/sqlite-declared-source-manifest.ts";
 import { updateTaskProjectionIncrementally } from "../../packages/kernel/src/projection/sqlite-task-incremental-projection.ts";
-import { createDaemonRuntime } from "../../packages/adapters/local/src/index.ts";
+import { makeLocalProjectionSourceFenceReader } from "../../packages/adapters/local/src/index.ts";
+import { createDaemonRuntime } from "../../packages/daemon/src/index.ts";
 
 const size = positiveInteger("--size", 1_000);
 const outputsPerExecution = positiveInteger("--outputs", 5);
@@ -59,7 +60,11 @@ try {
   const readyGeneration = ensureExecutionEvidenceGenerationReady({ rootDir }).ready;
   const readyEvidencePageSamples = sample(20, () => queryExecutionEvidencePageFromReadyGeneration(readyGeneration, { limit: 25 }));
   const readyEvidencePageP95 = percentile(readyEvidencePageSamples.samples, 0.95);
-  const daemonRuntime = createDaemonRuntime({ rootDir, materializerPollMs: false });
+  const daemonRuntime = createDaemonRuntime({
+    rootDir,
+    materializerPollMs: false,
+    projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader
+  });
   await daemonRuntime.start();
   const daemonGenerationStarted = performance.now();
   const daemonFirstEvidencePage = await daemonRuntime.queryExecutionEvidencePage({ limit: 25 });
