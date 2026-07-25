@@ -20,6 +20,13 @@ import {
   executeRepoWriteChildDirect
 } from "./repo-write-child-direct.ts";
 import {
+  resolveRepoWriteChildHostLimits,
+  validateRepoWriteChildHostIdentity
+} from "./repo-write-child-host-config.ts";
+import {
+  classifyRepoWriteNotStartedFailure
+} from "./repo-write-not-started-classification.ts";
+import {
   createRepoWriteTelemetryDelivery,
   reportCurrentRepoWriteTelemetry,
   runWithRepoWriteTelemetry,
@@ -61,13 +68,6 @@ interface ShutdownAttempt {
   completing: boolean;
 }
 
-const defaultLimits: RepoWriteChildHostLimits = {
-  maxAdmissions: 64,
-  maxRetainedOperations: 16_384,
-  maxControlRequests: 16_384,
-  shutdownTimeoutMs: 5_000
-};
-
 export class RepoWriteChildHost {
   private readonly options: RepoWriteChildHostOptions;
   private readonly limits: RepoWriteChildHostLimits;
@@ -88,24 +88,11 @@ export class RepoWriteChildHost {
   private shutdownHookPromise: Promise<void> | undefined;
 
   constructor(options: RepoWriteChildHostOptions) {
-    if (!options.repoId.trim()) throw new Error("repoId is required");
-    if (!options.workspaceId.trim()) throw new Error("workspaceId is required");
-    if (!Number.isSafeInteger(options.generation) || options.generation < 1) {
-      throw new Error("generation must be a positive safe integer");
-    }
+    validateRepoWriteChildHostIdentity(options);
     this.options = options;
     this.responses = new RepoWriteChildResponseWriter(options);
     this.executionSequencer = options.executionSequencer ?? new RepoWriteExecutionSequencer();
-    this.limits = {
-      maxAdmissions: options.limits?.maxAdmissions ?? defaultLimits.maxAdmissions,
-      maxRetainedOperations: options.limits?.maxRetainedOperations ?? defaultLimits.maxRetainedOperations,
-      maxControlRequests: options.limits?.maxControlRequests ?? defaultLimits.maxControlRequests,
-      shutdownTimeoutMs: options.limits?.shutdownTimeoutMs ?? defaultLimits.shutdownTimeoutMs
-    };
-    assertPositiveLimit(this.limits.maxAdmissions, "maxAdmissions");
-    assertPositiveLimit(this.limits.maxRetainedOperations, "maxRetainedOperations");
-    assertPositiveLimit(this.limits.maxControlRequests, "maxControlRequests");
-    assertPositiveLimit(this.limits.shutdownTimeoutMs, "shutdownTimeoutMs");
+    this.limits = resolveRepoWriteChildHostLimits(options.limits);
   }
 
   async start(): Promise<void> {
@@ -256,7 +243,7 @@ export class RepoWriteChildHost {
       if (operation.phase === "preparing") {
         operation.phase = "failed";
         this.release(operation);
-        const rejection = structuredNotStartedFailure(error);
+        const rejection = classifyRepoWriteNotStartedFailure(error);
         await this.responses.notStarted(
           message.requestId,
           rejection?.code ?? "PREPARE_FAILED",
@@ -594,30 +581,6 @@ export class RepoWriteChildHost {
   }
 }
 
-function structuredNotStartedFailure(
-  value: unknown
-): { readonly code: string; readonly diagnostic: string } | undefined {
-  if (!(value instanceof Error)) return undefined;
-  const failure = value as {
-    readonly code?: unknown;
-    readonly outcome?: unknown;
-    readonly replay?: unknown;
-  };
-  if (failure.outcome !== "not-started"
-    || failure.replay !== "caller-may-retry"
-    || typeof failure.code !== "string"
-    || failure.code.trim() === "") {
-    return undefined;
-  }
-  return { code: failure.code, diagnostic: value.message };
-}
-
 export function createRepoWriteChildHost(options: RepoWriteChildHostOptions): RepoWriteChildHost {
   return new RepoWriteChildHost(options);
-}
-
-function assertPositiveLimit(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${name} must be a positive safe integer`);
-  }
 }
