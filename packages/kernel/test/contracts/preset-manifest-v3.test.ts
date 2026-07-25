@@ -14,6 +14,7 @@ const validFixture = JSON.parse(readFileSync(
 test("preset manifest v3 decodes the semantic capability fixture", () => {
   const decoded = Schema.decodeUnknownSync(PresetManifestSchema)(validFixture);
   assert.equal(decoded.schema, "preset-manifest/v3");
+  assert.equal(decoded.outputShape, "repository-diff");
   assert.equal(decoded.entrypoints?.audit?.requires.length, 12);
   assert.equal(decoded.entrypoints?.audit?.produces.length, 2);
 });
@@ -39,6 +40,24 @@ test("preset manifest v3 rejects unknown capability versions and selector shapes
   const audit = (candidate.entrypoints as Record<string, Record<string, unknown>>).audit;
   audit.requires = [{ capability: "tasks", version: "1", select: { scope: "all", view: "full-filesystem" } }];
   assert.throws(() => Schema.decodeUnknownSync(PresetManifestSchema)(candidate));
+});
+
+test("preset manifest v3 requires output shape with a readable error while v2 remains compatible", () => {
+  const missingV3 = structuredClone(validFixture);
+  delete missingV3.outputShape;
+  assert.throws(
+    () => Schema.decodeUnknownSync(PresetManifestSchema)(missingV3),
+    /outputShape/u
+  );
+
+  const legacyV2 = structuredClone(validFixture);
+  legacyV2.schema = "preset-manifest/v2";
+  delete legacyV2.outputShape;
+  delete legacyV2.entrypoints;
+  assert.equal(Schema.decodeUnknownSync(PresetManifestSchema)(legacyV2).outputShape, undefined);
+
+  const unknown = { ...validFixture, outputShape: "external-deployment" };
+  assert.throws(() => Schema.decodeUnknownSync(PresetManifestSchema)(unknown));
 });
 
 test("capability catalog freezes each v1 data shape and authority envelope", () => {
@@ -74,4 +93,12 @@ test("published preset JSON schema is derived from the registry v1/v2/v3 union",
   assert.deepEqual(published.anyOf, derived.anyOf);
   assert.equal(JSON.stringify(published).includes("preset-manifest/v3"), true);
   assert.equal(JSON.stringify(published).includes("raw-fs"), true);
+  const branches = published.anyOf as ReadonlyArray<{
+    readonly required: ReadonlyArray<string>;
+    readonly properties: { readonly schema: { readonly enum: ReadonlyArray<string> } };
+  }>;
+  const v2 = branches.find((branch) => branch.properties.schema.enum.includes("preset-manifest/v2"));
+  const v3 = branches.find((branch) => branch.properties.schema.enum.includes("preset-manifest/v3"));
+  assert.equal(v2?.required.includes("outputShape"), false);
+  assert.equal(v3?.required.includes("outputShape"), true);
 });

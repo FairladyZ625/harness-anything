@@ -16,7 +16,7 @@ test("CLI create-milestone guidance does not expose retired scaffold, render, or
   withTempRoot((rootDir) => {
     const inspected = runJson(rootDir, ["preset", "inspect", presetId]);
     assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
-    assert.equal(inspected.preset.version, "2.0.0");
+    assert.equal(inspected.preset.version, "2.0.1");
     assert.deepEqual(inspected.preset.entrypoints, []);
 
     const scripts = runJson(rootDir, ["script", "list", "--source", "preset"]);

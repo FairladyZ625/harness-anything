@@ -3,8 +3,9 @@
   "id": "decision-conformance",
   "title": "Decision Conformance",
   "vertical": "software/coding",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "kind": "template-content",
+  "outputShape": "repository-diff",
   "policyPath": "{{paths.authoredRoot}}/policies/presets/decision-conformance.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [

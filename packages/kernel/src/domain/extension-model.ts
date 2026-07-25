@@ -2,6 +2,7 @@ import type { PresetManifest, TemplateCatalog, TemplateSelection, VerticalDefini
 import { markdownHeadingSections } from "../markdown/section.ts";
 import { createEntityKindRegistry } from "./entity-kind-registry.ts";
 import { validatePresetEntrypointsV3Shape } from "./preset-manifest-v3-shape.ts";
+import { validatePresetOutputShape } from "./preset-output-shape.ts";
 
 export interface ExtensionValidationIssue {
   readonly code:
@@ -21,6 +22,7 @@ export interface ExtensionValidationIssue {
     | "custom_vertical_forbidden"
     | "duplicate_materialized_path"
     | "invalid_materialized_path"
+    | "invalid_output_shape_completion_gates"
     | "preset_required_template_conflict"
     | "preset_path_id_mismatch"
     | "reserved_materialized_path"
@@ -347,6 +349,8 @@ function validateSinglePreset(
     issues.push(issue("missing_default_profile", `Default profile ${preset.defaultProfile} is not declared.`, `presets[${presetIndex}].defaultProfile`));
   }
 
+  issues.push(...validatePresetOutputShape(preset, presetIndex));
+
   const capabilityVersions = new Map<string, string>();
   for (const [capabilityIndex, capability] of preset.capabilityImports.entries()) {
     const existing = capabilityVersions.get(capability.id);
@@ -405,7 +409,7 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
 }
 
 function validatePresetManifestShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "policyPath", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
+  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "outputShape", "extends", "policyPath", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
   if (!isRecord(input)) return;
   validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
   validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);

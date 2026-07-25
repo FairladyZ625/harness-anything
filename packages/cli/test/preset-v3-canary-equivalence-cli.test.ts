@@ -83,6 +83,7 @@ test("v3 repository-source materializes a read-only text snapshot while empty ar
       vertical: "software/coding",
       version: "1.0.0",
       kind: "process-action",
+      outputShape: "task-package-artifact",
       kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
       capabilityImports: [],
       entrypoints: {

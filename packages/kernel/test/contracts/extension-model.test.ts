@@ -159,6 +159,24 @@ test("preset validation fails closed on conflicts, cycles, and kernel version mi
   assert.equal(result.issues.some((issue) => issue.code === "incompatible_kernel"), true);
 });
 
+test("preset output shape and completion gates must agree when the additive field is declared", () => {
+  const base = Schema.decodeUnknownSync(PresetManifestSchema)(JSON.parse(readFileSync(
+    new URL("../../fixtures/schemas/preset-manifest/valid-v3.json", import.meta.url),
+    "utf8"
+  )));
+  const artifactWithCi: PresetManifest = { ...base, outputShape: "task-package-artifact" };
+  const repositoryWithoutCi: PresetManifest = {
+    ...base,
+    profiles: base.profiles.map((profile) => ({ ...profile, completionGates: [] }))
+  };
+
+  for (const manifest of [artifactWithCi, repositoryWithoutCi]) {
+    const result = validatePresetManifests([manifest], { kernelVersion: "1.0.0" });
+    assert.equal(result.ok, false);
+    assert.equal(result.issues.some((issue) => issue.code === "invalid_output_shape_completion_gates"), true);
+  }
+});
+
 test("vertical validation rejects lifecycle status mapping ownership", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const contaminated: VerticalDefinition = {

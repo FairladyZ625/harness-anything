@@ -4,6 +4,7 @@
   "title": "Invalid Semantic Foundation",
   "vertical": "software/coding",
   "version": "1.0.0",
+  "outputShape": "task-package-artifact",
   "kernelVersionRange": { "min": "1.0.0" },
   "capabilityImports": [],
   "entrypoints": {

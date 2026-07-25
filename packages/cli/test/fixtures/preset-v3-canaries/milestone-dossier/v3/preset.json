@@ -5,6 +5,7 @@
   "vertical": "software/coding",
   "version": "2.0.0",
   "kind": "process-action",
+  "outputShape": "task-package-artifact",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [],
   "entrypoints": {
@@ -32,6 +33,6 @@
       "sideEffects": []
     }
   },
-  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "software-coding-standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [{ "slot": "dossier-shell", "templateRef": "template://dossier/editorial-shell@1", "materializeAs": "artifacts/dossier.scaffold.html", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }] }],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "software-coding-standard", "completionGates": [], "templateSelections": [{ "slot": "dossier-shell", "templateRef": "template://dossier/editorial-shell@1", "materializeAs": "artifacts/dossier.scaffold.html", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }] }],
   "defaultProfile": "baseline"
 }

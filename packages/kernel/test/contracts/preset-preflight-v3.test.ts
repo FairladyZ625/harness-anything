@@ -143,6 +143,7 @@ function rawFsManifest(): PresetManifestV3 {
     vertical: "software/coding",
     version: "1.0.0",
     kind: "process-action",
+    outputShape: "task-package-artifact",
     kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
     capabilityImports: [],
     entrypoints: {

@@ -40,6 +40,13 @@
             "process-action"
           ]
         },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
+          ]
+        },
         "extends": {
           "type": "string"
         },
@@ -325,6 +332,13 @@
             "process-action"
           ]
         },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
+          ]
+        },
         "extends": {
           "type": "string"
         },
@@ -588,6 +602,7 @@
         "title",
         "vertical",
         "version",
+        "outputShape",
         "kernelVersionRange",
         "capabilityImports",
         "defaultProfile",
@@ -617,6 +632,13 @@
           "enum": [
             "template-content",
             "process-action"
+          ]
+        },
+        "outputShape": {
+          "type": "string",
+          "enum": [
+            "repository-diff",
+            "task-package-artifact"
           ]
         },
         "extends": {

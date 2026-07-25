@@ -189,27 +189,31 @@ test("task retire-execution rejects live and submitted rounds, then records an a
   });
 });
 
-test("docs contract completes with not-applicable while a CI contract rejects it", () => {
-  withTempRoot((docsRoot) => {
-    const fixture = prepareActiveTask(docsRoot, "Docs No CI", "docs-task");
-    runJson(docsRoot, [
-      "task", "transition", fixture.taskId, "in_review",
-      "--execution-id", fixture.executionId, "--completion-claim", "Docs are complete.",
-      "--deliverable", "documentation", "--verification", "reviewed", "--residual-risk", "none"
-    ], true, fixture.env);
-    runJson(docsRoot, [
-      "task", "review-execution", fixture.taskId, "--execution-id", fixture.executionId,
-      "--verdict", "approved", "--findings", "Documentation requirements pass.",
-      "--rationale", "The reviewed docs satisfy the contract.",
-      "--consent-asserted", "The human approved through an external channel.",
-      "--consent-action", "approve_execution", "--consent-action", "complete_task"
-    ], true, fixture.env);
-    const completed = runJson(docsRoot, [
-      "task", "complete", fixture.taskId, "--ci", "not-applicable", "--reviewer", "person_reviewer"
-    ], true, fixture.env);
-    assert.equal(completed.status, "done");
+for (const preset of ["docs-task", "code-impact-analysis"] as const) {
+  test(`${preset} task-artifact contract completes with not-applicable`, () => {
+    withTempRoot((artifactRoot) => {
+      const fixture = prepareActiveTask(artifactRoot, `Artifact No CI ${preset}`, preset);
+      runJson(artifactRoot, [
+        "task", "transition", fixture.taskId, "in_review",
+        "--execution-id", fixture.executionId, "--completion-claim", "The task artifact is complete.",
+        "--deliverable", "task artifact", "--verification", "reviewed", "--residual-risk", "none"
+      ], true, fixture.env);
+      runJson(artifactRoot, [
+        "task", "review-execution", fixture.taskId, "--execution-id", fixture.executionId,
+        "--verdict", "approved", "--findings", "Artifact requirements pass.",
+        "--rationale", "The reviewed artifact satisfies the contract.",
+        "--consent-asserted", "The human approved through an external channel.",
+        "--consent-action", "approve_execution", "--consent-action", "complete_task"
+      ], true, fixture.env);
+      const completed = runJson(artifactRoot, [
+        "task", "complete", fixture.taskId, "--ci", "not-applicable", "--reviewer", "person_reviewer"
+      ], true, fixture.env);
+      assert.equal(completed.status, "done");
+    });
   });
+}
 
+test("standard-task repository-diff contract rejects not-applicable CI", () => {
   withTempRoot((codingRoot) => {
     const fixture = prepareActiveTask(codingRoot, "Coding CI Required");
     const packet = writeCloseoutPacket(codingRoot, { ci: "not-applicable" });

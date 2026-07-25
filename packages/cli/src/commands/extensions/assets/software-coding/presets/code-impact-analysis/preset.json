@@ -3,15 +3,16 @@
   "id": "code-impact-analysis",
   "title": "Code Impact Analysis",
   "vertical": "software/coding",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "kind": "template-content",
+  "outputShape": "task-package-artifact",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [],
   "profiles": [{
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
-      "completionGates": ["ci", "code-doc-reconciliation"],
+      "completionGates": [],
     "templateSelections": [
       { "slot": "task.code.impact.analysis", "templateRef": "template://analysis/code-impact@1", "materializeAs": "code-impact-analysis.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ]
