@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -72,6 +72,42 @@ test("CLI graph hides archived task refs by default and can include them explici
     assert.equal(withArchived.report.summary.islands, 2);
     assert.match(withArchivedHtml, /task\/task-archived/u);
     assert.match(withArchivedHtml, /task\/task-archived-island/u);
+  });
+});
+
+test("CLI graph confines user output paths outside canonical authored paths and symlinks", () => {
+  withTempRoot((rootDir) => {
+    writeTask(rootDir, "task-one", "Task One");
+    runJson(rootDir, ["task", "list"]);
+    const canonicalPath = path.join(rootDir, "harness/tasks/task-one-fixture/INDEX.md");
+    const canonicalBefore = readFileSync(canonicalPath, "utf8");
+    const parentEscape = path.resolve(rootDir, "../graph-parent-escape.html");
+
+    const canonical = runJsonFailure(rootDir, ["graph", "--out", canonicalPath]);
+    const parent = runJsonFailure(rootDir, ["graph", "--out", "../graph-parent-escape.html"]);
+
+    assert.equal(canonical.ok, false);
+    assert.equal(canonical.error.code, "projection_check_failed");
+    assert.equal(readFileSync(canonicalPath, "utf8"), canonicalBefore);
+    assert.equal(parent.ok, false);
+    assert.equal(existsSync(parentEscape), false);
+
+    const externalRoot = mkdtempSync(path.join(tmpdir(), "ha-graph-output-symlink-"));
+    try {
+      const generatedRoot = path.join(rootDir, ".harness/generated");
+      mkdirSync(generatedRoot, { recursive: true });
+      symlinkSync(externalRoot, path.join(generatedRoot, "escape"));
+      const symlink = runJsonFailure(rootDir, ["graph", "--out", ".harness/generated/escape/graph.html"]);
+      assert.equal(symlink.ok, false);
+      assert.equal(existsSync(path.join(externalRoot, "graph.html")), false);
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+
+    const legalPath = path.join(rootDir, ".harness/generated/graph-panorama/legal.html");
+    const legal = runJson(rootDir, ["graph", "--out", legalPath]);
+    assert.equal(legal.ok, true);
+    assert.equal(existsSync(legalPath), true);
   });
 });
 
@@ -158,6 +194,16 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     env: cliTestEnv()
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function runJsonFailure(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  try {
+    runJson(rootDir, args);
+    assert.fail(`Expected command to fail: ${args.join(" ")}`);
+  } catch (error) {
+    const stdout = error && typeof error === "object" && "stdout" in error ? String(error.stdout) : "";
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+  }
 }
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {

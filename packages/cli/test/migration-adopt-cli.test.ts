@@ -113,6 +113,21 @@ test("CLI legacy intake-plan confines --out to migration artifacts and rejects e
   });
 });
 
+test("CLI migrate-run rejects session output beneath canonical authored paths", () => {
+  withTempRoot((rootDir) => {
+    const canonicalDir = path.join(rootDir, "harness/tasks/session-output");
+    const rejected = runJson(rootDir, ["migrate-run", "--plan-only", "--out-dir", canonicalDir], false);
+
+    assert.equal(rejected.ok, false);
+    assert.equal(existsSync(path.join(canonicalDir, "session.json")), false);
+
+    const legalDir = path.join(rootDir, ".harness/generated/migration-sessions/contained");
+    const legal = runJson(rootDir, ["migrate-run", "--plan-only", "--out-dir", legalDir]);
+    assert.equal(legal.ok, true);
+    assert.equal(existsSync(path.join(legalDir, "session.json")), true);
+  });
+});
+
 test("CLI legacy copy preserves legacy evidence and forwards safe authored docs", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "done-task", "done");

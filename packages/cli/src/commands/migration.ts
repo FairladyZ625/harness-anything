@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import { moduleEntityId, stablePayloadHash, type WriteCoordinator, type WriteError } from "@harness-anything/kernel";
@@ -6,6 +6,7 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { resolveContainedOutputPath } from "../cli/output-path.ts";
 import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
@@ -113,7 +114,16 @@ function migrateRunSessionResult(rootDir: string, report: LegacyScanReport, acti
     indexDigest: digestJson(toLegacyIndex(rootDir, report)),
     entries: report.entries
   };
-  const sessionPath = writeSession(rootDir, action.outDir, session);
+  const written = writeSession(rootDir, action.outDir, session);
+  if (!written.ok) {
+    return {
+      ok: false,
+      command: "migrate-run",
+      report: session,
+      error: cliError(CliErrorCode.ArtifactWriteRejected, `Migration session output path rejected (${written.reason}): output must remain in the repository, outside canonical authored paths, without symlinks.`)
+    };
+  }
+  const sessionPath = written.path;
   return {
     ok: true,
     command: "migrate-run",
@@ -196,22 +206,13 @@ export function runLegacyIntakePlan(rootInput: HarnessLayoutInput, action: Legac
 
 function resolveLegacyIntakeArtifactPath(rootDir: string, requestedPath: string): { readonly ok: true; readonly path: string } | { readonly ok: false } {
   const artifactRoot = path.join(rootDir, ".harness", "migration-artifacts");
-  if (path.isAbsolute(requestedPath)) return { ok: false };
-  const outputPath = path.resolve(artifactRoot, requestedPath);
-  if (!isPathInside(artifactRoot, outputPath) || hasSymlinkInExistingPath(artifactRoot, outputPath)) return { ok: false };
-  return { ok: true, path: outputPath };
-}
-
-function hasSymlinkInExistingPath(rootPath: string, targetPath: string): boolean {
-  let current = rootPath;
-  if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
-  const relative = path.relative(rootPath, targetPath);
-  for (const segment of relative.split(path.sep)) {
-    if (!segment) continue;
-    current = path.join(current, segment);
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
-  }
-  return false;
+  const resolved = resolveContainedOutputPath({
+    requestedPath,
+    containerRoots: [artifactRoot],
+    relativeTo: artifactRoot,
+    allowAbsolute: false
+  });
+  return resolved.ok ? resolved : { ok: false };
 }
 
 export function runLegacyCopySafeDocs(rootInput: HarnessLayoutInput, action: LegacyCopySafeDocsAction): CliResult {
@@ -521,12 +522,26 @@ function digestJson(value: unknown): `sha256:${string}` {
   return `sha256:${stablePayloadHash(value)}`;
 }
 
-function writeSession(rootDir: string, outDir: string, session: LegacyIntakeSession): string {
-  const directory = path.resolve(rootDir, outDir);
+function writeSession(
+  rootDir: string,
+  outDir: string,
+  session: LegacyIntakeSession
+): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string } {
+  const layout = resolveHarnessLayout({ rootDir });
+  const resolved = resolveContainedOutputPath({
+    requestedPath: outDir,
+    containerRoots: [rootDir],
+    canonicalRoots: [layout.authoredRoot],
+    relativeTo: rootDir
+  });
+  if (!resolved.ok) {
+    return resolved;
+  }
+  const directory = resolved.path;
   mkdirSync(directory, { recursive: true });
   const sessionPath = path.join(directory, "session.json");
   writeFileSync(sessionPath, `${JSON.stringify(session, null, 2)}\n`, "utf8");
-  return sessionPath;
+  return { ok: true, path: sessionPath };
 }
 
 function relative(rootDir: string, targetPath: string): string {
