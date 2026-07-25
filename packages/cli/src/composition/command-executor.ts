@@ -41,6 +41,8 @@ export interface ParsedCommandExecutionOptions {
   readonly requireProvidedActorAttribution?: boolean;
   /** Production child-writer pilot admission must be side-effect free. */
   readonly taskLeaseGuardMode?: "read-only";
+  /** Resume the fixed operation instead of treating its already-applied state as a new request. */
+  readonly outerProceedingRecovery?: true;
   readonly currentSession?: CurrentSessionRef;
   /** Typed authority intents already carry the current-session provenance inline. */
   readonly inlineCreateProvenanceOnly?: boolean;
@@ -236,7 +238,9 @@ export async function runRegisteredCommandWithCliComposition(
       provenanceSessionExporter: makeSessionExporter(),
       syncExportedSession
     })
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer).pipe(
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer, {
+    outerProceedingRecovery: options.outerProceedingRecovery === true
+  }).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,

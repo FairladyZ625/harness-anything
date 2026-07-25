@@ -53,6 +53,7 @@ export interface DaemonCommandServiceOptions {
   readonly onCommandStart?: () => void;
   readonly onCommandSettled?: () => void;
   readonly taskLeaseGuardMode?: "read-only";
+  readonly outerProceedingRecovery?: true;
   readonly repoWriteDispatch?: {
     readonly repoId: string;
     readonly submit: (
@@ -176,6 +177,9 @@ export function createDaemonCommandService<
             requireProvidedActorAttribution: true,
             ...(options.taskLeaseGuardMode ? {
               taskLeaseGuardMode: options.taskLeaseGuardMode
+            } : {}),
+            ...(options.outerProceedingRecovery ? {
+              outerProceedingRecovery: true as const
             } : {}),
             ...(attribution ? { actorAttribution: attribution } : {}),
             ...(currentSession ? { currentSession } : {}),

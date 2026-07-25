@@ -337,6 +337,7 @@ export class ProductionRepoWriteOperationHost<
       this.options.hostServices,
       {
         taskLeaseGuardMode: "read-only",
+        ...(recovery ? { outerProceedingRecovery: true as const } : {}),
         resolveAuthoritySubmissionV2: () => capturingSubmission
       }
     );

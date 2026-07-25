@@ -52,6 +52,12 @@ test("task submit facade sends the exact six-field packet through execution subm
     assert.equal(submitted.report.steps[1].details.data.executionId, claimed.executionId);
     assert.equal(submitted.report.steps[1].details.data.status, "in_review");
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "code-doc-anchors.json")), true);
+    const duplicateCodeDoc = runJson(rootDir, [
+      "task", "code-doc", "reconcile", created.taskId,
+      "--commit", evidenceSha, "--path", "evidence/facade.txt"
+    ], false, env);
+    assert.equal(duplicateCodeDoc.error.code, "code_doc_reconciliation_failed");
+    assert.match(duplicateCodeDoc.error.hint, /code-doc-anchors\.json already exists/u);
     const execution = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "executions", `${claimed.executionId}.md`), "utf8"));
     assert.deepEqual(execution.submission, {
       completion_claim: "The structured facade preserves execution submission semantics.",
