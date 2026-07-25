@@ -12,6 +12,7 @@ import {
 } from "../../application/src/index.ts";
 import { taskEntityId } from "../../kernel/src/index.ts";
 import {
+  AuthorityCompileRejectedError,
   attemptFromAuthorityPlan,
   attemptFromProgressAppendPlan,
   createDurableAuthorityBindingRuntimeV2,
@@ -502,6 +503,27 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     };
     const beforeDecisionPlan = JSON.stringify(state.bindingState.entries());
     assert.equal(productionAuthorityCommandHasPurePlan(decisionInput.command), true);
+    await assert.rejects(
+      compiler.planCommand({
+        ...decisionInput,
+        command: {
+          ...decisionInput.command,
+          action: {
+            ...decisionInput.command.action,
+            decisionIdProvided: true
+          }
+        }
+      }),
+      (error) => {
+        assert.ok(error instanceof AuthorityCompileRejectedError);
+        assert.equal(error.code, "authority_ingress_rejected");
+        assert.equal(error.outcome, "not-started");
+        assert.equal(error.replay, "caller-may-retry");
+        assert.match(error.message, /AUTHORITY_MANUAL_ENTITY_ID_FORBIDDEN/u);
+        return true;
+      }
+    );
+    assert.equal(JSON.stringify(state.bindingState.entries()), beforeDecisionPlan);
     assert.equal(productionAuthorityCommandHasPurePlan({
       rootDir: fixture.repoRoot,
       action: { kind: "session-export" }

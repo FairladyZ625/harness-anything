@@ -64,6 +64,31 @@ export interface DaemonAuthorityCommandSubmissionV2 {
   ) => Promise<AuthorityOperationReceipt>;
 }
 
+export class AuthorityCompileRejectedError extends Error {
+  readonly code: string;
+  readonly outcome = "not-started" as const;
+  readonly replay = "caller-may-retry" as const;
+
+  constructor(code: string, message: string, options: { readonly cause?: unknown } = {}) {
+    super(
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause }
+    );
+    this.name = "AuthorityCompileRejectedError";
+    this.code = code;
+  }
+}
+
+export function authorityCompileRejected(cause: unknown): AuthorityCompileRejectedError {
+  if (cause instanceof AuthorityCompileRejectedError) return cause;
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  return new AuthorityCompileRejectedError(
+    authorityRejectionCode(reason),
+    reason,
+    { cause }
+  );
+}
+
 export function createDaemonAuthorityCommandSubmissionV2(options: {
   readonly authorityService: AuthoritySubmissionService;
   readonly attemptCompiler: DaemonAuthorityAttemptCompilerV2;
@@ -83,10 +108,11 @@ export function createDaemonAuthorityCommandSubmissionV2(options: {
       reportCurrentRepoWriteTelemetry("compile");
       return await compile();
     } catch (cause) {
+      const rejected = authorityCompileRejected(cause);
       throw authorityWriteRejected(
-        cause instanceof Error ? cause.message : String(cause),
+        rejected.message,
         false,
-        authorityRejectionCode(cause instanceof Error ? cause.message : String(cause))
+        rejected.code
       );
     }
   };
