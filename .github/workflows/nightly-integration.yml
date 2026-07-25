@@ -21,3 +21,21 @@ jobs:
       - run: npm ci
       - name: Run startup performance and canonical ingress matrices
         run: npm run test:nightly
+
+  # Live `npm audit` resolves advisories from the upstream registry, so its verdict changes
+  # without any change to this repository. Governance authority dec_01KYB7TMSPAASW4XTAAA0CVH5W
+  # CH2 and task_01KYBP01C1282GTQS6MJBRSFVV keep it here, on a schedule, rather than in the
+  # required merge gate, where one newly published advisory would block every open pull
+  # request at once. A finding still fails this job so it stays visible; it does not gate merges.
+  # This job is intentionally never added to branch protection.
+  supply-chain-advisory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run live supply-chain advisory audit
+        run: npm run harness:check-supply-chain-advisory

@@ -36,6 +36,63 @@ test("supply-chain release readiness covers audit SBOM OSV license and release b
   assert.equal(harnessSupplyChainReleaseReadiness.releaseBoundary.releaseArtifactsPublished, false);
 });
 
+test("live npm audit stays an advisory signal instead of a required merge gate", () => {
+  // A required gate whose verdict follows upstream advisory data fails on a repository that
+  // did not change, and blocks main and every open pull request at once
+  // (dec_01KYB7TMSPAASW4XTAAA0CVH5W, CH2). Both audit commands must stay out of that gate.
+  const audits = harnessSupplyChainReleaseReadiness.auditCommands;
+
+  assert.equal(audits.length, 2);
+  for (const audit of audits) {
+    assert.equal(audit.requiredInDefaultCheck, false);
+    assert.equal(audit.deterministicDefaultGate, "lockfile-license-and-sbom-structure");
+    assert.equal(audit.advisoryLane, "nightly-supply-chain-advisory");
+  }
+
+  // Coverage must move lanes, not disappear: both audit paths still have to be declared.
+  const commands = audits.map((audit) => audit.command);
+  assert.equal(commands.includes("npm audit --audit-level=high"), true);
+  assert.equal(commands.includes("npm audit --omit=dev --audit-level=high"), true);
+});
+
+test("supply-chain release readiness rejects re-promoting live audit into the required gate", () => {
+  const invalid: SupplyChainReleaseReadinessPolicy = {
+    ...harnessSupplyChainReleaseReadiness,
+    auditCommands: [
+      {
+        ...harnessSupplyChainReleaseReadiness.auditCommands[0],
+        requiredInDefaultCheck: true as unknown as false
+      },
+      harnessSupplyChainReleaseReadiness.auditCommands[1]
+    ]
+  };
+
+  const result = validateSupplyChainReleaseReadiness(invalid);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errors.some((error) => error.code === "invalid_audit_contract"), true);
+});
+
+test("supply-chain release readiness rejects dropping the advisory lane declaration", () => {
+  // Marking audit non-required while naming no lane would silently delete live audit
+  // coverage rather than relocate it.
+  const invalid: SupplyChainReleaseReadinessPolicy = {
+    ...harnessSupplyChainReleaseReadiness,
+    auditCommands: [
+      {
+        ...harnessSupplyChainReleaseReadiness.auditCommands[0],
+        advisoryLane: "" as unknown as "nightly-supply-chain-advisory"
+      },
+      harnessSupplyChainReleaseReadiness.auditCommands[1]
+    ]
+  };
+
+  const result = validateSupplyChainReleaseReadiness(invalid);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errors.some((error) => error.code === "invalid_audit_contract"), true);
+});
+
 test("supply-chain release readiness rejects missing OSV and release artifact gates", () => {
   const invalid: SupplyChainReleaseReadinessPolicy = {
     ...harnessSupplyChainReleaseReadiness,

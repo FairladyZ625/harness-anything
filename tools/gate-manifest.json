@@ -4410,10 +4410,12 @@
       "id": "check-supply-chain",
       "nonDeterminism": {
         "kind": "external-state",
-        "reason": "Supply-chain verification invokes live npm audit and package preflight commands whose registry responses are outside repository control.",
+        "reason": "This required gate no longer consumes upstream advisory state: live npm audit moved to the scheduled advisory lane under dec_01KYB7TMSPAASW4XTAAA0CVH5W CH2, because an advisory published with no change to this repository would otherwise fail the gate and block every open pull request at once. What remains external is SBOM generation, which shells out to npm but resolves from the committed lockfile, so its verdict follows repository-controlled content rather than mutable advisory data.",
         "evidence": [
           "packages/gui/src/distribution/supply-chain-release-readiness.ts:auditCommands",
-          "tools/check-supply-chain.mjs"
+          "tools/check-supply-chain.mjs",
+          "tools/check-supply-chain-advisory.mjs",
+          ".github/workflows/nightly-integration.yml:jobs.supply-chain-advisory"
         ]
       },
       "command": "npm run harness:check-supply-chain",

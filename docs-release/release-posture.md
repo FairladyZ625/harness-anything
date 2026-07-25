@@ -29,7 +29,7 @@ docs should link here instead of restating status tables.
 | Desktop GUI source surface                        | Foundation   | The GUI can be built and run from source and can read real ledger data for several views, but status changes, review, progress append, archive, decision adjudication, terminal, presets, adapters, and parts of relations are either state-only, read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2.                                                             |
 | Remote SSH daemon mode                            | Experimental | Remote mode opens `ssh <host> ha daemon connect --stdio` to an existing daemon. Team principals require per-key `authorized_keys` forced commands and roster credentials; the relay verifies the sshd process context, exact original command, and pinned root. It is not GUI-to-remote-daemon, a tunnel product, TCP, HTTP, or WebSocket. Evidence: `packages/cli/src/commands/daemon/connect.ts`.                                               |
 | Runtime/release readiness                         | Foundation   | Source checkout, Node 24-only CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2.                                                                                                                                                                                                                       |
-| Supply-chain/license gate                         | Foundation   | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                                        |
+| Supply-chain/license gate                         | Foundation   | SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Live npm audit runs in the scheduled advisory lane rather than the required merge gate, because its verdict follows upstream advisory data rather than this repository. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                                        |
 | M3-M7 backlog                                     | Planned      | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                                |
 
 ## Mechanism-complete ledger
@@ -174,14 +174,32 @@ The default gate is deterministic enough for local and CI use:
 npm run harness:check-supply-chain
 ```
 
-It runs both high-severity npm audit paths:
+Both high-severity npm audit paths run in the scheduled advisory lane, not in the
+required merge gate:
 
 ```bash
 npm audit --audit-level=high
 npm audit --omit=dev --audit-level=high
 ```
 
-It also validates CycloneDX SBOM output from:
+A live `npm audit` verdict is a function of upstream registry advisory data, so it can
+change while this repository does not. As a required merge gate that meant a single newly
+published advisory failed the gate on `main` and on every open pull request at once, with
+no change to any tree and often no compatible patch to apply. Under
+`dec_01KYB7TMSPAASW4XTAAA0CVH5W` CH2 these commands moved to a scheduled advisory lane:
+
+```bash
+npm run harness:check-supply-chain-advisory
+```
+
+That lane runs nightly, and a finding still fails the job so it stays visible; it is not a
+required check and is intentionally never added to branch protection. The required gate
+keeps only evidence this repository controls: lockfile license, resolved URL and integrity
+policy, and CycloneDX SBOM structure. Re-promoting live audit into the required gate is a
+compile error, not merely a failing test — `AuditCommandContract.requiredInDefaultCheck` is
+the literal type `false`.
+
+The required gate validates CycloneDX SBOM output from:
 
 ```bash
 npm sbom --sbom-format=cyclonedx --sbom-type=application

@@ -89,6 +89,7 @@
     "harness:check-legacy-intake-readiness": "node tools/check-legacy-intake-readiness.mjs",
     "harness:sync-runtime-skills": "node tools/sync-runtime-skills.mjs",
     "harness:check-supply-chain": "node tools/check-supply-chain.mjs",
+    "harness:check-supply-chain-advisory": "node tools/check-supply-chain-advisory.mjs",
     "harness:smoke-legacy-intake": "node tools/smoke-legacy-intake.mjs",
     "harness:smoke-cli-package": "node tools/smoke-cli-package.mjs",
     "harness:smoke-direct-recovery": "node tools/smoke-direct-recovery.mjs",

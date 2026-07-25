@@ -4,7 +4,20 @@ export interface AuditCommandContract {
   readonly name: "npm-audit-all" | "npm-audit-production";
   readonly command: string;
   readonly auditLevel: "high";
-  readonly requiredInDefaultCheck: true;
+  /**
+   * Live `npm audit` resolves advisories from the upstream registry, so its verdict is a
+   * function of mutable external state rather than of this repository. As a required merge
+   * gate it turns any newly published advisory into a repository-wide merge outage with no
+   * change to the tree. It therefore runs as a scheduled advisory signal instead.
+   *
+   * The literal `false` is the invariant: re-promoting live audit into the required merge
+   * gate is a compile error, not merely a failing test.
+   */
+  readonly requiredInDefaultCheck: false;
+  /** Deterministic, repository-self-contained evidence that stays in the required gate in its place. */
+  readonly deterministicDefaultGate: "lockfile-license-and-sbom-structure";
+  /** Non-required lane that keeps executing this command and reporting its findings. */
+  readonly advisoryLane: "nightly-supply-chain-advisory";
 }
 
 export interface SbomContract {
@@ -152,13 +165,17 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
       name: "npm-audit-all",
       command: "npm audit --audit-level=high",
       auditLevel: "high",
-      requiredInDefaultCheck: true
+      requiredInDefaultCheck: false,
+      deterministicDefaultGate: "lockfile-license-and-sbom-structure",
+      advisoryLane: "nightly-supply-chain-advisory"
     },
     {
       name: "npm-audit-production",
       command: "npm audit --omit=dev --audit-level=high",
       auditLevel: "high",
-      requiredInDefaultCheck: true
+      requiredInDefaultCheck: false,
+      deterministicDefaultGate: "lockfile-license-and-sbom-structure",
+      advisoryLane: "nightly-supply-chain-advisory"
     }
   ],
   sbom: {
@@ -442,9 +459,12 @@ export function validateSupplyChainReleaseReadiness(
   if (
     policy.auditCommands.length !== 2 ||
     !policy.auditCommands.some((command) => command.command === "npm audit --audit-level=high") ||
-    !policy.auditCommands.some((command) => command.command === "npm audit --omit=dev --audit-level=high")
+    !policy.auditCommands.some((command) => command.command === "npm audit --omit=dev --audit-level=high") ||
+    policy.auditCommands.some((command) => command.requiredInDefaultCheck !== false) ||
+    policy.auditCommands.some((command) => command.deterministicDefaultGate !== "lockfile-license-and-sbom-structure") ||
+    policy.auditCommands.some((command) => command.advisoryLane !== "nightly-supply-chain-advisory")
   ) {
-    errors.push({ code: "invalid_audit_contract", message: "Supply-chain readiness must include full and production-only high-severity npm audit gates." });
+    errors.push({ code: "invalid_audit_contract", message: "Supply-chain readiness must keep full and production-only high-severity npm audit commands as scheduled advisory signals, never as required merge gates that depend on mutable upstream registry state." });
   }
 
   if (

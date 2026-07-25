@@ -133,10 +133,26 @@ validateDocsAndWorkflow();
 // Local release-contract failures are complete evidence on their own. Keep the
 // network-dependent npm lane isolated so a local fixture or metadata failure
 // never waits on registry availability.
+//
+// This required lane resolves only evidence this repository controls. Live `npm audit`
+// answers from mutable upstream advisory data, so a newly published advisory would fail
+// this gate with no change to the tree and block every merge at once; it runs in the
+// scheduled advisory lane instead (tools/check-supply-chain-advisory.mjs). The SBOM stays
+// here because it is derived from the committed lockfile, not from advisory state.
 if (errors.length === 0) {
   const networkStartedAt = Date.now();
-  for (const [index, command] of policy.auditCommands.entries()) {
-    runNetworkCommand(command.command, `audit-${index + 1}`, networkStartedAt);
+
+  for (const command of policy.auditCommands) {
+    // Announce the deferral instead of dropping it silently: a gate that quietly stops
+    // running a command reads as "this was checked" when it was not.
+    if (!command.requiredInDefaultCheck) {
+      console.log(
+        `[supply-chain] ${command.name} deferred to the ${command.advisoryLane} lane; ` +
+          `the required gate covers it deterministically via ${command.deterministicDefaultGate}`
+      );
+      continue;
+    }
+    runNetworkCommand(command.command, `audit-${command.name}`, networkStartedAt);
   }
 
   const sbomOutput = runNetworkCommand(policy.sbom.generationCommand, "sbom", networkStartedAt);
