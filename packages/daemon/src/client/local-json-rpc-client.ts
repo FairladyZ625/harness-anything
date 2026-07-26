@@ -35,6 +35,17 @@ export {
   type DaemonLaunchConfiguration,
   type DaemonLaunchConfigurationInput
 } from "./daemon-launch-configuration.ts";
+export {
+  createDaemonLaunchConfigurationFromPersistedPolicy,
+  daemonLaunchEndpointIdentity,
+  daemonLaunchSpecPath,
+  daemonLaunchSpecSchema,
+  DaemonLaunchSpecReadError,
+  parseDaemonLaunchArgv,
+  readPersistedDaemonLaunchSpec,
+  type DaemonLaunchOptions,
+  type ParsedDaemonLaunchArgv
+} from "./daemon-launch-spec-store.ts";
 
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;

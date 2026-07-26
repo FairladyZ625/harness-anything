@@ -36,7 +36,7 @@ export interface HarnessLayoutOverrides {
 }
 
 interface LocalDaemonClientModule {
-  readonly createDaemonLaunchConfiguration: (input: {
+  readonly createDaemonLaunchConfigurationFromPersistedPolicy: (input: {
     readonly target: LocalDaemonTarget;
     readonly entrypoint: string;
     readonly idleExitMs: number;
@@ -231,7 +231,7 @@ async function requestGuiRouteViaDaemon(
     const params = jsonRpcParamsForGuiRoute(route, target.repoId, payload);
     // Admin control (restart) waits for accept + drain; allow a longer socket timeout.
     const timeoutMs = route.commandClass === "admin" ? 5_000 : 200;
-    const launchConfiguration = daemonClient.createDaemonLaunchConfiguration({
+    const launchConfiguration = daemonClient.createDaemonLaunchConfigurationFromPersistedPolicy({
       target,
       entrypoint: cliEntrypointPath(),
       idleExitMs: resolveGuiDaemonIdleExitMs(),
