@@ -28,7 +28,7 @@ import {
   assertWritableEntityRegistry
 } from "../../src/entity/registry-compiler.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
-import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -188,7 +188,7 @@ test("fixture declarations resolve, coordinate writes, and project hosted and co
     });
     const hostedIdentity = { taskId: "task_fixture_host", id: "fx_hosted_1" };
     const compositeIdentity = { id: "fx_composite_1" };
-    const bodyRef = writeContentAddressedBlob(rootDir, "fixture transcript", "text/plain");
+    const bodyRef = writeContentAddressedBlobWithDisposition(rootDir, "fixture transcript", "text/plain");
 
     Effect.runSync(writeDeclaredEntity(coordinator, stablePayloadHash, hosted, hostedIdentity, {
       schema: "fixture-entity/v1",

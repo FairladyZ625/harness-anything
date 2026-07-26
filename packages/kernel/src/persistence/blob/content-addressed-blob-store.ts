@@ -16,15 +16,6 @@ export interface ContentAddressedBlobWriteResult extends ContentAddressedBlobRef
 
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 
-export function writeContentAddressedBlob(
-  rootInput: HarnessLayoutInput,
-  body: string | Uint8Array,
-  mediaType: string
-): ContentAddressedBlobRef {
-  const { created: _created, ...descriptor } = writeContentAddressedBlobWithDisposition(rootInput, body, mediaType);
-  return descriptor;
-}
-
 export function writeContentAddressedBlobWithDisposition(
   rootInput: HarnessLayoutInput,
   body: string | Uint8Array,

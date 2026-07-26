@@ -13,7 +13,7 @@ import {
   formatRelationFlowRecord,
   makeJournaledWriteCoordinator,
   sha256Text,
-  writeContentAddressedBlob,
+  writeContentAddressedBlobWithDisposition,
   type EntityRelationRecord,
   type FactRecord,
   type WriteCoordinator
@@ -84,7 +84,7 @@ test("doc sync report treats a missing write-road registry as empty coverage ins
 
 test("doc sync ignores valid CAS objects but still rejects ordinary out-of-surface writes", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
-    const object = writeContentAddressedBlob(rootDir, "orphan session body", "text/markdown; charset=utf-8");
+    const object = writeContentAddressedBlobWithDisposition(rootDir, "orphan session body", "text/markdown; charset=utf-8");
     writeFileSync(path.join(harnessRoot, "unexpected.txt"), "out of surface\n", "utf8");
 
     const report = buildDocSyncReport(rootDir);

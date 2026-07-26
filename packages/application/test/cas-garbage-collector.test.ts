@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { collectCasGarbage } from "../src/index.ts";
-import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../kernel/src/index.ts";
 
 test("CAS garbage collection reclaims only never-tracked objects without conservative references", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cas-gc-"));
@@ -16,12 +16,12 @@ test("CAS garbage collection reclaims only never-tracked objects without conserv
     mkdirSync(sessionsRoot, { recursive: true });
     writeFileSync(path.join(harnessRoot, "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
     initGit(harnessRoot);
-    const referenced = writeContentAddressedBlob(rootDir, "referenced body", "text/plain");
-    const digestReferenced = writeContentAddressedBlob(rootDir, "digest referenced body", "text/plain");
-    const tracked = writeContentAddressedBlob(rootDir, "tracked body", "text/plain");
-    const historical = writeContentAddressedBlob(rootDir, "historical body", "text/plain");
-    const exportOrphan = writeContentAddressedBlob(rootDir, "failed export orphan", "text/plain");
-    const syncOrphan = writeContentAddressedBlob(rootDir, "failed sync orphan", "text/plain");
+    const referenced = writeContentAddressedBlobWithDisposition(rootDir, "referenced body", "text/plain");
+    const digestReferenced = writeContentAddressedBlobWithDisposition(rootDir, "digest referenced body", "text/plain");
+    const tracked = writeContentAddressedBlobWithDisposition(rootDir, "tracked body", "text/plain");
+    const historical = writeContentAddressedBlobWithDisposition(rootDir, "historical body", "text/plain");
+    const exportOrphan = writeContentAddressedBlobWithDisposition(rootDir, "failed export orphan", "text/plain");
+    const syncOrphan = writeContentAddressedBlobWithDisposition(rootDir, "failed sync orphan", "text/plain");
     writeFileSync(path.join(sessionsRoot, "kept.md"), `${JSON.stringify({
       schema: "session-entity/v1",
       sessionId: "kept",
@@ -83,7 +83,7 @@ test("CAS garbage collection reports corrupt objects and never reclaims them", (
     mkdirSync(harnessRoot, { recursive: true });
     writeFileSync(path.join(harnessRoot, "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
     initGit(harnessRoot);
-    const object = writeContentAddressedBlob(rootDir, "verified body", "text/plain");
+    const object = writeContentAddressedBlobWithDisposition(rootDir, "verified body", "text/plain");
     writeFileSync(path.join(rootDir, object.ref), "changed body", "utf8");
 
     const report = collectCasGarbage(rootDir, { apply: true });

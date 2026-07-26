@@ -4,11 +4,9 @@ export {
   readContentAddressedBlob,
   readContentAddressedTextBlob,
   removeContentAddressedBlob,
-  writeContentAddressedBlob,
   writeContentAddressedBlobWithDisposition
 } from "../persistence/blob/content-addressed-blob-store.ts";
 export type {
-  ContentAddressedBlobRef,
   ContentAddressedBlobWriteResult
 } from "../persistence/blob/content-addressed-blob-store.ts";
 export { collectCasGarbage } from "../persistence/blob/cas-garbage-collector.ts";

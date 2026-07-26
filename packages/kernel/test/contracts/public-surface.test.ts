@@ -293,7 +293,6 @@ const publicRuntimeSurface = [
   "validateTemplateCatalog",
   "validateVerticalDefinition",
   "warning",
-  "writeContentAddressedBlob",
   "writeContentAddressedBlobWithDisposition",
   "writeCoordinatedPayload",
   "writeCoordinatedTaskDocuments",

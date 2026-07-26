@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { writeContentAddressedBlob, type WriteError } from "@harness-anything/kernel";
+import { writeContentAddressedBlobWithDisposition, type WriteError } from "@harness-anything/kernel";
 import { runSessionSync } from "../src/commands/core/session-cutover.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 
@@ -38,7 +38,7 @@ test("session sync never removes a pre-existing CAS body when manifest submissio
     const body = legacySession();
     mkdirSync(sessionsRoot, { recursive: true });
     writeFileSync(path.join(sessionsRoot, "legacy.md"), body, "utf8");
-    const existing = writeContentAddressedBlob(rootDir, body, "text/markdown; charset=utf-8");
+    const existing = writeContentAddressedBlobWithDisposition(rootDir, body, "text/markdown; charset=utf-8");
     const context = { layoutInput: { rootDir } } as CommandRunnerContext;
     const rejection = { _tag: "WriteRejected", reason: "forced cutover rejection" } satisfies WriteError;
 

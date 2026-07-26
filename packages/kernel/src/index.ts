@@ -160,13 +160,11 @@ export {
   collectCasGarbage,
   removeContentAddressedBlob,
   readContentAddressedTextBlob,
-  writeContentAddressedBlob,
   writeContentAddressedBlobWithDisposition
 } from "./composition/index.ts";
 export type {
   CasGarbageCollectionEntry,
   CasGarbageCollectionReport,
-  ContentAddressedBlobRef,
   ContentAddressedBlobWriteResult
 } from "./composition/index.ts";
 export { DaemonDrainTimeoutError } from "./daemon/drain-timeout.ts";

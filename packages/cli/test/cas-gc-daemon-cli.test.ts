@@ -4,19 +4,19 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../kernel/src/index.ts";
 import { runRawJson, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 test("production daemon executes CAS GC preview and apply", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
-    const tracked = writeContentAddressedBlob(rootDir, "tracked evidence body", "text/plain");
+    const tracked = writeContentAddressedBlobWithDisposition(rootDir, "tracked evidence body", "text/plain");
     const harnessRoot = path.join(rootDir, "harness");
     const trackedPath = path.relative(harnessRoot, path.join(rootDir, tracked.ref)).split(path.sep).join("/");
     execFileSync("git", ["-C", harnessRoot, "add", "--", trackedPath], { stdio: "ignore" });
     execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed tracked evidence"], { stdio: "ignore" });
-    const orphan = writeContentAddressedBlob(rootDir, "daemon orphan body", "text/plain");
+    const orphan = writeContentAddressedBlobWithDisposition(rootDir, "daemon orphan body", "text/plain");
     const daemonEnv = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" } as const;
 
     const preview = unwrapCommandReceipt(runRawJson(rootDir, ["cas", "gc"], daemonEnv));

@@ -15,7 +15,7 @@ import {
   writeSessionEntity
 } from "../../src/entity/session.ts";
 import { getEntityRegistration } from "../../src/entity/registry.ts";
-import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
 import { applyWriteOp } from "../../src/write-coordination/journal/operations/transaction-plan.ts";
@@ -26,7 +26,7 @@ test("session manifests coordinate compact state, immutable transcript bodies, a
     const body = "# Session ses_1\n\n### User\n\nHello.\n";
     const bodyRef = {
       store: "authored-cas/v1" as const,
-      ...writeContentAddressedBlob(rootDir, body, "text/markdown; charset=utf-8")
+      ...writeContentAddressedBlobWithDisposition(rootDir, body, "text/markdown; charset=utf-8")
     };
     const manifest = {
       schema: "session-entity/v1" as const,
@@ -175,7 +175,7 @@ test("composite doc_write compensates only a CAS body created by the failing app
     const newBody = "new composite body\n";
     const preexistingBody = "pre-existing composite body\n";
     const newRef = bodyDescriptor(newBody);
-    const preexistingRef = writeContentAddressedBlob(rootDir, preexistingBody, "text/plain");
+    const preexistingRef = writeContentAddressedBlobWithDisposition(rootDir, preexistingBody, "text/plain");
     const newTarget = path.join(rootDir, "harness", "sessions", "new-failure.md");
     const preexistingTarget = path.join(rootDir, "harness", "sessions", "preexisting-failure.md");
     mkdirSync(newTarget, { recursive: true });

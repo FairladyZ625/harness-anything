@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
-import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../kernel/src/index.ts";
 import { readSessionEntity } from "../../application/src/index.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { runRegisteredCommandWithCliComposition } from "../src/composition/command-executor.ts";
@@ -81,8 +81,8 @@ test("CLI CAS GC previews and applies reclamation without deleting referenced ob
     const sessionsRoot = path.join(harnessRoot, "sessions");
     mkdirSync(sessionsRoot, { recursive: true });
     initHarnessGit(harnessRoot);
-    const referenced = writeContentAddressedBlob(rootDir, "referenced CLI body", "text/plain");
-    const orphan = writeContentAddressedBlob(rootDir, "orphan CLI body", "text/plain");
+    const referenced = writeContentAddressedBlobWithDisposition(rootDir, "referenced CLI body", "text/plain");
+    const orphan = writeContentAddressedBlobWithDisposition(rootDir, "orphan CLI body", "text/plain");
     writeFileSync(path.join(sessionsRoot, "kept.md"), `${JSON.stringify({
       schema: "session-entity/v1",
       sessionId: "kept",
@@ -184,7 +184,7 @@ test("CLI session sync leaves existing Session Entity manifests untouched", () =
     initHarnessGit(harnessRoot);
     const bodyRef = {
       store: "authored-cas/v1",
-      ...writeContentAddressedBlob(rootDir, "# Session synced-manifest\n", "text/markdown; charset=utf-8")
+      ...writeContentAddressedBlobWithDisposition(rootDir, "# Session synced-manifest\n", "text/markdown; charset=utf-8")
     };
     writeFileSync(path.join(harnessRoot, "sessions", "synced-manifest.md"), `${JSON.stringify({
       schema: "session-entity/v1",
