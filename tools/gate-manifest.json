@@ -112,7 +112,8 @@
         "check-api-contract-registry",
         "check-schema-contracts",
         "check-schema-field-coverage",
-        "check-legacy-intake-readiness"
+        "check-legacy-intake-readiness",
+        "check-stage0-manifest"
       ]
     },
     "packageJson": {
@@ -162,6 +163,7 @@
         "check-schema-contracts",
         "check-schema-field-coverage",
         "check-legacy-intake-readiness",
+        "check-stage0-manifest",
         "check-supply-chain",
         "smoke-legacy-intake",
         "smoke-cli-package",
@@ -215,6 +217,7 @@
         "check-schema-contracts",
         "check-schema-field-coverage",
         "check-legacy-intake-readiness",
+        "check-stage0-manifest",
         "check-supply-chain"
       ],
       "harnessLeafGateCount": 48
@@ -4494,6 +4497,86 @@
         "status": "covered",
         "evidence": [
           "tools/check-schema-field-coverage.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-stage0-manifest",
+      "command": "npm run harness:check-stage0-manifest",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "docs/constitution/stage0.md",
+        "docs/constitution/stage0.pin",
+        "packages/kernel/src/domain/entity-relation.ts",
+        "packages/kernel/src/domain/lifecycle-status.ts",
+        "packages/kernel/src/domain/decision-lifecycle-status.ts",
+        "task_01KYEMMB99SYVEHNRKA4A02YC9",
+        "dec_01KYEMDBN9JM5KST6BR4EQGJ46"
+      ],
+      "consumerScope": [
+        "public stage0 constitution content pin",
+        "stage0 machine block and kernel domain enumeration consistency"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The content pin and machine block are fail-closed; constitutional changes must follow the amendment protocol."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "docs/constitution/stage0.md",
+          "docs/constitution/stage0.pin",
+          "tools/check-stage0-manifest.mjs",
+          "tools/check-stage0-manifest.test.mjs",
+          "package.json:scripts.harness:check-stage0-manifest",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-stage0-manifest"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-stage0-manifest.test.mjs"
         ]
       }
     },
