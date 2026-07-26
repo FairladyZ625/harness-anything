@@ -268,6 +268,7 @@ const repoReadCliActionKinds = new Set<string>([
 
 const repoWriteCliActionKinds = new Set<string>([
   "adopt-multica",
+  "artifact-add",
   "cas-gc",
   "decision-amend",
   "decision-repin",

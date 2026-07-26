@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildArtifactIngestPlan, ArtifactIngestError, normalizeProgressAfterArtifact, progressRetryCommand } from "../src/daemon/artifact-ingest.ts";
+import { buildArtifactIngestPlan, ArtifactIngestError, normalizeProgressAfterArtifact, portableGitPathRelative, progressRetryCommand } from "../src/daemon/artifact-ingest.ts";
 import { CliErrorCode, cliError } from "../src/cli/error-codes.ts";
 import { toCommandReceipt } from "../src/cli/receipt.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
@@ -34,6 +34,16 @@ test("artifact planner leaves version-controlled source evidence on the existing
   const plan = buildArtifactIngestPlan({ command: progressCommand(rootDir, taskId, source), repoId: "canonical", cwd: rootDir });
   assert.equal(plan, null);
 }));
+
+test("portable Git paths normalize Windows separators and case on POSIX", () => {
+  const repositoryRoot = String.raw`C:\Users\runneradmin\AppData\Local\Temp\ha-artifact-plan\harness`;
+  const trackedSource = "c:/USERS/RUNNERADMIN/AppData/Local/Temp/ha-artifact-plan/harness/src/source.ts";
+  assert.equal(portableGitPathRelative(repositoryRoot, trackedSource), "src/source.ts");
+  assert.equal(
+    portableGitPathRelative(repositoryRoot, String.raw`C:\Users\runneradmin\AppData\Local\Temp\outside.ts`),
+    null
+  );
+});
 
 test("explicit artifact add rejects binary bytes with an actionable UTF-8 message", () => withFixture(({ rootDir, taskId }) => {
   const source = path.join(rootDir, "capture.bin");

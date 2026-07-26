@@ -391,9 +391,12 @@ function isHarnessInternal(absolutePath: string, rootDir: string): boolean {
 }
 
 function isGitTracked(absolutePath: string): boolean {
-  const top = gitOptional(path.dirname(absolutePath), ["rev-parse", "--show-toplevel"]);
-  if (!top || !isWithin(top, absolutePath)) return false;
-  return gitOptional(top, ["ls-files", "--error-unmatch", "--", portablePathRelative(top, absolutePath)]) !== null;
+  const discoveredTop = gitOptional(path.dirname(absolutePath), ["rev-parse", "--show-toplevel"]);
+  if (!discoveredTop) return false;
+  const top = safeRealpath(discoveredTop);
+  const relativePath = portableGitPathRelative(top, safeRealpath(absolutePath));
+  if (relativePath === null || relativePath === "") return false;
+  return gitOptional(top, ["ls-files", "--error-unmatch", "--", relativePath]) !== null;
 }
 
 function gitBlob(authoredRoot: string, portablePath: string): string | null {
@@ -421,11 +424,18 @@ function mediaTypeFor(filePath: string): string {
 }
 
 function portablePathRelative(from: string, to: string): string { return path.relative(safeRealpath(from), safeRealpath(to)).split(path.sep).join("/"); }
+export function portableGitPathRelative(repositoryRoot: string, candidatePath: string): string | null {
+  const pathApi = isWindowsPathShape(repositoryRoot) || isWindowsPathShape(candidatePath) ? path.win32 : path.posix;
+  const relative = pathApi.relative(pathApi.normalize(repositoryRoot), pathApi.normalize(candidatePath));
+  if (relative === ".." || relative.startsWith(`..${pathApi.sep}`) || pathApi.isAbsolute(relative)) return null;
+  return relative.split(pathApi.sep).join("/");
+}
 function isWithin(parent: string, child: string): boolean {
   const relative = path.relative(safeRealpath(parent), safeRealpath(child));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
-function safeRealpath(value: string): string { try { return realpathSync(value); } catch { return path.resolve(value); } }
+function isWindowsPathShape(value: string): boolean { return /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\"); }
+function safeRealpath(value: string): string { try { return realpathSync.native(value); } catch { return path.resolve(value); } }
 function quoteShellArgument(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 function artifactSkipWarnings(plan: ArtifactIngestPlan) {
   return plan.skippedEvidence.map((entry) => ({
