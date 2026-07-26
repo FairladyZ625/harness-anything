@@ -7,10 +7,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createGitCanonicalPublicationInspector } from "../src/authority/production/publication-evidence.ts";
-import {
-  authorityBatchTrailerName,
-  buildAuthorityBatchIntegrity
-} from "../../kernel/src/integrity/authority-batch-integrity.ts";
 
 const opId = "namespace-test:publication-topology";
 
@@ -278,11 +274,18 @@ function publicationFixture(
 }
 
 function semanticMessage(value: string): string {
-  const integrity = buildAuthorityBatchIntegrity([{
-    opId: value,
-    semanticMutationSetDigest: "ab".repeat(32)
-  }]);
-  return `task(progress-append): task_topology progress.md [${value}]\n\n${authorityBatchTrailerName}: ${integrity.trailerValue}`;
+  return `task(progress-append): task_topology progress.md [${value}]\n\n${fixtureAuthorityTrailer(value, "ab".repeat(32))}`;
+}
+
+function fixtureAuthorityTrailer(opId: string, semanticMutationSetDigest: string): string {
+  const opIdBytes = Buffer.from(opId, "utf8");
+  const count = Buffer.alloc(4);
+  const length = Buffer.alloc(4);
+  count.writeUInt32BE(1);
+  length.writeUInt32BE(opIdBytes.length);
+  const vector = Buffer.concat([count, length, opIdBytes, Buffer.from(semanticMutationSetDigest, "hex")]);
+  const digest = createHash("sha256").update("ha/authority-batch-integrity/v1\0").update(vector).digest("hex");
+  return `Harness-Authority-Batch: v1:${digest}:${vector.toString("base64url")}`;
 }
 
 function attributionPath(value: string): string {

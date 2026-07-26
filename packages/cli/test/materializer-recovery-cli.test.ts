@@ -142,7 +142,7 @@ test("daemon write receipt is not successful until its session write is readable
   });
 });
 
-test("daemon success receipt declares pending materialization with a next command when its own session conflicts", async () => {
+test("direct authority publication ignores a colliding legacy session while explicit recovery retains it", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     writePeopleRoster(rootDir, {
@@ -167,11 +167,18 @@ test("daemon success receipt declares pending materialization with a next comman
         CODEX_THREAD_ID: "receipt-pending-session"
       });
 
-    const warnings = receipt.warnings as ReadonlyArray<{ readonly code?: string; readonly nextCommand?: string }>;
-    const pending = warnings.find((warning) => warning.code === "pending_materialization");
+    const warnings = (receipt.warnings ?? []) as ReadonlyArray<{ readonly code?: string }>;
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
-    assert.equal(pending?.nextCommand, "ha materializer run --json");
-    assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_receipt_pending/decision.md")), false);
+    assert.equal(warnings.some((warning) => warning.code === "pending_materialization"), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_receipt_pending/decision.md")), true);
+    assert.match(git(rootDir, "branch", "--list", "sessions/receipt-pending-session"), /sessions\/receipt-pending-session/u);
+
+    const recovery = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "20000"
+    });
+    assert.equal(recovery.status, 1, JSON.stringify(recovery.receipt));
+    assert.match(String(recovery.receipt.summary), /failed 1: sessions\/receipt-pending-session/iu);
   });
 });
 

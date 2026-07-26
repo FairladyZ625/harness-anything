@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import {
   makeEnvironmentCurrentSessionProbe,
@@ -58,6 +57,8 @@ import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scop
 import { startCliTimingPhase } from "../cli/timing.ts";
 import { daemonRequestTimeoutReceipt } from "./request-outcome.ts";
 import { daemonAutostartOptions, daemonTimingObserver } from "./client-timing.ts";
+import { daemonClientCliEntrypointPath } from "./client-entrypoint.ts";
+import { requestMaterializerRecovery } from "./materializer-recovery-client.ts";
 import {
   CliRootResolutionError,
   commandForRootResolution,
@@ -84,6 +85,7 @@ export {
   remoteDaemonUnavailableHint,
   type RemoteDaemonConfig
 } from "./remote-config.ts";
+export { daemonClientCliEntrypointPath } from "./client-entrypoint.ts";
 
 export type DaemonClientMode = "direct" | "local" | "remote";
 
@@ -266,6 +268,19 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
   const timing = daemonTimingObserver();
   const autostart = daemonAutostartOptions(command, config, timing.observe, daemonClientCliEntrypointPath());
   try {
+    if (command.action.kind === "materializer-run") {
+      const response = await requestMaterializerRecovery(target, commandRunPayload(
+        commandForTarget(command, target),
+        Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
+      ));
+      if (isCommandReceipt(response)) {
+        return withRootResolution(
+          response as unknown as CommandReceipt | CommandFailureReceipt,
+          rootResolution
+        );
+      }
+      throw new Error("daemon command.run did not return command-receipt/v2");
+    }
     let artifactPlan: ArtifactIngestPlan | null;
     try {
       artifactPlan = buildArtifactIngestPlan({
@@ -320,7 +335,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
         commandForTarget(command, target),
         Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
       )
-    }, 200, command.action.kind === "materializer-run" ? undefined : autostart);
+    }, 200, autostart);
     if (isCommandReceipt(response)) {
       const receipt = response as unknown as CommandReceipt | CommandFailureReceipt;
       return withRootResolution(
@@ -490,15 +505,6 @@ function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): Pa
   return path.resolve(command.rootDir) === path.resolve(target.canonicalRoot)
     ? command
     : { ...command, rootDir: target.canonicalRoot };
-}
-
-export function daemonClientCliEntrypointPath(moduleUrl: string | URL = import.meta.url): string {
-  const clientUrl = new URL(moduleUrl);
-  const extension = path.posix.extname(clientUrl.pathname);
-  if (extension !== ".ts" && extension !== ".js") {
-    throw new Error(`unsupported daemon client module extension: ${extension || "<none>"}`);
-  }
-  return fileURLToPath(new URL(`../index${extension}`, clientUrl));
 }
 
 function isCommandReceipt(value: JsonObject): boolean {

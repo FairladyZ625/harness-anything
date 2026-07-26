@@ -218,9 +218,7 @@ export function createDaemonCommandService<
               )
           })
         );
-        return hostServices.toReceipt(
-          await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices)
-        );
+        return hostServices.toReceipt(result);
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
           return hostServices.toErrorReceipt({
@@ -313,55 +311,6 @@ function sessionMaterializationRejection(sessionId: string, error: unknown): Pro
 function isSessionMaterializationRejection(error: unknown): error is ProvenanceSessionExporterRejected {
   return typeof error === "object" && error !== null && "_tag" in error
     && (error as { readonly _tag?: unknown })._tag === "ProvenanceSessionExporterRejected";
-}
-
-async function withSessionMaterialization<Command extends DaemonHostCommand, Result extends DaemonHostCommandResult>(
-  result: Result,
-  command: Command,
-  currentSession: CurrentSessionRef,
-  runtime: CliDaemonRuntime,
-  hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>
-): Promise<Result> {
-  if (!result.ok || hostServices.isDryRunAction(command) || currentSession.source !== "runtime") return result;
-  const commandClass = commandClassForCliActionKind(command.action.kind);
-  if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
-
-  try {
-    const report = await measureCurrentDaemonRequestPerformancePhase(
-      "materializer",
-      () => runtime.enqueueMaterializerBatch({ sessionId: currentSession.sessionId })
-    );
-    const target = report.branches.find((branch) => branch.branch === `sessions/${currentSession.sessionId}`);
-    if (!target || target.commitCount === 0 || target.status === "merged") return result;
-    return appendPendingMaterializationWarning(result, currentSession.sessionId, target.warning);
-  } catch (error) {
-    return appendPendingMaterializationWarning(
-      result,
-      currentSession.sessionId,
-      error instanceof Error ? error.message : String(error)
-    );
-  }
-}
-
-function appendPendingMaterializationWarning<Result extends DaemonHostCommandResult>(
-  result: Result,
-  sessionId: string,
-  reason?: string
-): Result {
-  const nextCommand = "ha materializer run --json";
-  return {
-    ...result,
-    warnings: [
-      ...(result.warnings ?? []),
-      {
-        severity: "warning",
-        code: "pending_materialization",
-        message: `Write is durable on sessions/${sessionId} but is not yet visible on canonical read paths.${reason ? ` Cause: ${reason}` : ""} Run: ${nextCommand}`,
-        sessionId,
-        nextCommand
-      }
-    ]
-  } as Result;
 }
 
 function dryRunWriteBarrier(): WriteCoordinator {

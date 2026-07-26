@@ -4,23 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 LAB_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 LAB_AUTHORED_ROOT="$LAB_ROOT/harness"
-LAB_USER_ROOT="${HARNESS_T3_LAB_USER_ROOT:-/Users/lizeyu/.harness-t3-lab}"
+LAB_USER_ROOT="${HARNESS_T3_LAB_USER_ROOT:-$HOME/.harness-t3-lab}"
 LAB_RUNTIME_ROOT="${HARNESS_T3_LAB_RUNTIME_ROOT:-/private/tmp/harness-anything-t3-lab-$(id -u)}"
 LAB_AUTHORITY_ROOT="$LAB_USER_ROOT/authority"
 LAB_AUTHORITY_MANIFEST="$LAB_AUTHORITY_ROOT/authority-t3-lab.json"
 CLI_ENTRY="$LAB_ROOT/packages/cli/dist/cli/src/index.js"
 
-PRODUCTION_ROOT="/Users/lizeyu/Projects/coding-agent-harness/harness-anything"
-PRODUCTION_USER_ROOT="/Users/lizeyu/.harness-production"
-PRODUCTION_SOCKET_DIR="/var/folders/94/y2lgzz5158397x9pqnzb9xp00000gn/T/harness-anything-501"
-PRODUCTION_AUTHORITY_MANIFEST="/Users/lizeyu/.harness/authority/harness-anything-production/authority-production.json"
-PRODUCTION_KEY_DIRECTORY="/Users/lizeyu/.harness/authority/harness-anything-production/keys/canonical"
+PRODUCTION_PID="${HARNESS_T3_PRODUCTION_PID:-45717}"
+PRODUCTION_GIT_DIR="$(git -C "$LAB_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+PRODUCTION_ROOT="$(dirname -- "$PRODUCTION_GIT_DIR")"
+PRODUCTION_USER_ROOT="${HARNESS_T3_PRODUCTION_USER_ROOT:-$HOME/.harness-production}"
+PRODUCTION_AUTHORITY_MANIFEST="${HARNESS_T3_PRODUCTION_AUTHORITY_MANIFEST:-$HOME/.harness/authority/harness-anything-production/authority-production.json}"
+PRODUCTION_KEY_DIRECTORY="$(dirname -- "$PRODUCTION_AUTHORITY_MANIFEST")/keys/canonical"
+PRODUCTION_ARGS="$(ps -p "$PRODUCTION_PID" -o args= 2>/dev/null || true)"
+PRODUCTION_SOCKET="$(sed -n 's/.* --socket \([^ ]]*\).*/\1/p' <<<"$PRODUCTION_ARGS")"
+PRODUCTION_SOCKET_DIR="$(dirname -- "$PRODUCTION_SOCKET")"
 
 fail() {
   printf 't3-lab start refused: %s\n' "$*" >&2
   exit 1
 }
 
+[[ -n "$PRODUCTION_ARGS" ]] || fail "protected production daemon PID $PRODUCTION_PID is not running"
+[[ -n "$PRODUCTION_SOCKET" ]] || fail "protected production daemon socket could not be resolved"
 [[ "$LAB_ROOT" != "$PRODUCTION_ROOT" ]] || fail "lab root resolves to the production root"
 [[ "$LAB_USER_ROOT" != "$PRODUCTION_USER_ROOT" ]] || fail "lab user root resolves to the production user root"
 [[ "$LAB_AUTHORITY_MANIFEST" != "$PRODUCTION_AUTHORITY_MANIFEST" ]] || fail "lab authority manifest resolves to the production manifest"

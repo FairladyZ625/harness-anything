@@ -8,17 +8,19 @@ import {
   entityRegistry,
   makeLocalAuthorityAttributionEventV2Log,
   makeLocalVersionControlSystem,
-  parseAuthorityBatchCommitMessage,
   resolveHarnessLayout,
   sha256Text,
   type HarnessLayoutInput,
   type PhysicalChangeV2,
   type SemanticMutationSetV2
 } from "@harness-anything/kernel";
+import { scanFirstParentPublicationMetadata } from "./publication-history.ts";
 import {
-  publicationSubjectOperationIds,
-  scanFirstParentPublicationMetadata
-} from "./publication-history.ts";
+  orderedValuesEqual,
+  parseAuthorityBatchMessageOptional,
+  publicationMetadataOperationIds,
+  publicationTopologyError
+} from "./publication-shape.ts";
 import {
   readAuthorityEvidencePendingPathsAtCommit,
   readAuthorityEvidenceWorktreeState
@@ -432,66 +434,6 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
-}
-
-function publicationTopologyError(input: {
-  readonly expectedPreviousHead: string | null;
-  readonly expectedOpIds: ReadonlyArray<string>;
-  readonly head: string;
-  readonly parentCommits: ReadonlyArray<string>;
-  readonly sessionParents: ReadonlyArray<string>;
-  readonly mergeSubject: string;
-  readonly sessionSubject: string;
-  readonly mergeMessageMatchesSession: boolean;
-  readonly legacySubjectShape: boolean;
-  readonly semanticSubjectShape: boolean;
-  readonly directSubjectShape: boolean;
-  readonly mergeTreeMatchesSession: boolean;
-}): Error {
-  return new Error([
-    "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
-    `expectedPreviousHead=${input.expectedPreviousHead ?? "null"}`,
-    `expectedOpIds=${input.expectedOpIds.join(",")}`,
-    `head=${input.head}`,
-    `actualParents=${input.parentCommits.join(",") || "none"}`,
-    `actualSessionParents=${input.sessionParents.join(",") || "none"}`,
-    `mergeSubject=${JSON.stringify(input.mergeSubject)}`,
-    `sessionSubject=${JSON.stringify(input.sessionSubject)}`,
-    `mergeMessageMatchesSession=${String(input.mergeMessageMatchesSession)}`,
-    `legacySubjectShape=${String(input.legacySubjectShape)}`,
-    `semanticSubjectShape=${String(input.semanticSubjectShape)}`,
-    `directSubjectShape=${String(input.directSubjectShape)}`,
-    `mergeTreeMatchesSession=${String(input.mergeTreeMatchesSession)}`
-  ].join(";"));
-}
-
-function publicationMetadataOperationIds(
-  commit: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>[number]
-): ReadonlyArray<string> {
-  const authorityMessage = parseAuthorityBatchMessageOptional(commit.message);
-  if (authorityMessage) {
-    return authorityMessage.integrity.entries.map((entry) => entry.opId);
-  }
-  return commit.parents.length === 2
-    ? publicationSubjectOperationIds(commit.sessionSubject ?? "")
-    : [];
-}
-
-function parseAuthorityBatchMessageOptional(
-  message: string
-): ReturnType<typeof parseAuthorityBatchCommitMessage> | null {
-  try {
-    return parseAuthorityBatchCommitMessage(message);
-  } catch {
-    return null;
-  }
-}
-
-function orderedValuesEqual(
-  left: ReadonlyArray<string>,
-  right: ReadonlyArray<string>
-): boolean {
-  return left.length === right.length && left.every((value, index) => right[index] === value);
 }
 
 /** Fail closed unless every observed tree change is covered by the canonical registry mutation set. */
