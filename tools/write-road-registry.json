@@ -3944,6 +3944,27 @@
       "writeKinds": [
         "doc_sync_submit"
       ],
+      "cliActions": [
+        "artifact-add"
+      ],
+      "intentCompilers": [
+        {
+          "selector": "artifact-add",
+          "surfaces": {
+            "cliActions": [
+              "artifact-add"
+            ]
+          },
+          "parity": "single-entry",
+          "compilers": [
+            {
+              "entry": "current-authored-ingress",
+              "ref": "packages/cli/src/daemon/artifact-ingest.ts#buildArtifactIngestPlan"
+            }
+          ],
+          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
+        }
+      ],
       "evidence": [
         "packages/daemon/src/service/doc-sync-service.ts:229",
         "packages/kernel/src/domain/write-op-kind.ts:1"

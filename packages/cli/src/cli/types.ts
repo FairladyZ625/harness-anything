@@ -276,6 +276,7 @@ export interface ParsedCommand {
     | { readonly kind: "cas-gc"; readonly mode: "dry-run" | "apply" }
     | { readonly kind: "doc-status" }
     | { readonly kind: "doc-sync"; readonly mode: "dry-run" | "submit"; readonly paths: ReadonlyArray<string> }
+    | { readonly kind: "artifact-add"; readonly taskId: string; readonly sourcePaths: ReadonlyArray<string> }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }

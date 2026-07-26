@@ -24,7 +24,6 @@ import {
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget as resolveDaemonTarget,
   type JsonObject,
-  type LocalDaemonAutostartPhase,
   type LocalDaemonTarget
 } from "@harness-anything/daemon";
 import {
@@ -41,14 +40,24 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "@harness-anything/daemon";
+import {
+  artifactAddSuccess,
+  artifactIngestPreviewRejected,
+  buildArtifactIngestPlan,
+  normalizeArtifactSubmitFailure,
+  normalizeProgressAfterArtifact,
+  remoteArtifactSafetyReceipt,
+  type ArtifactIngestPlan
+} from "./artifact-ingest.ts";
 import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
 
 const docSyncHostServices = { resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { readRemoteConfig, remoteDaemonSshArgs, remoteDaemonUnavailableHint, type RemoteDaemonConfig } from "./remote-config.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
-import { startCliTimingPhase, type CliTimingPhase } from "../cli/timing.ts";
+import { startCliTimingPhase } from "../cli/timing.ts";
 import { daemonRequestTimeoutReceipt } from "./request-outcome.ts";
+import { daemonAutostartOptions, daemonTimingObserver } from "./client-timing.ts";
 import {
   CliRootResolutionError,
   commandForRootResolution,
@@ -205,6 +214,10 @@ export async function runCommandThroughDaemon(
     if (config.directWriteReason === "recovery") return undefined;
     return directModeRejection(command);
   }
+  if (config.mode === "remote" && config.remote) {
+    const artifactSafety = remoteArtifactSafetyReceipt(command, config.remote.repoId);
+    if (artifactSafety) return artifactSafety;
+  }
   try {
     return config.mode === "remote" && config.remote
       ? await runTimedRemoteCommand(command, config.remote)
@@ -251,8 +264,30 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
   };
   finishTarget();
   const timing = daemonTimingObserver();
-  const autostart = daemonAutostartOptions(command, config, timing.observe);
+  const autostart = daemonAutostartOptions(command, config, timing.observe, daemonClientCliEntrypointPath());
   try {
+    let artifactPlan: ArtifactIngestPlan | null;
+    try {
+      artifactPlan = buildArtifactIngestPlan({
+        command,
+        repoId: target.repoId,
+        executor: commandExecutor(command),
+        session: Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
+      });
+    } catch (error) {
+      return withRootResolution(artifactIngestPreviewRejected(command, error), rootResolution);
+    }
+    let artifactReport: unknown;
+    if (artifactPlan?.request) {
+      const artifactResponse = await requestLocalDaemonJsonRpcForTarget(target, "repo.doc.sync.submit", artifactPlan.request as unknown as JsonObject, 200, autostart);
+      if (!isCommandReceipt(artifactResponse)) throw new Error("repo.doc.sync.submit did not return command-receipt/v2");
+      if (!artifactResponse.ok) return withRootResolution(normalizeArtifactSubmitFailure(artifactResponse, artifactPlan), rootResolution);
+      artifactReport = (artifactResponse as unknown as CommandReceipt).details?.data;
+    }
+    if (artifactPlan?.facade === "artifact-add") {
+      return withRootResolution(artifactAddSuccess(artifactPlan, artifactReport), rootResolution);
+    }
+    if (artifactPlan?.progressCommand) command = artifactPlan.progressCommand;
     if (isDocSyncSubmitCommand(command)) {
       let request: ReturnType<typeof buildDocSyncSubmitRequest>;
       try {
@@ -286,54 +321,19 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
         Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
       )
     }, 200, command.action.kind === "materializer-run" ? undefined : autostart);
-    if (isCommandReceipt(response)) return withRootResolution(response as unknown as CommandReceipt | CommandFailureReceipt, rootResolution);
+    if (isCommandReceipt(response)) {
+      const receipt = response as unknown as CommandReceipt | CommandFailureReceipt;
+      return withRootResolution(
+        artifactPlan?.facade === "progress-append"
+          ? normalizeProgressAfterArtifact(receipt, artifactPlan, artifactReport)
+          : receipt,
+        rootResolution
+      );
+    }
     throw new Error("daemon command.run did not return command-receipt/v2");
   } finally {
     timing.finish();
   }
-}
-
-function daemonAutostartOptions(
-  command: ParsedCommand,
-  config: DaemonClientConfig,
-  onPhase: (phase: LocalDaemonAutostartPhase) => void
-) {
-  return {
-    entryPath: daemonClientCliEntrypointPath(),
-    idleExitMs: config.idleExitMs,
-    timeoutMs: config.autostartTimeoutMs,
-    requestTimeoutMs: config.requestTimeoutMs,
-    layoutOverrides: command.layoutOverrides,
-    onPhase
-  };
-}
-
-function daemonTimingObserver(): {
-  readonly observe: (event: LocalDaemonAutostartPhase) => void;
-  readonly finish: () => void;
-} {
-  let finishPhase: (() => void) | undefined;
-  let launchReported = false;
-  const transition = (phase?: CliTimingPhase) => {
-    finishPhase?.();
-    finishPhase = phase ? startCliTimingPhase(phase) : undefined;
-  };
-  return {
-    observe: (event) => {
-      if (event === "connect-start") transition("daemon_connect");
-      if (event === "launch-start") {
-        transition("daemon_launch_authority_ready");
-        if (!launchReported && process.env.HA_PROGRESS !== "0") {
-          launchReported = true;
-          console.error("[ha] Starting local daemon; waiting for authority readiness.");
-        }
-      }
-      if (event === "ready") transition();
-      if (event === "request-start") transition("command_execute");
-      if (event === "request-end") transition();
-    },
-    finish: () => transition()
-  };
 }
 
 async function runTimedRemoteCommand(command: ParsedCommand, remote: RemoteDaemonConfig): Promise<CommandReceipt | CommandFailureReceipt> {

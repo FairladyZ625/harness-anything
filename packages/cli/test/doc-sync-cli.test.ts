@@ -2,7 +2,7 @@
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -151,6 +151,127 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
   });
 });
 
+test("task artifact add submits UTF-8 evidence through the existing doc-sync governance commit", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const sessionBranch = "sessions/doc-sync-cli-test";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    initHarnessGit(harnessRoot);
+    const source = path.join(rootDir, "artifact-report.txt");
+    writeFileSync(source, "governed evidence\n", "utf8");
+
+    const submitted = runJson(rootDir, ["task", "artifact", "add", taskId, source]);
+
+    const target = `tasks/${taskId}/artifacts/artifact-report.txt`;
+    assert.equal(submitted.ok, true);
+    assert.equal(submitted.command, "artifact-add");
+    assert.deepEqual(submitted.report.artifacts, [target]);
+    const committedBody = await pollUntil(
+      () => execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${target}`], { encoding: "utf8" }),
+      (candidate) => candidate === "governed evidence\n",
+      (candidate, error) => JSON.stringify({ candidate, error: String(error ?? ""), submitted })
+    );
+    assert.equal(committedBody, "governed evidence\n");
+    assert.match(execFileSync("git", ["-C", harnessRoot, "log", "-1", "--format=%s", sessionBranch], { encoding: "utf8" }), /^entity\(doc-sync-submit\):/u);
+  });
+});
+
+test("progress evidence ingests an untracked artifact before recording its governed pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
+    initHarnessGit(harnessRoot);
+    const source = path.join(rootDir, "combined-report.txt");
+    writeFileSync(source, "combined evidence\n", "utf8");
+
+    const submitted = runJson(rootDir, [
+      "task", "progress", "append", taskId,
+      "--text", "combined path",
+      "--evidence", `test:${source}:green`
+    ]);
+
+    const target = `tasks/${taskId}/artifacts/combined-report.txt`;
+    assert.equal(submitted.ok, true, JSON.stringify(submitted));
+    assert.match(readFileSync(path.join(taskRoot, "progress.md"), "utf8"), new RegExp(`Evidence: test:${target}:green`, "u"));
+    assert.equal(execFileSync("git", ["-C", harnessRoot, "show", `HEAD:${target}`], { encoding: "utf8" }), "combined evidence\n");
+    assert.match(execFileSync("git", ["-C", harnessRoot, "log", "--all", "--format=%s", "--", target], { encoding: "utf8" }), /entity\(doc-sync-submit\):/u);
+  });
+});
+
+test("progress evidence preserves a URL-shaped free pointer when it is not a local artifact", async () => {
+  await withTempRoot(async (rootDir) => {
+    await assertPointerOnlyEvidence(rootDir, "pr:https://github.com/FairladyZ625/harness-anything/pull/1104:merged");
+  });
+});
+
+test("progress evidence preserves a non-path free pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    await assertPointerOnlyEvidence(rootDir, "note:none:仅文字说明");
+  });
+});
+
+test("progress evidence preserves an outside-repository file pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const externalRoot = mkdtempSync(path.join(tmpdir(), "ha-outside-evidence-"));
+    try {
+      const externalPath = path.join(externalRoot, "probe-run.log");
+      writeFileSync(externalPath, "outside log\n", "utf8");
+      await assertPointerOnlyEvidence(rootDir, `log:${externalPath}:tail`);
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("progress evidence preserves a binary file pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const binaryPath = path.join(rootDir, "capture.bin");
+    writeFileSync(binaryPath, Buffer.from([0xff, 0x00, 0xfe]));
+    await assertPointerOnlyEvidence(rootDir, `log:${binaryPath}:binary capture`);
+  });
+});
+
+test("artifact doc-sync rejection stops before progress append and leaves no dangling pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+    writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), `${JSON.stringify({
+      schema: "harness-anything/write-road-registry/v1",
+      rows: [{ id: "task.document.write-stage", bearing: "task-document", channel: { pathClass: "rpc-only", zoneClass: "task-authored-prose-or-stage" } }]
+    }, null, 2)}\n`);
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
+    initHarnessGit(harnessRoot);
+    const source = path.join(rootDir, "rejected-report.txt");
+    writeFileSync(source, "must stay unreferenced\n", "utf8");
+    const before = execFileSync("git", ["-C", harnessRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+    const rejected = runJson(rootDir, [
+      "task", "progress", "append", taskId,
+      "--text", "must not be appended",
+      "--evidence", `log:${source}:rejected`
+    ], false);
+
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error.hint, /progress\.md was not changed/u);
+    assert.equal(execFileSync("git", ["-C", harnessRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), before);
+    assert.equal(execFileSync("git", ["-C", harnessRoot, "show", `HEAD:tasks/${taskId}/progress.md`], { encoding: "utf8" }), "# Progress\n\n## Entries\n\n");
+    assert.equal(existsSync(path.join(taskRoot, "artifacts", "rejected-report.txt")), false);
+  });
+});
+
 async function withTempRoot<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sync-cli-"));
   ensureTestHarnessIdentity(rootDir);
@@ -160,6 +281,32 @@ async function withTempRoot<T>(fn: (rootDir: string) => Promise<T>): Promise<T> 
     await stopDaemon(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+async function assertPointerOnlyEvidence(rootDir: string, evidence: string): Promise<void> {
+  const harnessRoot = path.join(rootDir, "harness");
+  const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+  const taskRoot = path.join(harnessRoot, "tasks", taskId);
+  mkdirSync(taskRoot, { recursive: true });
+  seedDocSyncWriteRoadRegistry(rootDir);
+  writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+  writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
+  initHarnessGit(harnessRoot);
+
+  const submitted = runJson(rootDir, [
+    "task", "progress", "append", taskId,
+    "--text", "free pointer compatibility",
+    "--evidence", evidence
+  ]);
+
+  assert.equal(submitted.ok, true, JSON.stringify(submitted));
+  assert.match(readFileSync(path.join(taskRoot, "progress.md"), "utf8"), new RegExp(`Evidence: ${escapeRegExp(evidence)}`, "u"));
+  assert.equal((submitted.warnings ?? []).some((warning: Record<string, unknown>) => warning.code === "artifact_ingest_skipped"), true);
+  assert.equal(existsSync(path.join(taskRoot, "artifacts")), false);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function seedWriteRoadRegistry(rootDir: string): void {
@@ -189,8 +336,13 @@ function gitStatus(harnessRoot: string): string {
 
 function taskIndex(): string {
   return [
-    "---", "schema: task-package/v2", "task_id: task_01KX3W4V1EDPHPTGWYYBQQ2J75", "status: active",
-    "urgency: medium", "vertical: software/coding", "preset: standard-task", "---", "# Task", ""
+    "---", "schema: task-package/v2", "task_id: task_01KX3W4V1EDPHPTGWYYBQQ2J75", "title: Doc sync task",
+    "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active", "  ref: ''",
+    "  titleSnapshot: Doc sync task", "  url: ''", "  bindingCreatedAt: 2026-07-26T00:00:00.000Z",
+    `  bindingFingerprint: sha256:${"b".repeat(64)}`,
+    "packageDisposition: active", "urgency: medium", "vertical: software/coding", "preset: standard-task",
+    "provenance:", "  - {runtime: human, sessionId: fixture, boundAt: 2026-07-26T00:00:00.000Z}",
+    "---", "# Task", ""
   ].join("\n");
 }
 
@@ -211,7 +363,8 @@ function validFactRecord(): string {
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
-  const daemonMode = args[0] === "doc" && args[1] === "sync" && args.includes("--submit") ? "local" : "fixture";
+  const daemonMode = (args[0] === "doc" && args[1] === "sync" && args.includes("--submit"))
+    || (args[0] === "task" && (args[1] === "artifact" || args[1] === "progress")) ? "local" : "fixture";
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",

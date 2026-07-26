@@ -16,6 +16,7 @@ const cliEntry = path.resolve("packages/cli/src/index.ts");
 
 const expectedConflictPreflightKinds = [
   "adopt-multica",
+  "artifact-add",
   "decision-transition",
   "decision-amend",
   "decision-repin",
@@ -73,6 +74,7 @@ const expectedConflictPreflightKinds = [
 ].sort();
 
 const expectedAutoRuntimeEventKinds = [
+  "artifact-add",
   "decision-transition",
   "decision-amend",
   "decision-repin",

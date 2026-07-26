@@ -44,16 +44,21 @@ export function gitTopLevel(inputPath: string): string | null {
 }
 
 export function resolveGitCommitSha(rootDir: string, ref: string): string {
+  return readAuthoredGitText(rootDir, ["rev-parse", "--verify", `${ref}^{commit}`]);
+}
+
+export function readAuthoredGitText(rootDir: string, args: ReadonlyArray<string>, trim = true): string {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))
   );
   environment.GIT_OPTIONAL_LOCKS = "0";
-  return execFileSync("git", ["-C", rootDir, "rev-parse", "--verify", `${ref}^{commit}`], {
+  const output = execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     env: environment,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
-  }).trim();
+  });
+  return trim ? output.trim() : output;
 }
 
 function normalizeExistingPath(inputPath: string): string {

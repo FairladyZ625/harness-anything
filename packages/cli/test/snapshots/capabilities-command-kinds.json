@@ -151,6 +151,7 @@
     "status"
   ],
   "task": [
+    "artifact-add",
     "new-task",
     "progress-append",
     "status-set",

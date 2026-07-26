@@ -3,6 +3,7 @@ import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
+import { parseArtifactAdd } from "./core-task-artifact.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
 import { parseTaskContractMigrate } from "./core-task-contract.ts";
 import { parseExecutionSubmissionOptions, parseTaskClaim } from "./core-task-execution.ts";
@@ -34,6 +35,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "artifact" && args[2] === "add" && args[3]) return parseArtifactAdd(args, rootDir, json);
   if (args[0] === "task" && args[1] === "amend" && args[2]) return parseTaskAmend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "contract" && args[2] === "migrate") return parseTaskContractMigrate(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive") return parseTaskArchive(args, rootDir, json);

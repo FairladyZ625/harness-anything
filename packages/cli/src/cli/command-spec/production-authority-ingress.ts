@@ -60,6 +60,7 @@ const dispositions = {
   "module-register": typed("generic"),
 
   "init": excluded("repository bootstrap writes precede production authority attachment"),
+  "artifact-add": excluded("CLI facade submits artifact bytes through the dedicated repo.doc.sync.submit authority route"),
   "task-release": excluded("lease release mutates daemon-private holder state in the operational domain"),
   "task-start": excluded("CLI facade decomposes into separately admitted task-claim and status-set commands; a raw composite daemon action is rejected"),
   "task-submit": excluded("CLI facade decomposes into separately admitted task-code-doc-reconcile and status-set commands; a raw composite daemon action is rejected"),
