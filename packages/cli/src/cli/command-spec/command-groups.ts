@@ -16,6 +16,7 @@ export const commandGroups = [
   group("audit", "Inspect execution provenance coverage."),
   group("authority", "Manage authority cutover controls."),
   group("capabilities", "Describe machine-readable command schemas."),
+  group("cas", "Inspect and reclaim content-addressed objects."),
   group("check", "Run harness health checks."),
   group("completion", "Generate shell completion scripts."),
   group("daemon", "Manage the persistent local daemon."),

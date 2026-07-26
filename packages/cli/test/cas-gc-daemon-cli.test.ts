@@ -15,7 +15,12 @@ test("production daemon executes CAS GC preview and apply", async () => {
     const harnessRoot = path.join(rootDir, "harness");
     const trackedPath = path.relative(harnessRoot, path.join(rootDir, tracked.ref)).split(path.sep).join("/");
     execFileSync("git", ["-C", harnessRoot, "add", "--", trackedPath], { stdio: "ignore" });
-    execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed tracked evidence"], { stdio: "ignore" });
+    execFileSync("git", [
+      "-C", harnessRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "-m", "seed tracked evidence"
+    ], { stdio: "ignore" });
     const orphan = writeContentAddressedBlobWithDisposition(rootDir, "daemon orphan body", "text/plain");
     const daemonEnv = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" } as const;
 

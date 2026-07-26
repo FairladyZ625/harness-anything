@@ -57,7 +57,13 @@ async function acquireTaskHolderMutationLock(lockPath: string, taskId: string): 
 }
 
 function recoverAbandonedTaskHolderMutationLock(lockPath: string): void {
-  const record = readTaskHolderMutationLock(lockPath);
+  let record: TaskHolderMutationLockRecord | null;
+  try {
+    record = readTaskHolderMutationLock(lockPath);
+  } catch (error) {
+    if (isConcurrentWindowsLockAccess(error, lockPath)) return;
+    throw error;
+  }
   const modifiedAtMs = record ? null : readTaskHolderMutationLockModifiedAtMs(lockPath);
   const acquiredAtMs = record ? Date.parse(record.acquiredAt) : modifiedAtMs;
   if (acquiredAtMs === null) return;
@@ -79,7 +85,7 @@ function readTaskHolderMutationLockModifiedAtMs(lockPath: string): number | null
   try {
     return localRuntimeStateFileSystem.modifiedAtMs(lockPath);
   } catch (error) {
-    if (isMissingFileError(error)) return null;
+    if (isMissingFileError(error) || isConcurrentWindowsLockAccess(error, lockPath)) return null;
     throw error;
   }
 }
@@ -116,6 +122,12 @@ function processIsAlive(pid: number): boolean {
 
 function isMissingFileError(error: unknown): boolean {
   return isNodeErrorCode(error, "ENOENT");
+}
+
+function isConcurrentWindowsLockAccess(error: unknown, lockPath: string): boolean {
+  return process.platform === "win32" &&
+    isNodeErrorCode(error, "EPERM") &&
+    localRuntimeStateFileSystem.exists(lockPath);
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {

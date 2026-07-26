@@ -24,9 +24,13 @@ import { withTempStore } from "./helpers.ts";
 test("session manifests coordinate compact state, immutable transcript bodies, and rebuildable projections", () => {
   withTempStore((rootDir) => {
     const body = "# Session ses_1\n\n### User\n\nHello.\n";
+    const writtenBody = writeContentAddressedBlobWithDisposition(rootDir, body, "text/markdown; charset=utf-8");
     const bodyRef = {
       store: "authored-cas/v1" as const,
-      ...writeContentAddressedBlobWithDisposition(rootDir, body, "text/markdown; charset=utf-8")
+      ref: writtenBody.ref,
+      sha256: writtenBody.sha256,
+      size: writtenBody.size,
+      mediaType: writtenBody.mediaType
     };
     const manifest = {
       schema: "session-entity/v1" as const,
