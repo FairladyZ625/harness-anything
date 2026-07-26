@@ -18,7 +18,7 @@ test("stage0 manifest checker accepts the pinned public charter", () => {
 
 test("stage0 manifest checker rejects unpinned charter text drift", () => {
   withFixture((root) => {
-    const manifestPath = path.join(root, "docs/constitution/stage0.md");
+    const manifestPath = path.join(root, "docs-release/constitution/stage0.md");
     writeFileSync(manifestPath, `${readFileSync(manifestPath, "utf8")}\n漂移。\n`, "utf8");
 
     const result = run(root);
@@ -29,7 +29,7 @@ test("stage0 manifest checker rejects unpinned charter text drift", () => {
 
 test("stage0 manifest checker rejects machine block drift", () => {
   withFixture((root) => {
-    const manifestPath = path.join(root, "docs/constitution/stage0.md");
+    const manifestPath = path.join(root, "docs-release/constitution/stage0.md");
     const manifest = readFileSync(manifestPath, "utf8");
     writeFileSync(manifestPath, manifest.replace("[directed, undirected]", "[directed]"), "utf8");
 
@@ -44,7 +44,7 @@ function withFixture(fn) {
   try {
     for (const relative of [
       "tools/check-stage0-manifest.mjs",
-      "docs/constitution",
+      "docs-release/constitution",
       "packages/kernel/src/domain/entity-relation.ts",
       "packages/kernel/src/domain/lifecycle-status.ts",
       "packages/kernel/src/domain/decision-lifecycle-status.ts"

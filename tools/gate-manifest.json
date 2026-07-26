@@ -4507,8 +4507,8 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "docs/constitution/stage0.md",
-        "docs/constitution/stage0.pin",
+        "docs-release/constitution/stage0.md",
+        "docs-release/constitution/stage0.pin",
         "packages/kernel/src/domain/entity-relation.ts",
         "packages/kernel/src/domain/lifecycle-status.ts",
         "packages/kernel/src/domain/decision-lifecycle-status.ts",
@@ -4540,8 +4540,8 @@
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
-          "docs/constitution/stage0.md",
-          "docs/constitution/stage0.pin",
+          "docs-release/constitution/stage0.md",
+          "docs-release/constitution/stage0.pin",
           "tools/check-stage0-manifest.mjs",
           "tools/check-stage0-manifest.test.mjs",
           "package.json:scripts.harness:check-stage0-manifest",

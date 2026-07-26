@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 宪章机械核验器。
-// 校验 docs/constitution/stage0.md 的 machine 块与 kernel 域源码逐项一致 + 内容钉一致。
+// 校验 docs-release/constitution/stage0.md 的 machine 块与 kernel 域源码逐项一致 + 内容钉一致。
 // 用法: node tools/check-stage0-manifest.mjs [--write-pin]   漂移或钉不符 => 退出码 1
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
-const manifestPath = resolve(repoRoot, "docs/constitution/stage0.md");
-const pinPath = resolve(repoRoot, "docs/constitution/stage0.pin");
+const manifestPath = resolve(repoRoot, "docs-release/constitution/stage0.md");
+const pinPath = resolve(repoRoot, "docs-release/constitution/stage0.pin");
 
 const manifest = readFileSync(manifestPath, "utf8");
 const failures = [];
@@ -75,7 +75,7 @@ if (process.argv.includes("--write-pin")) {
   writeFileSync(pinPath, digest + "\n");
   oks.push(`pin: 已写入 ${digest.slice(0, 16)}…`);
 } else if (!existsSync(pinPath)) {
-  failures.push("pin: 缺 docs/constitution/stage0.pin(先跑 --write-pin)");
+  failures.push("pin: 缺 docs-release/constitution/stage0.pin(先跑 --write-pin)");
 } else {
   const pinned = readFileSync(pinPath, "utf8").trim();
   if (pinned === digest) oks.push(`pin: 一致 ${digest.slice(0, 16)}…`);
