@@ -13,7 +13,7 @@ import {
   makeTaskHolderService,
   taskHolderActor
 } from "../src/index.ts";
-import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition, writeSessionEntity } from "../../kernel/src/index.ts";
 import { memoryAuthoredStore, taskIndex } from "./execution-saga-fixtures.ts";
 import { writeAttribution } from "./test-attribution.ts";
 
@@ -43,7 +43,7 @@ test("Execution claim preserves blocked and in_review Task lifecycle state", asy
         source: "runtime" as const,
         detectedAt: "2026-07-11T00:00:00.000Z"
       };
-      const bodyRef = writeContentAddressedBlob(rootDir, `# ${status} session\n`, "text/markdown; charset=utf-8");
+      const bodyRef = writeContentAddressedBlobWithDisposition(rootDir, `# ${status} session\n`, "text/markdown; charset=utf-8");
       Effect.runSync(writeSessionEntity(coordinator, rootDir, {
         schema: "session-entity/v1",
         sessionId: primarySession.sessionId,

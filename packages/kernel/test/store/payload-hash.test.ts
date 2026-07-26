@@ -14,7 +14,7 @@ import {
 } from "../../src/domain/index.ts";
 import type { DocumentWrite } from "../../src/ports/artifact-store-writer.ts";
 import type { WriteOp } from "../../src/ports/write-coordinator.ts";
-import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
 import { createTaskPackagePath, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../src/layout/index.ts";
 import { applyWriteOp, documentWritesForWriteOp, writeOpTouchedPaths } from "../../src/write-coordination/journal/operations/transaction-plan.ts";
@@ -109,7 +109,7 @@ test("write-journal operation declarations reconcile with apply filesystem effec
 test("machine_artifact_write bodyRef documentWrites is cwd independent", () => {
   withTempStore((rootDir) => {
     const layout = resolveHarnessLayout(rootDir);
-    const bodyRef = writeContentAddressedBlob(rootDir, "machine artifact body", "text/plain");
+    const bodyRef = writeContentAddressedBlobWithDisposition(rootDir, "machine artifact body", "text/plain");
     const op: WriteOp = {
       opId: "recon-machine-artifact-bodyref", 
       entityId: taskEntityId("task_machine_artifact_bodyref"),

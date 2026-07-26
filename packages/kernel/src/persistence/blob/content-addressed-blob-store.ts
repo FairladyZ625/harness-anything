@@ -1,7 +1,7 @@
 import path from "node:path";
 import { sha256Bytes } from "../../integrity/stable-hash.ts";
 import { type HarnessLayoutInput, resolveHarnessLayout } from "../../layout/index.ts";
-import { durableFileExists, readFileBytes, writeFileDurably } from "../../write-coordination/journal/durable.ts";
+import { appendImmutableBytesDurably, durableFileExists, readFileBytes, removeFileDurably } from "../../write-coordination/journal/durable.ts";
 
 export interface ContentAddressedBlobRef {
   readonly ref: string;
@@ -10,13 +10,17 @@ export interface ContentAddressedBlobRef {
   readonly mediaType: string;
 }
 
+export interface ContentAddressedBlobWriteResult extends ContentAddressedBlobRef {
+  readonly created: boolean;
+}
+
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 
-export function writeContentAddressedBlob(
+export function writeContentAddressedBlobWithDisposition(
   rootInput: HarnessLayoutInput,
   body: string | Uint8Array,
   mediaType: string
-): ContentAddressedBlobRef {
+): ContentAddressedBlobWriteResult {
   const bytes = typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.from(body);
   const sha256 = sha256Bytes(bytes);
   const descriptor = descriptorForDigest(rootInput, sha256, bytes.byteLength, mediaType);
@@ -24,12 +28,18 @@ export function writeContentAddressedBlob(
 
   if (durableFileExists(targetPath)) {
     verifyBlobBytes(readFileBytes(targetPath), descriptor);
-    return descriptor;
+    return { ...descriptor, created: false };
   }
 
-  writeFileDurably(targetPath, bytes);
+  const created = appendImmutableBytesDurably(targetPath, bytes);
   verifyBlobBytes(readFileBytes(targetPath), descriptor);
-  return descriptor;
+  return { ...descriptor, created };
+}
+
+export function removeContentAddressedBlob(rootInput: HarnessLayoutInput, descriptor: ContentAddressedBlobRef): void {
+  const targetPath = resolveContentAddressedBlobPath(rootInput, descriptor);
+  verifyBlobBytes(readFileBytes(targetPath), descriptor);
+  removeFileDurably(targetPath);
 }
 
 export function readContentAddressedBlob(rootInput: HarnessLayoutInput, descriptor: ContentAddressedBlobRef): Uint8Array {

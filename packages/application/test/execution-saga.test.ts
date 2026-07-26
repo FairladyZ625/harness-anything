@@ -19,7 +19,7 @@ import {
   resolveEntityDocumentPath,
   taskHolderActor
 } from "../src/index.ts";
-import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition, writeSessionEntity } from "../../kernel/src/index.ts";
 import type { ExecutionRecord } from "../src/index.ts";
 import { validateOutputEvidence } from "../../kernel/src/index.ts";
 import { writeAttribution } from "./test-attribution.ts";
@@ -149,7 +149,7 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
     const claimed = await saga.claim({ taskId, principal: aliceCodex, primarySession });
     const indexPath = path.join(taskRoot, "INDEX.md");
     writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^(  status:\s*).+$/mu, "$1active"), "utf8");
-    const bodyRef = writeContentAddressedBlob(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
+    const bodyRef = writeContentAddressedBlobWithDisposition(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
     Effect.runSync(writeSessionEntity(coordinator, rootDir, {
       schema: "session-entity/v1",
       sessionId: primarySession.sessionId,

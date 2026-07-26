@@ -18,6 +18,7 @@ import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { deprecatedCommandDefinitions } from "../src/cli/command-deprecations.ts";
 import { taskLifecycleFacadeParseCases } from "./fixtures/task-lifecycle-facade-parse-cases.ts";
+import { runtimeDocParseCases } from "./fixtures/runtime-doc-parse-cases.ts";
 
 type ParsedAction = ParsedCommand["action"];
 
@@ -158,17 +159,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "fact invalidate", argv: ["fact", "invalidate", "--task", "task_1", "--id", "F-DEADBEEF", "--by", "F-FEEDFACE", "--rationale", "New fact"], kind: "fact-invalidate", fields: { taskId: "task_1", factId: "F-DEADBEEF", invalidatedByFactId: "F-FEEDFACE", rationale: "New fact", dryRun: false } },
   { name: "distill candidate", argv: ["distill", "candidate", "--task", "task_1", "--input", "source.md"], kind: "distill-candidate", fields: { taskId: "task_1", inputPath: "source.md" } },
   { name: "distill promote", argv: ["distill", "promote", "--task", "task_1", "--candidate", ".harness/generated/distill/task_1/candidate.json", "--claim", "Distilled claim", "--id", "F-DEADBEEF", "--confidence", "high", "--memory-class", "semantic", "--memory-tag", "pattern", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "distill-commit", fields: { taskId: "task_1", candidatePath: ".harness/generated/distill/task_1/candidate.json", claim: "Distilled claim", factId: "F-DEADBEEF", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], observedAt: "2026-07-03T00:00:00.000Z" } },
-  { name: "event append", argv: ["event", "append", "--session", "codex-session-1", "--kind", "interrupt", "--runtime", "codex", "--task", "task_1", "--interrupt", "append", "--result", "succeeded", "--summary", "Guidance appended", "--total-tokens", "42"], kind: "runtime-event-append", fields: { sessionId: "codex-session-1", eventKind: "interrupt", runtime: "codex", taskId: "task_1", interrupt: "append", result: "succeeded", summary: "Guidance appended", totalTokens: 42 } },
-  { name: "event list", argv: ["event", "list", "--session", "codex-session-1"], kind: "runtime-event-list", fields: { sessionId: "codex-session-1" } },
-  { name: "materializer run", argv: ["materializer", "run", "--dry-run"], kind: "materializer-run", fields: { dryRun: true } },
-  { name: "session export current", argv: ["session", "export"], kind: "session-export", fields: { sessionId: undefined, runtime: undefined } },
-  { name: "session export explicit", argv: ["session", "export", "--session", "codex-thread", "--runtime", "codex", "--source", "manual", "--detected-at", "2026-07-04T00:00:00.000Z", "--user", "Zeyu", "--transcript-file", "/tmp/codex-thread.jsonl"], kind: "session-export", fields: { sessionId: "codex-thread", runtime: "codex", source: "manual", detectedAt: "2026-07-04T00:00:00.000Z", user: "Zeyu", transcriptFile: "/tmp/codex-thread.jsonl" } },
-  { name: "session backfill", argv: ["session", "backfill", "--runtime", "codex", "--limit", "5"], kind: "session-backfill", fields: { runtime: "codex", limit: 5 } },
-  { name: "session sync", argv: ["session", "sync"], kind: "session-sync", fields: { mode: "dry-run" } },
-  { name: "session sync apply", argv: ["session", "sync", "--apply"], kind: "session-sync", fields: { mode: "apply" } },
-  { name: "doc status", argv: ["doc", "status"], kind: "doc-status" },
-  { name: "doc sync dry-run", argv: ["doc", "sync", "--dry-run"], kind: "doc-sync", fields: { mode: "dry-run", paths: [] } },
-  { name: "doc sync submit", argv: ["doc", "sync", "--submit"], kind: "doc-sync", fields: { mode: "submit", paths: [] } },
+  ...runtimeDocParseCases,
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",

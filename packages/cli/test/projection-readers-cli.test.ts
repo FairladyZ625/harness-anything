@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition } from "../../kernel/src/index.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
@@ -69,7 +69,7 @@ test("projection-backed task readers report missing coverage for tasks without e
 });
 
 function writeEntities(rootDir: string): void {
-  const blob = writeContentAddressedBlob(rootDir, "# private transcript\n", "text/markdown; charset=utf-8");
+  const blob = writeContentAddressedBlobWithDisposition(rootDir, "# private transcript\n", "text/markdown; charset=utf-8");
   mkdirSync(path.join(rootDir, "harness/sessions"), { recursive: true });
   writeFileSync(path.join(rootDir, `harness/sessions/${sessionId}.md`), `${JSON.stringify({
     schema: "session-entity/v1",

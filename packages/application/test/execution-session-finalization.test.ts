@@ -10,7 +10,7 @@ import {
   makeJournaledWriteCoordinator,
   type ExecutionRecord
 } from "../src/index.ts";
-import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
+import { writeContentAddressedBlobWithDisposition, writeSessionEntity } from "../../kernel/src/index.ts";
 import { inspectRuntimeTranscript } from "../src/runtime-session-logs.ts";
 import { recordRuntimeTranscriptInspection } from "../src/runtime-transcript-confirmation.ts";
 import { writeAttribution } from "./test-attribution.ts";
@@ -46,7 +46,7 @@ test("Session binding finalization exports when possible and marks only confirme
     });
 
     const archivedId = "archived-session";
-    const bodyRef = writeContentAddressedBlob(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
+    const bodyRef = writeContentAddressedBlobWithDisposition(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
     Effect.runSync(writeSessionEntity(coordinator, rootDir, {
       schema: "session-entity/v1",
       sessionId: archivedId,

@@ -10,6 +10,7 @@ Commands:
   audit - Inspect execution provenance coverage.
   authority - Manage authority cutover controls.
   capabilities - Describe machine-readable command schemas.
+  cas - Inspect and reclaim content-addressed objects.
   check - Run harness health checks.
   completion - Generate shell completion scripts.
   daemon - Manage the persistent local daemon.
