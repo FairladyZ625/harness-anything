@@ -173,6 +173,19 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
   };
 }
 
+export function gitProtectedPaths(
+  repoRoot: string,
+  relativeRoot: string
+): { readonly tracked: ReadonlySet<string>; readonly historical: ReadonlySet<string> } {
+  const pathspec = `:(top,literal)${relativeRoot}`;
+  const tracked = new Set(runGit(repoRoot, "ls-files", "-z", "--", pathspec).split("\0").filter(Boolean));
+  const historical = new Set(runGit(repoRoot, "log", "--all", "--format=", "--name-only", "-z", "--", pathspec)
+    .split("\0")
+    .map((entry) => entry.trim())
+    .filter(Boolean));
+  return { tracked, historical };
+}
+
 export function firstCommitAtForPath(repoRoot: string, inputPath: string): string | null {
   const relativePath = path.relative(repoRoot, inputPath);
   if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) return null;

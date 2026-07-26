@@ -135,7 +135,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "parse": parseCasArgs,
     "run": runCasCommand,
     "receiptContract": {
-      "data": ["rows", "report"],
+      "data": ["rows", "mode", "report"],
       "paths": []
     },
     "eventPolicy": {
