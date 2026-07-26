@@ -8,6 +8,7 @@ import {
   entityRegistry,
   makeLocalAuthorityAttributionEventV2Log,
   makeLocalVersionControlSystem,
+  parseAuthorityBatchCommitMessage,
   resolveHarnessLayout,
   sha256Text,
   type HarnessLayoutInput,
@@ -193,7 +194,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       }>>();
       for (const commit of commits) {
         if (commit.parents.length !== 2) continue;
-        const opIds = publicationSubjectOperationIds(commit.sessionSubject ?? "");
+        const opIds = publicationMetadataOperationIds(commit);
         const anchor = {
           commitSha: commit.commitSha,
           previousCommit: commit.parents[0]!,
@@ -249,8 +250,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     // oldest-to-newest makes every reported commit a complete prefix.
     for (const commit of [...commits].reverse()) {
       if (commit.parents.length === 2) {
-        const sessionSubject = commit.sessionSubject ?? "";
-        const opIds = publicationSubjectOperationIds(sessionSubject);
+        const opIds = publicationMetadataOperationIds(commit);
         if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
           const anchor = {
             commitSha: commit.commitSha,
@@ -293,7 +293,21 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     const sessionSubject = sessionCommit
       ? publicationGitText(rootDir, "show", "-s", "--format=%s", sessionCommit)
       : "";
+    const mergeMessage = publicationGitText(rootDir, "show", "-s", "--format=%B", head);
+    const sessionMessage = sessionCommit
+      ? publicationGitText(rootDir, "show", "-s", "--format=%B", sessionCommit)
+      : "";
     const expectedSessionSubjectSuffix = `[${expectedOpIds.join(",")}]`;
+    const legacySubjectShape = /^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(mergeSubject)
+      && sessionSubject.endsWith(expectedSessionSubjectSuffix);
+    const semanticMessage = parseAuthorityBatchMessageOptional(mergeMessage);
+    const semanticSubjectShape = !mergeSubject.startsWith("materializer: merge session ")
+      && mergeMessage === sessionMessage
+      && semanticMessage !== null
+      && orderedValuesEqual(
+        semanticMessage.integrity.entries.map((entry) => entry.opId),
+        expectedOpIds
+      );
     const mergeTreeMatchesSession = sessionCommit
       ? gitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
@@ -302,8 +316,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       || parentCommits[0] !== expectedPreviousHead
       || sessionParents.length !== 1
       || sessionParents[0] !== expectedPreviousHead
-      || !/^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(mergeSubject)
-      || !sessionSubject.endsWith(expectedSessionSubjectSuffix)
+      || (!legacySubjectShape && !semanticSubjectShape)
       || !mergeTreeMatchesSession) {
       throw publicationTopologyError({
         expectedPreviousHead,
@@ -313,6 +326,9 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         sessionParents,
         mergeSubject,
         sessionSubject,
+        mergeMessageMatchesSession: mergeMessage === sessionMessage,
+        legacySubjectShape,
+        semanticSubjectShape,
         mergeTreeMatchesSession
       });
     }
@@ -376,13 +392,12 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     inspectPublication,
     scanFirstParentOperationAnchors,
     findPublication: async (expectedOpIds) => {
-      const expectedSessionSubjectSuffix = `[${expectedOpIds.join(",")}]`;
       const history = await indexedHistory();
       if (!history) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
       const matches: CanonicalPublicationEvidence[] = [];
       for (const commit of history.commits) {
         if (commit.parents.length !== 2
-          || !commit.sessionSubject?.endsWith(expectedSessionSubjectSuffix)) continue;
+          || !orderedValuesEqual(publicationMetadataOperationIds(commit), expectedOpIds)) continue;
         matches.push(await inspectPublication(
           commit.parents[0]!,
           expectedOpIds,
@@ -421,6 +436,9 @@ function publicationTopologyError(input: {
   readonly sessionParents: ReadonlyArray<string>;
   readonly mergeSubject: string;
   readonly sessionSubject: string;
+  readonly mergeMessageMatchesSession: boolean;
+  readonly legacySubjectShape: boolean;
+  readonly semanticSubjectShape: boolean;
   readonly mergeTreeMatchesSession: boolean;
 }): Error {
   return new Error([
@@ -432,8 +450,37 @@ function publicationTopologyError(input: {
     `actualSessionParents=${input.sessionParents.join(",") || "none"}`,
     `mergeSubject=${JSON.stringify(input.mergeSubject)}`,
     `sessionSubject=${JSON.stringify(input.sessionSubject)}`,
+    `mergeMessageMatchesSession=${String(input.mergeMessageMatchesSession)}`,
+    `legacySubjectShape=${String(input.legacySubjectShape)}`,
+    `semanticSubjectShape=${String(input.semanticSubjectShape)}`,
     `mergeTreeMatchesSession=${String(input.mergeTreeMatchesSession)}`
   ].join(";"));
+}
+
+function publicationMetadataOperationIds(
+  commit: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>[number]
+): ReadonlyArray<string> {
+  const firstParentIds = publicationSubjectOperationIds(commit.subject);
+  return firstParentIds.length > 0
+    ? firstParentIds
+    : publicationSubjectOperationIds(commit.sessionSubject ?? "");
+}
+
+function parseAuthorityBatchMessageOptional(
+  message: string
+): ReturnType<typeof parseAuthorityBatchCommitMessage> | null {
+  try {
+    return parseAuthorityBatchCommitMessage(message);
+  } catch {
+    return null;
+  }
+}
+
+function orderedValuesEqual(
+  left: ReadonlyArray<string>,
+  right: ReadonlyArray<string>
+): boolean {
+  return left.length === right.length && left.every((value, index) => right[index] === value);
 }
 
 /** Fail closed unless every observed tree change is covered by the canonical registry mutation set. */

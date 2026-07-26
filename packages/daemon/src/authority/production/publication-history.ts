@@ -7,6 +7,7 @@ const subjectBatchSize = 256;
 export interface FirstParentPublicationMetadata {
   readonly commitSha: string;
   readonly parents: ReadonlyArray<string>;
+  readonly subject: string;
   readonly sessionSubject?: string;
 }
 
@@ -23,18 +24,21 @@ export async function scanFirstParentPublicationMetadata(input: {
   const revision = input.exclusiveCommit
     ? `${input.exclusiveCommit}..${input.headCommit}`
     : input.headCommit;
-  const history = parsePairs(await publicationHistoryGitText(
+  const history = parseTriples(await publicationHistoryGitText(
     input.rootDir,
     "log",
     "--first-parent",
-    "--format=%H%x00%P%x00",
+    "--format=%H%x00%P%x00%s%x00",
     revision
-  )).map(([commitSha, parents]) => ({
+  )).map(([commitSha, parents, subject]) => ({
     commitSha,
-    parents: parents.split(" ").filter(Boolean)
+    parents: parents.split(" ").filter(Boolean),
+    subject
   }));
   const sessionCommits = [...new Set(history
-    .filter((row) => row.parents.length === 2)
+    .filter((row) =>
+      row.parents.length === 2
+      && row.subject.startsWith("materializer: merge session "))
     .map((row) => row.parents[1]!))];
   const subjects = new Map<string, string>();
   for (let start = 0; start < sessionCommits.length; start += subjectBatchSize) {
@@ -73,4 +77,16 @@ function parsePairs(value: string): ReadonlyArray<readonly [string, string]> {
     if (first) pairs.push([first, second]);
   }
   return pairs;
+}
+
+function parseTriples(value: string): ReadonlyArray<readonly [string, string, string]> {
+  const fields = value.split("\0");
+  const triples: Array<readonly [string, string, string]> = [];
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const first = fields[index]!.trim();
+    const second = fields[index + 1]!.trim();
+    const third = fields[index + 2]!.trim();
+    if (first) triples.push([first, second, third]);
+  }
+  return triples;
 }

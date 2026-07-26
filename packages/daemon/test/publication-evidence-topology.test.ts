@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createGitCanonicalPublicationInspector } from "../src/authority/production/publication-evidence.ts";
+import {
+  authorityBatchTrailerName,
+  buildAuthorityBatchIntegrity
+} from "../../kernel/src/integrity/authority-batch-integrity.ts";
 
 const opId = "namespace-test:publication-topology";
 
@@ -19,6 +23,22 @@ test("publication proof accepts the existing two-parent materializer shape", asy
   assert.equal(evidence.commitSha, fixture.validMerge);
   assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
   assert.deepEqual(evidence.pipelineGeneratedPaths, [attributionPath(opId)]);
+});
+
+test("publication proof accepts a two-parent semantic merge with the complete session message", async (context) => {
+  const fixture = publicationFixture(context);
+  const semanticMerge = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.base, fixture.session],
+    fixture.sessionMessage
+  );
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  const evidence = await inspector.inspectPublication(fixture.base, [opId], semanticMerge);
+
+  assert.equal(evidence.commitSha, semanticMerge);
+  assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
 });
 
 test("first-parent recovery accepts an old-shape merge immediately after its watermark", async (context) => {
@@ -39,6 +59,64 @@ test("first-parent recovery accepts an old-shape merge immediately after its wat
     previousCommit: fixture.base,
     opIds: [opId]
   }]);
+});
+
+test("first-parent recovery crosses an old merge to semantic merge watermark boundary", async (context) => {
+  const fixture = publicationFixture(context);
+  const nextOpId = "namespace-test:semantic-boundary";
+  const nextSession = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.validMerge],
+    semanticMessage(nextOpId)
+  );
+  const nextMerge = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.validMerge, nextSession],
+    semanticMessage(nextOpId)
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", nextMerge);
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  const scan = await inspector.scanFirstParentOperationAnchors({
+    exclusiveCommit: fixture.validMerge,
+    interestedOpIds: new Set([nextOpId]),
+    progressBatchSize: 1
+  });
+
+  assert.equal(scan.headCommit, nextMerge);
+  assert.deepEqual(scan.anchors, [{
+    commitSha: nextMerge,
+    previousCommit: fixture.validMerge,
+    opIds: [nextOpId]
+  }]);
+});
+
+test("semantic merge rejects a changed or incomplete authority message", async (context) => {
+  const fixture = publicationFixture(context);
+  const changedMessage = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.base, fixture.session],
+    `${fixture.sessionMessage}\n\nunexpected`
+  );
+  const missingTrailer = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.base, fixture.session],
+    `task(progress-append): task_topology progress.md [${opId}]`
+  );
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  await assert.rejects(
+    inspector.inspectPublication(fixture.base, [opId], changedMessage),
+    topologyError
+  );
+  await assert.rejects(
+    inspector.inspectPublication(fixture.base, [opId], missingTrailer),
+    topologyError
+  );
 });
 
 test("publication proof rejects a single-parent publication", async (context) => {
@@ -149,7 +227,8 @@ function publicationFixture(
     writeFileSync(path.join(root, relativePath), "{\"schema\":\"attribution-event/v1\"}\n");
   }
   fixtureGit(root, "add", "--", ".");
-  fixtureGit(root, "commit", "-q", "-m", `task(progress-append): task_topology progress.md [${opId}]`);
+  const sessionMessage = semanticMessage(opId);
+  fixtureGit(root, "commit", "-q", "-m", sessionMessage);
   const session = fixtureGit(root, "rev-parse", "HEAD");
   const sessionTree = fixtureGit(root, "rev-parse", "HEAD^{tree}");
   fixtureGit(root, "checkout", "-q", "master");
@@ -160,7 +239,15 @@ function publicationFixture(
     [base, session],
     "materializer: merge session topology"
   );
-  return { root, base, baseTree, session, sessionTree, validMerge };
+  return { root, base, baseTree, session, sessionTree, sessionMessage, validMerge };
+}
+
+function semanticMessage(value: string): string {
+  const integrity = buildAuthorityBatchIntegrity([{
+    opId: value,
+    semanticMutationSetDigest: "ab".repeat(32)
+  }]);
+  return `task(progress-append): task_topology progress.md [${value}]\n\n${authorityBatchTrailerName}: ${integrity.trailerValue}`;
 }
 
 function attributionPath(value: string): string {

@@ -70,6 +70,7 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    commitMessage: (repoRoot, ref) => runGit(repoRoot, "show", "-s", "--format=%B", ref).trim(),
     pathExistsAtCommit: (repoRoot, sha, relativePath) => {
       try {
         runGit(repoRoot, "cat-file", "-e", `${sha}:${relativePath}`);

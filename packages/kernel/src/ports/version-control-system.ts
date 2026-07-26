@@ -18,6 +18,7 @@ export interface VersionControlSystem {
   readonly originHeadBranch: (repoRoot: string) => string | null;
   readonly refExists: (repoRoot: string, ref: string) => boolean;
   readonly commitExists: (repoRoot: string, sha: string) => boolean;
+  readonly commitMessage: (repoRoot: string, ref: string) => string;
   readonly pathExistsAtCommit: (repoRoot: string, sha: string, relativePath: string) => boolean;
   /**
    * Returns requested canonical repo-relative file paths present below one

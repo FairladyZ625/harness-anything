@@ -31,6 +31,17 @@ test("local Git execution preserves captured output and typed command errors", (
     const vcs = makeLocalVersionControlSystem();
 
     assert.equal(vcs.currentBranch(repoRoot), "hidden-window-test");
+    fixtureGit(
+      repoRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "-c", "commit.gpgSign=false",
+      "commit", "--allow-empty", "-m", "semantic subject", "-m", "Harness-Authority-Batch: example"
+    );
+    assert.equal(
+      vcs.commitMessage(repoRoot, "HEAD"),
+      "semantic subject\n\nHarness-Authority-Batch: example"
+    );
     assert.throws(
       () => vcs.commit(nonRepoRoot, "must fail"),
       (error: unknown) => error instanceof VcsCommandError
