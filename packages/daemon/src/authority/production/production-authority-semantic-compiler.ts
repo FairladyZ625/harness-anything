@@ -16,7 +16,10 @@ import { makeProductionScriptIngestSemanticCompiler } from "./production-authori
 
 export function createProductionAuthoritySemanticCompiler(
   authoredRoot: string,
-  hostServices: Pick<ProductionAuthorityCompilerHostServices, "readTaskWipSnapshot">
+  hostServices: Pick<
+    ProductionAuthorityCompilerHostServices,
+    "readTaskReturnToIdeaSnapshot" | "readTaskWipSnapshot"
+  >
 ) {
   const semanticState = createProductionCanonicalSemanticState(authoredRoot);
   const rootInput = {
@@ -32,6 +35,12 @@ export function createProductionAuthoritySemanticCompiler(
       state: semanticState,
       ...(hostServices.readTaskWipSnapshot
         ? { taskWipSnapshot: async () => hostServices.readTaskWipSnapshot!(rootInput) }
+        : {}),
+      ...(hostServices.readTaskReturnToIdeaSnapshot
+        ? {
+          taskReturnToIdeaSnapshot: (taskId: string) =>
+            hostServices.readTaskReturnToIdeaSnapshot!(rootInput, taskId)
+        }
         : {})
     })
   }, {

@@ -140,6 +140,7 @@ export const CliErrorCode = {
   SupersedeTargetNotFound: "supersede_target_not_found",
   TaskAlreadyExists: "task_already_exists",
   TaskLeaseRequired: "task_lease_required",
+  TaskReturnToIdeaBlocked: "task_return_to_idea_blocked",
   TaskWipLimitReached: "task_wip_limit_reached",
   TaskPlanPlaceholder: "task_plan_placeholder",
   TaskTreeDirty: "task_tree_dirty",
@@ -194,6 +195,7 @@ export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([
   CliErrorCode.StaleSnapshotRefused,
   CliErrorCode.TaskAlreadyExists,
   CliErrorCode.TaskLeaseRequired,
+  CliErrorCode.TaskReturnToIdeaBlocked,
   CliErrorCode.TaskWipLimitReached,
   CliErrorCode.TaskNotFound,
   CliErrorCode.TerminalHardDeleteForbidden,
@@ -364,6 +366,10 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.SupersedeTargetNotFound]: { category: "command", defaultHint: "Supersede target was not found." },
   [CliErrorCode.TaskAlreadyExists]: { category: "domain", defaultHint: "Task already exists." },
   [CliErrorCode.TaskLeaseRequired]: { category: "domain", defaultHint: "Task lease is required. Run 'ha task start <task-id>' before retrying." },
+  [CliErrorCode.TaskReturnToIdeaBlocked]: {
+    category: "domain",
+    defaultHint: "Return to planned is blocked. Run 'ha task release <task-id>', then 'ha task retire-execution <task-id> --execution-id <execution-id> --reason <reason>' before retrying."
+  },
   [CliErrorCode.TaskWipLimitReached]: {
     category: "domain",
     defaultHint: "Activation was rejected because settings.tasks.wipLimit is full. Run 'ha task transition <named-task-id> planned', or complete/archive a named task, then retry activation."

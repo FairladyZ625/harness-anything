@@ -72,13 +72,8 @@ import {
   taskDecisionModulePath as taskPath
 } from "./task-decision-module-refs.ts";
 import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
-import {
-  enteringExecutionWip,
-  taskWipPublicationRevalidation,
-  type ReadTaskWipSnapshotV1
-} from "./task-wip-policy.ts";
-
-export type { TaskWipSnapshotEntryV1, TaskWipSnapshotV1 } from "./task-wip-policy.ts";
+import { enteringExecutionWip, taskWipPublicationRevalidation, type ReadTaskWipSnapshotV1 } from "./task-wip-policy.ts";
+import { taskReturnToIdeaPublicationRevalidation, type ReadTaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -116,6 +111,7 @@ export interface TaskDecisionModuleAuthorityStateV2 {
 export interface TaskDecisionModuleSemanticCompilerV2Options {
   readonly state: TaskDecisionModuleAuthorityStateV2;
   readonly taskWipSnapshot?: ReadTaskWipSnapshotV1;
+  readonly taskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 
 export interface CompiledTaskDecisionModuleCommandV2 {
@@ -228,11 +224,14 @@ async function compileTaskTransition(
     { path, snapshot },
     ...completionContractSnapshots
   ]);
+  if (to === "planned" && (current.status === "active" || current.status === "blocked")) {
+    return { ...compiled, publicationRevalidation: taskReturnToIdeaPublicationRevalidation(options.taskReturnToIdeaSnapshot, payload.taskId) };
+  }
   return enteringExecutionWip(current.status, current.packageDisposition, to, "active")
     ? {
       ...compiled,
       publicationRevalidation: taskWipPublicationRevalidation(options.taskWipSnapshot, payload.taskId)
-      }
+    }
     : compiled;
 }
 

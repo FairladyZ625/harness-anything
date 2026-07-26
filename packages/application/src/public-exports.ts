@@ -88,6 +88,8 @@ export { decodeTaskDecisionModuleCommandPayloadV2 } from "./authority/task-decis
 export { decodeSessionExecutionReviewCommandPayloadV2 } from "./authority/session-execution-review-command-v2.ts";
 export * from "./authority/fact-relation-semantic-compiler-v2.ts";
 export * from "./authority/task-decision-module-semantic-compiler-v2.ts";
+export type { TaskReturnToIdeaSnapshotV1 } from "./authority/task-return-to-idea-policy.ts";
+export type { TaskWipSnapshotEntryV1, TaskWipSnapshotV1 } from "./authority/task-wip-policy.ts";
 export * from "./authority/session-execution-review-semantic-compiler-v2.ts";
 export * from "./authority/consent-semantic-compiler-v2.ts";
 export * from "./authority/transparent-semantic-diff-compiler-v2.ts";
@@ -380,6 +382,7 @@ export {
   evaluateDecisionReckonGate,
   evaluateCompletionGate,
   evaluateReviewGate,
+  evaluateTaskReturnToIdeaGate,
   extractMarkdownSection,
   isCloseoutPlaceholderMarkdown,
   isReviewPlaceholderMarkdown,
@@ -422,6 +425,9 @@ export type {
   ReviewGateResult,
   TaskDocumentPlaceholderPolicy,
   TaskDocumentPlaceholderSectionFingerprint,
+  TaskReturnToIdeaGateInput,
+  TaskReturnToIdeaGateIssue,
+  TaskReturnToIdeaGateResult,
   VerifierBackedReviewContract
 } from "./task-lifecycle-gates.ts";
 export type {

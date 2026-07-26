@@ -92,3 +92,15 @@ test("daemon WIP-limit rejection preserves its actionable reason and stable code
     hint: reason
   });
 });
+
+test("daemon return-to-idea rejection preserves its actionable reason and stable code", () => {
+  const reason = "TASK_RETURN_TO_IDEA_BLOCKED: run `ha task release task_OLD`, then retire Execution exe_OLD.";
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "task_return_to_idea_blocked",
+    reason
+  }), {
+    code: "task_return_to_idea_blocked",
+    hint: reason
+  });
+});

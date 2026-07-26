@@ -137,6 +137,51 @@ export interface TaskDocumentPlaceholderSectionFingerprint {
   readonly body: string;
 }
 
+export interface TaskReturnToIdeaGateInput {
+  readonly taskId: string;
+  readonly activeExecutions: ReadonlyArray<{ readonly executionId: string }>;
+  readonly activeLease: {
+    readonly holder: {
+      readonly principal: { readonly personId: string };
+      readonly executor: { readonly id: string } | null;
+    };
+    readonly executionId?: string;
+    readonly leaseExpiresAt: string;
+  } | null;
+}
+
+export interface TaskReturnToIdeaGateIssue {
+  readonly code: "active_execution" | "active_lease";
+  readonly message: string;
+}
+
+export type TaskReturnToIdeaGateResult =
+  | { readonly ok: true; readonly issues: readonly [] }
+  | { readonly ok: false; readonly issues: ReadonlyArray<TaskReturnToIdeaGateIssue> };
+
+export function evaluateTaskReturnToIdeaGate(input: TaskReturnToIdeaGateInput): TaskReturnToIdeaGateResult {
+  const issues: TaskReturnToIdeaGateIssue[] = [];
+  if (input.activeLease) {
+    const holder = `person:${input.activeLease.holder.principal.personId}` +
+      (input.activeLease.holder.executor ? `/agent:${input.activeLease.holder.executor.id}` : "");
+    const execution = input.activeLease.executionId ? ` for Execution ${input.activeLease.executionId}` : "";
+    issues.push({
+      code: "active_lease",
+      message: `Active lease${execution} is held by ${holder} until ${input.activeLease.leaseExpiresAt}. ` +
+        `Next: the current holder must run \`ha task release ${input.taskId}\`.`
+    });
+  }
+  for (const execution of input.activeExecutions) {
+    const afterRelease = input.activeLease ? " After releasing the active lease," : " Next:";
+    issues.push({
+      code: "active_execution",
+      message: `Active Execution ${execution.executionId} still occupies the task.${afterRelease} run ` +
+        `\`ha task retire-execution ${input.taskId} --execution-id ${execution.executionId} --reason "<reason>"\`.`
+    });
+  }
+  return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
+}
+
 export function parseReviewMarkdown(markdown: string): ParsedReviewMarkdown {
   const findings: ReviewFinding[] = [];
   const issues: ReviewGateIssue[] = [];
