@@ -18,6 +18,7 @@ import { getEntityRegistration } from "../../src/entity/registry.ts";
 import { writeContentAddressedBlob } from "../../src/persistence/blob/content-addressed-blob-store.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeJournaledWriteCoordinator } from "../../src/write-coordination/journal/coordinator.ts";
+import { applyWriteOp } from "../../src/write-coordination/journal/operations/transaction-plan.ts";
 import { withTempStore } from "./helpers.ts";
 
 test("session manifests coordinate compact state, immutable transcript bodies, and rebuildable projections", () => {
@@ -168,3 +169,54 @@ test("session CAS install is recoverable only after its journal payload is durab
     assert.deepEqual(readSessionEntityDocument(rootDir, manifest.sessionId).manifest, manifest);
   });
 });
+
+test("composite doc_write compensates only a CAS body created by the failing apply", () => {
+  withTempStore((rootDir) => {
+    const newBody = "new composite body\n";
+    const preexistingBody = "pre-existing composite body\n";
+    const newRef = bodyDescriptor(newBody);
+    const preexistingRef = writeContentAddressedBlob(rootDir, preexistingBody, "text/plain");
+    const newTarget = path.join(rootDir, "harness", "sessions", "new-failure.md");
+    const preexistingTarget = path.join(rootDir, "harness", "sessions", "preexisting-failure.md");
+    mkdirSync(newTarget, { recursive: true });
+    mkdirSync(preexistingTarget, { recursive: true });
+
+    assert.throws(() => applyWriteOp(rootDir, compositeOp("new-failure", newBody, newRef)));
+    assert.equal(existsSync(path.join(rootDir, newRef.ref)), false);
+
+    assert.throws(() => applyWriteOp(rootDir, compositeOp("preexisting-failure", preexistingBody, preexistingRef)));
+    assert.equal(existsSync(path.join(rootDir, preexistingRef.ref)), true);
+    assert.equal(readFileSync(path.join(rootDir, preexistingRef.ref), "utf8"), preexistingBody);
+  });
+});
+
+function bodyDescriptor(body: string) {
+  const sha256 = sha256Text(body);
+  return {
+    ref: `harness/objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`,
+    sha256,
+    size: Buffer.byteLength(body),
+    mediaType: "text/plain"
+  };
+}
+
+function compositeOp(sessionId: string, blobBody: string, blobRef: ReturnType<typeof bodyDescriptor>) {
+  return {
+    opId: `op-${sessionId}`,
+    entityId: `entity/session/${sessionId}` as const,
+    kind: "doc_write" as const,
+    payload: {
+      entityDocument: {
+        declaration: {
+          kind: sessionEntityDeclaration.kind,
+          storageForm: sessionEntityDeclaration.storageForm,
+          rootResolver: sessionEntityDeclaration.rootResolver
+        },
+        identity: { sessionId },
+        body: "{}\n",
+        blobRef,
+        blobBody
+      }
+    }
+  };
+}

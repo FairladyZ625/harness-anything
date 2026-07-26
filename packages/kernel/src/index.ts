@@ -157,8 +157,14 @@ export {
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
+  removeContentAddressedBlob,
   readContentAddressedTextBlob,
-  writeContentAddressedBlob
+  writeContentAddressedBlob,
+  writeContentAddressedBlobWithDisposition
+} from "./composition/index.ts";
+export type {
+  ContentAddressedBlobRef,
+  ContentAddressedBlobWriteResult
 } from "./composition/index.ts";
 export { DaemonDrainTimeoutError } from "./daemon/drain-timeout.ts";
 export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";

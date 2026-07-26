@@ -1,7 +1,17 @@
 import path from "node:path";
 import { Effect } from "effect";
 import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "@harness-anything/kernel";
-import { privateTextScannerVersion, resolveHarnessLayout, scanPrivateText, writeContentAddressedBlob, writeSessionEntity, type HarnessLayoutInput } from "@harness-anything/kernel";
+import {
+  privateTextScannerVersion,
+  readSessionEntityDocument,
+  removeContentAddressedBlob,
+  resolveHarnessLayout,
+  scanPrivateText,
+  writeContentAddressedBlobWithDisposition,
+  writeSessionEntity,
+  type ContentAddressedBlobWriteResult,
+  type HarnessLayoutInput
+} from "@harness-anything/kernel";
 import { discoverRuntimeSessions, displayRuntimePath, inspectRuntimeTranscript, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 import { clearRuntimeTranscriptConfirmation, recordRuntimeTranscriptInspection } from "./runtime-transcript-confirmation.ts";
 import { readSessionEntity } from "./session-entity-reader.ts";
@@ -144,13 +154,14 @@ function writeSessionDocument(
       ...conversation.messages.flatMap((message, index) => scanPrivateText(message.text, `snapshot.messages.${index}`))
     ];
     const body = renderSessionMarkdown(session, conversation);
-    const bodyRef = yield* Effect.try({
+    const bodyWrite = yield* Effect.try({
       try: () => ({
         store: "authored-cas/v1" as const,
-        ...writeContentAddressedBlob(rootInput, body, sessionMediaType)
+        ...writeContentAddressedBlobWithDisposition(rootInput, body, sessionMediaType)
       }),
       catch: (cause) => sessionRejection(session.sessionId, cause instanceof Error ? cause.message : String(cause), "write_failed")
     });
+    const { created: _created, ...bodyRef } = bodyWrite;
     const manifest = toSessionManifest(session, conversation, bodyRef, privacyFindings);
     return yield* writeSessionEntity(options.coordinator, rootInput, manifest, {
       opIdPrefix: `session-export-${session.sessionId}`
@@ -159,9 +170,30 @@ function writeSessionDocument(
         session,
         path: target.authoredRelativePath
       })),
+      Effect.tapError(() => Effect.sync(() => cleanupRejectedSessionBody(rootInput, session.sessionId, bodyWrite))),
       Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed"))
     );
   });
+}
+
+function cleanupRejectedSessionBody(
+  rootInput: HarnessLayoutInput,
+  sessionId: string,
+  bodyWrite: ContentAddressedBlobWriteResult
+): void {
+  if (!bodyWrite.created) return;
+  try {
+    const existing = readSessionEntityDocument(rootInput, sessionId);
+    if (existing.manifest.bodyRef.ref === bodyWrite.ref) return;
+  } catch (error) {
+    if (!isMissingFileError(error)) return;
+  }
+  try {
+    removeContentAddressedBlob(rootInput, bodyWrite);
+  } catch {
+    // Preserve the original coordinator rejection; a later `ha cas gc` can
+    // inspect and reclaim any body that could not be compensated here.
+  }
 }
 
 function readSessionDocument(

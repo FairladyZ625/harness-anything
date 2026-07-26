@@ -4,10 +4,13 @@ import { Effect } from "effect";
 import {
   privateTextScannerVersion,
   readFrontmatter,
+  readSessionEntityDocument,
   readScalar,
+  removeContentAddressedBlob,
   resolveHarnessLayout,
   scanPrivateText,
-  writeContentAddressedBlob,
+  writeContentAddressedBlobWithDisposition,
+  type ContentAddressedBlobWriteResult,
   type FlushReport,
   type SessionManifest,
   type WriteError
@@ -35,8 +38,13 @@ export function runSessionSync(
     const legacy = documents.filter((entry) => entry.kind === "legacy");
     const manifests = documents.filter((entry) => entry.kind === "manifest");
     const displayPaths = legacy.map((entry) => cutoverDisplayPath(context.layoutInput, entry.entry));
-    const flush = action.mode === "apply" && legacy.length > 0
-      ? yield* writeManifests(legacy.map((entry) => legacySessionManifest(context.layoutInput, entry.body)))
+    const prepared = action.mode === "apply"
+      ? legacy.map((entry) => prepareLegacySessionManifest(context.layoutInput, entry.body))
+      : [];
+    const flush = prepared.length > 0
+      ? yield* writeManifests(prepared.map((entry) => entry.manifest)).pipe(
+          Effect.tapError(() => Effect.sync(() => cleanupRejectedCutoverBodies(context.layoutInput, prepared)))
+        )
       : undefined;
     return {
       ok: true,
@@ -64,7 +72,10 @@ export function runSessionSync(
   });
 }
 
-function legacySessionManifest(rootInput: Parameters<CommandRunner>[0]["layoutInput"], body: string): SessionManifest {
+function prepareLegacySessionManifest(
+  rootInput: Parameters<CommandRunner>[0]["layoutInput"],
+  body: string
+): { readonly manifest: SessionManifest; readonly bodyWrite: ContentAddressedBlobWriteResult } {
   const frontmatter = readFrontmatter(body);
   if (!frontmatter || readScalar(frontmatter, "schema", { required: true }) !== "provenance-session/v1") {
     throw new Error("session cutover only accepts provenance-session/v1 markdown");
@@ -77,28 +88,59 @@ function legacySessionManifest(rootInput: Parameters<CommandRunner>[0]["layoutIn
   const exportedAt = readScalar(frontmatter, "exportedAt", { required: true });
   const findings = scanPrivateText(body, "snapshot.body");
   const user = readScalar(frontmatter, "user");
+  const bodyWrite = writeContentAddressedBlobWithDisposition(rootInput, body, "text/markdown; charset=utf-8");
   return {
-    schema: "session-entity/v1",
-    sessionId,
-    lifecycle: "sealed",
-    archiveStatus: "complete",
-    runtime,
-    source,
-    detectedAt: readScalar(frontmatter, "detectedAt", { required: true }),
-    exportedAt,
-    ...(user ? { user } : {}),
-    bodyRef: { store: "authored-cas/v1", ...writeContentAddressedBlob(rootInput, body, "text/markdown; charset=utf-8") },
-    snapshot: {
-      capturedAt: exportedAt,
-      completeness: "complete",
-      captureRange: { messageCount: [...body.matchAll(/^### (?:User|Assistant|Summary)(?: \(|$)/gmu)].length },
-      privacyScan: {
-        scannerVersion: privateTextScannerVersion,
-        passed: findings.every((finding) => finding.severity !== "error"),
-        findings
+    bodyWrite,
+    manifest: {
+      schema: "session-entity/v1",
+      sessionId,
+      lifecycle: "sealed",
+      archiveStatus: "complete",
+      runtime,
+      source,
+      detectedAt: readScalar(frontmatter, "detectedAt", { required: true }),
+      exportedAt,
+      ...(user ? { user } : {}),
+      bodyRef: {
+        store: "authored-cas/v1",
+        ref: bodyWrite.ref,
+        sha256: bodyWrite.sha256,
+        size: bodyWrite.size,
+        mediaType: bodyWrite.mediaType
+      },
+      snapshot: {
+        capturedAt: exportedAt,
+        completeness: "complete",
+        captureRange: { messageCount: [...body.matchAll(/^### (?:User|Assistant|Summary)(?: \(|$)/gmu)].length },
+        privacyScan: {
+          scannerVersion: privateTextScannerVersion,
+          passed: findings.every((finding) => finding.severity !== "error"),
+          findings
+        }
       }
     }
   };
+}
+
+function cleanupRejectedCutoverBodies(
+  rootInput: Parameters<CommandRunner>[0]["layoutInput"],
+  prepared: ReadonlyArray<{ readonly manifest: SessionManifest; readonly bodyWrite: ContentAddressedBlobWriteResult }>
+): void {
+  for (const entry of prepared) {
+    if (!entry.bodyWrite.created) continue;
+    try {
+      const existing = readSessionEntityDocument(rootInput, entry.manifest.sessionId);
+      if (existing.manifest.bodyRef.ref === entry.bodyWrite.ref) continue;
+    } catch {
+      // The source is a known legacy document, so a decode failure is not a
+      // committed Session Entity reference to the newly prepared body.
+    }
+    try {
+      removeContentAddressedBlob(rootInput, entry.bodyWrite);
+    } catch {
+      // Preserve the coordinator rejection; `ha cas gc` can inspect leftovers.
+    }
+  }
 }
 
 function isSessionRuntime(value: string): value is SessionManifest["runtime"] {
