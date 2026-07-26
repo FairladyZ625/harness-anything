@@ -107,6 +107,7 @@
         "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
+        "check-cli-installability",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
@@ -157,6 +158,7 @@
         "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
+        "check-cli-installability",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
@@ -211,6 +213,7 @@
         "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
+        "check-cli-installability",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
@@ -220,7 +223,7 @@
         "check-stage0-manifest",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 48
+      "harnessLeafGateCount": 49
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -4134,6 +4137,84 @@
         "status": "documented-gap",
         "evidence": [
           "No dedicated positive-control fixture is registered for check-package-policy."
+        ]
+      }
+    },
+    {
+      "id": "check-cli-installability",
+      "command": "npm run harness:check-cli-installability",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "docs-release/constitution/stage0.md#8",
+        "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
+        "packages/cli/tsconfig.build.json",
+        "packages/*/package.json",
+        "package-lock.json"
+      ],
+      "consumerScope": [
+        "@harness-anything/cli bundled runtime dependency closure and zero-toolchain installability"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "package-policy"
+        ],
+        "workflowJobs": [
+          "package-policy"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Required native dependencies without Linux x64 and arm64 prebuild delivery fail closed; capability-specific native modules must be optional."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-installability.mjs",
+          "tools/check-cli-installability.test.mjs",
+          "package.json:scripts.harness:check-cli-installability",
+          "packages/cli/tsconfig.build.json",
+          "packages/*/package.json",
+          "package-lock.json",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-installability"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "package-policy"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "package-policy"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-installability.test.mjs"
         ]
       }
     },

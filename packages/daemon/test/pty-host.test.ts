@@ -55,6 +55,39 @@ test("pty host spawns at the project root and streams input output resize and ex
   }
 });
 
+test("missing optional node-pty leaves daemon usable and returns an actionable terminal failure", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-pty-optional-"));
+  let loadCalls = 0;
+  try {
+    const service = createPtyTerminalSessionService({
+      workspaceRoot,
+      createId: () => "term-unavailable",
+      loadNodePty: () => {
+        loadCalls += 1;
+        throw Object.assign(new Error("Cannot find module 'node-pty'"), { code: "MODULE_NOT_FOUND" });
+      }
+    });
+
+    assert.equal(loadCalls, 0);
+    assert.deepEqual(service.listSessions(), { ok: true, sessions: [] });
+
+    const created = service.createSession({
+      name: "Unavailable terminal",
+      backend: "direct-pty",
+      shell: process.execPath
+    });
+    assert.equal(loadCalls, 1);
+    assert.equal(created.ok, false);
+    if (created.ok) return;
+    assert.equal(created.error.code, "terminal_pty_unavailable");
+    assert.match(created.error.hint, /node-pty is not installed or could not load its native binary/u);
+    assert.match(created.error.hint, /All non-terminal CLI and daemon features remain available/u);
+    assert.match(created.error.hint, /Python 3, make, and a C\+\+ compiler/u);
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("daemon registry restores a durable tmux session and reattaches without respawn-as-resume", () => {
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-tmux-host-"));
   const namespaceState = new Set<string>();

@@ -13,7 +13,11 @@ test("daemon snapshot installation is idempotent and remains independent from mu
   const sourceEntrypoint = path.join(packageRoot, "dist", "cli", "src", "index.js");
   const userRoot = path.join(root, "user");
   mkdirSync(path.dirname(sourceEntrypoint), { recursive: true });
-  writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "harness-anything", dependencies: {} }));
+  writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({
+    name: "harness-anything",
+    dependencies: {},
+    optionalDependencies: { "node-pty": "1.0.0" }
+  }));
   writeFileSync(sourceEntrypoint, "export const daemonVersion = 'snapshot-v1';\n");
   const nodePtyRoot = path.join(packageRoot, "node_modules", "node-pty");
   mkdirSync(nodePtyRoot, { recursive: true });
@@ -38,6 +42,7 @@ test("daemon snapshot installation is idempotent and remains independent from mu
     assert.equal(second.snapshotDir, first.snapshotDir);
     assert.deepEqual(second.manifest, first.manifest);
     assert.equal(first.manifest.builtAt, "2026-07-22T01:02:03.000Z");
+    assert.equal(first.manifest.runtimePackages.includes("node-pty"), true);
     assert.equal(calculateDaemonArtifactIdentity(first.entrypoint).identity, first.manifest.contentFingerprint);
 
     writeFileSync(sourceEntrypoint, "export const daemonVersion = 'mutable-dist-v2';\n");
@@ -49,6 +54,32 @@ test("daemon snapshot installation is idempotent and remains independent from mu
       () => installDaemonSnapshot({ sourceEntrypoint, userRoot, version: "release-1" }),
       /snapshot version already belongs to different source bytes/u
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("daemon snapshot installation skips an unavailable optional runtime dependency", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-snapshot-optional-test-"));
+  const packageRoot = path.join(root, "package");
+  const sourceEntrypoint = path.join(packageRoot, "dist", "cli", "src", "index.js");
+  const userRoot = path.join(root, "user");
+  mkdirSync(path.dirname(sourceEntrypoint), { recursive: true });
+  writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({
+    name: "harness-anything",
+    dependencies: {},
+    optionalDependencies: { "node-pty": "1.0.0" }
+  }));
+  writeFileSync(sourceEntrypoint, "export const daemonVersion = 'snapshot-without-pty';\n");
+
+  try {
+    const installed = installDaemonSnapshot({
+      sourceEntrypoint,
+      userRoot,
+      version: "release-without-pty"
+    });
+    assert.equal(installed.installed, true);
+    assert.equal(installed.manifest.runtimePackages.includes("node-pty"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

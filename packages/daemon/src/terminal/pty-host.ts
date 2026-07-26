@@ -31,6 +31,7 @@ export interface PtySpawnOptions {
 }
 
 export type PtySpawner = (shell: string, args: ReadonlyArray<string>, options: PtySpawnOptions) => IPty;
+export type NodePtyLoader = () => Pick<typeof import("node-pty"), "spawn">;
 
 export interface TmuxController {
   readonly probe: () => { readonly available: boolean; readonly executable?: string; readonly version?: string; readonly reason?: string };
@@ -41,6 +42,7 @@ export interface TmuxController {
 export interface PtyTerminalSessionServiceOptions {
   readonly workspaceRoot: string;
   readonly spawnPty?: PtySpawner;
+  readonly loadNodePty?: NodePtyLoader;
   readonly now?: () => string;
   readonly createId?: () => string;
   readonly env?: NodeJS.ProcessEnv;
@@ -70,7 +72,7 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
   const env = options.env ?? process.env;
   const outputMaxBytes = Math.max(1, options.outputMaxBytes ?? defaultOutputMaxBytes);
   const defaultReadTimeoutMs = options.defaultReadTimeoutMs ?? 250;
-  const spawnPty = options.spawnPty ?? nodePtySpawner;
+  const spawnPty = options.spawnPty ?? createNodePtySpawner(options.loadNodePty ?? loadNodePty, platform);
   const tmux = options.tmux ?? (options.spawnPty ? unavailableTmuxController : systemTmuxController);
   const tmuxProbe = tmux.probe();
   const tmuxAvailable = tmuxProbe.available && Boolean(tmuxProbe.executable);
@@ -101,8 +103,6 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
       outputBySession.set(session.sessionId, createOutputState());
     }
   }
-
-  if (!options.spawnPty) ensureNodePtySpawnHelperExecutable(platform);
 
   function createSession(payload: CreateTerminalSessionPayload): TerminalSessionDetailResult {
     let cwd: string;
@@ -140,6 +140,9 @@ export function createPtyTerminalSessionService(options: PtyTerminalSessionServi
     } catch (error) {
       outputBySession.delete(sessionId);
       registry.markSessionExited({ sessionId, exitCode: 1 });
+      if (error instanceof NodePtyUnavailableError) {
+        return terminalFailure("terminal_pty_unavailable", error.message);
+      }
       return terminalFailure("terminal_spawn_failed", `Unable to spawn terminal shell: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -408,18 +411,45 @@ export function resolveTerminalShell(
   throw new Error("No executable terminal shell was found.");
 }
 
-function nodePtySpawner(shell: string, args: ReadonlyArray<string>, options: PtySpawnOptions): IPty {
-  // Lazy-load node-pty so merely importing this module (e.g. the packaged CLI's
-  // `gui` command) does not require the native dependency; it is only needed
-  // when a terminal is actually spawned (daemon runtime).
-  const { spawn: spawnNodePty } = createRequire(import.meta.url)("node-pty") as typeof import("node-pty");
-  return spawnNodePty(shell, [...args], {
-    name: options.name,
-    cols: options.columns,
-    rows: options.rows,
-    cwd: options.cwd,
-    env: options.env
-  });
+class NodePtyUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      "Embedded terminal unavailable: node-pty is not installed or could not load its native binary. " +
+      "All non-terminal CLI and daemon features remain available. To enable the embedded terminal, " +
+      "install Python 3, make, and a C++ compiler, then reinstall @harness-anything/cli with optional dependencies enabled.",
+      { cause }
+    );
+    this.name = "NodePtyUnavailableError";
+  }
+}
+
+function loadNodePty(): Pick<typeof import("node-pty"), "spawn"> {
+  try {
+    return createRequire(import.meta.url)("node-pty") as Pick<typeof import("node-pty"), "spawn">;
+  } catch (error) {
+    throw new NodePtyUnavailableError(error);
+  }
+}
+
+function createNodePtySpawner(load: NodePtyLoader, platform: NodeJS.Platform): PtySpawner {
+  let loaded: ReturnType<NodePtyLoader> | undefined;
+  return (shell, args, options) => {
+    try {
+      loaded ??= load();
+      ensureNodePtySpawnHelperExecutable(platform);
+      return loaded.spawn(shell, [...args], {
+        name: options.name,
+        cols: options.columns,
+        rows: options.rows,
+        cwd: options.cwd,
+        env: options.env
+      });
+    } catch (error) {
+      if (error instanceof NodePtyUnavailableError) throw error;
+      if (loaded === undefined) throw new NodePtyUnavailableError(error);
+      throw error;
+    }
+  };
 }
 
 function terminalEnvironment(source: NodeJS.ProcessEnv, cwd: string): Record<string, string> {

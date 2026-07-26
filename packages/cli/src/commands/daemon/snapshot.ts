@@ -213,7 +213,7 @@ function removeRepositoryBuildWorktree(repositoryRoot: string, buildRoot: string
 
 function copyRuntimeDependencyClosure(dependencyRoot: string, staging: string): ReadonlyArray<string> {
   const packageNames = new Set<string>();
-  const pending = externalWorkspaceDependencies(dependencyRoot).map((name) => ({ name, optional: false }));
+  const pending = externalWorkspaceDependencies(dependencyRoot);
   while (pending.length > 0) {
     const { name: packageName, optional } = pending.pop()!;
     if (packageNames.has(packageName) || packageName.startsWith("@harness-anything/")) continue;
@@ -243,8 +243,8 @@ function copyRuntimeDependencyClosure(dependencyRoot: string, staging: string): 
   return [...packageNames].sort();
 }
 
-function externalWorkspaceDependencies(repositoryRoot: string): string[] {
-  const dependencies = new Set<string>();
+function externalWorkspaceDependencies(repositoryRoot: string): Array<{ readonly name: string; readonly optional: boolean }> {
+  const dependencies = new Map<string, boolean>();
   const installedPackagePath = path.join(repositoryRoot, "package.json");
   if (existsSync(installedPackagePath) && !existsSync(path.join(repositoryRoot, "packages"))) {
     addPackageDependencies(installedPackagePath, dependencies);
@@ -254,17 +254,22 @@ function externalWorkspaceDependencies(repositoryRoot: string): string[] {
     if (!existsSync(packagePath)) continue;
     addPackageDependencies(packagePath, dependencies);
   }
-  dependencies.add("node-pty");
-  return [...dependencies];
+  return [...dependencies]
+    .map(([name, optional]) => ({ name, optional }))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function addPackageDependencies(packagePath: string, dependencies: Set<string>): void {
+function addPackageDependencies(packagePath: string, dependencies: Map<string, boolean>): void {
   const packageJson = JSON.parse(readFileSync(packagePath, "utf8")) as {
     readonly dependencies?: Record<string, string>;
     readonly optionalDependencies?: Record<string, string>;
   };
-  for (const name of [...Object.keys(packageJson.dependencies ?? {}), ...Object.keys(packageJson.optionalDependencies ?? {})]) {
-    if (!name.startsWith("@harness-anything/")) dependencies.add(name);
+  const optionalNames = new Set(Object.keys(packageJson.optionalDependencies ?? {}));
+  const names = new Set([...Object.keys(packageJson.dependencies ?? {}), ...optionalNames]);
+  for (const name of names) {
+    if (name.startsWith("@harness-anything/")) continue;
+    const optional = optionalNames.has(name);
+    dependencies.set(name, (dependencies.get(name) ?? true) && optional);
   }
 }
 

@@ -82,6 +82,7 @@
     "harness:check-catalog-schema": "node tools/check-catalog-schema.mjs",
     "harness:check-runtime-release-readiness": "node tools/check-runtime-release-readiness.mjs",
     "harness:check-package-policy": "node tools/check-package-policy.mjs",
+    "harness:check-cli-installability": "node tools/check-cli-installability.mjs",
     "harness:check-implementation-contracts": "node tools/check-implementation-contracts.mjs",
     "harness:check-service-mappability": "node tools/check-service-mappability.mjs",
     "harness:check-api-contract-registry": "node tools/check-api-contract-registry.mjs",
