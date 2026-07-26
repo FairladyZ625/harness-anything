@@ -8,7 +8,10 @@ import {
   gateAuthoritySubmissionForRecovery,
   makeDaemonAuthorityWriteCoordinator
 } from "../src/index.ts";
-import { receiptToFlushReport } from "../src/authority/authority-command-submission.ts";
+import {
+  authorityCompileRejected,
+  receiptToFlushReport
+} from "../src/authority/authority-command-submission.ts";
 import { gateCutoverAdmission } from "../src/authority/production/cutover-admission.ts";
 import {
   defaultProductionRecoveryAdmissionTimeoutMs,
@@ -52,6 +55,14 @@ test("authority JournalUnavailable errors serialize diagnostic fields without st
     }
   });
   assert.doesNotMatch(JSON.stringify(writeError), /stack/u);
+});
+
+test("WIP publication rejection keeps its stable public code and actionable reason", () => {
+  const reason = "TASK_WIP_LIMIT_REACHED: full (30/30); run `ha task transition task_OLD planned`.";
+  const error = authorityCompileRejected(new Error(reason));
+
+  assert.equal(error.code, "task_wip_limit_reached");
+  assert.equal(error.message, reason);
 });
 
 test("recovery gate waits before admitting legacy, V2, and V2 recovery ingress", async () => {

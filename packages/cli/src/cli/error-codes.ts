@@ -140,6 +140,7 @@ export const CliErrorCode = {
   SupersedeTargetNotFound: "supersede_target_not_found",
   TaskAlreadyExists: "task_already_exists",
   TaskLeaseRequired: "task_lease_required",
+  TaskWipLimitReached: "task_wip_limit_reached",
   TaskPlanPlaceholder: "task_plan_placeholder",
   TaskTreeDirty: "task_tree_dirty",
   TaskNotFound: "task_not_found",
@@ -193,6 +194,7 @@ export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([
   CliErrorCode.StaleSnapshotRefused,
   CliErrorCode.TaskAlreadyExists,
   CliErrorCode.TaskLeaseRequired,
+  CliErrorCode.TaskWipLimitReached,
   CliErrorCode.TaskNotFound,
   CliErrorCode.TerminalHardDeleteForbidden,
   CliErrorCode.TerminalReopenRequiresSupersede,
@@ -362,6 +364,10 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.SupersedeTargetNotFound]: { category: "command", defaultHint: "Supersede target was not found." },
   [CliErrorCode.TaskAlreadyExists]: { category: "domain", defaultHint: "Task already exists." },
   [CliErrorCode.TaskLeaseRequired]: { category: "domain", defaultHint: "Task lease is required. Run 'ha task start <task-id>' before retrying." },
+  [CliErrorCode.TaskWipLimitReached]: {
+    category: "domain",
+    defaultHint: "Activation was rejected because settings.tasks.wipLimit is full. Run 'ha task transition <named-task-id> planned', or complete/archive a named task, then retry activation."
+  },
   [CliErrorCode.TaskPlanPlaceholder]: { category: "command", defaultHint: "Active transition requires task_plan.md without template scaffold content; replace the scaffold. If task_plan.md is already substantive, retry the exact command once unchanged to refresh a lagging read." },
   [CliErrorCode.TaskTreeDirty]: { category: "command", defaultHint: "Task package has uncommitted changes." },
   [CliErrorCode.TaskNotFound]: { category: "domain", defaultHint: "Task was not found." },

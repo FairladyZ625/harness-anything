@@ -12,6 +12,7 @@ import type {
   AuthorityHostNewTaskAction,
   AuthorityIngressAdapter
 } from "./daemon-host-contract.ts";
+import type { TaskWipSnapshotV1 } from "./task-decision-module-semantic-compiler-v2.ts";
 
 export type ProductionAuthorityCommand = AuthorityHostCommand;
 export type ProductionAuthorityCommandAction = AuthorityHostCommandAction;
@@ -58,6 +59,7 @@ export interface ProductionAuthorityCompilerHostServices {
     | { readonly ok: true; readonly writes: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }> }
     | { readonly ok: false; readonly error: { readonly hint: string } };
   readonly renderForceStatusAudit: (status: string, reason: string, recordedAt?: string) => string;
+  readonly readTaskWipSnapshot?: (rootInput: HarnessLayoutInput) => TaskWipSnapshotV1;
 }
 
 export interface ProductionAuthorityIdentityHostService<Identity> {

@@ -80,3 +80,15 @@ test("daemon module lookup rejections use the public module-not-found contract",
     hint: "The selected module was not found."
   });
 });
+
+test("daemon WIP-limit rejection preserves its actionable reason and stable code", () => {
+  const reason = "TASK_WIP_LIMIT_REACHED: Execution worktable is full (30/30). Return task_OLD to planned, then retry.";
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "task_wip_limit_reached",
+    reason
+  }), {
+    code: "task_wip_limit_reached",
+    hint: reason
+  });
+});

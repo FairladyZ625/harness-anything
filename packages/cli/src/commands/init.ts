@@ -287,6 +287,8 @@ function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate
     "  defaultProfile: baseline",
     "  identity:",
     "    mode: local",
+    "  tasks:",
+    "    wipLimit: 30",
     "  customVerticals:",
     "    enabled: false",
     ""

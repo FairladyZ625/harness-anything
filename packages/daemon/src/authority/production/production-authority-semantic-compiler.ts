@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   consentTypedCommandsV2,
   factRelationTypedCommandsV2,
@@ -6,13 +7,17 @@ import {
   makeFactRelationSemanticCompilerV2,
   makeSessionExecutionReviewSemanticCompilerV2,
   makeTaskDecisionModuleSemanticCompilerV2,
+  type ProductionAuthorityCompilerHostServices,
   sessionExecutionReviewTypedCommandsV2,
   taskDecisionModuleTypedCommandsV2
 } from "@harness-anything/application";
 import { createProductionCanonicalSemanticState } from "./production-authority-attempt-compiler.ts";
 import { makeProductionScriptIngestSemanticCompiler } from "./production-authority-script-ingest.ts";
 
-export function createProductionAuthoritySemanticCompiler(authoredRoot: string) {
+export function createProductionAuthoritySemanticCompiler(
+  authoredRoot: string,
+  hostServices: Pick<ProductionAuthorityCompilerHostServices, "readTaskWipSnapshot">
+) {
   const semanticState = createProductionCanonicalSemanticState(authoredRoot);
   const rootInput = {
     rootDir: path.dirname(authoredRoot),
@@ -23,7 +28,12 @@ export function createProductionAuthoritySemanticCompiler(authoredRoot: string) 
     compiler: makeProductionScriptIngestSemanticCompiler(authoredRoot)
   }, {
     commandNames: taskDecisionModuleTypedCommandsV2,
-    compiler: makeTaskDecisionModuleSemanticCompilerV2({ state: semanticState })
+    compiler: makeTaskDecisionModuleSemanticCompilerV2({
+      state: semanticState,
+      ...(hostServices.readTaskWipSnapshot
+        ? { taskWipSnapshot: async () => hostServices.readTaskWipSnapshot!(rootInput) }
+        : {})
+    })
   }, {
     commandNames: factRelationTypedCommandsV2.filter((command) => command.startsWith("fact.")),
     compiler: makeFactRelationSemanticCompilerV2({ state: semanticState })
@@ -47,4 +57,3 @@ export function createProductionAuthoritySemanticCompiler(authoredRoot: string) 
     compiler: makeConsentSemanticCompilerV2({ state: semanticState, rootInput })
   }]);
 }
-import path from "node:path";

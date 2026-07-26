@@ -22,6 +22,7 @@ import {
   readProjectHarnessSettings,
   shouldUseSettingsPresetAwareNewTask
 } from "../commands/settings.ts";
+import { readTaskWipSnapshot } from "../commands/task-wip-settings.ts";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 
 type CliNewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
@@ -85,5 +86,6 @@ export const productionAuthorityHostServices = {
   decisionRelationRecord,
   materializedTaskPriorityWrites,
   renderForceStatusAudit,
+  readTaskWipSnapshot,
   loadDaemonIdentity
 } satisfies ProductionAuthorityHostServices<LoadedDaemonIdentity>;

@@ -10,7 +10,69 @@ import {
   resolveExecutionConsentTtlMs,
   resolveMulticaStaleTtlMs
 } from "../src/commands/project-policy-settings.ts";
-import { readProjectHarnessSettings } from "../src/commands/settings.ts";
+import {
+  readProjectHarnessSettings
+} from "../src/commands/settings.ts";
+import {
+  DEFAULT_TASK_WIP_LIMIT,
+  readTaskWipSnapshot,
+  resolveTaskWipLimit
+} from "../src/commands/task-wip-settings.ts";
+
+test("task WIP limit resolves default and project YAML", () => {
+  withRoot((rootDir) => {
+    assert.deepEqual(resolveTaskWipLimit(rootDir), {
+      ok: true,
+      limit: DEFAULT_TASK_WIP_LIMIT
+    });
+    writeSettings(rootDir, [
+      "settings:",
+      "  tasks:",
+      "    wipLimit: 7"
+    ]);
+    assert.deepEqual(resolveTaskWipLimit(rootDir), { ok: true, limit: 7 });
+    assert.equal(readProjectHarnessSettings(rootDir).ok, true);
+  });
+});
+
+test("task WIP limit rejects non-positive and non-integer project YAML", () => {
+  for (const value of ["0", "-1", "1.5", "nope"]) {
+    withRoot((rootDir) => {
+      writeSettings(rootDir, [
+        "settings:",
+        "  tasks:",
+        `    wipLimit: ${value}`
+      ]);
+      const result = resolveTaskWipLimit(rootDir);
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.match(result.result.error?.hint ?? "", /settings\.tasks\.wipLimit must be a positive integer/u);
+      }
+    });
+  }
+});
+
+test("task WIP snapshot reads the configured limit and authored task axes", () => {
+  withRoot((rootDir) => {
+    writeSettings(rootDir, [
+      "settings:",
+      "  tasks:",
+      "    wipLimit: 4"
+    ]);
+    writeTaskIndex(rootDir, "task_IDEA", "Idea", "planned", "active");
+    writeTaskIndex(rootDir, "task_ACTIVE", "Active", "active", "active");
+    writeTaskIndex(rootDir, "task_ARCHIVED", "Archived", "blocked", "archived");
+
+    assert.deepEqual(readTaskWipSnapshot(rootDir), {
+      limit: 4,
+      tasks: [
+        { taskId: "task_ACTIVE", title: "Active", status: "active", packageDisposition: "active" },
+        { taskId: "task_ARCHIVED", title: "Archived", status: "blocked", packageDisposition: "archived" },
+        { taskId: "task_IDEA", title: "Idea", status: "planned", packageDisposition: "active" }
+      ]
+    });
+  });
+});
 
 test("execution consent TTL resolves default, YAML, then environment override", () => {
   withRoot((rootDir) => {
@@ -128,4 +190,28 @@ function writeSettings(rootDir: string, lines: ReadonlyArray<string>): void {
   const harnessDir = path.join(rootDir, "harness");
   mkdirSync(harnessDir, { recursive: true });
   writeFileSync(path.join(harnessDir, "harness.yaml"), `${lines.join("\n")}\n`, "utf8");
+}
+
+function writeTaskIndex(
+  rootDir: string,
+  taskId: string,
+  title: string,
+  status: "planned" | "active" | "blocked",
+  packageDisposition: "active" | "archived"
+): void {
+  const taskDir = path.join(rootDir, "harness", "tasks", `${taskId}-fixture`);
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(path.join(taskDir, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    `  status: ${status}`,
+    `packageDisposition: ${packageDisposition}`,
+    "---",
+    ""
+  ].join("\n"), "utf8");
 }

@@ -422,7 +422,8 @@ function createRepoComponent(
             input,
             material,
             context,
-            publicationExecutor
+            publicationExecutor,
+            hostServices
           ), context),
           cutoverControl
         ),
@@ -498,7 +499,8 @@ function createConnectionAuthorityService(
   context: AuthorityConnectionContext,
   publicationExecutor: {
     readonly run: <Result>(publication: () => Promise<Result>) => Promise<Result>;
-  }
+  },
+  hostServices: ProductionAuthorityHostServices<ProductionAuthorityIdentity>
 ): AuthoritySubmissionService {
   const publicationInspector = createGitCanonicalPublicationInspector(material.authoredRoot);
   const writerGeneration = input.runtime.daemonGenerationContext?.()?.daemonGeneration;
@@ -529,7 +531,7 @@ function createConnectionAuthorityService(
       entityRegistrations: productionAuthorityV2EntityKinds.map((kind) =>
         entityRegistry[kind] as unknown as EntityRegistration<string, typeof kind>
       ),
-      semanticCompiler: createProductionAuthoritySemanticCompiler(material.authoredRoot),
+      semanticCompiler: createProductionAuthoritySemanticCompiler(material.authoredRoot, hostServices),
       operationNamespaceVerifier: input.namespaceVerifier,
       committedEventPublisher: input.committedEventPublisher,
       recoverCommittedReceipt: (input.committedEventPublisher as typeof input.committedEventPublisher & {

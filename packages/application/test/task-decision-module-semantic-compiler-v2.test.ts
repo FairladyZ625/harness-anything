@@ -207,6 +207,7 @@ test("all task actions compile to one exact package-hosted StoragePlan", async (
 
   for (const fixture of fixtures) {
     const compiled = await compiler.compile(envelope(fixture.payload, fixture.baseCas, fixture.pathCas));
+    if (fixture.payload.schema === "task.transition/v1") assert.ok(compiled.publicationRevalidation);
     const plan = compileRegistryMutationPlan(registry, compiled.mutationPlan);
     assert.deepEqual(plan.mutationSet.mutations.map(pair), [fixture.pair]);
     assert.deepEqual(plan.storagePlan.touchedPaths, [fixture.target]);
@@ -620,13 +621,17 @@ function moduleRecord(): ModuleRecordV2 {
   };
 }
 
-function taskIndex(taskId: string, status: string): string {
+function taskIndex(
+  taskId: string,
+  status: string,
+  packageDisposition: "active" | "archived" | "tombstoned" = "active"
+): string {
   return [
     "---", "schema: task-package/v2", `task_id: ${taskId}`, `title: ${taskId}`,
     "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", `  status: ${status}`,
     "  ref: ", `  titleSnapshot: ${taskId}`, "  url: ",
     "  bindingCreatedAt: 2026-07-14T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`,
-    "packageDisposition: active", "vertical: default", "preset: default",
+    `packageDisposition: ${packageDisposition}`, "vertical: default", "preset: default",
     "provenance:", "  - {runtime: codex, sessionId: session-w3, boundAt: 2026-07-14T00:00:00.000Z}",
     "---", "", `# ${taskId}`, ""
   ].join("\n");
