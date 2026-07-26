@@ -31,6 +31,7 @@ import {
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
 import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
+import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
@@ -53,7 +54,9 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput, hostServices: 
   // No registry ⇒ doc-sync enforcement is inactive for this repo (a consumer install):
   // skip the authored-tree scan so we don't manufacture "resolution failed" unresolved
   // touches for every dirty file, and so the warning layer stays silent. See issue #644.
-  const dirtyFiles = registry.present ? gitDirtyEntries(layout.authoredRoot) : [];
+  const dirtyFiles = registry.present
+    ? gitDirtyEntries(layout.authoredRoot).filter((entry) => !isStandaloneCasObject(layout.authoredRoot, entry))
+    : [];
   const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows, hostServices));
   const candidateBlobs = files.filter((entry) => entry.docSyncCandidate && entry.newBlobSha256);
   const forbiddenTouches = files.flatMap((entry) => entry.forbiddenTouches);

@@ -13,6 +13,7 @@ import {
   formatRelationFlowRecord,
   makeJournaledWriteCoordinator,
   sha256Text,
+  writeContentAddressedBlob,
   type EntityRelationRecord,
   type FactRecord,
   type WriteCoordinator
@@ -79,6 +80,19 @@ test("doc sync report treats a missing write-road registry as empty coverage ins
     assert.deepEqual(report.unresolvedTouches, []);
     assert.equal(report.readyToSubmitPreview, true);
   }, { writeRegistry: false });
+});
+
+test("doc sync ignores valid CAS objects but still rejects ordinary out-of-surface writes", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
+    const object = writeContentAddressedBlob(rootDir, "orphan session body", "text/markdown; charset=utf-8");
+    writeFileSync(path.join(harnessRoot, "unexpected.txt"), "out of surface\n", "utf8");
+
+    const report = buildDocSyncReport(rootDir);
+
+    assert.equal(report.dirtyFiles.some((entry) => entry.path === object.ref.replace(/^harness\//u, "")), false);
+    assert.equal(report.unresolvedTouches.some((touch) => touch.path === "unexpected.txt"), true);
+    assert.equal(report.readyToSubmitPreview, false);
+  });
 });
 
 test("doc sync submit accepts pure task prose and commits with hermetic author", async () => {
