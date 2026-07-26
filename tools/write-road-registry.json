@@ -7633,6 +7633,13 @@
           "reason": "Design exemption: tools/sync-runtime-skills.mjs owns repository-tool fixtures, reports, generated contracts, benchmarks, or runner subprocesses; this exact symlinkSync call does not author registered entity SoT."
         },
         {
+          "key": "tools/check-stage0-manifest.mjs#writeFileSync@1",
+          "owner": "repository.tooling.mutation-surfaces",
+          "classification": "design-exemption",
+          "ref": "task_01KYEMMB99SYVEHNRKA4A02YC9",
+          "reason": "Design exemption: this explicit --write-pin maintenance command updates the public constitution content pin; it is a governed human-invoked amendment step, not an authored entity write road."
+        },
+        {
           "key": "tools/test-process-environment.mjs#rmSync@1",
           "owner": "repository.tooling.mutation-surfaces",
           "classification": "design-exemption",
