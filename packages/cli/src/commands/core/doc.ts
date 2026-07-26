@@ -4,7 +4,7 @@ import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { buildDocSyncStatusResult, buildDocSyncDryRunResult } from "./doc-sync.ts";
 
-type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-status" | "doc-sync" }>;
+type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-status" | "doc-sync" | "artifact-add" }>;
 
 export const runDocCommand: CommandRunner = (context, command) => Effect.sync(() => {
   const action = command.action as DocAction;

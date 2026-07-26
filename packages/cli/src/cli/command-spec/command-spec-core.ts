@@ -9,6 +9,7 @@ import { runHelpCommand } from "../../commands/core/help.ts";
 import { runInitCommand } from "../../commands/core/init.ts";
 import { runNewTaskCommand } from "../../commands/core/new-task.ts";
 import { runTaskGatesCommand } from "../../commands/core/task-gates.ts";
+import { runDocCommand } from "../../commands/core/doc.ts";
 import { runTaskLifecycleCommand } from "../../commands/core/task-lifecycle.ts";
 import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
 import { runTaskViewCommand } from "../../commands/core/task-views.ts";
@@ -307,6 +308,17 @@ export const coreCommandSpecs = defineCommandSpecs([
       "conflictMarkerPreflight": true,
       "runtimeEvent": "auto"
     }
+  },
+  {
+    "kind": "artifact-add",
+    "usage": "task artifact add <task-id> <path>... [--json]",
+    "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Copy untracked UTF-8 text evidence into a task package through doc sync so later evidence pointers stay resolvable.",
+    "examples": ["harness-anything task artifact add task_01ABC reports/check.txt"],
+    "parse": parseCoreTaskArgs,
+    "run": runDocCommand,
+    "receiptContract": { "data": ["taskId", "report"], "paths": ["primary"] },
+    "eventPolicy": { "conflictMarkerPreflight": true, "runtimeEvent": "auto" }
   },
   {
     "kind": "task-amend",
