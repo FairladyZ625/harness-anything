@@ -387,18 +387,7 @@ export function makeHeldLockAttributedCoordinatorFactory(
                 sessionId,
                 publish: () => Effect.runPromise(coordinator.flush(reason))
               });
-              const { flush: report, materialization: materialized } = publication;
-              if (!report.committed || report.opCount === 0) return report;
-              const branch = materialized?.branches.find((entry) => entry.branch === `sessions/${sessionId}`);
-              const materializationProvesPublication = branch
-                && ((branch.status === "merged" && branch.commitCount > 0)
-                  || (branch.status === "skipped" && branch.commitCount === 0));
-              if (!materializationProvesPublication) {
-                throw new Error(
-                  `AUTHORITY_SESSION_MATERIALIZATION_FAILED:sessionId=${sessionId};status=${branch?.status ?? "missing"};commitCount=${branch?.commitCount ?? 0};warning=${branch?.warning ?? "none"}`
-                );
-              }
-              return report;
+              return publication.flush;
             },
             catch: (cause) => ({ _tag: "JournalUnavailable" as const, cause: diagnosticCause(cause) })
           }),

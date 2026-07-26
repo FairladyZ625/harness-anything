@@ -58,7 +58,7 @@ test("daemon materializer producer runs bounded batches under the lifetime globa
   });
 });
 
-test("authority publication materializes its session before a queued timer batch can observe it", async () => {
+test("authority publication commits directly while the legacy materializer remains available", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);
     const runtime = createDaemonRuntime({ rootDir, materializerPollMs: false });
@@ -85,9 +85,10 @@ test("authority publication materializes its session before a queued timer batch
     });
     const competing = await competingMaterializer!;
 
-    assert.equal(publication.materialization?.branches[0]?.status, "merged");
-    assert.equal(publication.materialization?.branches[0]?.commitCount, 1);
+    assert.equal(publication.materialization, undefined);
     assert.equal(competing.merged, 0);
+    assert.equal(git(rootDir, "branch", "--list", "sessions/authority-atomic-materialization"), "");
+    assert.equal(git(rootDir, "rev-list", "--count", "HEAD^..HEAD"), "1");
     assert.equal(readGitFile(rootDir, "tasks/task-authority-atomic/note.md"), "authority\n");
     await runtime.stop();
   });

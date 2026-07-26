@@ -8,6 +8,7 @@ export interface FirstParentPublicationMetadata {
   readonly commitSha: string;
   readonly parents: ReadonlyArray<string>;
   readonly subject: string;
+  readonly message: string;
   readonly sessionSubject?: string;
 }
 
@@ -24,16 +25,17 @@ export async function scanFirstParentPublicationMetadata(input: {
   const revision = input.exclusiveCommit
     ? `${input.exclusiveCommit}..${input.headCommit}`
     : input.headCommit;
-  const history = parseTriples(await publicationHistoryGitText(
+  const history = parseQuadruples(await publicationHistoryGitText(
     input.rootDir,
     "log",
     "--first-parent",
-    "--format=%H%x00%P%x00%s%x00",
+    "--format=%H%x00%P%x00%s%x00%B%x00",
     revision
-  )).map(([commitSha, parents, subject]) => ({
+  )).map(([commitSha, parents, subject, message]) => ({
     commitSha,
     parents: parents.split(" ").filter(Boolean),
-    subject
+    subject,
+    message
   }));
   const sessionCommits = [...new Set(history
     .filter((row) =>
@@ -79,14 +81,15 @@ function parsePairs(value: string): ReadonlyArray<readonly [string, string]> {
   return pairs;
 }
 
-function parseTriples(value: string): ReadonlyArray<readonly [string, string, string]> {
+function parseQuadruples(value: string): ReadonlyArray<readonly [string, string, string, string]> {
   const fields = value.split("\0");
-  const triples: Array<readonly [string, string, string]> = [];
-  for (let index = 0; index + 2 < fields.length; index += 3) {
+  const quadruples: Array<readonly [string, string, string, string]> = [];
+  for (let index = 0; index + 3 < fields.length; index += 4) {
     const first = fields[index]!.trim();
     const second = fields[index + 1]!.trim();
     const third = fields[index + 2]!.trim();
-    if (first) triples.push([first, second, third]);
+    const fourth = fields[index + 3]!.trim();
+    if (first) quadruples.push([first, second, third, fourth]);
   }
-  return triples;
+  return quadruples;
 }

@@ -201,7 +201,7 @@ test("task claim typed ingress rejects forged entity, actor, and write-set data"
   }), /AUTHORITY_TASK_CLAIM_WRITE_SET_INVALID/u);
 });
 
-test("held-lock authority flush uses one atomic publication instead of direct materialization", async () => {
+test("held-lock authority flush uses one direct-trunk publication without materialization", async () => {
   let pending = 0;
   let atomicPublications = 0;
   let directMaterializations = 0;

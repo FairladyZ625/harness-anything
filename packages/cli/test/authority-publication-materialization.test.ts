@@ -7,18 +7,11 @@ import {
   type AuthorityLifecycleRuntime
 } from "@harness-anything/daemon";
 
-test("committed authority publication accepts an already-materialized skipped session", async () => {
+test("committed direct authority publication requires no session materialization result", async () => {
   const coordinator = authorityCoordinator(runtimeFixture(async (input) => ({
-    flush: await input.publish(),
-    materialization: {
-      branches: [{
-        branch: `sessions/${input.sessionId}`,
-        commitCount: 0,
-        status: "skipped"
-      }]
-    }
-  })), "session-already-materialized");
-  await enqueueAuthorityTestOperation(coordinator, "op-already-materialized");
+    flush: await input.publish()
+  })), "session-direct");
+  await enqueueAuthorityTestOperation(coordinator, "op-direct");
 
   const report = await runEffect(coordinator.flush("explicit"));
 
@@ -48,7 +41,7 @@ test("uncommitted authority publication remains uncommitted", async () => {
   assert.equal(report.opCount, 1);
 });
 
-test("committed publication without materialization proof remains indeterminate", async (context) => {
+test("legacy materializer diagnostics do not gate a committed direct publication", async (context) => {
   const cases = [
     {
       name: "missing result",
@@ -75,12 +68,10 @@ test("committed publication without materialization proof remains indeterminate"
       })), "session-unproven");
       await enqueueAuthorityTestOperation(coordinator, `op-${fixture.name.replaceAll(" ", "-")}`);
 
-      const outcome = await runEffect(Effect.either(coordinator.flush("explicit")));
+      const outcome = await runEffect(coordinator.flush("explicit"));
 
-      assert.equal(outcome._tag, "Left");
-      if (outcome._tag === "Right") return;
-      assert.equal(outcome.left._tag, "JournalUnavailable");
-      assert.match(JSON.stringify(outcome.left.cause), /AUTHORITY_SESSION_MATERIALIZATION_FAILED/u);
+      assert.equal(outcome.committed, true);
+      assert.equal(outcome.opCount, 1);
     });
   }
 });

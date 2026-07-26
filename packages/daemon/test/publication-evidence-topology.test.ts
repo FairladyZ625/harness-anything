@@ -41,6 +41,16 @@ test("publication proof accepts a two-parent semantic merge with the complete se
   assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
 });
 
+test("publication proof accepts a single-parent direct authority commit", async (context) => {
+  const fixture = publicationFixture(context);
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  const evidence = await inspector.inspectPublication(fixture.base, [opId], fixture.session);
+
+  assert.equal(evidence.commitSha, fixture.session);
+  assert.deepEqual(evidence.parentCommits, [fixture.base]);
+});
+
 test("first-parent recovery accepts an old-shape merge immediately after its watermark", async (context) => {
   const fixture = publicationFixture(context);
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", fixture.validMerge);
@@ -90,6 +100,31 @@ test("first-parent recovery crosses an old merge to semantic merge watermark bou
     commitSha: nextMerge,
     previousCommit: fixture.validMerge,
     opIds: [nextOpId]
+  }]);
+});
+
+test("first-parent recovery crosses the last two-parent merge to a direct authority commit", async (context) => {
+  const fixture = publicationFixture(context);
+  const directOpId = "namespace-test:direct-boundary";
+  const direct = commitTree(
+    fixture.root,
+    fixture.sessionTree,
+    [fixture.validMerge],
+    semanticMessage(directOpId)
+  );
+  fixtureGit(fixture.root, "update-ref", "refs/heads/master", direct);
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  const scan = await inspector.scanFirstParentOperationAnchors({
+    exclusiveCommit: fixture.validMerge,
+    interestedOpIds: new Set([directOpId]),
+    progressBatchSize: 1
+  });
+
+  assert.deepEqual(scan.anchors, [{
+    commitSha: direct,
+    previousCommit: fixture.validMerge,
+    opIds: [directOpId]
   }]);
 });
 

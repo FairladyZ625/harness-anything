@@ -383,8 +383,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.requireWriterAttached();
     return enqueueDaemonAuthorityPublication(
       this.queue,
-      options,
-      (sessionId) => this.runMaterializerBatch({ sessionId })
+      options
     ).catch((error: unknown) => {
       this.lastError = describeRepoRuntimeError(error);
       throw error;
@@ -469,12 +468,15 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       heldGlobalLock: started.lock,
       autoMaterialize: false,
       onProjectionChange: this.projectionChanges.publish,
-      ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
     };
     return request.attribution
       ? makeJournaledWriteCoordinator({ ...common, attribution: request.attribution })
-      : makeOperationalJournaledWriteCoordinator({ ...common, operationalActor: request.operationalActor });
+      : makeOperationalJournaledWriteCoordinator({
+        ...common,
+        operationalActor: request.operationalActor,
+        ...(request.sessionId ? { sessionId: request.sessionId } : {})
+      });
   }
 
   private startMaterializerTimer(): void {

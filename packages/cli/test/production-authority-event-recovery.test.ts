@@ -474,7 +474,7 @@ test("recovery watermark falls back on missing or corrupt state and then scans o
   }
 });
 
-test("recovery crosses old-to-semantic shape while V2 evidence is delayed without terminalizing the published operation", async () => {
+test("recovery crosses old-to-semantic-to-direct shapes while V2 evidence is delayed without terminalizing published operations", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-semantic-boundary-"));
   const watermarkPath = path.join(root, "recovery-watermark.json");
   const workspaceId = "workspace-production";
@@ -621,6 +621,81 @@ test("recovery crosses old-to-semantic shape while V2 evidence is delayed withou
       commitSha: semanticMerge,
       scannedAt: JSON.parse(readFileSync(watermarkPath, "utf8")).scannedAt
     });
+
+    const directOpId = "namespace-production:direct-shape";
+    writePublicationFiles(directOpId, "direct");
+    git(
+      "add",
+      `attribution-events/${sha256Text(directOpId)}.jsonl`,
+      "tasks/task_BOUNDARY/progress.md"
+    );
+    git("commit", "-q", "-m", semanticMessage(directOpId));
+    const directCommit = git("rev-parse", "HEAD");
+    const { commitSha: _publishedCommit, ...durableWithoutCommit } = durable;
+    let directDurable: AuthorityStoredOperationRecord = {
+      ...durableWithoutCommit,
+      opId: directOpId,
+      state: "INDETERMINATE",
+      receipt: {
+        tag: "INDETERMINATE",
+        workspaceId,
+        opId: directOpId,
+        semanticDigest: durable.semanticDigest,
+        reason: "V2_EVIDENCE_PUBLICATION_DELAYED"
+      }
+    };
+    let directChange: import("../../application/src/index.ts").ReplicaChangeRecord | undefined;
+    let directRecoveryCount = 0;
+    const directDeferred: unknown[] = [];
+    const directOperationRegistry: AuthorityOperationRegistry = {
+      get: async (_workspaceId, candidateOpId) => candidateOpId === directOpId ? directDurable : undefined,
+      list: async () => [directDurable],
+      put: async (next) => { directDurable = next; }
+    };
+    const directReplicaChangeLog: import("../../application/src/index.ts").ReplicaChangeLog = {
+      append: async (next) => { directChange = next; },
+      latest: async () => directChange,
+      getByOperation: async (_workspaceId, candidateOpId) =>
+        directChange?.operations.some((operation) => operation.opId === candidateOpId) ? directChange : undefined,
+      changesAfter: async () => directChange ? [directChange] : []
+    };
+    const directInput = {
+      workspaceId,
+      operationRegistry: directOperationRegistry,
+      replicaChangeLog: directReplicaChangeLog,
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: createGitCanonicalPublicationInspector(root),
+      recover: async (indexed: AuthorityStoredOperationRecord): Promise<AuthorityCommittedReceipt> => {
+        directRecoveryCount += 1;
+        return {
+          tag: "COMMITTED",
+          workspaceId,
+          opId: directOpId,
+          semanticDigest: indexed.semanticDigest,
+          revision: 1,
+          commitSha: directCommit,
+          previousCommit: semanticMerge,
+          authorityIntegrity: indexed.authorityIntegrity!
+        };
+      },
+      onDeferred: async (_record: AuthorityStoredOperationRecord, error: unknown) => {
+        directDeferred.push(error);
+      },
+      watermarkPath
+    };
+
+    await recoverPendingProductionEvents(directInput);
+    await recoverPendingProductionEvents(directInput);
+
+    assert.equal(
+      directRecoveryCount,
+      1,
+      `the direct-commit delayed V2 window recovers exactly once: ${directDeferred.map(String).join("; ")}`
+    );
+    assert.equal(directDurable.state, "COMMITTED");
+    assert.equal(directDurable.commitSha, directCommit);
+    assert.notEqual(directDurable.state, "REJECTED");
+    assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, directCommit);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

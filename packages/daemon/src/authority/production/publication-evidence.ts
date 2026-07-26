@@ -193,8 +193,9 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         readonly opIds: ReadonlyArray<string>;
       }>>();
       for (const commit of commits) {
-        if (commit.parents.length !== 2) continue;
+        if (commit.parents.length !== 1 && commit.parents.length !== 2) continue;
         const opIds = publicationMetadataOperationIds(commit);
+        if (opIds.length === 0) continue;
         const anchor = {
           commitSha: commit.commitSha,
           previousCommit: commit.parents[0]!,
@@ -249,7 +250,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     // A watermark may advance only from the old boundary toward HEAD. Scanning
     // oldest-to-newest makes every reported commit a complete prefix.
     for (const commit of [...commits].reverse()) {
-      if (commit.parents.length === 2) {
+      if (commit.parents.length === 1 || commit.parents.length === 2) {
         const opIds = publicationMetadataOperationIds(commit);
         if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
           const anchor = {
@@ -301,23 +302,27 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     const legacySubjectShape = /^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(mergeSubject)
       && sessionSubject.endsWith(expectedSessionSubjectSuffix);
     const semanticMessage = parseAuthorityBatchMessageOptional(mergeMessage);
+    const semanticMessageOpIds = semanticMessage?.integrity.entries.map((entry) => entry.opId) ?? [];
     const semanticSubjectShape = !mergeSubject.startsWith("materializer: merge session ")
       && mergeMessage === sessionMessage
       && semanticMessage !== null
-      && orderedValuesEqual(
-        semanticMessage.integrity.entries.map((entry) => entry.opId),
-        expectedOpIds
-      );
+      && orderedValuesEqual(semanticMessageOpIds, expectedOpIds);
+    const directSubjectShape = !mergeSubject.startsWith("materializer: merge session ")
+      && semanticMessage !== null
+      && orderedValuesEqual(semanticMessageOpIds, expectedOpIds);
     const mergeTreeMatchesSession = sessionCommit
       ? gitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
-    if (!expectedPreviousHead
-      || parentCommits.length !== 2
-      || parentCommits[0] !== expectedPreviousHead
-      || sessionParents.length !== 1
-      || sessionParents[0] !== expectedPreviousHead
-      || (!legacySubjectShape && !semanticSubjectShape)
-      || !mergeTreeMatchesSession) {
+    const mergeShape = parentCommits.length === 2
+      && parentCommits[0] === expectedPreviousHead
+      && sessionParents.length === 1
+      && sessionParents[0] === expectedPreviousHead
+      && (legacySubjectShape || semanticSubjectShape)
+      && mergeTreeMatchesSession;
+    const directShape = parentCommits.length === 1
+      && parentCommits[0] === expectedPreviousHead
+      && directSubjectShape;
+    if (!expectedPreviousHead || (!mergeShape && !directShape)) {
       throw publicationTopologyError({
         expectedPreviousHead,
         expectedOpIds,
@@ -329,6 +334,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         mergeMessageMatchesSession: mergeMessage === sessionMessage,
         legacySubjectShape,
         semanticSubjectShape,
+        directSubjectShape,
         mergeTreeMatchesSession
       });
     }
@@ -396,7 +402,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       if (!history) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
       const matches: CanonicalPublicationEvidence[] = [];
       for (const commit of history.commits) {
-        if (commit.parents.length !== 2
+        if ((commit.parents.length !== 1 && commit.parents.length !== 2)
           || !orderedValuesEqual(publicationMetadataOperationIds(commit), expectedOpIds)) continue;
         matches.push(await inspectPublication(
           commit.parents[0]!,
@@ -439,6 +445,7 @@ function publicationTopologyError(input: {
   readonly mergeMessageMatchesSession: boolean;
   readonly legacySubjectShape: boolean;
   readonly semanticSubjectShape: boolean;
+  readonly directSubjectShape: boolean;
   readonly mergeTreeMatchesSession: boolean;
 }): Error {
   return new Error([
@@ -453,6 +460,7 @@ function publicationTopologyError(input: {
     `mergeMessageMatchesSession=${String(input.mergeMessageMatchesSession)}`,
     `legacySubjectShape=${String(input.legacySubjectShape)}`,
     `semanticSubjectShape=${String(input.semanticSubjectShape)}`,
+    `directSubjectShape=${String(input.directSubjectShape)}`,
     `mergeTreeMatchesSession=${String(input.mergeTreeMatchesSession)}`
   ].join(";"));
 }
@@ -460,10 +468,13 @@ function publicationTopologyError(input: {
 function publicationMetadataOperationIds(
   commit: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>[number]
 ): ReadonlyArray<string> {
-  const firstParentIds = publicationSubjectOperationIds(commit.subject);
-  return firstParentIds.length > 0
-    ? firstParentIds
-    : publicationSubjectOperationIds(commit.sessionSubject ?? "");
+  const authorityMessage = parseAuthorityBatchMessageOptional(commit.message);
+  if (authorityMessage) {
+    return authorityMessage.integrity.entries.map((entry) => entry.opId);
+  }
+  return commit.parents.length === 2
+    ? publicationSubjectOperationIds(commit.sessionSubject ?? "")
+    : [];
 }
 
 function parseAuthorityBatchMessageOptional(
