@@ -36,6 +36,18 @@ import type {
   SemanticEntityBaseV2
 } from "./fact-relation-semantic-compiler-v2.ts";
 import { renderStaleExecutionRetirementAudit } from "../execution-retirement-service.ts";
+import {
+  taskExecutionAdmissionPublicationRevalidation,
+  type TaskExecutionAdmissionPortsV1
+} from "./task-execution-admission-policy.ts";
+import {
+  absentHostedDocumentSnapshotV2,
+  executionAction,
+  reviewAction,
+  sessionAction
+} from "./session-execution-review-semantic-helpers-v2.ts";
+
+export { absentHostedDocumentSnapshotV2 } from "./session-execution-review-semantic-helpers-v2.ts";
 
 export {
   encodeSessionExecutionReviewCommandPayloadV2,
@@ -53,7 +65,7 @@ export interface SessionExecutionReviewAuthorityStateV2 {
   readonly readHostedDocument: (path: string) => Promise<HostedDocumentSnapshotV2 | null>;
 }
 
-export interface SessionExecutionReviewSemanticCompilerV2Options {
+export interface SessionExecutionReviewSemanticCompilerV2Options extends TaskExecutionAdmissionPortsV1 {
   readonly state: SessionExecutionReviewAuthorityStateV2;
 }
 
@@ -62,6 +74,7 @@ interface CompiledSessionExecutionReviewCommandV2 {
   readonly operation: WriteOp;
   readonly requiredBaseRefs: ReadonlyArray<RegistryEntityRefV2>;
   readonly requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
+  readonly publicationRevalidation?: () => Promise<void>;
 }
 
 const registryVersion = 1;
@@ -72,7 +85,7 @@ export function makeSessionExecutionReviewSemanticCompilerV2(
   return {
     compile: async (envelope) => {
       const { payload, decodedBytes } = decodeSessionExecutionReviewCommandPayloadV2(envelope);
-      const compiled = await compileSessionExecutionReviewPayloadV2(options.state, payload);
+      const compiled = await compileSessionExecutionReviewPayloadV2(options, payload);
       await verifySemanticBaseCasV2(
         options.state,
         envelope.intent.kind === "typed" ? envelope.intent.baseCas : [],
@@ -82,17 +95,23 @@ export function makeSessionExecutionReviewSemanticCompilerV2(
         envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [],
         compiled.requiredPathSnapshots
       );
-      return { mutationPlan: compiled.mutationPlan, operation: compiled.operation, decodedBytes };
+      return {
+        mutationPlan: compiled.mutationPlan,
+        operation: compiled.operation,
+        decodedBytes,
+        ...(compiled.publicationRevalidation ? { publicationRevalidation: compiled.publicationRevalidation } : {})
+      };
     }
   };
 }
 
 async function compileSessionExecutionReviewPayloadV2(
-  state: SessionExecutionReviewAuthorityStateV2,
+  options: SessionExecutionReviewSemanticCompilerV2Options,
   payload: SessionExecutionReviewCommandPayloadV2
 ): Promise<CompiledSessionExecutionReviewCommandV2> {
+  const { state } = options;
   if (payload.schema.startsWith("session.")) return compileSession(state, payload as SessionActionPayloadV2);
-  if (payload.schema.startsWith("execution.")) return compileExecution(state, payload as ExecutionActionPayloadV2);
+  if (payload.schema.startsWith("execution.")) return compileExecution(options, payload as ExecutionActionPayloadV2);
   if (payload.schema === "completion.commit/v1") return compileCommitCompletion(state, payload as CommitCompletionActionPayloadV2);
   return compileReview(state, payload as ReviewActionPayloadV2);
 }
@@ -131,9 +150,10 @@ async function compileSession(
 }
 
 async function compileExecution(
-  state: SessionExecutionReviewAuthorityStateV2,
+  options: SessionExecutionReviewSemanticCompilerV2Options,
   payload: ExecutionActionPayloadV2
 ): Promise<CompiledSessionExecutionReviewCommandV2> {
+  const { state } = options;
   const action = executionAction(payload.schema);
   const execution = payload.execution;
   assertExecutionIdentity(payload.taskId, execution);
@@ -249,17 +269,10 @@ async function compileExecution(
             snapshot: completionContractSnapshot ?? absentHostedDocumentSnapshotV2(completionContractPath)
           }]),
       ...(retirementProgress?.snapshot ? [{ path: retirementProgress.path, snapshot: retirementProgress.snapshot }] : [])
-    ]
-  };
-}
-
-export function absentHostedDocumentSnapshotV2(path: string): HostedDocumentSnapshotV2 {
-  const digest = sha256Text(`harness-absent-hosted-document/v1:${path}`);
-  return {
-    body: "",
-    epoch: digest,
-    revision: 0n,
-    blobDigest: Buffer.from(digest, "hex")
+    ],
+    ...(payload.taskIndexBody !== undefined && action === "claim" && execution.state === "active"
+      ? { publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(options, payload.taskId) }
+      : {})
   };
 }
 
@@ -572,18 +585,6 @@ function storagePath(
 
 function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
   return { registryVersion, entityKind, canonicalRef };
-}
-
-function sessionAction(schema: SessionActionPayloadV2["schema"]): "export" | "sync" | "archive" {
-  return schema.slice("session.".length, -"/v1".length) as "export" | "sync" | "archive";
-}
-
-function executionAction(schema: ExecutionActionPayloadV2["schema"]): "claim" | "submit" | "close" {
-  return schema.slice("execution.".length, -"/v1".length) as "claim" | "submit" | "close";
-}
-
-function reviewAction(schema: ReviewActionPayloadV2["schema"]): "create" | "dismiss" | "record" {
-  return schema.slice("review.".length, -"/v1".length) as "create" | "dismiss" | "record";
 }
 
 function arrayPrefix<T>(prefix: ReadonlyArray<T>, value: ReadonlyArray<T>): boolean {

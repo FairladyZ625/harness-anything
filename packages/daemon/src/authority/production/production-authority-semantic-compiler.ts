@@ -18,13 +18,24 @@ export function createProductionAuthoritySemanticCompiler(
   authoredRoot: string,
   hostServices: Pick<
     ProductionAuthorityCompilerHostServices,
-    "readTaskReturnToIdeaSnapshot" | "readTaskWipSnapshot"
+    "readTaskPlanAdmissionSnapshot" | "readTaskReturnToIdeaSnapshot" | "readTaskWipSnapshot"
   >
 ) {
   const semanticState = createProductionCanonicalSemanticState(authoredRoot);
   const rootInput = {
     rootDir: path.dirname(authoredRoot),
     layoutOverrides: { authoredRoot: path.basename(authoredRoot) }
+  };
+  const taskExecutionAdmission = {
+    ...(hostServices.readTaskWipSnapshot
+      ? { taskWipSnapshot: async () => hostServices.readTaskWipSnapshot!(rootInput) }
+      : {}),
+    ...(hostServices.readTaskPlanAdmissionSnapshot
+      ? {
+        taskPlanSnapshot: (taskId: string) =>
+          hostServices.readTaskPlanAdmissionSnapshot!(rootInput, taskId)
+      }
+      : {})
   };
   return makeCompositeAuthoritySemanticCompilerV2([{
     commandNames: ["script.scope-ingest"],
@@ -33,9 +44,7 @@ export function createProductionAuthoritySemanticCompiler(
     commandNames: taskDecisionModuleTypedCommandsV2,
     compiler: makeTaskDecisionModuleSemanticCompilerV2({
       state: semanticState,
-      ...(hostServices.readTaskWipSnapshot
-        ? { taskWipSnapshot: async () => hostServices.readTaskWipSnapshot!(rootInput) }
-        : {}),
+      ...taskExecutionAdmission,
       ...(hostServices.readTaskReturnToIdeaSnapshot
         ? {
           taskReturnToIdeaSnapshot: (taskId: string) =>
@@ -54,7 +63,10 @@ export function createProductionAuthoritySemanticCompiler(
     compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
   }, {
     commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("execution.")),
-    compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
+    compiler: makeSessionExecutionReviewSemanticCompilerV2({
+      state: semanticState,
+      ...taskExecutionAdmission
+    })
   }, {
     commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("completion.")),
     compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })

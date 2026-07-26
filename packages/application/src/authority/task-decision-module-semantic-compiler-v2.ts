@@ -72,8 +72,9 @@ import {
   taskDecisionModulePath as taskPath
 } from "./task-decision-module-refs.ts";
 import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
-import { enteringExecutionWip, taskWipPublicationRevalidation, type ReadTaskWipSnapshotV1 } from "./task-wip-policy.ts";
+import { enteringExecutionWip } from "./task-wip-policy.ts";
 import { taskReturnToIdeaPublicationRevalidation, type ReadTaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
+import { taskExecutionAdmissionPublicationRevalidation, type TaskExecutionAdmissionPortsV1 } from "./task-execution-admission-policy.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -108,9 +109,8 @@ export interface TaskDecisionModuleAuthorityStateV2 {
   readonly readHostedDocument: (path: string) => Promise<HostedDocumentSnapshotV2 | null>;
 }
 
-export interface TaskDecisionModuleSemanticCompilerV2Options {
+export interface TaskDecisionModuleSemanticCompilerV2Options extends TaskExecutionAdmissionPortsV1 {
   readonly state: TaskDecisionModuleAuthorityStateV2;
-  readonly taskWipSnapshot?: ReadTaskWipSnapshotV1;
   readonly taskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 
@@ -158,7 +158,7 @@ async function compileTaskDecisionModulePayload(
       payload,
       "active",
       "package_reopen",
-      options.taskWipSnapshot
+      options
     );
     case "task.relate/v1": return compileTaskRelate(state, payload);
     case "decision.propose/v1": return compileDecisionPropose(payload);
@@ -230,7 +230,7 @@ async function compileTaskTransition(
   return enteringExecutionWip(current.status, current.packageDisposition, to, "active")
     ? {
       ...compiled,
-      publicationRevalidation: taskWipPublicationRevalidation(options.taskWipSnapshot, payload.taskId)
+      publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(options, payload.taskId)
     }
     : compiled;
 }
@@ -284,7 +284,7 @@ async function compileTaskDisposition(
   payload: TaskArchivePayloadV2 | TaskDeletePayloadV2 | TaskReopenPayloadV2,
   disposition: "active" | "archived" | "tombstoned",
   kind: "package_archive" | "package_tombstone" | "package_reopen",
-  taskWipSnapshot?: TaskDecisionModuleSemanticCompilerV2Options["taskWipSnapshot"]
+  executionAdmission?: TaskExecutionAdmissionPortsV1
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
   const path = taskPath(payload.taskId, "INDEX.md");
   const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
@@ -306,7 +306,7 @@ async function compileTaskDisposition(
   )
     ? {
       ...compiled,
-      publicationRevalidation: taskWipPublicationRevalidation(taskWipSnapshot, payload.taskId)
+      publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(executionAdmission ?? {}, payload.taskId)
     }
     : compiled;
 }

@@ -54,7 +54,7 @@ export function readTaskWipSnapshot(rootInput: HarnessLayoutInput) {
   }
   const layout = resolveHarnessLayout(rootInput);
   if (!existsSync(layout.tasksRoot)) return { limit: resolved.limit, tasks: [] };
-  const tasks = readdirSync(layout.tasksRoot, { withFileTypes: true })
+  const taskRows = readdirSync(layout.tasksRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .flatMap((entry) => {
       const indexPath = path.join(layout.tasksRoot, entry.name, "INDEX.md");
@@ -65,13 +65,17 @@ export function readTaskWipSnapshot(rootInput: HarnessLayoutInput) {
       }
       const taskId = readScalar(frontmatter, "task_id", { required: true });
       const title = readScalar(frontmatter, "title", { required: true });
+      const parent = readScalar(frontmatter, "parent");
       const status = readScalar(frontmatter, "  status", { required: true });
       const packageDisposition = readScalar(frontmatter, "packageDisposition", { required: true });
       if (!isDomainStatus(status) || !isPackageDisposition(packageDisposition)) {
         throw new Error(`Invalid task WIP axes: ${indexPath}`);
       }
-      return [{ taskId, title, status, packageDisposition }];
-    })
+      return [{ taskId, title, parent, status, packageDisposition }];
+    });
+  const parentTaskIds = new Set(taskRows.map((task) => task.parent).filter((parent) => parent.length > 0));
+  const tasks = taskRows
+    .map(({ parent: _parent, ...task }) => ({ ...task, isContainer: parentTaskIds.has(task.taskId) }))
     .sort((left, right) => left.taskId.localeCompare(right.taskId));
   return { limit: resolved.limit, tasks };
 }

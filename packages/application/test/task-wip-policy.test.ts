@@ -58,6 +58,31 @@ test("over-limit reporting excludes planned ideas and archived packages", async 
     && /Planned tasks remain in the idea inbox and are not counted or removed/u.test(error.message));
 });
 
+test("container tasks with children do not occupy execution workstations", async () => {
+  const revalidate = taskWipPublicationRevalidation(async () => ({
+    limit: 2,
+    tasks: [
+      task("task_ROOT_A", "Milestone root", "active", "active", true),
+      task("task_ROOT_B", "Operations ledger", "active", "active", true),
+      task("task_LEAF", "Executable leaf", "active", "active")
+    ]
+  }), "task_NEW");
+
+  await assert.doesNotReject(revalidate);
+});
+
+test("activating a container is admitted even when every leaf workstation is occupied", async () => {
+  const revalidate = taskWipPublicationRevalidation(async () => ({
+    limit: 1,
+    tasks: [
+      task("task_LEAF", "Executable leaf", "active", "active"),
+      task("task_NEW_ROOT", "New milestone root", "planned", "active", true)
+    ]
+  }), "task_NEW_ROOT");
+
+  await assert.doesNotReject(revalidate);
+});
+
 test("publication revalidation observes a changed configured limit", async () => {
   let limit = 2;
   const snapshot = (): Promise<TaskWipSnapshotV1> => Promise.resolve({
@@ -83,7 +108,8 @@ function task(
   taskId: string,
   title: string,
   status: TaskWipSnapshotV1["tasks"][number]["status"],
-  packageDisposition: TaskWipSnapshotV1["tasks"][number]["packageDisposition"]
+  packageDisposition: TaskWipSnapshotV1["tasks"][number]["packageDisposition"],
+  isContainer = false
 ): TaskWipSnapshotV1["tasks"][number] {
-  return { taskId, title, status, packageDisposition };
+  return { taskId, title, status, packageDisposition, isContainer };
 }

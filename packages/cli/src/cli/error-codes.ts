@@ -197,6 +197,7 @@ export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([
   CliErrorCode.TaskLeaseRequired,
   CliErrorCode.TaskReturnToIdeaBlocked,
   CliErrorCode.TaskWipLimitReached,
+  CliErrorCode.TaskPlanPlaceholder,
   CliErrorCode.TaskNotFound,
   CliErrorCode.TerminalHardDeleteForbidden,
   CliErrorCode.TerminalReopenRequiresSupersede,

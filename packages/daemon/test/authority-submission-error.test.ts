@@ -65,6 +65,14 @@ test("WIP publication rejection keeps its stable public code and actionable reas
   assert.equal(error.message, reason);
 });
 
+test("task-plan publication rejection keeps its stable public code and repair command", () => {
+  const reason = "TASK_PLAN_PLACEHOLDER: replace task_plan.md, then retry `ha task transition task_NEW active`.";
+  const error = authorityCompileRejected(new Error(reason));
+
+  assert.equal(error.code, "task_plan_placeholder");
+  assert.equal(error.message, reason);
+});
+
 test("return-to-idea publication rejection keeps its stable public code and cleanup commands", () => {
   const reason = "TASK_RETURN_TO_IDEA_BLOCKED: release task_OLD, then retire Execution exe_OLD.";
   const error = authorityCompileRejected(new Error(reason));

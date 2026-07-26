@@ -23,6 +23,7 @@ import {
   shouldUseSettingsPresetAwareNewTask
 } from "../commands/settings.ts";
 import { readTaskWipSnapshot } from "../commands/task-wip-settings.ts";
+import { readTaskPlanAdmissionSnapshot } from "../commands/task-plan-admission-snapshot.ts";
 import { readTaskReturnToIdeaSnapshot } from "../commands/task-return-to-idea-snapshot.ts";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 
@@ -88,6 +89,7 @@ export const productionAuthorityHostServices = {
   materializedTaskPriorityWrites,
   renderForceStatusAudit,
   readTaskWipSnapshot,
+  readTaskPlanAdmissionSnapshot,
   readTaskReturnToIdeaSnapshot,
   loadDaemonIdentity
 } satisfies ProductionAuthorityHostServices<LoadedDaemonIdentity>;

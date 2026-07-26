@@ -5,18 +5,16 @@ import type { TaskReturnToIdeaSnapshotV1 } from "@harness-anything/application";
 import {
   executionDeclaration,
   makeTaskHolderService,
-  readFrontmatter,
-  readScalar,
-  resolveHarnessLayout,
   type ExecutionRecord,
   type HarnessLayoutInput
 } from "@harness-anything/kernel";
+import { findAuthoredTaskRoot } from "./task-authored-source.ts";
 
 export async function readTaskReturnToIdeaSnapshot(
   rootInput: HarnessLayoutInput,
   taskId: string
 ): Promise<TaskReturnToIdeaSnapshotV1> {
-  const taskRoot = findTaskRoot(rootInput, taskId);
+  const taskRoot = findAuthoredTaskRoot(rootInput, taskId);
   const executionsRoot = path.join(taskRoot, "executions");
   const activeExecutions = existsSync(executionsRoot)
     ? readdirSync(executionsRoot, { withFileTypes: true })
@@ -37,21 +35,6 @@ export async function readTaskReturnToIdeaSnapshot(
     }
     : null;
   return { taskId, activeExecutions, activeLease };
-}
-
-function findTaskRoot(rootInput: HarnessLayoutInput, taskId: string): string {
-  const tasksRoot = resolveHarnessLayout(rootInput).tasksRoot;
-  if (!existsSync(tasksRoot)) throw new Error(`Task return-to-idea source not found: ${taskId}`);
-  for (const entry of readdirSync(tasksRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const indexPath = path.join(tasksRoot, entry.name, "INDEX.md");
-    if (!existsSync(indexPath)) continue;
-    const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
-    if (frontmatter && readScalar(frontmatter, "task_id", { required: true }) === taskId) {
-      return path.join(tasksRoot, entry.name);
-    }
-  }
-  throw new Error(`Task return-to-idea source not found: ${taskId}`);
 }
 
 function decodeExecution(executionPath: string): ExecutionRecord {

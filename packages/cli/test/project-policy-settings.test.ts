@@ -61,14 +61,16 @@ test("task WIP snapshot reads the configured limit and authored task axes", () =
     ]);
     writeTaskIndex(rootDir, "task_IDEA", "Idea", "planned", "active");
     writeTaskIndex(rootDir, "task_ACTIVE", "Active", "active", "active");
+    writeTaskIndex(rootDir, "task_CHILD", "Child", "planned", "active", "task_ACTIVE");
     writeTaskIndex(rootDir, "task_ARCHIVED", "Archived", "blocked", "archived");
 
     assert.deepEqual(readTaskWipSnapshot(rootDir), {
       limit: 4,
       tasks: [
-        { taskId: "task_ACTIVE", title: "Active", status: "active", packageDisposition: "active" },
-        { taskId: "task_ARCHIVED", title: "Archived", status: "blocked", packageDisposition: "archived" },
-        { taskId: "task_IDEA", title: "Idea", status: "planned", packageDisposition: "active" }
+        { taskId: "task_ACTIVE", title: "Active", status: "active", packageDisposition: "active", isContainer: true },
+        { taskId: "task_ARCHIVED", title: "Archived", status: "blocked", packageDisposition: "archived", isContainer: false },
+        { taskId: "task_CHILD", title: "Child", status: "planned", packageDisposition: "active", isContainer: false },
+        { taskId: "task_IDEA", title: "Idea", status: "planned", packageDisposition: "active", isContainer: false }
       ]
     });
   });
@@ -197,7 +199,8 @@ function writeTaskIndex(
   taskId: string,
   title: string,
   status: "planned" | "active" | "blocked",
-  packageDisposition: "active" | "archived"
+  packageDisposition: "active" | "archived",
+  parent?: string
 ): void {
   const taskDir = path.join(rootDir, "harness", "tasks", `${taskId}-fixture`);
   mkdirSync(taskDir, { recursive: true });
@@ -206,6 +209,7 @@ function writeTaskIndex(
     "schema: task-package/v2",
     `task_id: ${taskId}`,
     `title: ${title}`,
+    ...(parent ? [`parent: ${parent}`] : []),
     "lifecycle:",
     "  bindingSchema: lifecycle-binding/v1",
     "  engine: local",

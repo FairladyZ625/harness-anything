@@ -14,6 +14,7 @@ import type {
 } from "./daemon-host-contract.ts";
 import type { TaskWipSnapshotV1 } from "./task-wip-policy.ts";
 import type { TaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
+import type { TaskPlanAdmissionSnapshotV1 } from "./task-execution-admission-policy.ts";
 
 export type ProductionAuthorityCommand = AuthorityHostCommand;
 export type ProductionAuthorityCommandAction = AuthorityHostCommandAction;
@@ -61,6 +62,10 @@ export interface ProductionAuthorityCompilerHostServices {
     | { readonly ok: false; readonly error: { readonly hint: string } };
   readonly renderForceStatusAudit: (status: string, reason: string, recordedAt?: string) => string;
   readonly readTaskWipSnapshot?: (rootInput: HarnessLayoutInput) => TaskWipSnapshotV1;
+  readonly readTaskPlanAdmissionSnapshot?: (
+    rootInput: HarnessLayoutInput,
+    taskId: string
+  ) => Promise<TaskPlanAdmissionSnapshotV1>;
   readonly readTaskReturnToIdeaSnapshot?: (
     rootInput: HarnessLayoutInput,
     taskId: string

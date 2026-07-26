@@ -6,6 +6,7 @@ export interface TaskWipSnapshotEntryV1 {
   readonly title: string;
   readonly status: DomainStatus;
   readonly packageDisposition: "active" | "archived" | "tombstoned";
+  readonly isContainer: boolean;
 }
 
 export interface TaskWipSnapshotV1 {
@@ -25,8 +26,9 @@ export function taskWipPublicationRevalidation(
     if (!Number.isSafeInteger(snapshot.limit) || snapshot.limit < 1) {
       throw admission("TASK_WIP_POLICY_INVALID: settings.tasks.wipLimit must be a positive integer.");
     }
+    if (snapshot.tasks.some((task) => task.taskId === activatingTaskId && task.isContainer)) return;
     const occupying = snapshot.tasks
-      .filter((task) => isExecutionWipTask(task.status, task.packageDisposition))
+      .filter((task) => !task.isContainer && isExecutionWipTask(task.status, task.packageDisposition))
       .sort(compareTaskWipSuggestions);
     if (occupying.length < snapshot.limit) return;
     const suggestions = occupying.slice(0, 3);
