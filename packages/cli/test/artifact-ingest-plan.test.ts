@@ -94,6 +94,35 @@ test("progress failure reports the retained governed artifact and an exact retry
   assert.match(String(data.retryCommand), new RegExp(source.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 }));
 
+test("unknown progress outcome does not claim the pointer is missing or offer an unconditional retry", () => withFixture(({ rootDir, taskId }) => {
+  const source = path.join(rootDir, "unknown.txt");
+  writeFileSync(source, "committed before outcome became unknown\n", "utf8");
+  const plan = buildArtifactIngestPlan({ command: progressCommand(rootDir, taskId, source), repoId: "canonical", cwd: rootDir });
+  assert.ok(plan);
+  const failed = toCommandReceipt({
+    ok: false,
+    command: "progress-append",
+    error: cliError(CliErrorCode.WriteRejected, "child writer response was lost")
+  });
+  assert.equal(failed.ok, false);
+  if (failed.ok) return;
+  const receipt = normalizeProgressAfterArtifact({
+    ...failed,
+    error: { code: "repo_write_outcome_unknown", hint: "the write may already have taken effect" }
+  }, plan, { status: "accepted" });
+  assert.equal(receipt.ok, false);
+  if (receipt.ok) return;
+  assert.match(receipt.error?.hint ?? "", /tasks\/task_A\/artifacts\/unknown\.txt/u);
+  assert.match(receipt.error?.hint ?? "", /progress append outcome is unknown/iu);
+  assert.match(receipt.error?.hint ?? "", /first check progress\.md/iu);
+  assert.doesNotMatch(receipt.error?.hint ?? "", /pointer was not written/iu);
+  assert.doesNotMatch(receipt.error?.hint ?? "", /Retry or record the pointer with:/iu);
+  const data = receipt.details?.data as Record<string, unknown>;
+  assert.equal(data.pointerRecorded, "unknown");
+  assert.equal(data.outcome, "unknown");
+  assert.equal("retryCommand" in data, false);
+}));
+
 function progressCommand(rootDir: string, taskId: string, evidencePath: string): ParsedCommand {
   return {
     rootDir,

@@ -243,9 +243,31 @@ export function normalizeProgressAfterArtifact(
       }
     };
   }
-  const retryCommand = progressRetryCommand(plan);
   const paths = plan.targetPaths.join(", ");
   const originalError = receipt.error ?? cliError(CliErrorCode.ArtifactWriteRejected, "Progress append failed.");
+  if (originalError.code === "repo_write_outcome_unknown"
+    || originalError.code === CliErrorCode.DaemonRequestOutcomeUnknown) {
+    return {
+      ...receipt,
+      ...(warnings.length > 0 ? { warnings: [...(receipt.warnings ?? []), ...warnings] } : {}),
+      command: "progress-append",
+      action: "progress-append",
+      error: {
+        ...originalError,
+        hint: `Artifact ingestion succeeded at ${paths}. The progress append outcome is unknown; first check progress.md for the evidence pointer before deciding whether to rerun. Only rerun or record the pointer if it is absent. Cause: ${originalError.hint}`
+      },
+      details: {
+        ...(receipt.details ?? {}),
+        data: {
+          ...((receipt.details?.data ?? {}) as Record<string, unknown>),
+          artifactIngest: artifactData,
+          pointerRecorded: "unknown",
+          outcome: "unknown"
+        }
+      }
+    };
+  }
+  const retryCommand = progressRetryCommand(plan);
   return {
     ...receipt,
     ...(warnings.length > 0 ? { warnings: [...(receipt.warnings ?? []), ...warnings] } : {}),
