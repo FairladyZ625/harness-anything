@@ -6,18 +6,13 @@ import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import { initializeGitRepo, runGit, runJson, withTempRoot, writeCloseout } from "./helpers/task-document-gates-fixtures.ts";
 
-test("task submit facade sends the exact six-field packet through execution submit", () => {
+test("coldstart lifecycle submits and completes with visible unavailable provenance when default runtime capture is absent", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Structured Submit", "--vertical", "software/coding", "--preset", "standard-task"]);
     writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const sessionId = "codex-structured-submit";
     const homeDir = path.join(rootDir, "home");
-    const sessionDir = path.join(homeDir, ".codex/sessions");
-    mkdirSync(sessionDir, { recursive: true });
-    writeFileSync(path.join(sessionDir, `${sessionId}.jsonl`), [
-      JSON.stringify({ timestamp: "2026-07-18T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "submit task" } }),
-      JSON.stringify({ timestamp: "2026-07-18T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ready" }] } })
-    ].join("\n"), "utf8");
+    mkdirSync(homeDir, { recursive: true });
     const env = { HOME: homeDir, CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId, HARNESS_ACTOR: "agent:worker" };
     const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, env);
     runJson(rootDir, ["task", "transition", created.taskId, "active"], true, env);
@@ -51,6 +46,11 @@ test("task submit facade sends the exact six-field packet through execution subm
     assert.equal(submitted.report.steps[1].command, "task transition");
     assert.equal(submitted.report.steps[1].details.data.executionId, claimed.executionId);
     assert.equal(submitted.report.steps[1].details.data.status, "in_review");
+    assert.deepEqual(submitted.report.steps[1].details.data.report.unavailableBindings, [{
+      bindingId: `primary:${sessionId}`,
+      sessionRef: `session/${sessionId}`,
+      archiveStatus: "unavailable"
+    }]);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "code-doc-anchors.json")), true);
     const duplicateCodeDoc = runJson(rootDir, [
       "task", "code-doc", "reconcile", created.taskId,
@@ -68,6 +68,8 @@ test("task submit facade sends the exact six-field packet through execution subm
       residual_risks: ["review remains independent"]
     });
     assert.equal(execution.outputs[0].locator.text, "integration passed");
+    assert.equal(execution.session_bindings[0].archive_status, "unavailable");
+    assert.equal(existsSync(path.join(rootDir, "harness/sessions", `${sessionId}.md`)), false);
 
     const reviewPacketPath = path.join(rootDir, "review.json");
     writeFileSync(reviewPacketPath, JSON.stringify({
@@ -75,7 +77,7 @@ test("task submit facade sends the exact six-field packet through execution subm
       findings: "The structured submission satisfies the acceptance checks.",
       rationale: "The evidence and verification note cover the Task intent.",
       evidenceChecked: ["ev_cli_1"],
-      archiveWarningsAcknowledged: false,
+      archiveWarningsAcknowledged: true,
       consentAssertedRationale: "Approval was received through an external channel.",
       consentActions: ["approve_execution", "complete_task"]
     }), "utf8");
@@ -84,6 +86,11 @@ test("task submit facade sends the exact six-field packet through execution subm
     ], true, { HARNESS_ACTOR: "agent:reviewer" });
     assert.equal(reviewed.command, "task-review-execution");
     assert.equal(reviewed.executionId, claimed.executionId);
+    const completed = runJson(rootDir, [
+      "task", "complete", created.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
+    ], true, { HARNESS_ACTOR: "agent:commander" });
+    assert.equal(completed.status, "done");
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: done$/mu);
   });
 });
 
