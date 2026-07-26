@@ -207,6 +207,39 @@ test("progress evidence ingests an untracked artifact before recording its gover
   });
 });
 
+test("progress evidence preserves a URL-shaped free pointer when it is not a local artifact", async () => {
+  await withTempRoot(async (rootDir) => {
+    await assertPointerOnlyEvidence(rootDir, "pr:https://github.com/FairladyZ625/harness-anything/pull/1104:merged");
+  });
+});
+
+test("progress evidence preserves a non-path free pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    await assertPointerOnlyEvidence(rootDir, "note:none:仅文字说明");
+  });
+});
+
+test("progress evidence preserves an outside-repository file pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const externalRoot = mkdtempSync(path.join(tmpdir(), "ha-outside-evidence-"));
+    try {
+      const externalPath = path.join(externalRoot, "probe-run.log");
+      writeFileSync(externalPath, "outside log\n", "utf8");
+      await assertPointerOnlyEvidence(rootDir, `log:${externalPath}:tail`);
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("progress evidence preserves a binary file pointer", async () => {
+  await withTempRoot(async (rootDir) => {
+    const binaryPath = path.join(rootDir, "capture.bin");
+    writeFileSync(binaryPath, Buffer.from([0xff, 0x00, 0xfe]));
+    await assertPointerOnlyEvidence(rootDir, `log:${binaryPath}:binary capture`);
+  });
+});
+
 test("artifact doc-sync rejection stops before progress append and leaves no dangling pointer", async () => {
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
@@ -248,6 +281,32 @@ async function withTempRoot<T>(fn: (rootDir: string) => Promise<T>): Promise<T> 
     await stopDaemon(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+async function assertPointerOnlyEvidence(rootDir: string, evidence: string): Promise<void> {
+  const harnessRoot = path.join(rootDir, "harness");
+  const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+  const taskRoot = path.join(harnessRoot, "tasks", taskId);
+  mkdirSync(taskRoot, { recursive: true });
+  seedDocSyncWriteRoadRegistry(rootDir);
+  writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+  writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
+  initHarnessGit(harnessRoot);
+
+  const submitted = runJson(rootDir, [
+    "task", "progress", "append", taskId,
+    "--text", "free pointer compatibility",
+    "--evidence", evidence
+  ]);
+
+  assert.equal(submitted.ok, true, JSON.stringify(submitted));
+  assert.match(readFileSync(path.join(taskRoot, "progress.md"), "utf8"), new RegExp(`Evidence: ${escapeRegExp(evidence)}`, "u"));
+  assert.equal((submitted.warnings ?? []).some((warning: Record<string, unknown>) => warning.code === "artifact_ingest_skipped"), true);
+  assert.equal(existsSync(path.join(taskRoot, "artifacts")), false);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function seedWriteRoadRegistry(rootDir: string): void {

@@ -35,13 +35,26 @@ test("artifact planner leaves version-controlled source evidence on the existing
   assert.equal(plan, null);
 }));
 
-test("artifact planner rejects binary bytes with an actionable UTF-8 message", () => withFixture(({ rootDir, taskId }) => {
+test("explicit artifact add rejects binary bytes with an actionable UTF-8 message", () => withFixture(({ rootDir, taskId }) => {
   const source = path.join(rootDir, "capture.bin");
   writeFileSync(source, Buffer.from([0xff, 0x00, 0xfe]));
   assert.throws(
-    () => buildArtifactIngestPlan({ command: progressCommand(rootDir, taskId, source), repoId: "canonical", cwd: rootDir }),
+    () => buildArtifactIngestPlan({ command: artifactCommand(rootDir, taskId, source), repoId: "canonical", cwd: rootDir }),
     (error) => error instanceof ArtifactIngestError && error.code === "artifact_read_failed" && /UTF-8 text only/u.test(error.message)
   );
+}));
+
+test("progress evidence keeps a binary pointer and records why ingestion was skipped", () => withFixture(({ rootDir, taskId }) => {
+  const source = path.join(rootDir, "capture.bin");
+  writeFileSync(source, Buffer.from([0xff, 0x00, 0xfe]));
+  const plan = buildArtifactIngestPlan({ command: progressCommand(rootDir, taskId, source), repoId: "canonical", cwd: rootDir });
+  assert.ok(plan);
+  assert.equal(plan.request, null);
+  assert.equal(plan.skippedEvidence[0]?.path, source);
+  assert.match(plan.skippedEvidence[0]?.reason ?? "", /UTF-8 text only/u);
+  if (plan.progressCommand?.action.kind === "progress-append") {
+    assert.equal(plan.progressCommand.action.evidence?.[0]?.path, source);
+  }
 }));
 
 test("artifact planner reuses an identical committed artifact so a failed progress append can be retried", () => withFixture(({ rootDir, harnessRoot, taskId }) => {
@@ -93,6 +106,10 @@ function progressCommand(rootDir: string, taskId: string, evidencePath: string):
       dryRun: false
     }
   };
+}
+
+function artifactCommand(rootDir: string, taskId: string, sourcePath: string): ParsedCommand {
+  return { rootDir, json: true, action: { kind: "artifact-add", taskId, sourcePaths: [sourcePath] } };
 }
 
 function withFixture(run: (fixture: { readonly rootDir: string; readonly harnessRoot: string; readonly taskId: string }) => void): void {
