@@ -1,6 +1,6 @@
-# Stage0 Manifest v1 —— 三元语组织宪章
+# Stage0 Manifest v1 —— 三元语组织宪章（已冻结 2026-07-26）
 
-- 版本：0.3.0-draft-v2 · 2026-07-26 · 内容钉见 `docs-release/constitution/stage0.pin`
+- 版本：0.3.0 · 2026-07-26 · 内容钉见 `docs-release/constitution/stage0.pin`
 - 立宪授权：dec_01KYEMDBN9JM5KST6BR4EQGJ46（冻组织不冻结构）
 - 成稿方式：多模型盲写合成+穷尽判例审计，过程档案在私有台账。
 - 一句话：**本宪章声明让这个系统"成为它自己"的那组不变关系（组织）。实现（结构）可整体替换；宪章各条仍成立，系统就还是它自己。**
@@ -88,7 +88,7 @@
 
 ```yaml
 stage0:
-  version: 0.3.0-draft-v2
+  version: 0.3.0
   primitives: [decision, task, fact]
   relationTypes: [supports, supersedes, refines, narrows, derives, blocks, relates, implements, depends-on, produces, evidences, evidenced-by, refutes, invalidated-by, supersedes-fact]
   relationDirections: [directed, undirected]
