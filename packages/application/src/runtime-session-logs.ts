@@ -4,6 +4,9 @@ import path from "node:path";
 import { Effect } from "effect";
 import { landedSettingDefaults, type CurrentSessionRef, type CurrentSessionRuntime } from "@harness-anything/kernel";
 import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from "./provenance-session-exporter.ts";
+import { unavailableDefaultRuntimeCapture, type RuntimeTranscriptInspection } from "./runtime-transcript-capability.ts";
+
+export type { RuntimeTranscriptInspection } from "./runtime-transcript-capability.ts";
 
 export interface RuntimeLogOptions {
   readonly homeDir?: string;
@@ -25,11 +28,6 @@ export interface RuntimeConversation {
   readonly warnings: ReadonlyArray<string>;
 }
 
-export type RuntimeTranscriptInspection =
-  | { readonly status: "available"; readonly logPath: string }
-  | { readonly status: "unavailable"; readonly reason: string; readonly searched: boolean }
-  | { readonly status: "indeterminate"; readonly reason: string };
-
 type JsonObject = Record<string, unknown>;
 
 const defaultRuntimeLogSearchDepth = landedSettingDefaults.runtimeLogSearchDepth;
@@ -48,6 +46,9 @@ export async function inspectRuntimeTranscript(
     ? [options.transcriptFile]
     : configuredRoots ?? defaultRuntimeLogRoots(session.runtime, options.homeDir);
   if (roots.length === 0) {
+    if (options.transcriptFile === undefined && configuredRoots === undefined) {
+      return unavailableDefaultRuntimeCapture(session.runtime, "undefined");
+    }
     return { status: "indeterminate", reason: `No runtime JSONL log roots are configured for ${session.runtime}.` };
   }
   const inspections = await Promise.all(roots.map((root) => inspectRuntimePath(
@@ -61,6 +62,11 @@ export async function inspectRuntimeTranscript(
   const uncertain = inspections.filter((item) => item.status === "indeterminate");
   if (uncertain.length > 0) {
     return { status: "indeterminate", reason: uncertain.map((item) => item.reason).join(" ") };
+  }
+  if (options.transcriptFile === undefined
+      && configuredRoots === undefined
+      && inspections.every((item) => item.status === "unavailable" && !item.searched)) {
+    return unavailableDefaultRuntimeCapture(session.runtime, "missing");
   }
   if (!inspections.some((item) => item.status === "unavailable" && item.searched)) {
     return {

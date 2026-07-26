@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, resolveRuntimeLogSearchDepth } from "../src/runtime-session-logs.ts";
+import { discoverRuntimeSessions, displayRuntimePath, inspectRuntimeTranscript, resolveRuntimeConversation, resolveRuntimeLogSearchDepth } from "../src/runtime-session-logs.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 test("runtime log search depth resolves explicit option then environment and rejects unsafe values", () => {
@@ -57,6 +57,44 @@ test("runtime path display abbreviates the operating-system home when HOME is un
   } finally {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
+  }
+});
+
+test("runtime transcript inspection distinguishes absent default capture from an invalid explicit root", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-capability-"));
+  try {
+    const session = { runtime: "codex", sessionId: "coldstart-session" } as const;
+    const absentDefault = await inspectRuntimeTranscript(session, { homeDir: rootDir });
+    assert.deepEqual(absentDefault, {
+      status: "unavailable",
+      reason: "No default runtime JSONL log root exists for codex; provenance transcript capture is unavailable in this environment.",
+      searched: false
+    });
+
+    const invalidExplicit = await inspectRuntimeTranscript(session, {
+      runtimeLogRoots: { codex: [path.join(rootDir, "configured-but-missing")] }
+    });
+    assert.equal(invalidExplicit.status, "indeterminate");
+    assert.match(invalidExplicit.reason, /transcript absence cannot be confirmed/u);
+
+    const noRuntimeDefaults = await inspectRuntimeTranscript({
+      runtime: "antigravity",
+      sessionId: "coldstart-antigravity-session"
+    }, { homeDir: rootDir });
+    assert.deepEqual(noRuntimeDefaults, {
+      status: "unavailable",
+      reason: "No default runtime JSONL log roots are defined for antigravity; provenance transcript capture is unavailable in this environment.",
+      searched: false
+    });
+
+    const explicitlyEmpty = await inspectRuntimeTranscript({
+      runtime: "antigravity",
+      sessionId: "configured-antigravity-session"
+    }, { runtimeLogRoots: { antigravity: [] } });
+    assert.equal(explicitlyEmpty.status, "indeterminate");
+    assert.match(explicitlyEmpty.reason, /No runtime JSONL log roots are configured/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 

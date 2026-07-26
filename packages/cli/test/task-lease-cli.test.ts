@@ -323,14 +323,14 @@ test("default claim preserves status and the Holder V2 actor can submit without 
   });
 });
 
-test("submit reports a confirmed unavailable binding without changing its Session ownership", () => {
+test("submit reports an unavailable binding when default runtime capture is absent without changing its Session ownership", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Unavailable Session"]);
     writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const sessionId = "missing-codex-primary-session";
     const homeDir = path.join(rootDir, "empty-home");
-    mkdirSync(path.join(homeDir, ".codex", "sessions"), { recursive: true });
+    mkdirSync(homeDir, { recursive: true });
     const sessionEnv = {
       HARNESS_ACTOR: "agent:test",
       HOME: homeDir,
