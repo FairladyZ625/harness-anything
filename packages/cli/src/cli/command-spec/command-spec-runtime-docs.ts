@@ -1,5 +1,6 @@
 import { defineCommandSpecs } from "./types.ts";
 import { parseCoreTaskArgs } from "../parsers/core-task.ts";
+import { parseCasArgs } from "../parsers/cas.ts";
 import { parseDocArgs } from "../parsers/doc.ts";
 import { parseMaterializerArgs } from "../parsers/materializer.ts";
 import { parseRuntimeEventArgs } from "../parsers/runtime-event.ts";
@@ -7,6 +8,7 @@ import { parseSessionArgs } from "../parsers/session.ts";
 import { parseStatusCheckArgs } from "../parsers/status-check.ts";
 import { parseTemplateArgs } from "../parsers/extensions-template.ts";
 import { runDocCommand } from "../../commands/core/doc.ts";
+import { runCasCommand } from "../../commands/core/cas.ts";
 import { runExtensionRunnerCommand } from "../../commands/core/extension.ts";
 import { runGovernanceCommand } from "../../commands/core/governance.ts";
 import { runMaterializerCommand } from "../../commands/core/materializer.ts";
@@ -121,6 +123,23 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
+      "runtimeEvent": "none"
+    }
+  },
+  {
+    "kind": "cas-gc",
+    "usage": "cas gc [--apply] [--json]",
+    "options": [{"flag":"--apply","description":"Reclaim verified unreferenced CAS objects; omission performs a dry-run."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "List or reclaim verified CAS objects that have no authored ledger reference.",
+    "examples": ["harness-anything cas gc --json", "harness-anything cas gc --apply --json"],
+    "parse": parseCasArgs,
+    "run": runCasCommand,
+    "receiptContract": {
+      "data": ["rows", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
       "runtimeEvent": "none"
     }
   },

@@ -88,6 +88,7 @@ const dispositions = {
   "materializer-run": excluded("materializer control is daemon-local orchestration"),
   "session-backfill": excluded("session backfill is an explicit migration workflow"),
   "session-sync": excluded("session sync has no production command adapter despite a typed semantic vocabulary"),
+  "cas-gc": excluded("CAS garbage collection is local storage maintenance outside canonical entity authority"),
   "governance-rebuild": excluded("governance rebuild is an explicit local derived-write workflow"),
   "adopt-multica": excluded("multi-CA adoption is an explicit migration workflow"),
   "migrate-structure": excluded("structure migration uses the migration write road"),

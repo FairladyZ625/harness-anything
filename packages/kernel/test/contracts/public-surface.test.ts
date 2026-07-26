@@ -83,6 +83,7 @@ const publicRuntimeSurface = [
   "checkTaskProjection",
   "cleanupRetiredAttributionFields",
   "closeoutReadinesses",
+  "collectCasGarbage",
   "compileRegistryMutationPlan",
   "computeDecisionContentDigest",
   "computeExecutionConsentPin",

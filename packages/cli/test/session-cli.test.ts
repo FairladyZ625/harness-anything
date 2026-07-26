@@ -10,6 +10,7 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
 import { readSessionEntity } from "../../application/src/index.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
+import { runRegisteredCommandWithCliComposition } from "../src/composition/command-executor.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const testActorEnv = { HARNESS_ACTOR: "agent:session-cli-test" } as const;
@@ -70,6 +71,66 @@ test("CLI session export fails closed without writing when a runtime transcript 
     assert.equal(existsSync(path.join(harnessRoot, "sessions", "missing-desktop-thread.md")), false);
     assert.equal(gitStatus(harnessRoot), "");
   });
+});
+
+test("CLI CAS GC previews and applies reclamation without deleting referenced objects", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cas-cli-"));
+  ensureTestHarnessIdentity(rootDir);
+  try {
+    const harnessRoot = path.join(rootDir, "harness");
+    const sessionsRoot = path.join(harnessRoot, "sessions");
+    mkdirSync(sessionsRoot, { recursive: true });
+    initHarnessGit(harnessRoot);
+    const referenced = writeContentAddressedBlob(rootDir, "referenced CLI body", "text/plain");
+    const orphan = writeContentAddressedBlob(rootDir, "orphan CLI body", "text/plain");
+    writeFileSync(path.join(sessionsRoot, "kept.md"), `${JSON.stringify({
+      schema: "session-entity/v1",
+      sessionId: "kept",
+      lifecycle: "sealed",
+      archiveStatus: "complete",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: "2026-07-26T00:00:00.000Z",
+      exportedAt: "2026-07-26T00:01:00.000Z",
+      bodyRef: { store: "authored-cas/v1", ...referenced },
+      snapshot: {
+        capturedAt: "2026-07-26T00:01:00.000Z",
+        completeness: "complete",
+        captureRange: { messageCount: 1 },
+        privacyScan: { scannerVersion: "publish-redaction/v1", passed: true, findings: [] }
+      }
+    })}\n`, "utf8");
+
+    const preview = await runRegisteredCommandWithCliComposition({
+      rootDir,
+      json: true,
+      action: { kind: "cas-gc", mode: "dry-run" }
+    });
+    assert.equal(preview.ok, true);
+    assert.equal(preview.command, "cas-gc");
+    const previewReport = preview.report as { readonly mode: string; readonly orphans: ReadonlyArray<{ readonly ref: string }> };
+    assert.equal(previewReport.mode, "dry-run");
+    assert.deepEqual(previewReport.orphans.map((entry) => entry.ref), [orphan.ref]);
+    assert.equal(existsSync(path.join(rootDir, orphan.ref)), true);
+
+    const applied = await runRegisteredCommandWithCliComposition({
+      rootDir,
+      json: true,
+      action: { kind: "cas-gc", mode: "apply" }
+    });
+    const appliedReport = applied.report as {
+      readonly mode: string;
+      readonly reclaimed: ReadonlyArray<{ readonly ref: string }>;
+      readonly after: { readonly orphanCount: number };
+    };
+    assert.equal(appliedReport.mode, "apply");
+    assert.deepEqual(appliedReport.reclaimed.map((entry) => entry.ref), [orphan.ref]);
+    assert.equal(appliedReport.after.orphanCount, 0);
+    assert.equal(existsSync(path.join(rootDir, orphan.ref)), false);
+    assert.equal(existsSync(path.join(rootDir, referenced.ref)), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("CLI session sync dry-runs and idempotently converts legacy exports to Session Entity manifests", () => {

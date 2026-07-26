@@ -157,12 +157,15 @@ export {
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
+  collectCasGarbage,
   removeContentAddressedBlob,
   readContentAddressedTextBlob,
   writeContentAddressedBlob,
   writeContentAddressedBlobWithDisposition
 } from "./composition/index.ts";
 export type {
+  CasGarbageCollectionEntry,
+  CasGarbageCollectionReport,
   ContentAddressedBlobRef,
   ContentAddressedBlobWriteResult
 } from "./composition/index.ts";

@@ -224,6 +224,8 @@ export {
   taskHolderPrincipalFromActor
 } from "@harness-anything/kernel";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
+export { collectCasGarbage } from "@harness-anything/kernel";
+export type { CasGarbageCollectionEntry, CasGarbageCollectionReport } from "@harness-anything/kernel";
 export { readSessionEntity } from "./session-entity-reader.ts";
 export type { SessionEntityReadResult } from "./session-entity-reader.ts";
 export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";

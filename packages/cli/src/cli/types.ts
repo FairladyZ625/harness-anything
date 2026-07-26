@@ -273,6 +273,7 @@ export interface ParsedCommand {
     | { readonly kind: "session-export"; readonly sessionId?: string; readonly runtime?: SessionExportRuntime; readonly source?: SessionExportSource; readonly detectedAt?: string; readonly user?: string; readonly transcriptFile?: string }
     | { readonly kind: "session-backfill"; readonly runtime?: SessionExportRuntime; readonly limit?: number }
     | { readonly kind: "session-sync"; readonly mode: "dry-run" | "apply" }
+    | { readonly kind: "cas-gc"; readonly mode: "dry-run" | "apply" }
     | { readonly kind: "doc-status" }
     | { readonly kind: "doc-sync"; readonly mode: "dry-run" | "submit"; readonly paths: ReadonlyArray<string> }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }

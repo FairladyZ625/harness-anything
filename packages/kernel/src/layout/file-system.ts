@@ -1,6 +1,7 @@
 export interface LayoutDirectoryEntry {
   readonly name: string;
   readonly isDirectory: () => boolean;
+  readonly isFile: () => boolean;
 }
 
 export interface LayoutFileSystem {

@@ -11,6 +11,11 @@ export type {
   ContentAddressedBlobRef,
   ContentAddressedBlobWriteResult
 } from "../persistence/blob/content-addressed-blob-store.ts";
+export { collectCasGarbage } from "../persistence/blob/cas-garbage-collector.ts";
+export type {
+  CasGarbageCollectionEntry,
+  CasGarbageCollectionReport
+} from "../persistence/blob/cas-garbage-collector.ts";
 export { makeMarkdownArtifactStore } from "../persistence/markdown/markdown-artifact-store.ts";
 export { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../write-coordination/journal/coordinator.ts";
 export { makeLocalLockRegistry } from "../persistence/local/local-lock-registry.ts";
