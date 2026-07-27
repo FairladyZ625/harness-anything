@@ -479,21 +479,6 @@
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
       },
       {
-        "value": "cli:lesson_candidate_not_found",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
-        "value": "cli:lesson_candidate_not_promotable",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
-        "value": "cli:lesson_candidates_missing",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
         "value": "cli:malformed_snapshot",
         "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
