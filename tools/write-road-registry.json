@@ -2427,26 +2427,10 @@
         "distill-candidate"
       ],
       "evidence": [
-        "packages/cli/src/commands/core/distill.ts:37",
-        "packages/cli/src/commands/lesson.ts:16"
+        "packages/cli/src/commands/core/distill.ts:37"
       ],
       "freshness": "derived-json",
-      "directWrites": [
-        {
-          "key": "packages/cli/src/commands/lesson.ts#mkdirSync@1",
-          "owner": "distill.lesson.artifacts",
-          "classification": "design-exemption",
-          "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-          "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
-        },
-        {
-          "key": "packages/cli/src/commands/lesson.ts#writeFileSync@1",
-          "owner": "distill.lesson.artifacts",
-          "classification": "design-exemption",
-          "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-          "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
-        }
-      ]
+      "directWrites": []
     },
     {
       "id": "legacy.migration.artifacts",
@@ -5668,7 +5652,9 @@
     },
     {
       "id": "daemon.build-provenance.generate",
-      "sourceInventoryRows": [26],
+      "sourceInventoryRows": [
+        26
+      ],
       "road": "D",
       "bearing": "daemon-build-provenance",
       "leaseRequired": false,
@@ -5678,9 +5664,15 @@
         "pathClass": "generated-local",
         "zoneClass": "non-sot-artifact"
       },
-      "entry": ["cli-build"],
-      "writeKinds": ["machine_artifact_write"],
-      "evidence": ["packages/cli/src/build/write-build-provenance.ts:1"],
+      "entry": [
+        "cli-build"
+      ],
+      "writeKinds": [
+        "machine_artifact_write"
+      ],
+      "evidence": [
+        "packages/cli/src/build/write-build-provenance.ts:1"
+      ],
       "freshness": "regenerated-after-typescript-build-from-current-source-and-artifact-bytes",
       "directWrites": [
         {
@@ -5701,7 +5693,9 @@
     },
     {
       "id": "daemon.deployment-identity.observe",
-      "sourceInventoryRows": [26],
+      "sourceInventoryRows": [
+        26
+      ],
       "road": "D",
       "bearing": "daemon-deployment-observation",
       "leaseRequired": false,
@@ -5711,9 +5705,13 @@
         "pathClass": "runtime-local-durable",
         "zoneClass": "non-sot-service-state"
       },
-      "entry": ["daemon-status"],
+      "entry": [
+        "daemon-status"
+      ],
       "writeKinds": [],
-      "evidence": ["packages/daemon/src/protocol/daemon-deployment-identity.ts:1"],
+      "evidence": [
+        "packages/daemon/src/protocol/daemon-deployment-identity.ts:1"
+      ],
       "freshness": "re-probed-for-each-capability-aware-status-request",
       "directWrites": [
         {
