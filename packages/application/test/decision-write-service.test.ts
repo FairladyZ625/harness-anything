@@ -508,6 +508,25 @@ test("decision document reader accepts block-list frontmatter and rejects unknow
   }
 });
 
+test("decision document reader preserves decisionClass so standing-policy transitions survive the daemon field-change validator", async () => {
+  // Regression: the reader previously used a hand-copied frontmatter parser that
+  // lacked decisionClass. The CLI-built `next` document then dropped the field,
+  // and the daemon (parsing the same file with the kernel parser) rejected every
+  // non-accept transition of a standing-policy decision as
+  // DECISION_STATE_FIELD_INVALID:decisionClass — making standing policies
+  // impossible to supersede or retire.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-reader-class-"));
+  try {
+    writeDecisionMarkdown(rootDir, "dec_CLASS", "codex", "standing-policy");
+
+    const read = await runEffect(readDecisionDocument(rootDir, "dec_CLASS"));
+
+    assert.equal(read.decision.decisionClass, "standing-policy");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
   return {
     enqueue: (op) => Effect.sync(() => {
@@ -519,7 +538,7 @@ function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
   };
 }
 
-function writeDecisionMarkdown(rootDir: string, decisionId: string, runtime: string): void {
+function writeDecisionMarkdown(rootDir: string, decisionId: string, runtime: string, decisionClass?: string): void {
   const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
   mkdirSync(decisionRoot, { recursive: true });
   writeFileSync(path.join(decisionRoot, "decision.md"), [
@@ -533,6 +552,7 @@ function writeDecisionMarkdown(rootDir: string, decisionId: string, runtime: str
     "urgency: medium",
     "vertical: software/coding",
     "preset: architecture-decision",
+    ...(decisionClass ? [`decisionClass: ${decisionClass}`] : []),
     "applies_to:",
     "  modules: [\"kernel\"]",
     "  productLines: []",

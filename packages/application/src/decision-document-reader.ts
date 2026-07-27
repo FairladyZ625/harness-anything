@@ -3,11 +3,10 @@ import path from "node:path";
 import { Effect, Schema } from "effect";
 import {
   DecisionPackageSchema,
-  type DecisionPackage,
-  type DecisionState
+  type DecisionPackage
 } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
-import { readFrontmatter, readScalar, resolveHarnessLayout } from "@harness-anything/kernel";
+import { parseDecisionDocument, readFrontmatter, resolveHarnessLayout } from "@harness-anything/kernel";
 import { isNodeErrorCode } from "./node-errors.ts";
 
 export interface DecisionDocumentReadResult {
@@ -25,12 +24,16 @@ export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: 
     const layout = resolveHarnessLayout(rootInput);
     const documentPath = layout.decisionDocumentPath(decisionId);
     const documentBody = await fs.promises.readFile(documentPath, "utf8");
-    const frontmatter = readFrontmatter(documentBody);
-    if (!frontmatter) throw new Error(`decision document missing frontmatter: ${decisionId}`);
-    const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parseDecisionFrontmatter(frontmatter));
+    if (!readFrontmatter(documentBody)) throw new Error(`decision document missing frontmatter: ${decisionId}`);
+    // Single parser policy: the kernel parser is the only authority for decision
+    // frontmatter. A hand-copied field list here previously drifted (it lacked
+    // decisionClass), which made standing-policy decisions impossible to
+    // supersede through the daemon field-change validator.
+    const parsed = parseDecisionDocument(documentBody);
+    const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parsed.decision);
     return {
       decision,
-      body: documentBody.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/u, ""),
+      body: parsed.body ?? "",
       path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/")
     };
   });
@@ -64,140 +67,4 @@ function compareDecisionIds(left: string, right: string): number {
 function legacyDecisionNumber(decisionId: string): number | null {
   const match = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId);
   return match ? Number(match[1]) : null;
-}
-
-function parseDecisionFrontmatter(frontmatter: string): DecisionPackage {
-  const decidedAt = unquote(readScalar(frontmatter, "decidedAt"));
-  const watermark = readScalar(frontmatter, "_coordinatorWatermark");
-  const contentPins = parseObjectList(frontmatter, "contentPins") as DecisionPackage["contentPins"];
-  return {
-    schema: "decision-package/v1",
-    decision_id: readScalar(frontmatter, "decision_id", { required: true }),
-    ...(watermark ? { _coordinatorWatermark: watermark } : {}),
-    title: unquote(readScalar(frontmatter, "title", { required: true })),
-    state: readScalar(frontmatter, "state", { required: true }) as DecisionState,
-    riskTier: readScalar(frontmatter, "riskTier", { required: true }) as DecisionPackage["riskTier"],
-    urgency: readScalar(frontmatter, "urgency", { required: true }) as DecisionPackage["urgency"],
-    vertical: unquote(readScalar(frontmatter, "vertical", { required: true })),
-    preset: unquote(readScalar(frontmatter, "preset", { required: true })),
-    applies_to: {
-      modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
-      productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
-    },
-    proposedAt: unquote(readScalar(frontmatter, "proposedAt", { required: true })),
-    ...(decidedAt ? { decidedAt } : {}),
-    ...(hasTopLevelKey(frontmatter, "contentPins") ? { contentPins } : {}),
-    provenance: parseObjectList(frontmatter, "provenance") as DecisionPackage["provenance"],
-    question: unquote(readScalar(frontmatter, "question", { required: true })),
-    chosen: parseObjectList(frontmatter, "chosen") as DecisionPackage["chosen"],
-    rejected: parseObjectList(frontmatter, "rejected") as DecisionPackage["rejected"],
-    claims: parseObjectList(frontmatter, "claims") as DecisionPackage["claims"],
-    relations: parseObjectList(frontmatter, "relations") as DecisionPackage["relations"]
-  };
-}
-
-function hasTopLevelKey(frontmatter: string, key: string): boolean {
-  return new RegExp(`^${key}:\\s*$`, "mu").test(frontmatter);
-}
-
-function readBlockScalar(frontmatter: string, blockName: string, key: string): string {
-  return readIndentedBlock(frontmatter, blockName)
-    .find((line) => line.trimStart().startsWith(`${key}:`))
-    ?.replace(new RegExp(`^\\s*${key}:\\s*`, "u"), "")
-    .trim() ?? "[]";
-}
-
-function parseStringArray(value: string): string[] {
-  const parsed = JSON.parse(value) as unknown;
-  return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [];
-}
-
-function parseObjectList(frontmatter: string, key: string): ReadonlyArray<Record<string, unknown>> {
-  const items: Record<string, unknown>[] = [];
-  let current: Record<string, unknown> | null = null;
-  for (const rawLine of readIndentedBlock(frontmatter, key)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (line.startsWith("- ")) {
-      if (current) items.push(current);
-      const body = line.slice(2).trim();
-      current = body.startsWith("{") ? parseFlowObject(body) : parseBlockObjectLine(body);
-      continue;
-    }
-    if (!current) continue;
-    for (const [entryKey, entryValue] of Object.entries(parseBlockObjectLine(line))) {
-      current[entryKey] = entryValue;
-    }
-  }
-  if (current) items.push(current);
-  return items;
-}
-
-function readIndentedBlock(frontmatter: string, key: string): ReadonlyArray<string> {
-  const lines = frontmatter.split("\n");
-  const start = lines.findIndex((line) => line === `${key}:`);
-  if (start === -1) return [];
-  const block: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*:/u.test(line)) break;
-    block.push(line);
-  }
-  return block;
-}
-
-function parseFlowObject(value: string): Record<string, unknown> {
-  const body = value.trim().replace(/^\{\s*/u, "").replace(/\s*\}$/u, "");
-  const result: Record<string, unknown> = {};
-  for (const part of splitTopLevel(body)) {
-    const separator = part.indexOf(":");
-    if (separator === -1) continue;
-    const key = part.slice(0, separator).trim();
-    result[key] = parseFlowValue(part.slice(separator + 1).trim());
-  }
-  return result;
-}
-
-function parseBlockObjectLine(value: string): Record<string, unknown> {
-  const separator = value.indexOf(":");
-  if (separator === -1) return {};
-  const key = value.slice(0, separator).trim();
-  return { [key]: parseFlowValue(value.slice(separator + 1).trim()) };
-}
-
-function parseFlowValue(value: string): unknown {
-  if (value.startsWith("{")) return parseFlowObject(value);
-  if (value.startsWith("[")) return parseStringArray(value);
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return unquote(value);
-}
-
-function splitTopLevel(value: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let inString = false;
-  let start = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    const previous = value[index - 1];
-    if (char === "\"" && previous !== "\\") inString = !inString;
-    if (!inString && (char === "{" || char === "[")) depth += 1;
-    if (!inString && (char === "}" || char === "]")) depth -= 1;
-    if (!inString && depth === 0 && char === ",") {
-      parts.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  const tail = value.slice(start).trim();
-  if (tail) parts.push(tail);
-  return parts;
-}
-
-function unquote(value: string): string {
-  if (!value) return "";
-  try {
-    return JSON.parse(value) as string;
-  } catch {
-    return value;
-  }
 }
