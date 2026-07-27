@@ -103,19 +103,10 @@ function artifactDefinition(id) {
   if (id === "lesson-promotions") return { path: path.join(generated, "lessons"), mode: "files" };
   if (id === "graph-panorama") return { path: path.join(generated, "graph-panorama"), mode: "files" };
   if (id === "write-journal") return { path: path.join(context.paths.localRoot, "write-journal"), mode: "files" };
-  if (id === "docmap") return { path: path.join(context.paths.authoredRoot, "docmap.json"), mode: "file" };
   return { path: path.join(generated, id), mode: "files" };
 }
 
 function artifactStats(targetPath, mode) {
-  if (mode === "file") {
-    const exists = existsSync(targetPath) && statSync(targetPath).isFile();
-    return {
-      count: exists ? 1 : 0,
-      signals: { files: exists ? 1 : 0 },
-      evidence: exists ? [relative(targetPath)] : []
-    };
-  }
   const files = walkFiles(targetPath);
   if (mode === "jsonl-lines") {
     const jsonl = files.filter((filePath) => filePath.endsWith(".jsonl"));

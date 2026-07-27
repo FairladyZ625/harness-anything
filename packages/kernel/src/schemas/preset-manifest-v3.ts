@@ -98,9 +98,6 @@ const WriteJournalRequirementSchema = Schema.Struct({
   capability: Schema.Literal("write-journal"), version: Schema.Literal("1"),
   select: Schema.Struct({ view: Schema.Literal("presence-inventory") })
 });
-const DocmapRequirementSchema = Schema.Struct({
-  capability: Schema.Literal("docmap"), version: Schema.Literal("1"), select: Schema.Struct({ view: Schema.Literal("presence") })
-});
 const ExternalSourcePackRequirementSchema = Schema.Struct({
   capability: Schema.Literal("external-source-pack"), version: Schema.Literal("1"),
   select: Schema.Struct({ packFrom: PresetInputNameSchema, view: Schema.Literal("files-with-provenance") })
@@ -116,7 +113,7 @@ const RepositorySourceRequirementSchema = Schema.Struct({
 export const PresetCapabilityRequirementSchema = Schema.Union(
   TasksRequirementSchema, DecisionsRequirementSchema, AdrsRequirementSchema, OperatingDocsRequirementSchema,
   TaskArtifactsRequirementSchema, RelationGraphRequirementSchema, RuntimeEventsRequirementSchema,
-  GeneratedArtifactsRequirementSchema, WriteJournalRequirementSchema, DocmapRequirementSchema,
+  GeneratedArtifactsRequirementSchema, WriteJournalRequirementSchema,
   ExternalSourcePackRequirementSchema, RepositorySourceRequirementSchema
 );
 
@@ -165,7 +162,6 @@ export const presetCapabilityCatalog = [
   { id: "runtime-events", version: "1", directions: ["requires"], dataShape: "runtime-command-usage/v1", authorityEnvelope: "read-only-aggregated-events" },
   { id: "generated-artifacts", version: "1", directions: ["requires"], dataShape: "generated-artifact-inventory/v1", authorityEnvelope: "read-only-presence-inventory" },
   { id: "write-journal", version: "1", directions: ["requires"], dataShape: "write-journal-inventory/v1", authorityEnvelope: "read-only-presence-inventory" },
-  { id: "docmap", version: "1", directions: ["requires"], dataShape: "docmap-presence/v1", authorityEnvelope: "read-only-presence" },
   { id: "task-documents", version: "1", directions: ["produces"], dataShape: "logical-task-documents/v1", authorityEnvelope: "staged-task-document-writer" },
   { id: "external-source-pack", version: "1", directions: ["requires"], dataShape: "provenance-source-pack/v1", authorityEnvelope: "read-only-approved-source-pack" },
   { id: "repository-source", version: "1", directions: ["requires"], dataShape: "repository-source-snapshot/v1", authorityEnvelope: "read-only-selected-repository-text" }

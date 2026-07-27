@@ -20,8 +20,6 @@ import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
-/** Dormant implementation compatibility type; lesson commands are not registered. */
-export type LessonCommandMode = "dry-run" | "apply";
 export type AnchorBackfillMode = "dry-run" | "apply";
 export type ProvenanceBackfillMode = "dry-run" | "apply";
 export type TaskListLessonFilter = "present" | "missing";
@@ -119,7 +117,7 @@ export interface CliResult {
   readonly path?: string;
   readonly packagePath?: string;
   readonly projectionPath?: string;
-  readonly mode?: GovernanceRebuildMode | LessonCommandMode | "soft" | "hard";
+  readonly mode?: GovernanceRebuildMode | "soft" | "hard";
   readonly migrationMode?: "plan" | "apply";
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
