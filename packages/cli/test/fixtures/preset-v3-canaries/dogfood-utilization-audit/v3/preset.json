@@ -14,16 +14,15 @@
       "command": "scripts/preset-action.mjs",
       "intent": { "verb": "audit", "subject": "dogfood-utilization" },
       "inputs": {
-        "trackedPresets": { "type": "preset-ref-list", "required": false, "default": ["standard-task", "module", "legacy-migration", "doc-canon-sync", "milestone-closeout", "lesson-sedimentation", "milestone-dossier", "version-upgrade", "publish-standard", "release-closeout", "long-running-task", "dogfood-utilization-audit"] },
-        "trackedArtifacts": { "type": "enum-list", "required": false, "values": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal", "docmap"], "default": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal", "docmap"] }
+        "trackedPresets": { "type": "preset-ref-list", "required": false, "default": ["standard-task", "module", "legacy-migration", "doc-canon-sync", "milestone-closeout", "milestone-dossier", "long-running-task", "dogfood-utilization-audit"] },
+        "trackedArtifacts": { "type": "enum-list", "required": false, "values": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal"], "default": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal"] }
       },
       "requires": [
         { "capability": "tasks", "version": "1", "select": { "scope": "all", "view": "identity-and-preset" } },
         { "capability": "task-artifacts", "version": "1", "select": { "scope": "all-tasks", "artifactIds": ["preset-result", "evidence"] } },
         { "capability": "runtime-events", "version": "1", "select": { "view": "command-usage" } },
         { "capability": "generated-artifacts", "version": "1", "select": { "view": "presence-inventory", "familiesFrom": "trackedArtifacts" } },
-        { "capability": "write-journal", "version": "1", "select": { "view": "presence-inventory" } },
-        { "capability": "docmap", "version": "1", "select": { "view": "presence" } }
+        { "capability": "write-journal", "version": "1", "select": { "view": "presence-inventory" } }
       ],
       "produces": [{
         "capability": "task-artifacts",

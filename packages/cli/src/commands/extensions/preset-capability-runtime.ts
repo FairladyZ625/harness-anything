@@ -102,7 +102,6 @@ export const registeredSemanticPresetCapabilityProviders: ReadonlyArray<PresetCa
     "runtime-events",
     "generated-artifacts",
     "write-journal",
-    "docmap",
     "repository-source"
   ].map((capability) => ({ capability, version: "1", direction: "requires" as const })),
   { capability: "task-artifacts", version: "1", direction: "requires" as const },

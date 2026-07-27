@@ -9,7 +9,6 @@ const artifactHandles = readCapability("task-artifacts").artifacts;
 const runtimeEvents = readCapability("runtime-events");
 const generatedInventory = readCapability("generated-artifacts");
 const writeJournal = readCapability("write-journal");
-const docmap = readCapability("docmap");
 const presetEvidence = artifactHandles.flatMap(readPresetEvidence);
 const artifactItems = trackedArtifacts.map(evaluateArtifact);
 const presetItems = trackedPresets.map(evaluatePreset);
@@ -84,9 +83,7 @@ function evaluatePreset(presetId) {
 function evaluateArtifact(id) {
   const inventory = id === "write-journal"
     ? writeJournal
-    : id === "docmap"
-      ? docmap
-      : generatedInventory.entries.find((entry) => entry.id === id) ?? { files: 0, evidence: [] };
+    : generatedInventory.entries.find((entry) => entry.id === id) ?? { files: 0, evidence: [] };
   const signals = id === "runtime-events"
     ? { files: inventory.files, rows: inventory.rows ?? 0 }
     : { files: inventory.files };

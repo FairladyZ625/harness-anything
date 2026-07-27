@@ -1552,44 +1552,6 @@
                             "capability": {
                               "type": "string",
                               "enum": [
-                                "docmap"
-                              ]
-                            },
-                            "version": {
-                              "type": "string",
-                              "enum": [
-                                "1"
-                              ]
-                            },
-                            "select": {
-                              "type": "object",
-                              "required": [
-                                "view"
-                              ],
-                              "properties": {
-                                "view": {
-                                  "type": "string",
-                                  "enum": [
-                                    "presence"
-                                  ]
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "capability",
-                            "version",
-                            "select"
-                          ],
-                          "properties": {
-                            "capability": {
-                              "type": "string",
-                              "enum": [
                                 "external-source-pack"
                               ]
                             },
@@ -2790,44 +2752,6 @@
                                   "type": "string",
                                   "enum": [
                                     "presence-inventory"
-                                  ]
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "capability",
-                            "version",
-                            "select"
-                          ],
-                          "properties": {
-                            "capability": {
-                              "type": "string",
-                              "enum": [
-                                "docmap"
-                              ]
-                            },
-                            "version": {
-                              "type": "string",
-                              "enum": [
-                                "1"
-                              ]
-                            },
-                            "select": {
-                              "type": "object",
-                              "required": [
-                                "view"
-                              ],
-                              "properties": {
-                                "view": {
-                                  "type": "string",
-                                  "enum": [
-                                    "presence"
                                   ]
                                 }
                               },

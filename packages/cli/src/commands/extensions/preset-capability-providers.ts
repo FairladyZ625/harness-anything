@@ -75,9 +75,6 @@ export function materializeRequirement(options: {
       case "write-journal":
         value = presenceInventory(resolveHarnessLayout(options.realRootInput).writeJournalRoot, options.realRootInput, "write-journal-inventory/v1");
         break;
-      case "docmap":
-        value = filePresence(path.join(resolveHarnessLayout(options.executionRootInput).authoredRoot, "docmap.json"), options.executionRootInput);
-        break;
       case "repository-source": {
         const projection = repositorySourceProjection(
           options.realRootInput,
@@ -383,17 +380,6 @@ function presenceInventory(root: string, rootInput: HarnessLayoutInput, schema: 
   };
 }
 
-function filePresence(filename: string, rootInput: HarnessLayoutInput): unknown {
-  const layout = resolveHarnessLayout(rootInput);
-  const present = existsSync(filename) && statSync(filename).isFile();
-  return {
-    schema: "docmap-presence/v1",
-    present,
-    files: present ? 1 : 0,
-    evidence: present ? [relativePath(layout.rootDir, filename)] : []
-  };
-}
-
 export function sourceScopesForRequirement(
   layout: ReturnType<typeof resolveHarnessLayout>,
   request: PresetCapabilityRequirement,
@@ -448,10 +434,6 @@ export function sourceScopesForRequirement(
     }
     case "write-journal":
       return { ok: true, value: [{ root: layout.writeJournalRoot, recursive: true }] };
-    case "docmap": {
-      const filename = path.join(layout.authoredRoot, "docmap.json");
-      return { ok: true, value: existsSync(filename) ? [{ root: filename, recursive: false }] : [] };
-    }
     case "repository-source":
       return { ok: true, value: request.select.collections.flatMap<ScopeCandidate>((collection) => {
         if (collection === "project-config") return [

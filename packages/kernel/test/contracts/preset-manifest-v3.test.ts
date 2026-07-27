@@ -15,7 +15,7 @@ test("preset manifest v3 decodes the semantic capability fixture", () => {
   const decoded = Schema.decodeUnknownSync(PresetManifestSchema)(validFixture);
   assert.equal(decoded.schema, "preset-manifest/v3");
   assert.equal(decoded.outputShape, "repository-diff");
-  assert.equal(decoded.entrypoints?.audit?.requires.length, 12);
+  assert.equal(decoded.entrypoints?.audit?.requires.length, 11);
   assert.equal(decoded.entrypoints?.audit?.produces.length, 2);
 });
 
@@ -71,7 +71,6 @@ test("capability catalog freezes each v1 data shape and authority envelope", () 
     "runtime-events",
     "generated-artifacts",
     "write-journal",
-    "docmap",
     "task-documents",
     "external-source-pack",
     "repository-source"

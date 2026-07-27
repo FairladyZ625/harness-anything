@@ -25,8 +25,7 @@ interface CanaryRun {
 const fixtureRoot = path.resolve("packages/cli/test/fixtures/preset-v3-canaries");
 const trackedPresets = [
   "standard-task", "module", "legacy-migration", "doc-canon-sync", "milestone-closeout",
-  "lesson-sedimentation", "milestone-dossier", "version-upgrade", "publish-standard",
-  "release-closeout", "long-running-task", "dogfood-utilization-audit"
+  "milestone-dossier", "long-running-task", "dogfood-utilization-audit"
 ];
 
 for (const canary of ["doc-canon-sync", "usage-acceptance", "milestone-dossier", "dogfood-utilization-audit"] as const) {
@@ -232,7 +231,6 @@ function seedRoot(rootDir: string): void {
   ].join("\n"));
   writeText(rootDir, "harness/governance/guide.md", "# Governance\n\nDecision, fact, and relation circulation.\n");
   writeText(rootDir, "harness/standards/guide.md", "# Standards\n\nCLI report and schema standards cover dec_CANARY and ADR-0001.\n");
-  writeText(rootDir, "harness/docmap.json", "{\"schema\":\"docmap/v1\"}\n");
   writeText(rootDir, ".harness/generated/runtime-events/canary.jsonl", `${JSON.stringify({
     schema: "runtime-event/v1",
     result: { summary: "CLI command succeeded: preset-action" },
@@ -297,7 +295,7 @@ function runLegacyBaselineDirect(
     taskIndex,
     inputs: canary === "milestone-dossier"
       ? { coordinationTaskId: taskId, decisionId: "dec_CANARY" }
-      : { trackedPresets: trackedPresets.join(","), trackedArtifacts: "runtime-events,distill-candidates,lesson-promotions,graph-panorama,write-journal,docmap" }
+      : { trackedPresets: trackedPresets.join(","), trackedArtifacts: "runtime-events,distill-candidates,lesson-promotions,graph-panorama,write-journal" }
   };
   mkdirSync(path.dirname(contextPath), { recursive: true });
   writeFileSync(contextPath, `${JSON.stringify(context, null, 2)}\n`, "utf8");

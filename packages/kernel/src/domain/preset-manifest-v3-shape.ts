@@ -99,7 +99,6 @@ const selectorKeys: Readonly<Record<string, ReadonlyArray<string>>> = {
   "runtime-events": ["view"],
   "generated-artifacts": ["view", "familiesFrom"],
   "write-journal": ["view"],
-  docmap: ["view"],
   "external-source-pack": ["packFrom", "view"],
   "repository-source": ["collections", "view"]
 };
