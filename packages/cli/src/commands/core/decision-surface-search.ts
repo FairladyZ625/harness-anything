@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   parseDecisionDocument,
@@ -26,49 +26,64 @@ export interface DecisionSurfaceAdmissionReport {
   readonly schema: "decision-surface-admission/v1";
   readonly threshold: number;
   readonly scannedDecisionCount: number;
+  readonly skippedDecisionCount: number;
   readonly matches: ReadonlyArray<DecisionSurfaceMatch>;
   readonly candidates: ReadonlyArray<DecisionSurfaceCandidate>;
-  readonly unavailable?: string;
+  readonly unavailable?: DecisionSurfaceUnavailableCode;
+  readonly diagnostic?: string;
 }
+
+export type DecisionSurfaceUnavailableCode =
+  | "invalid_surface_payload"
+  | "decisions_root_unavailable"
+  | "decision_search_unavailable";
 
 export function searchDecisionSurfaces(
   rootInput: HarnessLayoutInput,
   surfaces: ReadonlyArray<string>,
-  threshold = decisionSurfaceCandidateThreshold
+  threshold = decisionSurfaceCandidateThreshold,
+  options: { readonly excludeDecisionId?: string } = {}
 ): DecisionSurfaceAdmissionReport {
   const layout = resolveHarnessLayout(rootInput);
-  const documents = readdirSync(layout.decisionsRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("decision-"))
-    .map((entry) => {
-      const documentPath = path.join(layout.decisionsRoot, entry.name, "decision.md");
+  const entries = readdirSync(layout.decisionsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("decision-"));
+  const skippedDocuments = new Set<string>();
+  const excludedPath = options.excludeDecisionId
+    ? path.resolve(layout.decisionDocumentPath(options.excludeDecisionId))
+    : undefined;
+  const documents = entries.flatMap((entry) => {
+    const documentPath = path.join(layout.decisionsRoot, entry.name, "decision.md");
+    const relativePath = path.relative(layout.rootDir, documentPath).split(path.sep).join("/");
+    if (excludedPath === path.resolve(documentPath)) return [];
+    try {
+      if (!lstatSync(documentPath).isFile()) {
+        skippedDocuments.add(relativePath);
+        return [];
+      }
       const source = readFileSync(documentPath, "utf8");
-      return {
-        documentPath,
-        relativePath: path.relative(layout.rootDir, documentPath).split(path.sep).join("/"),
-        source,
-        normalizedDocument: source.toLocaleLowerCase()
-      };
-    });
-  const candidateCache = new Map<string, DecisionSurfaceCandidate>();
-  const candidateFor = (document: typeof documents[number]): DecisionSurfaceCandidate => {
-    const cached = candidateCache.get(document.documentPath);
-    if (cached) return cached;
-    const decision = parseDecisionDocument(document.source).decision;
-    const candidate = {
-      decisionId: decision.decision_id,
-      title: decision.title,
-      state: decision.state,
-      path: document.relativePath
-    } satisfies DecisionSurfaceCandidate;
-    candidateCache.set(document.documentPath, candidate);
-    return candidate;
-  };
-  const matches = normalizeDecisionSurfaces(surfaces).map((surface): DecisionSurfaceMatch => {
+      const decision = parseDecisionDocument(source).decision;
+      return [{
+        relativePath,
+        normalizedDocument: source.toLowerCase(),
+        candidate: {
+          decisionId: decision.decision_id,
+          title: decision.title,
+          state: decision.state,
+          path: relativePath
+        } satisfies DecisionSurfaceCandidate
+      }];
+    } catch {
+      skippedDocuments.add(relativePath);
+      return [];
+    }
+  });
+  const matches = surfaces.map((surface): DecisionSurfaceMatch => {
     const matchingDocuments = documents.filter((document) =>
-      document.normalizedDocument.includes(surface.toLocaleLowerCase()));
+      document.normalizedDocument.includes(surface.toLowerCase()));
     const discriminative = matchingDocuments.length <= threshold;
     const candidates = discriminative
-      ? matchingDocuments.map(candidateFor).sort((left, right) => left.decisionId.localeCompare(right.decisionId))
+      ? matchingDocuments.map((document) => document.candidate)
+        .sort((left, right) => left.decisionId.localeCompare(right.decisionId))
       : [];
     return { surface, matchCount: matchingDocuments.length, discriminative, candidates };
   });
@@ -78,15 +93,9 @@ export function searchDecisionSurfaces(
   return {
     schema: "decision-surface-admission/v1",
     threshold,
-    scannedDecisionCount: documents.length,
+    scannedDecisionCount: entries.length,
+    skippedDecisionCount: skippedDocuments.size,
     matches,
     candidates
   };
-}
-
-export function normalizeDecisionSurfaces(surfaces: ReadonlyArray<string>): ReadonlyArray<string> {
-  return [...new Map(surfaces
-    .map((surface) => surface.trim())
-    .filter(Boolean)
-    .map((surface) => [surface.toLocaleLowerCase(), surface])).values()];
 }

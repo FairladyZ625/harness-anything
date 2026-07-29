@@ -101,7 +101,9 @@ function findDescriptorForArgs(args: ReadonlyArray<string>): CommandDescriptor |
 
 interface JsonPropertyShape {
   readonly type: JsonSchemaType | ReadonlyArray<JsonSchemaType>;
-  readonly items?: { readonly type: JsonSchemaType } | { readonly type: "object"; readonly properties: Record<string, unknown> };
+  readonly maxItems?: number;
+  readonly maxLength?: number;
+  readonly items?: { readonly type: JsonSchemaType; readonly maxLength?: number } | { readonly type: "object"; readonly properties: Record<string, unknown> };
 }
 
 function findJsonTypeIssue(payload: JsonObject, properties: Readonly<Record<string, JsonPropertyShape>>): string | undefined {
@@ -113,11 +115,25 @@ function findJsonTypeIssue(payload: JsonObject, properties: Readonly<Record<stri
     if (!allowed.includes(actual as JsonSchemaType)) {
       return `JSON command input field ${key} must be ${allowed.join(" or ")}; received ${actual}.`;
     }
+    if (actual === "string" && property.maxLength !== undefined && [...String(value)].length > property.maxLength) {
+      return `JSON command input field ${key} must be at most ${property.maxLength} characters.`;
+    }
+    if (actual === "array" && property.maxItems !== undefined && (value as ReadonlyArray<unknown>).length > property.maxItems) {
+      return `JSON command input field ${key} must contain at most ${property.maxItems} items.`;
+    }
     if (actual === "array" && property.items) {
       const itemType = property.items.type;
       const invalidIndex = (value as ReadonlyArray<unknown>).findIndex((item) => jsonType(item) !== itemType);
       if (invalidIndex >= 0) {
         return `JSON command input field ${key}[${invalidIndex}] must be ${itemType}; received ${jsonType((value as ReadonlyArray<unknown>)[invalidIndex])}.`;
+      }
+      if (itemType === "string" && "maxLength" in property.items && property.items.maxLength !== undefined) {
+        const itemMaxLength = property.items.maxLength;
+        const overlongIndex = (value as ReadonlyArray<unknown>)
+          .findIndex((item) => [...String(item)].length > itemMaxLength);
+        if (overlongIndex >= 0) {
+          return `JSON command input field ${key}[${overlongIndex}] must be at most ${itemMaxLength} characters.`;
+        }
       }
     }
   }

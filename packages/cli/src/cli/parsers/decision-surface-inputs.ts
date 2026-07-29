@@ -1,5 +1,6 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import type { CliResult } from "../types.ts";
+import { normalizeDecisionSurfaceValues } from "../decision-surface-values.ts";
 
 type SurfaceParseResult =
   | { readonly ok: true; readonly value?: ReadonlyArray<string> }
@@ -7,9 +8,11 @@ type SurfaceParseResult =
 
 export function parseDecisionSurfaceInputs(
   args: ReadonlyArray<string>,
-  input: ReadonlyArray<string> = []
+  input: unknown = []
 ): SurfaceParseResult {
-  const values = [...input];
+  const initial = normalizeDecisionSurfaceValues(input);
+  if (!initial.ok) return invalidSurfaceResult(initial.reason);
+  const values = [...initial.value];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg.startsWith("--surface=")) {
@@ -18,7 +21,7 @@ export function parseDecisionSurfaceInputs(
     }
     if (arg !== "--surface") continue;
     const value = args[index + 1];
-    if (!value || value.startsWith("--")) {
+    if (!value || value.startsWith("-")) {
       return {
         ok: false,
         error: cliError(
@@ -30,17 +33,16 @@ export function parseDecisionSurfaceInputs(
     values.push(value);
   }
 
-  const normalized = values.map((value) => value.trim()).filter(Boolean);
-  if (normalized.length !== values.length) {
-    return {
-      ok: false,
-      error: cliError(CliErrorCode.InvalidJsonInput, "Decision surface anchors must be non-empty.")
-    };
-  }
+  const normalized = normalizeDecisionSurfaceValues(values);
+  if (!normalized.ok) return invalidSurfaceResult(normalized.reason);
   return {
     ok: true,
-    ...(normalized.length > 0
-      ? { value: [...new Map(normalized.map((value) => [value.toLocaleLowerCase(), value])).values()] }
+    ...(normalized.value.length > 0
+      ? { value: normalized.value }
       : {})
   };
+}
+
+function invalidSurfaceResult(reason: string): SurfaceParseResult {
+  return { ok: false, error: cliError(CliErrorCode.InvalidJsonInput, reason) };
 }

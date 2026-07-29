@@ -64,6 +64,26 @@ test("preset is reported as non-discriminative without dumping candidate details
   });
 });
 
+test("decision propose evaluates candidates before writing and excludes its own id", () => {
+  withAdmissionFixture((rootDir) => {
+    for (let index = 0; index < 20; index += 1) {
+      writeDecision(rootDir, `dec_SELF_${String(index).padStart(2, "0")}`, `Self match ${index}`, "self-match-anchor");
+    }
+    const args = ["--id", "dec_SELF_NEW", "--surface", "self-match-anchor", "--body", "self-match-anchor"];
+    const dryRun = propose(rootDir, [...args, "--dry-run"]);
+    const written = propose(rootDir, args);
+
+    assert.equal(dryRun.report.decisionAdmission.matches[0].matchCount, 20);
+    assert.equal(written.report.decisionAdmission.matches[0].matchCount, 20);
+    assert.equal(written.report.decisionAdmission.matches[0].discriminative, true);
+    assert.equal(
+      written.report.decisionAdmission.candidates.some((candidate: Record<string, unknown>) =>
+        candidate.decisionId === "dec_SELF_NEW"),
+      false
+    );
+  });
+});
+
 test("task create injects the same candidates into read_set without editing task-contract", () => {
   withAdmissionFixture((rootDir) => {
     const preview = runJson(rootDir, [
@@ -76,6 +96,11 @@ test("task create injects the same candidates into read_set without editing task
       count: 1,
       items: ["long-running-task"]
     });
+    assert.equal(preview.report.preview.summary.decisionAdmissionReadSet, "planned");
+    assert.equal(
+      preview.report.preview.paths.some((entry: Record<string, unknown>) => entry.path === "read_set.md"),
+      true
+    );
 
     const result = productionAuthorityHostServices.buildTaskCreateWrites({
       rootInput: rootDir,

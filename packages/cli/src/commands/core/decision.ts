@@ -33,12 +33,13 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
   if (action.kind === "decision-verify") return runDecisionVerify(context.layoutInput, action);
   const service = context.decisionWriteService;
   switch (action.kind) {
-    case "decision-propose":
+    case "decision-propose": {
+      const admission = evaluateDecisionSurfaceAdmission(context.layoutInput, action.surfaces, {
+        excludeDecisionId: action.decisionId
+      });
       return runPropose(context.layoutInput, service, action).pipe(Effect.map((result) =>
-        attachDecisionSurfaceAdmission(
-          result,
-          evaluateDecisionSurfaceAdmission(context.layoutInput, action.surfaces)
-        )));
+        attachDecisionSurfaceAdmission(result, admission)));
+    }
     case "decision-repin":
       return runDecisionRepin(context.layoutInput, service, action);
     case "decision-transition":

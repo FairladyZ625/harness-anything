@@ -72,7 +72,8 @@ function previewPaths(action: Action, result: CliResult): DryRunPreview["paths"]
     result.path,
     result.packagePath,
     result.projectionPath,
-    ...(result.generated ?? [])
+    ...(result.generated ?? []),
+    ...(plansDecisionAdmissionReadSet(action) ? ["read_set.md"] : [])
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
   return [...new Set(values)].map((path) => ({ operation, path }));
 }
@@ -110,9 +111,18 @@ function previewSummary(action: Action): Record<string, unknown> {
       surfaceCount: action.surfaces?.length ?? 0
     };
   }
-  return Object.fromEntries(Object.entries(action)
+  const summary = Object.fromEntries(Object.entries(action)
     .filter(([key]) => !["kind", "dryRun", "mode"].includes(key))
     .map(([key, value]) => [key, summarizeValue(key, value)]));
+  return action.kind === "new-task" && plansDecisionAdmissionReadSet(action)
+    ? { ...summary, decisionAdmissionReadSet: "planned" }
+    : summary;
+}
+
+function plansDecisionAdmissionReadSet(action: Action): boolean {
+  if (action.kind !== "new-task") return false;
+  const surfaces: unknown = action.surfaces;
+  return Array.isArray(surfaces) ? surfaces.length > 0 : surfaces !== undefined;
 }
 
 function summarizeValue(key: string, value: unknown): unknown {
