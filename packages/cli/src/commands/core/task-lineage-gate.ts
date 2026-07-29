@@ -1,14 +1,8 @@
-import { readFileSync } from "node:fs";
-import { readFrontmatter, readRelationGraphProjection, readScalar, taskDocumentPath } from "@harness-anything/kernel";
+import { readRelationGraphProjection } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";
-
-interface TaskLineageMetadata {
-  readonly parent?: string;
-  readonly preset?: string;
-  readonly taskClass?: string;
-}
+import { readTaskLineageMetadata, type TaskLineageMetadata } from "../task-lineage-metadata.ts";
 
 export function milestoneDecisionLineageFailure(
   context: Parameters<CommandRunner>[0],
@@ -65,30 +59,10 @@ function decisionLineageNextStep(taskId: string, command: "task-complete" | "sta
   ].join(" ");
 }
 
-function readTaskLineageMetadata(
-  context: Parameters<CommandRunner>[0],
-  taskId: string
-): TaskLineageMetadata | null {
-  try {
-    const frontmatter = readFrontmatter(readFileSync(taskDocumentPath(context.layoutInput, taskId, "INDEX.md"), "utf8"));
-    if (!frontmatter) return null;
-    const parent = readScalar(frontmatter, "parent");
-    const preset = readScalar(frontmatter, "preset");
-    const taskClass = readScalar(frontmatter, "taskClass");
-    return {
-      ...(parent ? { parent } : {}),
-      ...(preset ? { preset } : {}),
-      ...(taskClass ? { taskClass } : {})
-    };
-  } catch {
-    return null;
-  }
-}
-
 function requiresDecisionLineage(metadata: TaskLineageMetadata): boolean {
-  return isMilestone(metadata) || metadata.preset === "long-running-task" || metadata.taskClass === "epic";
+  return isMilestone(metadata) || metadata.taskClass === "epic";
 }
 
 function isMilestone(metadata: TaskLineageMetadata): boolean {
-  return metadata.preset === "create-milestone" || metadata.taskClass === "milestone";
+  return metadata.taskClass === "milestone";
 }

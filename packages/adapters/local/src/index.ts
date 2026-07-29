@@ -415,6 +415,7 @@ function supersedeTask(
       title: input.title,
       status: "planned",
       bindingCreatedAt: createdAt,
+      taskClass: oldIndex.taskClass,
       vertical: oldIndex.vertical,
       preset: oldIndex.preset,
       provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],

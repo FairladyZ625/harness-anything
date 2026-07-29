@@ -23,6 +23,7 @@ import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { bundledTemplateCatalog } from "./extensions/bundled.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated, type ResolvedPreset } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
+import { taskClassSetByPreset } from "./task-lineage-metadata.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
 
@@ -147,6 +148,7 @@ export function runNewTaskWithPreset(
       capturedAt: createdAt,
       capturedBy: "task-create"
     });
+    const taskClass = taskClassSetByPreset(preset.manifest.id);
     const generated = [
       "INDEX.md",
       "task-contract.json",
@@ -171,6 +173,7 @@ export function runNewTaskWithPreset(
           vertical,
           preset: preset.manifest.id,
           profile: materialized.profile.id,
+          ...(taskClass ? { taskClass } : {}),
           module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
           longRunning: action.longRunning,
           templateCount: materialized.documents.length
@@ -189,6 +192,7 @@ export function runNewTaskWithPreset(
       workKind: action.workKind,
       riskTier: action.riskTier,
       urgency: action.urgency,
+      taskClass,
       vertical,
       preset: preset.manifest.id,
       profile: materialized.profile.id,
@@ -253,6 +257,7 @@ export function runNewTaskWithPreset(
         vertical,
         preset: preset.manifest.id,
         profile: materialized.profile.id,
+        ...(taskClass ? { taskClass } : {}),
         module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
         templateCount: materialized.documents.length
       }
@@ -354,6 +359,7 @@ export function buildAuthorityPresetTaskCreateWrites(
     capturedAt: createdAt,
     capturedBy: "task-create"
   });
+  const taskClass = taskClassSetByPreset(scaffold.preset.manifest.id);
   const index = makeIndex({
     taskId: action.taskId,
     title: action.title,
@@ -363,6 +369,7 @@ export function buildAuthorityPresetTaskCreateWrites(
     workKind: action.workKind,
     riskTier: action.riskTier,
     urgency: action.urgency,
+    taskClass,
     vertical,
     preset: scaffold.preset.manifest.id,
     profile: scaffold.materialized.profile.id,
