@@ -6,6 +6,8 @@ import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { readPriorityTier, readTaskWorkKind } from "./task-metadata-options.ts";
 import { booleanPayloadFallback, jsonPayloadFor, payloadFallback } from "./json-values.ts";
+import { jsonStringList } from "./json-values.ts";
+import { parseDecisionSurfaceInputs } from "./decision-surface-inputs.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -85,6 +87,8 @@ export function parseNewTaskArgs(
       error: cliError(CliErrorCode.LegacyRebuildPresetForbidden, "task create --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately.")
     };
   }
+  const surfaces = parseDecisionSurfaceInputs(normalizedArgs, jsonStringList(payload, "surfaces"));
+  if (!surfaces.ok) return { ok: false, error: surfaces.error };
   return {
     ok: true,
     value: {
@@ -110,6 +114,7 @@ export function parseNewTaskArgs(
         registerModule: registerModuleKey && moduleTitle && moduleScope
           ? { key: registerModuleKey, title: moduleTitle, prefix: modulePrefix, scope: moduleScope }
           : undefined,
+        ...(surfaces.value ? { surfaces: surfaces.value } : {}),
         longRunning: booleanPayloadFallback(normalizedArgs.includes("--long-running"), payload, "longRunning"),
         dryRun: booleanPayloadFallback(normalizedArgs.includes("--dry-run"), payload, "dryRun"),
         locale: locale as "zh-CN" | "en-US" | undefined

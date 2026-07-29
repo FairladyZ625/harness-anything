@@ -16,6 +16,7 @@ import { parseDecisionPinCommand } from "./decision-pin.ts";
 import { decisionTransitionOpForState, isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
 import { parseChoiceInputs, parseClaimInputs, parseRejectedInputs } from "./decision-propose-inputs.ts";
 import { parseDecisionRelationOp } from "./decision-relation.ts";
+import { parseDecisionSurfaceInputs } from "./decision-surface-inputs.ts";
 import { jsonBoolean, jsonPayloadFor, jsonString, jsonStringList, jsonValues, type JsonPayload } from "./json-values.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -124,6 +125,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   if (!claims.ok) return { ok: false, error: claims.error };
   const fulfillments = parseClaimFulfillments(args, jsonValues(payload, "fulfillments"));
   if (!fulfillments.ok) return fulfillments;
+  const surfaces = parseDecisionSurfaceInputs(args, jsonStringList(payload, "surfaces")); if (!surfaces.ok) return { ok: false, error: surfaces.error };
   const body = readDecisionBody(
     args,
     readOption(args, "--body") ?? jsonString(payload, "body"),
@@ -147,6 +149,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     modules: [...jsonStringList(payload, "modules"), ...splitRepeatedList(args, "--module")],
     productLines: [...jsonStringList(payload, "productLines"), ...splitRepeatedList(args, "--product-line")],
     evidenceRelations: evidenceRelations.value,
+    ...(surfaces.value ? { surfaces: surfaces.value } : {}),
     body: body.value,
     dryRun: args.includes("--dry-run") || jsonBoolean(payload, "dryRun")
   }));

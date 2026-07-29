@@ -106,7 +106,8 @@ function previewSummary(action: Action): Record<string, unknown> {
       rejectedCount: action.rejected.length,
       claimCount: action.claims.length || 1,
       fulfillmentCount: action.fulfillments.length,
-      evidenceRelationCount: action.evidenceRelations.length
+      evidenceRelationCount: action.evidenceRelations.length,
+      surfaceCount: action.surfaces?.length ?? 0
     };
   }
   return Object.fromEntries(Object.entries(action)

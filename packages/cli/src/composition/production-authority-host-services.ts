@@ -11,6 +11,7 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { decisionRelationRecord } from "../commands/core/decision-relation-record.ts";
 import { materializeProposedDecision } from "../commands/core/decision-propose.ts";
 import { materializedTaskPriorityWrites } from "../commands/core/decision-relate.ts";
+import { injectDecisionAdmissionReadSet } from "../commands/core/decision-surface-admission.ts";
 import { renderForceStatusAudit } from "../commands/core/task-lifecycle.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import {
@@ -68,7 +69,17 @@ export const productionAuthorityHostServices = {
           riskTier: cliAction.riskTier,
           urgency: cliAction.urgency
         }, createdAt, provenance);
-    return { ok: true as const, writes };
+    return {
+      ok: true as const,
+      writes: cliAction.taskId
+        ? injectDecisionAdmissionReadSet(writes, {
+          rootInput,
+          taskId: cliAction.taskId,
+          packageSlug: cliAction.slug,
+          surfaces: cliAction.surfaces
+        })
+        : writes
+    };
   },
   materializeProposedDecision,
   decisionRelationRecord,

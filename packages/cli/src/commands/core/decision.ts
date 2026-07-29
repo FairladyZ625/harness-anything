@@ -15,6 +15,10 @@ import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetir
 import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionReadFailureHint, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 import { verifyDecisionContentPins } from "./decision-content-pin-verifier.ts";
+import {
+  attachDecisionSurfaceAdmission,
+  evaluateDecisionSurfaceAdmission
+} from "./decision-surface-admission.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-verify" | "decision-repin" | "decision-propose" | "decision-transition" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace"
@@ -30,7 +34,11 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
   const service = context.decisionWriteService;
   switch (action.kind) {
     case "decision-propose":
-      return runPropose(context.layoutInput, service, action);
+      return runPropose(context.layoutInput, service, action).pipe(Effect.map((result) =>
+        attachDecisionSurfaceAdmission(
+          result,
+          evaluateDecisionSurfaceAdmission(context.layoutInput, action.surfaces)
+        )));
     case "decision-repin":
       return runDecisionRepin(context.layoutInput, service, action);
     case "decision-transition":
