@@ -384,6 +384,12 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
         const at = now();
         const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
+        if (current.phase === "active") {
+          return {
+            result: { ...holderSnapshot(input.taskId, current, at), executionId: input.executionId, leaseToken: input.leaseToken, phase: "active" } as ExecutionLeaseContext,
+            events: []
+          };
+        }
         if (current.phase !== "reserving") throw new Error(`execution lease is not reserving: ${input.executionId}`);
         const record: ExecutionLeaseRecord = { ...current, phase: "active", updatedAt: at.toISOString(), version: holderVersion(at.toISOString()) };
         writeHolderRecord(options.rootInput, record);

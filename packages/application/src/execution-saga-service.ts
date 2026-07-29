@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { generateTaskId } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type {
@@ -190,13 +191,16 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
       try {
         await options.authoredStore.openExecution({ taskId: input.taskId, execution });
       } catch (error) {
-        await options.taskHolderService.releaseExecution({
-          taskId: input.taskId,
-          executionId,
-          leaseToken: reservation.leaseToken,
-          principal: input.principal
-        });
-        throw error;
+        const published = await readMatchingExecution(options.authoredStore, input.taskId, execution);
+        if (!published) {
+          await options.taskHolderService.releaseExecution({
+            taskId: input.taskId,
+            executionId,
+            leaseToken: reservation.leaseToken,
+            principal: input.principal
+          });
+          throw error;
+        }
       }
       const active = await options.taskHolderService.activateExecution({
         taskId: input.taskId,
@@ -229,6 +233,22 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
     },
     reconcileTask: (taskId) => reconcileTask(options, taskId)
   };
+}
+
+async function readMatchingExecution(
+  authoredStore: ExecutionAuthoredStore,
+  taskId: string,
+  expected: ExecutionRecord
+): Promise<ExecutionRecord | null> {
+  try {
+    const published = await authoredStore.readExecution({
+      taskId,
+      executionId: expected.execution_id
+    });
+    return published && isDeepStrictEqual(published, expected) ? published : null;
+  } catch {
+    return null;
+  }
 }
 
 function selectReusableExecution(
