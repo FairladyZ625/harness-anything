@@ -13,6 +13,14 @@ export type HashPayload = (value: unknown) => string;
 
 const ProvenanceListSchema = Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1));
 
+// Preset-boundary translation for new packages and gradual materialization
+// when a write replaces a package created before taskClass was persisted.
+export function taskClassSetByPreset(presetId: string): LocalTaskIndex["taskClass"] {
+  if (presetId === "create-milestone") return "milestone";
+  if (presetId === "long-running-task") return "epic";
+  return undefined;
+}
+
 export function validateTaskId(taskId: TaskId): void {
   validateTaskIdSyntax(taskId);
 }

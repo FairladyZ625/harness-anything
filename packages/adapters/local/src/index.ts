@@ -12,7 +12,7 @@ import type { WriteCoordinator } from "@harness-anything/kernel";
 import { makeJournaledWriteCoordinator } from "@harness-anything/kernel";
 import { makeLocalProjectionSourceFenceReader } from "./projection-source-fence.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
-import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
+import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, taskClassSetByPreset, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
 import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, stageTaskTree, writeSupersedeTaskDocuments, writeTaskDocument, writeTaskPackageDocuments } from "./task-writes.ts";
 import type {
   AppendProgressInput,
@@ -415,7 +415,7 @@ function supersedeTask(
       title: input.title,
       status: "planned",
       bindingCreatedAt: createdAt,
-      taskClass: oldIndex.taskClass,
+      taskClass: oldIndex.taskClass ?? taskClassSetByPreset(oldIndex.preset),
       vertical: oldIndex.vertical,
       preset: oldIndex.preset,
       provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],
