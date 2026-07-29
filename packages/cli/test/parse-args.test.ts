@@ -481,6 +481,7 @@ test("parseArgs rejects invalid task metadata enum values", () => {
 test("parseArgs keeps deprecated command aliases during the E77/F6 transition", () => {
   const cases = [
     { argv: ["new-task", "--title", "Alias Task"], kind: "new-task" },
+    { argv: ["task", "claim", "task_1"], kind: "task-claim" },
     { argv: ["task", "status", "set", "task_1", "active"], kind: "status-set" },
     { argv: ["task-review", "task_1"], kind: "task-review" },
     { argv: ["task-complete", "task_1", "--ci", "passed"], kind: "task-complete" },
@@ -509,9 +510,9 @@ test("parseArgs keeps deprecated command aliases during the E77/F6 transition", 
   }
 });
 
-test("parseArgs marks all 18 alias grammars and seven migration commands for sunset telemetry", () => {
+test("parseArgs marks all 19 alias grammars and seven migration commands for sunset telemetry", () => {
   const aliasDefinitions = deprecatedCommandDefinitions.filter((entry) => entry.kind === "alias-grammar");
-  assert.equal(aliasDefinitions.length, 18);
+  assert.equal(aliasDefinitions.length, 19);
   assert.equal(deprecatedCommandDefinitions.filter((entry) => entry.kind === "migration-command").length, 7);
   const specifiedAliases = commandSpecs.flatMap((spec) => (spec.aliases ?? [])
     .filter((alias) => alias.includes("retires at E77/F6 acceptance"))

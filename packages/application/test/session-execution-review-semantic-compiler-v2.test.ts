@@ -144,6 +144,48 @@ test("execution claim/submit/close compile exact hosted execution document plans
   }
 });
 
+test("execution claim atomically creates the Execution and activates the planned Task under one CAS", async () => {
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const taskPlanPath = `tasks/${taskId}/task_plan.md`;
+  const plannedIndex = snapshot("---\n  status: planned\n---\n");
+  const activeIndex = plannedIndex.body.replace("status: planned", "status: active");
+  const taskPlan = snapshot("# Plan\n\nImplement the atomic claim transaction.\n");
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(taskRef), base("task-v1")]]),
+      new Map([[taskPath, plannedIndex], [taskPlanPath, taskPlan]])
+    )
+  }).compile(envelope({
+    schema: "execution.claim/v1",
+    taskId,
+    execution: executionRecord("active"),
+    taskIndexBody: activeIndex,
+    taskPlanBodySha256: sha256Text(taskPlan.body)
+  }, [absent(executionRef), present(taskRef, "task-v1")], [
+    cas(taskPath, plannedIndex), cas(taskPlanPath, taskPlan)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `execution/${taskId}/${executionId}:claim`,
+    `task/${taskId}:transition`
+  ].sort());
+  const transaction = compiled.operation.payload as {
+    readonly companionWrites?: ReadonlyArray<unknown>;
+    readonly preconditions?: ReadonlyArray<unknown>;
+  };
+  assert.deepEqual(transaction.companionWrites, [
+    { taskId, path: "INDEX.md", body: activeIndex }
+  ]);
+  assert.deepEqual(transaction.preconditions, [
+    { taskId, path: `executions/${executionId}.md`, bodySha256: null },
+    { taskId, path: "INDEX.md", bodySha256: sha256Text(plannedIndex.body) },
+    { taskId, path: "task_plan.md", bodySha256: sha256Text(taskPlan.body) }
+  ]);
+});
+
 test("execution submit atomically transitions the task index to in_review", async () => {
   const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
   const taskRef = ref("task", `task/${taskId}`);

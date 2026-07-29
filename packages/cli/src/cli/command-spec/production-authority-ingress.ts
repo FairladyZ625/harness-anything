@@ -62,7 +62,7 @@ const dispositions = {
   "init": excluded("repository bootstrap writes precede production authority attachment"),
   "artifact-add": excluded("CLI facade submits artifact bytes through the dedicated repo.doc.sync.submit authority route"),
   "task-release": excluded("lease release mutates daemon-private holder state in the operational domain"),
-  "task-start": excluded("CLI facade decomposes into separately admitted task-claim and status-set commands; a raw composite daemon action is rejected"),
+  "task-start": excluded("CLI facade dispatches the canonical task-claim ingress, which creates the Execution and activates a planned Task in one authority CAS transaction"),
   "task-submit": excluded("CLI facade decomposes into separately admitted task-code-doc-reconcile and status-set commands; a raw composite daemon action is rejected"),
   "task-closeout": excluded("CLI facade decomposes into separately admitted status-set, task-review-execution, task-code-doc-reconcile, and task-complete commands; a raw composite daemon action is rejected"),
   "task-amend": typed("observed-write"),

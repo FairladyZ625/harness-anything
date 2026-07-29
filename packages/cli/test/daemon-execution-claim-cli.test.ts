@@ -8,7 +8,7 @@ import { pollUntil, runRawJson, runRawJsonMaybeFail, withTempRootAsync } from ".
 import { git, receiptPath } from "./helpers/daemon-thin-client-fixtures.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
-test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller session binding", async () => {
+test("daemon-backed deprecated claim enters the atomic Execution path and preserves the caller session binding", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     const harnessRoot = path.join(rootDir, "harness");
@@ -25,17 +25,27 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
       HARNESS_DAEMON_IDLE_MS: "10000"
     });
     const taskId = receiptDataString(created, "taskId");
+    writeSubstantiveTaskPlan(rootDir, receiptPath(created, "package"));
+    git(harnessRoot, "add", "--", ".");
+    git(harnessRoot, "commit", "-m", "test: prepare atomic claim fixture");
 
-    const legacyClaim = runRawJson(rootDir, ["task", "claim", taskId], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" });
+    const claimEnv = {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      CODEX_THREAD_ID: "claiming-codex-session",
+      CODEX_SESSION_ID: "claiming-codex-session"
+    };
+    const legacyClaim = runRawJson(rootDir, ["task", "claim", taskId], claimEnv);
     assert.equal(legacyClaim.ok, true, JSON.stringify(legacyClaim));
-    assert.equal((((legacyClaim.details as Record<string, unknown>).data as Record<string, unknown>).report as {
-      readonly holder?: { readonly schema?: string };
-    }).holder?.schema, "task-holder/v1");
+    assert.equal(receiptDataString(legacyClaim, "status"), "active", JSON.stringify(legacyClaim));
+    const legacyExecutionId = receiptDataString(legacyClaim, "executionId");
 
-    const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: "claiming-codex-session", CODEX_SESSION_ID: "claiming-codex-session" });
+    const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], claimEnv);
 
     assert.equal(claimed.ok, true, JSON.stringify(claimed));
+    assert.equal(receiptDataString(claimed, "status"), "active", JSON.stringify(claimed));
     const executionId = receiptDataString(claimed, "executionId");
+    assert.equal(executionId, legacyExecutionId);
     assert.match(executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u, JSON.stringify(claimed));
     const claimReport = (((claimed.details as Record<string, unknown>).data as Record<string, unknown>).report as {
       readonly leaseToken?: unknown;

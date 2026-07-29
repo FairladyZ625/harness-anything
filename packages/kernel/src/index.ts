@@ -51,6 +51,7 @@ export {
 } from "./entity/session.ts";
 export type { SessionManifest } from "./schemas/session-manifest.ts";
 export { resolveEntityDocumentPath, writeDeclaredEntityTransaction } from "./entity/declaration.ts";
+export type { DeclaredEntityDocumentPrecondition } from "./entity/declaration.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { computeExecutionConsentPin } from "./integrity/execution-consent-pin.ts";
 export {

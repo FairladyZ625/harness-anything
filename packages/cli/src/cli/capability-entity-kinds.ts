@@ -8,7 +8,8 @@ const excludedCommandKinds = [
   "version",
   "completion",
   "capabilities",
-  "entity-list"
+  "entity-list",
+  "task-claim"
 ] as const satisfies ReadonlyArray<CommandKind>;
 
 export const capabilityExcludedCommandKinds: ReadonlySet<CommandKind> = new Set(excludedCommandKinds);

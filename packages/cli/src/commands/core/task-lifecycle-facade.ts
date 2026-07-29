@@ -78,8 +78,7 @@ export function taskStartFacadeSteps(command: TaskStartCommand): ReadonlyArray<P
       execution: true,
       ...(action.executionId ? { executionId: action.executionId } : {}),
       ...(action.ttlMs === undefined ? {} : { ttlMs: action.ttlMs })
-    }),
-    child(command, { kind: "status-set", taskId: action.taskId, status: "active", force: false })
+    })
   ];
 }
 

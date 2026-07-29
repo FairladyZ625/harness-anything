@@ -43,6 +43,9 @@ export interface ExecutionAuthoredStore {
   readonly openExecution: (input: {
     readonly taskId: string;
     readonly execution: ExecutionRecord;
+    readonly activation?: {
+      readonly taskPlanBodySha256: string;
+    };
   }) => Promise<void>;
   readonly attachSession: (input: {
     readonly taskId: string;
@@ -60,6 +63,7 @@ export interface ExecutionAuthoredStore {
 export interface ExecutionClaimResult extends ExecutionLeaseContext {
   readonly execution: ExecutionRecord;
   readonly reused: boolean;
+  readonly leaseAcquiredAt: string;
 }
 
 export interface ExecutionSagaService {
@@ -70,6 +74,9 @@ export interface ExecutionSagaService {
     readonly ttlMs?: number;
     readonly primarySession?: CurrentSessionRef | null;
     readonly executionId?: string;
+    readonly activation?: {
+      readonly taskPlanBodySha256: string;
+    };
   }) => Promise<ExecutionClaimResult>;
   readonly attachSession: (input: {
     readonly taskId: string;
@@ -123,7 +130,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         if (!execution || execution.state !== "active") {
           throw new Error(`active execution is unavailable for renewed lease: ${renewed.executionId}`);
         }
-        return { ...renewed, execution, reused: true };
+        return {
+          ...renewed,
+          execution,
+          reused: true,
+          leaseAcquiredAt: renewed.holder?.schema === "task-holder/v2"
+            ? renewed.holder.updatedAt
+            : execution.claimed_at
+        };
       }
       const executions = await options.authoredStore.listExecutions({ taskId: input.taskId });
       const submitted = executions.filter((execution) => execution.state === "submitted");
@@ -153,7 +167,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
             leaseToken: reservation.leaseToken,
             principal: input.principal
           });
-          return { ...resumed, execution: current, reused: true };
+          return {
+            ...resumed,
+            execution: current,
+            reused: true,
+            leaseAcquiredAt: reservation.holder?.schema === "task-holder/v2"
+              ? reservation.holder.acquiredAt
+              : current.claimed_at
+          };
         } catch (error) {
           await options.taskHolderService.releaseExecution({
             taskId: input.taskId,
@@ -189,7 +210,11 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         submission: null
       };
       try {
-        await options.authoredStore.openExecution({ taskId: input.taskId, execution });
+        await options.authoredStore.openExecution({
+          taskId: input.taskId,
+          execution,
+          ...(input.activation === undefined ? {} : { activation: input.activation })
+        });
       } catch (error) {
         const published = await readMatchingExecution(options.authoredStore, input.taskId, execution);
         if (!published) {
@@ -208,7 +233,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         leaseToken: reservation.leaseToken,
         principal: input.principal
       });
-      return { ...active, execution, reused: false };
+      return {
+        ...active,
+        execution,
+        reused: false,
+        leaseAcquiredAt: reservation.holder?.schema === "task-holder/v2"
+          ? reservation.holder.acquiredAt
+          : execution.claimed_at
+      };
     },
     attachSession: async (input) => {
       await options.taskHolderService.assertExecutionLease(input);

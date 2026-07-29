@@ -20,7 +20,7 @@ test("task start returns the reusable execution lease and stops at active", () =
     assert.equal(started.report.executionId, started.executionId);
     assert.match(started.report.leaseToken, /^[0-9a-f]{64}$/u);
     assert.match(started.report.leaseExpiresAt, /^20/u);
-    assert.deepEqual(started.report.steps.map((step: Record<string, unknown>) => step.command), ["task claim", "task transition"]);
+    assert.deepEqual(started.report.steps.map((step: Record<string, unknown>) => step.command), ["task claim"]);
     assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
   });
 });

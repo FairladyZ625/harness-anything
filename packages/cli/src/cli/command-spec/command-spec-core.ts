@@ -135,7 +135,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "kind": "task-claim",
     "usage": "task claim <id> [--execution] [--execution-id <execution-id>] [--ttl-ms <ms>] [--json]",
     "options": [{"flag":"--execution","description":"Use the Execution claim path; the sole active round is reused instead of opening a duplicate."},{"flag":"--execution-id","description":"Select the active Execution to resume when legacy state contains multiple active rounds."},{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Claim a task holder lease; Execution claims rotate a live lease, reuse the sole active round, or require --execution-id when legacy active rounds are ambiguous.",
+    "summary": "Deprecated compatibility spelling for task start; claim activates planned tasks and always uses an Execution lease.",
     "examples": ["harness-anything task claim task_01ABC --ttl-ms 86400000", "harness-anything task claim task_01ABC --execution --json", "harness-anything task claim task_01ABC --execution-id exe_01ABC --json"],
     "parse": parseCoreTaskArgs,
     "run": runTaskLifecycleCommand,
@@ -173,7 +173,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "nounOwnership": "Task lifecycle start facade; it adds no top-level noun and cannot enter review.",
       "lifecycle": "permanent",
       "decisionRef": "decision/dec_01KXWRC9CH70HN61B5FYPQP3XV",
-      "chain": { "stepCount": 2, "submissionFieldCount": 0, "structuredInput": false }
+      "chain": { "stepCount": 1, "submissionFieldCount": 0, "structuredInput": false }
     }
   },
   {

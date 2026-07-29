@@ -181,24 +181,24 @@ test("task claim typed ingress rejects forged entity, actor, and write-set data"
   };
   const operation = claimOperation(taskId, execution);
 
-  const intent = taskClaimAttemptIntent(command, attribution, currentSession, operation);
+  const intent = taskClaimAttemptIntent(command, attribution, currentSession, operation, "/fixture");
   assert.equal(intent.commandName, "execution.claim");
   assert.equal(intent.physicalEntityId, `entity/execution/${executionId}`);
   assert.throws(() => taskClaimAttemptIntent(command, attribution, currentSession, {
     ...operation,
     entityId: "entity/execution/exe_forged"
-  }), /AUTHORITY_TASK_CLAIM_ENTITY_MISMATCH/u);
+  }, "/fixture"), /AUTHORITY_TASK_CLAIM_ENTITY_MISMATCH/u);
   assert.throws(() => taskClaimAttemptIntent(command, attribution, currentSession, claimOperation(taskId, {
     ...execution,
     primary_actor: { ...execution.primary_actor, responsibleHuman: "person_forged" }
-  })), /AUTHORITY_TASK_CLAIM_ACTOR_MISMATCH/u);
+  }), "/fixture"), /AUTHORITY_TASK_CLAIM_ACTOR_MISMATCH/u);
   assert.throws(() => taskClaimAttemptIntent(command, attribution, currentSession, {
     ...operation,
     payload: {
       ...(operation.payload as Record<string, unknown>),
       companionWrites: [{ taskId, path: "INDEX.md", body: "forged" }]
     }
-  }), /AUTHORITY_TASK_CLAIM_WRITE_SET_INVALID/u);
+  }, "/fixture"), /AUTHORITY_TASK_CLAIM_WRITE_SET_INVALID/u);
 });
 
 test("held-lock authority flush uses one atomic publication instead of direct materialization", async () => {

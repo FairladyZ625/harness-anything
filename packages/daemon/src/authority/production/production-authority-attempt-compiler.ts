@@ -272,7 +272,8 @@ export function createProductionCanonicalAttemptCompiler(input: {
               submission.command,
               submission.attribution,
               submission.currentSession,
-              submission.operation
+              submission.operation,
+              input.authoredRoot
             )
           );
         case "observed-write":

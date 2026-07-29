@@ -9,13 +9,12 @@ import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { taskCloseoutFacadeSteps, taskStartFacadeSteps } from "../src/commands/core/task-lifecycle-facade.ts";
 
-test("task start is a two-step boundary that cannot enter review", () => {
+test("task start is one admitted claim-and-activate boundary that cannot enter review", () => {
   const parsed = parseArgs(["task", "start", "task_BOUNDARY", "--ttl-ms", "60000"]);
   assert.equal(parsed.ok, true);
   if (!parsed.ok || parsed.value.action.kind !== "task-start") return;
   const steps = taskStartFacadeSteps(parsed.value as ParsedCommand & { action: Extract<ParsedCommand["action"], { kind: "task-start" }> });
-  assert.deepEqual(steps.map((step) => step.action.kind), ["task-claim", "status-set"]);
-  assert.deepEqual(steps.map((step) => step.action.kind === "status-set" ? step.action.status : undefined), [undefined, "active"]);
+  assert.deepEqual(steps.map((step) => step.action.kind), ["task-claim"]);
   assert.equal(steps.some((step) => step.action.kind === "status-set" && step.action.status === "in_review"), false);
 });
 

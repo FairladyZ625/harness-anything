@@ -391,6 +391,8 @@ export {
   makeTaskLifecycleOrchestrator,
   readTaskLifecyclePolicy
 } from "./task-lifecycle-orchestrator.ts";
+export { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
+export type { TaskActivationReadiness } from "./task-activation-readiness.ts";
 export type {
   CompletionGateInput,
   DecisionReckonGateInput,
