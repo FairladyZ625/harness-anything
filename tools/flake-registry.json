@@ -14,6 +14,13 @@
       "anchoredTask": "task_01KY5A2FPV8NA5YX8PBWA27YMH",
       "firstSeen": "2026-07-22",
       "notes": "Failed on main run 29931464923 (afc65fee) with DAEMON_JSON_RPC_REQUEST_TIMEOUT method=admin.daemon.refresh timeout=34970ms; the same-SHA rerun passed, so this is an environment-induced fixed-budget flake, not a regression. Budget conversion is tracked by the wall-clock assertion inventory task."
+    },
+    {
+      "testName": "Node process-isolation shutdown wedge (wandering file)",
+      "file": "tools/run-node-tests.mjs",
+      "anchoredTask": "task_01KYQAJZPX00BZSN2CBBC6GATB",
+      "firstSeen": "2026-07-29",
+      "notes": "Main run 30468647184 and its rerun wedged different unchanged fast-tier files in a Node isolation child at futex_do_wait after no test-created descendants remained; tracked as the upstream Node shutdown-deadlock family rather than a leaf-test failure."
     }
   ]
 }

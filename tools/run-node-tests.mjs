@@ -21,7 +21,11 @@ import {
   selectTestFiles,
   testFilesFromProcessCommand
 } from "./node-test-runner-lib.mjs";
-import { createNodeTestStallPolicy } from "./node-test-stall-policy.mjs";
+import {
+  createNodeTestStallPolicy,
+  DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS,
+  DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
+} from "./node-test-stall-policy.mjs";
 import {
   capturePreKillDiagnostics,
   STALL_REPORT_GRACE_MS,
@@ -37,13 +41,11 @@ import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./tes
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const PROCESS_TREE_KILL_GRACE_MS = 2_000;
-const DEFAULT_STALL_DIAGNOSTIC_MS = 90_000;
 // `--test-timeout` bounds any single test, so silence lasting several windows
 // means the wedge is outside a test body — module load, a blocked thread, a
 // child that never exits — where the per-test timeout can never fire. Reporting
 // such a run forever is what let one wedged file burn a whole 15-minute CI job
 // and take the pull request out of the merge queue with no test named.
-const DEFAULT_STALL_ABORT_WINDOWS = 2;
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -127,11 +129,11 @@ const timingPath = path.join(timingRoot, "results.xml");
 const stallReportRoot = mkdtempSync(path.join(timingRoot, "stall-reports-"));
 const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
-  DEFAULT_STALL_DIAGNOSTIC_MS
+  DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
 );
 const stallAbortWindows = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_ABORT_WINDOWS,
-  DEFAULT_STALL_ABORT_WINDOWS
+  DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS
 );
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {

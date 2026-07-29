@@ -1,7 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNodeTestStallPolicy } from "./node-test-stall-policy.mjs";
+import { DEFAULT_TEST_TIMEOUT_MS } from "./node-test-runner-lib.mjs";
+import {
+  createNodeTestStallPolicy,
+  DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS,
+  DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
+} from "./node-test-stall-policy.mjs";
+import { STALL_TOTAL_ABORT_GRACE_MS } from "./node-test-stall-diagnostics.mjs";
 
 function createPolicy() {
   return createNodeTestStallPolicy({
@@ -11,6 +17,16 @@ function createPolicy() {
     startedAt: 0
   });
 }
+
+test("production isolation wedge termination is bounded below the per-test timeout", () => {
+  // The first timer tick discovers the candidate; subsequent windows prove
+  // that the same PID/file/wait signature is stable before the kill begins.
+  const worstCaseTerminationMs = DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
+    * (DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS + 1)
+    + STALL_TOTAL_ABORT_GRACE_MS;
+  assert.equal(worstCaseTerminationMs, 93_000);
+  assert.ok(worstCaseTerminationMs < DEFAULT_TEST_TIMEOUT_MS);
+});
 
 test("ordinary output resets aggregate silence", () => {
   const policy = createPolicy();
