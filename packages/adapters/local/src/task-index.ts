@@ -13,6 +13,14 @@ export type HashPayload = (value: unknown) => string;
 
 const ProvenanceListSchema = Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1));
 
+// Preset-boundary translation for new packages and gradual materialization
+// when a write replaces a package created before taskClass was persisted.
+export function taskClassSetByPreset(presetId: string): LocalTaskIndex["taskClass"] {
+  if (presetId === "create-milestone") return "milestone";
+  if (presetId === "long-running-task") return "epic";
+  return undefined;
+}
+
 export function validateTaskId(taskId: TaskId): void {
   validateTaskIdSyntax(taskId);
 }
@@ -63,6 +71,7 @@ export function makeIndex(input: {
   readonly workKind?: TaskWorkKind;
   readonly riskTier?: PriorityTier;
   readonly urgency?: PriorityTier;
+  readonly taskClass?: LocalTaskIndex["taskClass"];
   readonly vertical: string;
   readonly preset: string;
   readonly provenance?: ReadonlyArray<ProvenancePayload>;
@@ -88,6 +97,7 @@ export function makeIndex(input: {
     ...(input.workKind ? { workKind: input.workKind } : {}),
     ...(input.riskTier ? { riskTier: input.riskTier } : {}),
     ...(input.urgency ? { urgency: input.urgency } : {}),
+    ...(input.taskClass ? { taskClass: input.taskClass } : {}),
     vertical: input.vertical,
     preset: input.preset,
     provenance: input.provenance ?? [humanFallbackProvenance(input.bindingCreatedAt)],
@@ -115,6 +125,7 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     ...(index.workKind ? [`workKind: ${index.workKind}`] : []),
     ...(index.riskTier ? [`riskTier: ${index.riskTier}`] : []),
     ...(index.urgency ? [`urgency: ${index.urgency}`] : []),
+    ...(index.taskClass ? [`taskClass: ${index.taskClass}`] : []),
     `vertical: ${index.vertical}`,
     `preset: ${index.preset}`,
     "provenance:",
@@ -197,14 +208,16 @@ function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDis
   return isPackageDisposition(value) ? value : "active";
 }
 
-function readTaskMetadata(frontmatter: string): Pick<LocalTaskIndex, "workKind" | "riskTier" | "urgency"> {
+function readTaskMetadata(frontmatter: string): Pick<LocalTaskIndex, "workKind" | "riskTier" | "urgency" | "taskClass"> {
   const workKind = readScalar(frontmatter, "workKind");
   const riskTier = readScalar(frontmatter, "riskTier");
   const urgency = readScalar(frontmatter, "urgency");
+  const taskClass = readScalar(frontmatter, "taskClass");
   return {
     ...(isTaskWorkKind(workKind) ? { workKind } : {}),
     ...(isPriorityTier(riskTier) ? { riskTier } : {}),
-    ...(isPriorityTier(urgency) ? { urgency } : {})
+    ...(isPriorityTier(urgency) ? { urgency } : {}),
+    ...(taskClass === "milestone" || taskClass === "epic" ? { taskClass } : {})
   };
 }
 

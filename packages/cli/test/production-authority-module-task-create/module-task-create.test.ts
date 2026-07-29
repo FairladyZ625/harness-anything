@@ -87,6 +87,7 @@ test("production task create supports parent plus an existing module and rejects
       ?.find((entry) => entry.role === "package")?.path ?? "";
     assert.equal(existsSync(path.join(fixture.repoRoot, packagePath, "INDEX.md")), true);
     assert.match(readFileSync(path.join(fixture.repoRoot, packagePath, "INDEX.md"), "utf8"), new RegExp(`^parent: ${parentTaskId}$`, "mu"));
+    assert.match(readFileSync(path.join(fixture.repoRoot, packagePath, "INDEX.md"), "utf8"), /^taskClass: epic$/mu);
     assert.match(readFileSync(path.join(fixture.repoRoot, packagePath, "module.md"), "utf8"), /^Module key: daemon-performance$/mu);
 
     const inlineModuleRegistration = runRawJsonMaybeFail(fixture.repoRoot, [

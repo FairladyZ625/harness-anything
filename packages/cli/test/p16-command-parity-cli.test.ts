@@ -28,6 +28,7 @@ test("P16 new-task dry-run and inline module registration are explicit and non-d
     assert.equal(created.ok, true);
     assert.equal(created.module.key, "billing");
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "long-running-task-contract.md")), true);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^taskClass: epic$/mu);
     const modules = JSON.parse(readFileSync(path.join(rootDir, "harness/modules.json"), "utf8"));
     assert.equal(modules.modules[0].key, "billing");
     assert.equal(modules.modules[0].prefix, "BILL");

@@ -166,6 +166,7 @@ export interface LocalTaskIndex {
   readonly workKind?: TaskWorkKind;
   readonly riskTier?: PriorityTier;
   readonly urgency?: PriorityTier;
+  readonly taskClass?: "milestone" | "epic";
   readonly vertical: string;
   readonly preset: string;
   readonly provenance: ReadonlyArray<ProvenancePayload>;

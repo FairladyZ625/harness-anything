@@ -53,6 +53,7 @@ test("CLI create-milestone exposes v3 agent guidance without script entrypoints"
       "--long-running"
     ]);
     assert.equal(created.report.preset, presetId);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^taskClass: milestone$/mu);
     const contract = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "task-contract.json"), "utf8"));
     assert.equal(contract.preset.id, presetId);
     assert.equal(contract.preset.version, "2.0.1");
