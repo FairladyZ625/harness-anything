@@ -78,6 +78,7 @@ export type AuthorityHostNewTaskAction = {
   readonly profile?: string;
   readonly moduleKey?: string;
   readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string };
+  readonly surfaces?: ReadonlyArray<string>;
   readonly longRunning: boolean;
   readonly dryRun: boolean;
   readonly locale?: "zh-CN" | "en-US";
@@ -101,6 +102,7 @@ export type AuthorityHostDecisionProposeAction = {
   readonly modules: ReadonlyArray<string>;
   readonly productLines: ReadonlyArray<string>;
   readonly evidenceRelations: ReadonlyArray<AuthorityHostDecisionEvidenceRelationInput>;
+  readonly surfaces?: ReadonlyArray<string>;
   readonly body?: string;
   readonly dryRun: boolean;
 };

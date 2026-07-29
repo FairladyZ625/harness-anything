@@ -1,5 +1,9 @@
 import type { CommandKind, CommandDescriptor } from "./command-registry.ts";
 import type { CommandDescriptorIdentity } from "./command-spec/types.ts";
+import {
+  decisionSurfaceMaxItems,
+  decisionSurfaceMaxLength
+} from "./decision-surface-values.ts";
 
 export type JsonSchemaType = "string" | "number" | "boolean" | "array" | "object";
 export type ShortcutMerge = "set" | "append";
@@ -19,7 +23,9 @@ export interface CommandInputSchema {
   readonly properties: Record<string, {
     readonly type: JsonSchemaType | ReadonlyArray<JsonSchemaType>;
     readonly description: string;
-    readonly items?: { readonly type: JsonSchemaType } | { readonly type: "object"; readonly properties: Record<string, unknown> };
+    readonly maxItems?: number;
+    readonly maxLength?: number;
+    readonly items?: { readonly type: JsonSchemaType; readonly maxLength?: number } | { readonly type: "object"; readonly properties: Record<string, unknown> };
   }>;
 }
 
@@ -44,6 +50,7 @@ const explicitInputDescriptors = {
       moduleKey: { type: "string", description: "Registered module key." },
       slug: { type: "string", description: "Explicit task package slug." },
       locale: { type: "string", description: "Generated content locale." },
+      surfaces: { type: "array", description: "Machine-surface anchors used to discover related decisions.", maxItems: decisionSurfaceMaxItems, items: { type: "string", maxLength: decisionSurfaceMaxLength } },
       longRunning: { type: "boolean", description: "Use the long-running task preset." },
       dryRun: { type: "boolean", description: "Preview task creation without writing files." }
     },
@@ -57,6 +64,7 @@ const explicitInputDescriptors = {
       shortcut("--module", "$.moduleKey", "set"),
       shortcut("--slug", "$.slug", "set"),
       shortcut("--locale", "$.locale", "set"),
+      shortcut("--surface", "$.surfaces", "append"),
       shortcut("--long-running", "$.longRunning", "set"),
       shortcut("--dry-run", "$.dryRun", "set")
     ]
@@ -79,6 +87,7 @@ const explicitInputDescriptors = {
       modules: { type: "array", description: "Module keys the decision applies to.", items: { type: "string" } },
       productLines: { type: "array", description: "Product-line keys the decision applies to.", items: { type: "string" } },
       evidenceRelations: { type: "array", description: "Typed evidence relation inputs.", items: { type: "object", properties: { anchor: { type: "string" }, type: { type: "string" }, target: { type: "string" }, rationale: { type: "string" } } } },
+      surfaces: { type: "array", description: "Machine-surface anchors used to discover related decisions.", maxItems: decisionSurfaceMaxItems, items: { type: "string", maxLength: decisionSurfaceMaxLength } },
       body: { type: "string", description: "Optional decision body markdown." },
       bodyFile: { type: "string", description: "Optional path to decision body markdown; mutually exclusive with body." },
       dryRun: { type: "boolean", description: "Preview the decision write without writing files." }
@@ -98,6 +107,7 @@ const explicitInputDescriptors = {
       shortcut("--module", "$.modules", "append"),
       shortcut("--product-line", "$.productLines", "append"),
       shortcut("--evidence-relation", "$.evidenceRelations", "append"),
+      shortcut("--surface", "$.surfaces", "append"),
       shortcut("--body", "$.body", "set"),
       shortcut("--body-file", "$.bodyFile", "set"),
       shortcut("--dry-run", "$.dryRun", "set")
