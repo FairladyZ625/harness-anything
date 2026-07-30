@@ -26,7 +26,7 @@ import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermark
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
-import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./operations/code-doc-policy.ts";
+import { assertCodeDocGitEvidence } from "./operations/code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
 import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/legacy-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
@@ -460,13 +460,11 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
 
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
   const vcs = versionControlSystem ?? makeLocalVersionControlSystem();
-  const plan = assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
-  assertCodeDocGitEvidence(rootDir, resolveHarnessLayout(rootInput).authoredRoot, op, vcs);
-  if (op.kind === "task_tree_stage" && plan) {
-    assertNoUncoordinatedCodeDocChange(op, vcs.workingTreeFiles(plan.repoRoot, plan.relativePaths));
-  }
+  assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
+  const documentWrites = documentWritesForWriteOp(op);
+  assertCodeDocGitEvidence(rootDir, resolveHarnessLayout(rootInput).authoredRoot, op, documentWrites, vcs);
   try {
-    assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
+    assertDocumentWritePathsDoNotCollide(rootInput, documentWrites);
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }

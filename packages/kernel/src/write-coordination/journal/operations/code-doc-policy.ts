@@ -5,10 +5,8 @@ import { normalizeRelativeDocumentPath } from "../../../layout/index.ts";
 import { makeCodeDocGitEvidenceResolver } from "../../../git/code-doc-git-evidence.ts";
 import { rejectWrite } from "../rejection.ts";
 import { taskIdForWriteOp } from "./entity.ts";
-import { assertTaskDocumentSetPrecondition } from "./declared-entity-preconditions.ts";
 
 export const CODE_DOC_RECONCILIATION_PATH = "code-doc-anchors.json";
-export const TASK_COMPLETION_EVIDENCE_PATH = "completion-evidence.json";
 
 interface CodeDocAnchor {
   readonly kind: "commit" | "path" | "pr";
@@ -34,107 +32,39 @@ export function assertReservedCodeDocWrite(
   op: WriteOp,
   writes: ReadonlyArray<DocumentWrite>
 ): void {
-  const stagedPath = op.kind === "doc_stage" ? payloadPath(op) : undefined;
   const reservedWrites = writes.filter((write) => normalizedPath(write.path, op) === CODE_DOC_RECONCILIATION_PATH);
-  const stagesReservedPath = stagedPath !== undefined && normalizedPath(stagedPath, op) === CODE_DOC_RECONCILIATION_PATH;
-  const writesCompletionEvidence = writes.some((write) => normalizedPath(write.path, op) === TASK_COMPLETION_EVIDENCE_PATH);
-  const stagesCompletionEvidence = stagedPath !== undefined && normalizedPath(stagedPath, op) === TASK_COMPLETION_EVIDENCE_PATH;
-
-  if (stagesCompletionEvidence) {
-    rejectWrite(completionEvidenceRemediation(taskIdForWriteOp(op)), op.entityId);
-  }
-  if (writesCompletionEvidence && !hasCompletionEvidenceAbsencePrecondition(op, writes)) {
-    rejectWrite(
-      `${completionEvidenceRemediation(reservedTaskId(op, writes))}; declared completion evidence requires an exact absence precondition`,
-      op.entityId
-    );
-  }
-
-  if ((reservedWrites.length > 0 || stagesReservedPath) && op.kind !== "code_doc_reconcile") {
-    rejectWrite(remediation(reservedTaskId(op, writes)), op.entityId);
-  }
-  if (op.kind !== "code_doc_reconcile") return;
-  if (writes.length !== 1 || reservedWrites.length !== 1) {
+  if (op.kind === "code_doc_reconcile" && (writes.length !== 1 || reservedWrites.length !== 1)) {
     rejectWrite(`code_doc_reconcile may only write ${CODE_DOC_RECONCILIATION_PATH}`, op.entityId);
   }
-  parseAndValidateDocument(reservedWrites[0]!, op);
-}
-
-function hasCompletionEvidenceAbsencePrecondition(op: WriteOp, writes: ReadonlyArray<DocumentWrite>): boolean {
-  if (op.kind !== "doc_write" || !isObject(op.payload) || !Array.isArray(op.payload.preconditions)) return false;
-  const taskIds = new Set(writes
-    .filter((write) => normalizedPath(write.path, op) === TASK_COMPLETION_EVIDENCE_PATH)
-    .map((write) => write.taskId));
-  return op.payload.preconditions.some((entry) => isObject(entry)
-    && !("pathPrefixes" in entry)
-    && typeof entry.taskId === "string"
-    && taskIds.has(entry.taskId)
-    && typeof entry.path === "string"
-    && normalizedPath(entry.path, op) === TASK_COMPLETION_EVIDENCE_PATH
-    && entry.bodySha256 === null);
-}
-
-function reservedTaskId(op: WriteOp, writes: ReadonlyArray<DocumentWrite>): string {
-  return writes.find((write) => [
-    CODE_DOC_RECONCILIATION_PATH,
-    TASK_COMPLETION_EVIDENCE_PATH
-  ].includes(normalizedPath(write.path, op)))?.taskId ?? taskIdForWriteOp(op);
+  for (const write of reservedWrites) parseAndValidateDocument(write, op);
 }
 
 export function assertCodeDocGitEvidence(
   rootDir: string,
   authoredRoot: string,
   op: WriteOp,
+  writes: ReadonlyArray<DocumentWrite>,
   versionControlSystem: VersionControlSystem
 ): void {
-  if (op.kind !== "code_doc_reconcile") return;
-  const document = parseAndValidateDocument(documentWrite(op), op);
   const gitEvidence = makeCodeDocGitEvidenceResolver({ rootDir, authoredRoot }, versionControlSystem);
-  for (const record of document.records) {
-    for (const anchor of record.anchors) {
-      if (!anchor.sha) continue;
-      const resolution = gitEvidence.resolve({
-        sha: anchor.sha,
-        ...(anchor.kind === "path" ? { path: anchor.path! } : {})
-      });
-      if (!resolution.ok && resolution.reason === "commit-missing") {
-        rejectWrite(`code-doc anchor commit does not exist: ${anchor.sha}`, op.entityId);
-      }
-      if (!resolution.ok) {
-        rejectWrite(`code-doc anchor path does not exist at ${anchor.sha}: ${anchor.path}`, op.entityId);
+  for (const write of writes) {
+    if (normalizedPath(write.path, op) !== CODE_DOC_RECONCILIATION_PATH) continue;
+    const document = parseAndValidateDocument(write, op);
+    for (const record of document.records) {
+      for (const anchor of record.anchors) {
+        if (!anchor.sha) continue;
+        const resolution = gitEvidence.resolve({
+          sha: anchor.sha,
+          ...(anchor.kind === "path" ? { path: anchor.path! } : {})
+        });
+        if (!resolution.ok && resolution.reason === "commit-missing") {
+          rejectWrite(`code-doc anchor commit does not exist: ${anchor.sha}`, op.entityId);
+        }
+        if (!resolution.ok) {
+          rejectWrite(`code-doc anchor path does not exist at ${anchor.sha}: ${anchor.path}`, op.entityId);
+        }
       }
     }
-  }
-}
-
-export function assertCodeDocHistoryDocumentSetPrecondition(
-  rootInput: Parameters<typeof assertTaskDocumentSetPrecondition>[0],
-  op: WriteOp
-): void {
-  if (op.kind !== "code_doc_reconcile") return;
-  if (!isObject(op.payload)
-    || typeof op.payload.historyDocumentSetSha256 !== "string"
-    || !/^[a-f0-9]{64}$/u.test(op.payload.historyDocumentSetSha256)) {
-    rejectWrite("code_doc_reconcile requires an exact Execution/Review document-set precondition", op.entityId);
-  }
-  assertTaskDocumentSetPrecondition(rootInput, {
-    taskId: taskIdForWriteOp(op),
-    pathPrefixes: ["executions/", "reviews/"],
-    documentSetSha256: op.payload.historyDocumentSetSha256
-  }, op);
-}
-
-export function assertNoUncoordinatedCodeDocChange(op: WriteOp, status: string): void {
-  if (op.kind !== "task_tree_stage") return;
-  const dirtyReservedPath = status
-    .split(/\r?\n/u)
-    .map(statusPath)
-    .find((entry) => entry && [CODE_DOC_RECONCILIATION_PATH, TASK_COMPLETION_EVIDENCE_PATH].includes(entry.split("/").at(-1) ?? ""));
-  if (dirtyReservedPath) {
-    const taskId = taskIdForWriteOp(op);
-    rejectWrite(dirtyReservedPath.endsWith(TASK_COMPLETION_EVIDENCE_PATH)
-      ? completionEvidenceRemediation(taskId)
-      : remediation(taskId), op.entityId);
   }
 }
 
@@ -149,8 +79,8 @@ function parseAndValidateDocument(write: DocumentWrite, op: WriteOp): CodeDocDoc
     rejectWrite(`${CODE_DOC_RECONCILIATION_PATH} must use schema code-doc-reconciliation/v1`, op.entityId);
   }
   const taskId = taskIdForWriteOp(op);
-  if (value.taskId !== taskId || !Array.isArray(value.records) || value.records.length === 0) {
-    rejectWrite(`${CODE_DOC_RECONCILIATION_PATH} must match task ${taskId} and contain records`, op.entityId);
+  if (value.taskId !== taskId || !Array.isArray(value.records)) {
+    rejectWrite(`${CODE_DOC_RECONCILIATION_PATH} must match task ${taskId} and contain a records array`, op.entityId);
   }
   const ids = new Set<string>();
   const records = value.records.map((record, index) => validateRecord(record, index, ids, op));
@@ -172,13 +102,10 @@ function validateRecord(
     rejectWrite(`code-doc record ${value.id} requires ledgerPath and a supported record kind`, op.entityId);
   }
   const ledgerPath = normalizedPath(value.ledgerPath, op);
-  if (!Array.isArray(value.anchors) || value.anchors.length === 0) {
-    rejectWrite(`code-doc record ${value.id} requires anchors`, op.entityId);
+  if (!Array.isArray(value.anchors)) {
+    rejectWrite(`code-doc record ${value.id} requires an anchors array`, op.entityId);
   }
   const anchors = value.anchors.map((anchor, anchorIndex) => validateAnchor(anchor, recordId, anchorIndex, op));
-  if (!anchors.some((anchor) => anchor.kind === "commit" || anchor.kind === "path")) {
-    rejectWrite(`code-doc record ${value.id} requires a commit or path anchor`, op.entityId);
-  }
   return { id: value.id, ledgerPath, kind: value.kind, anchors };
 }
 
@@ -209,39 +136,12 @@ function validateAnchor(value: unknown, recordId: string, index: number, op: Wri
   };
 }
 
-function documentWrite(op: WriteOp): DocumentWrite {
-  const payload = op.payload;
-  if (!isObject(payload) || typeof payload.path !== "string" || typeof payload.body !== "string") {
-    rejectWrite("code_doc_reconcile requires path and body", op.entityId);
-  }
-  return { taskId: taskIdForWriteOp(op), path: payload.path, body: payload.body };
-}
-
-function payloadPath(op: WriteOp): string | undefined {
-  return isObject(op.payload) && typeof op.payload.path === "string" ? op.payload.path : undefined;
-}
-
 function normalizedPath(value: string, op: WriteOp): string {
   try {
     return normalizeRelativeDocumentPath(value);
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
-}
-
-function statusPath(line: string): string {
-  if (line.length < 4) return "";
-  const value = line.slice(3).trim();
-  const renamed = value.lastIndexOf(" -> ");
-  return (renamed >= 0 ? value.slice(renamed + 4) : value).replace(/^"|"$/gu, "");
-}
-
-function remediation(taskId: string): string {
-  return `${CODE_DOC_RECONCILIATION_PATH} is a reserved machine document; do not write or stage it directly. Run ha task code-doc reconcile ${taskId} --commit <40-sha> --path <repo-relative-path> [--pr <url>]`;
-}
-
-function completionEvidenceRemediation(taskId: string): string {
-  return `${TASK_COMPLETION_EVIDENCE_PATH} is immutable machine evidence; do not write or stage it directly. Run ha task complete ${taskId} --commit-anchor <workspace-sha> --judgment <reason>`;
 }
 
 function isFullSha(value: string | undefined): value is string {

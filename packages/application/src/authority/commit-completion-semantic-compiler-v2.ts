@@ -1,11 +1,10 @@
 import {
-  declaredDocumentSetSha256,
   sha256Text,
   type EntityId,
   type RegistryMutationPlanInput,
   type WriteOp
 } from "@harness-anything/kernel";
-import { taskCompletionEvidenceDeclaration, TASK_COMPLETION_EVIDENCE_DOCUMENT } from "../task-completion-authority.ts";
+import { taskCompletionEvidenceDeclaration } from "../task-completion-authority.ts";
 import type { CommitCompletionActionPayloadV2 } from "./session-execution-review-command-v2.ts";
 import type { SessionExecutionReviewAuthorityStateV2 } from "./session-execution-review-semantic-compiler-v2.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
@@ -23,10 +22,6 @@ export async function compileCommitCompletion(
   if (payload.evidence.taskId !== payload.taskId || payload.evidence.mode !== "commit-anchor") {
     throw admission("COMMIT_COMPLETION_EVIDENCE_IDENTITY_INVALID");
   }
-  const historyPrefixes = ["executions/", "reviews/"];
-  if (payload.historyDocumentSetSha256 !== declaredDocumentSetSha256([], historyPrefixes)) {
-    throw admission("COMMIT_COMPLETION_HISTORY_SET_INVALID");
-  }
   const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
   const taskSnapshot = await state.readHostedDocument(taskPath);
   if (!taskSnapshot || !/^  status:\s*(planned|active|blocked|in_review)$/mu.test(taskSnapshot.body)) {
@@ -34,8 +29,6 @@ export async function compileCommitCompletion(
   }
   const expectedTaskBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
   if (payload.taskIndexBody !== expectedTaskBody) throw admission("COMMIT_COMPLETION_TASK_TRANSITION_INVALID");
-  const evidencePath = `tasks/${encodeURIComponent(payload.taskId)}/${TASK_COMPLETION_EVIDENCE_DOCUMENT}`;
-  if (await state.readHostedDocument(evidencePath)) throw admission("COMMIT_COMPLETION_EVIDENCE_EXISTS");
   const contractPath = `tasks/${encodeURIComponent(payload.taskId)}/task-contract.json`;
   const contractSnapshot = await state.readHostedDocument(contractPath);
   const contractDigest = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
@@ -44,10 +37,7 @@ export async function compileCommitCompletion(
   const codeDocPath = `tasks/${encodeURIComponent(payload.taskId)}/code-doc-anchors.json`;
   const closeoutSnapshot = await state.readHostedDocument(closeoutPath);
   const codeDocSnapshot = await state.readHostedDocument(codeDocPath);
-  if (!closeoutSnapshot || !codeDocSnapshot
-    || payload.evidence.anchor.codeDocDocumentSha256 !== `sha256:${sha256Text(codeDocSnapshot.body)}`) {
-    throw admission("COMMIT_COMPLETION_ANCHOR_CHANGED");
-  }
+  if (!closeoutSnapshot || !codeDocSnapshot) throw admission("COMMIT_COMPLETION_TASK_TRANSITION_INVALID");
   return {
     mutationPlan: plan([{
       entityKind: "task", identity: { taskId: payload.taskId }, action: "transition",
@@ -70,18 +60,15 @@ export async function compileCommitCompletion(
         companionWrites: [{ taskId: payload.taskId, path: "INDEX.md", body: payload.taskIndexBody }],
         preconditions: [
           { taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) },
-          { taskId: payload.taskId, path: TASK_COMPLETION_EVIDENCE_DOCUMENT, bodySha256: null },
           { taskId: payload.taskId, path: "task-contract.json", bodySha256: contractDigest },
           { taskId: payload.taskId, path: "closeout.md", bodySha256: sha256Text(closeoutSnapshot.body) },
-          { taskId: payload.taskId, path: "code-doc-anchors.json", bodySha256: sha256Text(codeDocSnapshot.body) },
-          { taskId: payload.taskId, pathPrefixes: historyPrefixes, documentSetSha256: payload.historyDocumentSetSha256 }
+          { taskId: payload.taskId, path: "code-doc-anchors.json", bodySha256: sha256Text(codeDocSnapshot.body) }
         ]
       }
     },
     requiredBaseRefs: [{ registryVersion: 1, entityKind: "task", canonicalRef: `task/${payload.taskId}` }],
     requiredPathSnapshots: [
       { path: taskPath, snapshot: taskSnapshot },
-      { path: evidencePath, snapshot: absentSnapshot(evidencePath) },
       ...(contractSnapshot ? [{ path: contractPath, snapshot: contractSnapshot }] : [{ path: contractPath, snapshot: absentSnapshot(contractPath) }]),
       { path: closeoutPath, snapshot: closeoutSnapshot },
       { path: codeDocPath, snapshot: codeDocSnapshot }

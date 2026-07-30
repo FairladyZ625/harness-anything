@@ -62,9 +62,7 @@ export function runActiveStatusSet(context: CommandRunnerContext, taskId: string
       taskId: result.taskId,
       status: "active",
       error: cliError(
-        result.error.code === "execution_review_required"
-          ? CliErrorCode.ExecutionReviewRequired
-          : isCliErrorCode(result.error.code) ? result.error.code : CliErrorCode.WriteRejected,
+        isCliErrorCode(result.error.code) ? result.error.code : CliErrorCode.WriteRejected,
         result.error.hint
       )
     };

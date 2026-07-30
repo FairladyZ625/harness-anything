@@ -153,15 +153,12 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), text: taskDecisionModuleNonBlank(row.text) };
     }
     case "task.document/v1": {
-      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body", "historyDocumentSetSha256"], false, ["historyDocumentSetSha256"]);
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body"]);
       return {
         schema: discriminator.schema,
         taskId: taskDecisionModuleText(row.taskId),
         path: taskDecisionModuleText(row.path),
-        body: semanticStringValueV2(row.body),
-        ...(row.historyDocumentSetSha256 === undefined
-          ? {}
-          : { historyDocumentSetSha256: taskDecisionModuleText(row.historyDocumentSetSha256) })
+        body: semanticStringValueV2(row.body)
       };
     }
     case "task.amend/v1": {
@@ -292,10 +289,7 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
         schema: payload.schema,
         taskId: payload.taskId,
         path: payload.path,
-        body: payload.body,
-        ...(payload.historyDocumentSetSha256 === undefined
-          ? {}
-          : { historyDocumentSetSha256: payload.historyDocumentSetSha256 })
+        body: payload.body
       };
     case "task.amend/v1":
       return { schema: payload.schema, taskId: payload.taskId, fields: [...payload.fields], body: payload.body };

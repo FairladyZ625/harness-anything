@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import type { VersionControlSystem } from "../../src/ports/index.ts";
-import { declaredDocumentSetSha256, makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { docWrite, runEffect, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
@@ -538,13 +538,12 @@ test("double stale lock takeover race keeps a single committer", async () => {
   });
 });
 
-test("WriteCoordinator reserves code-doc-anchors.json for the dedicated operation", () => {
+test("WriteCoordinator validates code-doc-anchors.json regardless of operation kind", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const genericFailure = runWriteFailure(coordinator.enqueue(docWrite("raw-code-doc", "task-1", "code-doc-anchors.json", "{}")));
     assert.equal(genericFailure._tag, "WriteRejected");
-    assert.match(genericFailure.reason, /reserved machine document/u);
-    assert.match(genericFailure.reason, /ha task code-doc reconcile task-1/u);
+    assert.match(genericFailure.reason, /schema code-doc-reconciliation\/v1/u);
 
     const invalidDedicated = runWriteFailure(coordinator.enqueue({
       opId: "bad-code-doc",
@@ -580,8 +579,7 @@ test("WriteCoordinator accepts validated dedicated code-doc writes", () => {
       kind: "code_doc_reconcile",
       payload: {
         path: "code-doc-anchors.json",
-        body: validCodeDocDocument(),
-        historyDocumentSetSha256: declaredDocumentSetSha256([], ["executions/", "reviews/"])
+        body: validCodeDocDocument()
       }
     }));
 
@@ -589,7 +587,7 @@ test("WriteCoordinator accepts validated dedicated code-doc writes", () => {
   });
 });
 
-test("WriteCoordinator rejects task-tree staging with a hand-written code-doc file", () => {
+test("WriteCoordinator accepts task-tree staging with an authored code-doc file", () => {
   withTempStore((rootDir) => {
     seedCodeDocTaskLedgers(rootDir);
     const local = makeLocalVersionControlSystem();
@@ -605,15 +603,14 @@ test("WriteCoordinator rejects task-tree staging with a hand-written code-doc fi
       }
     });
 
-    const failure = runWriteFailure(coordinator.enqueue({
+    const ack = Effect.runSync(coordinator.enqueue({
       opId: "stage-raw-code-doc",
       entityId: taskEntityId("task-1"),
       kind: "task_tree_stage",
       payload: { scope: "task-package" }
     }));
 
-    assert.equal(failure._tag, "WriteRejected");
-    assert.match(failure.reason, /do not write or stage it directly/u);
+    assert.equal(ack.accepted, true);
   });
 });
 

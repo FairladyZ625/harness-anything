@@ -151,7 +151,7 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
 
     const blockedWithoutExecution = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blockedWithoutExecution.ok, false);
-    assert.equal(blockedWithoutExecution.error?.code, "execution_completion_required");
+    assert.equal(blockedWithoutExecution.error?.code, "completion_gate_failed");
     assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
     assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task start task-1[\s\S]+ha task transition task-1 in_review/u);
     assert.equal(readFileSync(indexPath, "utf8"), before);
@@ -391,7 +391,7 @@ test("CLI task-review stages legacy artifacts while task-complete without Execut
 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "execution_completion_required");
+    assert.equal(completed.error?.code, "completion_gate_failed");
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /^  status: in_review$/mu);
     assert.equal(runGit(harnessRepo, "status", "--short"), "");
     assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
@@ -423,7 +423,7 @@ test("CLI task-complete without Execution fails even when no Fact quantity gate 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "execution_completion_required");
+    assert.equal(completed.error?.code, "completion_gate_failed");
   });
 });
 

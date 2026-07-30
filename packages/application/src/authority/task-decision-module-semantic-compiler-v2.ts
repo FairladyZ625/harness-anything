@@ -66,7 +66,6 @@ import {
 } from "./task-decision-module-module-mutations-v2.ts";
 import { taskCreateModuleReadDependencyV2 } from "./task-decision-module-task-create-module-selection-v2.ts";
 import {
-  assertTaskDocumentHistoryPreconditionV2,
   assertTaskDocumentSurfaceV2
 } from "./task-document-admission-policy-v2.ts";
 import { taskTransitionCompletionContractSnapshots } from "./task-transition-completion-contract.ts";
@@ -229,15 +228,12 @@ async function compileTaskDocument(
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
   const documentPath = normalizeRelativeDocumentPath(payload.path);
   assertTaskDocumentSurfaceV2(documentPath);
-  const isCodeDoc = assertTaskDocumentHistoryPreconditionV2(documentPath, payload);
+  const isCodeDoc = documentPath === "code-doc-anchors.json";
   const path = taskPath(payload.taskId, documentPath);
   const snapshot = await state.readHostedDocument(path);
   return taskCompilation(payload.taskId, "document", isCodeDoc ? "code_doc_reconcile" : "doc_write", {
     path: documentPath,
-    body: payload.body,
-    ...(payload.historyDocumentSetSha256 === undefined
-      ? {}
-      : { historyDocumentSetSha256: payload.historyDocumentSetSha256 })
+    body: payload.body
   }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], snapshot ? [{ path, snapshot }] : []);
 }
 

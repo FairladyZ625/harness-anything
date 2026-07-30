@@ -124,7 +124,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (payload.status === "in_review") {
         return taskFailure(
           payload.taskId,
-          "execution_submission_required",
+          "invalid_transition",
           "Task review state is created only by an Execution submit-for-review transaction."
         );
       }
@@ -132,7 +132,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (policy?.status === "in_review") {
         return taskFailure(
           payload.taskId,
-          "execution_review_required",
+          "invalid_transition",
           "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
         );
       }
@@ -172,7 +172,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         || (evidenceMode === "commit-anchor" && !options.commitCompletionService)) {
         return taskFailure(
           payload.taskId,
-          "execution_completion_required",
+          "write_rejected",
           "Task completion requires the Execution completion service and an authorized actor."
         );
       }
@@ -313,7 +313,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (!completion.result) {
         return taskFailure(
           payload.taskId,
-          "execution_completion_required",
+          "write_rejected",
           "Task completion requires a submitted Execution with a matching approved Review."
         );
       }

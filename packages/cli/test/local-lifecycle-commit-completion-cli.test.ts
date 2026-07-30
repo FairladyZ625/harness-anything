@@ -38,14 +38,33 @@ test("CLI task-complete rejects invalid commit-anchor packets without partial co
   rejectedCase("task-private-anchor", (rootDir) => execFileSync(
     "git", ["-C", path.join(rootDir, "harness"), "rev-parse", "HEAD"], { encoding: "utf8" }
   ).trim(), "commit_completion_git_ref_missing");
-  rejectedCase(executionTaskId, (rootDir, sha) => {
-    seedApprovedExecution(rootDir, executionTaskId, executionId);
-    return sha;
-  }, "commit_completion_execution_history_present");
-  rejectedCase("task-blank-judgment", (_rootDir, sha) => sha, "commit_completion_judgment_required", { judgment: "   " });
   rejectedCase("task-ci-failed-anchor", (_rootDir, sha) => sha, "ci_not_passed", { ci: "failed" });
   rejectedCase("task-ci-missing-anchor", (_rootDir, sha) => sha, "missing_ci_gate", { ci: "missing" });
   rejectedCase("task-closeout-placeholder-anchor", (_rootDir, sha) => sha, "closeout_placeholder", { placeholderCloseout: true });
+});
+
+test("commit-anchor completion accepts existing Execution history, evidence, and a blank judgment", () => {
+  withTempRoot((rootDir) => {
+    const anchoredSha = prepareCommitCompletionTask(rootDir, executionTaskId, false);
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
+    writeFileSync(
+      path.join(rootDir, `harness/tasks/${executionTaskId}/completion-evidence.json`),
+      "{\"stale\":true}\n",
+      "utf8"
+    );
+
+    const completed = runJson(rootDir, [
+      "task", "complete", executionTaskId, "--commit-anchor", anchoredSha,
+      "--judgment", "   ", "--ci", "passed"
+    ], true, executionActorEnv);
+
+    assert.equal(completed.status, "done");
+    const evidence = JSON.parse(readFileSync(
+      path.join(rootDir, `harness/tasks/${executionTaskId}/completion-evidence.json`),
+      "utf8"
+    ));
+    assert.equal(evidence.judgment.rationale, "");
+  });
 });
 
 test("commit-anchor completion internally replaces a stale anchor and softens unavailable doc sync", () => {
@@ -93,9 +112,9 @@ test("CLI task-complete requires paired commit-anchor flags and forbids reviewer
       "--commit-anchor", "HEAD", "--judgment", "done"
     ], false);
 
-    assert.equal(missingJudgment.error?.code, "completion_evidence_mode_invalid");
-    assert.equal(missingAnchor.error?.code, "completion_evidence_mode_invalid");
-    assert.equal(reviewer.error?.code, "completion_evidence_mode_invalid");
+    assert.equal(missingJudgment.error?.code, "invalid_task_metadata");
+    assert.equal(missingAnchor.error?.code, "invalid_task_metadata");
+    assert.equal(reviewer.error?.code, "invalid_task_metadata");
     assert.equal(conflictingModes.error?.code, "invalid_task_metadata");
     assert.match(conflictingModes.error?.hint ?? "", /one owner approval mode.+not both/iu);
   });

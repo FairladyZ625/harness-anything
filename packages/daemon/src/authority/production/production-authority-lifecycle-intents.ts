@@ -19,7 +19,6 @@ import {
 } from "@harness-anything/application";
 import {
   executionDeclaration,
-  declaredDocumentSetSha256,
   deriveRelationId,
   makeLocalVersionControlSystem,
   sha256Text,
@@ -248,8 +247,7 @@ function codeDocIntent(
     schema: "task.document/v1",
     taskId: action.taskId,
     path: "code-doc-anchors.json",
-    body: draft.body,
-    historyDocumentSetSha256: declaredDocumentSetSha256(taskDocuments, ["executions/", "reviews/"])
+    body: draft.body
   };
   const portablePath = taskLifecyclePath(authoredRoot, action.taskId, "code-doc-anchors.json");
   const existing = optionalLifecycleSnapshot(authoredRoot, portablePath.logical, portablePath.physical);
@@ -491,8 +489,7 @@ function taskCompletionIntent(
     taskId,
     evidence: evaluation.evidence,
     taskIndexBody: taskBody,
-    completionContractBodySha256: contractBodySha256,
-    historyDocumentSetSha256: declaredDocumentSetSha256(documents, ["executions/", "reviews/"])
+    completionContractBodySha256: contractBodySha256
   };
   return lifecycleIntent("completion.commit", encodeSessionExecutionReviewCommandPayloadV2(payload), [
     lifecycleMutation("task", `task/${taskId}`, "transition")
@@ -502,16 +499,7 @@ function taskCompletionIntent(
     taskSnapshot,
     contractCas,
     requiredLifecycleSnapshot(authoredRoot, closeoutPath.logical, closeoutPath.physical),
-    requiredLifecycleSnapshot(authoredRoot, codeDocPath.logical, codeDocPath.physical),
-    (() => {
-      const absent = absentHostedDocumentSnapshotV2(evidencePath.logical);
-      return {
-        path: evidencePath.logical,
-        expectedEpoch: absent.epoch,
-        expectedRevision: absent.revision,
-        expectedBlobDigest: absent.blobDigest
-      };
-    })()
+    requiredLifecycleSnapshot(authoredRoot, codeDocPath.logical, codeDocPath.physical)
   ]);
 }
 
