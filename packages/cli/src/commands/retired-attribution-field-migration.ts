@@ -15,6 +15,7 @@ import {
   type WriteError
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
@@ -73,23 +74,20 @@ export function runMigrateRetiredAttributionFields(
       report: report(0)
     });
   }
-  if (action.confirmPlan !== planId) {
-    return Effect.succeed({
-      ok: false,
-      command: "migrate-retired-attribution-fields",
-      error: cliError(CliErrorCode.PlanConfirmationRequired, `Inspect the dry-run and rerun with --apply --confirm-plan ${planId}.`),
-      report: report(0)
-    });
-  }
+  const confirmationWarnings = action.confirmPlan === planId ? [] : [demotedGateWarning(
+    "plan_confirmation_required",
+    `Plan confirmation was not supplied for ${planId}; migration continued and the computed plan remains visible in this receipt.`
+  )];
   if (!action.evidenceRef?.trim()) {
     return Effect.succeed({
       ok: false,
       command: "migrate-retired-attribution-fields",
       error: cliError(CliErrorCode.InvalidEvidence, "Apply requires --evidence-ref <approved-report-reference>."),
+      ...(confirmationWarnings.length > 0 ? { warnings: confirmationWarnings } : {}),
       report: report(0)
     });
   }
-  if (selected.length === 0) return Effect.succeed(cleanupResult(action, report(0)));
+  if (selected.length === 0) return Effect.succeed(cleanupResult(action, report(0), confirmationWarnings));
 
   const coordinator = context.makeMigrationWriteCoordinator(
     { scope: "operational", kind: "agent", id: "retired-attribution-field-migration" },
@@ -111,7 +109,7 @@ export function runMigrateRetiredAttributionFields(
       });
     }
     yield* coordinator.flush("explicit");
-    return cleanupResult(action, report(selected.length));
+    return cleanupResult(action, report(selected.length), confirmationWarnings);
   });
 }
 
@@ -291,13 +289,15 @@ function candidateReport(candidate: CleanupCandidate): Record<string, unknown> {
 
 function cleanupResult(
   action: MigrateRetiredAttributionFieldsAction,
-  report: Record<string, any>
+  report: Record<string, any>,
+  warnings: ReadonlyArray<unknown> = []
 ): CliResult {
   return {
     ok: true,
     command: "migrate-retired-attribution-fields",
     migrationMode: action.mode === "apply" ? "apply" : "plan",
     rows: report.summary.candidateDocuments,
+    ...(warnings.length > 0 ? { warnings } : {}),
     report
   };
 }

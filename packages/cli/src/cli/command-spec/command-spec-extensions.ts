@@ -155,8 +155,10 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
+      "data": ["taskId", "preset", "report"],
       "optionalData": {
+        "evidenceBundle": "Only emitted when the entrypoint produced an evidence bundle.",
+        "generated": "Only emitted when the entrypoint executed and reported generated paths.",
         "rows": "Only emitted when a scripted preset run writes a numeric rows value in its result.",
         "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
         "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."

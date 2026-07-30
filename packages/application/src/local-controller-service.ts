@@ -26,6 +26,7 @@ import type {
   LocalControllerResult,
   LocalControllerService,
   LocalControllerServiceOptions,
+  LocalControllerSuccess,
   PeripheralDocumentResult,
   TaskDocumentDescriptor,
   TaskDocumentKind
@@ -329,8 +330,13 @@ function readControllerPeripheralDocument(
   );
 }
 
-function toLocalControllerResult(result: { readonly ok: true } | { readonly ok: false; readonly error: LocalControllerError }): LocalControllerResult {
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
+function toLocalControllerResult(result: {
+  readonly ok: true;
+  readonly warnings?: LocalControllerSuccess["warnings"];
+} | { readonly ok: false; readonly error: LocalControllerError }): LocalControllerResult {
+  return result.ok
+    ? { ok: true, ...(result.warnings ? { warnings: result.warnings } : {}) }
+    : { ok: false, error: result.error };
 }
 
 function toProgressFailure(error: EngineError | WriteError): LocalControllerResult {

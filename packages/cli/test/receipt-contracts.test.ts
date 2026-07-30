@@ -390,6 +390,14 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     reason: "Only emitted for apply/archive rebuild modes that write generated governance views."
   }, {
     command: "preset-entrypoint",
+    field: "data.evidenceBundle",
+    reason: "Only emitted when the entrypoint produced an evidence bundle."
+  }, {
+    command: "preset-entrypoint",
+    field: "data.generated",
+    reason: "Only emitted when the entrypoint executed and reported generated paths."
+  }, {
+    command: "preset-entrypoint",
     field: "data.rows",
     reason: "Only emitted when a scripted preset run writes a numeric rows value in its result."
   }, {
@@ -402,6 +410,14 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     reason: "Only emitted by v3 semantic execution with its exact provider bindings."
   }, {
     command: "preset-run",
+    field: "data.evidenceBundle",
+    reason: "Only emitted when the entrypoint produced an evidence bundle."
+  }, {
+    command: "preset-run",
+    field: "data.generated",
+    reason: "Only emitted when the entrypoint executed and reported generated paths."
+  }, {
+    command: "preset-run",
     field: "data.rows",
     reason: "Only emitted when a scripted preset run writes a numeric rows value in its result."
   }, {
@@ -412,6 +428,14 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     command: "preset-run",
     field: "data.capabilityReceipt",
     reason: "Only emitted by v3 semantic execution with its exact provider bindings."
+  }, {
+    command: "preset-action",
+    field: "data.evidenceBundle",
+    reason: "Only emitted when the action produced an evidence bundle."
+  }, {
+    command: "preset-action",
+    field: "data.generated",
+    reason: "Only emitted when the action executed and reported generated paths."
   }, {
     command: "preset-action",
     field: "data.rows",

@@ -29,8 +29,3 @@ test("core gate implementations do not compare bundled preset ids", () => {
     }
   }
 });
-
-test("the lineage gate reads task lineage attributes, not preset metadata", () => {
-  const source = readFileSync(path.join(coreCommandsRoot, "task-lineage-gate.ts"), "utf8");
-  assert.doesNotMatch(source, /\bpreset\b/iu);
-});

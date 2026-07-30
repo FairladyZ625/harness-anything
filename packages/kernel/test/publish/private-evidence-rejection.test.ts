@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildPublishableProjection } from "../../src/index.ts";
 
-test("publishable projection rejects missing closeout evidence", () => {
+test("publishable projection treats closeout evidence readiness as descriptive", () => {
   const result = buildPublishableProjection({
     sourceTaskId: "kr-07",
     title: "Public closeout",
@@ -23,12 +23,11 @@ test("publishable projection rejects missing closeout evidence", () => {
     }
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "closeout_not_ready");
-  assert.equal(result.findings.some((finding) => finding.ruleId === "publish-readiness"), true);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.projection.readiness.closeoutReadiness, "passed");
 });
 
-test("publishable projection rejects missing review or CI evidence", () => {
+test("publishable projection treats review and CI readiness as descriptive", () => {
   const result = buildPublishableProjection({
     sourceTaskId: "kr-07",
     title: "Public closeout",
@@ -42,6 +41,9 @@ test("publishable projection rejects missing review or CI evidence", () => {
     }
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "closeout_not_ready");
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.projection.readiness.reviewGate, "passed");
+    assert.equal(result.projection.readiness.ciGate, "passed");
+  }
 });

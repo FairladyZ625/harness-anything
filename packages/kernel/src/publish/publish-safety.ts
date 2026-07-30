@@ -3,7 +3,6 @@ import type { PublishableProjection } from "../schemas/registry.ts";
 
 export type PublishProjectionRejectionCode =
   | "redaction_failed"
-  | "closeout_not_ready"
   | "duplicate_publish";
 
 export interface PublishableLink {
@@ -116,20 +115,6 @@ export function buildPublishableProjection(input: PublishProjectionInput): Publi
     };
   }
 
-  if (!readinessPassed(input.readiness)) {
-    return {
-      ok: false,
-      code: "closeout_not_ready",
-      findings: [
-        {
-          ruleId: "publish-readiness",
-          severity: "error",
-          message: "Publishable output requires passed closeout, review, and CI gates."
-        }
-      ]
-    };
-  }
-
   const links = [...input.links, ...input.readiness.evidenceLinks].sort(compareLinks);
   const readiness = {
     closeoutReadiness: "passed" as const,
@@ -197,13 +182,6 @@ export function reservePublishIdempotencyKey(
     ok: true,
     projection
   };
-}
-
-function readinessPassed(readiness: PublishReadinessEvidence): boolean {
-  return readiness.closeoutReadiness === "passed"
-    && readiness.reviewGate === "passed"
-    && readiness.ciGate === "passed"
-    && readiness.evidenceLinks.length > 0;
 }
 
 function scanPublishInput(input: PublishProjectionInput): ReadonlyArray<PublishRedactionFinding> {

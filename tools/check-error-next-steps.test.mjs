@@ -72,7 +72,6 @@ test("repository inventory covers the mission rejection families", () => {
   const keys = new Set(inventory.map((entry) => entry.key));
   for (const key of [
     "cli:command_receipt_contract_mismatch",
-    "cli:completion_gate_failed",
     "cli:invalid_transition",
     "cli:preset_script_not_found",
     "daemon:provider_unavailable"

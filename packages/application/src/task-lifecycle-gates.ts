@@ -32,7 +32,7 @@ export interface VerifierBackedReviewContract {
   readonly taskId: string;
   readonly reviewerId: string;
   readonly verifiedAt: string;
-  readonly status: "passed";
+  readonly status: "passed" | "warning";
   readonly findingSummary: {
     readonly total: number;
     readonly openBlocking: number;
@@ -47,6 +47,7 @@ export type ReviewGateResult = {
 } | {
   readonly ok: false;
   readonly status: "failed";
+  readonly contract: VerifierBackedReviewContract;
   readonly issues: ReadonlyArray<ReviewGateIssue>;
 };
 
@@ -81,7 +82,7 @@ export interface CompletionGateInput {
 }
 
 export interface CompletionGateIssue {
-  readonly code: "review_not_passed" | "missing_ci_gate" | "ci_not_passed" | "ci_not_applicable_for_contract" | "closeout_not_ready" | "task_tree_dirty";
+  readonly code: "task_tree_dirty";
   readonly message: string;
 }
 
@@ -204,6 +205,17 @@ export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
     return {
       ok: false,
       status: "failed",
+      contract: {
+        schema: "verifier-backed-review/v1",
+        taskId: input.taskId,
+        reviewerId: input.reviewerId,
+        verifiedAt: input.submittedAt,
+        status: "warning",
+        findingSummary: {
+          total: input.findings.length,
+          openBlocking: blocking.length
+        }
+      },
       issues: blocking.map((finding) => ({
         code: "release_blocking_finding",
         findingId: finding.id,
@@ -254,24 +266,9 @@ export function evaluateCompletionGate(input: CompletionGateInput): {
   readonly issues: ReadonlyArray<CompletionGateIssue>;
   readonly axes: Pick<CompletionGateInput, "coordinationStatus" | "packageDisposition" | "closeoutReadiness">;
 } {
-  const issues: CompletionGateIssue[] = [];
-  if (input.reviewGate !== "passed") {
-    issues.push({ code: "review_not_passed", message: "Task completion requires a passed review gate." });
-  }
-  const ciApplicable = (input.applicableGates ?? ["ci"]).includes("ci");
-  if (ciApplicable && input.ciGate !== "passed") {
-    issues.push(input.ciGate === undefined
-      ? { code: "missing_ci_gate", message: "Task completion contract requires a CI gate result." }
-      : input.ciGate === "not-applicable"
-        ? { code: "ci_not_applicable_for_contract", message: "Task completion contract declares a CI obligation; not-applicable is not allowed." }
-        : { code: "ci_not_passed", message: "Task completion requires a passed CI gate." });
-  }
-  if (input.closeoutReadiness !== "ready" && input.closeoutReadiness !== "passed") {
-    issues.push({ code: "closeout_not_ready", message: "Task completion requires closeout readiness to be ready or passed." });
-  }
   return {
-    ok: issues.length === 0,
-    issues,
+    ok: true,
+    issues: [],
     axes: {
       coordinationStatus: input.coordinationStatus,
       packageDisposition: input.packageDisposition,

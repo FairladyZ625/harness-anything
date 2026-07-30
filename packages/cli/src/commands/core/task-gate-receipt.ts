@@ -14,6 +14,7 @@ export function taskLifecycleResultToCliResult(
       taskId: result.taskId,
       executionId: result.executionId,
       status: result.status,
+      warnings: result.warnings,
       report: result.report,
       reviewContract: result.reviewContract,
       completionGate: result.completionGate,
@@ -46,13 +47,15 @@ export function taskLifecycleResultToCliResult(
 function taskGateHint(code: string, hint: string, taskId: string): string {
   if (hint.startsWith("Task completion has ")) return hint;
   if (/review\.md material findings table failed validation/i.test(hint)) return `${hint} Valid severity values: P0, P1, P2, P3.`;
-  if (code !== "closeout_not_ready" && !/closeout/i.test(hint)) return hint;
+  if (!/closeout/i.test(hint)) return hint;
   return [
     hint,
-    `Replace closeout.md placeholders with real Summary/Verification/Residual Risk, then rerun ha task complete ${taskId}; add --ci passed only when the resolved completionGates declares ci.`
+    `Replace closeout.md placeholders with real Summary/Verification/Residual Risk, then rerun ha task complete ${taskId}. If closeout.md is already substantive, retry the exact command once unchanged to refresh a lagging read.`
   ].join(" ");
 }
 
 function cliErrorCode(code: string): CliErrorCodeValue {
-  return isCliErrorCode(code) ? code : CliErrorCode.CompletionGateFailed;
+  if (isCliErrorCode(code)) return code;
+  if (code.startsWith("execution_")) return CliErrorCode.InvalidTransition;
+  return CliErrorCode.WriteRejected;
 }

@@ -2,9 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput, type WriteOp } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
-import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
+import { recordPresetScriptAuthorizationWarning } from "./preset-evidence.ts";
 import { runLegacyPresetScriptEntrypoint, scriptCliResult, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import { presetRuntimeUnavailableResult } from "./preset-runtime-availability.ts";
 import { withPresetRuntimeWarning } from "./preset-runtime-mode.ts";
@@ -69,27 +70,19 @@ export function runPresetEntrypoint(
   if (preset.manifest.schema === "preset-manifest/v3") {
     const semanticEntrypoint = preset.manifest.entrypoints?.[entrypoint];
     if (semanticEntrypoint?.type !== "script") {
-      return {
-        ok: false,
-        command: commandName,
-        preset: publicPresetSummary(preset),
-        error: cliError(CliErrorCode.PresetActionForbidden, `Preset ${presetId} does not declare executable action ${entrypoint}.`)
-      };
-    }
-    const presetSummary = publicPresetSummary(preset);
-    if (!allowScripts) {
-      mkdirSync(evidenceDir, { recursive: true });
-      return presetScriptAuthorizationRequiredResult({
-        rootDir,
-        evidenceDir,
+      return presetActionWarningResult(
         commandName,
-        presetSummary,
+        publicPresetSummary(preset),
         presetId,
-        layer: preset.layer,
         taskId,
         entrypoint
-      });
+      );
     }
+    const presetSummary = publicPresetSummary(preset);
+    const authorizationWarnings = allowScripts ? [] : (() => {
+      mkdirSync(evidenceDir, { recursive: true });
+      return [recordPresetScriptAuthorizationWarning({ evidenceDir, presetId, taskId, entrypoint })];
+    })();
     const run = runScriptHost({
       rootInput,
       commandName,
@@ -112,7 +105,8 @@ export function runPresetEntrypoint(
         ...run.result,
         command: commandName,
         preset: presetSummary,
-        taskId
+        taskId,
+        warnings: [...(run.result.warnings ?? []), ...authorizationWarnings]
       };
     }
     return {
@@ -123,7 +117,10 @@ export function runPresetEntrypoint(
       runId: run.runId,
       evidenceBundle: path.relative(rootDir, run.runDir).split(path.sep).join("/"),
       generated: run.generated,
-      warnings: Array.isArray(run.scriptedResult.warnings) ? run.scriptedResult.warnings : undefined,
+      warnings: [
+        ...(Array.isArray(run.scriptedResult.warnings) ? run.scriptedResult.warnings : []),
+        ...authorizationWarnings
+      ],
       rows: typeof run.scriptedResult.rows === "number" ? run.scriptedResult.rows : undefined,
       report: run.scriptedResult.report ?? run.scriptedResult,
       capabilityReceipt: run.capabilityReceipt
@@ -131,26 +128,22 @@ export function runPresetEntrypoint(
   }
   if (declaredEntrypoint?.type === "script") {
     mkdirSync(evidenceDir, { recursive: true });
-    if (!allowScripts) {
-      return finish(presetScriptAuthorizationRequiredResult({
-        rootDir,
-        evidenceDir,
-        commandName,
-        presetSummary: publicPresetSummary(preset),
-        presetId,
-        layer: preset.layer,
-        taskId,
-        entrypoint
-      }));
-    }
+    const authorizationWarnings = allowScripts
+      ? []
+      : [recordPresetScriptAuthorizationWarning({ evidenceDir, presetId, taskId, entrypoint })];
     const presetSummary = publicPresetSummary(preset);
     const legacyEntrypoint = declaredEntrypoint as LegacyPresetScriptEntrypoint;
     const scriptResult = runLegacyPresetScriptEntrypoint(rootInput, preset, discoverPresets(rootInput, verticalId), presetSummary, legacyEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
-    if (!scriptResult.ok) return finish(scriptResult.result);
+    if (!scriptResult.ok) {
+      return finish({
+        ...scriptResult.result,
+        warnings: [...(scriptResult.result.warnings ?? []), ...authorizationWarnings]
+      });
+    }
     generated.push(...scriptResult.generated);
     if (scriptResult.ingestOp) pendingOps.push(scriptResult.ingestOp);
     if (scriptResult.scriptedResult) {
-      return finish(scriptCliResult({
+      const result = scriptCliResult({
         rootDir,
         evidenceDir,
         commandName,
@@ -158,7 +151,11 @@ export function runPresetEntrypoint(
         taskId,
         generated,
         scriptedResult: scriptResult.scriptedResult
-      }));
+      });
+      return finish({
+        ...result,
+        warnings: [...(result.warnings ?? []), ...authorizationWarnings]
+      });
     }
   } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
     const outputPath = path.join(layout.generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
@@ -166,12 +163,13 @@ export function runPresetEntrypoint(
     writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
     generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
   } else {
-    return finish({
-      ok: false,
-      command: commandName,
-      preset: publicPresetSummary(preset),
-      error: cliError(CliErrorCode.PresetActionForbidden, `Preset ${presetId} does not declare action ${entrypoint}.`)
-    });
+    return finish(presetActionWarningResult(
+      commandName,
+      publicPresetSummary(preset),
+      presetId,
+      taskId,
+      entrypoint
+    ));
   }
   const evidence = {
     schema: "preset-evidence/v1",
@@ -193,6 +191,30 @@ export function runPresetEntrypoint(
     generated,
     report: evidence
   });
+}
+
+function presetActionWarningResult(
+  commandName: "preset-run" | "preset-action",
+  preset: unknown,
+  presetId: string,
+  taskId: string,
+  entrypoint: string
+): CliResult {
+  return {
+    ok: true,
+    command: commandName,
+    preset,
+    taskId,
+    warnings: [demotedGateWarning(
+      "preset_action_forbidden",
+      `Preset ${presetId} does not declare action ${entrypoint}; no preset action was executed.`
+    )],
+    report: {
+      schema: "preset-action-result/v1",
+      entrypoint,
+      executed: false
+    }
+  };
 }
 
 function timestampForPath(now: Date = new Date()): string {

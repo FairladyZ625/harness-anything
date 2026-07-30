@@ -192,22 +192,26 @@ test("local controller service reads projection and writes through injected task
     });
     assert.deepEqual(writes, ["status:task-1:active"]);
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "done" }), {
-      ok: false,
-      error: {
+      ok: true,
+      warnings: [{
+        severity: "warning",
         code: "terminal_status_requires_task_complete",
-        hint: "Use task-complete after review, CI, and closeout gates pass."
-      }
+        message: "Direct terminal status transition bypassed the owner approval path. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>.",
+        revivalCondition: "Reinstate a hard rejection only after a third independent user, external auditor, or writer outside direct owner review exists and a real incident is documented."
+      }]
     });
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "cancelled" }), {
-      ok: false,
-      error: {
+      ok: true,
+      warnings: [{
+        severity: "warning",
         code: "terminal_status_requires_task_complete",
-        hint: "Terminal cancellation requires an audited recovery path."
-      }
+        message: "Direct terminal status transition bypassed the owner approval path. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>.",
+        revivalCondition: "Reinstate a hard rejection only after a third independent user, external auditor, or writer outside direct owner review exists and a real incident is documented."
+      }]
     });
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
+    assert.deepEqual(writes, ["status:task-1:active", "status:task-1:done", "status:task-1:cancelled"]);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
-    assert.deepEqual(writes, ["status:task-1:active", "progress:task-1:GUI update"]);
+    assert.deepEqual(writes, ["status:task-1:active", "status:task-1:done", "status:task-1:cancelled", "progress:task-1:GUI update"]);
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), /GUI update/);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

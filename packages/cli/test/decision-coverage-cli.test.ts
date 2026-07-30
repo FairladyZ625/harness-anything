@@ -329,7 +329,7 @@ test("CLI repeated judgment-only accept keeps a single existing judgment section
   });
 });
 
-test("CLI decision reckon fails closed on uncovered load-bearing claims", () => {
+test("CLI decision reckon continues with a warning on uncovered load-bearing claims", () => {
   withTempRoot((rootDir) => {
     const task = runJson(rootDir, ["task", "create", "--title", "Reckon Evidence"]);
     runJson(rootDir, [
@@ -346,8 +346,9 @@ test("CLI decision reckon fails closed on uncovered load-bearing claims", () => 
 
     const result = runJson(rootDir, ["decision", "reckon", "dec_RECKON_FAIL", "--task", task.taskId], false);
 
-    assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "decision_reckon_uncovered");
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings[0].code, "decision_reckon_uncovered");
+    assert.match(result.warnings[0].revivalCondition, /third independent user/u);
     assert.deepEqual(result.report.uncoveredClaimRefs, ["decision/dec_RECKON_FAIL/C1"]);
   });
 });

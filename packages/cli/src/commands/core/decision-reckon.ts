@@ -8,6 +8,7 @@ import {
 import { queryConsentsBySourceStrength, readDecisionFactCoverage, type WriteError } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 
 type ReckonAction = Extract<ParsedCommand["action"], { readonly kind: "decision-reckon" }>;
@@ -100,10 +101,15 @@ function reckonResult(
     ...(factPath ? { path: factPath } : {}),
     report
   };
-  return report.ok ? { ok: true, ...base } : {
-    ok: false,
+  return {
+    ok: true,
     ...base,
-    error: cliError(CliErrorCode.DecisionReckonUncovered, `Decision ${action.decisionId} has uncovered load-bearing claims: ${report.uncoveredClaimRefs.join(", ")}`)
+    ...(!report.ok ? {
+      warnings: [demotedGateWarning(
+        "decision_reckon_uncovered",
+        `Decision ${action.decisionId} has uncovered load-bearing claims: ${report.uncoveredClaimRefs.join(", ")}`
+      )]
+    } : {})
   };
 }
 

@@ -10,6 +10,16 @@ export * from "./daemon-log-service.ts";
 
 export interface LocalControllerSuccess {
   readonly ok: true;
+  readonly warnings?: ReadonlyArray<LocalControllerWarning>;
+}
+
+export interface LocalControllerWarning {
+  readonly severity: string;
+  readonly code: string;
+  readonly message: string;
+  readonly source?: string;
+  readonly repairHint?: string;
+  readonly revivalCondition?: string;
 }
 
 export interface LocalControllerError {

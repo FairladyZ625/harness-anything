@@ -438,13 +438,15 @@ test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutov
     writeLegacyTask(rootDir, "old-task", "active");
 
     const plan = runJson(rootDir, ["migrate-plan"]);
-    const structure = runJson(rootDir, ["migrate-structure", "--apply", "--confirm-plan"]);
+    const structure = runJson(rootDir, ["migrate-structure", "--apply"]);
     const run = runJson(rootDir, ["migrate-run", "--plan-only"]);
     const retired = runJson(rootDir, ["migrate-verify", run.path, "--full-cutover"], false);
 
     assert.equal(plan.report.schema, "legacy-intake-scan/v1");
     assert.equal(plan.warnings[0].code, "migration_alias_legacy_intake");
     assert.equal(structure.ok, true);
+    assert.equal(structure.warnings.some((warning: Record<string, unknown>) => warning.code === "plan_confirmation_required"), true);
+    assert.equal(structure.warnings.some((warning: Record<string, unknown>) => String(warning.revivalCondition).includes("third independent user")), true);
     assert.equal(JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/collision-report.json"), "utf8")).entries.length, 0);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/old-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/old-task")), false);

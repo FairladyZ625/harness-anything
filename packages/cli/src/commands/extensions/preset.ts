@@ -214,15 +214,6 @@ function runPresetAction(rootInput: HarnessLayoutInput, activeVerticalId: string
   const preset = resolvePresetEntry(rootInput, action.presetId, activeVerticalId);
   if (!preset) return presetNotFound("preset-action", action.presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
-  const declared = preset.manifest.entrypoints?.[action.entrypointName];
-  if (!declared && action.entrypointName !== "plan" && action.entrypointName !== "scaffold" && action.entrypointName !== "check") {
-    return {
-      ok: false,
-      command: "preset-action",
-      preset: { id: action.presetId },
-      error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.entrypointName} is not declared.`)
-    };
-  }
   return runPresetEntrypoint(rootInput, activeVerticalId, action.presetId, action.entrypointName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
 }
 

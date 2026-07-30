@@ -1,13 +1,16 @@
 import { collectGitDiffEvidence } from "@harness-anything/adapter-local";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
 import type { CliResult } from "../cli/types.ts";
 
 export function runGitDiffEvidence(rootDir: string, baseRef?: string): CliResult {
   const report = collectGitDiffEvidence({ rootDir, baseRef });
   return {
-    ok: report.ok,
+    ok: true,
     command: "git-diff",
     report,
-    error: report.ok ? undefined : cliError(CliErrorCode.GitDiffUnavailable, report.error ?? "Git diff evidence is unavailable for this repository.")
+    warnings: report.ok ? undefined : [demotedGateWarning(
+      "git_diff_unavailable",
+      report.error ?? "Git diff evidence is unavailable for this repository."
+    )]
   };
 }

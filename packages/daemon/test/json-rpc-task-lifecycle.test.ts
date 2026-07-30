@@ -12,7 +12,7 @@ import {
   sampleRoster
 } from "./json-rpc-protocol-fixtures.ts";
 
-test("generic Task lifecycle RPC routes preserve mandatory Execution Review rejections", async () => {
+test("generic Task lifecycle RPC routes preserve review rejection and terminal warning receipts", async () => {
   let writeAttempts = 0;
   const roster = sampleRoster();
   const server = makeServer({
@@ -28,7 +28,15 @@ test("generic Task lifecycle RPC routes preserve mandatory Execution Review reje
           writeAttempts += 1;
           return payload.status === "in_review"
             ? { ok: false, error: { code: "execution_submission_required", hint: "submit the active Execution" } }
-            : { ok: false, error: { code: "terminal_status_requires_task_complete", hint: "use task complete" } };
+            : {
+                ok: true,
+                warnings: [{
+                  severity: "warning" as const,
+                  code: "terminal_status_requires_task_complete",
+                  message: "Preferred path: ha task complete task-1 --approve. If already terminal, use ha task supersede task-1.",
+                  revivalCondition: "Reinstate only after a third independent user and a documented incident."
+                }]
+              };
         },
         reviewTask: async () => {
           writeAttempts += 1;
@@ -60,8 +68,9 @@ test("generic Task lifecycle RPC routes preserve mandatory Execution Review reje
 
   assert.equal(inReview.ok, false);
   assert.equal(inReview.error?.code, "execution_submission_required");
-  assert.equal(done.ok, false);
-  assert.equal(done.error?.code, "terminal_status_requires_task_complete");
+  assert.equal(done.ok, true);
+  assert.match(JSON.stringify(done), /terminal_status_requires_task_complete/u);
+  assert.match(JSON.stringify(done), /ha task complete task-1 --approve/u);
   assert.equal(legacyReview.ok, false);
   assert.equal(legacyReview.error?.code, "execution_submission_required");
   assert.equal(writeAttempts, 3);

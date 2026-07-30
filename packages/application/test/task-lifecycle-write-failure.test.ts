@@ -221,7 +221,7 @@ test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4
 
     const result = await runEffect(orchestrator.reviewTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
 
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, true, JSON.stringify(result));
     if (!result.ok) return;
     assert.equal(result.reviewContract.schema, "verifier-backed-review/v1");
   } finally {
@@ -261,17 +261,19 @@ test("a valid legacy review cannot complete a task without a submitted Execution
       }
     }));
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "completion_gate_failed");
+    if (!result.ok) assert.equal(result.error.code, "execution_submission_required");
     assert.equal(statusWriteCount, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("software preset contract continues to require CI", async () => {
+test("software preset contract treats missing CI as descriptive readiness", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-software-completion-"));
   try {
-    writeTaskPackage(rootDir, "task-1", "Coding Task");
+    writeTaskPackage(rootDir, completionTaskId, "Coding Task");
+    writeFact(rootDir, completionTaskId);
+    writeApprovedExecutionReview(rootDir, completionTaskId);
     const orchestrator = makeTaskLifecycleOrchestrator({
       rootDir,
       taskWriter: successfulWriter(),
@@ -280,9 +282,9 @@ test("software preset contract continues to require CI", async () => {
       completionGateResolver: () => ["ci", "code-doc-reconciliation"],
       executionCompletionService: successfulExecutionCompletionService()
     });
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", actor: completionActor() }));
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "missing_ci_gate");
+    const result = await runEffect(orchestrator.completeTask({ taskId: completionTaskId, reviewerId: "reviewer-a", actor: completionActor() }));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (result.ok) assert.equal(result.status, "done");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

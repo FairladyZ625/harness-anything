@@ -54,14 +54,11 @@ test("fact-execution migration classifies three signals, requires plan confirmat
     ]);
     assert.equal(dryRun.report.samples.bearingObservations[0].factRef, `fact/${taskId}/F-BEAR1NG0`);
 
-    const unconfirmed = runJson(rootDir, ["migrate", "fact-execution", "--apply"], false);
-    assert.equal(unconfirmed.ok, false);
-    assert.equal(unconfirmed.error.code, "plan_confirmation_required");
-    assert.equal(parseFactFlowRecords(readFileSync(path.join(rootDir, taskPath, "facts.md"), "utf8")).some((fact) => fact.migration), false);
-
     const applied = runJson(rootDir, [
-      "migrate", "fact-execution", "--apply", "--confirm-plan", String(dryRun.report.planId), "--batch-size", "10"
+      "migrate", "fact-execution", "--apply", "--batch-size", "10"
     ]);
+    assert.equal(applied.warnings[0].code, "plan_confirmation_required");
+    assert.match(applied.warnings[0].revivalCondition, /third independent user/u);
     assert.equal(applied.report.summary.appliedFacts, 1);
     assert.equal(applied.report.summary.appliedTasks, 1);
     const facts = parseFactFlowRecords(readFileSync(path.join(rootDir, taskPath, "facts.md"), "utf8"));
