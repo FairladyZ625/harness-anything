@@ -234,11 +234,6 @@
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
       },
       {
-        "value": "cli:execution_completion_required",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
         "value": "cli:fact_write_rejected",
         "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
