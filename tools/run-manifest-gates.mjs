@@ -96,7 +96,11 @@ export function buildManifestGatePlan(manifest, options) {
     return gate;
   });
 
-  return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)));
+  return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)))
+    .map((entry) => ({
+      ...entry,
+      advisory: gatesById.get(entry.id)?.tier === "pr-advisory"
+    }));
 }
 
 function dedupeCommands(gates) {
@@ -222,6 +226,23 @@ function runCommand(label, command) {
   return true;
 }
 
+export function runManifestGatePlan(plan, {
+  run = runCommand,
+  warn = (label) => console.log(`::warning title=Advisory gate failed::${label} failed; see the preceding log for details.`)
+} = {}) {
+  const advisoryFailures = [];
+  for (const entry of plan) {
+    if (run(entry.id, entry.command)) continue;
+    if (entry.advisory) {
+      advisoryFailures.push(entry.id);
+      warn(entry.id);
+      continue;
+    }
+    return { ok: false, advisoryFailures, failedRequiredGate: entry.id };
+  }
+  return { ok: true, advisoryFailures, failedRequiredGate: null };
+}
+
 function main(argv) {
   const options = parseManifestGateArgs(argv);
   const manifest = readManifest();
@@ -229,13 +250,15 @@ function main(argv) {
   const selector = options.packageSurface ? `package:${options.packageSurface}` : `workflow:${options.workflowJob}`;
 
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
-  for (const entry of plan) {
-    if (!runCommand(entry.id, entry.command)) {
-      process.exitCode = 1;
-      return;
-    }
+  const result = runManifestGatePlan(plan);
+  if (!result.ok) {
+    process.exitCode = 1;
+    return;
   }
-  console.log(`\nManifest gate runner passed (${selector}).`);
+  const advisorySummary = result.advisoryFailures.length === 0
+    ? ""
+    : ` with ${result.advisoryFailures.length} advisory warning(s)`;
+  console.log(`\nManifest gate runner passed (${selector})${advisorySummary}.`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -9,8 +9,8 @@
     "decision/dec_mrepu7h7#CH1"
   ],
   "sourceSnapshot": {
-    "taskId": "task_01KX5HEBCHAKMA25FH5KHRWSEX",
-    "recordedAt": "2026-07-10",
+    "taskId": "task_01KYT4WZH1CR3QY89RKBVBVSWW",
+    "recordedAt": "2026-07-31",
     "packageScripts": "package.json",
     "workflow": ".github/workflows/rewrite-ci.yml",
     "branchProtectionDocument": ".github/branch-protection.md",
@@ -31,7 +31,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "pr-body-lint",
         "direct-recovery"
       ]
     }
@@ -88,9 +87,6 @@
         "check-error-classification",
         "check-capabilities-kind-source",
         "check-import-boundaries",
-        "check-write-coordinator-boundary",
-        "check-write-road-registry",
-        "check-cli-direct-writer",
         "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
@@ -258,7 +254,6 @@
         "integration-shard (6)",
         "supply-chain",
         "gui-build",
-        "pr-body-lint",
         "direct-recovery"
       ],
       "enforceAdmins": false
@@ -279,7 +274,7 @@
       "command": "npm run check:pr",
       "category": "meta-governance",
       "tier": "manual-only",
-      "tierReason": "Local PR approximation script is not invoked by rewrite-ci; GitHub PRs use tiered jobs instead.",
+      "tierReason": "Local PR approximation is an optional manual summary, not merge evidence; GitHub PRs use tiered jobs instead.",
       "authoritySource": [
         "package.json:scripts.check:pr",
         "harness/governance/standards/ci-cd-standard.md#ci-lane"
@@ -338,8 +333,8 @@
       "id": "pr-body-lint",
       "command": "node tools/check-pr-body-bilingual.mjs --env PR_BODY",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "The bilingual body contract remains visible as a workflow warning but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         ".github/pull_request_template.md",
         "harness/governance/standards/repo-governance-standard.md"
@@ -348,9 +343,7 @@
         "GitHub pull request body"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "pr-body-lint"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "pr-body-lint"
         ],
@@ -362,7 +355,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by mergify[bot], using a mergify/merge-queue/* head ref, and carrying the Mergify queue payload marker."
+        "notes": "The checker preserves the bilingual template contract as advisory guidance. Mergify merge-queue verification PRs are narrowly skipped when authored by mergify[bot], using a mergify/merge-queue/* head ref, and carrying the Mergify queue payload marker."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -387,10 +380,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "pr-body-lint"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "pr"
@@ -408,8 +399,8 @@
       "id": "pr-governance-lint",
       "command": "node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "The protected-surface declaration remains visible as a workflow warning but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d5--protected-surface-definition",
         "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d8--agent-stop-condition-for-ci/gate-authority-changes",
@@ -424,9 +415,7 @@
         "manifest-derived protected governance surfaces"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "pr-body-lint"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "pr-body-lint"
         ],
@@ -438,7 +427,7 @@
         "allowed": true,
         "location": ".github/pull_request_template.md#governance-declaration",
         "adrOrDecisionRequired": true,
-        "notes": "Break-glass is declared in the PR body only for urgent main recovery and must record reason, scope, and a follow-up governance task. The checker verifies declaration shape and references, not semantic truth."
+        "notes": "The advisory checker reports declaration shape and reference guidance, including break-glass fields, but does not judge semantic truth or block merge."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -472,10 +461,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "pr-body-lint"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "pr"
@@ -514,7 +501,6 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "pr-body-lint",
           "typecheck (24)",
           "fast-contract",
           "integration-shard (1)",
@@ -583,7 +569,6 @@
         "branchProtection": {
           "required": true,
           "contexts": [
-            "pr-body-lint",
             "typecheck (24)",
             "fast-contract",
             "integration-shard (1)",
@@ -1959,8 +1944,8 @@
       "id": "check-write-coordinator-boundary",
       "command": "npm run harness:check-write-coordinator-boundary",
       "category": "boundary",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "This self-reported write-path process proof remains visible in PR and aggregate runs but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f6-write-coordinator",
@@ -1972,9 +1957,7 @@
         "metabolic write-admissibility policy modules named by ADR-0022 F6"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -2012,10 +1995,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -2034,8 +2015,8 @@
       "id": "check-write-road-registry",
       "command": "npm run harness:check-write-road-registry",
       "category": "boundary",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "This self-reported write-road inventory proof remains visible in PR and aggregate runs but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         "task_01KX19G7VXRHSEH6YE7GHYMJYP",
         "dec_mrcda9kw",
@@ -2053,9 +2034,7 @@
         "preset/script declared writes and produces"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -2095,10 +2074,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -2117,8 +2094,8 @@
       "id": "check-cli-direct-writer",
       "command": "npm run harness:check-cli-direct-writer",
       "category": "boundary",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "This self-reported CLI write-path proof remains visible in PR and aggregate runs but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         "dec_01KXV4DSQ4HXY00CP6C6M4DRN5",
         "task_01KXV4FNJ50D7BZMN5476J0TAB",
@@ -2129,9 +2106,7 @@
         "retired CLI direct writer consumers under packages/cli/src, packages/cli/test, and tools"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -2169,10 +2144,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -2843,8 +2816,8 @@
       "id": "check-integration-test-shards",
       "command": "npm run harness:check-integration-test-shards",
       "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "This self-reported shard inventory proof remains visible in PR and aggregate runs but no longer blocks merge under dec_01KYS8HGNH1S445TXG53SJESKA CH2.",
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
         "tools/integration-test-shards.mjs",
@@ -2857,9 +2830,7 @@
         "workflow shards and required contexts must remain aligned"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -2899,10 +2870,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
