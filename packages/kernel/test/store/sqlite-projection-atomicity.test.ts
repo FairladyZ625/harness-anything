@@ -2,10 +2,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { SqlClient } from "@effect/sql";
+import { Effect } from "effect";
 import { executionDeclaration } from "../../src/entity/execution-declaration.ts";
 import {
   readAttributionEventSource,
@@ -14,7 +16,118 @@ import {
 import { localProjectionSourceFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { readDeclaredEntitySource } from "../../src/projection/entity-declaration-projection.ts";
 import { readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
+import { runSqlite, runSqliteReadonly, writeProjectionDatabase } from "../../src/projection/sqlite-projection-store.ts";
 import { withTempStore, withTempStoreAsync } from "./helpers.ts";
+
+test("projection read and write connections wait through transient SQLite lock contention", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    seedAtomicProjectionTask(rootDir, 1);
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+
+    assert.equal(readBusyTimeout(projectionPath, false), 10_000);
+    assert.equal(readBusyTimeout(projectionPath, true), 10_000);
+
+    const readLocker = spawnSqliteLocker(projectionPath, "read");
+    await waitForAtomicReader(() => readLocker.stdout.includes("LOCKED\n"));
+    assert.doesNotThrow(() => runSqlite(projectionPath, Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`BEGIN IMMEDIATE`;
+      yield* sql`UPDATE projection_meta SET value = 'writer-waited' WHERE key = 'sourceHash'`;
+      yield* sql`COMMIT`;
+    })));
+    await readLocker.closed;
+
+    const writeLocker = spawnSqliteLocker(projectionPath, "write");
+    await waitForAtomicReader(() => writeLocker.stdout.includes("LOCKED\n"));
+    assert.equal(runSqliteReadonly(projectionPath, Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql<{ readonly value: string }>`SELECT value FROM projection_meta WHERE key = 'sourceHash'`;
+      return rows[0]?.value;
+    })), "writer-waited");
+    await writeLocker.closed;
+  });
+});
+
+function readBusyTimeout(projectionPath: string, readonly: boolean): number | undefined {
+  const effect = Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly timeout: number }>`PRAGMA busy_timeout`;
+    return rows[0]?.timeout;
+  });
+  return readonly
+    ? runSqliteReadonly(projectionPath, effect)
+    : runSqlite(projectionPath, effect);
+}
+
+test("failed projection rebuild removes the temporary database and every SQLite sidecar", () => {
+  withTempStore((rootDir) => {
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    const fixedNow = 1_800_000_000_000;
+    const tempPath = `${projectionPath}.${process.pid}.${fixedNow}.tmp`;
+    for (const suffix of ["-journal", "-wal", "-shm"]) {
+      writeFileSync(`${tempPath}${suffix}`, "orphan");
+    }
+    const originalNow = Date.now;
+    Date.now = () => fixedNow;
+    try {
+      assert.throws(() => writeProjectionDatabase(
+        projectionPath,
+        [],
+        [],
+        { sourceHash: "source", rowsHash: "rows" },
+        { relationEdges: [], coverageRows: [], factAnchors: [], factRows: [], warnings: [] },
+        [],
+        () => Effect.fail(new Error("synthetic projection materialization failure"))
+      ), /synthetic projection materialization failure/u);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    assert.equal(existsSync(tempPath), false);
+    for (const suffix of ["-journal", "-wal", "-shm"]) {
+      assert.equal(existsSync(`${tempPath}${suffix}`), false, suffix);
+    }
+  });
+});
+
+test("SQLite full rebuild detaches stale WAL sidecars before publishing a new generation", () => {
+  withTempStore((rootDir) => {
+    seedAtomicProjectionTask(rootDir, 1);
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const reader = new DatabaseSync(projectionPath);
+    try {
+      reader.exec("PRAGMA journal_mode = WAL");
+      reader.exec("BEGIN");
+      reader.prepare("SELECT value FROM projection_meta WHERE key = 'sourceHash'").get();
+      const writer = new DatabaseSync(projectionPath);
+      try {
+        writer.prepare("UPDATE projection_meta SET value = 'old-wal' WHERE key = 'sourceHash'").run();
+      } finally {
+        writer.close();
+      }
+      assert.equal(statSync(`${projectionPath}-wal`).size > 0, true);
+
+      rebuildTaskProjection({ rootDir });
+
+      const published = new DatabaseSync(projectionPath, { readOnly: true });
+      try {
+        assert.equal(published.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
+        assert.notEqual(
+          published.prepare("SELECT value FROM projection_meta WHERE key = 'sourceHash'").get()?.value,
+          "old-wal"
+        );
+      } finally {
+        published.close();
+      }
+    } finally {
+      reader.exec("ROLLBACK");
+      reader.close();
+    }
+  });
+});
 
 test("SQLite full rebuild atomically publishes complete declared entity generations", async () => {
   await withTempStoreAsync(async (rootDir) => {
@@ -353,6 +466,47 @@ async function waitForAtomicReader(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+function spawnSqliteLocker(
+  projectionPath: string,
+  mode: "read" | "write"
+): { readonly closed: Promise<void>; readonly stdout: string } {
+  const child = spawn(process.execPath, ["--input-type=module", "-e", sqliteLockerScript], {
+    env: {
+      ...process.env,
+      HARNESS_PROJECTION_PATH: projectionPath,
+      HARNESS_LOCK_MODE: mode
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const output = { stdout: "" };
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output.stdout += chunk; });
+  child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+  return {
+    get stdout() {
+      return output.stdout;
+    },
+    closed: once(child, "close").then(([exitCode]) => {
+      assert.equal(exitCode, 0, stderr);
+    })
+  };
+}
+
+const sqliteLockerScript = `
+import Sqlite from "better-sqlite3";
+const database = new Sqlite(process.env.HARNESS_PROJECTION_PATH);
+database.pragma("journal_mode = DELETE");
+database.exec(process.env.HARNESS_LOCK_MODE === "write" ? "BEGIN EXCLUSIVE" : "BEGIN");
+database.prepare("SELECT value FROM projection_meta WHERE key = 'sourceHash'").get();
+process.stdout.write("LOCKED\\n");
+setTimeout(() => {
+  database.exec("ROLLBACK");
+  database.close();
+}, 250);
+`;
 
 const atomicProjectionReaderScript = `
 import { DatabaseSync } from "node:sqlite";
