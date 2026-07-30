@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import {
   makeCoordinatedExecutionAuthoredStore,
+  makeExecutionReservationReconciler,
   makeExecutionSagaService,
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
@@ -33,6 +34,51 @@ const samePersonDifferentExecutor = taskHolderActor(
   { personId: "alice", displayName: "Alice" },
   { kind: "agent", id: "claude-code" }
 );
+
+test("fresh reservation survives reconciliation while claim publication is in flight", async () => {
+  await withClaimFixture(async ({ rootDir, holder, authored }) => {
+    let publicationEntered!: () => void;
+    let continuePublication!: () => void;
+    const entered = new Promise<void>((resolve) => { publicationEntered = resolve; });
+    const proceed = new Promise<void>((resolve) => { continuePublication = resolve; });
+    const delayedStore: ExecutionAuthoredStore = {
+      ...authored,
+      openExecution: async (input) => {
+        publicationEntered();
+        await proceed;
+        await authored.openExecution(input);
+      }
+    };
+    const saga = makeExecutionSagaService({
+      taskHolderService: holder,
+      authoredStore: delayedStore,
+      generateExecutionId: () => executionId,
+      now: () => "2026-07-29T00:00:00.000Z"
+    });
+    const reconcile = makeExecutionReservationReconciler({
+      rootInput: rootDir,
+      taskHolderService: holder,
+      authoredStore: authored,
+      now: () => "2026-07-29T00:00:00.000Z",
+      minimumMissingReservationAgeMs: 60_000
+    });
+
+    const pendingClaim = saga.claim({ taskId, principal });
+    await entered;
+    await reconcile();
+    const duringPublication = await holder.holder({ taskId });
+    continuePublication();
+    const claimed = await pendingClaim;
+
+    assert.equal(
+      duringPublication.holder?.schema === "task-holder/v2"
+        ? duringPublication.holder.phase
+        : null,
+      "reserving"
+    );
+    assert.equal(claimed.phase, "active");
+  });
+});
 
 test("claim adopts a matching execution when publication committed before returning an error", async () => {
   await withClaimFixture(async ({ holder, authored, saga }) => {
@@ -290,6 +336,7 @@ test("journal recovery completes a claim transaction after SIGTERM follows its f
 
 async function withClaimFixture(
   run: (fixture: {
+    readonly rootDir: string;
     readonly holder: ReturnType<typeof makeTaskHolderService>;
     readonly authored: ReturnType<typeof memoryAuthoredStore>;
     readonly saga: ReturnType<typeof makeExecutionSagaService>;
@@ -305,7 +352,7 @@ async function withClaimFixture(
       generateExecutionId: () => executionId,
       now: () => "2026-07-29T00:00:00.000Z"
     });
-    await run({ holder, authored, saga });
+    await run({ rootDir, holder, authored, saga });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
