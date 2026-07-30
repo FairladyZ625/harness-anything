@@ -4,8 +4,7 @@ import test from "node:test";
 import {
   RepoWriteClient,
   RepoWriteDirectOutcomeUnknownError,
-  RepoWriteNotStartedError,
-  RepoWriteOutcomeUnknownError
+  RepoWriteNotStartedError
 } from "../src/runtime/repo-write-client.ts";
 import type {
   RepoWriteRequestFailureDiagnostic,
@@ -22,6 +21,7 @@ import {
   readyFrame,
   requestId
 } from "./support/repo-write-client-fixture.ts";
+import { committedCommandReceipt } from "./support/repo-write-terminal-fixture.ts";
 
 test("timeout diagnostics name the child wait for every authority submission ingress", async () => {
   const cases = [
@@ -97,7 +97,7 @@ test("durable timeout diagnostics retain the last child phase and recovery handl
     elapsedMs: 4
   });
 
-  await assert.rejects(result, RepoWriteOutcomeUnknownError);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
   assert.ok(observed);
   assert.equal(observed.lane, "durable");
   assert.equal(observed.opId, "op-timeout-diagnostic");
@@ -105,6 +105,14 @@ test("durable timeout diagnostics retain the last child phase and recovery handl
     formatRepoWriteTimeoutDiagnostic(observed),
     /waiting=canonical-git-publication;lastPhase=git/u
   );
+  transport.emit({
+    ...childFrame("terminal"),
+    requestId: requestId(submit),
+    opId: "op-timeout-diagnostic",
+    outcome: "committed",
+    receipt: committedCommandReceipt("slow publication")
+  });
+  assert.equal((await result).summary, "slow publication");
 });
 
 test("explicit direct and durable failures report their last named child wait", async () => {

@@ -113,7 +113,7 @@ export function runExecutionSubmit(
       catch: (error) => error
     }).pipe(Effect.match({
       onFailure: (error) => ({ ok: false as const, error }),
-      onSuccess: () => ({ ok: true as const })
+      onSuccess: (result) => ({ ok: true as const, result })
     }));
     if (!submitted.ok) {
       return {
@@ -147,7 +147,7 @@ export function runExecutionSubmit(
       report: {
         schema: "execution-submit-result/v1",
         executionId,
-        leaseReleased: true,
+        leaseReleased: submitted.result.leaseReleased,
         unavailableBindings
       }
     } satisfies CliResult;

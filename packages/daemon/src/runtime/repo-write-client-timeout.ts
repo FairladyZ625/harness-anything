@@ -27,7 +27,7 @@ export function expireRepoWriteSubmit(
   pending: PendingSubmit,
   timeoutMs: number,
   observer: TimeoutObserver | undefined
-): void {
+): "observed" | "expired" {
   const diagnostic =
     `Repo writer request exceeded its ${timeoutMs}ms deadline.`
     + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
@@ -39,17 +39,16 @@ export function expireRepoWriteSubmit(
     ...(pending.opId ? { opId: pending.opId } : {}),
     ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
   });
-  pending.reject(pending.phase === "proceeded" && pending.opId
-    ? new RepoWriteOutcomeUnknownError(
-        "REPO_WRITE_REQUEST_TIMEOUT",
-        diagnostic,
-        pending.opId
-      )
-    : new RepoWriteNotStartedError(
-        "REPO_WRITE_REQUEST_TIMEOUT",
-        diagnostic,
-        pending.opId
-      ));
+  // PROCEED transfers terminal ownership to the durable child operation. From
+  // that point onward the deadline is a stall observation, not permission to
+  // manufacture an unknown outcome or replace a writer during publication.
+  if (pending.phase === "proceeded" && pending.opId) return "observed";
+  pending.reject(new RepoWriteNotStartedError(
+    "REPO_WRITE_REQUEST_TIMEOUT",
+    diagnostic,
+    pending.opId
+  ));
+  return "expired";
 }
 
 export function expireRepoWriteLookup(

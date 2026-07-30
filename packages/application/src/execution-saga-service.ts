@@ -72,6 +72,14 @@ export interface ExecutionClaimResult extends ExecutionLeaseContext {
   readonly leaseAcquiredAt: string;
 }
 
+export interface ExecutionSubmitResult {
+  /**
+   * Authored submission success is authoritative. Lease release is a
+   * post-commit cleanup result and cannot reverse that committed outcome.
+   */
+  readonly leaseReleased: boolean;
+}
+
 export interface ExecutionSagaService {
   readonly reconcileTask: (taskId: string) => Promise<void>;
   readonly claim: (input: {
@@ -98,7 +106,7 @@ export interface ExecutionSagaService {
     readonly leaseToken?: string;
     readonly principal: TaskHolderPrincipal;
     readonly submission: ExecutionSubmission;
-  }) => Promise<void>;
+  }) => Promise<ExecutionSubmitResult>;
 }
 
 export interface ExecutionSagaServiceOptions {
@@ -280,7 +288,22 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         submittedAt: now(),
         submission: input.submission
       });
-      await options.taskHolderService.releaseExecution(input);
+      let leaseReleased = true;
+      try {
+        await options.taskHolderService.releaseExecution(input);
+      } catch {
+        // Publication is already committed. Reconcile cleanup from authored
+        // state, but never translate a cleanup race into a failed write.
+        try {
+          await reconcileTask(options, input.taskId);
+          leaseReleased = (await options.taskHolderService.holder({
+            taskId: input.taskId
+          })).effectiveHolder === null;
+        } catch {
+          leaseReleased = false;
+        }
+      }
+      return { leaseReleased };
     },
     reconcileTask: (taskId) => reconcileTask(options, taskId)
   };

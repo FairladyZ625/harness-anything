@@ -56,9 +56,6 @@ export class RepoWriteProcessSupervisor {
       return decodeReceipt(await writer.client.submit(command));
     } catch (error) {
       if (error instanceof RepoWriteOutcomeUnknownError) {
-        if (error.code === "REPO_WRITE_REQUEST_TIMEOUT") {
-          await this.replace(writer);
-        }
         return this.recoverExact(error.opId, error);
       }
       if (error instanceof RepoWriteNotStartedError

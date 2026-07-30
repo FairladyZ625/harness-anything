@@ -13,7 +13,6 @@ import {
 } from "../src/runtime/repo-write-process-supervisor.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
-  RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
   RepoWriteReadyTimeoutError
 } from "../src/runtime/repo-write-client.ts";
@@ -123,7 +122,7 @@ test("connected child that never announces READY is terminated at the readiness 
   assert.equal(supervisor.status().connected, false);
 });
 
-test("child that swallows PROCEED releases the pending request at its deadline", async (context) => {
+test("child that swallows PROCEED remains terminal owner after the observation deadline", async (context) => {
   let forks = 0;
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
@@ -141,12 +140,16 @@ test("child that swallows PROCEED releases the pending request at its deadline",
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  await assert.rejects(supervisor.submit(command()), (error) => {
-    assert.ok(error instanceof RepoWriteOutcomeUnknownError);
-    assert.equal(error.code, "REPO_WRITE_REQUEST_TIMEOUT");
-    return true;
-  });
-  assert.equal(forks, 2);
+  let settled = false;
+  const submission = supervisor.submit(command()).then(
+    () => { settled = true; },
+    () => { settled = true; }
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  assert.equal(settled, false);
+  assert.equal(forks, 1);
+  await supervisor.stop().catch(() => undefined);
+  await submission;
 });
 
 test("non-durable task-claim timeout replaces the child without replay or lookup", async (context) => {

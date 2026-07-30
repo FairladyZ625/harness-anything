@@ -505,12 +505,12 @@ export class RepoWriteClient {
   private expireSubmit(requestId: string): void {
     const pending = this.pending.get(requestId);
     if (!pending) return;
-    this.pending.delete(requestId);
-    expireRepoWriteSubmit(
+    const outcome = expireRepoWriteSubmit(
       pending,
       this.limits.requestTimeoutMs,
       this.options.onRequestTimeout
     );
+    if (outcome === "expired") this.pending.delete(requestId);
   }
 
   private expireLookup(requestId: string): void {
