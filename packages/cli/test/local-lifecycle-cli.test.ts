@@ -388,11 +388,9 @@ test("CLI task complete help explains the resolved completion contract", () => {
   withTempRoot((rootDir) => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
-    assert.match(output, /exactly one submitted Execution, no active Execution rounds, and an approved typed Review/u);
-    assert.match(output, /legacy review\.md is only a compatibility blocker check/u);
-    assert.match(output, /ha task retire-execution <id> --execution-id <execution-id> --reason <reason>/u);
-    assert.match(output, /--ci\s+Set passed or failed when CI applies/u);
-    assert.match(output, /Facts are never a quantity gate/u);
+    assert.match(output, /Usage: harness-anything task complete <id> \(--approve --from-file <approval\.json> \| --commit-anchor <sha-or-ref> --judgment <reason>\)/u);
+    assert.match(output, /One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator\./u);
+    assert.match(output, /Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally\./u);
   });
 });
 
