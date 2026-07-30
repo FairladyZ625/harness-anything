@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, ftruncateSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Schema } from "effect";
@@ -222,6 +222,27 @@ export function writeFileDurably(filePath: string, body: string | Uint8Array): v
   }
   renameSync(tempPath, filePath);
   fsyncDirectory(path.dirname(filePath));
+}
+
+// Compensation must still be able to restore a file when the transaction's
+// failed write was caused by a non-writable parent directory. Opening an
+// existing file in place needs permission on the file, but unlike the normal
+// temp-file + rename publication path it does not need directory write access.
+export function restoreExistingFileInPlaceDurably(filePath: string, body: string): void {
+  const fd = openSync(filePath, "r+");
+  try {
+    ftruncateSync(fd, 0);
+    const buffer = Buffer.from(body, "utf8");
+    let offset = 0;
+    while (offset < buffer.byteLength) {
+      const written = writeSync(fd, buffer, offset, buffer.byteLength - offset, offset);
+      if (written === 0) throw new Error(`durable in-place restore made no progress: ${filePath}`);
+      offset += written;
+    }
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function fsyncDirectory(dirPath: string): void {

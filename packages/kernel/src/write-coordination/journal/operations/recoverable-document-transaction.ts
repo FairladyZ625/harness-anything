@@ -2,7 +2,7 @@ import path from "node:path";
 import { sha256Text } from "../../../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../layout/index.ts";
 import { localLayoutFileSystem } from "../../../local/local-layout-file-system.ts";
-import { removeFileDurably, writeFileDurably } from "../durable.ts";
+import { removeFileDurably, restoreExistingFileInPlaceDurably, writeFileDurably } from "../durable.ts";
 
 export interface RecoverableDocumentTransactionWrite {
   readonly targetPath: string;
@@ -48,13 +48,30 @@ export function applyRecoverableDocumentTransaction(
       }
     }
   } catch (error) {
+    const rollbackErrors: unknown[] = [];
     for (const backup of backups.reverse()) {
-      if (backup.existed && backup.body !== null) {
-        writeFileDurably(backup.targetPath, backup.body);
-      } else {
-        removeFileDurably(backup.targetPath);
+      try {
+        if (backup.existed && backup.body !== null) {
+          restoreExistingFileInPlaceDurably(backup.targetPath, backup.body);
+        } else {
+          removeFileDurably(backup.targetPath);
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
       }
     }
+
+    if (rollbackErrors.length > 0) {
+      // Keep the manifest: recovery must replay the declared write set to an
+      // all-new state when in-process compensation could not prove all-old.
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        `recoverable document transaction rollback failed: ${opId}`
+      );
+    }
+
+    // Once every target is durably back to its old state the failed
+    // transaction must no longer be eligible for restart replay.
     removeFileDurably(target);
     throw error;
   }
