@@ -134,6 +134,7 @@ export type TaskCompletionAuthorityResult = {
 
 export interface TaskCompletionAuthorityInput {
   readonly taskId: string;
+  readonly executionId?: string;
   readonly mode: TaskCompletionEvidenceMode;
   readonly status: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
@@ -157,6 +158,7 @@ export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityIn
     const readiness = inspectExecutionCompletionReadiness({
       taskId: input.taskId,
       actor: input.actor,
+      executionId: input.executionId,
       documents: input.documents
     });
     return readiness.ok && readiness.executionId

@@ -23,6 +23,7 @@ export interface ExecutionCompletionService {
   readonly completeTaskExecution: (input: {
     readonly taskId: string;
     readonly actor: TaskHolderPrincipal;
+    readonly executionId?: string;
     readonly contractPrecondition?: { readonly bodySha256: string | null };
   }) => Promise<{ readonly executionId: string } | null>;
 }
@@ -52,9 +53,9 @@ export function makeExecutionCompletionService(options: {
 }): ExecutionCompletionService {
   const now = options.now ?? (() => new Date().toISOString());
   return {
-    completeTaskExecution: async ({ taskId, actor, contractPrecondition }) => {
+    completeTaskExecution: async ({ taskId, actor, executionId, contractPrecondition }) => {
       const task = await Effect.runPromise(options.artifactStore.readTaskPackage(taskId));
-      const readiness = resolveExecutionCompletionReadiness({ taskId, actor, documents: task.documents });
+      const readiness = resolveExecutionCompletionReadiness({ taskId, actor, executionId, documents: task.documents });
       if (!readiness.execution) {
         if (!task.documents.some((document) => /^executions\/[^/]+\.md$/u.test(document.path))) return null;
         throw new Error(readiness.issues[0]?.message ?? `task ${taskId} requires exactly one submitted Execution`);
@@ -123,6 +124,7 @@ function completionPreconditions(
 export function inspectExecutionCompletionReadiness(input: {
   readonly taskId: string;
   readonly actor: TaskHolderPrincipal;
+  readonly executionId?: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
 }): ExecutionCompletionReadiness {
   const readiness = resolveExecutionCompletionReadiness(input);
@@ -136,6 +138,7 @@ export function inspectExecutionCompletionReadiness(input: {
 function resolveExecutionCompletionReadiness(input: {
   readonly taskId: string;
   readonly actor: TaskHolderPrincipal;
+  readonly executionId?: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
 }): ExecutionCompletionReadiness & {
   readonly execution?: ExecutionRecord;
@@ -156,10 +159,16 @@ function resolveExecutionCompletionReadiness(input: {
   const accepted = executions.filter((candidate) => candidate.state === "accepted")
     .sort((left, right) => replayOrder(right, left));
   const staleActive = executions.filter((candidate) => candidate.state === "active");
-  const acceptedCandidate = submitted.length === 0
-    && accepted.length > 0;
+  const selected = input.executionId
+    ? executions.find((candidate) => candidate.execution_id === input.executionId)
+    : undefined;
+  const acceptedCandidate = submitted.length === 0 && (input.executionId
+    ? selected?.state === "accepted"
+    : accepted.length > 0);
+  const submittedCandidate = submitted.length === 1 && (!input.executionId
+    || selected?.state === "submitted");
   const completedReplay = acceptedCandidate && taskStatus(input.documents) === "done";
-  if (submitted.length !== 1 && !acceptedCandidate) {
+  if (!submittedCandidate && !acceptedCandidate) {
     const claimCommand = staleActive.length === 1
       ? `ha task start ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
       : staleActive.length > 1
@@ -179,7 +188,7 @@ function resolveExecutionCompletionReadiness(input: {
     };
   }
 
-  const execution = submitted[0] ?? accepted[0]!;
+  const execution = selected ?? submitted[0] ?? accepted[0]!;
   const issues: ExecutionCompletionReadinessIssue[] = [];
   if (staleActive.length > 0) {
     issues.push({

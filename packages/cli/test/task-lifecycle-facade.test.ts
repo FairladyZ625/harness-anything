@@ -135,6 +135,7 @@ test("task complete owner approval materializes accepted prose before Review, re
   const root = mkdtempSync(path.join(tmpdir(), "ha-approval-parser-"));
   const packet = path.join(root, "approval.json");
   writeFileSync(packet, JSON.stringify({
+    executionId: "exe_01KXTE6GJPW73Y1EWCA0Q0798V",
     findings: "Acceptance checks passed.",
     rationale: "Evidence satisfies the task intent.",
     consentAssertedRationale: "The human approved through an external channel.",
@@ -167,7 +168,11 @@ test("task complete owner approval materializes accepted prose before Review, re
     assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.force, true);
     const complete = steps.at(-1);
     assert.equal(complete?.action.kind, "task-complete");
-    if (complete?.action.kind === "task-complete") assert.equal(complete.action.approval, undefined);
+    if (complete?.action.kind === "task-complete") {
+      assert.equal(complete.action.approval, undefined);
+      assert.equal("executionId" in complete.action && complete.action.executionId,
+        "exe_01KXTE6GJPW73Y1EWCA0Q0798V");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

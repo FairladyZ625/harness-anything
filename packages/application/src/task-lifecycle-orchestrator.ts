@@ -112,6 +112,7 @@ export interface TaskLifecycleOrchestrator {
   readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
   readonly completeTask: (payload: {
     readonly taskId: string;
+    readonly executionId?: string;
     readonly reviewerId: string;
     readonly ciGate?: CompletionCiGateStatus;
     readonly actor?: TaskHolderPrincipal;
@@ -271,6 +272,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       try {
         completionAuthority = evaluateTaskCompletionAuthority({
           taskId: payload.taskId,
+          executionId: payload.executionId,
           mode: evidenceMode,
           status: row.coordinationStatus,
           documents: taskPackage.documents,
@@ -330,6 +332,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         try: () => options.executionCompletionService!.completeTaskExecution({
           taskId: payload.taskId,
           actor: payload.actor!,
+          executionId: payload.executionId,
           contractPrecondition: { bodySha256: contractBody === null ? null : sha256Text(contractBody) }
         }),
         catch: (error) => error

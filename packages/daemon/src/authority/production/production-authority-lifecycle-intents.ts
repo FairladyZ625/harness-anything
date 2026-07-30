@@ -417,6 +417,7 @@ function taskCompletionIntent(
   const status = /^  status:\s*(\S+)$/mu.exec(taskSnapshot.body)?.[1] ?? "unknown";
   const evaluation = evaluateTaskCompletionAuthority({
     taskId,
+    executionId: action.executionId,
     mode: action.evidenceMode ?? "execution-review",
     status,
     documents,

@@ -12,7 +12,7 @@ import {
   type TaskHolderPrincipal,
   type WriteCoordinator
 } from "@harness-anything/kernel";
-import { assertExecutionTaskInReview } from "./execution-review-helpers.ts";
+import { assertExecutionTaskReviewable } from "./execution-review-helpers.ts";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,
   DEFAULT_HUMAN_CONSENT_TTL_MS,
@@ -51,7 +51,7 @@ export function makeRecordExecutionConsentService(options: {
   return {
     recordConsent: async (input) => {
       const task = await Effect.runPromise(options.artifactStore.readTaskPackage(input.taskId));
-      assertExecutionTaskInReview(task.documents, input.taskId);
+      assertExecutionTaskReviewable(task.documents, input.taskId);
       const executionDocument = task.documents.find((document) => document.path === `executions/${input.executionId}.md`);
       if (!executionDocument) throw new Error(`execution not found: ${input.executionId}`);
       const execution = decodeExecutionForConsent(executionDocument, input.taskId, input.executionId);

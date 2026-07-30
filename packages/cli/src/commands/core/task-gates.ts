@@ -54,6 +54,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   }
   const complete = () => context.currentSessionProbe.currentSession.pipe(Effect.flatMap((session) => orchestrator.completeTask({
     taskId: action.taskId,
+    executionId: action.executionId,
     reviewerId: action.reviewerId,
     ciGate: action.ciGate,
     actor: context.taskHolderPrincipal(),
