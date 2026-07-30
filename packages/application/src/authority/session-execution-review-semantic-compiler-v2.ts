@@ -159,7 +159,7 @@ async function compileExecution(
     const completingExecution = (action === "close" && execution.state === "accepted")
       || (action === "submit" && execution.state === "submitted");
     if (!activatingClaim && !completingExecution) throw admission("EXECUTION_COMPLETION_TRANSACTION_INVALID");
-    const fromStatus = activatingClaim ? "planned" : action === "close" ? "in_review" : "active";
+    const fromStatus = activatingClaim ? "planned" : action === "close" ? "in_review" : "(?:active|in_review)";
     const toStatus = activatingClaim ? "active" : action === "close" ? "done" : "in_review";
     const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, `$1${toStatus}`);
     if (!new RegExp(`^  status:\\s*${fromStatus}$`, "mu").test(taskSnapshot.body) || payload.taskIndexBody !== expected) {

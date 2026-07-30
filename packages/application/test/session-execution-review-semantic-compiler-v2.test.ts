@@ -192,36 +192,38 @@ test("execution claim atomically creates the Execution and activates the planned
   ]);
 });
 
-test("execution submit atomically transitions the task index to in_review", async () => {
-  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
-  const taskRef = ref("task", `task/${taskId}`);
-  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
-  const taskPath = `tasks/${taskId}/INDEX.md`;
-  const active = snapshot(JSON.stringify(executionRecord("active")));
-  const activeIndex = snapshot("---\n  status: active\n---\n");
-  const inReviewIndex = activeIndex.body.replace("status: active", "status: in_review");
-  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
-    state: authorityState(
-      new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
-      new Map([[executionPath, active], [taskPath, activeIndex]])
-    )
-  }).compile(envelope({
-    schema: "execution.submit/v1",
-    taskId,
-    execution: executionRecord("submitted"),
-    taskIndexBody: inReviewIndex
-  }, [present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
-    cas(executionPath, active), cas(taskPath, activeIndex)
-  ]));
+for (const taskStatus of ["active", "in_review"] as const) {
+  test(`execution submit atomically converges a ${taskStatus} task index to in_review`, async () => {
+    const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+    const taskRef = ref("task", `task/${taskId}`);
+    const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+    const taskPath = `tasks/${taskId}/INDEX.md`;
+    const active = snapshot(JSON.stringify(executionRecord("active")));
+    const currentIndex = snapshot(`---\n  status: ${taskStatus}\n---\n`);
+    const inReviewIndex = currentIndex.body.replace(`status: ${taskStatus}`, "status: in_review");
+    const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+      state: authorityState(
+        new Map([[key(executionRef), base("execution-v1")], [key(taskRef), base("task-v1")]]),
+        new Map([[executionPath, active], [taskPath, currentIndex]])
+      )
+    }).compile(envelope({
+      schema: "execution.submit/v1",
+      taskId,
+      execution: executionRecord("submitted"),
+      taskIndexBody: inReviewIndex
+    }, [present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
+      cas(executionPath, active), cas(taskPath, currentIndex)
+    ]));
 
-  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
-  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
-    `execution/${taskId}/${executionId}:submit`, `task/${taskId}:transition`
-  ].sort());
-  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
-    { taskId, path: "INDEX.md", body: inReviewIndex }
-  ]);
-});
+    const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+    assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+      `execution/${taskId}/${executionId}:submit`, `task/${taskId}:transition`
+    ].sort());
+    assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
+      { taskId, path: "INDEX.md", body: inReviewIndex }
+    ]);
+  });
+}
 
 test("commit completion compiles one task transition with evidence and fixed-document CAS", async () => {
   const taskRef = ref("task", `task/${taskId}`);

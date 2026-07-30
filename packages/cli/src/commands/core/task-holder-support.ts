@@ -73,6 +73,19 @@ export function canonicalTaskStartResult(
   };
 }
 
+export function terminalTaskStartFailure(taskId: string, status: "done" | "cancelled"): CliResult {
+  return canonicalTaskStartResult(taskId, {
+    ok: false,
+    command: "task-claim",
+    taskId,
+    status,
+    error: cliError(
+      CliErrorCode.TerminalReopenRequiresSupersede,
+      `Task ${taskId} is ${status}; terminal tasks cannot be started. Next: run \`ha task supersede ${taskId} --title <follow-up-title>\` to preserve lineage, or \`ha task create --title <follow-up-title>\` for unrelated work.`
+    )
+  }, status);
+}
+
 function taskStartReportRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
