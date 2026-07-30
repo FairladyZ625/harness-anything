@@ -101,7 +101,7 @@ test("CLI task-complete requires paired commit-anchor flags and forbids reviewer
   });
 });
 
-test("CLI code-doc reconcile bypasses Execution lease only for zero-history tasks", () => {
+test("CLI owner reconciliation and completion do not require an Execution lease", () => {
   withTempRoot((rootDir) => {
     const legacyTaskId = "task_01KX7H00000000000000000002";
     initializeNestedHarnessRepo(rootDir);
@@ -133,12 +133,10 @@ test("CLI code-doc reconcile bypasses Execution lease only for zero-history task
     seedApprovedExecution(rootDir, executionTaskId, executionId);
     const strict = runJson(rootDir, [
       "task", "code-doc", "reconcile", executionTaskId, "--commit", sha, "--path", "evidence/lease-anchor.txt"
-    ], false, leaseEnv);
-    assert.equal(strict.error?.code, "write_rejected", JSON.stringify(strict));
-    assert.equal(strict.report?.code, "task_lease_required");
-    const strictCompletion = runJson(rootDir, ["task", "complete", executionTaskId, "--ci", "passed"], false, leaseEnv);
-    assert.equal(strictCompletion.error?.code, "write_rejected", JSON.stringify(strictCompletion));
-    assert.equal(strictCompletion.report?.code, "task_lease_required");
+    ], true, leaseEnv);
+    assert.equal(strict.ok, true);
+    const strictCompletion = runJson(rootDir, ["task", "complete", executionTaskId, "--ci", "passed"], true, leaseEnv);
+    assert.equal(strictCompletion.status, "done");
   });
 });
 

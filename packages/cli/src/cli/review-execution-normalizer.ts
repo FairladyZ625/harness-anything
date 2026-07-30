@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
-  generateTaskId,
+  stablePayloadHash,
   type ArtifactStore,
   type ExecutionRecord
 } from "@harness-anything/kernel";
@@ -58,7 +58,19 @@ export function normalizeReviewConsentIdentity(command: ParsedCommand): ParsedCo
     ...command,
     action: {
       ...action,
-      generatedConsentId: `cns_${generateTaskId().slice("task_".length)}`
+      generatedConsentId: `cns_${stablePayloadHash({
+        kind: "owner-approval-consent",
+        taskId: action.taskId,
+        executionId: action.executionId,
+        findings: action.findings,
+        evidenceChecked: action.evidenceChecked,
+        rationale: action.rationale,
+        archiveWarningsAcknowledged: action.archiveWarningsAcknowledged,
+        utterance: action.consentUtterance?.trim(),
+        standingPolicyDecisionId: action.consentStandingPolicyDecisionId?.trim(),
+        assertedRationale: action.consentAssertedRationale?.trim(),
+        actions: [...(action.consentActions ?? [])].sort()
+      }).slice(0, 26).toUpperCase()}`
     }
   };
 }

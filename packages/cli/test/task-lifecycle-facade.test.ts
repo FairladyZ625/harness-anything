@@ -179,6 +179,37 @@ test("direct-mode doc sync unavailability becomes a completion warning", async (
   }
 });
 
+test("owner completion lease failures never direct the owner into task start", async () => {
+  const step: ParsedCommand = {
+    rootDir: "/tmp",
+    json: true,
+    action: {
+      kind: "task-code-doc-reconcile",
+      taskId: "task_BOUNDARY",
+      sha: "a".repeat(40),
+      paths: [],
+      force: true
+    }
+  };
+  const leaseFailure = toCommandReceipt({
+    ok: false,
+    command: "task-code-doc-reconcile",
+    taskId: "task_BOUNDARY",
+    error: cliError(
+      CliErrorCode.WriteRejected,
+      "Task requires an active lease; run 'ha task start task_BOUNDARY' before retrying."
+    )
+  });
+  const dispatched = await dispatchLifecycleFacadeSteps([step], async () => leaseFailure, "task-complete");
+
+  assert.equal(dispatched.ok, false);
+  if (!dispatched.ok) {
+    assert.match(dispatched.receipt.error?.hint ?? "", /Owner approval is lease-independent/iu);
+    assert.match(dispatched.receipt.error?.hint ?? "", /ha task complete task_BOUNDARY --approve --from-file/iu);
+    assert.doesNotMatch(dispatched.receipt.error?.hint ?? "", /ha task start/iu);
+  }
+});
+
 test("both lifecycle facades satisfy the accepted command admission contract", () => {
   const start = commandSpecs.find((spec) => spec.kind === "task-start");
   const closeout = commandSpecs.find((spec) => spec.kind === "task-closeout");

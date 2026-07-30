@@ -112,6 +112,7 @@ test("execution claim/submit/close compile exact hosted execution document plans
   const accepted = executionRecord("accepted");
   const activeSnapshot = snapshot(JSON.stringify(active));
   const submittedSnapshot = snapshot(JSON.stringify(submitted));
+  const acceptedSnapshot = snapshot(JSON.stringify(accepted));
   const cases: ReadonlyArray<{
     readonly payload: ExecutionActionPayloadV2;
     readonly state: ReturnType<typeof authorityState>;
@@ -132,6 +133,11 @@ test("execution claim/submit/close compile exact hosted execution document plans
       payload: { schema: "execution.close/v1", taskId, execution: accepted },
       state: authorityState(new Map([[key(executionRef), base("execution-v2")]]), new Map([[path, submittedSnapshot]])),
       baseCas: [present(executionRef, "execution-v2")], pathCas: [cas(path, submittedSnapshot)], action: "close"
+    },
+    {
+      payload: { schema: "execution.close/v1", taskId, execution: accepted },
+      state: authorityState(new Map([[key(executionRef), base("execution-v3")]]), new Map([[path, acceptedSnapshot]])),
+      baseCas: [present(executionRef, "execution-v3")], pathCas: [cas(path, acceptedSnapshot)], action: "close"
     }
   ];
   for (const fixture of cases) {

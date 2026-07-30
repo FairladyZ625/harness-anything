@@ -84,6 +84,24 @@ test("coldstart lifecycle submits and completes with visible unavailable provena
   });
 });
 
+test("owner coldstart approves after the submitted execution lease is released", () => {
+  withTempRoot((rootDir) => {
+    const chain = prepareSubmitted(rootDir, "Cold Owner Approval", "facade");
+    const holder = runJson(rootDir, ["task", "holder", chain.taskId]);
+    assert.equal(holder.report.effectiveHolder, null);
+
+    const ownerHome = path.join(rootDir, "owner-home");
+    mkdirSync(ownerHome, { recursive: true });
+    const completed = runJson(rootDir, [
+      "--actor", "human:person_test", "task", "complete", chain.taskId,
+      "--approve", "--from-file", writeRetryApprovalPacket(rootDir)
+    ], true, { HOME: ownerHome, HARNESS_TASK_LEASE_ENFORCEMENT: "1" });
+
+    assert.equal(completed.status, "done");
+    assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  });
+});
+
 test("owner approval retries converge after every committed facade boundary", () => {
   for (const breakpoint of ["review", "reconcile", "complete"] as const) {
     withTempRoot((rootDir) => {

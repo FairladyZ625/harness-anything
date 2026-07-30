@@ -30,6 +30,7 @@ import {
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityAttemptCompilerV2 } from "../authority-command-submission.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
+import { acceptedTaskCompletionTransition } from "./production-authority-accepted-completion.ts";
 
 type CompileInput = Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
 
@@ -288,7 +289,8 @@ function approvedReviewIntent(
   return lifecycleIntent("consent.consume", encodeConsentCommandPayloadV2(payload), [
     ...(storedConsent ? [] : [lifecycleMutation("consent", `consent/${action.taskId}/${consentId}`, "grant")]),
     lifecycleMutation("consent", `consent/${action.taskId}/${consentId}`, "consume"),
-    lifecycleMutation("review", `review/${action.taskId}/${reviewId}`, "record")
+    lifecycleMutation("review", `review/${action.taskId}/${reviewId}`, "record"),
+    lifecycleMutation("execution", `execution/${action.taskId}/${executionId}`, "close")
   ], [
     lifecycleRef("execution", `execution/${action.taskId}/${executionId}`),
     lifecycleRef("consent", `consent/${action.taskId}/${consentId}`),
@@ -454,6 +456,14 @@ function taskCompletionIntent(
     const executionDocument = documents.find((document) => document.path === `executions/${evaluation.executionId}.md`);
     if (!executionDocument) throw new Error("AUTHORITY_TASK_COMPLETE_EXECUTION_DOCUMENT_REQUIRED");
     const current = executionDeclaration.documentCodec.decode(executionDocument.body) as ExecutionRecord;
+    if (current.state === "accepted") {
+      const transition = acceptedTaskCompletionTransition(taskId, contractBodySha256);
+      return lifecycleIntent(transition.commandName, transition.payload, transition.mutations, transition.baseRefs,
+        portableLifecyclePaths(taskPath, contractPath), canonicalEntityId, [
+        taskSnapshot,
+        contractCas
+      ]);
+    }
     const execution: ExecutionRecord = { ...current, state: "accepted", closed_at: completedAt };
     const payload: SessionExecutionReviewCommandPayloadV2 = {
       schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody,

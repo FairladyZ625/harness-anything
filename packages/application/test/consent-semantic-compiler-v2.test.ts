@@ -174,16 +174,20 @@ test("consent consume atomically records the review and terminal consent for the
   ]), context(1_721_000_030_000n));
   const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
   assert.deepEqual(planned.mutationSet.mutations.map(mutationPair), [
+    `execution/${taskId}/${executionId}:close`,
     `review/${taskId}/${reviewId}:record`,
     `consent/${taskId}/${consentId}:consume`
   ]);
   const transaction = operationTransaction(compiled.operation.payload);
   const review = reviewDeclaration.documentCodec.decode(transaction.body) as ReviewRecord;
   const consent = consentDeclaration.documentCodec.decode(transaction.companionWrites[0]!.body) as ConsentRecord;
+  const execution = executionDeclaration.documentCodec.decode(transaction.companionWrites[1]!.body) as ExecutionRecord;
   assert.equal(review.reviewer_actor.principal.personId, "person_zeyu");
   assert.equal(review.approval_basis?.kind, "human-consent");
   assert.equal(consent.state, "consumed");
   assert.equal(consent.consumed_by, `review/${taskId}/${reviewId}`);
+  assert.equal(execution.state, "accepted");
+  assert.equal(execution.closed_at, "2024-07-14T23:33:50.000Z");
 
   await assert.rejects(
     compiler.compile(envelope(payload, [
