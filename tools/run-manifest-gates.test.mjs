@@ -4,7 +4,8 @@ import test from "node:test";
 import {
   buildManifestGatePlan,
   manifestGateCommandInvocations,
-  parseManifestGateArgs
+  parseManifestGateArgs,
+  runManifestGatePlan
 } from "./run-manifest-gates.mjs";
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
@@ -21,8 +22,76 @@ test("manifest gate runner appends shard args only to shardable gates", () => {
   const options = parseManifestGateArgs(["--workflow-job", "integration-shard", "--shard", "3"]);
 
   assert.deepEqual(buildManifestGatePlan(manifest, options), [
-    { id: "test-integration", command: "npm run test:integration -- --shard 3" }
+    { id: "test-integration", command: "npm run test:integration -- --shard 3", advisory: false }
   ]);
+});
+
+test("manifest gate plan preserves advisory tier as execution policy", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "advisory-check",
+        command: "node tools/advisory.mjs",
+        tier: "pr-advisory",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } }
+      },
+      {
+        id: "required-check",
+        command: "node tools/required.mjs",
+        tier: "pr-required",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } }
+      }
+    ]
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "boundaries"]);
+
+  assert.deepEqual(buildManifestGatePlan(manifest, options), [
+    { id: "advisory-check", command: "node tools/advisory.mjs", advisory: true },
+    { id: "required-check", command: "node tools/required.mjs", advisory: false }
+  ]);
+});
+
+test("manifest gate runner reports advisory failures without failing or stopping the plan", () => {
+  const warnings = [];
+  const seen = [];
+  const result = runManifestGatePlan([
+    { id: "advisory-check", command: "node tools/advisory.mjs", advisory: true },
+    { id: "required-check", command: "node tools/required.mjs", advisory: false }
+  ], {
+    run: (id) => {
+      seen.push(id);
+      return id !== "advisory-check";
+    },
+    warn: (id) => warnings.push(id)
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    advisoryFailures: ["advisory-check"],
+    failedRequiredGate: null
+  });
+  assert.deepEqual(seen, ["advisory-check", "required-check"]);
+  assert.deepEqual(warnings, ["advisory-check"]);
+});
+
+test("manifest gate runner still stops on a required gate failure", () => {
+  const seen = [];
+  const result = runManifestGatePlan([
+    { id: "required-check", command: "node tools/required.mjs", advisory: false },
+    { id: "later-check", command: "node tools/later.mjs", advisory: false }
+  ], {
+    run: (id) => {
+      seen.push(id);
+      return false;
+    }
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    advisoryFailures: [],
+    failedRequiredGate: "required-check"
+  });
+  assert.deepEqual(seen, ["required-check"]);
 });
 
 test("manifest gate runner rejects --shard for non-shardable gates", () => {

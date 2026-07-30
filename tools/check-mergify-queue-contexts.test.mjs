@@ -109,6 +109,8 @@ test("mergify queue context parser ignores pull request rule conditions", () => 
 test("repeated metadata edits on one queue SHA leave the successful required-check set unchanged", () => {
   const routing = checkRewriteCiMetadataContextRouting({ workflowText, gateManifestText });
   assert.equal(routing.ok, true, routing.errors.join("\n"));
+  assert.equal(routing.requiredContexts.includes("pr-body-lint"), false);
+  assert.equal(routing.normalContexts.includes("pr-body-advisory"), false);
 
   const successRun = routing.normalContexts.map((name) => ({ name, conclusion: "success" }));
   const metadataEditStarts = routing.metadataContexts.map((name) => ({ name, conclusion: "queued" }));

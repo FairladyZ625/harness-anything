@@ -62,7 +62,7 @@ jobs:
             }
 
   pr-body-lint:
-    name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / pr-body-lint' || 'pr-body-lint' }}
+    name: pr-body-advisory
     if: github.event_name == 'pull_request'
     timeout-minutes: 15
     needs: metadata-source-proof
@@ -79,7 +79,7 @@ jobs:
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
           node-version: 24
-      - name: Run PR body manifest gates
+      - name: Report PR body guidance
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}

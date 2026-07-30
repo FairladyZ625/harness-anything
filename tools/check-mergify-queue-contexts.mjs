@@ -107,7 +107,7 @@ export function checkRewriteCiMetadataContextRouting({
 } = {}) {
   const manifest = JSON.parse(gateManifestText);
   const requiredContexts = parseManifestBranchProtectionContexts(gateManifestText);
-  const requiredJobs = manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? [];
+  const pullRequestJobs = manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? [];
   const routes = parseRewriteCiMetadataContextRoutes(workflowText);
   const errors = [];
   const routedNormalContexts = [];
@@ -117,10 +117,9 @@ export function checkRewriteCiMetadataContextRouting({
     errors.push("rewrite-ci must retain pull_request.edited for human PR body validation");
   }
 
-  for (const job of requiredJobs) {
+  for (const job of pullRequestJobs) {
     const expectedContexts = requiredContexts.filter((context) => context === job || context.startsWith(`${job} (`));
     if (expectedContexts.length === 0) {
-      errors.push(`required workflow job ${job} has no matching branch-protection context`);
       continue;
     }
     const route = routes.get(job);

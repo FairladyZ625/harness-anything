@@ -208,7 +208,7 @@ Release-policy gate sample:
 
 The registry records:
 
-- 66 gates: 51 deterministic and 15 non-deterministic/composite/local-authority.
+- 67 gates: 53 deterministic and 14 non-deterministic/composite/local-authority.
 - 48 `harness:*` scripts in `package.json`, of which 47 are registered leaf
   gates; 48 are in `check`, 47 are in `check:pr`, and 45 execute in pull-request
   workflow jobs. `harness:sync-runtime-skills` is an operational command, not a
@@ -249,15 +249,15 @@ The registry records:
 - `check-retired-keys` executes locally, in `boundaries`, and in non-PR
   `full-check`; it parses authored frontmatter and rejects only retired top-level
   attribution keys, while preserving active nested `contentPins[].arbiter`.
-- 14 GitHub branch-protection required contexts:
+- 13 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
   `integration-shard (1)`, `integration-shard (2)`,
   `integration-shard (3)`, `integration-shard (4)`,
   `integration-shard (5)`, `integration-shard (6)`, `supply-chain`,
-  `gui-build`, `node26-compatibility`, and `pr-body-lint`.
-- 2 PR-body meta-governance commands under the `pr-body-lint` required
-  context: bilingual body structure and protected-surface governance
-  declaration shape.
+  `gui-build`, and `direct-recovery`.
+- 2 PR-body meta-governance commands under the `pr-body-advisory` reporting
+  job: bilingual body structure and protected-surface governance declaration
+  shape. Failures produce annotations without blocking merge.
 
 Workflow helper jobs listed under
 `surfaces.rewriteCi.helperJobsNotRegisteredAsGates` are intentionally not

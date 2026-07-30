@@ -56,7 +56,6 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (6)
 - supply-chain
 - gui-build
-- pr-body-lint
 - direct-recovery
 
 The Mergify GitHub App must be installed from
@@ -79,12 +78,13 @@ against the queued pull request's predicted merge state.
 - integration-shard (6)
 - supply-chain
 - gui-build
-- pr-body-lint
 - direct-recovery
 
-The `pr-body-lint` job checks human-authored pull request bodies against the
-repository template. It narrowly skips Mergify synthetic queue verification pull
-requests only when the pull request is authored by `mergify[bot]`, uses a
+The `pr-body-advisory` job checks human-authored pull request bodies against the
+repository template and reports mismatches as workflow warnings without entering
+branch protection or Mergify queue conditions. It narrowly skips Mergify
+synthetic queue verification pull requests only when the pull request is
+authored by `mergify[bot]`, uses a
 `mergify/merge-queue/*` head branch, and carries the Mergify queue payload
 marker.
 
