@@ -16,8 +16,11 @@ import type {
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
 import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
 import {
+  expireRepoWritePendingSubmit,
+  rejectRepoWriteQueuedRequests
+} from "./repo-write-client-pending-lifecycle.ts";
+import {
   expireRepoWriteLookup,
-  expireRepoWriteSubmit,
   failRepoWriteLookup,
   failRepoWriteSubmit
 } from "./repo-write-client-timeout.ts";
@@ -30,7 +33,6 @@ import {
   observeRepoWriteTelemetry,
   repoWriteClientFrameBase
 } from "./repo-write-client-observers.ts";
-import { armRepoWriteSubmitEscalation } from "./repo-write-client-watchdog.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
@@ -115,6 +117,7 @@ export class RepoWriteClient {
       this.readyPending = undefined;
       const error = new RepoWriteReadyTimeoutError(this.limits.readyTimeoutMs);
       this.terminalError = error;
+      rejectRepoWriteQueuedRequests(this.pending, this.directLane, this.pendingLookups, error);
       pending.reject(error);
     }, this.limits.readyTimeoutMs);
     timer.unref();
@@ -193,9 +196,11 @@ export class RepoWriteClient {
       return Promise.reject(new Error("timeoutMs must be a positive safe integer"));
     }
     this.closing = true;
+    const closed = new RepoWriteClientClosedError();
     if (this.readyPending) clearTimeout(this.readyPending.timer);
-    this.readyPending?.reject(new RepoWriteClientClosedError());
+    this.readyPending?.reject(closed);
     this.readyPending = undefined;
+    rejectRepoWriteQueuedRequests(this.pending, this.directLane, this.pendingLookups, closed);
     const requestId = this.nextRequestId();
     let resolveShutdown: (() => void) | undefined;
     let rejectShutdown: ((error: Error) => void) | undefined;
@@ -495,23 +500,12 @@ export class RepoWriteClient {
   }
 
   private expireSubmit(requestId: string): void {
-    const pending = this.pending.get(requestId);
-    if (!pending) return;
-    const outcome = expireRepoWriteSubmit(
-      pending,
-      this.limits.requestTimeoutMs,
+    expireRepoWritePendingSubmit(
+      requestId,
+      this.pending,
+      this.limits,
       this.options.onRequestTimeout
     );
-    if (outcome === "expired") this.pending.delete(requestId);
-    if (outcome === "observed") {
-      armRepoWriteSubmitEscalation({
-        pending,
-        pendingRequests: this.pending,
-        delayMs: this.limits.proceededStallTimeoutMs - this.limits.requestTimeoutMs,
-        totalTimeoutMs: this.limits.proceededStallTimeoutMs,
-        onTimeout: this.options.onRequestTimeout
-      });
-    }
   }
 
   private expireLookup(requestId: string): void {
