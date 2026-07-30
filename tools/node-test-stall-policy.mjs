@@ -3,6 +3,9 @@
  * Node test run. The runner supplies clock readings and process observations;
  * this module decides when the evidence is strong enough to act.
  */
+export const DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS = 30_000;
+export const DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS = 2;
+
 export function createNodeTestStallPolicy({
   diagnosticIntervalMs,
   abortWindows,
