@@ -167,6 +167,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   let stallAbortStarted = false;
   let stallTickStarted = false;
   const reapingPids = new Set();
+  const inFlightReaps = new Set();
   const reapedFiles = new Set();
   const stallPolicy = createNodeTestStallPolicy({
     diagnosticIntervalMs: stallDiagnosticMs,
@@ -185,17 +186,22 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   const startPostCompleteReap = ({ isolationChildPid, file, processGroupMembers }) => {
     if (reapingPids.has(isolationChildPid)) return;
     reapingPids.add(isolationChildPid);
-    void reapPostCompletionChild({
+    const reap = reapPostCompletionChild({
       hostPid: child.pid,
       isolationChildPid,
       file,
       processGroupMembers
-    }).then((reaped) => {
+    }).then(async (reaped) => {
+      if (process.env.HARNESS_RUNNER_STALL_FIXTURE === "post-complete-close-before-reap") {
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+      }
       if (reaped) reapedFiles.add(file);
     }).finally(() => {
       reapingPids.delete(isolationChildPid);
+      inFlightReaps.delete(reap);
       stallPolicy.resumeAfterReap(performance.now());
     });
+    inFlightReaps.add(reap);
   };
   const inspectStallState = async () => {
     if (stallTickStarted || stallAbortStarted || reapingPids.size > 0) return;
@@ -298,6 +304,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     child.once("close", async (code, signal) => {
       clearInterval(stallDiagnosticTimer);
       removeParentSignalForwarding();
+      await Promise.allSettled(inFlightReaps);
       const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
       testEnvironment.cleanup();
       const completionLedger = readCompletionLedger();
