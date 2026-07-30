@@ -256,7 +256,7 @@ test("task submit facade preserves the missing-holder rejection code and next ac
     assert.equal(facadeRejected.command, manualRejected.command);
     assert.equal(facadeRejected.error.code, manualRejected.error.code);
     assert.equal(normalizeDynamicText(facadeRejected.error.hint), normalizeDynamicText(manualRejected.error.hint));
-    assert.match(facadeRejected.error.hint, /task claim/u);
+    assert.match(facadeRejected.error.hint, /task start/u);
     assert.equal(facadeRejected.facade.schema, "task-submit-partial-failure/v1");
     assert.equal(facadeRejected.facade.completedSteps.length, 1);
     assert.equal(facadeRejected.facade.completedSteps[0].command, "task code doc reconcile");

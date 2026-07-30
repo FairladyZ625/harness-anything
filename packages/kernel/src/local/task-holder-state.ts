@@ -230,7 +230,13 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         });
         return;
       }
-      if (snapshot.effectiveHolder && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) return;
+      if (snapshot.effectiveHolder) {
+        if (current?.schema === "task-holder/v1"
+          && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) return;
+        if (current?.schema === "task-holder/v2"
+          && current.phase === "active"
+          && sameExecutionLeaseActor(current.holder, input.principal)) return;
+      }
       throw new TaskLeaseRequiredError({
         taskId: input.taskId,
         principal: input.principal,
@@ -243,9 +249,12 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       const at = now();
       const current = readHolderRecord(options.rootInput, input.taskId);
       const snapshot = holderSnapshot(input.taskId, current, at);
-      if (snapshot.effectiveHolder
-        && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) {
-        return;
+      if (snapshot.effectiveHolder) {
+        if (current?.schema === "task-holder/v1"
+          && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) return;
+        if (current?.schema === "task-holder/v2"
+          && current.phase === "active"
+          && sameExecutionLeaseActor(current.holder, input.principal)) return;
       }
       throw new TaskLeaseRequiredError({
         taskId: input.taskId,
@@ -384,6 +393,12 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
         const at = now();
         const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
+        if (current.phase === "active") {
+          return {
+            result: { ...holderSnapshot(input.taskId, current, at), executionId: input.executionId, leaseToken: input.leaseToken, phase: "active" } as ExecutionLeaseContext,
+            events: []
+          };
+        }
         if (current.phase !== "reserving") throw new Error(`execution lease is not reserving: ${input.executionId}`);
         const record: ExecutionLeaseRecord = { ...current, phase: "active", updatedAt: at.toISOString(), version: holderVersion(at.toISOString()) };
         writeHolderRecord(options.rootInput, record);

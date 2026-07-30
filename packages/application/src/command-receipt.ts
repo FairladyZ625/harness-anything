@@ -57,8 +57,8 @@ export function failureReceiptNextActions(
   if (code === "task_lease_required") {
     const taskId = receiptString(details.taskId) ?? receiptString(data?.taskId);
     return taskId ? [{
-      command: `ha task claim ${shellArgument(taskId)}`,
-      description: "Claim the task lease, then retry the original command."
+      command: `ha task start ${shellArgument(taskId)}`,
+      description: "Start the task and acquire its lease, then retry the original command."
     }] : undefined;
   }
   if (code !== "repo_unavailable" && code !== "repo_lock_held") return undefined;

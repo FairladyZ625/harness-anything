@@ -139,23 +139,39 @@ async function compileExecution(
   assertExecutionTransition(action, current, execution, payload.retirement);
   const taskPath = `tasks/${encodeURIComponent(payload.taskId)}/INDEX.md`;
   const taskSnapshot = payload.taskIndexBody === undefined ? null : await state.readHostedDocument(taskPath);
+  const taskPlanPath = `tasks/${encodeURIComponent(payload.taskId)}/task_plan.md`;
+  const taskPlanSnapshot = payload.taskPlanBodySha256 === undefined
+    ? null
+    : await state.readHostedDocument(taskPlanPath);
   const completionContractPath = `tasks/${encodeURIComponent(payload.taskId)}/task-contract.json`;
   const completionContractSnapshot = payload.completionContractBodySha256 === undefined
     ? null
     : await state.readHostedDocument(completionContractPath);
   if (payload.taskIndexBody !== undefined) {
-    if (!taskSnapshot || !(
-      (action === "close" && execution.state === "accepted")
-      || (action === "submit" && execution.state === "submitted")
-    )) {
+    if (!taskSnapshot) {
       throw admission("EXECUTION_COMPLETION_TRANSACTION_INVALID");
     }
-    const fromStatus = action === "close" ? "in_review" : "active";
-    const toStatus = action === "close" ? "done" : "in_review";
+    const activatingClaim = action === "claim" && execution.state === "active";
+    const completingExecution = (action === "close" && execution.state === "accepted")
+      || (action === "submit" && execution.state === "submitted");
+    if (!activatingClaim && !completingExecution) throw admission("EXECUTION_COMPLETION_TRANSACTION_INVALID");
+    const fromStatus = activatingClaim ? "planned" : action === "close" ? "in_review" : "active";
+    const toStatus = activatingClaim ? "active" : action === "close" ? "done" : "in_review";
     const expected = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, `$1${toStatus}`);
     if (!new RegExp(`^  status:\\s*${fromStatus}$`, "mu").test(taskSnapshot.body) || payload.taskIndexBody !== expected) {
-      throw admission("EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
+      throw admission(activatingClaim
+        ? "EXECUTION_CLAIM_TASK_ACTIVATION_INVALID"
+        : "EXECUTION_COMPLETION_TASK_TRANSITION_INVALID");
     }
+    if (activatingClaim) {
+      if (!taskPlanSnapshot || payload.taskPlanBodySha256 !== sha256Text(taskPlanSnapshot.body)) {
+        throw admission("EXECUTION_CLAIM_TASK_PLAN_CHANGED");
+      }
+    } else if (payload.taskPlanBodySha256 !== undefined) {
+      throw admission("EXECUTION_CLAIM_TASK_PLAN_PRECONDITION_INVALID");
+    }
+  } else if (payload.taskPlanBodySha256 !== undefined) {
+    throw admission("EXECUTION_CLAIM_TASK_PLAN_PRECONDITION_INVALID");
   }
   if (payload.completionContractBodySha256 !== undefined) {
     if (action !== "close" || execution.state !== "accepted" || payload.taskIndexBody === undefined) {
@@ -196,8 +212,17 @@ async function compileExecution(
           ...(retirementProgress ? [{ taskId: payload.taskId, path: "progress.md", body: retirementProgress.body }] : [])
         ],
         preconditions: [
-          { taskId: payload.taskId, path: `executions/${execution.execution_id}.md`, bodySha256: sha256Text(snapshot!.body) },
+          {
+            taskId: payload.taskId,
+            path: `executions/${execution.execution_id}.md`,
+            bodySha256: snapshot ? sha256Text(snapshot.body) : null
+          },
           ...(taskSnapshot ? [{ taskId: payload.taskId, path: "INDEX.md", bodySha256: sha256Text(taskSnapshot.body) }] : []),
+          ...(taskPlanSnapshot ? [{
+            taskId: payload.taskId,
+            path: "task_plan.md",
+            bodySha256: sha256Text(taskPlanSnapshot.body)
+          }] : []),
           ...(payload.completionContractBodySha256 === undefined
             ? []
             : [{ taskId: payload.taskId, path: "task-contract.json", bodySha256: payload.completionContractBodySha256 }]),
@@ -212,6 +237,7 @@ async function compileExecution(
     requiredPathSnapshots: [
       ...(snapshot ? [{ path, snapshot }] : []),
       ...(taskSnapshot ? [{ path: taskPath, snapshot: taskSnapshot }] : []),
+      ...(taskPlanSnapshot ? [{ path: taskPlanPath, snapshot: taskPlanSnapshot }] : []),
       ...(payload.completionContractBodySha256 === undefined
         ? []
         : [{

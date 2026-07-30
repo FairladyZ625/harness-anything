@@ -42,7 +42,17 @@ export interface ExecutionAuthoredStore {
   readonly openExecution: (input: {
     readonly taskId: string;
     readonly execution: ExecutionRecord;
+    readonly activation?: {
+      readonly taskPlanBodySha256: string;
+    };
   }) => Promise<void>;
+  readonly claimPublicationState: (input: {
+    readonly taskId: string;
+    readonly execution: ExecutionRecord;
+    readonly activation?: {
+      readonly taskPlanBodySha256: string;
+    };
+  }) => Promise<"committed" | "absent" | "partial">;
   readonly attachSession: (input: {
     readonly taskId: string;
     readonly executionId: string;
@@ -59,6 +69,7 @@ export interface ExecutionAuthoredStore {
 export interface ExecutionClaimResult extends ExecutionLeaseContext {
   readonly execution: ExecutionRecord;
   readonly reused: boolean;
+  readonly leaseAcquiredAt: string;
 }
 
 export interface ExecutionSagaService {
@@ -69,6 +80,9 @@ export interface ExecutionSagaService {
     readonly ttlMs?: number;
     readonly primarySession?: CurrentSessionRef | null;
     readonly executionId?: string;
+    readonly activation?: {
+      readonly taskPlanBodySha256: string;
+    };
   }) => Promise<ExecutionClaimResult>;
   readonly attachSession: (input: {
     readonly taskId: string;
@@ -106,7 +120,7 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
           && holder.holder.executionId !== input.executionId) {
         throw new Error([
           `Task ${input.taskId} already has a live lease for Execution ${holder.holder.executionId}; requested ${input.executionId}.`,
-          `Next: run \`ha task release ${input.taskId}\` as the current holder, then \`ha task claim ${input.taskId} --execution-id ${input.executionId}\`.`
+          `Next: run \`ha task release ${input.taskId}\` as the current holder, then \`ha task start ${input.taskId} --execution-id ${input.executionId}\`.`
         ].join(" "));
       }
       const renewed = await options.taskHolderService.renewExecution({
@@ -122,7 +136,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         if (!execution || execution.state !== "active") {
           throw new Error(`active execution is unavailable for renewed lease: ${renewed.executionId}`);
         }
-        return { ...renewed, execution, reused: true };
+        return {
+          ...renewed,
+          execution,
+          reused: true,
+          leaseAcquiredAt: renewed.holder?.schema === "task-holder/v2"
+            ? renewed.holder.updatedAt
+            : execution.claimed_at
+        };
       }
       const executions = await options.authoredStore.listExecutions({ taskId: input.taskId });
       const submitted = executions.filter((execution) => execution.state === "submitted");
@@ -152,7 +173,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
             leaseToken: reservation.leaseToken,
             principal: input.principal
           });
-          return { ...resumed, execution: current, reused: true };
+          return {
+            ...resumed,
+            execution: current,
+            reused: true,
+            leaseAcquiredAt: reservation.holder?.schema === "task-holder/v2"
+              ? reservation.holder.acquiredAt
+              : current.claimed_at
+          };
         } catch (error) {
           await options.taskHolderService.releaseExecution({
             taskId: input.taskId,
@@ -188,15 +216,35 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         submission: null
       };
       try {
-        await options.authoredStore.openExecution({ taskId: input.taskId, execution });
-      } catch (error) {
-        await options.taskHolderService.releaseExecution({
+        await options.authoredStore.openExecution({
           taskId: input.taskId,
-          executionId,
-          leaseToken: reservation.leaseToken,
-          principal: input.principal
+          execution,
+          ...(input.activation === undefined ? {} : { activation: input.activation })
         });
-        throw error;
+      } catch (error) {
+        const publication = await options.authoredStore.claimPublicationState({
+          taskId: input.taskId,
+          execution,
+          ...(input.activation === undefined ? {} : { activation: input.activation })
+        });
+        if (publication === "committed") {
+          // The coordinator committed the full claim transaction before its
+          // caller observed an error. Adopt only the complete transaction.
+        } else {
+          await options.taskHolderService.releaseExecution({
+            taskId: input.taskId,
+            executionId,
+            leaseToken: reservation.leaseToken,
+            principal: input.principal
+          });
+          if (publication === "partial") {
+            throw new Error(
+              `execution claim publication is indeterminate because only part of the activation transaction is observable: ${executionId}`,
+              { cause: error }
+            );
+          }
+          throw error;
+        }
       }
       const active = await options.taskHolderService.activateExecution({
         taskId: input.taskId,
@@ -204,7 +252,14 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         leaseToken: reservation.leaseToken,
         principal: input.principal
       });
-      return { ...active, execution, reused: false };
+      return {
+        ...active,
+        execution,
+        reused: false,
+        leaseAcquiredAt: reservation.holder?.schema === "task-holder/v2"
+          ? reservation.holder.acquiredAt
+          : execution.claimed_at
+      };
     },
     attachSession: async (input) => {
       await options.taskHolderService.assertExecutionLease(input);
@@ -240,11 +295,11 @@ function selectReusableExecution(
   if (requestedExecutionId) {
     const selected = executions.find((execution) => execution.execution_id === requestedExecutionId);
     if (!selected) {
-      throw new Error(`Execution ${requestedExecutionId} does not exist for Task ${taskId}. Next: run \`ha task claim ${taskId}\` to reuse the sole active round or open a new round when none is reusable.`);
+      throw new Error(`Execution ${requestedExecutionId} does not exist for Task ${taskId}. Next: run \`ha task start ${taskId}\` to reuse the sole active round or open a new round when none is reusable.`);
     }
     if (selected.state !== "active") {
       const next = selected.state === "changes_requested"
-        ? `run \`ha task claim ${taskId}\` without --execution-id to open the required rework round`
+        ? `run \`ha task start ${taskId}\` without --execution-id to open the required rework round`
         : `inspect it with \`ha execution show ${requestedExecutionId}\` and select an active Execution`;
       throw new Error(`Execution ${requestedExecutionId} is ${selected.state}, not active. Next: ${next}.`);
     }
@@ -253,7 +308,7 @@ function selectReusableExecution(
   if (active.length === 1) return active[0]!;
   if (active.length > 1) {
     const commands = active
-      .map((execution) => `\`ha task claim ${taskId} --execution-id ${execution.execution_id}\``)
+      .map((execution) => `\`ha task start ${taskId} --execution-id ${execution.execution_id}\``)
       .join(" or ");
     throw new Error(`Task ${taskId} has ${active.length} reusable active Executions: ${active.map((execution) => execution.execution_id).join(", ")}. Next: choose the authoritative round with ${commands}. No new Execution was created.`);
   }

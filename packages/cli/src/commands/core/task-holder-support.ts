@@ -52,3 +52,29 @@ export function resultForTaskHolderFailure(command: "task-claim" | "task-holder"
     taskId
   };
 }
+
+export function canonicalTaskStartResult(
+  taskId: string,
+  result: CliResult,
+  status: NonNullable<CliResult["status"]> = "active"
+): CliResult {
+  if (!result.ok) return { ...result, command: "task-start", taskId };
+  const report = taskStartReportRecord(result.report) ?? {};
+  return {
+    ...result,
+    command: "task-start",
+    taskId,
+    status,
+    report: {
+      ...report,
+      schema: "task-start-result/v1",
+      executionId: result.executionId ?? report.executionId
+    }
+  };
+}
+
+function taskStartReportRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}

@@ -1,13 +1,16 @@
+import { isDeepStrictEqual } from "node:util";
 import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
   taskEntityId,
   validateOutputEvidence,
   readSessionEntityDocument,
+  sha256Text,
   stablePayloadHash,
   writeCoordinatedPayload,
   writeDeclaredEntityTransaction,
   type ArtifactStore,
+  type DeclaredEntityDocumentPrecondition,
   type HarnessLayoutInput,
   type WriteCoordinator
 } from "@harness-anything/kernel";
@@ -49,7 +52,63 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       if (task.documents.some((document) => document.path === executionPath(request.execution.execution_id))) {
         throw new Error(`execution already exists: ${request.execution.execution_id}`);
       }
-      await writeExecutionOnlyTransaction(input, request.taskId, request.execution);
+      if (!request.activation) {
+        await writeExecutionOnlyTransaction(input, request.taskId, request.execution);
+        return;
+      }
+      const taskPlan = task.documents.find((document) => document.path === "task_plan.md")?.body;
+      if (!taskPlan || sha256Text(taskPlan) !== request.activation.taskPlanBodySha256) {
+        throw new Error(`task activation preflight changed before execution claim: ${request.taskId}`);
+      }
+      const currentIndex = task.documents.find((document) => document.path === "INDEX.md")?.body;
+      if (!currentIndex) throw new Error(`task INDEX.md missing: ${request.taskId}`);
+      await writeExecutionTransaction(
+        input,
+        request.taskId,
+        request.execution,
+        taskIndex(task.documents, request.taskId, ["planned"], "active"),
+        {
+          preconditions: [
+            {
+              taskId: request.taskId,
+              path: executionPath(request.execution.execution_id),
+              bodySha256: null
+            },
+            {
+              taskId: request.taskId,
+              path: "INDEX.md",
+              bodySha256: sha256Text(currentIndex)
+            },
+            {
+              taskId: request.taskId,
+              path: "task_plan.md",
+              bodySha256: request.activation.taskPlanBodySha256
+            }
+          ]
+        }
+      );
+    },
+    claimPublicationState: async (request) => {
+      const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
+      const executionDocument = task.documents.find((document) =>
+        document.path === executionPath(request.execution.execution_id));
+      const publishedExecution = executionDocument
+        ? Schema.decodeUnknownSync(executionDeclaration.schema)(
+          executionDeclaration.documentCodec.decode(executionDocument.body)
+        ) as ExecutionRecord
+        : null;
+      const executionMatches = publishedExecution !== null
+        && isDeepStrictEqual(publishedExecution, request.execution);
+      if (!request.activation) return executionMatches ? "committed" : publishedExecution ? "partial" : "absent";
+      const indexBody = task.documents.find((document) => document.path === "INDEX.md")?.body;
+      const taskPlan = task.documents.find((document) => document.path === "task_plan.md")?.body;
+      const planMatches = taskPlan !== undefined
+        && sha256Text(taskPlan) === request.activation.taskPlanBodySha256;
+      const taskIsActive = /^  status:\s*active$/mu.test(indexBody ?? "");
+      if (executionMatches && taskIsActive && planMatches) return "committed";
+      const taskIsPlanned = /^  status:\s*planned$/mu.test(indexBody ?? "");
+      if (publishedExecution === null && taskIsPlanned && planMatches) return "absent";
+      return "partial";
     },
     attachSession: async (request) => {
       const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
@@ -125,7 +184,10 @@ function writeExecutionTransaction(
   taskId: string,
   execution: ExecutionRecord,
   indexBody: string,
-  options: { readonly stageTaskTree?: boolean } = {}
+  options: {
+    readonly stageTaskTree?: boolean;
+    readonly preconditions?: ReadonlyArray<DeclaredEntityDocumentPrecondition>;
+  } = {}
 ): Promise<void> {
   return Effect.runPromise(Effect.gen(function* () {
     if (options.stageTaskTree) {
@@ -141,7 +203,8 @@ function writeExecutionTransaction(
       executionDeclaration,
       { taskId, executionId: execution.execution_id },
       execution,
-      [{ taskId, path: "INDEX.md", body: indexBody }]
+      [{ taskId, path: "INDEX.md", body: indexBody }],
+      options.preconditions ?? []
     );
   }));
 }

@@ -25,6 +25,10 @@ import {
 } from "./canonical-authored-batch.ts";
 import { applyWithCompensatedCasBody } from "./composite-cas-compensation.ts";
 import {
+  applyRecoverableDocumentTransaction,
+  hasRecoverableDocumentTransaction
+} from "./recoverable-document-transaction.ts";
+import {
   bodySha256AtPath,
   declaredEntityCompanionWrites,
   declaredEntityDocument,
@@ -115,14 +119,23 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       ],
       documentWrites: () => companionWrites,
       apply: (rootInput) => {
-        assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
         const document = declaredEntityDocument(rootInput, op);
+        const transactionWrites = [
+          { targetPath: document.targetPath, body: document.body },
+          ...companionWrites.map((write) => ({
+            targetPath: documentTargetPath(rootInput, write),
+            body: write.body
+          }))
+        ];
+        if (!hasRecoverableDocumentTransaction(rootInput, op.opId)) {
+          assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
+        }
         applyWithCompensatedCasBody(
           rootInput,
           document.blobBody !== undefined && document.blobRef
             ? { body: document.blobBody, mediaType: document.blobRef.mediaType }
             : undefined,
-          () => writeDocumentsAtomically(rootInput, companionWrites, document)
+          () => applyRecoverableDocumentTransaction(rootInput, op.opId, transactionWrites)
         );
         return null;
       },

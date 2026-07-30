@@ -35,7 +35,17 @@ test("Execution claim without a detectable runtime session records a pending pri
     runRawJson(rootDir, ["init"], noRuntimeSession);
     const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Pending Primary"], noRuntimeSession));
     const taskId = String(created.taskId);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
+    execFileSync("git", ["add", "--", "."], { cwd: path.join(rootDir, "harness") });
+    execFileSync("git", ["commit", "-m", "test: prepare atomic claim fixture"], {
+      cwd: path.join(rootDir, "harness")
+    });
     const claimed = unwrapCommandReceipt(runRawJson(rootDir, ["task", "claim", taskId, "--execution"], noRuntimeSession));
+    assert.equal(claimed.status, "active");
+    assert.match(
+      readFileSync(path.join(rootDir, String(created.packagePath), "INDEX.md"), "utf8"),
+      /^  status: active$/mu
+    );
     const executionId = String(claimed.executionId);
     const execution = JSON.parse(readFileSync(path.join(
       rootDir,

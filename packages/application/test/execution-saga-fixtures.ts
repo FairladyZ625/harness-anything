@@ -17,6 +17,13 @@ export function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {
       if (options.failOpen) throw new Error("authored open failed");
       if (executions.has(input.execution.execution_id)) throw new Error("execution already exists");
       executions.set(input.execution.execution_id, input.execution);
+      if (input.activation) store.taskStatus = "active";
+    },
+    claimPublicationState: async (input) => {
+      const current = executions.get(input.execution.execution_id);
+      if (!current) return input.activation && store.taskStatus !== "planned" ? "partial" : "absent";
+      if (JSON.stringify(current) !== JSON.stringify(input.execution)) return "partial";
+      return input.activation && store.taskStatus !== "active" ? "partial" : "committed";
     },
     attachSession: async (input) => {
       const current = executions.get(input.executionId);

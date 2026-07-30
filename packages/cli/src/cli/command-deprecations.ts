@@ -2,6 +2,7 @@ import type { ParsedCommand } from "./types.ts";
 
 export const compatibilitySunsetDecision = "dec_01KXQKTCKDDZF16QSMP5E5HFG1";
 export const authorityCutoverSunsetDecision = "dec_01KXSN6AVD6PSEB4CFCW8P2RQP";
+export const claimActivationFoldDecision = "dec_01KXWRC9CH70HN61B5FYPQP3XV";
 
 export type CommandDeprecationKind = "alias-grammar" | "migration-command" | "cutover-command";
 
@@ -11,7 +12,7 @@ export interface DeprecatedCommandInvocation {
   readonly syntax: string;
   readonly replacement: string;
   readonly sunsetStage: "warning";
-  readonly decisionId: typeof compatibilitySunsetDecision | typeof authorityCutoverSunsetDecision;
+  readonly decisionId: typeof compatibilitySunsetDecision | typeof authorityCutoverSunsetDecision | typeof claimActivationFoldDecision;
 }
 
 interface DeprecatedCommandDefinition extends DeprecatedCommandInvocation {
@@ -51,6 +52,17 @@ const migrationCommandDeprecations = [
   migration("migrate-verify", "migrate verify <session.json>", "verify")
 ] as const satisfies ReadonlyArray<DeprecatedCommandDefinition>;
 
+const claimActivationFoldDeprecations = [
+  deprecation(
+    "alias-grammar",
+    "task-claim",
+    "task claim <id>",
+    "ha task start <id>",
+    ["task", "claim"],
+    claimActivationFoldDecision
+  )
+] as const satisfies ReadonlyArray<DeprecatedCommandDefinition>;
+
 const cutoverCommandDeprecations = [
   deprecation(
     "cutover-command",
@@ -64,6 +76,7 @@ const cutoverCommandDeprecations = [
 
 export const deprecatedCommandDefinitions = [
   ...aliasGrammarDeprecations,
+  ...claimActivationFoldDeprecations,
   ...migrationCommandDeprecations,
   ...cutoverCommandDeprecations
 ] as const;

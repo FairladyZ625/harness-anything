@@ -5,7 +5,8 @@ import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
-import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
+import { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
+import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionReadiness, ExecutionCompletionService } from "./execution-completion-service.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
@@ -119,15 +120,15 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
         );
       }
-      if (payload.status === "active") {
-        const planPlaceholder = yield* validateActiveTaskPlanPlaceholder(
-          options.artifactStore,
-          options.rootDir,
-          options.layoutOverrides,
-          payload.taskId,
-          options.documentPlaceholderPolicy
-        );
-        if (planPlaceholder) return planPlaceholder;
+      if (payload.status === "active" && options.documentPlaceholderPolicy) {
+        const readiness = yield* validateTaskActivationReadiness({
+          artifactStore: options.artifactStore,
+          rootDir: options.rootDir,
+          layoutOverrides: options.layoutOverrides,
+          taskId: payload.taskId,
+          policy: options.documentPlaceholderPolicy
+        });
+        if (!readiness.ok) return readiness;
       }
       return yield* options.taskWriter.setStatus(payload).pipe(
         Effect.match({
@@ -350,36 +351,6 @@ function validateLegacyReviewCompatibilityBlockers(
         hint: "Open release-blocking findings in legacy review.md must be closed or migrated before typed completion."
       }
     };
-  });
-}
-
-function validateActiveTaskPlanPlaceholder(
-  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
-  rootDir: string,
-  layoutOverrides: HarnessLayoutOverrides | undefined,
-  taskId: string,
-  policy: TaskDocumentPlaceholderPolicy | undefined
-): Effect.Effect<TaskLifecycleFailure | null> {
-  return Effect.gen(function* () {
-    if (!policy) return null;
-    const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(Effect.catchAll(() => Effect.succeed(null)));
-    if (taskPackage === null) {
-      const taskExists = readTaskProjection({ rootDir, layoutOverrides }).rows.some((row) => row.taskId === taskId);
-      if (!taskExists) return taskFailure(taskId, "task_not_found", `task not found: ${taskId}`);
-      return taskFailure(taskId, "task_plan_placeholder", "Read task_plan.md and replace scaffold content with a substantive implementation plan before transitioning the task to active.");
-    }
-    const taskPlan = taskPackage.documents.find((document) => document.path === "task_plan.md")?.body ?? null;
-    if (taskPlan === null) {
-      return taskFailure(taskId, "task_plan_placeholder", `Restore task_plan.md and write a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage.rootPath}.`);
-    }
-    if (isTaskDocumentPlaceholderMarkdown(taskPlan, policy.taskPlanPlaceholderFingerprintSets)) {
-      return taskFailure(
-        taskId,
-        "task_plan_placeholder",
-        `Replace task_plan.md scaffold content with a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage?.rootPath ?? "unavailable"}.`
-      );
-    }
-    return null;
   });
 }
 

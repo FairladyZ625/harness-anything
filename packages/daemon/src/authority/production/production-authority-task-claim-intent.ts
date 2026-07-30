@@ -7,25 +7,29 @@ import {
 } from "@harness-anything/application";
 import {
   executionDeclaration,
+  sha256Text,
   taskHolderActor,
   type CurrentSessionRef,
   type ExecutionRecord,
   type WriteOp
 } from "@harness-anything/kernel";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
+import { hostedSnapshot } from "./semantic-state.ts";
 
 export function taskClaimAttemptIntent(
   command: ProductionAuthorityCommand,
   attribution: AuthorityHostAttribution,
   currentSession: CurrentSessionRef,
-  operation: WriteOp
+  operation: WriteOp,
+  authoredRoot: string
 ): CanonicalAttemptIntent {
   const action = command.action;
   if (action.kind !== "task-claim") throw new Error("AUTHORITY_TASK_CLAIM_COMMAND_REQUIRED");
   if (operation.kind !== "doc_write") throw new Error("AUTHORITY_TASK_CLAIM_OPERATION_MISMATCH");
   const payload = exactRecord(operation.payload, ["entityDocument", "companionWrites", "preconditions"], "AUTHORITY_TASK_CLAIM_PAYLOAD_INVALID");
-  if (!Array.isArray(payload.companionWrites) || payload.companionWrites.length !== 0
-    || !Array.isArray(payload.preconditions) || payload.preconditions.length !== 0) {
+  if (!Array.isArray(payload.companionWrites) || !Array.isArray(payload.preconditions)
+    || !((payload.companionWrites.length === 0 && payload.preconditions.length === 0)
+      || (payload.companionWrites.length === 1 && payload.preconditions.length === 1))) {
     throw new Error("AUTHORITY_TASK_CLAIM_WRITE_SET_INVALID");
   }
   const document = exactRecord(payload.entityDocument, ["declaration", "identity", "body"], "AUTHORITY_TASK_CLAIM_DOCUMENT_INVALID");
@@ -63,15 +67,91 @@ export function taskClaimAttemptIntent(
     entityKind: "execution",
     canonicalRef: `execution/${action.taskId}/${executionId}`
   };
-  const typedPayload = { schema: "execution.claim/v1" as const, taskId: action.taskId, execution };
+  const activation = claimActivation(
+    action.taskId,
+    authoredRoot,
+    payload.companionWrites,
+    payload.preconditions
+  );
+  const taskEntity = {
+    registryVersion: 1 as const,
+    entityKind: "task",
+    canonicalRef: `task/${action.taskId}`
+  };
+  const typedPayload = {
+    schema: "execution.claim/v1" as const,
+    taskId: action.taskId,
+    execution,
+    ...(activation === null ? {} : {
+      taskIndexBody: activation.taskIndexBody,
+      taskPlanBodySha256: activation.taskPlanBodySha256
+    })
+  };
   return {
     commandName: "execution.claim",
     payload: encodeSessionExecutionReviewCommandPayloadV2(typedPayload),
-    mutations: [{ entity, action: "claim" }],
-    baseRefs: [entity],
-    portablePaths: [`tasks/${action.taskId}/executions/${executionId}.md`],
-    declaredPathCas: [],
+    mutations: [
+      { entity, action: "claim" },
+      ...(activation === null ? [] : [{ entity: taskEntity, action: "transition" }])
+    ],
+    baseRefs: [entity, ...(activation === null ? [] : [taskEntity])],
+    portablePaths: [
+      `tasks/${action.taskId}/executions/${executionId}.md`,
+      ...(activation === null ? [] : [`tasks/${action.taskId}/INDEX.md`])
+    ],
+    declaredPathCas: activation === null ? [] : [
+      { path: `tasks/${action.taskId}/INDEX.md`, ...activation.taskIndexSnapshot.cas },
+      { path: `tasks/${action.taskId}/task_plan.md`, ...activation.taskPlanSnapshot.cas }
+    ],
     physicalEntityId: operation.entityId
+  };
+}
+
+function claimActivation(
+  taskId: string,
+  authoredRoot: string,
+  companionWrites: ReadonlyArray<unknown>,
+  preconditions: ReadonlyArray<unknown>
+): {
+  readonly taskIndexBody: string;
+  readonly taskPlanBodySha256: string;
+  readonly taskIndexSnapshot: NonNullable<ReturnType<typeof hostedSnapshot>>;
+  readonly taskPlanSnapshot: NonNullable<ReturnType<typeof hostedSnapshot>>;
+} | null {
+  if (companionWrites.length === 0) return null;
+  const companion = exactRecord(
+    companionWrites[0],
+    ["taskId", "path", "body"],
+    "AUTHORITY_TASK_CLAIM_ACTIVATION_WRITE_INVALID"
+  );
+  const precondition = exactRecord(
+    preconditions[0],
+    ["taskId", "path", "bodySha256"],
+    "AUTHORITY_TASK_CLAIM_ACTIVATION_PRECONDITION_INVALID"
+  );
+  if (companion.taskId !== taskId || companion.path !== "INDEX.md" || typeof companion.body !== "string"
+    || precondition.taskId !== taskId || precondition.path !== "task_plan.md"
+    || typeof precondition.bodySha256 !== "string") {
+    throw new Error("AUTHORITY_TASK_CLAIM_ACTIVATION_WRITE_SET_INVALID");
+  }
+  const taskIndexSnapshot = hostedSnapshot(authoredRoot, `tasks/${taskId}/INDEX.md`);
+  const taskPlanSnapshot = hostedSnapshot(authoredRoot, `tasks/${taskId}/task_plan.md`);
+  if (!taskIndexSnapshot || !taskPlanSnapshot) {
+    throw new Error("AUTHORITY_TASK_CLAIM_ACTIVATION_DOCUMENT_REQUIRED");
+  }
+  const expectedIndex = taskIndexSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1active");
+  if (!/^  status:\s*planned$/mu.test(taskIndexSnapshot.body) || companion.body !== expectedIndex) {
+    throw new Error("AUTHORITY_TASK_CLAIM_ACTIVATION_TRANSITION_INVALID");
+  }
+  const taskPlanBodySha256 = sha256Text(taskPlanSnapshot.body);
+  if (precondition.bodySha256 !== taskPlanBodySha256) {
+    throw new Error("AUTHORITY_TASK_CLAIM_ACTIVATION_PLAN_CHANGED");
+  }
+  return {
+    taskIndexBody: companion.body,
+    taskPlanBodySha256,
+    taskIndexSnapshot,
+    taskPlanSnapshot
   };
 }
 

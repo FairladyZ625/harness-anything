@@ -140,10 +140,10 @@ function resolveExecutionCompletionReadiness(input: {
   const staleActive = executions.filter((candidate) => candidate.state === "active");
   if (submitted.length !== 1) {
     const claimCommand = staleActive.length === 1
-      ? `ha task claim ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
+      ? `ha task start ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
       : staleActive.length > 1
-        ? `ha task claim ${input.taskId} --execution-id <authoritative-active-execution-id>`
-        : `ha task claim ${input.taskId}`;
+        ? `ha task start ${input.taskId} --execution-id <authoritative-active-execution-id>`
+        : `ha task start ${input.taskId}`;
     const nextCommand = submitted.length > 1
       ? `ha task review-execution ${input.taskId} --execution-id <one-to-retire> --verdict changes_requested --findings "<why this round is superseded>" --rationale "<why another submitted round remains authoritative>"`
       : `${claimCommand}\nha task transition ${input.taskId} in_review --lease-token <leaseToken-from-claim-receipt> --completion-claim "<claim>"`;

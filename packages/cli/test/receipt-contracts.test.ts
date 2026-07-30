@@ -168,12 +168,12 @@ test("failure JSON and text render the same structured task lease recovery comma
 
   assert.equal(receipt.ok, false);
   if (receipt.ok) return;
-  const command = `ha task claim ${taskId}`;
+  const command = `ha task start ${taskId}`;
   assert.equal(receipt.error?.code, "task_lease_required");
   assert.equal(receipt.error?.hint, "Task requires an active lease.");
   assert.deepEqual(receipt.next, [{
     command,
-    description: "Claim the task lease, then retry the original command."
+    description: "Start the task and acquire its lease, then retry the original command."
   }]);
   assert.match(renderReceiptText(receipt), new RegExp(`next=${JSON.stringify(command)}`, "u"));
 });

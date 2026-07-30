@@ -23,6 +23,7 @@ import {
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
 import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./durable.ts";
+import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./operations/code-doc-policy.ts";
@@ -338,6 +339,8 @@ function flushRecords(
     // skip the (non-idempotent) file write but still commit and watermark them.
     if (!fileApplied.has(record.opId)) {
       applyRecord(rootDir, rootInput, journalPath, record);
+    } else {
+      finalizeRecoverableDocumentTransaction(rootInput, record.opId);
     }
     touchedPaths.push(...recordTouchedPaths);
     committedOpIds.push(record.opId);
@@ -452,6 +455,7 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
     entityId: record.entityId,
     at: new Date().toISOString()
   });
+  finalizeRecoverableDocumentTransaction(rootInput, record.opId);
 }
 
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {

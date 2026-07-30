@@ -999,6 +999,13 @@
           "reason": "ADR-0028 P5 coordinator-owned immutable attribution event append closes its exclusive shard descriptor after fsync; this permanent trail is not a bypass caller."
         },
         {
+          "key": "packages/kernel/src/write-coordination/journal/durable.ts#closeSync@5",
+          "owner": "write-coordinator.runtime-substrate",
+          "classification": "coordinator-owned",
+          "ref": "task_01KYHJFNN2YMFCDSQA4YJCDWWF",
+          "reason": "Claim transaction compensation closes the existing-file descriptor after an in-place fsync restore; this is coordinator-owned error recovery, not a bypass caller."
+        },
+        {
           "key": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@1",
           "owner": "write-coordinator.runtime-substrate",
           "classification": "coordinator-owned",
@@ -1025,6 +1032,13 @@
           "classification": "coordinator-owned",
           "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
           "reason": "ADR-0028 P5 coordinator-owned immutable attribution event append fsyncs each exclusive shard before the event can confirm WAL compaction safety."
+        },
+        {
+          "key": "packages/kernel/src/write-coordination/journal/durable.ts#fsyncSync@5",
+          "owner": "write-coordinator.runtime-substrate",
+          "classification": "coordinator-owned",
+          "ref": "task_01KYHJFNN2YMFCDSQA4YJCDWWF",
+          "reason": "Claim transaction compensation fsyncs the restored preimage before reporting an all-old rollback; this is coordinator-owned error recovery, not a bypass caller."
         },
         {
           "key": "packages/kernel/src/write-coordination/journal/durable.ts#mkdirSync@1",
@@ -1076,6 +1090,13 @@
           "reason": "ADR-0028 P5 coordinator-owned immutable attribution event store uses exclusive create so an opId shard can never be overwritten or compacted."
         },
         {
+          "key": "packages/kernel/src/write-coordination/journal/durable.ts#openSync@5",
+          "owner": "write-coordinator.runtime-substrate",
+          "classification": "coordinator-owned",
+          "ref": "task_01KYHJFNN2YMFCDSQA4YJCDWWF",
+          "reason": "Claim transaction compensation opens an existing authored file without requiring parent-directory rename permission; this is coordinator-owned error recovery, not a bypass caller."
+        },
+        {
           "key": "packages/kernel/src/write-coordination/journal/durable.ts#renameSync@1",
           "owner": "write-coordinator.runtime-substrate",
           "classification": "coordinator-owned",
@@ -1116,6 +1137,13 @@
           "classification": "coordinator-owned",
           "ref": "task_01KXBDH7PQ41C66KFSA01ENG7N",
           "reason": "ADR-0028 P5 coordinator-owned immutable attribution event store writes one permanent event line to an exclusive Git-authored shard."
+        },
+        {
+          "key": "packages/kernel/src/write-coordination/journal/durable.ts#writeSync@5",
+          "owner": "write-coordinator.runtime-substrate",
+          "classification": "coordinator-owned",
+          "ref": "task_01KYHJFNN2YMFCDSQA4YJCDWWF",
+          "reason": "Claim transaction compensation rewrites an existing authored preimage in place after truncation; this is coordinator-owned error recovery, not a bypass caller."
         },
         {
           "key": "packages/kernel/src/write-coordination/journal/locks.ts#closeSync@1",

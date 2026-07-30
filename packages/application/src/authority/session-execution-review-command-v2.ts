@@ -43,6 +43,7 @@ export type ExecutionActionPayloadV2 = {
   readonly taskId: string;
   readonly execution: ExecutionRecord;
   readonly taskIndexBody?: string;
+  readonly taskPlanBodySha256?: string;
   readonly completionContractBodySha256?: string | null;
   readonly retirement?: {
     readonly reason: string;
@@ -121,7 +122,7 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
     case "execution.close/v1": {
       const row = exactSemanticObjectV2(value, ["schema", "taskId", "execution"], { allowAdditional: true });
       const actual = Object.keys(row);
-      if (actual.some((key) => !["schema", "taskId", "execution", "taskIndexBody", "completionContractBodySha256", "retirement"].includes(key))) {
+      if (actual.some((key) => !["schema", "taskId", "execution", "taskIndexBody", "taskPlanBodySha256", "completionContractBodySha256", "retirement"].includes(key))) {
         throw semanticAdmissionV2("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD");
       }
       return {
@@ -129,6 +130,7 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
         taskId: nonBlankText(row.taskId),
         execution: decodeExecution(row.execution),
         ...(row.taskIndexBody === undefined ? {} : { taskIndexBody: semanticStringValueV2(row.taskIndexBody) }),
+        ...(row.taskPlanBodySha256 === undefined ? {} : { taskPlanBodySha256: sha256(row.taskPlanBodySha256) }),
         ...(row.completionContractBodySha256 === undefined
           ? {}
           : { completionContractBodySha256: nullableSha256(row.completionContractBodySha256) }),
@@ -158,8 +160,12 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
 
 function nullableSha256(value: unknown): string | null {
   if (value === null) return null;
+  return sha256(value, "COMPLETION_CONTRACT_DIGEST_INVALID");
+}
+
+function sha256(value: unknown, code = "TASK_PLAN_DIGEST_INVALID"): string {
   const digest = semanticStringValueV2(value);
-  if (!/^[0-9a-f]{64}$/u.test(digest)) throw semanticAdmissionV2("COMPLETION_CONTRACT_DIGEST_INVALID");
+  if (!/^[0-9a-f]{64}$/u.test(digest)) throw semanticAdmissionV2(code);
   return digest;
 }
 

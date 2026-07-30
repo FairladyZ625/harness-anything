@@ -28,13 +28,14 @@ test("workspace lease configuration rejects unclaimed writes and permits the cla
   withTempRoot((rootDir) => {
     writeHarnessLeaseEnforcement(rootDir, true);
     const created = runJson(rootDir, ["new-task", "--title", "Configured Lease"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const taskId = assertGeneratedTaskId(created.taskId);
 
     const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "unclaimed write"], false);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "task_lease_required");
     assert.match(rejected.error?.hint ?? "", /requires an active lease/u);
-    assert.match(rejected.error?.hint ?? "", new RegExp(`ha task claim ${taskId}`, "u"));
+    assert.match(rejected.error?.hint ?? "", new RegExp(`ha task start ${taskId}`, "u"));
 
     const claimed = runJson(rootDir, ["task", "claim", taskId]);
     assert.equal(claimed.ok, true);
@@ -47,6 +48,7 @@ test("configured writes recover the caller's orphaned lease but reject another p
   withTempRoot((rootDir) => {
     writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_zeyu", "Zeyu Li", true);
     const created = runJson(rootDir, ["new-task", "--title", "Recover Orphaned Lease"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const taskId = assertGeneratedTaskId(created.taskId);
 
     runJson(rootDir, ["task", "claim", taskId, "--ttl-ms", "60000"], true, {
@@ -54,6 +56,10 @@ test("configured writes recover the caller's orphaned lease but reject another p
     });
     expireTaskHolder(rootDir, taskId);
 
+    const reclaimed = runJson(rootDir, ["task", "claim", taskId], true, {
+      HARNESS_ACTOR: "agent:codex"
+    });
+    assert.equal(reclaimed.status, "active");
     const recovered = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "write recovered lease"], true, {
       HARNESS_ACTOR: "agent:codex"
     });
@@ -103,13 +109,16 @@ test("explicit true environment override enables lease enforcement without confi
 test("task claim defaults to a 24 hour lease when no TTL setting is present", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Default Lease TTL"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const claimed = runJson(rootDir, ["task", "claim", created.taskId]);
 
     assert.equal(leaseDurationMs(claimed.report), 86_400_000);
-    assert.equal(claimed.status, "planned");
-    const guidance = claimed.warnings.find((warning: Record<string, unknown>) => warning.code === "task_still_planned");
-    assert.match(String(guidance?.message), /remains planned after claim.+before writing facts or closing out/iu);
-    assert.equal(guidance?.nextCommand, `ha task start ${created.taskId}`);
+    assert.equal(claimed.status, "active");
+    assert.match(claimed.executionId, /^exe_/u);
+    assert.equal(
+      claimed.warnings.some((warning: Record<string, unknown>) => warning.code === "task_still_planned"),
+      false
+    );
   });
 });
 
@@ -124,14 +133,17 @@ test("task claim resolves YAML then environment TTL defaults while explicit --tt
       "    leaseTtlMs: 120000"
     ]);
     const created = runJson(rootDir, ["new-task", "--title", "Configured Lease TTL"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const fromYaml = runJson(rootDir, ["task", "claim", created.taskId]);
     assert.equal(leaseDurationMs(fromYaml.report), 120_000);
+    runJson(rootDir, ["task", "release", created.taskId]);
 
     const fromEnv = runJson(rootDir, ["task", "claim", created.taskId], true, {
       HARNESS_TASK_LEASE_TTL_MS: "180000"
     });
     assert.equal(leaseDurationMs(fromEnv.report), 180_000);
+    runJson(rootDir, ["task", "release", created.taskId]);
 
     const explicit = runJson(rootDir, ["task", "claim", created.taskId, "--ttl-ms", "60000"], true, {
       HARNESS_TASK_LEASE_TTL_MS: "180000"
@@ -210,11 +222,12 @@ test("configured identity supplies principal while HARNESS_ACTOR supplies only a
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Configured Agent Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, {
       HARNESS_ACTOR: "agent:claude-code"
     });
-    const holder = claimed.report.effectiveHolder;
+    const holder = claimed.report.actor;
 
     assert.equal(holder.principal.personId, "person_zeyu");
     assert.equal(holder.principal.displayName, "Zeyu Li");
@@ -227,11 +240,12 @@ test("configured identity supports direct human claim through --actor", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Configured Human Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const claimed = runJson(rootDir, ["--actor", "human:person_zeyu", "task", "claim", created.taskId], true, {
       HARNESS_ACTOR: ""
     });
-    const holder = claimed.report.effectiveHolder;
+    const holder = claimed.report.actor;
 
     assert.equal(holder.principal.personId, "person_zeyu");
     assert.equal(holder.executor, null);
@@ -239,7 +253,7 @@ test("configured identity supports direct human claim through --actor", () => {
   });
 });
 
-test("default claim preserves status and the Holder V2 actor can submit without replaying credentials", () => {
+test("execution claim activates once and the Holder V2 actor can submit without replaying credentials", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
@@ -265,8 +279,9 @@ test("default claim preserves status and the Holder V2 actor can submit without 
     assert.equal(execution.session_bindings[0]?.session_ref, "session/codex-primary-session");
     assert.equal(execution.session_bindings[0]?.archive_status, "pending");
     const indexPath = path.join(rootDir, `harness/tasks/${created.taskId}-execution-saga/INDEX.md`);
-    assert.match(readFileSync(indexPath, "utf8"), /^  status: planned$/mu);
+    assert.match(readFileSync(indexPath, "utf8"), /^  status: active$/mu);
 
+    // Compatibility: the former second step is now an idempotent no-op.
     const activated = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
     assert.equal(activated.status, "active");
 
@@ -371,6 +386,8 @@ test("lease-enforced relation writes fail closed and persist after the related t
     writeHarnessLeaseEnforcement(rootDir, true);
     const source = runJson(rootDir, ["new-task", "--title", "Relation Source"]);
     const target = runJson(rootDir, ["new-task", "--title", "Relation Target"]);
+    writeSubstantiveTaskPlan(rootDir, source.packagePath);
+    writeSubstantiveTaskPlan(rootDir, target.packagePath);
 
     const taskRejected = runJson(rootDir, [
       "task", "relate", source.taskId, "depends-on", target.taskId,
@@ -412,16 +429,19 @@ test("lease-enforced relation writes fail closed and persist after the related t
   });
 });
 
-test("same configured person can renew a claim through a different agent", () => {
+test("an active Execution lease remains executor-bound across deprecated claim retries", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Agent Handoff Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     runJson(rootDir, ["task", "claim", created.taskId], true, { HARNESS_ACTOR: "agent:codex" });
-    const renewed = runJson(rootDir, ["task", "claim", created.taskId], true, { HARNESS_ACTOR: "agent:claude-code" });
+    const rejected = runJson(rootDir, ["task", "claim", created.taskId], false, {
+      HARNESS_ACTOR: "agent:claude-code"
+    });
 
-    assert.equal(renewed.report.effectiveHolder.principal.personId, "person_zeyu");
-    assert.deepEqual(renewed.report.effectiveHolder.executor, { kind: "agent", id: "claude-code" });
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error?.hint ?? "", /current holder principal=person_zeyu, executor=agent:codex/u);
   });
 });
 
