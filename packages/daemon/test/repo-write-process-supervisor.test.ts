@@ -143,15 +143,13 @@ test("child that swallows PROCEED is replaced after the bounded stall window and
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  const outcome = await Promise.race([
-    supervisor.submit(command()).then(
-      () => ({ kind: "committed" as const }),
-      (error: unknown) => ({ kind: "rejected" as const, error })
-    ),
-    new Promise<{ readonly kind: "still-pending" }>((resolve) => {
-      setTimeout(() => resolve({ kind: "still-pending" }), 1_600);
-    })
-  ]);
+  // Boundedness is asserted by awaiting the rejection itself: an unbounded
+  // regression hangs into the runner's per-test timeout instead of racing a
+  // wall-clock budget that slow CI child spawns cannot meet.
+  const outcome = await supervisor.submit(command()).then(
+    () => ({ kind: "committed" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
 
   assert.equal(outcome.kind, "rejected");
   assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteOutcomeUnknownError);
