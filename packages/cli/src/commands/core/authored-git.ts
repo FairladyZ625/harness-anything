@@ -47,6 +47,22 @@ export function resolveGitCommitSha(rootDir: string, ref: string): string {
   return readAuthoredGitText(rootDir, ["rev-parse", "--verify", `${ref}^{commit}`]);
 }
 
+export function inspectGitCommitRef(rootDir: string, ref: string):
+  | { readonly ok: true; readonly sha: string }
+  | { readonly ok: false; readonly reason: "missing" | "non-commit"; readonly objectType?: string; readonly cause: string } {
+  try {
+    return { ok: true, sha: resolveGitCommitSha(rootDir, ref) };
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    try {
+      const objectType = readAuthoredGitText(rootDir, ["cat-file", "-t", ref]);
+      return { ok: false, reason: "non-commit", objectType, cause };
+    } catch {
+      return { ok: false, reason: "missing", cause };
+    }
+  }
+}
+
 export function readAuthoredGitText(rootDir: string, args: ReadonlyArray<string>, trim = true): string {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))

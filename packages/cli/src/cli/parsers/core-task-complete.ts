@@ -15,6 +15,9 @@ export function parseTaskComplete(
 ): ParseResult {
   const legacyCommitRef = readOption(args, "--commit-anchor");
   const judgment = readOption(args, "--judgment");
+  if (args.includes("--approve") && (legacyCommitRef !== undefined || judgment !== undefined)) {
+    return taskCompleteFailure("Choose one owner approval mode: use --approve --from-file <approval.json>, or the compatibility --commit-anchor <ref> --judgment <reason> pair, not both.");
+  }
   if (legacyCommitRef || judgment) return parseCommitAnchorApproval(args, rootDir, json, legacyCommitRef, judgment);
   if (!args.includes("--approve")) {
     return parseReviewedExecutionCompatibility(args, rootDir, json);
@@ -145,8 +148,10 @@ function parseTaskCompleteConsent(payload: Readonly<Record<string, unknown>>):
     return taskCompleteFailure(`Approval field consentActions must contain only: ${validConsentActions.join(", ")}.`);
   }
   const consentActions = payload.consentActions as ReadonlyArray<ConsentAction> | undefined;
-  if (consentActions && (!consentActions.includes("approve_execution") || new Set(consentActions).size !== consentActions.length)) {
-    return taskCompleteFailure("Consent scope must include approve_execution exactly once; complete_task is optional.");
+  if (consentActions && (!consentActions.includes("approve_execution")
+    || !consentActions.includes("complete_task")
+    || new Set(consentActions).size !== consentActions.length)) {
+    return taskCompleteFailure("Owner approval consent scope must include approve_execution and complete_task exactly once.");
   }
   if (consentActions && consentId) return taskCompleteFailure("consentActions is only valid when creating consent from an explicit source declaration.");
   return { ok: true, value: {

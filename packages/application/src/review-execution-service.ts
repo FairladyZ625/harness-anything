@@ -72,6 +72,8 @@ export function makeReviewExecutionService(options: {
       const executionDocument = task.documents.find((document) => document.path === `executions/${input.executionId}.md`);
       if (!executionDocument) throw new Error(`execution not found: ${input.executionId}`);
       const execution = decodeExecutionForConsent(executionDocument, input.taskId, input.executionId);
+      const existingApproval = equivalentApprovedReview(task.documents, input);
+      if (existingApproval) return { review: existingApproval };
       if (execution.state !== "submitted") throw new Error(`execution is not submitted: ${input.executionId}`);
       assertExecutionTaskReviewable(task.documents, input.taskId);
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
@@ -81,8 +83,6 @@ export function makeReviewExecutionService(options: {
       const unknownEvidence = input.evidenceChecked.find((evidenceId) => !evidenceIds.has(evidenceId));
       if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${input.executionId}: ${unknownEvidence}`);
       assertConsentInputShape(input, execution);
-      const existingApproval = equivalentApprovedReview(task.documents, input);
-      if (existingApproval) return { review: existingApproval };
 
       const reviewId = generateReviewId();
       if (task.documents.some((document) => document.path === `reviews/${reviewId}.md`)) {
@@ -197,11 +197,44 @@ function equivalentApprovedReview(
       && review.findings === input.findings
       && stablePayloadHash(review.evidence_checked) === stablePayloadHash(input.evidenceChecked)
       && review.rationale === input.rationale
-      && review.archive_warnings_acknowledged === input.archiveWarningsAcknowledged) {
+      && review.archive_warnings_acknowledged === input.archiveWarningsAcknowledged
+      && equivalentApprovalConsent(review, input)) {
       return review;
     }
   }
   return null;
+}
+
+function equivalentApprovalConsent(
+  review: ReviewRecord,
+  input: Parameters<ReviewExecutionService["reviewExecution"]>[0]
+): boolean {
+  const basis = review.approval_basis;
+  if (!basis || basis.kind !== "human-consent") return false;
+  if (input.consentId) {
+    return basis.consent_ref === `consent/${input.taskId}/${input.consentId}`
+      && input.consentActions === undefined;
+  }
+  const expectedActions = [...(input.consentActions ?? DEFAULT_HUMAN_CONSENT_ACTIONS)].sort();
+  if (stablePayloadHash([...basis.consent_snapshot.scope.actions].sort()) !== stablePayloadHash(expectedActions)) {
+    return false;
+  }
+  if (input.consentAssertedRationale) {
+    return basis.consent_snapshot.source.strength === "asserted"
+      && basis.consent_snapshot.source.rationale === input.consentAssertedRationale.trim()
+      && basis.consent_snapshot.response.kind === "authorization-declaration"
+      && basis.consent_snapshot.response.source === "asserted";
+  }
+  if (input.consentStandingPolicyDecisionId) {
+    return basis.consent_snapshot.source.strength === "standing-policy"
+      && basis.consent_snapshot.source.decision_ref === `decision/${input.consentStandingPolicyDecisionId.trim()}`
+      && basis.consent_snapshot.response.kind === "authorization-declaration"
+      && basis.consent_snapshot.response.source === "standing-policy";
+  }
+  return Boolean(input.consentUtterance)
+    && basis.consent_snapshot.source.strength === "transcript-verified"
+    && basis.consent_snapshot.response.kind === "utterance"
+    && basis.consent_snapshot.response.text === input.consentUtterance?.trim();
 }
 
 function assertConsentInputShape(input: {

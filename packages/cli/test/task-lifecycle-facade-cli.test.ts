@@ -102,6 +102,25 @@ test("approved closeout without consent is rejected before any lifecycle write",
   });
 });
 
+test("changes_requested closeout packet cannot complete the submitted task", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "Changes Requested Is Not Approval");
+    runJson(rootDir, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(rootDir)], true, fixture.env);
+    const packet = writeCloseoutPacket(rootDir, { verdict: "changes_requested" });
+    const taskRoot = path.join(rootDir, fixture.packagePath);
+    const indexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
+
+    const rejected = runJson(rootDir, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
+
+    assert.equal(rejected.error.code, "invalid_task_metadata");
+    assert.match(rejected.error.hint, /only accepts verdict approved.+review-execution.+changes_requested/iu);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
+    assert.match(indexBefore, /^  status: in_review$/mu);
+    const reviewsRoot = path.join(taskRoot, "reviews");
+    assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
+  });
+});
+
 test("closeout dry-run satisfies its receipt contract without inventing execution state", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Dry Run Contract");
@@ -310,13 +329,17 @@ function prepareSession(rootDir: string, sessionId: string): Record<string, stri
   return { ...workerEnv, HOME: homeDir, CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
 }
 
-function writeCloseoutPacket(rootDir: string, overrides: { readonly ci?: "passed" | "failed" | "not-applicable"; readonly omitConsent?: boolean } = {}): string {
+function writeCloseoutPacket(rootDir: string, overrides: {
+  readonly ci?: "passed" | "failed" | "not-applicable";
+  readonly omitConsent?: boolean;
+  readonly verdict?: "approved" | "changes_requested";
+} = {}): string {
   const packet = path.join(rootDir, `closeout-${overrides.ci ?? "passed"}.json`);
   writeFileSync(packet, JSON.stringify({
     completionClaim: "The implementation is ready for review.",
     deliverables: ["lifecycle facade"], outputs: ["integration evidence"],
     verificationNotes: ["targeted tests passed"], knownGaps: [], residualRisks: ["none observed"],
-    verdict: "approved", findings: "Acceptance checks passed.",
+    verdict: overrides.verdict ?? "approved", findings: "Acceptance checks passed.",
     rationale: "The evidence satisfies the task intent.", evidenceChecked: ["ev_cli_1"],
     ...(overrides.omitConsent ? {} : {
       consentAssertedRationale: "The human approved through an external channel.",

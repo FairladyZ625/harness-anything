@@ -38,12 +38,6 @@ test("CLI task-complete rejects invalid commit-anchor packets without partial co
   rejectedCase("task-private-anchor", (rootDir) => execFileSync(
     "git", ["-C", path.join(rootDir, "harness"), "rev-parse", "HEAD"], { encoding: "utf8" }
   ).trim(), "commit_completion_git_ref_missing");
-  rejectedCase("task-anchor-mismatch", (rootDir) => {
-    writeFileSync(path.join(rootDir, "second-public-change.txt"), "second commit\n", "utf8");
-    execFileSync("git", ["-C", rootDir, "add", "second-public-change.txt"]);
-    execFileSync("git", ["-C", rootDir, "commit", "-m", "second public change"]);
-    return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  }, "commit_completion_anchor_missing");
   rejectedCase(executionTaskId, (rootDir, sha) => {
     seedApprovedExecution(rootDir, executionTaskId, executionId);
     return sha;
@@ -54,6 +48,37 @@ test("CLI task-complete rejects invalid commit-anchor packets without partial co
   rejectedCase("task-closeout-placeholder-anchor", (_rootDir, sha) => sha, "closeout_placeholder", { placeholderCloseout: true });
 });
 
+test("commit-anchor completion internally replaces a stale anchor and softens unavailable doc sync", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task-anchor-reconciled-internally";
+    const originalSha = prepareCommitCompletionTask(rootDir, taskId, false);
+    mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "tools/write-road-registry.json"),
+      readFileSync(path.resolve("tools/write-road-registry.json"), "utf8"),
+      "utf8"
+    );
+    writeFileSync(path.join(rootDir, "second-public-change.txt"), "second commit\n", "utf8");
+    execFileSync("git", ["-C", rootDir, "add", "second-public-change.txt"]);
+    execFileSync("git", ["-C", rootDir, "commit", "-m", "second public change"]);
+    const requestedSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+    const completed = runJson(rootDir, [
+      "task", "complete", taskId, "--commit-anchor", requestedSha,
+      "--judgment", "The current workspace commit completes this task.", "--ci", "passed"
+    ], true, executionActorEnv);
+
+    assert.notEqual(requestedSha, originalSha);
+    assert.equal(completed.status, "done");
+    assert.equal(completed.completionEvidence.sha, requestedSha);
+    assert.equal(completed.warnings.some((warning: { readonly code?: string }) => warning.code === "doc_sync_dirty"), true);
+    const anchors = JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${taskId}/code-doc-anchors.json`), "utf8"));
+    assert.equal(anchors.records.every((record: { readonly anchors: ReadonlyArray<{ readonly sha: string }> }) =>
+      record.anchors.every((anchor) => anchor.sha === requestedSha)
+    ), true);
+  });
+});
+
 test("CLI task-complete requires paired commit-anchor flags and forbids reviewer self-report", () => {
   withTempRoot((rootDir) => {
     const missingJudgment = runJson(rootDir, ["task", "complete", "task-packet", "--commit-anchor", "HEAD"], false);
@@ -61,10 +86,18 @@ test("CLI task-complete requires paired commit-anchor flags and forbids reviewer
     const reviewer = runJson(rootDir, [
       "task", "complete", "task-packet", "--commit-anchor", "HEAD", "--judgment", "done", "--reviewer", "self"
     ], false);
+    const approvalPacket = path.join(rootDir, "approval.json");
+    writeFileSync(approvalPacket, "{}\n", "utf8");
+    const conflictingModes = runJson(rootDir, [
+      "task", "complete", "task-packet", "--approve", "--from-file", approvalPacket,
+      "--commit-anchor", "HEAD", "--judgment", "done"
+    ], false);
 
     assert.equal(missingJudgment.error?.code, "completion_evidence_mode_invalid");
     assert.equal(missingAnchor.error?.code, "completion_evidence_mode_invalid");
     assert.equal(reviewer.error?.code, "completion_evidence_mode_invalid");
+    assert.equal(conflictingModes.error?.code, "invalid_task_metadata");
+    assert.match(conflictingModes.error?.hint ?? "", /one owner approval mode.+not both/iu);
   });
 });
 

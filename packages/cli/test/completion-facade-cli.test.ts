@@ -84,6 +84,44 @@ test("coldstart lifecycle submits and completes with visible unavailable provena
   });
 });
 
+test("owner approval retries converge after every committed facade boundary", () => {
+  for (const breakpoint of ["review", "reconcile", "complete"] as const) {
+    withTempRoot((rootDir) => {
+      const chain = prepareSubmitted(rootDir, `Retry After ${breakpoint}`, "facade");
+      const packetPath = writeRetryApprovalPacket(rootDir);
+      const approvalCommand = [
+        "--actor", "human:person_test", "task", "complete", chain.taskId,
+        "--approve", "--from-file", packetPath
+      ] as const;
+
+      if (breakpoint === "review" || breakpoint === "reconcile") {
+        runEquivalentApprovalReview(rootDir, chain);
+      }
+      if (breakpoint === "reconcile") {
+        runJson(rootDir, [
+          "--actor", "human:person_test", "task", "code-doc", "reconcile", chain.taskId,
+          "--commit", chain.sha, "--path", "evidence/equivalence.txt", "--force"
+        ], true, chain.env);
+      }
+      if (breakpoint === "complete") runJson(rootDir, approvalCommand, true, chain.env);
+
+      const retried = runJson(rootDir, approvalCommand, true, chain.env);
+      const taskRoot = path.join(rootDir, chain.packagePath);
+      assert.equal(retried.status, "done", breakpoint);
+      assert.equal(readdirSync(path.join(taskRoot, "reviews")).length, 1, breakpoint);
+      assert.equal(readdirSync(path.join(taskRoot, "consents")).length, 1, breakpoint);
+      assert.equal(readdirSync(path.join(taskRoot, "executions")).length, 1, breakpoint);
+      assert.equal(JSON.parse(readFileSync(
+        path.join(taskRoot, "executions", `${chain.executionId}.md`),
+        "utf8"
+      )).state, "accepted", breakpoint);
+      const anchors = JSON.parse(readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"));
+      assert.equal(new Set(anchors.records.map((record: { readonly id: string }) => record.id)).size, anchors.records.length, breakpoint);
+      assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu, breakpoint);
+    });
+  }
+});
+
 test("task submit rejects a milestone without decision lineage before releasing its lease", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, [
@@ -201,11 +239,16 @@ test("review facade preserves the approved-consent rejection code and logical st
     const manualNotReviewed = runJson(manualRoot, [
       "task", "complete", manual.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
     ], false, { HARNESS_ACTOR: "agent:commander" });
+    runJson(facadeRoot, [
+      "task", "code-doc", "reconcile", facade.taskId,
+      "--commit", facade.sha, "--path", "evidence/equivalence.txt"
+    ], true, facade.env);
     const facadeNotReviewed = runJson(facadeRoot, [
       "task", "complete", facade.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
     ], false, { HARNESS_ACTOR: "agent:commander" });
     assert.equal(facadeNotReviewed.ok, false);
     assert.equal(manualNotReviewed.ok, false);
+    assert.equal(facadeNotReviewed.error.code, manualNotReviewed.error.code);
     assert.notEqual(facadeNotReviewed.error.code, "execution_review_required");
     assert.notEqual(manualNotReviewed.error.code, "execution_review_required");
     assert.match(facadeNotReviewed.error.hint, /approved Review/u);
@@ -277,7 +320,7 @@ function prepareActiveWithoutClaim(rootDir: string): {
 
 function prepareSubmitted(rootDir: string, title: string, mode: ChainMode): {
   readonly taskId: string; readonly packagePath: string; readonly executionId: string; readonly env: Record<string, string>;
-  readonly submitSteps: ReadonlyArray<Record<string, unknown>>;
+  readonly submitSteps: ReadonlyArray<Record<string, unknown>>; readonly sha: string;
 } {
   const created = runJson(rootDir, ["task", "create", "--title", title, "--vertical", "software/coding", "--preset", "standard-task"]);
   writeSubstantiveTaskPlan(rootDir, created.packagePath);
@@ -326,7 +369,37 @@ function prepareSubmitted(rootDir: string, title: string, mode: ChainMode): {
     const submitReceipt = runJson(rootDir, ["task", "submit", created.taskId, "--from-file", packetPath], true, env);
     submitSteps = submitReceipt.report.steps;
   }
-  return { taskId: created.taskId, packagePath: created.packagePath, executionId, env, submitSteps };
+  return { taskId: created.taskId, packagePath: created.packagePath, executionId, env, submitSteps, sha };
+}
+
+function writeRetryApprovalPacket(rootDir: string): string {
+  const packetPath = path.join(rootDir, "retry-approval.json");
+  writeFileSync(packetPath, JSON.stringify({
+    findings: "All acceptance checks passed.",
+    evidenceChecked: ["ev_cli_1"],
+    rationale: "The submitted evidence satisfies the Task intent.",
+    archiveWarningsAcknowledged: false,
+    consentAssertedRationale: "Approval was received through an external channel.",
+    consentActions: ["approve_execution", "complete_task"],
+    ci: "passed",
+    paths: ["evidence/equivalence.txt"],
+    reviewerId: "person_reviewer"
+  }), "utf8");
+  return packetPath;
+}
+
+function runEquivalentApprovalReview(
+  rootDir: string,
+  chain: ReturnType<typeof prepareSubmitted>
+): void {
+  runJson(rootDir, [
+    "--actor", "human:person_test", "task", "review-execution", chain.taskId,
+    "--execution-id", chain.executionId, "--verdict", "approved",
+    "--findings", "All acceptance checks passed.", "--evidence-checked", "ev_cli_1",
+    "--rationale", "The submitted evidence satisfies the Task intent.",
+    "--consent-asserted", "Approval was received through an external channel.",
+    "--consent-action", "approve_execution", "--consent-action", "complete_task"
+  ], true, chain.env);
 }
 
 function runCompletionChain(rootDir: string, mode: ChainMode): Record<string, unknown> {

@@ -4,9 +4,9 @@ import { finalizeDryRunResult } from "../../cli/dry-run-preview.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../../cli/receipt.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
-import { resolveGitCommitSha } from "./authored-git.ts";
+import { inspectGitCommitRef } from "./authored-git.ts";
 import { resolveTaskDocSyncPaths } from "./doc-sync.ts";
-import { guidedLifecycleFacadeFailure, shellLifecycleToken } from "./task-lifecycle-facade-guidance.ts";
+import { dispatchLifecycleFacadeSteps, shellLifecycleToken } from "./task-lifecycle-facade-guidance.ts";
 
 type Dispatch = (step: ParsedCommand) => Promise<CommandReceipt | CommandFailureReceipt>;
 type TaskStartCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-start" }> };
@@ -31,12 +31,9 @@ export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Di
   if (!docPaths.ok) return docPaths.result;
   const steps = taskCloseoutFacadeSteps(closeoutCommand, resolved.sha, docPaths.paths);
   if (command.action.dryRun) return dryRun(closeoutCommand, steps, { commit: resolved.sha });
-  const receipts: CommandReceipt[] = [];
-  for (const step of steps) {
-    const receipt = await dispatch(step);
-    if (!receipt.ok) return guidedLifecycleFacadeFailure(receipt, receipts, step, "task-closeout");
-    receipts.push(receipt);
-  }
+  const dispatched = await dispatchLifecycleFacadeSteps(steps, dispatch, "task-closeout");
+  if (!dispatched.ok) return dispatched.receipt;
+  const { receipts, warnings } = dispatched;
   const submitData = lifecycleFacadeReceiptData(receipts[0]!);
   return {
     ok: true,
@@ -44,6 +41,7 @@ export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Di
     taskId: command.action.taskId,
     executionId: text(submitData.executionId),
     status: "done",
+    ...(warnings.length > 0 ? { warnings } : {}),
     report: {
       schema: "task-closeout-result/v1",
       commit: resolved.sha,
@@ -62,15 +60,15 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
   if (!docPaths.ok) return docPaths.result;
   const steps = taskCompleteFacadeSteps(completeCommand, resolved.sha, docPaths.paths);
   if (command.action.dryRun) return dryRun(completeCommand, steps, { commit: resolved.sha });
-  const receipts: CommandReceipt[] = [];
-  for (const step of steps) {
-    const receipt = await dispatch(step);
-    if (!receipt.ok) return guidedLifecycleFacadeFailure(receipt, receipts, step, "task-complete");
-    receipts.push(receipt);
-  }
+  const dispatched = await dispatchLifecycleFacadeSteps(steps, dispatch, "task-complete");
+  if (!dispatched.ok) return dispatched.receipt;
+  const { receipts, warnings } = dispatched;
   const completed = receipts.at(-1)!;
   return {
     ...completed,
+    ...((completed.warnings?.length ?? 0) + warnings.length > 0
+      ? { warnings: [...(completed.warnings ?? []), ...warnings] }
+      : {}),
     details: {
       ...completed.details,
       data: {
@@ -212,24 +210,30 @@ function dryRun(
 
 function resolveCommit(rootDir: string, commitRef: string, command = "task-closeout"):
   { readonly ok: true; readonly sha: string } | { readonly ok: false; readonly result: CliResult } {
-  try {
-    const sha = resolveGitCommitSha(rootDir, commitRef);
-    if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error(`git returned a non-40-character commit id: ${sha}`);
-    return { ok: true, sha };
-  } catch (error) {
-    const next = `git -C ${shellLifecycleToken(rootDir)} rev-parse --verify ${shellLifecycleToken(`${commitRef}^{commit}`)}`;
-    return {
+  const resolved = inspectGitCommitRef(rootDir, commitRef);
+  if (resolved.ok && /^[0-9a-f]{40}$/u.test(resolved.sha)) return resolved;
+  const next = `git -C ${shellLifecycleToken(rootDir)} rev-parse --verify ${shellLifecycleToken(`${commitRef}^{commit}`)}`;
+  const code = command === "task-complete"
+    ? resolved.ok || resolved.reason === "missing"
+      ? CliErrorCode.CommitCompletionGitRefMissing
+      : CliErrorCode.CommitCompletionNonCommitObject
+    : CliErrorCode.InvalidTaskMetadata;
+  const detail = resolved.ok
+    ? `git returned a non-40-character commit id: ${resolved.sha}`
+    : resolved.reason === "non-commit"
+      ? `Git object type is ${resolved.objectType ?? "non-commit"}`
+      : resolved.cause;
+  return {
+    ok: false,
+    result: {
       ok: false,
-      result: {
-        ok: false,
-        command,
-        error: cliError(
-          CliErrorCode.InvalidTaskMetadata,
-          `Cannot resolve commit ref ${commitRef} to a full 40-character SHA: ${error instanceof Error ? error.message : String(error)}. Next: run \`${next}\`.`
-        )
-      }
-    };
-  }
+      command,
+      error: cliError(
+        code,
+        `Cannot resolve commit ref ${commitRef} to a full 40-character commit SHA: ${detail}. Next: run \`${next}\`.`
+      )
+    }
+  };
 }
 
 function lifecycleFacadeRecord(value: unknown): Record<string, unknown> | undefined {

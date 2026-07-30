@@ -59,6 +59,7 @@ export function makeExecutionCompletionService(options: {
       }
       if (!readiness.ok) throw new Error(readiness.issues[0]?.message ?? `task ${taskId} is not ready for Execution completion`);
       const execution = readiness.execution;
+      if (execution.state === "accepted") return { executionId: execution.execution_id };
       const currentContract = task.documents.find((document) => document.path === "task-contract.json");
 
       const completedAt = now();
@@ -131,8 +132,13 @@ function resolveExecutionCompletionReadiness(input: {
       return execution;
     });
   const submitted = executions.filter((candidate) => candidate.state === "submitted");
+  const accepted = executions.filter((candidate) => candidate.state === "accepted");
   const staleActive = executions.filter((candidate) => candidate.state === "active");
-  if (submitted.length !== 1) {
+  const completedReplay = submitted.length === 0
+    && accepted.length === 1
+    && staleActive.length === 0
+    && taskStatus(input.documents) === "done";
+  if (submitted.length !== 1 && !completedReplay) {
     const claimCommand = staleActive.length === 1
       ? `ha task start ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
       : staleActive.length > 1
@@ -152,7 +158,7 @@ function resolveExecutionCompletionReadiness(input: {
     };
   }
 
-  const execution = submitted[0]!;
+  const execution = submitted[0] ?? accepted[0]!;
   const issues: ExecutionCompletionReadinessIssue[] = [];
   if (staleActive.length > 0) {
     issues.push({
@@ -163,13 +169,15 @@ function resolveExecutionCompletionReadiness(input: {
         .join("\n")
     });
   }
-  try {
-    assertExecutionTaskCompletable(input.documents, input.taskId);
-  } catch (error) {
-    issues.push({
-      code: "execution_task_not_in_review",
-      message: error instanceof Error ? error.message : String(error)
-    });
+  if (!completedReplay) {
+    try {
+      assertExecutionTaskCompletable(input.documents, input.taskId);
+    } catch (error) {
+      issues.push({
+        code: "execution_task_not_in_review",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   const reviews = input.documents
     .filter((document) => /^reviews\/[^/]+\.md$/u.test(document.path))
@@ -227,7 +235,10 @@ function reviewHasCompletionConsent(
     return false;
   }
   const reviewRef = `review/${taskId}/${review.review_id}`;
-  const currentPin = computeExecutionConsentPin(execution);
+  const consentBoundExecution = execution.state === "accepted"
+    ? { ...execution, state: "submitted" as const, closed_at: null }
+    : execution;
+  const currentPin = computeExecutionConsentPin(consentBoundExecution);
   return consent.task_ref === `task/${taskId}`
     && consent.execution_ref === `execution/${taskId}/${execution.execution_id}`
     && consent.state === "consumed"
@@ -249,6 +260,11 @@ function reviewHasCompletionConsent(
       granted_at: consent.granted_at,
       expires_at: consent.expires_at
     });
+}
+
+function taskStatus(documents: ReadonlyArray<{ readonly path: string; readonly body: string }>): string | undefined {
+  return documents.find((document) => document.path === "INDEX.md")?.body
+    .match(/^  status:\s*(.+)$/mu)?.[1]?.trim();
 }
 
 function completedTaskIndex(documents: ReadonlyArray<{ readonly path: string; readonly body: string }>, taskId: string): string {

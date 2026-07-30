@@ -8,6 +8,39 @@ export interface PlannedTaskClaimGuidance {
   readonly nextCommand: string;
 }
 
+export async function dispatchLifecycleFacadeSteps(
+  steps: ReadonlyArray<ParsedCommand>,
+  dispatch: (step: ParsedCommand) => Promise<CommandReceipt | CommandFailureReceipt>,
+  facade: "task-closeout" | "task-complete"
+): Promise<
+  | { readonly ok: true; readonly receipts: ReadonlyArray<CommandReceipt>; readonly warnings: ReadonlyArray<unknown> }
+  | { readonly ok: false; readonly receipt: CommandFailureReceipt }
+> {
+  const receipts: CommandReceipt[] = [];
+  const warnings: unknown[] = [];
+  for (const step of steps) {
+    const receipt = await dispatch(step);
+    if (receipt.ok) {
+      receipts.push(receipt);
+      continue;
+    }
+    if (step.action.kind === "doc-sync"
+      && receipt.error?.code === "journal_unavailable"
+      && /requires the daemon-backed CLI path|HARNESS_DAEMON_MODE=direct/iu.test(receipt.error.hint)) {
+      warnings.push({
+        severity: "warning",
+        code: "doc_sync_dirty",
+        message: "Task prose remains dirty because daemon-backed doc sync is unavailable; completion continued under the existing soft-warning policy.",
+        paths: step.action.paths,
+        nextCommand: "ha doc sync --submit"
+      });
+      continue;
+    }
+    return { ok: false, receipt: guidedLifecycleFacadeFailure(receipt, receipts, step, facade) };
+  }
+  return { ok: true, receipts, warnings };
+}
+
 export function plannedTaskClaimGuidance(taskId: string): PlannedTaskClaimGuidance {
   const nextCommand = joinLifecycleCommand("ha", "task", "start", taskId);
   return {
