@@ -8,7 +8,7 @@ import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-regis
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { preflightActiveStatusSet } from "./task-active-transition.ts";
 import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
-import { canonicalTaskStartResult, resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
+import { canonicalTaskStartResult, resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal, terminalTaskStartFailure } from "./task-holder-support.ts";
 import { executionSubmitSuccessResult } from "./task-holder-submit-result.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
@@ -163,6 +163,9 @@ export function runTaskClaim(
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return canonicalTaskStartResult(action.taskId, principal.result);
     const policy = yield* readTaskLifecyclePolicy(context.artifactStore, action.taskId);
+    if (policy?.status === "done" || policy?.status === "cancelled") {
+      return terminalTaskStartFailure(action.taskId, policy.status);
+    }
     let activation: { readonly taskPlanBodySha256: string } | undefined;
     if (policy?.status === "planned") {
       const preflight = yield* preflightActiveStatusSet(context, action.taskId);
