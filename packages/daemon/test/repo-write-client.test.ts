@@ -60,6 +60,47 @@ test("waits for ready, records prepared opId, proceeds, and resolves only at ter
   assert.deepEqual(await result, receipt);
 });
 
+test("starts the durable request deadline only after READY dispatches the request", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const timeoutDiagnostics: unknown[] = [];
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    limits: { requestTimeoutMs: 10 },
+    onTelemetry: () => undefined,
+    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
+  });
+  const result = client.submit(command("task.create"));
+  const outcome = result.then(
+    (receipt) => ({ kind: "resolved" as const, receipt }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(transport.sent, []);
+  assert.deepEqual(timeoutDiagnostics, []);
+
+  transport.emit(readyFrame());
+  const submit = transport.sent.at(-1);
+  const receipt = committedCommandReceipt();
+  assert.equal(submit?.kind, "submit");
+  transport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(submit),
+    opId: "op-after-ready"
+  });
+  transport.emit({
+    ...childFrame("terminal"),
+    requestId: requestId(submit),
+    opId: "op-after-ready",
+    outcome: "committed",
+    receipt
+  });
+
+  assert.deepEqual(await outcome, { kind: "resolved", receipt });
+});
+
 test("reports historical recovery diagnostics before READY without failing the writer", async () => {
   const transport = new FakeRepoWriteTransport();
   const diagnostics: unknown[] = [];

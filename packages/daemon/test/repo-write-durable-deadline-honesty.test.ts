@@ -14,7 +14,9 @@ test("durable deadline observes a slow canonical publication without replacing i
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
-    limits: { requestTimeoutMs: 40 },
+    // Keep the 40ms observation deadline below the fixture's 60ms terminal,
+    // while leaving an order-of-magnitude margin before stall escalation.
+    limits: { requestTimeoutMs: 40, proceededStallTimeoutMs: 1_000 },
     spawn: () => {
       forks += 1;
       return forkRepoWriteProcess({

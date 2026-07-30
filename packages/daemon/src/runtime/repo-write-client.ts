@@ -135,17 +135,12 @@ export class RepoWriteClient {
     }
     const requestId = this.nextRequestId();
     const result = new Promise<RepoWriteJsonObject>((resolve, reject) => {
-      const timer = setTimeout(
-        () => this.expireSubmit(requestId),
-        this.limits.requestTimeoutMs
-      );
-      timer.unref();
       this.pending.set(requestId, {
         requestId,
         command,
         resolve,
         reject,
-        timer,
+        timer: undefined,
         phase: "queued"
       });
     });
@@ -228,6 +223,11 @@ export class RepoWriteClient {
     const pending = this.pending.get(requestId);
     if (!pending || pending.phase !== "queued") return;
     pending.phase = "submitted";
+    pending.timer = setTimeout(
+      () => this.expireSubmit(requestId),
+      this.limits.requestTimeoutMs
+    );
+    pending.timer.unref();
     try {
       const sent = this.options.transport.send({
         ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
