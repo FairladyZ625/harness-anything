@@ -17,6 +17,7 @@ import {
   type WriteCoordinator
 } from "@harness-anything/kernel";
 import { makeDaemonQueuedOperationalWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
+import { defaultRepoWriteRequestTimeoutMs } from "../runtime/repo-write-client-contract.ts";
 
 export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput, runtime?: CliDaemonRuntime): () => Promise<void> {
   const appendLeaseEvent = runtime
@@ -31,6 +32,7 @@ export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput, r
     : undefined;
   return makeExecutionReservationReconciler({
     rootInput,
+    minimumMissingReservationAgeMs: defaultRepoWriteRequestTimeoutMs * 2,
     taskHolderService: makeTaskHolderService({ rootInput, ...(appendLeaseEvent ? { appendLeaseEvent } : {}) }),
     authoredStoreForLease: ({ executionId, principal }) => makeCoordinatedExecutionAuthoredStore({
       rootInput,

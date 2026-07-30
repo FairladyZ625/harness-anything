@@ -415,8 +415,13 @@ export function makeExecutionReservationReconciler(
       readonly executionId: string;
       readonly principal: TaskHolderPrincipal;
     }) => ExecutionAuthoredStore;
+    readonly minimumMissingReservationAgeMs?: number;
   }
 ): () => Promise<void> {
+  const minimumMissingReservationAgeMs = options.minimumMissingReservationAgeMs ?? 0;
+  if (!Number.isSafeInteger(minimumMissingReservationAgeMs) || minimumMissingReservationAgeMs < 0) {
+    throw new Error("minimumMissingReservationAgeMs must be a non-negative safe integer");
+  }
   return async () => {
     for (const lease of await options.taskHolderService.executionLeases()) {
       const snapshot = await options.taskHolderService.holder({ taskId: lease.taskId });
@@ -428,7 +433,11 @@ export function makeExecutionReservationReconciler(
         principal: record.holder
       }) ?? options.authoredStore;
       if (!authoredStore) throw new Error(`reservation reconciliation store is unavailable: ${lease.executionId}`);
-      await makeExecutionSagaService({ ...options, authoredStore }).reconcileTask(lease.taskId);
+      await reconcileTask(
+        { ...options, authoredStore },
+        lease.taskId,
+        minimumMissingReservationAgeMs
+      );
     }
   };
 }
@@ -477,10 +486,17 @@ function captureRange(role: ExecutionSessionRole, sessionId: string, attachedAt:
   };
 }
 
-async function reconcileTask(options: ExecutionSagaServiceOptions, taskId: string): Promise<void> {
+async function reconcileTask(
+  options: ExecutionSagaServiceOptions,
+  taskId: string,
+  minimumMissingReservationAgeMs = 0
+): Promise<void> {
   const lease = (await options.taskHolderService.holder({ taskId })).holder;
   if (lease?.schema !== "task-holder/v2") return;
   const execution = await options.authoredStore.readExecution({ taskId, executionId: lease.executionId });
   const authoredState = execution?.state === "submitted" ? "submitted" : execution?.state === "active" ? "active" : "missing";
+  if (authoredState === "missing" && lease.phase === "reserving"
+    && Date.parse(options.now?.() ?? new Date().toISOString()) - Date.parse(lease.acquiredAt)
+      < minimumMissingReservationAgeMs) return;
   await options.taskHolderService.reconcileExecution({ taskId, executionId: lease.executionId, authoredState });
 }

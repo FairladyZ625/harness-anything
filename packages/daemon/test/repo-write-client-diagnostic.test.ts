@@ -74,7 +74,10 @@ test("durable timeout diagnostics retain the last child phase and recovery handl
     repoId: "repo-canonical",
     generation: 7,
     transport,
-    limits: { requestTimeoutMs: 10 },
+    // The stall escalation deadline is pushed far out so this test only
+    // exercises the observation diagnostic; the 20ms wait below must never
+    // race the escalation timer on a slow runner.
+    limits: { requestTimeoutMs: 10, proceededStallTimeoutMs: 5000 },
     onTelemetry: () => undefined,
     onRequestTimeout: (diagnostic) => {
       observed = diagnostic;
