@@ -138,7 +138,9 @@ test("closeout dry-run satisfies its receipt contract without inventing executio
     assert.equal(previewed.report.schema, "task-closeout-dry-run/v1");
     assert.equal(previewed.report.dryRun, true);
     assert.equal(previewed.report.preview.schema, "command-dry-run-preview/v1");
-    assert.deepEqual(previewed.report.steps, ["doc-sync", "task-review-execution", "task-code-doc-reconcile", "task-complete"]);
+    assert.deepEqual(previewed.report.steps, [
+      "doc-sync", "materializer-run", "task-review-execution", "task-code-doc-reconcile", "task-complete"
+    ]);
     assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
   });
 });
@@ -173,9 +175,10 @@ test("closeout failures retain the true gate cause, partial receipts, and one co
     assert.equal(rejected.error.code, "closeout_placeholder");
     assert.match(rejected.error.hint, /closeout\.md|closeout placeholder/iu);
     assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task closeout ${fixture.taskId}`, "u"));
-    assert.equal(rejected.facade.completedSteps.length, 2);
+    assert.equal(rejected.error.hint.match(/Next: run/gu)?.length, 1);
+    assert.equal(rejected.facade.completedSteps.length, 3);
     assert.deepEqual(rejected.facade.completedSteps.map((step: Record<string, unknown>) => step.command), [
-      "task review execution", "task code doc reconcile"
+      "materializer run", "task review execution", "task code doc reconcile"
     ]);
   });
 });

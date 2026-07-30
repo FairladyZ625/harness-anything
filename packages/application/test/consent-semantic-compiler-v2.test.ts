@@ -237,7 +237,17 @@ test("consent consume preserves review task evidence and archive-warning invaria
   await assert.rejects(attempt(ordinary, payload(["evidence:client-reported"], true)), /REVIEW_EVIDENCE_NOT_IN_EXECUTION/u);
 
   const activeTask = await openConsentFixture(60_000, { taskIndexBody: "  status: active\n" });
-  await assert.rejects(attempt(activeTask, payload(["evidence:w6-consent"], true)), /REVIEW_TASK_NOT_IN_REVIEW/u);
+  await attempt(activeTask, payload(["evidence:w6-consent"], true));
+
+  for (const status of ["planned", "blocked", "done", "cancelled"] as const) {
+    const nonReviewableTask = await openConsentFixture(60_000, {
+      taskIndexBody: `  status: ${status}\n`
+    });
+    await assert.rejects(
+      attempt(nonReviewableTask, payload(["evidence:w6-consent"], true)),
+      /REVIEW_TASK_NOT_IN_REVIEW/u
+    );
+  }
 
   const warningExecution: ExecutionRecord = {
     ...submittedExecution(),

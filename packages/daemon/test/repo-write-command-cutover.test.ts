@@ -22,6 +22,7 @@ interface TestCommand extends DaemonHostCommand {
   readonly action: {
     readonly kind: string;
     readonly dryRun?: boolean;
+    readonly currentSessionOnly?: true;
   };
 }
 
@@ -29,6 +30,24 @@ interface TestResult extends DaemonHostCommandResult {
   readonly ok: boolean;
   readonly command: string;
 }
+
+test("current-session materializer barrier fails closed without a runtime session", async () => {
+  const service = createDaemonCommandService(
+    unusedRuntime(),
+    hostServices(() => { throw new Error("barrier must not reach command execution"); })
+  );
+
+  const receipt = await service.runCommand({
+    command: {
+      rootDir: "/repo",
+      action: { kind: "materializer-run", dryRun: false, currentSessionOnly: true }
+    }
+  });
+
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "invalid_session", JSON.stringify(receipt));
+  assert.match(receipt.error?.hint ?? "", /requires a runtime session/u);
+});
 
 test("parent command service sends durable governed writes to the child and never invokes inline execution", async () => {
   const actor = productionAuthorityActor();

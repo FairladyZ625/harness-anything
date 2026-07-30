@@ -136,6 +136,44 @@ test("approved Review inference admits one accepted replay candidate", async () 
   assert.equal(normalized.action.kind === "task-review-execution" && normalized.action.executionId, execution.execution_id);
 });
 
+test("approved Review inference selects the latest of multiple accepted replay candidates", async () => {
+  const taskId = "task_01KXTE6GJPW73Y1EWCA0Q0798T";
+  const accepted = [
+    ["exe_01KXTE6GJPW73Y1EWCA0Q0798V", "2026-07-18T00:02:00.000Z"],
+    ["exe_01KXTE6GJPW73Y1EWCA0Q0798W", "2026-07-18T00:03:00.000Z"]
+  ].map(([executionId, closedAt]): ExecutionRecord => ({
+    schema: "execution/v2", execution_id: executionId!, task_ref: `task/${taskId}`, state: "accepted",
+    primary_actor: { principal: { personId: "person_test" }, executor: { kind: "agent", id: "worker" }, responsibleHuman: "person_test" },
+    claimed_at: "2026-07-18T00:00:00.000Z", submitted_at: "2026-07-18T00:01:00.000Z", closed_at: closedAt!,
+    session_bindings: [], outputs: [], submission: { completion_claim: "ready", deliverables: [], evidence_refs: [], verification_notes: [], known_gaps: [], residual_risks: [] }
+  }));
+  const command: ParsedCommand = {
+    rootDir: "/fixture",
+    json: true,
+    action: {
+      kind: "task-review-execution", taskId, verdict: "approved", findings: "Equivalent retry",
+      evidenceChecked: [], rationale: "Reuse only if the stored approval is equivalent.",
+      archiveWarningsAcknowledged: false
+    }
+  };
+
+  const normalized = await normalizeReviewExecutionSelection(command, {
+    readTaskPackage: () => Effect.succeed({
+      taskId, rootPath: "/fixture/task", disposition: "active",
+      documents: accepted.map((execution) => ({
+        path: `executions/${execution.execution_id}.md`,
+        kind: "document" as const,
+        body: executionDeclaration.documentCodec.encode(execution)
+      }))
+    })
+  });
+
+  assert.equal(
+    normalized.action.kind === "task-review-execution" && normalized.action.executionId,
+    "exe_01KXTE6GJPW73Y1EWCA0Q0798W"
+  );
+});
+
 test("review-execution from-file maps explicit review and consent fields without defaults", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-review-facade-"));
   const packetPath = path.join(root, "review.json");

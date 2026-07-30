@@ -131,10 +131,11 @@ test("task complete owner approval requires consent to grant complete_task", () 
   }
 });
 
-test("task complete owner approval expands only to internal sync, Review, reconcile, and complete steps", () => {
+test("task complete owner approval materializes accepted prose before Review, reconcile, and complete", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-approval-parser-"));
   const packet = path.join(root, "approval.json");
   writeFileSync(packet, JSON.stringify({
+    executionId: "exe_01KXTE6GJPW73Y1EWCA0Q0798V",
     findings: "Acceptance checks passed.",
     rationale: "Evidence satisfies the task intent.",
     consentAssertedRationale: "The human approved through an external channel.",
@@ -157,15 +158,21 @@ test("task complete owner approval expands only to internal sync, Review, reconc
       ["tasks/task_BOUNDARY/closeout.md"]
     );
     assert.deepEqual(steps.map((step) => step.action.kind), [
-      "doc-sync", "task-review-execution", "task-code-doc-reconcile", "task-complete"
+      "doc-sync", "materializer-run", "task-review-execution", "task-code-doc-reconcile", "task-complete"
     ]);
+    const materializer = steps[1];
+    assert.deepEqual(materializer?.action, { kind: "materializer-run", dryRun: false, currentSessionOnly: true });
     assert.equal(steps.some((step) => step.action.kind === "status-set"), false);
     const reconcile = steps.find((step) => step.action.kind === "task-code-doc-reconcile");
     assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.sha, "a".repeat(40));
     assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.force, true);
     const complete = steps.at(-1);
     assert.equal(complete?.action.kind, "task-complete");
-    if (complete?.action.kind === "task-complete") assert.equal(complete.action.approval, undefined);
+    if (complete?.action.kind === "task-complete") {
+      assert.equal(complete.action.approval, undefined);
+      assert.equal("executionId" in complete.action && complete.action.executionId,
+        "exe_01KXTE6GJPW73Y1EWCA0Q0798V");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

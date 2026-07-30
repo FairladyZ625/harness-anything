@@ -196,7 +196,12 @@ function stableApprovalIdentity(
   return {
     taskId: input.taskId,
     executionId: input.executionId,
-    reviewer: input.reviewer,
+    reviewer: {
+      personId: input.reviewer.principal.personId,
+      executor: input.reviewer.executor
+        ? { kind: input.reviewer.executor.kind, id: input.reviewer.executor.id }
+        : null
+    },
     findings: input.findings,
     evidenceChecked: input.evidenceChecked,
     rationale: input.rationale,
@@ -233,7 +238,7 @@ function equivalentApprovedReview(
     if (review.execution_ref === `execution/${input.taskId}/${input.executionId}`
       && review.verdict === "approved"
       && review.approval_basis?.kind === "human-consent"
-      && stablePayloadHash(review.reviewer_actor) === stablePayloadHash(input.reviewer)
+      && sameApprovalActor(review.reviewer_actor, input.reviewer)
       && review.findings === input.findings
       && stablePayloadHash(review.evidence_checked) === stablePayloadHash(input.evidenceChecked)
       && review.rationale === input.rationale
@@ -243,6 +248,12 @@ function equivalentApprovedReview(
     }
   }
   return null;
+}
+
+function sameApprovalActor(left: TaskHolderPrincipal, right: TaskHolderPrincipal): boolean {
+  return left.principal.personId === right.principal.personId
+    && left.executor?.kind === right.executor?.kind
+    && left.executor?.id === right.executor?.id;
 }
 
 function equivalentApprovalConsent(

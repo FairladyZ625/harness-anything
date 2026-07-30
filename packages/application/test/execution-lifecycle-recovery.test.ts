@@ -135,6 +135,53 @@ test("changes_requested keeps another submitted round reviewable and the remaini
   }
 });
 
+test("explicit completion selects the approved non-latest accepted round", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-explicit-accepted-"));
+  try {
+    const taskRoot = createTask(rootDir, "in_review");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "submitted"));
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[1], "submitted"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const review = async (executionId: string, reviewId: string, reviewedAt: string) =>
+      makeReviewExecutionService({
+        rootInput: rootDir,
+        coordinator,
+        artifactStore,
+        generateReviewId: () => reviewId,
+        now: () => reviewedAt
+      }).reviewExecution({
+        taskId,
+        executionId,
+        reviewer: aliceClaude,
+        reviewerSession: reviewSession(`review-${executionId}`),
+        findings: `Execution ${executionId} satisfies the task.`,
+        evidenceChecked: [],
+        rationale: `The submitted delivery for ${executionId} is complete.`,
+        verdict: "approved",
+        archiveWarningsAcknowledged: false,
+        consentAssertedRationale: "Approval was received through an external channel."
+      });
+    await review(executionIds[0], reviewIds[0], "2026-07-11T00:02:00.000Z");
+    await review(executionIds[1], reviewIds[1], "2026-07-11T00:03:00.000Z");
+
+    const completion = makeExecutionCompletionService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      now: () => "2026-07-11T00:04:00.000Z"
+    });
+    assert.deepEqual(await completion.completeTaskExecution({
+      taskId,
+      actor: aliceCodex,
+      executionId: executionIds[0]
+    }), { executionId: executionIds[0] });
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("X5-shaped five-round state requires explicit audited retirement before regular completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-x5-recovery-"));
   try {

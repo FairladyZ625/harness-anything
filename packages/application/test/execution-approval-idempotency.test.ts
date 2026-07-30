@@ -71,6 +71,53 @@ test("retrying approval against a stale read snapshot reuses one Review and cons
   }
 });
 
+test("stable approval ids ignore transport-only reviewer metadata", async () => {
+  const enrichedReviewer = taskHolderActor({
+    personId: "owner",
+    displayName: "Owner",
+    primaryEmail: "owner@example.test",
+    providerId: "transport-derived/v1",
+    credential: { kind: "unix-socket-owner-boundary", issuer: "host:test", subject: "501" }
+  }, { kind: "agent", id: "ceo" });
+  const identities = [];
+  for (const approvalReviewer of [reviewer, enrichedReviewer]) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-approval-stable-identity-"));
+    try {
+      seedSubmittedTask(rootDir);
+      const captured = captureCoordinator();
+      await makeReviewExecutionService({
+        rootInput: rootDir,
+        coordinator: captured.coordinator,
+        artifactStore: makeMarkdownArtifactStore({ rootDir })
+      }).reviewExecution({
+        taskId,
+        executionId,
+        reviewer: approvalReviewer,
+        reviewerSession,
+        findings: "The submitted evidence is complete.",
+        evidenceChecked: [],
+        rationale: "The exact delivery satisfies the task.",
+        verdict: "approved",
+        archiveWarningsAcknowledged: false,
+        consentAssertedRationale: "Approval was received through an external channel."
+      });
+      const op = captured.ops[0]!;
+      const companionWrites = (op.payload as {
+        readonly companionWrites?: ReadonlyArray<{ readonly path: string }>;
+      }).companionWrites ?? [];
+      identities.push({
+        opIdPrefix: op.opId.slice(0, "approval-".length + 24),
+        entityId: op.entityId,
+        consentPath: companionWrites.find((write) => write.path.startsWith("consents/"))?.path
+      });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }
+
+  assert.deepEqual(identities[1], identities[0]);
+});
+
 function seedSubmittedTask(rootDir: string): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(path.join(taskRoot, "executions"), { recursive: true });

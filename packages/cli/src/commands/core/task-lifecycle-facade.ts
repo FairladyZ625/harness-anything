@@ -141,7 +141,7 @@ export function taskCompleteFacadeSteps(
       kind: "doc-sync",
       mode: "submit",
       paths: docSyncPaths
-    })] : []),
+    }), child(command, { kind: "materializer-run", dryRun: false, currentSessionOnly: true })] : []),
     ...(approval ? [child(command, {
       kind: "task-review-execution",
       taskId: action.taskId,
@@ -168,6 +168,7 @@ export function taskCompleteFacadeSteps(
     child(command, {
       kind: "task-complete",
       taskId: action.taskId,
+      ...(approval?.executionId ? { executionId: approval.executionId } : {}),
       ciGate: action.ciGate,
       reviewerId: action.reviewerId,
       evidenceMode: action.evidenceMode,
@@ -207,7 +208,6 @@ function dryRun(
     }
   } satisfies CliResult);
 }
-
 function resolveCommit(rootDir: string, commitRef: string, command = "task-closeout"):
   { readonly ok: true; readonly sha: string } | { readonly ok: false; readonly result: CliResult } {
   const resolved = inspectGitCommitRef(rootDir, commitRef);

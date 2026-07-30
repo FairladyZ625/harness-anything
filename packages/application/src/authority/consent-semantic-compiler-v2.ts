@@ -23,7 +23,7 @@ import {
 import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
 import {
-  assertExecutionTaskInReview,
+  assertExecutionTaskReviewable,
   executionHasArchiveWarnings
 } from "../execution-review-helpers.ts";
 import {
@@ -263,7 +263,7 @@ function assertConsentReviewContextV2(
   taskIndexBody: string
 ): void {
   try {
-    assertExecutionTaskInReview([{ path: "INDEX.md", body: taskIndexBody }], payload.taskId);
+    assertExecutionTaskReviewable([{ path: "INDEX.md", body: taskIndexBody }], payload.taskId);
   } catch {
     throw admission("REVIEW_TASK_NOT_IN_REVIEW");
   }
