@@ -32,7 +32,7 @@ test("CLI long-running creation writes and preserves the epic task class", () =>
   });
 });
 
-test("lineage gate accepts taskClass and keeps legacy long-running and milestone packages compatible", () => {
+test("epic and milestone packages no longer acquire a lineage completion gate", () => {
   for (const fixture of [
     { taskId: legacyLongRunningTaskId, preset: "long-running-task" },
     { taskId: classifiedLongRunningTaskId, preset: "standard-task", taskClass: "epic" as const },
@@ -46,8 +46,8 @@ test("lineage gate accepts taskClass and keeps legacy long-running and milestone
         "task", "complete", fixture.taskId, "--reviewer", "reviewer-a", "--ci", "passed"
       ], false);
 
-      assert.equal(blocked.error?.code, "closeout_not_ready");
-      assert.match(blocked.error?.hint ?? "", /decision.*derives/u);
+      assert.equal(blocked.error?.code, "invalid_transition");
+      assert.doesNotMatch(blocked.error?.hint ?? "", /decision.*derives|lineage/u);
     });
   }
 });
@@ -69,7 +69,7 @@ test("supersede materializes the epic task class for a legacy long-running packa
   });
 });
 
-test("supersede preserves an explicit epic class independently of preset semantics and lineage still gates it", () => {
+test("supersede preserves an explicit epic class independently of retired lineage semantics", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, classifiedSupersedeTaskId, "Explicit Epic", "planned", {
       preset: "standard-task",
@@ -89,7 +89,7 @@ test("supersede preserves an explicit epic class independently of preset semanti
     const blocked = runJson(rootDir, [
       "task", "complete", replacementTaskId, "--reviewer", "reviewer-a", "--ci", "passed"
     ], false);
-    assert.equal(blocked.error?.code, "closeout_not_ready");
-    assert.match(blocked.error?.hint ?? "", /decision.*derives/u);
+    assert.equal(blocked.ok, false);
+    assert.doesNotMatch(blocked.error?.hint ?? "", /decision.*derives|lineage/u);
   });
 });

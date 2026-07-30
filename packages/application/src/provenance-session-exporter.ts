@@ -147,8 +147,7 @@ function writeSessionDocument(
       ));
     }
     // Capture is report-only: sessions land in the private ledger (system of record),
-    // so findings are recorded honestly in the manifest and enforcement stays at the
-    // publish boundary (buildPublishableProjection fails closed there).
+    // and privacy findings remain visible in the manifest for downstream handling.
     const privacyFindings = [
       ...scanPrivateText(JSON.stringify(session), "manifest"),
       ...conversation.messages.flatMap((message, index) => scanPrivateText(message.text, `snapshot.messages.${index}`))

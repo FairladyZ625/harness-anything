@@ -195,17 +195,17 @@ test("local controller service reads projection and writes through injected task
       ok: false,
       error: {
         code: "terminal_status_requires_task_complete",
-        hint: "Use task-complete after review, CI, and closeout gates pass."
+        hint: "Direct done is blocked because completion consent is recorded only by task complete. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>."
       }
     });
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "cancelled" }), {
       ok: false,
       error: {
         code: "terminal_status_requires_task_complete",
-        hint: "Terminal cancellation requires an audited recovery path."
+        hint: "Direct cancellation requires an audited recovery path. Preferred path: ha task complete task-1 --approve. If the task is already terminal and more work is required, run ha task supersede task-1 --title <follow-up-title>."
       }
     });
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
+    assert.deepEqual(writes, ["status:task-1:active"]);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
     assert.deepEqual(writes, ["status:task-1:active", "progress:task-1:GUI update"]);
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), /GUI update/);

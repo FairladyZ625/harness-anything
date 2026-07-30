@@ -10,7 +10,7 @@ import { runInitCommand } from "../../commands/core/init.ts";
 import { runNewTaskCommand } from "../../commands/core/new-task.ts";
 import { runTaskGatesCommand } from "../../commands/core/task-gates.ts";
 import { runDocCommand } from "../../commands/core/doc.ts";
-import { runTaskLifecycleCommand } from "../../commands/core/task-lifecycle.ts";
+import { runTaskLifecycleWithDemotions as runTaskLifecycleCommand } from "../../commands/core/task-lifecycle-demotions.ts";
 import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
 import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";

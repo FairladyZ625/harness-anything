@@ -50,19 +50,14 @@ test("retired attribution migration dry-runs byte-exact deletions and applies wi
     assert.equal(harnessGit(rootDir, "rev-parse", "HEAD").trim(), baseline);
 
     const unconfirmed = runJson(rootDir, [
-      "migrate", "retired-attribution-fields", "--apply", "--evidence-ref", "task/task_TEST/artifacts/report.md#sha256:test"
-    ], false);
-    assert.equal(unconfirmed.ok, false);
-    assert.equal(unconfirmed.error.code, "plan_confirmation_required");
-
-    const applied = runJson(rootDir, [
       "migrate", "retired-attribution-fields", "--apply",
-      "--confirm-plan", String(dryRun.report.planId),
       "--evidence-ref", "task/task_TEST/artifacts/report.md#sha256:test",
       "--batch-size", "2"
     ]);
-    assert.equal(applied.ok, true);
-    assert.equal(applied.report.summary.appliedDocuments, 2);
+    assert.equal(unconfirmed.ok, true);
+    assert.equal(unconfirmed.warnings[0].code, "plan_confirmation_required");
+    assert.match(unconfirmed.warnings[0].revivalCondition, /third independent user/u);
+    assert.equal(unconfirmed.report.summary.appliedDocuments, 2);
     assert.equal(readFileSync(taskPath, "utf8"), cleanupRetiredAttributionFields(taskBefore, "task-index").body);
     assert.equal(readFileSync(decisionPath, "utf8"), cleanupRetiredAttributionFields(decisionBefore, "decision").body);
     assert.match(readFileSync(taskPath, "utf8"), /## Lifecycle Note\n\nPreserve this body byte-for-byte\./u);

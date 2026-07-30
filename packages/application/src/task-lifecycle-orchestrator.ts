@@ -6,12 +6,18 @@ import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 import { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
-import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
+import { evaluateCompletionGate } from "./task-lifecycle-gates.ts";
 import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionService } from "./execution-completion-service.ts";
 import { evaluateTaskCompletionAuthority, type CommitCompletionService, type TaskCompletionEvidence, type TaskCompletionEvidenceMode } from "./task-completion-authority.ts";
 import { completeTaskWithCommitEvidence } from "./commit-completion-orchestrator.ts";
-import { readTaskDocument, taskFailure, terminalStatusFailure } from "./task-lifecycle-orchestrator-helpers.ts";
+import {
+  legacyReviewCompatibility,
+  readTaskDocument,
+  reviewTask,
+  taskFailure,
+  terminalStatusFailure
+} from "./task-lifecycle-orchestrator-helpers.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 
 type CompletionGateResult = ReturnType<typeof evaluateCompletionGate> & {
@@ -83,9 +89,22 @@ export interface TaskLifecycleSuccess {
   readonly completionGate?: CompletionGateResult;
   readonly executionId?: string;
   readonly completionEvidence?: TaskCompletionEvidence;
+  readonly warnings?: ReadonlyArray<TaskLifecycleWarning>;
 }
 
 export type TaskLifecycleResult = TaskLifecycleSuccess | TaskLifecycleFailure;
+
+export interface TaskLifecycleWarning {
+  readonly severity: "warning";
+  readonly code: string;
+  readonly message: string;
+  readonly revivalCondition: string;
+  readonly issues?: ReadonlyArray<{
+    readonly code?: string;
+    readonly findingId?: string;
+    readonly message?: string;
+  }>;
+}
 
 export interface TaskLifecycleOrchestrator {
   readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
@@ -163,7 +182,14 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (!review.ok) return review;
       const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review artifact staging failed.");
       if (!staged.ok) return staged;
-      return { ok: true, taskId: payload.taskId, path: staged.path, report: review.report, reviewContract: review.reviewContract };
+      return {
+        ok: true,
+        taskId: payload.taskId,
+        path: staged.path,
+        report: review.report,
+        reviewContract: review.reviewContract,
+        ...(review.warnings ? { warnings: review.warnings } : {})
+      };
     }),
     completeTask: (payload) => Effect.gen(function* () {
       const evidenceMode = payload.evidenceMode ?? "execution-review";
@@ -176,12 +202,14 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           "Task completion requires the Execution completion service and an authorized actor."
         );
       }
-      const legacyReviewBlocker = yield* validateLegacyReviewCompatibilityBlockers(
+      const legacyReview = yield* legacyReviewCompatibility(
         options.artifactStore,
         payload.taskId,
         payload.reviewerId,
         options.now
       );
+      if (legacyReview.blocker) return legacyReview.blocker;
+      const legacyReviewWarnings = legacyReview.warnings;
 
       const projection = readTaskProjection({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides });
       const row = projection.rows.find((item) => item.taskId === payload.taskId);
@@ -261,7 +289,6 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       }
       const requirementIssues = collectCompletionRequirementIssues({
         taskId: payload.taskId,
-        legacyReviewBlocker,
         documentPlaceholder,
         codeDocReconciliation,
         completionGate,
@@ -280,7 +307,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);
       if (taskTreeFailure) return taskTreeFailure;
       if (evidenceMode === "commit-anchor") {
-        return yield* completeTaskWithCommitEvidence(options.commitCompletionService!, {
+        const result = yield* completeTaskWithCommitEvidence(options.commitCompletionService!, {
           taskId: payload.taskId,
           mode: "commit-anchor",
           status: row.coordinationStatus,
@@ -294,6 +321,9 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           judgment: payload.judgment,
           rootDir: options.rootDir
         }, completionGate);
+        return result.ok && legacyReviewWarnings.length > 0
+          ? { ...result, warnings: legacyReviewWarnings }
+          : result;
       }
 
       const completion = yield* Effect.tryPromise({
@@ -322,7 +352,8 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         taskId: payload.taskId,
         executionId: completion.result.executionId,
         status: "done",
-        completionGate: { ...completionGate, evidenceMode: "execution-review" }
+        completionGate: { ...completionGate, evidenceMode: "execution-review" },
+        ...(legacyReviewWarnings.length > 0 ? { warnings: legacyReviewWarnings } : {})
       } satisfies TaskLifecycleResult;
     })
   };
@@ -358,50 +389,6 @@ function stageTaskTree(
       onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path })
     })
   );
-}
-
-function validateLegacyReviewCompatibilityBlockers(
-  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
-  taskId: string,
-  reviewerId: string,
-  now: (() => string) | undefined
-): Effect.Effect<TaskLifecycleFailure | null> {
-  return Effect.gen(function* () {
-    const reviewBody = yield* readTaskDocument(artifactStore, taskId, "review.md");
-    if (reviewBody === null || isReviewPlaceholderMarkdown(reviewBody)) return null;
-
-    const parsed = parseReviewMarkdown(reviewBody);
-    if (parsed.issues.length > 0) {
-      return {
-        ok: false,
-        taskId,
-        issues: parsed.issues,
-        error: {
-          code: "review_schema_invalid",
-          hint: "Legacy review.md contains malformed material findings; repair or migrate them before typed completion."
-        }
-      };
-    }
-    if (parsed.findings.length === 0) return null;
-
-    const gate = evaluateReviewGate({
-      taskId,
-      reviewerId,
-      submittedAt: now ? now() : new Date().toISOString(),
-      findings: parsed.findings
-    });
-    if (gate.ok) return null;
-    return {
-      ok: false,
-      taskId,
-      report: gate,
-      issues: gate.issues,
-      error: {
-        code: "release_blocking_findings",
-        hint: "Open release-blocking findings in legacy review.md must be closed or migrated before typed completion."
-      }
-    };
-  });
 }
 
 function validateCodeDocReconciliation(
@@ -450,54 +437,6 @@ export function readTaskLifecyclePolicy(artifactStore: Pick<ArtifactStore, "read
   });
 }
 
-function reviewTask(
-  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
-  taskId: string,
-  reviewerId: string,
-  now: (() => string) | undefined
-): Effect.Effect<TaskLifecycleResult> {
-  return Effect.gen(function* () {
-    const reviewBody = yield* readTaskDocument(artifactStore, taskId, "review.md");
-    if (reviewBody === null) {
-      return taskFailure(taskId, "review_document_missing", "Task review requires review.md in the task package.");
-    }
-
-    const parsed = parseReviewMarkdown(reviewBody);
-    if (parsed.issues.length > 0) {
-      return {
-        ok: false,
-        taskId,
-        issues: parsed.issues,
-        error: {
-          code: "review_schema_invalid",
-          hint: "review.md material findings table failed validation."
-        }
-      };
-    }
-
-    const gate = evaluateReviewGate({
-      taskId,
-      reviewerId,
-      submittedAt: now ? now() : new Date().toISOString(),
-      findings: parsed.findings
-    });
-    if (!gate.ok) {
-      return {
-        ok: false,
-        taskId,
-        report: gate,
-        issues: gate.issues,
-        error: {
-          code: "release_blocking_findings",
-          hint: "Open release-blocking findings must be closed before review passes."
-        }
-      };
-    }
-
-    return { ok: true, taskId, report: gate, reviewContract: gate.contract };
-  });
-}
-
 function taskTreeDirtyFailure(
   taskId: string,
   entries: ReadonlyArray<string>,
@@ -530,7 +469,7 @@ function writeFailure(taskId: string, error: EngineError | WriteError, fallbackH
 // Canonical kernel-tag -> CLI error-code mapping. Kept exhaustive by the mapped
 // type: adding or removing an EngineError/WriteError tag breaks compilation until
 // this table is updated, so a writer failure can never leak an unregistered code
-// that the CLI would coerce into a misleading completion_gate_failed. Values must
+// that the CLI would coerce into a misleading generic write rejection. Values must
 // stay in lockstep with the CLI error-code registry (packages/cli/src/cli/error-codes.ts);
 // the application layer cannot import that registry across the package boundary.
 const writeFailureCodeByTag: Readonly<Record<(EngineError | WriteError)["_tag"], string>> = {

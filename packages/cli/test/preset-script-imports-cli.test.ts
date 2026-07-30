@@ -13,7 +13,7 @@ import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
-test("CLI process preset script entrypoint allows package-local helper imports", () => {
+test("CLI process preset script entrypoint warns without authorization and keeps sandboxed imports", () => {
   withCanonicalTempRoot((rootDir) => {
     writeProcessPreset(rootDir, "local-helper", "Local Helper", "scripts/preset-action.mjs");
     writeFile(rootDir, ".harness/presets/local-helper/lib/helper.mjs", "export const helperValue = 'package-local';\n");
@@ -32,10 +32,12 @@ test("CLI process preset script entrypoint allows package-local helper imports",
       ""
     ].join("\n"));
 
-    const result = runJson(rootDir, ["preset", "action", "local-helper", "scaffold", "--task", "task-1", "--allow-scripts"]);
+    const result = runJson(rootDir, ["preset", "action", "local-helper", "scaffold", "--task", "task-1"]);
 
     assert.equal(result.ok, true);
     assert.equal(result.report.helperValue, "package-local");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "preset_script_authorization_required"), true);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => String(warning.revivalCondition).includes("third independent user")), true);
   });
 });
 

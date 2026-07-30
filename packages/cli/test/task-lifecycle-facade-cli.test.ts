@@ -70,7 +70,7 @@ test("task complete without owner approval remains rejected", () => {
 
     const rejected = runJson(rootDir, ["task", "complete", fixture.taskId, "--ci", "passed"], false, fixture.env);
 
-    assert.equal(rejected.error.code, "completion_gate_failed");
+    assert.equal(rejected.error.code, "write_rejected");
     assert.doesNotMatch(rejected.error.code, /execution_review_required/iu);
     assert.match(rejected.error.hint, /approved Review/iu);
     assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
@@ -161,12 +161,17 @@ test("task submit held by another worker recommends waiting or contacting the ho
 
 test("closeout failures retain the true gate cause, partial receipts, and one copyable next command", () => {
   withTempRoot((gateRoot) => {
-    const fixture = prepareActiveTask(gateRoot, "Failed CI");
-    const packet = writeCloseoutPacket(gateRoot, { ci: "failed" });
+    const fixture = prepareActiveTask(gateRoot, "Placeholder Closeout");
+    const packet = writeCloseoutPacket(gateRoot);
     runJson(gateRoot, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(gateRoot)], true, fixture.env);
+    writeCloseout(gateRoot, path.basename(fixture.packagePath), [
+      "## Summary", "", "Summarize the completed behavior change.", "",
+      "## Verification", "", "List passing checks and CI.", "",
+      "## Residual Risk", "", "Record accepted non-blocking risks."
+    ]);
     const rejected = runJson(gateRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
-    assert.match(rejected.error.code, /ci/u);
-    assert.match(rejected.error.hint, /CI|ci/u);
+    assert.equal(rejected.error.code, "closeout_placeholder");
+    assert.match(rejected.error.hint, /closeout\.md|closeout placeholder/iu);
     assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task closeout ${fixture.taskId}`, "u"));
     assert.equal(rejected.facade.completedSteps.length, 2);
     assert.deepEqual(rejected.facade.completedSteps.map((step: Record<string, unknown>) => step.command), [
@@ -272,14 +277,13 @@ for (const preset of ["docs-task", "code-impact-analysis"] as const) {
   });
 }
 
-test("standard-task repository-diff contract rejects not-applicable CI", () => {
+test("standard-task repository-diff contract treats not-applicable CI as descriptive", () => {
   withTempRoot((codingRoot) => {
     const fixture = prepareActiveTask(codingRoot, "Coding CI Required");
     const packet = writeCloseoutPacket(codingRoot, { ci: "not-applicable" });
     runJson(codingRoot, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(codingRoot)], true, fixture.env);
-    const rejected = runJson(codingRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
-    assert.equal(rejected.error.code, "ci_not_applicable_for_contract");
-    assert.match(rejected.error.hint, /declares a CI obligation; not-applicable is not allowed/iu);
+    const completed = runJson(codingRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], true, fixture.env);
+    assert.equal(completed.status, "done");
   });
 });
 

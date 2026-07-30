@@ -228,7 +228,6 @@ test("CLI check --post-merge blocks closeout placeholders but ignores the non-au
     assert.equal(closeout.severity, "hard-fail");
     assert.match(closeout.message, /harness\/tasks\/task-a\/closeout\.md/);
     assert.match(closeout.repairHint, /Summary, Verification, and Residual Risk evidence/);
-    assert.equal(result.warnings.some((warning: any) => warning.code === "review_placeholder"), false);
     assert.equal(result.warnings.filter((warning: any) => warning.severity === "hard-fail").length >= 1, true);
   });
 });

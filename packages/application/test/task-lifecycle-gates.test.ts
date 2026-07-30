@@ -155,7 +155,7 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
     closeoutReadiness: "ready"
   });
 
-  const failed = evaluateCompletionGate({
+  const formerlyBlocked = evaluateCompletionGate({
     taskId: "task-1",
     coordinationStatus: "in_review",
     packageDisposition: "active",
@@ -163,11 +163,11 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
     reviewGate: "failed",
     ciGate: "passed"
   });
-  assert.equal(failed.ok, false);
-  assert.deepEqual(failed.issues.map((issue) => issue.code), ["review_not_passed", "closeout_not_ready"]);
+  assert.equal(formerlyBlocked.ok, true);
+  assert.deepEqual(formerlyBlocked.issues, []);
 });
 
-test("non-coding contract can complete without CI while coding contract still requires it", () => {
+test("completion readiness is descriptive for coding and non-coding contracts", () => {
   const base = {
     taskId: "task-writing",
     coordinationStatus: "in_review",
@@ -177,18 +177,18 @@ test("non-coding contract can complete without CI while coding contract still re
   };
   assert.equal(evaluateCompletionGate({ ...base, applicableGates: [] }).ok, true);
   const coding = evaluateCompletionGate({ ...base, applicableGates: ["ci", "code-doc-reconciliation"] });
-  assert.equal(coding.ok, false);
-  assert.deepEqual(coding.issues.map((issue) => issue.code), ["missing_ci_gate"]);
+  assert.equal(coding.ok, true);
+  assert.deepEqual(coding.issues, []);
   assert.equal(evaluateCompletionGate({ ...base, applicableGates: ["ci"], ciGate: "passed" }).ok, true);
   assert.equal(evaluateCompletionGate({ ...base, applicableGates: [], ciGate: "not-applicable" }).ok, true);
   assert.equal(evaluateCompletionGate({ ...base, applicableGates: [], ciGate: "failed" }).ok, true);
-  const invalidNotApplicable = evaluateCompletionGate({
+  const notApplicable = evaluateCompletionGate({
     ...base,
     applicableGates: ["ci"],
     ciGate: "not-applicable"
   });
-  assert.equal(invalidNotApplicable.ok, false);
-  assert.deepEqual(invalidNotApplicable.issues.map((issue) => issue.code), ["ci_not_applicable_for_contract"]);
+  assert.equal(notApplicable.ok, true);
+  assert.deepEqual(notApplicable.issues, []);
 });
 
 test("decision reckon gate fails closed on uncovered load-bearing claims", () => {

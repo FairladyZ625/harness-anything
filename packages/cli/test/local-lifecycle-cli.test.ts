@@ -125,7 +125,7 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
   });
 });
 
-test("CLI never lets forced done bypass Execution completion and keeps audited cancellation for recovery", () => {
+test("CLI blocks direct done, keeps audited cancellation recovery, and gives owner recovery paths", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -133,7 +133,8 @@ test("CLI never lets forced done bypass Execution completion and keeps audited c
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
     assert.equal(invalidForce.error?.code, "terminal_status_requires_task_complete");
-    assert.match(invalidForce.error?.hint ?? "", /Execution.*approved Review.*task-complete/iu);
+    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
+    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
@@ -142,12 +143,15 @@ test("CLI never lets forced done bypass Execution completion and keeps audited c
     const doneFailure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
     assert.equal(doneFailure.ok, false);
     assert.equal(doneFailure.error?.code, "terminal_status_requires_task_complete");
+    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
+    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
 
     const cancelFailure = runJson(rootDir, ["task", "status", "set", taskId, "cancelled"], false);
     assert.equal(cancelFailure.ok, false);
     assert.equal(cancelFailure.error?.code, "terminal_status_requires_task_complete");
+    assert.match(cancelFailure.error?.hint ?? "", new RegExp(`ha task transition ${taskId} cancelled --force --reason`, "u"));
 
-    const missingReason = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force"], false);
+    const missingReason = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force"], false);
     assert.equal(missingReason.ok, false);
     assert.equal(missingReason.error?.code, "missing_force_reason");
 
@@ -161,7 +165,7 @@ test("CLI never lets forced done bypass Execution completion and keeps audited c
     assert.equal(forced.status, "cancelled");
     assert.equal(forced.forced, true);
     assert.equal(forced.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
-    const progressBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8");
+    const progressBody = readFileSync(path.join(rootDir, String(created.packagePath), "progress.md"), "utf8");
     assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=fixture recovery/);
 
     const check = runJson(rootDir, ["check", "--profile", "target-project"], false);
@@ -570,7 +574,7 @@ test("CLI check --post-merge stores prefixed external EntityRefs without resolvi
   });
 });
 
-test("CLI task-review fails closed on open release-blocking findings and emits pass contract when clean", () => {
+test("CLI task-review warns on open release-blocking findings and emits pass contract when clean", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Review Task", "in_review");
     writeFact(rootDir, "task-1");
@@ -578,10 +582,11 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
       "| F-001 | P1 | Missing evidence. | diff | Add evidence. | yes | open | yes | none |"
     ]);
 
-    const failure = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"], false);
-    assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "release_blocking_findings");
-    assert.equal(failure.issues[0]?.findingId, "F-001");
+    const warning = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
+    assert.equal(warning.ok, true);
+    assert.equal(warning.warnings[0].code, "release_blocking_findings");
+    assert.equal(warning.warnings[0].issues[0]?.findingId, "F-001");
+    assert.match(warning.warnings[0].revivalCondition, /third independent user/u);
 
     writeReview(rootDir, "task-1", [
       "| F-001 | P1 | Missing evidence. | diff | Added evidence. | no | closed | yes | none |"
@@ -593,7 +598,7 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
   });
 });
 
-test("CLI task-complete evaluates review, CI, and closeout readiness before setting status done", () => {
+test("CLI task-complete treats failed or missing CI as descriptive readiness", () => {
   withTempRoot((rootDir) => {
     initializeNestedHarnessRepo(rootDir);
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
@@ -603,24 +608,16 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
     writeCodeDocAnchors(rootDir, executionTaskId);
     seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const failed = runJson(rootDir, ["task-complete", executionTaskId, "--ci", "failed"], false, executionActorEnv);
-    assert.equal(failed.ok, false);
-    assert.equal(failed.error?.code, "ci_not_passed");
-
-    const missingCi = runJson(rootDir, ["task-complete", executionTaskId], false, executionActorEnv);
-    assert.equal(missingCi.ok, false);
-    assert.equal(missingCi.error?.code, "missing_ci_gate");
-
-    const passed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, executionActorEnv);
-    assert.equal(passed.ok, true);
-    assert.deepEqual(passed.completionGate.axes, {
+    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "failed"], true, executionActorEnv);
+    assert.equal(completed.ok, true);
+    assert.deepEqual(completed.completionGate.axes, {
       coordinationStatus: "in_review",
       packageDisposition: "active",
       closeoutReadiness: "ready"
     });
-    assert.equal(passed.executionId, executionId);
-    assert.equal(passed.status, "done");
-    assert.equal(passed.completionGate.evidenceMode, "execution-review");
+    assert.equal(completed.executionId, executionId);
+    assert.equal(completed.status, "done");
+    assert.equal(completed.completionGate.evidenceMode, "execution-review");
     assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /status: done/);
   });
 });

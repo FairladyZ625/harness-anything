@@ -18,6 +18,7 @@ import {
   type WriteError
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import {
@@ -72,23 +73,20 @@ export function runMigrateFactExecution(
     });
   }
   if (pendingTargets.length === 0) return Effect.succeed(migrationResult(action, report(0, 0)));
-  if (action.confirmPlan !== planId) {
-    return Effect.succeed({
-      ok: false,
-      command: "migrate-fact-execution",
-      error: cliError(
-        CliErrorCode.PlanConfirmationRequired,
-        `Inspect the dry-run and rerun with --apply --confirm-plan ${planId}.`
-      ),
-      report: report(0, 0)
-    });
-  }
+  const confirmationWarnings = action.confirmPlan === planId ? [] : [demotedGateWarning(
+    "plan_confirmation_required",
+    `Plan confirmation was not supplied for ${planId}; migration continued and the computed plan remains visible in this receipt.`
+  )];
 
   const migratedAt = new Date().toISOString();
   const writes = migrationWrites(rootInput, pendingTargets as ReadonlyArray<TargetPlan & { readonly target: NonNullable<TargetPlan["target"]> }>, planId, migratedAt);
   const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "fact-execution-migration" });
   return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, writes).pipe(
-    Effect.map(() => migrationResult(action, report(pendingTargets.length, new Set(pendingTargets.map((entry) => entry.candidate.taskId)).size)))
+    Effect.map(() => migrationResult(
+      action,
+      report(pendingTargets.length, new Set(pendingTargets.map((entry) => entry.candidate.taskId)).size),
+      confirmationWarnings
+    ))
   );
 }
 
@@ -194,12 +192,17 @@ function readManualSelection(
   };
 }
 
-function migrationResult(action: MigrateFactExecutionAction, report: Record<string, any>): CliResult {
+function migrationResult(
+  action: MigrateFactExecutionAction,
+  report: Record<string, any>,
+  warnings: ReadonlyArray<unknown> = []
+): CliResult {
   return {
     ok: true,
     command: "migrate-fact-execution",
     migrationMode: action.mode === "apply" ? "apply" : "plan",
     rows: report.summary.selectedInBatch,
+    ...(warnings.length > 0 ? { warnings } : {}),
     report
   };
 }

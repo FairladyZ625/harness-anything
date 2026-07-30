@@ -102,6 +102,17 @@ test("git-diff handles status output larger than Node's default exec buffer", ()
   });
 });
 
+test("git-diff reports unavailable evidence as a non-blocking warning", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["git-diff"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.ok, false);
+    assert.equal(result.warnings[0].code, "git_diff_unavailable");
+    assert.match(result.warnings[0].revivalCondition, /third independent user/u);
+  });
+});
+
 function initGit(rootDir: string): void {
   execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
 }

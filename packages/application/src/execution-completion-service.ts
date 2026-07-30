@@ -166,7 +166,7 @@ function resolveExecutionCompletionReadiness(input: {
         : `ha task start ${input.taskId}`;
     const nextCommand = submitted.length > 1
       ? `ha task review-execution ${input.taskId} --execution-id <one-to-retire> --verdict changes_requested --findings "<why this round is superseded>" --rationale "<why another submitted round remains authoritative>"`
-      : `${claimCommand}\nha task transition ${input.taskId} in_review --lease-token <leaseToken-from-claim-receipt> --completion-claim "<claim>"`;
+      : `${claimCommand}\nha task submit ${input.taskId} --from-file <submission-packet.json>`;
     return {
       ok: false,
       staleActive,

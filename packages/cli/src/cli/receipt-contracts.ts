@@ -24,8 +24,10 @@ export const commandReceiptContractsByKind: Record<string, CommandReceiptContrac
   "list-github": { data: ["rows", "report"], paths: [] },
   "preset-run": canonicalContracts["preset-entrypoint"],
   "preset-action": {
-    data: ["taskId", "preset", "evidenceBundle", "generated", "report"],
+    data: ["taskId", "preset", "report"],
     optionalData: {
+      evidenceBundle: "Only emitted when the action produced an evidence bundle.",
+      generated: "Only emitted when the action executed and reported generated paths.",
       rows: "Only emitted when a scripted preset action writes a numeric rows value in its result.",
       runId: "Only emitted by the semantic script host for an executable v3 entrypoint.",
       capabilityReceipt: "Only emitted by v3 semantic execution with its exact provider bindings."

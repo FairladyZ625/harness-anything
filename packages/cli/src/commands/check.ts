@@ -263,7 +263,7 @@ function validateTaskPackageContracts(
       issues.push(profileIssue("task-plan-contract", "task_contract_marker_missing", strictSeverity(strict), `${relativeTaskDir}/task_plan.md lacks Task Contract: harness-task/v1.`, "Add the task contract marker or keep this package outside strict M2 profiles."));
     }
     if (isTaskDocumentPlaceholderMarkdown(taskPlanBody, placeholderPolicy.taskPlanPlaceholderFingerprintSets)) {
-      issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready."));
+      issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready. If the file is already substantive, retry the exact command once unchanged to refresh a lagging read."));
     }
   }
 
@@ -340,7 +340,7 @@ function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): Re
         "closeout_placeholder",
         "hard-fail",
         `${relativeTaskDir}/closeout.md still contains template placeholder text.`,
-        "Replace closeout.md placeholders with Summary, Verification, and Residual Risk evidence before treating the task as done."
+        "Replace closeout.md placeholders with Summary, Verification, and Residual Risk evidence before treating the task as done. If the file is already substantive, retry the exact command once unchanged to refresh a lagging read."
       ));
     }
 

@@ -15,7 +15,6 @@ export interface TaskCompletionRequirementIssue {
 
 export function collectCompletionRequirementIssues(input: {
   readonly taskId: string;
-  readonly legacyReviewBlocker: TaskLifecycleFailure | null;
   readonly documentPlaceholder: TaskLifecycleFailure | null;
   readonly codeDocReconciliation: TaskLifecycleFailure | null;
   readonly completionGate: CompletionGateResult;
@@ -25,9 +24,6 @@ export function collectCompletionRequirementIssues(input: {
   };
 }): ReadonlyArray<TaskCompletionRequirementIssue> {
   const issues: TaskCompletionRequirementIssue[] = [];
-  if (input.legacyReviewBlocker) {
-    issues.push(requirementFromFailure(input.legacyReviewBlocker, "Repair review.md, then rerun ha task complete."));
-  }
   if (input.documentPlaceholder) {
     issues.push(requirementFromFailure(input.documentPlaceholder, "Replace closeout.md placeholders with Summary, Verification, and Residual Risk."));
   }
@@ -36,20 +32,6 @@ export function collectCompletionRequirementIssues(input: {
       input.codeDocReconciliation,
       `ha task code-doc reconcile ${input.taskId} --commit <full-sha> [--path <repo-relative-path>]...`
     ));
-  }
-  for (const issue of input.completionGate.issues) {
-    if (issue.code === "closeout_not_ready" && input.documentPlaceholder) continue;
-    issues.push({
-      code: issue.code,
-      message: issue.message,
-      ...(issue.code === "missing_ci_gate" || issue.code === "ci_not_passed"
-        ? { nextCommand: `ha task complete ${input.taskId} --ci passed` }
-        : issue.code === "ci_not_applicable_for_contract"
-          ? { nextCommand: `ha task complete ${input.taskId} --ci passed` }
-        : issue.code === "closeout_not_ready"
-          ? { nextCommand: "Complete closeout.md and let the projection reach ready, then rerun ha task complete." }
-          : {})
-    });
   }
   for (const issue of input.completionAuthority.issues) {
     issues.push({
@@ -110,7 +92,7 @@ export function validateCompletionDocumentPlaceholders(
       taskId,
       error: {
         code: "closeout_placeholder",
-        hint: `closeout.md is missing real Summary, Verification, and Residual Risk; replace its template placeholders before completing the task. Actual task directory read: ${taskPackage?.rootPath ?? "unavailable"}.`
+        hint: `closeout.md is missing real Summary, Verification, and Residual Risk; replace its template placeholders before completing the task. If closeout.md is already substantive, retry the exact command once unchanged to refresh a lagging read. Actual task directory read: ${taskPackage?.rootPath ?? "unavailable"}.`
       }
     };
   });
@@ -139,6 +121,5 @@ function renderCompletionRequirement(issue: TaskCompletionRequirementIssue): str
 
 function completionRequirementErrorCode(issue: TaskCompletionRequirementIssue | undefined): string {
   const code = issue?.gateCode ?? issue?.code;
-  if (code && isExecutionCompletionRequirement(code)) return "completion_gate_failed";
-  return code ?? "completion_gate_failed";
+  return code ?? "write_rejected";
 }

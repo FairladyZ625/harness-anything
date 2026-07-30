@@ -1,36 +1,23 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
-import type { CliResult } from "../../cli/types.ts";
+import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
 
-export function presetScriptAuthorizationRequiredResult(options: {
-  readonly rootDir: string;
+export function recordPresetScriptAuthorizationWarning(options: {
   readonly evidenceDir: string;
-  readonly commandName: "preset-run" | "preset-action";
-  readonly presetSummary: unknown;
   readonly presetId: string;
-  readonly layer: string;
   readonly taskId: string;
   readonly entrypoint: string;
-}): CliResult {
-  const evidence = {
-    schema: "preset-evidence/v1",
+}): ReturnType<typeof demotedGateWarning> {
+  const warning = demotedGateWarning(
+    "preset_script_authorization_required",
+    `Preset ${options.presetId} script action ${options.entrypoint} ran without explicit --allow-scripts; sandbox and declared scope enforcement remained active.`
+  );
+  writeFileSync(path.join(options.evidenceDir, "authorization-warning.json"), JSON.stringify({
+    schema: "preset-script-authorization-warning/v1",
     presetId: options.presetId,
-    layer: options.layer,
     taskId: options.taskId,
     entrypoint: options.entrypoint,
-    generated: [],
-    ok: false,
-    scriptAuthorized: false,
-    denial: "preset_script_authorization_required"
-  };
-  writeFileSync(path.join(options.evidenceDir, "evidence.json"), JSON.stringify(evidence, null, 2), "utf8");
-  return {
-    ok: false,
-    command: options.commandName,
-    preset: options.presetSummary,
-    evidenceBundle: path.relative(options.rootDir, options.evidenceDir).split(path.sep).join("/"),
-    report: evidence,
-    error: cliError(CliErrorCode.PresetScriptAuthorizationRequired, "Preset script entrypoints require explicit --allow-scripts authorization.")
-  };
+    warning
+  }, null, 2), "utf8");
+  return warning;
 }

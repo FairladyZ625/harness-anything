@@ -41,6 +41,7 @@ test("CLI active transition rejects an untouched standard-task scaffold plan", (
     assert.equal(blocked.error?.code, "task_plan_placeholder");
     assert.match(blocked.error?.hint ?? "", /task_plan\.md/u);
     assert.match(blocked.error?.hint ?? "", /substantive implementation plan/u);
+    assert.match(blocked.error?.hint ?? "", /retry the exact command once unchanged/u);
     assert.doesNotMatch(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
   });
 });
@@ -68,6 +69,7 @@ test("CLI active transition fails closed when task_plan.md is missing", () => {
     assert.equal(checked.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_missing"), true);
     assert.equal(transitioned.error?.code, "task_plan_placeholder");
     assert.match(transitioned.error?.hint ?? "", /Restore task_plan\.md/u);
+    assert.match(transitioned.error?.hint ?? "", /retry the exact command once unchanged/u);
   });
 });
 
@@ -151,9 +153,10 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
 
     const blockedWithoutExecution = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blockedWithoutExecution.ok, false);
-    assert.equal(blockedWithoutExecution.error?.code, "completion_gate_failed");
+    assert.equal(blockedWithoutExecution.error?.code, "invalid_transition");
     assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
-    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task start task-1[\s\S]+ha task transition task-1 in_review/u);
+    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task start task-1[\s\S]+ha task submit task-1 --from-file/u);
+    assert.doesNotMatch(blockedWithoutExecution.error?.hint ?? "", /--lease-token/u);
     assert.equal(readFileSync(indexPath, "utf8"), before);
   });
 });
@@ -178,12 +181,10 @@ test("CLI task-complete reports every currently unmet completion requirement", (
     assert.deepEqual(issueCodes, [
       "closeout_placeholder",
       "code_doc_anchors_missing",
-      "missing_ci_gate",
       "execution_review_required"
     ]);
-    assert.match(blocked.error?.hint ?? "", /4 unmet requirements/u);
+    assert.match(blocked.error?.hint ?? "", /3 unmet requirements/u);
     assert.match(blocked.error?.hint ?? "", /ha task code-doc reconcile/u);
-    assert.match(blocked.error?.hint ?? "", /--ci passed/u);
     assert.match(blocked.error?.hint ?? "", /ha task review-execution/u);
     assert.match(blocked.error?.hint ?? "", /--consent-utterance/u);
   });
@@ -218,11 +219,11 @@ test("CLI typed completion does not require filling the legacy review placeholde
     assert.equal(completed.status, "done");
 
     const checked = runJson(rootDir, ["check", "--post-merge"]);
-    assert.equal(checked.warnings.some((warning: Record<string, unknown>) => warning.code === "review_placeholder"), false);
+    assert.equal(checked.ok, true);
   });
 });
 
-test("CLI typed completion remains blocked by a substantive open legacy release finding", () => {
+test("CLI typed completion warns on a substantive open legacy release finding", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
     writeFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/review.md`), [
@@ -236,11 +237,12 @@ test("CLI typed completion remains blocked by a substantive open legacy release 
     writeRealCloseout(rootDir, executionTaskId);
     seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
 
-    assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "release_blocking_findings");
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: in_review$/mu);
+    assert.equal(completed.ok, true);
+    assert.equal(completed.warnings[0].code, "release_blocking_findings");
+    assert.match(completed.warnings[0].revivalCondition, /third independent user/u);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: done$/mu);
     assert.equal(JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/executions/${executionId}.md`), "utf8")).state, "accepted");
   });
 });
@@ -275,7 +277,7 @@ test("CLI task-complete rejects missing code-doc anchors", () => {
     const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "completion_gate_failed");
+    assert.equal(blocked.error?.code, "write_rejected");
     assert.equal(blocked.issues?.[0]?.code, "code_doc_anchors_missing");
   });
 });
@@ -293,7 +295,7 @@ test("CLI task-complete rejects fabricated code-doc shas", () => {
     const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "completion_gate_failed");
+    assert.equal(blocked.error?.code, "write_rejected");
     assert.equal(blocked.issues?.[0]?.code, "code_doc_git_ref_missing");
   });
 });
@@ -391,7 +393,7 @@ test("CLI task-review stages legacy artifacts while task-complete without Execut
 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "completion_gate_failed");
+    assert.equal(completed.error?.code, "invalid_transition");
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /^  status: in_review$/mu);
     assert.equal(runGit(harnessRepo, "status", "--short"), "");
     assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
@@ -423,7 +425,7 @@ test("CLI task-complete without Execution fails even when no Fact quantity gate 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "completion_gate_failed");
+    assert.equal(completed.error?.code, "invalid_transition");
   });
 });
 
@@ -538,7 +540,7 @@ test("CLI default claim carries one person's task through submit, review, and co
   });
 });
 
-test("CLI milestone completion requires active decision derives lineage while a leaf task does not", () => {
+test("CLI milestone completion no longer requires decision derives lineage", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, milestoneTaskId, "Milestone", "in_review", { preset: "create-milestone", taskClass: "milestone" });
     writeReview(rootDir, milestoneTaskId);
@@ -546,24 +548,8 @@ test("CLI milestone completion requires active decision derives lineage while a 
     const anchorSha = runGit(rootDir, "rev-parse", "HEAD");
 
     const blocked = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
-    assert.equal(blocked.error?.code, "closeout_not_ready");
-    assert.match(blocked.error?.hint ?? "", new RegExp(`decision.*derives.*${milestoneTaskId}`, "u"));
-    assert.match(blocked.error?.hint ?? "", new RegExp(
-      `ha task review-execution ${milestoneTaskId} --execution-id <accepted-execution-id> --verdict changes_requested`,
-      "u"
-    ));
-    assert.match(blocked.error?.hint ?? "", /approved Execution is incomplete because the required decision lineage edge is missing/u);
-
-    runJson(rootDir, [
-      "decision", "propose", "--id", "dec_MILESTONE_LINEAGE", "--title", "Milestone lineage",
-      "--question", "Should this milestone exist?", "--chosen", "Create the milestone",
-      "--rejected", "Do nothing", "--why-not", "The work requires coordination",
-      "--claim", "The milestone is required."
-    ]);
-    runJson(rootDir, [
-      "decision", "relate", "dec_MILESTONE_LINEAGE", "--anchor", "CH1", "--type", "derives",
-      "--target", `task/${milestoneTaskId}`, "--rationale", "The charter decision creates the milestone"
-    ]);
+    assert.equal(blocked.error?.code, "invalid_transition");
+    assert.doesNotMatch(blocked.error?.hint ?? "", /decision.*derives|lineage/u);
     writeIndex(rootDir, milestoneChildTaskId, "Long Running Child", "in_review", { preset: "long-running-task", parent: milestoneTaskId });
     writeReview(rootDir, milestoneChildTaskId);
     writeRealCloseout(rootDir, milestoneChildTaskId, { sha: anchorSha });

@@ -10,7 +10,7 @@ import { parserRegistry } from "../src/cli/parser-registry.ts";
 import { parseCoreTaskArgs } from "../src/cli/parsers/core-task.ts";
 import { parseVersionArgs } from "../src/cli/parsers/meta.ts";
 import { runInitCommand } from "../src/commands/core/init.ts";
-import { runTaskLifecycleCommand } from "../src/commands/core/task-lifecycle.ts";
+import { runTaskLifecycleWithDemotions as runTaskLifecycleCommand } from "../src/commands/core/task-lifecycle-demotions.ts";
 import { runVersionCommand } from "../src/commands/core/version.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";

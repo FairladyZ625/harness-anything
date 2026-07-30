@@ -30,6 +30,18 @@ test("CLI task-complete rejects invalid commit-anchor packets without partial co
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/completion-evidence.json`)), false);
     assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`), "utf8"), /status: in_review/u);
   });
+  const acceptedCiCase = (
+    taskId: string,
+    ci: "failed" | "missing"
+  ) => withTempRoot((rootDir) => {
+    const anchoredSha = prepareCommitCompletionTask(rootDir, taskId, false);
+    const args = ["task", "complete", taskId, "--commit-anchor", anchoredSha, "--judgment", "The commit completes this task."];
+    if (ci !== "missing") args.push("--ci", ci);
+    const completed = runJson(rootDir, args, true, executionActorEnv);
+
+    assert.equal(completed.status, "done");
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/completion-evidence.json`)), true);
+  });
 
   rejectedCase("task-unknown-commit", () => "a".repeat(40), "commit_completion_git_ref_missing");
   rejectedCase("task-blob-anchor", (rootDir) => execFileSync(
@@ -38,8 +50,8 @@ test("CLI task-complete rejects invalid commit-anchor packets without partial co
   rejectedCase("task-private-anchor", (rootDir) => execFileSync(
     "git", ["-C", path.join(rootDir, "harness"), "rev-parse", "HEAD"], { encoding: "utf8" }
   ).trim(), "commit_completion_git_ref_missing");
-  rejectedCase("task-ci-failed-anchor", (_rootDir, sha) => sha, "ci_not_passed", { ci: "failed" });
-  rejectedCase("task-ci-missing-anchor", (_rootDir, sha) => sha, "missing_ci_gate", { ci: "missing" });
+  acceptedCiCase("task-ci-failed-anchor", "failed");
+  acceptedCiCase("task-ci-missing-anchor", "missing");
   rejectedCase("task-closeout-placeholder-anchor", (_rootDir, sha) => sha, "closeout_placeholder", { placeholderCloseout: true });
 });
 

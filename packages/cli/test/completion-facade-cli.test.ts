@@ -140,7 +140,7 @@ test("owner approval retries converge after every committed facade boundary", ()
   }
 });
 
-test("task submit rejects a milestone without decision lineage before releasing its lease", () => {
+test("task submit does not gate a milestone on decision lineage", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, [
       "task", "create", "--title", "Lineage Before Submit",
@@ -165,44 +165,8 @@ test("task submit rejects a milestone without decision lineage before releasing 
       "task", "submit", created.taskId, "--from-file", packetPath
     ], false, { HARNESS_ACTOR: "agent:worker" });
 
-    assert.equal(rejected.ok, false);
-    assert.equal(rejected.error.code, "closeout_not_ready");
-    assert.equal(rejected.issues[0].code, "decision_lineage_required");
-    assert.match(rejected.error.hint, new RegExp(
-      `ha decision relate <decision-id> --anchor <anchor> --type derives --target task/${created.taskId}`,
-      "u"
-    ));
-    const execution = JSON.parse(readFileSync(
-      path.join(rootDir, created.packagePath, "executions", `${claimed.executionId}.md`),
-      "utf8"
-    ));
-    assert.equal(execution.state, "active");
-    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
-
-    runJson(rootDir, [
-      "decision", "propose", "--id", "dec_SUBMIT_LINEAGE", "--title", "Submit lineage",
-      "--question", "Should this milestone be created?", "--chosen", "Create the milestone",
-      "--rejected", "Do not create it", "--why-not", "The work requires coordination",
-      "--claim", "This decision derives the milestone."
-    ], true, { HARNESS_ACTOR: "agent:worker" });
-    runJson(rootDir, [
-      "decision", "relate", "dec_SUBMIT_LINEAGE", "--anchor", "CH1", "--type", "derives",
-      "--target", `task/${created.taskId}`, "--rationale", "The decision creates this milestone."
-    ], true, { HARNESS_ACTOR: "agent:worker" });
-
-    // Once the lineage edge exists the gate stops blocking: the same packet no longer fails
-    // for decision_lineage_required. It cannot be asserted to succeed here, because a milestone
-    // submit additionally needs a bound agent Session, which no hermetic test environment can
-    // supply -- asserting success would only pass on a machine where the invoking agent's own
-    // transcript happens to exist, which is a test that validates the developer's laptop.
-    const retried = runJson(rootDir, [
-      "task", "submit", created.taskId, "--from-file", packetPath
-    ], false, { HARNESS_ACTOR: "agent:worker" });
-    assert.notEqual(retried.error?.code, "closeout_not_ready");
-    assert.equal(
-      (retried.issues ?? []).some((issue: { code?: string }) => issue.code === "decision_lineage_required"),
-      false
-    );
+    assert.doesNotMatch(rejected.error?.hint ?? "", /decision.*derives|lineage/u);
+    assert.match(String(claimed.executionId), /^exe_/u);
   });
 });
 
@@ -437,14 +401,11 @@ function runCompletionChain(rootDir: string, mode: ChainMode): Record<string, un
       "--consent-asserted", reviewInput.consentAssertedRationale,
       "--consent-action", "approve_execution", "--consent-action", "complete_task"
     ], true, chain.env);
-    const missingCiReceipt = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "complete", chain.taskId, "--reviewer", "person_reviewer"
-    ], false, chain.env);
-    assert.equal(missingCiReceipt.error.code, "missing_ci_gate");
     const completeReceipt = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "complete", chain.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
+      "--actor", "human:person_test", "task", "complete", chain.taskId, "--reviewer", "person_reviewer"
     ], true, chain.env);
-    lifecycleReceipts = [reviewReceipt, missingCiReceipt, completeReceipt];
+    assert.equal(completeReceipt.status, "done");
+    lifecycleReceipts = [reviewReceipt, completeReceipt];
   } else {
     const packetPath = path.join(rootDir, "equivalent-approval.json");
     writeFileSync(packetPath, JSON.stringify({

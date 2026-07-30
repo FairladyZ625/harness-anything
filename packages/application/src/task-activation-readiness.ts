@@ -32,7 +32,7 @@ export function validateTaskActivationReadiness(input: {
       return activationFailure(
         input.taskId,
         "task_plan_placeholder",
-        "Read task_plan.md and replace scaffold content with a substantive implementation plan before transitioning the task to active."
+        "Read task_plan.md and replace scaffold content with a substantive implementation plan before transitioning the task to active. If task_plan.md is already substantive, retry the exact command once unchanged to refresh a lagging read."
       );
     }
     const taskPlan = taskPackage.documents.find((document) => document.path === "task_plan.md")?.body ?? null;
@@ -40,14 +40,14 @@ export function validateTaskActivationReadiness(input: {
       return activationFailure(
         input.taskId,
         "task_plan_placeholder",
-        `Restore task_plan.md and write a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage.rootPath}.`
+        `Restore task_plan.md and write a substantive implementation plan before transitioning the task to active. If task_plan.md already exists and is substantive, retry the exact command once unchanged to refresh a lagging read. Actual task directory read: ${taskPackage.rootPath}.`
       );
     }
     if (isTaskDocumentPlaceholderMarkdown(taskPlan, input.policy.taskPlanPlaceholderFingerprintSets)) {
       return activationFailure(
         input.taskId,
         "task_plan_placeholder",
-        `Replace task_plan.md scaffold content with a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage.rootPath}.`
+        `Replace task_plan.md scaffold content with a substantive implementation plan before transitioning the task to active. If task_plan.md is already substantive, retry the exact command once unchanged to refresh a lagging read. Actual task directory read: ${taskPackage.rootPath}.`
       );
     }
     return {

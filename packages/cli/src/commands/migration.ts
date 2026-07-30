@@ -6,6 +6,7 @@ import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { demotedGateWarning } from "../cli/demoted-gate-warning.ts";
 import { resolveContainedOutputPath } from "../cli/output-path.ts";
 import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
@@ -50,40 +51,32 @@ export function runMigrateStructure(rootInput: HarnessLayoutInput, action: Migra
       hint: "migrate-structure --plan is a Legacy Intake dry-run alias."
     });
   }
-  if (!action.confirmPlan) {
-    return {
-      ok: false,
-      command: "migrate-structure",
-      migrationMode: "apply",
-      report,
-      error: cliError(CliErrorCode.PlanConfirmationRequired, "Run migrate-structure --plan first, inspect the Legacy Intake plan, then rerun --apply --confirm-plan.")
-    };
-  }
+  const confirmationWarning = action.confirmPlan ? undefined : planConfirmationWarning();
   const copied = applyLegacyCopy(rootInput, report);
   if (!copied.ok) return aliasFailure("migrate-structure", copied);
   const indexResult = applyLegacyIndex(rootInput, report);
   if (!indexResult.ok) return aliasFailure("migrate-structure", indexResult);
-  return aliasResult("migrate-structure", report, {
+  return withOptionalWarning(aliasResult("migrate-structure", report, {
     aliasOf: "legacy copy-safe-docs + legacy index",
     migrationMode: "apply",
     hint: "Legacy sources were copied under harness/legacy only; active task packages were not rewritten."
-  });
+  }), confirmationWarning);
 }
 
 export function runMigrateStructureEffect(rootInput: HarnessLayoutInput, action: MigrateStructureAction, coordinator: WriteCoordinator): Effect.Effect<CliResult, WriteError> {
   const report = buildScanReport(rootInput, ".");
   if (action.mode === "plan") return Effect.succeed(runMigrateStructure(rootInput, action));
-  if (!action.confirmPlan) return Effect.succeed(runMigrateStructure(rootInput, action));
+  const confirmationWarning = action.confirmPlan ? undefined : planConfirmationWarning();
   return applyLegacyCopyEffect(rootInput, report, coordinator).pipe(
     Effect.map((copied) => {
       if (!copied.ok) return aliasFailure("migrate-structure", copied);
       const indexResult = applyLegacyIndex(rootInput, report);
       if (!indexResult.ok) return aliasFailure("migrate-structure", indexResult);
-      return aliasResult("migrate-structure", report, {
+      return withOptionalWarning(aliasResult("migrate-structure", report, {
         aliasOf: "legacy copy-safe-docs + legacy index",
         migrationMode: "apply",
         hint: "Legacy sources were copied under harness/legacy only; active authored forward docs were serialized through the daemon write queue."
-      });
+      }), confirmationWarning);
     })
   );
 }
@@ -486,6 +479,17 @@ function retiredMigrationWarning(command: string, aliasOf: string): Record<strin
     severity: "warning",
     message: `${command} is a compatibility alias for Legacy Intake and does not perform automatic migration or full cutover.`
   };
+}
+
+function planConfirmationWarning(): ReturnType<typeof demotedGateWarning> {
+  return demotedGateWarning(
+    "plan_confirmation_required",
+    "Plan confirmation was not supplied; migration continued and the computed plan remains visible in this receipt."
+  );
+}
+
+function withOptionalWarning(result: CliResult, warning: unknown | undefined): CliResult {
+  return warning ? { ...result, warnings: [...(result.warnings ?? []), warning] } : result;
 }
 
 function limitReport(report: LegacyScanReport, limit: number): LegacyScanReport {

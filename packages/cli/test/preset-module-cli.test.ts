@@ -416,25 +416,29 @@ test("CLI preset install malformed source returns stable preset error before wri
   });
 });
 
-test("CLI preset run rejects undeclared v2 actions instead of succeeding as no-ops", () => {
+test("CLI preset entrypoints continue with warnings for undeclared v2 actions", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["preset", "run", "module", "check", "--task", "task-1"], false);
     const canonicalRun = runJson(rootDir, ["preset", "entrypoint", "module", "check", "--task", "task-1"], false);
 
     assert.deepEqual(canonicalRun, result);
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.command, "preset-run");
-    assert.equal(result.error.code, "preset_action_forbidden");
+    assert.equal(result.report.executed, false);
+    assert.equal(result.warnings[0].code, "preset_action_forbidden");
+    assert.match(result.warnings[0].revivalCondition, /third independent user/u);
 
     const rejected = runJson(rootDir, ["preset", "action", "module", "deploy", "--task", "task-1"], false);
     const canonicalAction = runJson(rootDir, ["preset", "entrypoint", "module", "deploy", "--task", "task-1"], false);
     assert.deepEqual(canonicalAction, rejected);
-    assert.equal(rejected.ok, false);
-    assert.equal(rejected.error.code, "preset_action_forbidden");
+    assert.equal(rejected.ok, true, JSON.stringify(rejected));
+    assert.equal(rejected.report.executed, false);
+    assert.equal(rejected.warnings[0].code, "preset_action_forbidden");
 
     const action = runJson(rootDir, ["preset", "action", "module", "check", "--task", "task-1"], false);
-    assert.equal(action.ok, false);
-    assert.equal(action.error.code, "preset_action_forbidden");
+    assert.equal(action.ok, true);
+    assert.equal(action.report.executed, false);
+    assert.equal(action.warnings[0].code, "preset_action_forbidden");
 
     const invalidTask = runJson(rootDir, ["preset", "run", "module", "check", "--task", "../task"], false);
     assert.equal(invalidTask.ok, false);

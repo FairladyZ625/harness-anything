@@ -11,7 +11,6 @@ import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholde
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
 import { runExecutionConsent } from "./task-execution-consent.ts";
-import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { resolvePreset } from "../extensions/state.ts";
 import { resolvePresetCompletionGates } from "./task-completion-contract.ts";
 import { taskLifecycleResultToCliResult } from "./task-gate-receipt.ts";
@@ -53,8 +52,6 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-review", result))
     );
   }
-  const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId);
-  if (lineageFailure) return Effect.succeed(lineageFailure);
   const complete = () => context.currentSessionProbe.currentSession.pipe(Effect.flatMap((session) => orchestrator.completeTask({
     taskId: action.taskId,
     reviewerId: action.reviewerId,
@@ -72,7 +69,14 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       ).split(path.sep).join("/");
       const output = taskLifecycleResultToCliResult("task-complete", result, evidencePath);
       if (!output.ok) return output;
-      return { ...output, warnings: [...(taskTreeSoftGateWarnings(context, action.taskId) ?? []), ...(docSyncDirtyWarnings(context.layoutInput) ?? [])] };
+      return {
+        ...output,
+        warnings: [
+          ...(output.warnings ?? []),
+          ...(taskTreeSoftGateWarnings(context, action.taskId) ?? []),
+          ...(docSyncDirtyWarnings(context.layoutInput) ?? [])
+        ]
+      };
     }),
     Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
   );

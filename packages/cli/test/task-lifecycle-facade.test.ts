@@ -4,14 +4,50 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Effect } from "effect";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { cliError, CliErrorCode } from "../src/cli/error-codes.ts";
 import { toCommandReceipt } from "../src/cli/receipt.ts";
+import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../src/cli/types.ts";
 import { canonicalTaskStartResult } from "../src/commands/core/task-holder-support.ts";
+import { runTaskLifecycleWithDemotions } from "../src/commands/core/task-lifecycle-demotions.ts";
 import { runTaskStartFacade, taskCloseoutFacadeSteps, taskCompleteFacadeSteps, taskStartFacadeSteps } from "../src/commands/core/task-lifecycle-facade.ts";
 import { dispatchLifecycleFacadeSteps } from "../src/commands/core/task-lifecycle-facade-guidance.ts";
+
+test("non-local terminal status success preserves the owner-visible demotion warning", () => {
+  const taskId = "task-external";
+  const context = {
+    artifactStore: {
+      readTaskPackage: () => Effect.succeed({
+        taskId,
+        rootPath: "/fixture/task-external",
+        disposition: "active",
+        documents: [{
+          path: "INDEX.md",
+          kind: "document",
+          body: ["---", "lifecycle:", "  engine: multica", "  status: active", "---"].join("\n")
+        }]
+      })
+    },
+    engine: {
+      setStatus: () => Effect.succeed({ taskId, status: "done" })
+    }
+  } as unknown as CommandRunnerContext;
+  const command = {
+    rootDir: "/fixture",
+    json: true,
+    action: { kind: "status-set", taskId, status: "done", force: false }
+  } as ParsedCommand;
+
+  const result = Effect.runSync(runTaskLifecycleWithDemotions(context, command));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings?.[0]?.code, "terminal_status_requires_task_complete");
+  assert.match(result.warnings?.[0]?.message ?? "", /ha task complete task-external --approve/u);
+  assert.match(result.warnings?.[0]?.revivalCondition ?? "", /third independent user/u);
+});
 
 test("task start is one admitted claim-and-activate boundary that cannot enter review", () => {
   const parsed = parseArgs(["task", "start", "task_BOUNDARY", "--ttl-ms", "60000"]);
