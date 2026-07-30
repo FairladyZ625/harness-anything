@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -100,6 +100,32 @@ test("same executor can record asserted consent, approve, and complete without c
     }).completeTaskExecution({ taskId, actor: aliceWorker });
     assert.deepEqual(completed, { executionId });
     assert.equal(readExecution(rootDir).state, "accepted");
+  });
+});
+
+test("retrying an equivalent approved Review reuses the existing approval", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore }) => {
+    const reviewIds = [firstReviewId, secondReviewId];
+    const service = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => reviewIds.shift()!,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:02:00.000Z"
+    });
+    const input = {
+      ...reviewInput(aliceWorker),
+      consentAssertedRationale: "Approval was received through an external channel."
+    };
+
+    const first = await service.reviewExecution(input);
+    const retried = await service.reviewExecution(input);
+
+    assert.equal(first.review.review_id, firstReviewId);
+    assert.equal(retried.review.review_id, firstReviewId);
+    assert.equal(existsSync(reviewPath(rootDir, secondReviewId)), false);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);
   });
 });
 

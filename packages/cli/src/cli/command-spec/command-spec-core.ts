@@ -213,8 +213,8 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-submit",
     "usage": "task submit <id> --from-file <submission.json> [--dry-run]",
-    "options": [{"flag":"--from-file","description":"Read the six-field Execution Submission packet and optional code-doc reconciliation input."},{"flag":"--dry-run","description":"List the underlying canonical commands without writing."}],
-    "summary": "Submit the active Execution through the existing code-doc and execution-submit commands without weakening either gate.",
+    "options": [{"flag":"--from-file","description":"Read the six-field Execution Submission packet."},{"flag":"--dry-run","description":"Preview the internal submission transaction without writing."}],
+    "summary": "Finalize/export the bound Session and atomically submit the active Execution into in_review.",
     "examples": ["harness-anything task submit task_01ABC --from-file submission.json"],
     "parse": parseCoreTaskArgs,
     "run": rejectDaemonTaskSubmitFacade,
@@ -230,14 +230,14 @@ export const coreCommandSpecs = defineCommandSpecs([
       "nounOwnership": "Task lifecycle facade; it does not introduce a new top-level noun.",
       "lifecycle": "permanent",
       "decisionRef": "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
-      "chain": { "stepCount": 7, "submissionFieldCount": 6, "structuredInput": true }
+      "chain": { "stepCount": 1, "submissionFieldCount": 6, "structuredInput": true }
     }
   },
   {
     "kind": "task-closeout",
     "usage": "task closeout <id> --from-file <closeout.json> [--execution-id <execution-id>] [--lease-token <token>] [--commit <git-ref>] [--reviewer <id>] [--dry-run] [--json]",
     "options": [{"flag":"--from-file","description":"Read the human completion claim, Review judgment and consent, CI result, and optional evidence fields."},{"flag":"--execution-id","description":"Select the active Execution; otherwise use Holder V2 and the sole submitted round."},{"flag":"--lease-token","description":"Authenticate the active Holder V2 lease when it is not available implicitly."},{"flag":"--commit","description":"Resolve this git ref to a full 40-character commit SHA; defaults to HEAD."},{"flag":"--reviewer","description":"Set the completion reviewer id recorded by the existing completion gate."},{"flag":"--dry-run","description":"Resolve the commit and list the separately admitted gate steps without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Explicitly submit an active Execution, record its human Review and consent, reconcile code-doc anchors, and complete after the declared CI result.",
+    "summary": "Compatibility approval entry: after task submit, record the owner's Review, sync task prose, reconcile the workspace commit, and complete.",
     "examples": ["harness-anything task closeout task_01ABC --from-file closeout.json --json"],
     "parse": parseCoreTaskArgs,
     "run": rejectDaemonTaskLifecycleFacade,
@@ -512,12 +512,12 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-complete",
-    "usage": "task complete <id> [--ci passed|failed|not-applicable] [--reviewer <id>] [--commit-anchor <sha-or-ref> --judgment <reason>]",
-    "options": [{"flag":"--ci","description":"Set passed or failed when CI applies; use not-applicable only when the resolved contract declares no CI obligation."},{"flag":"--reviewer","description":"Set the reviewer id for Execution/Review completion only."},{"flag":"--commit-anchor","description":"Select the explicit commit-anchor completion path using a workspace commit SHA or ref."},{"flag":"--judgment","description":"Explain why the anchored commit completes this task; required with --commit-anchor."}],
+    "usage": "task complete <id> (--approve --from-file <approval.json> | --commit-anchor <sha-or-ref> --judgment <reason>) [--ci passed|failed|not-applicable] [--execution-id <execution-id>] [--reviewer <id>] [--commit <git-ref>] [--dry-run]",
+    "options": [{"flag":"--approve","description":"Record this invocation as the owner's explicit approval action."},{"flag":"--from-file","description":"Read Review findings, rationale, consent, CI, and optional anchor fields."},{"flag":"--ci","description":"Override the packet CI result when the resolved contract declares CI."},{"flag":"--execution-id","description":"Select the submitted Execution; inferred when exactly one exists."},{"flag":"--reviewer","description":"Set the reviewer id recorded with completion."},{"flag":"--commit","description":"Resolve the workspace commit to reconcile; defaults to HEAD."},{"flag":"--dry-run","description":"Preview the internal doc-sync, Review, reconcile, and completion steps."},{"flag":"--commit-anchor","description":"Compatibility owner-judgment mode; reconcile is still internal and --judgment remains required."},{"flag":"--judgment","description":"Explain why the compatibility commit-anchor completes the task."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)":"hidden"},
-    "summary": "Evaluate the Task's resolved preset/profile completionGates through one explicit evidence mode. The default path requires exactly one submitted Execution, no active Execution rounds, and an approved typed Review; legacy review.md is only a compatibility blocker check. If an abandoned active round remains without a live lease, retire it explicitly with ha task retire-execution <id> --execution-id <execution-id> --reason <reason>. The commit-anchor path requires zero Execution/typed Review history, a real workspace commit already present in code-doc-anchors.json, and an authenticated judgment. Use not-applicable only when the contract declares no CI obligation; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
-    "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id", "harness-anything task complete task_01ABC --commit-anchor 0123456789abcdef0123456789abcdef01234567 --judgment \"This commit completes and verifies the task\" --ci passed"],
+    "summary": "One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator. Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally.",
+    "examples": ["harness-anything task complete task_01ABC --approve --from-file approval.json", "harness-anything task complete task_01ABC --commit-anchor HEAD --judgment \"This commit completes and verifies the task\" --ci passed"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
     "receiptContract": {

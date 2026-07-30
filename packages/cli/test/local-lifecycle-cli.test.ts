@@ -91,14 +91,14 @@ test("CLI status set mutates local task state through the write journal", () => 
   });
 });
 
-test("CLI rejects naked local review transitions with the Execution submission error", () => {
+test("CLI rejects naked local review transitions as an invalid transition", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const failure = runJson(rootDir, ["task", "status", "set", taskId, "in_review"], false);
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "execution_submission_required");
+    assert.equal(failure.error?.code, "invalid_transition");
   });
 });
 
@@ -113,13 +113,13 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
     for (const status of ["active", "blocked"] as const) {
       const failure = runJson(rootDir, ["task", "status", "set", taskId, status], false);
       assert.equal(failure.ok, false);
-      assert.equal(failure.error?.code, "execution_review_required");
+      assert.equal(failure.error?.code, "invalid_transition");
     }
     const forcedCancellation = runJson(rootDir, [
       "task", "status", "set", taskId, "cancelled", "--force", "--reason", "invalid review escape"
     ], false);
     assert.equal(forcedCancellation.ok, false);
-    assert.equal(forcedCancellation.error?.code, "execution_review_required");
+    assert.equal(forcedCancellation.error?.code, "invalid_transition");
     assert.equal(existsSync(path.join(rootDir, String(created.packagePath), "progress.md")), false);
     assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
   });

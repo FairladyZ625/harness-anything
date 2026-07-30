@@ -48,8 +48,8 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "consent-record" && args[2]) return parseTaskConsentRecord(args, rootDir, json);
   if (args[0] === "task" && args[1] === "review-execution" && args[2]) return parseTaskReviewExecution(args, rootDir, json, input);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
-  if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);
-  if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json, input);
+  if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json, input);
   if (args[0] === "task" && args[1] === "show" && args[2]) return parseTaskShow(args, rootDir, json);
   if (args[0] === "task" && args[1] === "tree" && args[2]) return ok(rootDir, json, { kind: "task-show", taskId: args[2], view: "tree" });
   if (args[0] === "task" && args[1] === "relate" && args[2] && args[3] && args[4]) return parseTaskRelate(args, rootDir, json);

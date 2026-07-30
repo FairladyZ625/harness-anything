@@ -102,7 +102,7 @@ function runTaskCodeDocReconcile(
         ok: false,
         command: action.kind,
         taskId: action.taskId,
-        error: cliError(CliErrorCode.CodeDocReconciliationFailed, `${CODE_DOC_RECONCILIATION_DOCUMENT} already exists; inspect it or rerun with --force to replace it.`)
+        error: cliError(CliErrorCode.WriteRejected, `${CODE_DOC_RECONCILIATION_DOCUMENT} already exists; inspect it or rerun with --force to replace it.`)
       } satisfies CliResult;
     }
 
@@ -118,7 +118,7 @@ function runTaskCodeDocReconcile(
         ok: false,
         command: action.kind,
         taskId: action.taskId,
-        error: cliError(CliErrorCode.CodeDocReconciliationFailed, "Task package must contain closeout.md or review.md before code-doc reconciliation can be generated.")
+        error: cliError(CliErrorCode.WriteRejected, "Task package must contain closeout.md or review.md before code-doc reconciliation can be generated.")
       } satisfies CliResult;
     }
 
@@ -139,7 +139,7 @@ function runTaskCodeDocReconcile(
         command: action.kind,
         taskId: action.taskId,
         issues: evaluation.issues,
-        error: cliError(CliErrorCode.CodeDocReconciliationFailed, evaluation.issues.map((issue) => issue.message).join(" "))
+        error: cliError(CliErrorCode.WriteRejected, evaluation.issues.map((issue) => issue.message).join(" "))
       } satisfies CliResult;
     }
 

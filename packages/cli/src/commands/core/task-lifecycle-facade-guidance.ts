@@ -22,9 +22,9 @@ export function guidedLifecycleFacadeFailure(
   failure: CommandFailureReceipt,
   completedSteps: ReadonlyArray<CommandReceipt>,
   failedStep: ParsedCommand,
-  facade: "task-start" | "task-closeout"
+  facade: "task-start" | "task-closeout" | "task-complete"
 ): CommandFailureReceipt {
-  const nextCommand = lifecycleFacadeNextCommand(failure, failedStep);
+  const nextCommand = lifecycleFacadeNextCommand(failure, failedStep, facade);
   const cause = failure.error?.hint ?? failure.summary;
   return {
     ...failure,
@@ -49,7 +49,17 @@ export function shellLifecycleToken(value: string): string {
   return /^[A-Za-z0-9_./:@{}^=-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function lifecycleFacadeNextCommand(failure: CommandFailureReceipt, step: ParsedCommand): string {
+function lifecycleFacadeNextCommand(
+  failure: CommandFailureReceipt,
+  step: ParsedCommand,
+  facade: "task-start" | "task-closeout" | "task-complete"
+): string {
+  if (facade === "task-complete" && "taskId" in step.action) {
+    return joinLifecycleCommand("ha", "task", "complete", step.action.taskId, "--approve", "--from-file", "<approval.json>");
+  }
+  if (facade === "task-closeout" && "taskId" in step.action) {
+    return joinLifecycleCommand("ha", "task", "closeout", step.action.taskId, "--from-file", "<closeout.json>");
+  }
   const failureHint = failure.error?.hint ?? "";
   if (step.action.kind === "status-set" && step.action.executionSubmission && isLeaseRequiredFailure(failure, failureHint)) {
     if (/current holder none; lease status none|lease status orphaned/iu.test(failureHint)) {

@@ -73,7 +73,7 @@ test("repository inventory covers the mission rejection families", () => {
   for (const key of [
     "cli:command_receipt_contract_mismatch",
     "cli:completion_gate_failed",
-    "cli:execution_review_required",
+    "cli:invalid_transition",
     "cli:preset_script_not_found",
     "daemon:provider_unavailable"
   ]) {

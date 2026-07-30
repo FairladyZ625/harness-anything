@@ -83,7 +83,7 @@ test("CLI in_review requires an Execution submission even after a valid active t
     const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "in_review"], false);
 
     assert.equal(transitioned.ok, false);
-    assert.equal(transitioned.error?.code, "execution_submission_required");
+    assert.equal(transitioned.error?.code, "invalid_transition");
     assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
   });
 });
@@ -275,7 +275,7 @@ test("CLI task-complete rejects missing code-doc anchors", () => {
     const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
+    assert.equal(blocked.error?.code, "completion_gate_failed");
     assert.equal(blocked.issues?.[0]?.code, "code_doc_anchors_missing");
   });
 });
@@ -293,7 +293,7 @@ test("CLI task-complete rejects fabricated code-doc shas", () => {
     const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
+    assert.equal(blocked.error?.code, "completion_gate_failed");
     assert.equal(blocked.issues?.[0]?.code, "code_doc_git_ref_missing");
   });
 });

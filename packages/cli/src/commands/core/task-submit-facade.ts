@@ -63,17 +63,6 @@ export async function runTaskSubmitFacade(
 export function taskSubmitFacadeSteps(command: TaskSubmitCommand): ReadonlyArray<ParsedCommand> {
   const action = command.action;
   return [
-    ...(action.codeDoc ? [{
-      ...command,
-      action: {
-        kind: "task-code-doc-reconcile" as const,
-        taskId: action.taskId,
-        sha: action.codeDoc.sha,
-        paths: action.codeDoc.paths,
-        prRef: action.codeDoc.prRef,
-        force: action.codeDoc.force
-      }
-    }] : []),
     {
       ...command,
       action: {

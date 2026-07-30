@@ -80,7 +80,7 @@ export function validateInReviewExecutionConsistency(rootInput: HarnessLayoutInp
     if (submitted.length === 0) {
       issues.push(profileIssue(
         "execution-consistency",
-        "execution_submission_required",
+        "execution_record_invalid",
         "hard-fail",
         `${relativeTaskDir} is local in_review without a submitted Execution.`,
         "Return the Task to active or submit exactly one Execution through the submit-for-review transaction."

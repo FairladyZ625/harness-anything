@@ -81,6 +81,8 @@ export function makeReviewExecutionService(options: {
       const unknownEvidence = input.evidenceChecked.find((evidenceId) => !evidenceIds.has(evidenceId));
       if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${input.executionId}: ${unknownEvidence}`);
       assertConsentInputShape(input, execution);
+      const existingApproval = equivalentApprovedReview(task.documents, input);
+      if (existingApproval) return { review: existingApproval };
 
       const reviewId = generateReviewId();
       if (task.documents.some((document) => document.path === `reviews/${reviewId}.md`)) {
@@ -172,6 +174,34 @@ export function makeReviewExecutionService(options: {
       return { review };
     }
   };
+}
+
+function equivalentApprovedReview(
+  documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
+  input: Parameters<ReviewExecutionService["reviewExecution"]>[0]
+): ReviewRecord | null {
+  if (input.verdict !== "approved") return null;
+  for (const document of documents.filter((candidate) => /^reviews\/[^/]+\.md$/u.test(candidate.path))) {
+    let review: ReviewRecord;
+    try {
+      review = Schema.decodeUnknownSync(reviewDeclaration.schema)(
+        reviewDeclaration.documentCodec.decode(document.body)
+      ) as ReviewRecord;
+    } catch {
+      continue;
+    }
+    if (review.execution_ref === `execution/${input.taskId}/${input.executionId}`
+      && review.verdict === "approved"
+      && review.approval_basis?.kind === "human-consent"
+      && stablePayloadHash(review.reviewer_actor) === stablePayloadHash(input.reviewer)
+      && review.findings === input.findings
+      && stablePayloadHash(review.evidence_checked) === stablePayloadHash(input.evidenceChecked)
+      && review.rationale === input.rationale
+      && review.archive_warnings_acknowledged === input.archiveWarningsAcknowledged) {
+      return review;
+    }
+  }
+  return null;
 }
 
 function assertConsentInputShape(input: {
