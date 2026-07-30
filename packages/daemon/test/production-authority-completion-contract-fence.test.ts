@@ -45,6 +45,43 @@ test("daemon completion intent fences present and absent task-contract snapshots
     })}\n`, "utf8");
     const contractPath = path.join(taskRoot, "task-contract.json");
 
+    const directCompileInput = {
+      command: {
+        rootDir,
+        json: true,
+        action: {
+          kind: "task-complete",
+          taskId,
+          evidenceMode: "commit-anchor",
+          commitRef: publicHead,
+          judgment: "The public commit completes the contract-fence task."
+        }
+      } as ProductionAuthorityCommand,
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-contract-fence",
+        source: "runtime",
+        detectedAt: "2026-07-24T00:00:00.000Z"
+      },
+      canonicalEntityId: `task/${taskId}`,
+      authoredRoot,
+      actor
+    } as const;
+    assert.throws(
+      () => productionLifecycleAttemptIntent(directCompileInput, {} as never),
+      /AUTHORITY_TASK_COMPLETE_APPLICABLE_GATES_REQUIRED/u
+    );
+    assert.throws(
+      () => productionLifecycleAttemptIntent({
+        ...directCompileInput,
+        command: {
+          ...directCompileInput.command,
+          action: { kind: "task-complete", taskId }
+        } as ProductionAuthorityCommand
+      }, {} as never),
+      /AUTHORITY_TASK_COMPLETE_REJECTED:execution_submission_required/u
+    );
+
     for (const initial of ["{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n", null] as const) {
       if (initial === null) {
         if (existsSync(contractPath)) unlinkSync(contractPath);
@@ -62,6 +99,7 @@ test("daemon completion intent fences present and absent task-contract snapshots
             evidenceMode: "commit-anchor",
             commitRef: publicHead,
             judgment: "The public commit completes the contract-fence task.",
+            completionApplicableGates: [],
             completionContractBodySha256: evaluatedDigest
           }
         } as ProductionAuthorityCommand,

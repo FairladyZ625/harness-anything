@@ -152,6 +152,7 @@ test("commit-anchor completion crosses production authority with daemon judgment
     assert.equal(evidence.judgment.actor.principal.personId, "person_alice");
     assert.deepEqual(evidence.judgment.actor.executor, { kind: "agent", id: "codex" });
     assert.equal(evidence.judgment.sessionRef, `session/${sessionId}`);
+    assert.deepEqual(evidence.gateReceipt.applicableGates, ["ci", "code-doc-reconciliation"]);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /status: done/u);
     assert.equal(authorityEventBodies(fixture.authoredRoot).some((body) =>
       body.includes(sessionId) && body.includes(`task/${taskId}`)

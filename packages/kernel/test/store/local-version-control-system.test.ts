@@ -143,6 +143,26 @@ test("commit resolution accepts only commits reachable from the workspace HEAD",
   }
 });
 
+test("commit resolution treats option-shaped refs as object operands", () => {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-workspace-option-ref-"));
+  try {
+    fixtureGit(repoRoot, "init", "-b", "main");
+    fixtureGit(
+      repoRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "workspace"
+    );
+
+    assert.deepEqual(
+      makeLocalVersionControlSystem().resolveCommit(repoRoot, "--batch"),
+      { ok: false, reason: "missing" }
+    );
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("local Git resolves bulk path membership from one literal commit subtree", () => {
   const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-bulk-git-membership-"));
   const relativeRoot = "ledger[1]/authority-attribution-events/v2";

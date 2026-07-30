@@ -18,11 +18,6 @@ import {
 import { assertExecutionTaskCompletable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
 
 export interface ExecutionCompletionService {
-  readonly inspectTaskExecutionCompletion?: (input: {
-    readonly taskId: string;
-    readonly actor: TaskHolderPrincipal;
-    readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
-  }) => ExecutionCompletionReadiness;
   readonly completeTaskExecution: (input: {
     readonly taskId: string;
     readonly actor: TaskHolderPrincipal;
@@ -55,7 +50,6 @@ export function makeExecutionCompletionService(options: {
 }): ExecutionCompletionService {
   const now = options.now ?? (() => new Date().toISOString());
   return {
-    inspectTaskExecutionCompletion: inspectExecutionCompletionReadiness,
     completeTaskExecution: async ({ taskId, actor, contractPrecondition }) => {
       const task = await Effect.runPromise(options.artifactStore.readTaskPackage(taskId));
       const readiness = resolveExecutionCompletionReadiness({ taskId, actor, documents: task.documents });

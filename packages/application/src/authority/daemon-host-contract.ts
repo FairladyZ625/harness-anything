@@ -125,7 +125,7 @@ export type AuthorityHostCommandAction =
       readonly kind: "task-complete";
       readonly taskId: string;
       readonly completionContractBodySha256?: string | null;
-      readonly evidenceMode: "execution-review" | "commit-anchor";
+      readonly evidenceMode?: "execution-review" | "commit-anchor";
       readonly commitRef?: string;
       readonly judgment?: string;
       readonly ciGate?: "passed" | "failed" | "not-applicable";

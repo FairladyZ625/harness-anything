@@ -73,10 +73,10 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     resolveCommit: (repoRoot, ref) => {
       let sha: string;
       try {
-        sha = runGit(repoRoot, "rev-parse", "--verify", `${ref}^{commit}`).trim();
+        sha = runGit(repoRoot, "rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`).trim();
       } catch {
         try {
-          const objectType = runGit(repoRoot, "cat-file", "-t", ref).trim();
+          const objectType = runGit(repoRoot, "cat-file", "-t", "--", ref).trim();
           return objectType.length > 0
             ? { ok: false, reason: "non-commit", objectType }
             : { ok: false, reason: "missing" };

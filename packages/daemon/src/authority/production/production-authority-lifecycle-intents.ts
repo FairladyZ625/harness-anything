@@ -417,13 +417,13 @@ function taskCompletionIntent(
   const status = /^  status:\s*(\S+)$/mu.exec(taskSnapshot.body)?.[1] ?? "unknown";
   const evaluation = evaluateTaskCompletionAuthority({
     taskId,
-    mode: action.evidenceMode,
+    mode: action.evidenceMode ?? "execution-review",
     status,
     documents,
     actor,
     sessionRef: `session/${sessionId}`,
     judgedAt: completedAt,
-    applicableGates: action.completionApplicableGates ?? [],
+    applicableGates: completionApplicableGates(action),
     ciGate: action.ciGate,
     commitRef: action.commitRef,
     judgment: action.judgment,
@@ -503,6 +503,16 @@ function taskCompletionIntent(
       };
     })()
   ]);
+}
+
+function completionApplicableGates(
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-complete" }>
+): ReadonlyArray<string> {
+  if ((action.evidenceMode ?? "execution-review") !== "commit-anchor") return [];
+  if (!action.completionApplicableGates) {
+    throw new Error("AUTHORITY_TASK_COMPLETE_APPLICABLE_GATES_REQUIRED");
+  }
+  return action.completionApplicableGates;
 }
 
 function readTaskDocuments(taskRoot: string, relativeRoot = ""): ReadonlyArray<{ readonly path: string; readonly body: string }> {
