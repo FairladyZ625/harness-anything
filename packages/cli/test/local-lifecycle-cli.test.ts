@@ -77,7 +77,7 @@ test("CLI accepts manual task IDs only in controlled migration mode", () => {
   });
 });
 
-test("CLI status set mutates local task state through the write journal", () => {
+test("CLI status set can move active and blocked work back to the planned idea inbox", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -86,7 +86,13 @@ test("CLI status set mutates local task state through the write journal", () => 
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "active");
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /status: active/);
+    const indexPath = path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`);
+    assert.match(readFileSync(indexPath, "utf8"), /status: active/);
+
+    assert.equal(runJson(rootDir, ["task", "status", "set", taskId, "planned"]).status, "planned");
+    assert.equal(runJson(rootDir, ["task", "status", "set", taskId, "blocked"]).status, "blocked");
+    assert.equal(runJson(rootDir, ["task", "status", "set", taskId, "planned"]).status, "planned");
+    assert.match(readFileSync(indexPath, "utf8"), /status: planned/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });

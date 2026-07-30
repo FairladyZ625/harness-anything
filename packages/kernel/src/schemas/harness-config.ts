@@ -41,7 +41,8 @@ export const HarnessConfigSchema = Schema.Struct({
     })),
     tasks: Schema.optional(Schema.Struct({
       leaseEnforcement: Schema.optional(Schema.Boolean),
-      leaseTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)))
+      leaseTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+      wipLimit: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)))
     })),
     daemonRuntime: Schema.optional(Schema.Struct({
       writeLockTtlMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),

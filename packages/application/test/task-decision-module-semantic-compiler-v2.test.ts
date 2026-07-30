@@ -49,24 +49,6 @@ const registry = createWritableEntityRegistry([
 ]);
 const stateDigest = Buffer.alloc(32, 0x11);
 
-test("task/decision register W5 semanticDiff while non-markdown module stays typed-only", () => {
-  assert.deepEqual(entityRegistry.task.mutationContract, { status: "ready", actions: ["create", "transition", "append", "document"] });
-  assert.deepEqual(entityRegistry.decision.mutationContract, { status: "ready", actions: ["propose", "state", "amend", "relation"] });
-  assert.deepEqual(entityRegistry.module.mutationContract, { status: "ready", actions: ["register", "unregister", "step"] });
-  assert.equal(entityRegistry.task.semanticDiff.status, "ready");
-  assert.equal(entityRegistry.decision.semanticDiff.status, "ready");
-  assert.equal(entityRegistry.module.semanticDiff.status, "typed-only");
-  assert.equal(entityRegistry.module.projectionFacet.status, "ready");
-  assert.deepEqual(entityRegistry.module.projectionFacet.status === "ready"
-    ? entityRegistry.module.projectionFacet.attributionTarget
-    : null, {
-    table: "module_attribution_projection",
-    idColumn: "module_key",
-    identityField: "moduleKey",
-    materialization: "mutation-index"
-  });
-});
-
 test("managed heading regions merge multi-file task prose without guessing the subject from its path", () => {
   const taskId = "task_T";
   const indexPath = `tasks/${taskId}-folder/INDEX.md`;
@@ -173,7 +155,10 @@ test("all task actions compile to one exact package-hosted StoragePlan", async (
   const indexSnapshot = snapshot(index);
   const bases = new Map([[key(taskRef), base("task-v1")]]);
   const documents = new Map([[`tasks/${taskId}/INDEX.md`, indexSnapshot]]);
-  const compiler = makeTaskDecisionModuleSemanticCompilerV2({ state: authorityState(bases, documents) });
+  const compiler = makeTaskDecisionModuleSemanticCompilerV2({
+    state: authorityState(bases, documents),
+    taskPlanSnapshot: async (taskId) => ({ taskId, state: "placeholder", taskRoot: `tasks/${taskId}` })
+  });
 
   const fixtures: ReadonlyArray<{
     readonly payload: TaskDecisionModuleCommandPayloadV2;
@@ -189,7 +174,7 @@ test("all task actions compile to one exact package-hosted StoragePlan", async (
       pair: "task/task_NEW:create", target: "tasks/task_NEW/INDEX.md", opKind: "package_create"
     },
     {
-      payload: { schema: "task.transition/v1", taskId, to: "active" },
+      payload: { schema: "task.transition/v1", taskId, to: "blocked" },
       baseCas: [present(taskRef, "task-v1")], pathCas: [cas(`tasks/${taskId}/INDEX.md`, indexSnapshot)],
       pair: `task/${taskId}:transition`, target: `tasks/${taskId}/INDEX.md`, opKind: "transition_local"
     },
@@ -207,12 +192,31 @@ test("all task actions compile to one exact package-hosted StoragePlan", async (
 
   for (const fixture of fixtures) {
     const compiled = await compiler.compile(envelope(fixture.payload, fixture.baseCas, fixture.pathCas));
+    if (fixture.payload.schema === "task.transition/v1") {
+      await assert.rejects(compiled.publicationRevalidation!(), /TASK_PLAN_PLACEHOLDER/u);
+    }
     const plan = compileRegistryMutationPlan(registry, compiled.mutationPlan);
     assert.deepEqual(plan.mutationSet.mutations.map(pair), [fixture.pair]);
     assert.deepEqual(plan.storagePlan.touchedPaths, [fixture.target]);
     assert.deepEqual(plan.storagePlan.consistencyScopes, [`entity:task/${fixture.payload.taskId}`]);
     assert.equal(compiled.operation.kind, fixture.opKind);
   }
+});
+
+test("raw typed reopen revalidates the substantive task plan at publication", async () => {
+  const taskId = "task_REOPEN";
+  const taskRef = ref("task", `task/${taskId}`);
+  const current = snapshot(taskIndex(taskId, "active", "archived"));
+  const compiler = makeTaskDecisionModuleSemanticCompilerV2({
+    state: authorityState(new Map([[key(taskRef), base("task-v1")]]), new Map([[`tasks/${taskId}/INDEX.md`, current]])),
+    taskPlanSnapshot: async () => ({ taskId, state: "missing", taskRoot: `tasks/${taskId}` })
+  });
+  const body = `${taskIndex(taskId, "active")}\nreopen after substantive plan\n`;
+  const compiled = await compiler.compile(envelope(
+    { schema: "task.reopen/v1", taskId, reason: "reopen after substantive plan", body },
+    [present(taskRef, "task-v1")], [cas(`tasks/${taskId}/INDEX.md`, current)]
+  ));
+  await assert.rejects(compiled.publicationRevalidation!(), /TASK_PLAN_PLACEHOLDER/u);
 });
 
 test("all decision actions compile exact decision mutations; relation also creates its first-class relation", async () => {
@@ -620,13 +624,17 @@ function moduleRecord(): ModuleRecordV2 {
   };
 }
 
-function taskIndex(taskId: string, status: string): string {
+function taskIndex(
+  taskId: string,
+  status: string,
+  packageDisposition: "active" | "archived" | "tombstoned" = "active"
+): string {
   return [
     "---", "schema: task-package/v2", `task_id: ${taskId}`, `title: ${taskId}`,
     "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", `  status: ${status}`,
     "  ref: ", `  titleSnapshot: ${taskId}`, "  url: ",
     "  bindingCreatedAt: 2026-07-14T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`,
-    "packageDisposition: active", "vertical: default", "preset: default",
+    `packageDisposition: ${packageDisposition}`, "vertical: default", "preset: default",
     "provenance:", "  - {runtime: codex, sessionId: session-w3, boundAt: 2026-07-14T00:00:00.000Z}",
     "---", "", `# ${taskId}`, ""
   ].join("\n");

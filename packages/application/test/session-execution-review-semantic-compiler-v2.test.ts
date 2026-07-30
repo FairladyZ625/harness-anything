@@ -162,7 +162,9 @@ test("execution claim atomically creates the Execution and activates the planned
     state: authorityState(
       new Map([[key(taskRef), base("task-v1")]]),
       new Map([[taskPath, plannedIndex], [taskPlanPath, taskPlan]])
-    )
+    ),
+    taskPlanSnapshot: async () => ({ taskId, state: "substantive", taskRoot: `tasks/${taskId}` }),
+    taskWipSnapshot: async () => ({ limit: 30, tasks: [] })
   }).compile(envelope({
     schema: "execution.claim/v1",
     taskId,
@@ -190,6 +192,7 @@ test("execution claim atomically creates the Execution and activates the planned
     { taskId, path: "INDEX.md", bodySha256: sha256Text(plannedIndex.body) },
     { taskId, path: "task_plan.md", bodySha256: sha256Text(taskPlan.body) }
   ]);
+  await assert.doesNotReject(compiled.publicationRevalidation!);
 });
 
 for (const taskStatus of ["active", "in_review"] as const) {

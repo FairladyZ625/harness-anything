@@ -9,12 +9,10 @@ import {
   explainStatusTransition,
   formatRelationFlowRecord,
   isDomainStatus,
-  isPackageDisposition,
   normalizeRelativeDocumentPath,
   parseDecisionDocument,
   parseRelationFlowRecords,
   readFrontmatter,
-  readScalar,
   taskEntityId,
   validateRelationRecordsForHost,
   type DecisionPackage,
@@ -73,6 +71,10 @@ import {
   taskDecisionModuleEntityRef,
   taskDecisionModulePath as taskPath
 } from "./task-decision-module-refs.ts";
+import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
+import { enteringExecutionWip } from "./task-wip-policy.ts";
+import { taskReturnToIdeaPublicationRevalidation, type ReadTaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
+import { taskExecutionAdmissionPublicationRevalidation, type TaskExecutionAdmissionPortsV1 } from "./task-execution-admission-policy.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -107,8 +109,9 @@ export interface TaskDecisionModuleAuthorityStateV2 {
   readonly readHostedDocument: (path: string) => Promise<HostedDocumentSnapshotV2 | null>;
 }
 
-export interface TaskDecisionModuleSemanticCompilerV2Options {
+export interface TaskDecisionModuleSemanticCompilerV2Options extends TaskExecutionAdmissionPortsV1 {
   readonly state: TaskDecisionModuleAuthorityStateV2;
+  readonly taskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 
 export interface CompiledTaskDecisionModuleCommandV2 {
@@ -123,7 +126,7 @@ export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionMo
   return {
     compile: async (envelope) => {
       const { payload, decodedBytes } = decodeTaskDecisionModuleCommandPayloadV2(envelope);
-      const compiled = await compileTaskDecisionModulePayload(options.state, payload);
+      const compiled = await compileTaskDecisionModulePayload(options, payload);
       await verifySemanticBaseCasV2(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
       verifySemanticPathCasV2(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
       return {
@@ -137,19 +140,26 @@ export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionMo
 }
 
 async function compileTaskDecisionModulePayload(
-  state: TaskDecisionModuleAuthorityStateV2,
+  options: TaskDecisionModuleSemanticCompilerV2Options,
   payload: TaskDecisionModuleCommandPayloadV2
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
+  const { state } = options;
   switch (payload.schema) {
     case "task.create/v1": return compileTaskCreate(state, payload);
-    case "task.transition/v1": return compileTaskTransition(state, payload);
+    case "task.transition/v1": return compileTaskTransition(options, payload);
     case "task.append/v1": return compileTaskAppend(payload);
     case "task.document/v1": return compileTaskDocument(state, payload);
     case "task.amend/v1": return compileTaskAmend(state, payload);
     case "task.archive/v1": return compileTaskDisposition(state, payload, "archived", "package_archive");
     case "task.supersede/v1": return compileTaskSupersede(state, payload);
     case "task.delete/v1": return compileTaskDisposition(state, payload, "tombstoned", "package_tombstone");
-    case "task.reopen/v1": return compileTaskDisposition(state, payload, "active", "package_reopen");
+    case "task.reopen/v1": return compileTaskDisposition(
+      state,
+      payload,
+      "active",
+      "package_reopen",
+      options
+    );
     case "task.relate/v1": return compileTaskRelate(state, payload);
     case "decision.propose/v1": return compileDecisionPropose(payload);
     case "decision.state/v1": return compileDecisionState(state, payload);
@@ -189,9 +199,10 @@ async function compileTaskCreate(state: TaskDecisionModuleAuthorityStateV2, payl
 }
 
 async function compileTaskTransition(
-  state: TaskDecisionModuleAuthorityStateV2,
+  options: TaskDecisionModuleSemanticCompilerV2Options,
   payload: TaskTransitionPayloadV2
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
+  const { state } = options;
   if (!isDomainStatus(payload.to)) throw admission("TASK_TRANSITION_STATUS_INVALID");
   const to = payload.to as DomainStatus;
   const path = taskPath(payload.taskId, "INDEX.md");
@@ -204,7 +215,7 @@ async function compileTaskTransition(
     throw admission("TASK_TRANSITION_FORCE_AUDIT_INVALID");
   }
   const completionContractSnapshots = await taskTransitionCompletionContractSnapshots(state, payload);
-  return taskCompilation(payload.taskId, "transition", "transition_local", {
+  const compiled = taskCompilation(payload.taskId, "transition", "transition_local", {
     path: "INDEX.md",
     body,
     to,
@@ -213,6 +224,15 @@ async function compileTaskTransition(
     { path, snapshot },
     ...completionContractSnapshots
   ]);
+  if (to === "planned" && (current.status === "active" || current.status === "blocked")) {
+    return { ...compiled, publicationRevalidation: taskReturnToIdeaPublicationRevalidation(options.taskReturnToIdeaSnapshot, payload.taskId) };
+  }
+  return enteringExecutionWip(current.status, current.packageDisposition, to, "active")
+    ? {
+      ...compiled,
+      publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(options, payload.taskId)
+    }
+    : compiled;
 }
 
 function compileTaskAppend(payload: TaskAppendPayloadV2): CompiledTaskDecisionModuleCommandV2 {
@@ -263,7 +283,8 @@ async function compileTaskDisposition(
   state: TaskDecisionModuleAuthorityStateV2,
   payload: TaskArchivePayloadV2 | TaskDeletePayloadV2 | TaskReopenPayloadV2,
   disposition: "active" | "archived" | "tombstoned",
-  kind: "package_archive" | "package_tombstone" | "package_reopen"
+  kind: "package_archive" | "package_tombstone" | "package_reopen",
+  executionAdmission?: TaskExecutionAdmissionPortsV1
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
   const path = taskPath(payload.taskId, "INDEX.md");
   const snapshot = await requiredTaskDecisionModuleDocument(state, path, "TASK_INDEX_NOT_FOUND");
@@ -274,9 +295,20 @@ async function compileTaskDisposition(
     throw admission("TASK_DISPOSITION_BODY_INVALID");
   }
   if (!payload.body.includes(payload.reason)) throw admission("TASK_DISPOSITION_REASON_REQUIRED");
-  return taskCompilation(payload.taskId, "document", kind, { path: "INDEX.md", body: payload.body }, [
+  const compiled = taskCompilation(payload.taskId, "document", kind, { path: "INDEX.md", body: payload.body }, [
     taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)
   ], [{ path, snapshot }]);
+  return enteringExecutionWip(
+    current.status,
+    current.packageDisposition,
+    next.status,
+    next.packageDisposition
+  )
+    ? {
+      ...compiled,
+      publicationRevalidation: taskExecutionAdmissionPublicationRevalidation(executionAdmission ?? {}, payload.taskId)
+    }
+    : compiled;
 }
 
 async function compileTaskSupersede(
@@ -468,40 +500,6 @@ async function compileDecisionState(
       writeMode: { kind: "snapshot", expectedWatermark: current?._coordinatorWatermark ?? null }
     }
   };
-}
-
- interface ParsedTaskIndexV2 {
-  readonly taskId: string;
-  readonly status: DomainStatus;
-  readonly packageDisposition: "active" | "archived" | "tombstoned";
-  readonly core: Readonly<Record<string, string>>;
-}
-
-function parseTaskIndex(body: string): ParsedTaskIndexV2 {
-  const frontmatter = readFrontmatter(body);
-  if (!frontmatter || readScalar(frontmatter, "schema", { required: true }) !== "task-package/v2") {
-    throw admission("TASK_INDEX_INVALID");
-  }
-  const taskId = readScalar(frontmatter, "task_id", { required: true });
-  const status = readScalar(frontmatter, "  status", { required: true });
-  if (!isDomainStatus(status)) throw admission("TASK_INDEX_INVALID");
-  const packageDisposition = readScalar(frontmatter, "packageDisposition", { required: true });
-  if (!isPackageDisposition(packageDisposition)) throw admission("TASK_INDEX_INVALID");
-  const keys = [
-    "schema", "task_id", "title", "parent", "  bindingSchema", "  engine", "  status", "  ref",
-    "  titleSnapshot", "  url", "  bindingCreatedAt", "  bindingFingerprint", "packageDisposition",
-    "workKind", "riskTier", "urgency", "vertical", "preset", "profile"
-  ];
-  return {
-    taskId,
-    status,
-    packageDisposition,
-    core: Object.fromEntries(keys.map((key) => [key, readScalar(frontmatter, key)]))
-  };
-}
-
-function sameTaskLifecycleCore(current: ParsedTaskIndexV2, next: ParsedTaskIndexV2): boolean {
-  return Object.entries(current.core).every(([key, value]) => key === "packageDisposition" || next.core[key] === value);
 }
 
 function stripTaskAmendFields(body: string, fields: ReadonlyArray<string>): string {

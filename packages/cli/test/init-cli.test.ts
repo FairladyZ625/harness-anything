@@ -31,6 +31,7 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(resolveHarnessLayout(path.join(rootDir, "harness")).rootDir, rootDir);
     assert.match(result.receiptSummary, /Code PRs must not include harness\/ changes/u);
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
+    assert.match(config, /^    wipLimit: 30$/m);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
     assert.equal(existsSync(path.join(rootDir, result.report.configureVerify.smokeTaskPackagePath)), false);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);

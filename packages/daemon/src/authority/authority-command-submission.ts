@@ -413,7 +413,13 @@ function authorityWriteRejected(
 }
 
 function authorityRejectionCode(reason: string): string {
-  return reason === "MODULE_NOT_FOUND"
+  return reason.startsWith("TASK_WIP_LIMIT_REACHED:")
+    ? "task_wip_limit_reached"
+    : reason.startsWith("TASK_PLAN_PLACEHOLDER:")
+    ? "task_plan_placeholder"
+    : reason.startsWith("TASK_RETURN_TO_IDEA_BLOCKED:")
+    ? "task_return_to_idea_blocked"
+    : reason === "MODULE_NOT_FOUND"
     || reason.startsWith("AUTHORITY_PRESET_TASK_CREATE_MODULE_NOT_FOUND:")
     ? "module_not_found"
     : "authority_ingress_rejected";

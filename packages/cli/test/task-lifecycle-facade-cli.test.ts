@@ -256,6 +256,40 @@ test("task retire-execution rejects live and submitted rounds, then records an a
   });
 });
 
+test("return to planned requires explicit lease release and active Execution retirement", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "Return To Idea Guard");
+
+    const leased = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "planned"
+    ], false, fixture.env);
+    assert.equal(leased.error.code, "task_return_to_idea_blocked");
+    assert.match(leased.error.hint, new RegExp(`Execution ${fixture.executionId}`, "u"));
+    assert.match(leased.error.hint, /person:.+\/agent:facade-worker/u);
+    assert.match(leased.error.hint, new RegExp(`ha task release ${fixture.taskId}`, "u"));
+
+    runJson(rootDir, ["task", "release", fixture.taskId], true, fixture.env);
+    const executing = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "planned"
+    ], false, fixture.env);
+    assert.equal(executing.error.code, "task_return_to_idea_blocked");
+    assert.match(executing.error.hint, new RegExp(
+      `ha task retire-execution ${fixture.taskId} --execution-id ${fixture.executionId} --reason`,
+      "u"
+    ));
+
+    runJson(rootDir, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "returning task to the idea inbox"
+    ], true, fixture.env);
+    const planned = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "planned"
+    ], true, fixture.env);
+    assert.equal(planned.status, "planned");
+  });
+});
+
 for (const preset of ["docs-task", "code-impact-analysis"] as const) {
   test(`${preset} task-artifact contract completes with not-applicable`, () => {
     withTempRoot((artifactRoot) => {

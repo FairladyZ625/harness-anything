@@ -5,7 +5,6 @@ import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
-import { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
 import { evaluateCompletionGate } from "./task-lifecycle-gates.ts";
 import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionService } from "./execution-completion-service.ts";
@@ -19,6 +18,7 @@ import {
   terminalStatusFailure
 } from "./task-lifecycle-orchestrator-helpers.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
+import { validateTaskPlanAdmissionPreflight } from "./task-plan-admission-preflight.ts";
 
 type CompletionGateResult = ReturnType<typeof evaluateCompletionGate> & {
   readonly evidenceMode?: TaskCompletionEvidenceMode;
@@ -156,15 +156,17 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
         );
       }
-      if (payload.status === "active" && options.documentPlaceholderPolicy) {
-        const readiness = yield* validateTaskActivationReadiness({
+      if (payload.status === "active" || payload.status === "blocked") {
+        const planPlaceholder = yield* validateTaskPlanAdmissionPreflight({
           artifactStore: options.artifactStore,
           rootDir: options.rootDir,
           layoutOverrides: options.layoutOverrides,
           taskId: payload.taskId,
           policy: options.documentPlaceholderPolicy
         });
-        if (!readiness.ok) return readiness;
+        if (planPlaceholder) {
+          return taskFailure(payload.taskId, planPlaceholder.code, planPlaceholder.hint);
+        }
       }
       return yield* options.taskWriter.setStatus(payload).pipe(
         Effect.match({

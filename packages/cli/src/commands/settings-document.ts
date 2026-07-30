@@ -10,11 +10,22 @@ export type RawSettings = Record<string, unknown>;
 
 const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 
-export function parseSettingsDocument(body: string): { readonly present: boolean; readonly settings: RawSettings } {
+export interface ParsedSettingsDocument {
+  readonly present: boolean;
+  readonly settings: RawSettings;
+  readonly taskWipLimit?: unknown;
+}
+
+export function parseSettingsDocument(body: string): ParsedSettingsDocument {
   const trimmed = body.trimStart();
   if (trimmed.startsWith("{")) {
     const decoded = JSON.parse(body) as { readonly settings?: RawSettings; readonly project?: { readonly locale?: unknown }; readonly vertical?: { readonly default?: unknown }; readonly presets?: { readonly default?: unknown } };
     const fromSettings = decoded.settings ?? {};
+    const rawTasks = isRecord(fromSettings.tasks) ? fromSettings.tasks : undefined;
+    const taskWipLimit = rawTasks?.wipLimit;
+    const settingsTasks = rawTasks === undefined
+      ? fromSettings.tasks
+      : Object.fromEntries(Object.entries(rawTasks).filter(([key]) => key !== "wipLimit"));
     const merged = {
       locale: fromSettings.locale ?? decoded.project?.locale,
       defaultVertical: fromSettings.defaultVertical ?? decoded.vertical?.default,
@@ -23,21 +34,22 @@ export function parseSettingsDocument(body: string): { readonly present: boolean
       identity: fromSettings.identity,
       daemon: fromSettings.daemon,
       daemonRuntime: fromSettings.daemonRuntime,
-      tasks: fromSettings.tasks,
+      tasks: isRecord(settingsTasks) && Object.keys(settingsTasks).length === 0 ? undefined : settingsTasks,
       execution: fromSettings.execution,
       adapters: fromSettings.adapters,
       customVerticals: fromSettings.customVerticals
     };
     return {
       present: Boolean(decoded.settings || decoded.project?.locale || decoded.vertical?.default || decoded.presets?.default),
-      settings: merged
+      settings: merged,
+      ...(taskWipLimit === undefined ? {} : { taskWipLimit })
     };
   }
 
   return parseYamlSettings(body);
 }
 
-function parseYamlSettings(body: string): { readonly present: boolean; readonly settings: RawSettings } {
+function parseYamlSettings(body: string): ParsedSettingsDocument {
   const lines = body.split(/\r?\n/u);
   const settings: Record<string, unknown> = {};
   let inSettings = false;
@@ -52,6 +64,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   let inAdapters = false;
   let inMultica = false;
   let foundSettings = false;
+  let taskWipLimit: unknown;
 
   for (const rawLine of lines) {
     const withoutComment = rawLine.replace(/\s+#.*$/u, "");
@@ -175,14 +188,23 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
     }
     if (inTasks && customNested) {
       const [, key, rawValue = ""] = customNested;
-      if (key !== "leaseEnforcement" && key !== "leaseTtlMs") throw new Error(`Unknown settings.tasks key: ${key}`);
+      if (key !== "leaseEnforcement" && key !== "leaseTtlMs" && key !== "wipLimit") {
+        throw new Error(`Unknown settings.tasks key: ${key}`);
+      }
       const value = rawValue.trim();
       if (!value) throw new Error(`settings.tasks.${key} must be a scalar value.`);
+      if (key === "wipLimit") {
+        taskWipLimit = unquoteScalar(value);
+        continue;
+      }
       if (key === "leaseEnforcement") {
         if (value !== "true" && value !== "false") throw new Error("settings.tasks.leaseEnforcement must be true or false.");
         settings.tasks = { ...(isRecord(settings.tasks) ? settings.tasks : {}), leaseEnforcement: value === "true" };
       } else {
-        settings.tasks = { ...(isRecord(settings.tasks) ? settings.tasks : {}), leaseTtlMs: unquoteScalar(value) };
+        settings.tasks = {
+          ...(isRecord(settings.tasks) ? settings.tasks : {}),
+          [key]: unquoteScalar(value)
+        };
       }
       continue;
     }
@@ -245,7 +267,18 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
     throw new Error(`Unsupported settings YAML line: ${withoutComment.trim()}`);
   }
 
-  return { present: foundSettings, settings };
+  if (
+    taskWipLimit !== undefined
+    && isRecord(settings.tasks)
+    && Object.keys(settings.tasks).length === 0
+  ) {
+    delete settings.tasks;
+  }
+  return {
+    present: foundSettings,
+    settings,
+    ...(taskWipLimit === undefined ? {} : { taskWipLimit })
+  };
 }
 
 export const daemonRuntimeKeys = [

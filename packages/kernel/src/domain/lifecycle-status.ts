@@ -50,8 +50,8 @@ export function statusCoarseClass(status: DomainStatus): StatusCoarseClass {
 
 const allowedStatusTransitions = {
   planned: ["active", "blocked", "cancelled"],
-  active: ["blocked", "in_review", "done", "cancelled"],
-  blocked: ["active", "cancelled"],
+  active: ["planned", "blocked", "in_review", "done", "cancelled"],
+  blocked: ["planned", "active", "cancelled"],
   in_review: ["active", "blocked", "done", "cancelled"],
   done: [],
   cancelled: []

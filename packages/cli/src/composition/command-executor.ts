@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import {
   bindCreateProvenance,
+  evaluateTaskReturnToIdeaGate,
   isTaskHolderError,
   makeDecisionWriteService,
   makeEnvironmentCurrentSessionProbe,
@@ -23,6 +24,7 @@ import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { finalizeDryRunResult } from "../cli/dry-run-preview.ts";
 import { leaseEnforcementEnabled, resolveTaskLeaseTtlMs } from "../commands/settings.ts";
+import { readTaskReturnToIdeaSnapshot } from "../commands/task-return-to-idea-snapshot.ts";
 import { CliActorAttributionError, migrationWriteAttribution, type CliActorAttribution } from "./actor-attribution.ts";
 import { CliPrincipalResolutionError, resolveCliTaskHolderPrincipal, resolveLocalCliActorAttribution } from "./local-principal.ts";
 import {
@@ -204,7 +206,7 @@ export async function runRegisteredCommandWithCliComposition(
     artifactStore: makeArtifactStore()
   });
 
-  return Effect.runPromise(runRegisteredCommand(command, () => withOptionalLeaseGuard(provider.createLifecycleEngine({
+  return Effect.runPromise(runRegisteredCommand(command, () => withReturnToIdeaGuard(withOptionalLeaseGuard(provider.createLifecycleEngine({
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides,
     coordinator: makeWriteCoordinator(operationalActor("task-lifecycle")),
@@ -215,7 +217,7 @@ export async function runRegisteredCommandWithCliComposition(
         syncExportedSession
       })
     }, boundAt)
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), layoutInput), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
     const attribution = getActorAttribution().writeAttribution;
     const repin = command.action.kind === "decision-repin" ? command.action : undefined;
     return makeDecisionWriteService({
@@ -281,6 +283,37 @@ type LifecycleEngine = ReturnType<CliCompositionAdapterProvider["createLifecycle
 type FactWriteService = ReturnType<typeof makeFactWriteService>;
 type TaskHolderServiceFactory = () => ReturnType<typeof makeTaskHolderService>;
 type TaskHolderPrincipalFactory = () => TaskHolderPrincipal;
+
+function withReturnToIdeaGuard(
+  engine: LifecycleEngine,
+  rootInput: ReturnType<typeof createHarnessRuntimeContext>
+): LifecycleEngine {
+  return {
+    ...engine,
+    setStatus: (input) => {
+      if (input.status !== "planned") return engine.setStatus(input);
+      return Effect.tryPromise({
+        try: () => readTaskReturnToIdeaSnapshot(rootInput, input.taskId),
+        catch: (error): WriteError => ({
+          _tag: "WriteRejected",
+          taskId: input.taskId,
+          code: "task_return_to_idea_blocked",
+          reason: `Return-to-idea safety inspection failed closed: ${error instanceof Error ? error.message : String(error)}`
+        })
+      }).pipe(Effect.flatMap((snapshot) => {
+        const gate = evaluateTaskReturnToIdeaGate(snapshot);
+        return gate.ok
+          ? engine.setStatus(input)
+          : Effect.fail({
+            _tag: "WriteRejected",
+            taskId: input.taskId,
+            code: "task_return_to_idea_blocked",
+            reason: `Task ${input.taskId} cannot return to planned. ${gate.issues.map((issue) => issue.message).join(" ")}`
+          } satisfies WriteError);
+      }));
+    }
+  };
+}
 
 function withOptionalLeaseGuard(
   engine: LifecycleEngine,
