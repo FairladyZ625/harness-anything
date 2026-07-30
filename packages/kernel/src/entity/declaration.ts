@@ -65,7 +65,8 @@ export function writeDeclaredEntityTransaction(
   identity: Readonly<Record<string, string>>,
   value: unknown,
   companionWrites: ReadonlyArray<DocumentWrite>,
-  preconditions: ReadonlyArray<DeclaredEntityDocumentPrecondition> = []
+  preconditions: ReadonlyArray<DeclaredEntityDocumentPrecondition> = [],
+  options: { readonly opIdPrefix?: string } = {}
 ): Effect.Effect<void, WriteError> {
   const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
   const identityKey = declaration.rootResolver.identity.at(-1)!;
@@ -84,7 +85,8 @@ export function writeDeclaredEntityTransaction(
       },
       companionWrites,
       preconditions
-    } satisfies DeclaredEntityDocumentWritePayload
+    } satisfies DeclaredEntityDocumentWritePayload,
+    ...(options.opIdPrefix ? { opIdPrefix: options.opIdPrefix } : {})
   });
 }
 

@@ -171,6 +171,13 @@ test("review-execution from-file maps explicit review and consent fields without
     if (normalized.action.kind !== "task-review-execution") return;
     assert.match(normalized.action.generatedConsentId ?? "", /^cns_[0-9A-HJKMNP-TV-Z]{26}$/u);
     assert.deepEqual(normalizeReviewConsentIdentity(normalized), normalized, "daemon normalization must reuse the wire-stable consent id");
+    const independentlyRetried = normalizeReviewConsentIdentity(parsed.value);
+    assert.equal(independentlyRetried.action.kind, "task-review-execution");
+    assert.equal(
+      independentlyRetried.action.kind === "task-review-execution" ? independentlyRetried.action.generatedConsentId : undefined,
+      normalized.action.generatedConsentId,
+      "semantic approval retries must converge without reading the prior consent"
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

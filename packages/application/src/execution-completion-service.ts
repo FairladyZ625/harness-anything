@@ -6,6 +6,8 @@ import {
   reviewDeclaration,
   sha256Text,
   stablePayloadHash,
+  taskEntityId,
+  writeCoordinatedPayload,
   writeDeclaredEntityTransaction,
   type ArtifactStore,
   type ConsentRecord,
@@ -59,8 +61,29 @@ export function makeExecutionCompletionService(options: {
       }
       if (!readiness.ok) throw new Error(readiness.issues[0]?.message ?? `task ${taskId} is not ready for Execution completion`);
       const execution = readiness.execution;
-      if (execution.state === "accepted") return { executionId: execution.execution_id };
       const currentContract = task.documents.find((document) => document.path === "task-contract.json");
+      const resolvedContractPrecondition = contractPrecondition ?? {
+        bodySha256: currentContract ? sha256Text(currentContract.body) : null
+      };
+      if (execution.state === "accepted") {
+        if (taskStatus(task.documents) === "done") return { executionId: execution.execution_id };
+        const currentIndex = task.documents.find((document) => document.path === "INDEX.md");
+        if (!currentIndex) throw new Error(`task INDEX.md missing: ${taskId}`);
+        await Effect.runPromise(writeCoordinatedPayload(options.coordinator, stablePayloadHash, {
+          entityId: taskEntityId(taskId),
+          kind: "transition_local",
+          payload: {
+            path: "INDEX.md",
+            body: completedTaskIndex(task.documents, taskId),
+            to: "done",
+            preconditions: [
+              { taskId, path: "INDEX.md", bodySha256: sha256Text(currentIndex.body) },
+              { taskId, path: "task-contract.json", bodySha256: resolvedContractPrecondition.bodySha256 }
+            ]
+          }
+        }));
+        return { executionId: execution.execution_id };
+      }
 
       const completedAt = now();
       await Effect.runPromise(writeDeclaredEntityTransaction(
@@ -73,9 +96,7 @@ export function makeExecutionCompletionService(options: {
         completionPreconditions(
           task.documents,
           taskId,
-          contractPrecondition ?? {
-            bodySha256: currentContract ? sha256Text(currentContract.body) : null
-          }
+          resolvedContractPrecondition
         )
       ));
       return { executionId: execution.execution_id };
@@ -134,11 +155,10 @@ function resolveExecutionCompletionReadiness(input: {
   const submitted = executions.filter((candidate) => candidate.state === "submitted");
   const accepted = executions.filter((candidate) => candidate.state === "accepted");
   const staleActive = executions.filter((candidate) => candidate.state === "active");
-  const completedReplay = submitted.length === 0
-    && accepted.length === 1
-    && staleActive.length === 0
-    && taskStatus(input.documents) === "done";
-  if (submitted.length !== 1 && !completedReplay) {
+  const acceptedCandidate = submitted.length === 0
+    && accepted.length === 1;
+  const completedReplay = acceptedCandidate && taskStatus(input.documents) === "done";
+  if (submitted.length !== 1 && !acceptedCandidate) {
     const claimCommand = staleActive.length === 1
       ? `ha task start ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
       : staleActive.length > 1
@@ -152,7 +172,7 @@ function resolveExecutionCompletionReadiness(input: {
       staleActive,
       issues: [{
         code: "execution_submission_required",
-        message: `Task completion requires exactly one submitted Execution; found ${submitted.length}${submitted.length > 1 ? ` (${submitted.map((candidate) => candidate.execution_id).join(", ")})` : ""}.`,
+        message: `Task completion requires exactly one submitted or accepted Execution; found ${submitted.length} submitted and ${accepted.length} accepted${submitted.length > 1 ? ` (${submitted.map((candidate) => candidate.execution_id).join(", ")})` : ""}.`,
         nextCommand
       }]
     };
@@ -200,7 +220,7 @@ function resolveExecutionCompletionReadiness(input: {
   if (approved.length === 0) {
     issues.push({
       code: "execution_review_required",
-      message: `Submitted Execution ${execution.execution_id} requires an approved Review backed by consumed human consent that grants complete_task and matches the current content pin. Changing HARNESS_ACTOR or executor identity does not satisfy this gate.`,
+      message: `Execution ${execution.execution_id} requires an approved Review backed by consumed human consent that grants complete_task and matches the current content pin. Changing HARNESS_ACTOR or executor identity does not satisfy this gate.`,
       nextCommand: `ha task review-execution ${input.taskId} --execution-id ${execution.execution_id} --verdict approved --findings "<what was verified>" --rationale "<why the evidence satisfies the task>" --consent-utterance "<the human's exact words>"`
     });
   } else if (executionHasArchiveWarnings(execution) && !approved.some((review) => review.archive_warnings_acknowledged)) {

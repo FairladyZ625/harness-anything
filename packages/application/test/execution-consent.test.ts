@@ -92,6 +92,7 @@ test("same executor can record asserted consent, approve, and complete without c
     assert.equal(reviewed.review.reviewer_actor.executor?.id, "worker");
     assert.equal(reviewed.review.approval_basis?.kind, "human-consent");
     assert.equal(readConsent(rootDir, consentId).state, "consumed");
+    assert.equal(readExecution(rootDir).state, "accepted");
 
     const completed = await makeExecutionCompletionService({
       rootInput: rootDir,
@@ -140,7 +141,7 @@ test("retrying an equivalent approved Review reuses the existing approval", asyn
   });
 });
 
-test("changing consent scope creates a non-equivalent approved Review", async () => {
+test("an accepted Execution rejects a materially different second approval", async () => {
   await withConsentFixture(async ({ rootDir, artifactStore }) => {
     const reviewIds = [firstReviewId, secondReviewId];
     const consentIds = [consentId, secondConsentId];
@@ -158,19 +159,14 @@ test("changing consent scope creates a non-equivalent approved Review", async ()
     };
 
     const first = await service.reviewExecution({ ...approval, consentActions: ["approve_execution"] });
-    const expanded = await service.reviewExecution({
+    await assert.rejects(service.reviewExecution({
       ...approval,
       consentActions: ["approve_execution", "complete_task"]
-    });
+    }), /execution is not submitted/u);
 
     assert.equal(first.review.review_id, firstReviewId);
-    assert.equal(expanded.review.review_id, secondReviewId);
-    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")).sort(), [
-      `${firstReviewId}.md`, `${secondReviewId}.md`
-    ]);
-    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "consents")).sort(), [
-      `${consentId}.md`, `${secondConsentId}.md`
-    ]);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "consents")), [`${consentId}.md`]);
   });
 });
 
@@ -305,7 +301,7 @@ test("direct human CLI still creates and consumes the independent consent entity
   });
 });
 
-test("consumed consent cannot be replayed for a second approved Review", async () => {
+test("an accepted Execution cannot consume the same consent for a second approved Review", async () => {
   await withConsentFixture(async ({ rootDir, artifactStore }) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") });
     await recordOpenConsent(rootDir, artifactStore, coordinator);
@@ -323,7 +319,7 @@ test("consumed consent cannot be replayed for a second approved Review", async (
       artifactStore,
       generateReviewId: () => secondReviewId,
       now: () => "2026-07-15T00:03:00.000Z"
-    }).reviewExecution({ ...reviewInput(aliceRenamed), consentId }), /consumed and cannot be replayed/u);
+    }).reviewExecution({ ...reviewInput(aliceRenamed), consentId }), /execution is not submitted/u);
     assert.equal(existsSync(reviewPath(rootDir, secondReviewId)), false);
   });
 });
@@ -451,7 +447,7 @@ test("approve-only consent cannot authorize completion", async () => {
       coordinator,
       artifactStore
     }).completeTaskExecution({ taskId, actor: aliceRenamed }), /grants complete_task/u);
-    assert.equal(readExecution(rootDir).state, "submitted");
+    assert.equal(readExecution(rootDir).state, "accepted");
   });
 });
 

@@ -62,9 +62,6 @@ export function makeReviewExecutionService(options: {
   readonly consentTtlMs?: number;
   readonly runtimeLogOptions?: RuntimeLogOptions;
 }): ReviewExecutionService {
-  const generateReviewId = options.generateReviewId ?? (() => `rev_${generateTaskId().slice("task_".length)}`);
-  const nextConsentId = options.generateConsentId ?? generateConsentId;
-  const now = options.now ?? (() => new Date().toISOString());
   const consentTtlMs = options.consentTtlMs ?? DEFAULT_HUMAN_CONSENT_TTL_MS;
   return {
     reviewExecution: async (input) => {
@@ -74,7 +71,10 @@ export function makeReviewExecutionService(options: {
       const execution = decodeExecutionForConsent(executionDocument, input.taskId, input.executionId);
       const existingApproval = equivalentApprovedReview(task.documents, input);
       if (existingApproval) return { review: existingApproval };
-      if (execution.state !== "submitted") throw new Error(`execution is not submitted: ${input.executionId}`);
+      const correctsAcceptedApproval = input.verdict === "changes_requested" && execution.state === "accepted";
+      if (execution.state !== "submitted" && !correctsAcceptedApproval) {
+        throw new Error(`execution is not submitted: ${input.executionId}`);
+      }
       assertExecutionTaskReviewable(task.documents, input.taskId);
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
         throw new Error("execution archive warnings must be explicitly acknowledged by the reviewer");
@@ -84,11 +84,15 @@ export function makeReviewExecutionService(options: {
       if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${input.executionId}: ${unknownEvidence}`);
       assertConsentInputShape(input, execution);
 
-      const reviewId = generateReviewId();
+      const approvalIdentity = input.verdict === "approved" ? stableApprovalIdentity(input) : null;
+      const reviewId = options.generateReviewId?.()
+        ?? (approvalIdentity
+          ? stableApprovalRecordId("rev", approvalIdentity)
+          : `rev_${generateTaskId().slice("task_".length)}`);
       if (task.documents.some((document) => document.path === `reviews/${reviewId}.md`)) {
         throw new Error(`review already exists: ${reviewId}`);
       }
-      const reviewedAt = now();
+      const reviewedAt = options.now?.() ?? input.reviewerSession.detectedAt;
       const consent = input.verdict === "approved"
         ? await resolveApprovalConsent({
             rootInput: options.rootInput,
@@ -106,7 +110,10 @@ export function makeReviewExecutionService(options: {
             consentAssertedRationale: input.consentAssertedRationale,
             consentActions: input.consentActions,
             consentTtlMs,
-            nextConsentId,
+            nextConsentId: options.generateConsentId
+              ?? (() => approvalIdentity
+                ? stableApprovalRecordId("cns", approvalIdentity)
+                : generateConsentId()),
             coordinator: options.coordinator,
             runtimeLogOptions: options.runtimeLogOptions
           })
@@ -142,6 +149,12 @@ export function makeReviewExecutionService(options: {
               path: `executions/${input.executionId}.md`,
               body: executionDeclaration.documentCodec.encode({ ...execution, state: "changes_requested", closed_at: reviewedAt })
             }
+          ] : input.verdict === "approved" ? [
+            {
+              taskId: input.taskId,
+              path: `executions/${input.executionId}.md`,
+              body: executionDeclaration.documentCodec.encode({ ...execution, state: "accepted", closed_at: reviewedAt })
+            }
           ] : []),
         {
           taskId: input.taskId,
@@ -169,11 +182,38 @@ export function makeReviewExecutionService(options: {
             path: `consents/${consent.consumed.consent_id}.md`,
             bodySha256: consent.openDocumentSha256
           }])
-        ]
+        ],
+        approvalIdentity ? { opIdPrefix: `approval-${stablePayloadHash(approvalIdentity).slice(0, 24)}` } : {}
       ));
       return { review };
     }
   };
+}
+
+function stableApprovalIdentity(
+  input: Parameters<ReviewExecutionService["reviewExecution"]>[0]
+): Readonly<Record<string, unknown>> {
+  return {
+    taskId: input.taskId,
+    executionId: input.executionId,
+    reviewer: input.reviewer,
+    findings: input.findings,
+    evidenceChecked: input.evidenceChecked,
+    rationale: input.rationale,
+    archiveWarningsAcknowledged: input.archiveWarningsAcknowledged,
+    consent: input.consentId
+      ? { id: input.consentId }
+      : {
+          utterance: input.consentUtterance?.trim(),
+          standingPolicyDecisionId: input.consentStandingPolicyDecisionId?.trim(),
+          assertedRationale: input.consentAssertedRationale?.trim(),
+          actions: [...(input.consentActions ?? DEFAULT_HUMAN_CONSENT_ACTIONS)].sort()
+        }
+  };
+}
+
+function stableApprovalRecordId(prefix: "rev" | "cns", identity: Readonly<Record<string, unknown>>): string {
+  return `${prefix}_${stablePayloadHash({ prefix, identity }).slice(0, 26).toUpperCase()}`;
 }
 
 function equivalentApprovedReview(

@@ -128,10 +128,24 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       };
     }
     case "task.transition/v1": {
-      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "to", "auditText"], false, ["auditText"]);
+      const row = exactTaskDecisionModuleObject(
+        value,
+        ["schema", "taskId", "to", "auditText", "completionContractBodySha256"],
+        false,
+        ["auditText", "completionContractBodySha256"]
+      );
+      const completionContractBodySha256 = row.completionContractBodySha256 === undefined
+        ? undefined
+        : row.completionContractBodySha256 === null
+          ? null
+          : taskDecisionModuleText(row.completionContractBodySha256);
+      if (typeof completionContractBodySha256 === "string" && !/^[a-f0-9]{64}$/u.test(completionContractBodySha256)) {
+        throw semanticAdmissionV2("TASK_COMPLETION_CONTRACT_SHA256_INVALID");
+      }
       return {
         schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), to: taskDecisionModuleText(row.to),
-        ...(row.auditText === undefined ? {} : { auditText: taskDecisionModuleNonBlank(row.auditText) })
+        ...(row.auditText === undefined ? {} : { auditText: taskDecisionModuleNonBlank(row.auditText) }),
+        ...(completionContractBodySha256 === undefined ? {} : { completionContractBodySha256 })
       };
     }
     case "task.append/v1": {
@@ -262,7 +276,15 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
         ...(payload.writes ? { writes: payload.writes.map((write) => ({ path: write.path, body: write.body, ...(write.packageSlug ? { packageSlug: write.packageSlug } : {}) })) } : {})
       };
     case "task.transition/v1":
-      return { schema: payload.schema, taskId: payload.taskId, to: payload.to, ...(payload.auditText === undefined ? {} : { auditText: payload.auditText }) };
+      return {
+        schema: payload.schema,
+        taskId: payload.taskId,
+        to: payload.to,
+        ...(payload.auditText === undefined ? {} : { auditText: payload.auditText }),
+        ...(payload.completionContractBodySha256 === undefined
+          ? {}
+          : { completionContractBodySha256: payload.completionContractBodySha256 })
+      };
     case "task.append/v1":
       return { schema: payload.schema, taskId: payload.taskId, text: payload.text };
     case "task.document/v1":

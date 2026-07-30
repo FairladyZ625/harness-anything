@@ -14,7 +14,6 @@ import { runExecutionConsent } from "./task-execution-consent.ts";
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { resolvePreset } from "../extensions/state.ts";
 import { resolvePresetCompletionGates } from "./task-completion-contract.ts";
-import { activeTaskLeaseFailure } from "./task-lease-guard.ts";
 import { taskLifecycleResultToCliResult } from "./task-gate-receipt.ts";
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-consent-record" | "task-review-execution" | "task-complete" }>;
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
@@ -77,10 +76,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     }),
     Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
   );
-  if (action.evidenceMode === "commit-anchor") return complete();
-  return activeTaskLeaseFailure(context, action.taskId, action.kind).pipe(
-    Effect.flatMap((failure) => failure ? Effect.succeed(failure) : complete())
-  );
+  return complete();
 };
 
 function runTaskCodeDocReconcile(
@@ -89,13 +85,6 @@ function runTaskCodeDocReconcile(
 ): ReturnType<CommandRunner> {
   return Effect.gen(function* () {
     const taskPackage = yield* context.artifactStore.readTaskPackage(action.taskId);
-    const hasExecutionOrReviewHistory = taskPackage.documents.some((document) =>
-      /^executions\/[^/]+\.md$/u.test(document.path) || /^reviews\/[^/]+\.md$/u.test(document.path)
-    );
-    if (hasExecutionOrReviewHistory) {
-      const leaseFailure = yield* activeTaskLeaseFailure(context, action.taskId, action.kind);
-      if (leaseFailure) return leaseFailure;
-    }
     const existing = taskPackage.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
     if (existing && !action.force && !context.outerProceedingRecovery) {
       return {

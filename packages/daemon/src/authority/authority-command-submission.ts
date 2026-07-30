@@ -256,7 +256,7 @@ function commandWithCompletionContractFence(
 ): AuthorityHostCommand {
   if (command.action.kind !== "task-complete") return command;
   const action = command.action;
-  const payload = operation.kind === "doc_write" && operation.payload && typeof operation.payload === "object"
+  const payload = operation.payload && typeof operation.payload === "object"
     ? operation.payload as {
         readonly entityDocument?: { readonly body?: unknown };
         readonly preconditions?: ReadonlyArray<{

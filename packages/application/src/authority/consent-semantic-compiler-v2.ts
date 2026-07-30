@@ -195,6 +195,11 @@ async function compileConsentConsumeV2(
     consumed_by: `review/${payload.taskId}/${payload.review.reviewId}`,
     consumed_at: now
   });
+  const acceptedExecution = Schema.decodeUnknownSync(executionDeclaration.schema)({
+    ...execution,
+    state: "accepted",
+    closed_at: now
+  }) as ExecutionRecord;
   const review: ReviewRecord = {
     schema: "review/v3",
     review_id: payload.review.reviewId,
@@ -217,7 +222,8 @@ async function compileConsentConsumeV2(
   const mutations: RegistryMutationPlanInput["mutations"] = [
     ...(storedConsent ? [] : [{ entityKind: "consent", identity: { taskId: payload.taskId, consentId: payload.consentId }, action: "grant" }]),
     { entityKind: "consent", identity: { taskId: payload.taskId, consentId: payload.consentId }, action: "consume" },
-    { entityKind: "review", identity: { taskId: payload.taskId, reviewId: payload.review.reviewId }, action: "record" }
+    { entityKind: "review", identity: { taskId: payload.taskId, reviewId: payload.review.reviewId }, action: "record" },
+    { entityKind: "execution", identity: { taskId: payload.taskId, executionId: payload.executionId }, action: "close" }
   ];
   return {
     mutationPlan: plan(mutations),
@@ -227,7 +233,10 @@ async function compileConsentConsumeV2(
       reviewDeclaration,
       { taskId: payload.taskId, reviewId: payload.review.reviewId },
       reviewDeclaration.documentCodec.encode(review),
-      [{ taskId: payload.taskId, path: `consents/${payload.consentId}.md`, body: consentDeclaration.documentCodec.encode(consumed) }],
+      [
+        { taskId: payload.taskId, path: `consents/${payload.consentId}.md`, body: consentDeclaration.documentCodec.encode(consumed) },
+        { taskId: payload.taskId, path: `executions/${payload.executionId}.md`, body: executionDeclaration.documentCodec.encode(acceptedExecution) }
+      ],
       [
         consentPreconditionV2(payload.taskId, `executions/${payload.executionId}.md`, executionSnapshot.body),
         consentPreconditionV2(payload.taskId, "INDEX.md", taskIndexSnapshot.body),

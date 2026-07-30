@@ -388,7 +388,7 @@ test("completion fails closed when the evaluated task contract changes before pu
       }),
       /precondition|changed|mismatch/iu
     );
-    assert.equal(readExecutionState(taskRoot, executionIds[0]), "submitted");
+    assert.equal(readExecutionState(taskRoot, executionIds[0]), "accepted");
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

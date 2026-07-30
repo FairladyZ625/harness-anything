@@ -112,6 +112,7 @@ test("execution claim/submit/close compile exact hosted execution document plans
   const accepted = executionRecord("accepted");
   const activeSnapshot = snapshot(JSON.stringify(active));
   const submittedSnapshot = snapshot(JSON.stringify(submitted));
+  const acceptedSnapshot = snapshot(JSON.stringify(accepted));
   const cases: ReadonlyArray<{
     readonly payload: ExecutionActionPayloadV2;
     readonly state: ReturnType<typeof authorityState>;
@@ -132,6 +133,11 @@ test("execution claim/submit/close compile exact hosted execution document plans
       payload: { schema: "execution.close/v1", taskId, execution: accepted },
       state: authorityState(new Map([[key(executionRef), base("execution-v2")]]), new Map([[path, submittedSnapshot]])),
       baseCas: [present(executionRef, "execution-v2")], pathCas: [cas(path, submittedSnapshot)], action: "close"
+    },
+    {
+      payload: { schema: "execution.close/v1", taskId, execution: accepted },
+      state: authorityState(new Map([[key(executionRef), base("execution-v3")]]), new Map([[path, acceptedSnapshot]])),
+      baseCas: [present(executionRef, "execution-v3")], pathCas: [cas(path, acceptedSnapshot)], action: "close"
     }
   ];
   for (const fixture of cases) {
@@ -395,6 +401,42 @@ test("changes_requested review compiles review, execution, and task companions i
   }).compile(envelope({
     schema: "review.create/v1", taskId, review, execution: changed, taskIndexBody: activeIndex
   }, [absent(reviewRef), present(executionRef, "execution-v1"), present(taskRef, "task-v1")], [
+    cas(executionPath, executionSnapshot), cas(taskPath, taskSnapshot)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `review/${taskId}/${reviewId}:create`,
+    `execution/${taskId}/${executionId}:close`,
+    `task/${taskId}:transition`
+  ].sort());
+  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
+    { taskId, path: `executions/${executionId}.md`, body: executionDeclaration.documentCodec.encode(changed) },
+    { taskId, path: "INDEX.md", body: activeIndex }
+  ]);
+});
+
+test("changes_requested review can correct an accepted execution without erasing its approval history", async () => {
+  const review = { ...reviewRecord("changes_requested"), reviewed_at: "2026-07-14T00:30:00.000Z" };
+  const accepted = executionRecord("accepted");
+  const changed = { ...accepted, state: "changes_requested" as const, closed_at: review.reviewed_at };
+  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const executionSnapshot = snapshot(JSON.stringify(accepted));
+  const taskSnapshot = snapshot("---\n  status: in_review\n---\n");
+  const activeIndex = taskSnapshot.body.replace("status: in_review", "status: active");
+  const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-approved")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, executionSnapshot], [taskPath, taskSnapshot]])
+    )
+  }).compile(envelope({
+    schema: "review.create/v1", taskId, review, execution: changed, taskIndexBody: activeIndex
+  }, [absent(reviewRef), present(executionRef, "execution-approved"), present(taskRef, "task-v1")], [
     cas(executionPath, executionSnapshot), cas(taskPath, taskSnapshot)
   ]));
 

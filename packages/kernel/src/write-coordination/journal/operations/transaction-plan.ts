@@ -354,6 +354,10 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
   const write = toDocumentWrite(op);
+  const transitionPreconditions = op.kind === "transition_local"
+    && op.payload && typeof op.payload === "object" && "preconditions" in op.payload
+    ? declaredEntityPreconditions(op.payload as never)
+    : [];
   if (op.kind === "code_doc_reconcile") {
     return {
       touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
@@ -372,11 +376,13 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
     documentWrites: () => [write],
     apply: (rootInput) => {
+      assertDeclaredEntityPreconditions(rootInput, transitionPreconditions, op, bodySha256AtPath);
       writeDocument(rootInput, write);
       return write;
     },
-    validate: () => {
+    validate: (rootInput) => {
       toDocumentWrite(op);
+      assertDeclaredEntityPreconditions(rootInput, transitionPreconditions, op, bodySha256AtPath);
     }
   };
 }

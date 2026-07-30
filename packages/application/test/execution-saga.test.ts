@@ -543,7 +543,7 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
     assert.equal(existsSync(path.join(taskRoot, "reviews", `${firstReviewId}.md`)), true);
     assert.equal(existsSync(path.join(taskRoot, "reviews", `${secondReviewId}.md`)), true);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
-    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "accepted");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -607,11 +607,13 @@ test("Execution completion requires a consent-backed approved Review and accepts
     writeFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), `${JSON.stringify({
       ...firstExecution,
       execution_id: secondExecutionId,
-      submitted_at: "2026-07-11T00:02:30.000Z"
+      state: "submitted",
+      submitted_at: "2026-07-11T00:02:30.000Z",
+      closed_at: null
     }, null, 2)}\n`, "utf8");
     await assert.rejects(
       completion.completeTaskExecution({ taskId, actor: aliceClaude }),
-      /exactly one submitted Execution/u
+      /approved Review/u
     );
     await reviews.reviewExecution({
       taskId,

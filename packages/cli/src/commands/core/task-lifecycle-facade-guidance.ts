@@ -58,7 +58,11 @@ export function guidedLifecycleFacadeFailure(
   facade: "task-start" | "task-closeout" | "task-complete"
 ): CommandFailureReceipt {
   const nextCommand = lifecycleFacadeNextCommand(failure, failedStep, facade);
-  const cause = failure.error?.hint ?? failure.summary;
+  const failureHint = failure.error?.hint ?? failure.summary;
+  const cause = (facade === "task-complete" || facade === "task-closeout")
+    && isLeaseRequiredFailure(failure, failureHint)
+    ? "Owner approval is lease-independent; an internal owner step incorrectly requested an Execution lease."
+    : failureHint;
   return {
     ...failure,
     summary: `${cause} Next: run \`${nextCommand}\`.`,

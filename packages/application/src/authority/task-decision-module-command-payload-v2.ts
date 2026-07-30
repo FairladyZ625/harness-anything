@@ -17,6 +17,7 @@ export interface TaskTransitionPayloadV2 {
   readonly taskId: string;
   readonly to: string;
   readonly auditText?: string;
+  readonly completionContractBodySha256?: string | null;
 }
 
 export interface TaskAppendPayloadV2 {

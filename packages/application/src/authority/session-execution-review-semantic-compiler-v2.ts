@@ -442,7 +442,8 @@ async function dismissedReviewCompanion(
 
 function assertChangesRequestedExecution(current: ExecutionRecord, next: ExecutionRecord, reviewedAt: string): void {
   assertSameExecution(current, next);
-  if (current.state !== "submitted" || next.state !== "changes_requested" || next.closed_at !== reviewedAt
+  if ((current.state !== "submitted" && current.state !== "accepted")
+    || next.state !== "changes_requested" || next.closed_at !== reviewedAt
     || next.submitted_at !== current.submitted_at || !same(current.session_bindings, next.session_bindings)
     || !same(current.outputs, next.outputs) || !same(current.submission, next.submission)) {
     throw admission("REVIEW_CHANGES_REQUESTED_EXECUTION_INVALID");
@@ -488,9 +489,14 @@ function assertExecutionTransition(
       || next.submitted_at !== null || next.submission !== null) {
       throw admission("EXECUTION_RETIREMENT_STATE_INVALID");
     }
-  } else if ((current.state !== "submitted" && current.state !== "changes_requested")
-    || (next.state !== "accepted" && next.state !== "abandoned") || next.closed_at === null) {
-    throw admission("EXECUTION_CLOSE_STATE_INVALID");
+  } else {
+    const acceptedReplay = current.state === "accepted"
+      && next.state === "accepted"
+      && next.closed_at === current.closed_at;
+    if (!acceptedReplay && ((current.state !== "submitted" && current.state !== "changes_requested")
+      || (next.state !== "accepted" && next.state !== "abandoned") || next.closed_at === null)) {
+      throw admission("EXECUTION_CLOSE_STATE_INVALID");
+    }
   }
   if (!same(current.session_bindings, next.session_bindings)
     || !same(current.outputs, next.outputs) || !same(current.submission, next.submission)) {

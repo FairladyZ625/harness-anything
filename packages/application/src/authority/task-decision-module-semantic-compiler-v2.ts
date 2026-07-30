@@ -69,6 +69,11 @@ import {
   assertTaskDocumentHistoryPreconditionV2,
   assertTaskDocumentSurfaceV2
 } from "./task-document-admission-policy-v2.ts";
+import { taskTransitionCompletionContractSnapshots } from "./task-transition-completion-contract.ts";
+import {
+  taskDecisionModuleEntityRef,
+  taskDecisionModulePath as taskPath
+} from "./task-decision-module-refs.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -114,8 +119,6 @@ export interface CompiledTaskDecisionModuleCommandV2 {
   readonly requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
   readonly publicationRevalidation?: () => Promise<void>;
 }
-
-const registryVersion = 1;
 
 export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionModuleSemanticCompilerV2Options): AuthoritySemanticCompilerV2 {
   return {
@@ -201,12 +204,16 @@ async function compileTaskTransition(
   if (payload.auditText !== undefined && (to !== "cancelled" || !payload.auditText.startsWith("FORCE_STATUS_SET_AUDIT:"))) {
     throw admission("TASK_TRANSITION_FORCE_AUDIT_INVALID");
   }
+  const completionContractSnapshots = await taskTransitionCompletionContractSnapshots(state, payload);
   return taskCompilation(payload.taskId, "transition", "transition_local", {
     path: "INDEX.md",
     body,
     to,
     ...(payload.auditText === undefined ? {} : { auditText: payload.auditText })
-  }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], [{ path, snapshot }]);
+  }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], [
+    { path, snapshot },
+    ...completionContractSnapshots
+  ]);
 }
 
 function compileTaskAppend(payload: TaskAppendPayloadV2): CompiledTaskDecisionModuleCommandV2 {
@@ -588,12 +595,4 @@ function decisionPath(decisionId: string): string {
   const target = locator.locator.locate({ decisionId }, {}).targets[0];
   if (!target?.path) throw admission("DECISION_STORAGE_TARGET_REQUIRED");
   return target.path;
-}
-
-function taskPath(taskId: string, documentPath: string): string {
-  return `tasks/${taskId}/${documentPath}`;
-}
-
-function taskDecisionModuleEntityRef(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
-  return { registryVersion, entityKind, canonicalRef };
 }
