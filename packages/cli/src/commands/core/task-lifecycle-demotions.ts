@@ -1,19 +1,9 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "@harness-anything/application";
-import type { EngineError, WriteError } from "@harness-anything/kernel";
-import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { isTerminalStatus } from "@harness-anything/kernel";
 import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
-import type { CliResult } from "../../cli/types.ts";
-import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
-import {
-  FORCE_STATUS_AUDIT_MARKER,
-  renderForceStatusAudit,
-  runTaskLifecycleCommand,
-  taskTreeSoftGateWarnings
-} from "./task-lifecycle.ts";
-
-type StatusSetAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "status-set" }>;
+import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { runTaskLifecycleCommand } from "./task-lifecycle.ts";
 
 export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) => {
   const action = command.action;
@@ -25,71 +15,39 @@ export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) =
   ) {
     return runTaskLifecycleCommand(context, command);
   }
-  return runDemotedTerminalStatus(context, action);
-};
-
-function runDemotedTerminalStatus(
-  context: CommandRunnerContext,
-  action: StatusSetAction
-): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const taskPolicy = yield* readTaskLifecyclePolicy(context.artifactStore, action.taskId);
-    if (taskPolicy?.engine !== "local") {
-      const result = yield* context.engine.setStatus({ taskId: action.taskId, status: action.status });
-      return {
-        ok: true,
-        command: "status-set",
-        taskId: result.taskId,
-        status: result.status
-      } satisfies CliResult;
-    }
-    if (taskPolicy.status === "in_review") {
-      return {
-        ok: false,
-        command: "status-set",
-        taskId: action.taskId,
-        status: action.status,
-        error: cliError(
-          CliErrorCode.ExecutionReviewRequired,
-          "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
-        )
-      } satisfies CliResult;
-    }
-    if (taskPolicy.status && !explainStatusTransition(taskPolicy.status, action.status).allowed) {
-      return {
-        ok: false,
-        command: "status-set",
-        taskId: action.taskId,
-        status: action.status,
-        error: cliError(
-          CliErrorCode.InvalidTransition,
-          `invalid transition: ${taskPolicy.status} -> ${action.status}; move the task to active before task complete, or use task archive/task supersede for non-completion closure.`
-        )
-      } satisfies CliResult;
+    if (taskPolicy?.engine === "local") {
+      return yield* runTaskLifecycleCommand(context, command).pipe(Effect.map((result) => {
+        if (result.ok || result.error?.code !== "terminal_status_requires_task_complete") return result;
+        return {
+          ...result,
+          error: {
+            ...result.error,
+            hint: terminalStatusRecoveryHint(action.taskId, action.status === "done" ? "done" : "cancelled")
+          }
+        };
+      }));
     }
 
-    const audit = action.force
-      ? yield* context.engine.appendProgress({
-          taskId: action.taskId,
-          text: renderForceStatusAudit(action.status, action.reason ?? "unspecified")
-        })
-      : undefined;
     const result = yield* context.engine.setStatus({ taskId: action.taskId, status: action.status });
     const warning = demotedGateWarning(
       "terminal_status_requires_task_complete",
-      `Direct terminal status transition bypassed the owner approval path. Preferred path: ha task complete ${action.taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${action.taskId} --title <follow-up-title>.`
+      `External-engine terminal status completed outside the local consent transaction. Preferred path: ha task complete ${action.taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${action.taskId} --title <follow-up-title>.`
     );
     return {
       ok: true,
       command: "status-set",
       taskId: result.taskId,
       status: result.status,
-      ...(audit ? {
-        path: audit.path,
-        forced: true,
-        forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER }
-      } : {}),
-      warnings: [warning, ...(taskTreeSoftGateWarnings(context, action.taskId) ?? [])]
-    } satisfies CliResult;
+      warnings: [warning]
+    };
   });
+}
+
+function terminalStatusRecoveryHint(taskId: string, status: "done" | "cancelled"): string {
+  const preferred = `Preferred path: ha task complete ${taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${taskId} --title <follow-up-title>.`;
+  return status === "done"
+    ? `Direct done is blocked because completion consent is recorded only by task complete. ${preferred}`
+    : `Direct cancellation is blocked unless it is an audited recovery. ${preferred} For cancellation recovery, run ha task transition ${taskId} cancelled --force --reason "<reason>".`;
 }

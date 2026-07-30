@@ -234,7 +234,7 @@ function setStatus(
         ref: index.ref ?? input.taskId
       } satisfies EngineError);
     }
-    if (input.status === "in_review") {
+    if (input.status === "in_review" || input.status === "done") {
       return yield* Effect.fail({
         _tag: "InvalidTransition",
         taskId: input.taskId,

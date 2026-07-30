@@ -32,38 +32,23 @@ test("supersede document writes use the explicit operation task id", () => {
   assert.equal(enqueued[0]?.kind, "package_supersede");
 });
 
-test("generic local status writer rejects in_review outside the Execution aggregate", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-status-gate-"));
-  const enqueued: WriteOp[] = [];
-  try {
-    writeTaskIndex(rootDir, "active");
-    const engine = makeLocalLifecycleEngine({ rootDir, coordinator: capturingCoordinator(enqueued) });
+for (const status of ["in_review", "done"] as const) {
+  test(`generic local status writer rejects ${status} outside the Execution aggregate`, () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-status-gate-"));
+    const enqueued: WriteOp[] = [];
+    try {
+      writeTaskIndex(rootDir, "active");
+      const engine = makeLocalLifecycleEngine({ rootDir, coordinator: capturingCoordinator(enqueued) });
 
-    const failure = Effect.runSync(Effect.flip(engine.setStatus({ taskId: executionTaskId, status: "in_review" })));
+      const failure = Effect.runSync(Effect.flip(engine.setStatus({ taskId: executionTaskId, status })));
 
-    assert.equal(failure._tag, "InvalidTransition");
-    assert.equal(enqueued.length, 0);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("generic local status writer permits a direct done transition", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-status-gate-"));
-  const enqueued: WriteOp[] = [];
-  try {
-    writeTaskIndex(rootDir, "active");
-    const engine = makeLocalLifecycleEngine({ rootDir, coordinator: capturingCoordinator(enqueued) });
-
-    const result = Effect.runSync(engine.setStatus({ taskId: executionTaskId, status: "done" }));
-
-    assert.equal(result.status, "done");
-    assert.equal(enqueued.length, 1);
-    assert.equal(enqueued[0]?.kind, "transition_local");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
+      assert.equal(failure._tag, "InvalidTransition");
+      assert.equal(enqueued.length, 0);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("generic local status writer rejects exits from in_review outside the Execution Review aggregate", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-status-gate-"));

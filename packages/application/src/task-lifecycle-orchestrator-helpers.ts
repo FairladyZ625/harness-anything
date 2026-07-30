@@ -1,10 +1,21 @@
 import { Effect } from "effect";
-import type { ArtifactStore, TaskId } from "@harness-anything/kernel";
+import type { ArtifactStore, DomainStatus, TaskId } from "@harness-anything/kernel";
 import { evaluateReviewGate, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskLifecycleFailure, TaskLifecycleResult, TaskLifecycleWarning } from "./task-lifecycle-orchestrator.ts";
 
 export function taskFailure(taskId: string, code: string, hint: string): TaskLifecycleFailure {
   return { ok: false, taskId, error: { code, hint } };
+}
+
+export function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecycleFailure {
+  const preferred = `Preferred path: ha task complete ${taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${taskId} --title <follow-up-title>.`;
+  return taskFailure(
+    taskId,
+    "terminal_status_requires_task_complete",
+    status === "done"
+      ? `Direct done is blocked because completion consent is recorded only by task complete. ${preferred}`
+      : `Direct cancellation requires an audited recovery path. ${preferred}`
+  );
 }
 
 export function readTaskDocument(
@@ -103,15 +114,6 @@ export function reviewTask(
           )]
         };
   });
-}
-
-export function terminalStatusDemotionWarning(taskId: string): TaskLifecycleWarning {
-  return {
-    severity: "warning",
-    code: "terminal_status_requires_task_complete",
-    message: `Direct terminal status transition bypassed the owner approval path. Preferred path: ha task complete ${taskId} --approve. If the task is already terminal and more work is required, run ha task supersede ${taskId} --title <follow-up-title>.`,
-    revivalCondition: ownerValidationRevivalCondition
-  };
 }
 
 const ownerValidationRevivalCondition = "Reinstate a hard rejection only after a third independent user, external auditor, or writer outside direct owner review exists and a real incident is documented.";

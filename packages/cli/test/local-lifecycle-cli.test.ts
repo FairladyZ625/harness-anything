@@ -125,47 +125,47 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
   });
 });
 
-test("CLI direct terminal status continues with owner-path and supersede warnings", () => {
+test("CLI blocks direct done, keeps audited cancellation recovery, and gives owner recovery paths", () => {
   withTempRoot((rootDir) => {
-    const planned = runJson(rootDir, ["new-task", "--title", "Planned Task"]);
-    const plannedId = assertGeneratedTaskId(planned.taskId);
-    const invalidForce = runJson(rootDir, ["task", "status", "set", plannedId, "done", "--force", "--reason", "invalid recovery"], false);
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
-    assert.equal(invalidForce.error?.code, "invalid_transition");
+    assert.equal(invalidForce.error?.code, "terminal_status_requires_task_complete");
+    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
+    assert.match(invalidForce.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
-    const doneTask = runJson(rootDir, ["new-task", "--title", "Done Task"]);
-    const doneTaskId = assertGeneratedTaskId(doneTask.taskId);
-    writeSubstantiveTaskPlan(rootDir, String(doneTask.packagePath));
-    runJson(rootDir, ["task", "status", "set", doneTaskId, "active"]);
-    const done = runJson(rootDir, ["task", "status", "set", doneTaskId, "done"]);
-    assert.equal(done.status, "done");
-    assert.equal(done.warnings[0].code, "terminal_status_requires_task_complete");
-    assert.match(done.warnings[0].message, new RegExp(`ha task complete ${doneTaskId} --approve`, "u"));
-    assert.match(done.warnings[0].message, new RegExp(`ha task supersede ${doneTaskId}`, "u"));
-    assert.match(done.warnings[0].revivalCondition, /third independent user/u);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
+    runJson(rootDir, ["task", "status", "set", taskId, "active"]);
 
-    const cancelledTask = runJson(rootDir, ["new-task", "--title", "Cancelled Task"]);
-    const cancelledTaskId = assertGeneratedTaskId(cancelledTask.taskId);
-    writeSubstantiveTaskPlan(rootDir, String(cancelledTask.packagePath));
-    runJson(rootDir, ["task", "status", "set", cancelledTaskId, "active"]);
-    const cancelled = runJson(rootDir, ["task", "status", "set", cancelledTaskId, "cancelled"]);
-    assert.equal(cancelled.status, "cancelled");
-    assert.equal(cancelled.warnings[0].code, "terminal_status_requires_task_complete");
+    const doneFailure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
+    assert.equal(doneFailure.ok, false);
+    assert.equal(doneFailure.error?.code, "terminal_status_requires_task_complete");
+    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task complete ${taskId} --approve`, "u"));
+    assert.match(doneFailure.error?.hint ?? "", new RegExp(`ha task supersede ${taskId}`, "u"));
 
-    const forcedTask = runJson(rootDir, ["new-task", "--title", "Forced Task"]);
-    const forcedTaskId = assertGeneratedTaskId(forcedTask.taskId);
-    writeSubstantiveTaskPlan(rootDir, String(forcedTask.packagePath));
-    runJson(rootDir, ["task", "status", "set", forcedTaskId, "active"]);
-    const missingReason = runJson(rootDir, ["task", "status", "set", forcedTaskId, "cancelled", "--force"], false);
+    const cancelFailure = runJson(rootDir, ["task", "status", "set", taskId, "cancelled"], false);
+    assert.equal(cancelFailure.ok, false);
+    assert.equal(cancelFailure.error?.code, "terminal_status_requires_task_complete");
+    assert.match(cancelFailure.error?.hint ?? "", new RegExp(`ha task transition ${taskId} cancelled --force --reason`, "u"));
+
+    const missingReason = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force"], false);
     assert.equal(missingReason.ok, false);
     assert.equal(missingReason.error?.code, "missing_force_reason");
 
-    const forced = runJson(rootDir, ["task", "status", "set", forcedTaskId, "cancelled", "--force", "--reason", "fixture recovery"]);
+    const forcedDone = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "fixture recovery"], false);
+    assert.equal(forcedDone.ok, false);
+    assert.equal(forcedDone.error?.code, "terminal_status_requires_task_complete");
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
+
+    const forced = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force", "--reason", "fixture recovery"]);
     assert.equal(forced.ok, true);
     assert.equal(forced.status, "cancelled");
     assert.equal(forced.forced, true);
     assert.equal(forced.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
-    const progressBody = readFileSync(path.join(rootDir, String(forcedTask.packagePath), "progress.md"), "utf8");
+    const progressBody = readFileSync(path.join(rootDir, String(created.packagePath), "progress.md"), "utf8");
     assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=fixture recovery/);
 
     const check = runJson(rootDir, ["check", "--profile", "target-project"], false);

@@ -16,7 +16,7 @@ import {
   readTaskDocument,
   reviewTask,
   taskFailure,
-  terminalStatusDemotionWarning
+  terminalStatusFailure
 } from "./task-lifecycle-orchestrator-helpers.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 
@@ -138,17 +138,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         );
       }
       if (isTerminalStatus(payload.status)) {
-        return yield* options.taskWriter.setStatus(payload).pipe(
-          Effect.match({
-            onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Status update failed."),
-            onSuccess: (result): TaskLifecycleResult => ({
-              ok: true,
-              taskId: result.taskId,
-              status: result.status,
-              warnings: [terminalStatusDemotionWarning(payload.taskId)]
-            })
-          })
-        );
+        return terminalStatusFailure(payload.taskId, payload.status);
       }
       if (payload.status === "in_review") {
         return taskFailure(
