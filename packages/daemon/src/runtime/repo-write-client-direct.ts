@@ -169,6 +169,15 @@ export class RepoWriteDirectClientLane {
     }
   }
 
+  rejectQueued(error: Error & { readonly code: string }): void {
+    for (const [requestId, pending] of this.pending) {
+      if (pending.phase !== "queued") continue;
+      clearTimeout(pending.timer);
+      this.pending.delete(requestId);
+      pending.reject(new RepoWriteNotStartedError(error.code, error.message));
+    }
+  }
+
   telemetryMatches(message: RepoWriteTelemetryFrame): boolean {
     const pending = this.pending.get(message.requestId);
     return pending?.phase === "sent" && message.opId === undefined;

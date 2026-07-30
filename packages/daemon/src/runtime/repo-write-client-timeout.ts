@@ -27,7 +27,8 @@ export function expireRepoWriteSubmit(
   pending: PendingSubmit,
   timeoutMs: number,
   observer: TimeoutObserver | undefined
-): "observed" | "expired" {
+): "queued" | "observed" | "expired" {
+  if (pending.phase === "queued") return "queued";
   const diagnostic =
     `Repo writer request exceeded its ${timeoutMs}ms deadline.`
     + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);

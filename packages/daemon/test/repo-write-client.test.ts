@@ -9,6 +9,7 @@ import {
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
+  RepoWriteReadyTimeoutError,
   RepoWriteShutdownTimeoutError
 } from "../src/runtime/repo-write-client.ts";
 import {
@@ -58,6 +59,110 @@ test("waits for ready, records prepared opId, proceeds, and resolves only at ter
     receipt
   });
   assert.deepEqual(await result, receipt);
+});
+
+test("starts the durable request deadline only after READY dispatches the request", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const timeoutDiagnostics: unknown[] = [];
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    limits: { requestTimeoutMs: 10 },
+    onTelemetry: () => undefined,
+    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
+  });
+  const result = client.submit(command("task.create"));
+  const outcome = result.then(
+    (receipt) => ({ kind: "resolved" as const, receipt }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(transport.sent, []);
+  assert.deepEqual(timeoutDiagnostics, []);
+
+  transport.emit(readyFrame());
+  const submit = transport.sent.at(-1);
+  const receipt = committedCommandReceipt();
+  assert.equal(submit?.kind, "submit");
+  transport.emit({
+    ...childFrame("prepared"),
+    requestId: requestId(submit),
+    opId: "op-after-ready"
+  });
+  transport.emit({
+    ...childFrame("terminal"),
+    requestId: requestId(submit),
+    opId: "op-after-ready",
+    outcome: "committed",
+    receipt
+  });
+
+  assert.deepEqual(await outcome, { kind: "resolved", receipt });
+});
+
+test("rejects a queued durable request when the writer misses its READY deadline", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = new RepoWriteClient({
+    repoId: "repo-canonical",
+    generation: 7,
+    transport,
+    limits: { readyTimeoutMs: 10, requestTimeoutMs: 50 },
+    onTelemetry: () => undefined
+  });
+  const ready = client.waitUntilReady().then(
+    () => ({ kind: "resolved" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+  const submission = client.submit(command("task.create")).then(
+    () => ({ kind: "resolved" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+
+  const outcome = await Promise.race([
+    submission,
+    new Promise<{ readonly kind: "still-pending" }>((resolve) => {
+      setTimeout(() => resolve({ kind: "still-pending" }), 100);
+    })
+  ]);
+
+  assert.equal(outcome.kind, "rejected");
+  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteReadyTimeoutError);
+  const readyOutcome = await ready;
+  assert.ok(readyOutcome.kind === "rejected" && readyOutcome.error instanceof RepoWriteReadyTimeoutError);
+  assert.deepEqual(transport.sent, []);
+});
+
+test("shutdown rejects a queued durable request before READY", async () => {
+  const transport = new FakeRepoWriteTransport();
+  const client = fixtureClient(transport);
+  const submission = client.submit(command("task.create")).then(
+    () => ({ kind: "resolved" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+  const shutdown = client.shutdown({ timeoutMs: 1_000 }).then(
+    () => ({ kind: "resolved" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+
+  const outcome = await Promise.race([
+    submission,
+    new Promise<{ readonly kind: "still-pending" }>((resolve) => {
+      setTimeout(() => resolve({ kind: "still-pending" }), 50);
+    })
+  ]);
+
+  assert.equal(outcome.kind, "rejected");
+  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteClientClosedError);
+  transport.emit(readyFrame());
+  const shutdownFrame = transport.sent.at(-1);
+  assert.equal(shutdownFrame?.kind, "shutdown");
+  transport.emit({
+    ...childFrame("drained"),
+    requestId: requestId(shutdownFrame)
+  });
+  assert.deepEqual(await shutdown, { kind: "resolved" });
 });
 
 test("reports historical recovery diagnostics before READY without failing the writer", async () => {
