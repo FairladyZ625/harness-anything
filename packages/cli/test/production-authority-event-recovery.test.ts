@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,6 +20,16 @@ import {
   createGitCanonicalPublicationInspector,
   recoverPendingProductionEvents
 } from "@harness-anything/daemon";
+
+test("SIGKILL wait observes an exit emitted synchronously by kill", async () => {
+  const child = new EventEmitter() as ChildProcess;
+  child.kill = (() => {
+    child.emit("exit", null, "SIGKILL");
+    return true;
+  }) as ChildProcess["kill"];
+
+  await killAndWaitForSigkill(child);
+});
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {
   const evidence = {
@@ -479,13 +490,7 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
     const deadline = Date.now() + 10_000;
     while (!existsSync(readyPath) && Date.now() < deadline) await delay(10);
     assert.equal(existsSync(readyPath), true, "fixture did not persist its incremental checkpoint");
-    child.kill("SIGKILL");
-    await new Promise<void>((resolve, reject) => {
-      child.once("exit", (_code, signal) => signal === "SIGKILL"
-        ? resolve()
-        : reject(new Error(`expected SIGKILL, received ${signal ?? "clean exit"}`)));
-      child.once("error", reject);
-    });
+    await killAndWaitForSigkill(child);
     const partial = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
     assert.equal(partial.schema, "authority-recovery-watermark/v2");
     assert.equal(partial.phase, "partial");
@@ -518,6 +523,32 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function killAndWaitForSigkill(child: ChildProcess): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const onExit = (_code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      if (signal === "SIGKILL") resolve();
+      else reject(new Error(`expected SIGKILL, received ${signal ?? "clean exit"}`));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    child.once("exit", onExit);
+    child.once("error", onError);
+    try {
+      assert.equal(child.kill("SIGKILL"), true);
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
 
 test("recovery watermark remains partial while an indexed operation is unresolved", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-unsettled-"));

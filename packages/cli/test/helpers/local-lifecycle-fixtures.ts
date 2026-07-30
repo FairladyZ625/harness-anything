@@ -81,7 +81,7 @@ export function writeCodeDocAnchors(rootDir: string, directoryName: string, sha 
     "task", "code-doc", "reconcile", directoryName,
     "--commit", sha,
     "--path", "evidence/code-doc-anchor.txt"
-  ]);
+  ], true, executionActorEnv);
 }
 
 export function seedApprovedExecution(rootDir: string, taskId: string, id: string): void {

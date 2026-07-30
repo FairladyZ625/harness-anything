@@ -23,7 +23,7 @@ test("in_review without an Execution submission fails closed", () => {
 
     assert.equal(result.status, 1);
     assert.equal(result.receipt.ok, false);
-    assert.equal((result.receipt.error as { readonly code?: string }).code, "execution_submission_required");
+    assert.equal((result.receipt.error as { readonly code?: string }).code, "invalid_transition");
     assert.match(String((result.receipt.error as { readonly hint?: string }).hint), /Execution.*submit/iu);
     assert.match(readFileSync(path.join(rootDir, String(created.packagePath), "INDEX.md"), "utf8"), /status: active/u);
   });
@@ -110,7 +110,7 @@ test("default check hard-fails a local in_review Task without exactly one submit
     assert.equal(invalid.status, 1);
     assert.equal((invalid.receipt.error as { readonly code?: string }).code, "check_profile_failed");
     const warnings = (invalid.receipt.warnings ?? []) as ReadonlyArray<{ readonly code?: string; readonly severity?: string }>;
-    assert.equal(warnings.some((warning) => warning.code === "execution_submission_required" && warning.severity === "hard-fail"), true);
+    assert.equal(warnings.some((warning) => warning.code === "execution_record_invalid" && warning.severity === "hard-fail"), true);
 
     const executionId = "exe_01KX7H00000000000000000001";
     mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
@@ -134,6 +134,6 @@ test("default check hard-fails a local in_review Task without exactly one submit
 
     const valid = runRawJson(rootDir, ["check"], noRuntimeSession);
     assert.equal(valid.ok, true);
-    assert.equal(((valid.warnings ?? []) as ReadonlyArray<{ readonly code?: string }>).some((warning) => warning.code === "execution_submission_required"), false);
+    assert.equal(((valid.warnings ?? []) as ReadonlyArray<{ readonly code?: string }>).some((warning) => warning.code === "execution_record_invalid"), false);
   });
 });

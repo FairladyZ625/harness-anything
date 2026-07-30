@@ -91,14 +91,14 @@ test("CLI status set mutates local task state through the write journal", () => 
   });
 });
 
-test("CLI rejects naked local review transitions with the Execution submission error", () => {
+test("CLI rejects naked local review transitions as an invalid transition", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const failure = runJson(rootDir, ["task", "status", "set", taskId, "in_review"], false);
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "execution_submission_required");
+    assert.equal(failure.error?.code, "invalid_transition");
   });
 });
 
@@ -113,13 +113,13 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
     for (const status of ["active", "blocked"] as const) {
       const failure = runJson(rootDir, ["task", "status", "set", taskId, status], false);
       assert.equal(failure.ok, false);
-      assert.equal(failure.error?.code, "execution_review_required");
+      assert.equal(failure.error?.code, "invalid_transition");
     }
     const forcedCancellation = runJson(rootDir, [
       "task", "status", "set", taskId, "cancelled", "--force", "--reason", "invalid review escape"
     ], false);
     assert.equal(forcedCancellation.ok, false);
-    assert.equal(forcedCancellation.error?.code, "execution_review_required");
+    assert.equal(forcedCancellation.error?.code, "invalid_transition");
     assert.equal(existsSync(path.join(rootDir, String(created.packagePath), "progress.md")), false);
     assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
   });
@@ -388,11 +388,9 @@ test("CLI task complete help explains the resolved completion contract", () => {
   withTempRoot((rootDir) => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
-    assert.match(output, /exactly one submitted Execution, no active Execution rounds, and an approved typed Review/u);
-    assert.match(output, /legacy review\.md is only a compatibility blocker check/u);
-    assert.match(output, /ha task retire-execution <id> --execution-id <execution-id> --reason <reason>/u);
-    assert.match(output, /--ci\s+Set passed or failed when CI applies/u);
-    assert.match(output, /Facts are never a quantity gate/u);
+    assert.match(output, /Usage: harness-anything task complete <id> \(--approve --from-file <approval\.json> \| --commit-anchor <sha-or-ref> --judgment <reason>\)/u);
+    assert.match(output, /One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator\./u);
+    assert.match(output, /Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally\./u);
   });
 });
 

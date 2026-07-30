@@ -8,6 +8,39 @@ export interface PlannedTaskClaimGuidance {
   readonly nextCommand: string;
 }
 
+export async function dispatchLifecycleFacadeSteps(
+  steps: ReadonlyArray<ParsedCommand>,
+  dispatch: (step: ParsedCommand) => Promise<CommandReceipt | CommandFailureReceipt>,
+  facade: "task-closeout" | "task-complete"
+): Promise<
+  | { readonly ok: true; readonly receipts: ReadonlyArray<CommandReceipt>; readonly warnings: ReadonlyArray<unknown> }
+  | { readonly ok: false; readonly receipt: CommandFailureReceipt }
+> {
+  const receipts: CommandReceipt[] = [];
+  const warnings: unknown[] = [];
+  for (const step of steps) {
+    const receipt = await dispatch(step);
+    if (receipt.ok) {
+      receipts.push(receipt);
+      continue;
+    }
+    if (step.action.kind === "doc-sync"
+      && receipt.error?.code === "journal_unavailable"
+      && /requires the daemon-backed CLI path|HARNESS_DAEMON_MODE=direct/iu.test(receipt.error.hint)) {
+      warnings.push({
+        severity: "warning",
+        code: "doc_sync_dirty",
+        message: "Task prose remains dirty because daemon-backed doc sync is unavailable; completion continued under the existing soft-warning policy.",
+        paths: step.action.paths,
+        nextCommand: "ha doc sync --submit"
+      });
+      continue;
+    }
+    return { ok: false, receipt: guidedLifecycleFacadeFailure(receipt, receipts, step, facade) };
+  }
+  return { ok: true, receipts, warnings };
+}
+
 export function plannedTaskClaimGuidance(taskId: string): PlannedTaskClaimGuidance {
   const nextCommand = joinLifecycleCommand("ha", "task", "start", taskId);
   return {
@@ -22,9 +55,9 @@ export function guidedLifecycleFacadeFailure(
   failure: CommandFailureReceipt,
   completedSteps: ReadonlyArray<CommandReceipt>,
   failedStep: ParsedCommand,
-  facade: "task-start" | "task-closeout"
+  facade: "task-start" | "task-closeout" | "task-complete"
 ): CommandFailureReceipt {
-  const nextCommand = lifecycleFacadeNextCommand(failure, failedStep);
+  const nextCommand = lifecycleFacadeNextCommand(failure, failedStep, facade);
   const cause = failure.error?.hint ?? failure.summary;
   return {
     ...failure,
@@ -49,7 +82,17 @@ export function shellLifecycleToken(value: string): string {
   return /^[A-Za-z0-9_./:@{}^=-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function lifecycleFacadeNextCommand(failure: CommandFailureReceipt, step: ParsedCommand): string {
+function lifecycleFacadeNextCommand(
+  failure: CommandFailureReceipt,
+  step: ParsedCommand,
+  facade: "task-start" | "task-closeout" | "task-complete"
+): string {
+  if (facade === "task-complete" && "taskId" in step.action) {
+    return joinLifecycleCommand("ha", "task", "complete", step.action.taskId, "--approve", "--from-file", "<approval.json>");
+  }
+  if (facade === "task-closeout" && "taskId" in step.action) {
+    return joinLifecycleCommand("ha", "task", "closeout", step.action.taskId, "--from-file", "<closeout.json>");
+  }
   const failureHint = failure.error?.hint ?? "";
   if (step.action.kind === "status-set" && step.action.executionSubmission && isLeaseRequiredFailure(failure, failureHint)) {
     if (/current holder none; lease status none|lease status orphaned/iu.test(failureHint)) {

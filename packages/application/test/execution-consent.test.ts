@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ import { runEffect } from "./effect-test-helpers.ts";
 const taskId = "task_01KX7H00000000000000000010";
 const executionId = "exe_01KX7H00000000000000000010";
 const consentId = "cns_01KX7H00000000000000000010";
+const secondConsentId = "cns_01KX7H00000000000000000011";
 const firstReviewId = "rev_01KX7H00000000000000000010";
 const secondReviewId = "rev_01KX7H00000000000000000011";
 const activeDecisionId = "dec_01KX7H00000000000000000010";
@@ -100,6 +101,76 @@ test("same executor can record asserted consent, approve, and complete without c
     }).completeTaskExecution({ taskId, actor: aliceWorker });
     assert.deepEqual(completed, { executionId });
     assert.equal(readExecution(rootDir).state, "accepted");
+  });
+});
+
+test("retrying an equivalent approved Review reuses the existing approval", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore }) => {
+    const reviewIds = [firstReviewId, secondReviewId];
+    const service = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => reviewIds.shift()!,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:02:00.000Z"
+    });
+    const input = {
+      ...reviewInput(aliceWorker),
+      consentAssertedRationale: "Approval was received through an external channel."
+    };
+
+    const first = await service.reviewExecution(input);
+    const retried = await service.reviewExecution(input);
+
+    assert.equal(first.review.review_id, firstReviewId);
+    assert.equal(retried.review.review_id, firstReviewId);
+    assert.equal(existsSync(reviewPath(rootDir, secondReviewId)), false);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);
+
+    await makeExecutionCompletionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore
+    }).completeTaskExecution({ taskId, actor: aliceWorker });
+    const acceptedReplay = await service.reviewExecution(input);
+    assert.equal(acceptedReplay.review.review_id, firstReviewId);
+    assert.equal(readExecution(rootDir).state, "accepted");
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);
+  });
+});
+
+test("changing consent scope creates a non-equivalent approved Review", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore }) => {
+    const reviewIds = [firstReviewId, secondReviewId];
+    const consentIds = [consentId, secondConsentId];
+    const service = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => reviewIds.shift()!,
+      generateConsentId: () => consentIds.shift()!,
+      now: () => "2026-07-15T00:02:00.000Z"
+    });
+    const approval = {
+      ...reviewInput(aliceWorker),
+      consentAssertedRationale: "Approval was received through an external channel."
+    };
+
+    const first = await service.reviewExecution({ ...approval, consentActions: ["approve_execution"] });
+    const expanded = await service.reviewExecution({
+      ...approval,
+      consentActions: ["approve_execution", "complete_task"]
+    });
+
+    assert.equal(first.review.review_id, firstReviewId);
+    assert.equal(expanded.review.review_id, secondReviewId);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")).sort(), [
+      `${firstReviewId}.md`, `${secondReviewId}.md`
+    ]);
+    assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "consents")).sort(), [
+      `${consentId}.md`, `${secondConsentId}.md`
+    ]);
   });
 });
 

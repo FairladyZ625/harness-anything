@@ -39,17 +39,24 @@ const cliErrorMappers = {
     CliErrorCode.WriteConflict,
     `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying.`
   ),
-  WriteRejected: (error) => error.code && isCliErrorCode(error.code)
-    ? cliError(
-      error.code,
-      error.code === CliErrorCode.ModuleNotFound
-        ? authorityModuleNotFoundPresentation(error.reason)
-        : authorityIngressPresentation(error.reason),
-      error.context
-    )
-    : error.reason.includes("authored root is not isolated from the outer code repository")
-      ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
-      : cliError(CliErrorCode.WriteRejected, error.reason),
+  WriteRejected: (error) => {
+    const code = error.code === "execution_review_required"
+      ? CliErrorCode.ExecutionReviewRequired
+      : error.code === "execution_submission_required"
+        ? CliErrorCode.ExecutionSubmissionRequired
+        : error.code;
+    return code && isCliErrorCode(code)
+      ? cliError(
+        code,
+        code === CliErrorCode.ModuleNotFound
+          ? authorityModuleNotFoundPresentation(error.reason)
+          : authorityIngressPresentation(error.reason),
+        error.context
+      )
+      : error.reason.includes("authored root is not isolated from the outer code repository")
+        ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
+        : cliError(CliErrorCode.WriteRejected, error.reason);
+  },
   ArtifactReadFailed: (error) => cliError(
     CliErrorCode.ArtifactReadFailed,
     `Required artifact could not be read at ${error.path}. Restore or create that path, then retry the same command.`

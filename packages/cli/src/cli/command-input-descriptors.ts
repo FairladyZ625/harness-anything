@@ -146,10 +146,35 @@ const explicitInputDescriptors = {
       knownGaps: { type: "array", description: "Known gaps.", items: { type: "string" } },
       residualRisks: { type: "array", description: "Residual risks.", items: { type: "string" } },
       executionId: { type: "string", description: "Optional active Execution id; inferred from Holder V2 when omitted." },
-      leaseToken: { type: "string", description: "Optional lease token; the active local actor may omit it." },
-      codeDoc: { type: "object", description: "Optional code-doc reconciliation input." }
+      leaseToken: { type: "string", description: "Optional lease token; the active local actor may omit it." }
     },
     shortcuts: []
+  },
+  "task-complete": {
+    required: ["findings", "rationale"],
+    properties: {
+      executionId: { type: "string", description: "Submitted Execution id; inferred when exactly one submitted round exists." },
+      findings: { type: "string", description: "Owner approval findings." },
+      rationale: { type: "string", description: "Owner approval rationale." },
+      evidenceChecked: { type: "array", description: "Inspected OutputEvidence ids.", items: { type: "string" } },
+      archiveWarningsAcknowledged: { type: "boolean", description: "Explicit acknowledgement of archive warnings." },
+      consentId: { type: "string", description: "Existing human consent id." },
+      consentUtterance: { type: "string", description: "Human's exact approval words." },
+      consentStandingPolicyDecisionId: { type: "string", description: "Active decision granting standing consent." },
+      consentAssertedRationale: { type: "string", description: "Rationale for externally obtained consent." },
+      consentActions: { type: "array", description: "Consent actions granted by the human.", items: { type: "string" } },
+      ci: { type: "string", description: "CI result: passed, failed, or not-applicable." },
+      commit: { type: "string", description: "Workspace Git ref; defaults to HEAD." },
+      paths: { type: "array", description: "Optional repository-relative code-doc anchors.", items: { type: "string" } },
+      prRef: { type: "string", description: "Optional pull request reference." },
+      reviewerId: { type: "string", description: "Completion reviewer id." }
+    },
+    shortcuts: [
+      shortcut("--execution-id", "$.executionId", "set"),
+      shortcut("--ci", "$.ci", "set"),
+      shortcut("--commit", "$.commit", "set"),
+      shortcut("--reviewer", "$.reviewerId", "set")
+    ]
   },
   "task-closeout": {
     required: ["completionClaim", "verdict", "findings", "rationale", "ci"],

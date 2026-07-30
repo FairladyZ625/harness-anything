@@ -21,8 +21,7 @@ test("task submit parses the six-field Submission packet without inventing conse
     outputs: ["Fast parser test passed"],
     verificationNotes: ["node --test completion-facade.test.ts"],
     knownGaps: [],
-    residualRisks: ["Canonical integration remains to run"],
-    codeDoc: { commit: "a".repeat(40), paths: ["packages/cli/src/index.ts"] }
+    residualRisks: ["Canonical integration remains to run"]
   }), "utf8");
 
   try {
@@ -40,15 +39,10 @@ test("task submit parses the six-field Submission packet without inventing conse
         knownGaps: [],
         residualRisks: ["Canonical integration remains to run"]
       },
-      codeDoc: { sha: "a".repeat(40), paths: ["packages/cli/src/index.ts"], force: false },
       dryRun: false
     });
     assert.equal("consentUtterance" in parsed.value.action, false);
     assert.equal("verdict" in parsed.value.action, false);
-    const manualCodeDoc = parseArgs([
-      "task", "code-doc", "reconcile", "task_01KXTE6GJPW73Y1EWCA0Q0798T",
-      "--commit", "a".repeat(40), "--path", "packages/cli/src/index.ts"
-    ]);
     const manualSubmit = parseArgs([
       "task", "transition", "task_01KXTE6GJPW73Y1EWCA0Q0798T", "in_review",
       "--completion-claim", "The completion facade preserves the frozen gates.",
@@ -56,13 +50,12 @@ test("task submit parses the six-field Submission packet without inventing conse
       "--verification", "node --test completion-facade.test.ts",
       "--residual-risk", "Canonical integration remains to run"
     ]);
-    assert.equal(manualCodeDoc.ok, true);
     assert.equal(manualSubmit.ok, true);
-    if (!manualCodeDoc.ok || !manualSubmit.ok) return;
+    if (!manualSubmit.ok) return;
     assert.deepEqual(
       taskSubmitFacadeSteps(parsed.value as Parameters<typeof taskSubmitFacadeSteps>[0]).map((step) => step.action),
-      [manualCodeDoc.value.action, manualSubmit.value.action],
-      "facade must send byte-equivalent typed actions into canonical admission"
+      [manualSubmit.value.action],
+      "submit must send one canonical submission action into admission"
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -77,7 +70,7 @@ test("task submit declares the accepted new-command admission budget", () => {
     nounOwnership: "Task lifecycle facade; it does not introduce a new top-level noun.",
     lifecycle: "permanent",
     decisionRef: "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
-    chain: { stepCount: 7, submissionFieldCount: 6, structuredInput: true }
+    chain: { stepCount: 1, submissionFieldCount: 6, structuredInput: true }
   });
   assert.equal(spec.options.some((option) => option.flag === "--from-file"), true);
 });
@@ -109,6 +102,38 @@ test("review execution inference fails closed and points to execution list when 
   assert.equal(normalized.action.executionId, undefined);
   assert.match(normalized.action.executionSelectionError ?? "", /found 2/u);
   assert.match(normalized.action.executionSelectionError ?? "", /ha execution list --task task_01KXTE6GJPW73Y1EWCA0Q0798T/u);
+});
+
+test("approved Review inference admits one accepted replay candidate", async () => {
+  const taskId = "task_01KXTE6GJPW73Y1EWCA0Q0798T";
+  const execution: ExecutionRecord = {
+    schema: "execution/v2", execution_id: "exe_01KXTE6GJPW73Y1EWCA0Q0798V", task_ref: `task/${taskId}`, state: "accepted",
+    primary_actor: { principal: { personId: "person_test" }, executor: { kind: "agent", id: "worker" }, responsibleHuman: "person_test" },
+    claimed_at: "2026-07-18T00:00:00.000Z", submitted_at: "2026-07-18T00:01:00.000Z", closed_at: "2026-07-18T00:02:00.000Z",
+    session_bindings: [], outputs: [], submission: { completion_claim: "ready", deliverables: [], evidence_refs: [], verification_notes: [], known_gaps: [], residual_risks: [] }
+  };
+  const command: ParsedCommand = {
+    rootDir: "/fixture",
+    json: true,
+    action: {
+      kind: "task-review-execution", taskId, verdict: "approved", findings: "Equivalent retry",
+      evidenceChecked: [], rationale: "Reuse only if the stored approval is equivalent.",
+      archiveWarningsAcknowledged: false
+    }
+  };
+
+  const normalized = await normalizeReviewExecutionSelection(command, {
+    readTaskPackage: () => Effect.succeed({
+      taskId, rootPath: "/fixture/task", disposition: "active",
+      documents: [{
+        path: `executions/${execution.execution_id}.md`,
+        kind: "document" as const,
+        body: executionDeclaration.documentCodec.encode(execution)
+      }]
+    })
+  });
+
+  assert.equal(normalized.action.kind === "task-review-execution" && normalized.action.executionId, execution.execution_id);
 });
 
 test("review-execution from-file maps explicit review and consent fields without defaults", () => {

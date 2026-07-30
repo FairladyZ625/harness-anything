@@ -114,11 +114,6 @@
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
       },
       {
-        "value": "cli:code_doc_reconciliation_failed",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
         "value": "cli:command_receipt_contract_mismatch",
         "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
@@ -240,16 +235,6 @@
       },
       {
         "value": "cli:execution_completion_required",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
-        "value": "cli:execution_review_required",
-        "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
-        "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
-      },
-      {
-        "value": "cli:execution_submission_required",
         "ref": "task_01KXGFR6C7M9GB0E3QEMBW8HFX",
         "reason": "Existing caller-facing rejection predates the next-step gate and lacks mechanically verifiable actionable guidance; remove this entry when its canonical hint is repaired."
       },

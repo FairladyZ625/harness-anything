@@ -46,9 +46,6 @@ export function taskLifecycleResultToCliResult(
 function taskGateHint(code: string, hint: string, taskId: string): string {
   if (hint.startsWith("Task completion has ")) return hint;
   if (/review\.md material findings table failed validation/i.test(hint)) return `${hint} Valid severity values: P0, P1, P2, P3.`;
-  if (code === CliErrorCode.CodeDocReconciliationFailed) {
-    return `${hint} Generate the required file with ha task code-doc reconcile ${taskId} --commit <full-sha> [--path <repo-relative-path>]... [--pr <url>].`;
-  }
   if (code !== "closeout_not_ready" && !/closeout/i.test(hint)) return hint;
   return [
     hint,

@@ -39,6 +39,11 @@ export function parseTaskCloseout(
   if (!(reviewVerdicts as ReadonlyArray<string>).includes(verdict.value)) {
     return lifecycleFacadeParseFailure(`Unknown Review verdict: ${verdict.value}. Valid verdicts: ${reviewVerdicts.join(", ")}.`);
   }
+  if (verdict.value !== "approved") {
+    return lifecycleFacadeParseFailure(
+      `Task closeout only accepts verdict approved. To request changes without completing the task, run \`ha task review-execution ${args[2]} --verdict changes_requested --findings <text> --rationale <text>\`.`
+    );
+  }
   const findings = requiredCloseoutText(payload.findings, "Closeout field findings");
   if (!findings.ok) return findings;
   const rationale = requiredCloseoutText(payload.rationale, "Closeout field rationale");
@@ -112,8 +117,10 @@ function parseConsent(payload: Readonly<Record<string, unknown>>, verdict: strin
     return lifecycleFacadeParseFailure(`Closeout field consentActions must contain only: ${validConsentActions.join(", ")}.`);
   }
   const consentActions = payload.consentActions as ReadonlyArray<ConsentAction> | undefined;
-  if (consentActions && (!consentActions.includes("approve_execution") || new Set(consentActions).size !== consentActions.length)) {
-    return lifecycleFacadeParseFailure("Consent scope must include approve_execution exactly once; complete_task is optional.");
+  if (consentActions && (!consentActions.includes("approve_execution")
+    || !consentActions.includes("complete_task")
+    || new Set(consentActions).size !== consentActions.length)) {
+    return lifecycleFacadeParseFailure("Owner closeout consent scope must include approve_execution and complete_task exactly once.");
   }
   if (consentActions && !consentUtterance && !consentStandingPolicyDecisionId && !consentAssertedRationale) {
     return lifecycleFacadeParseFailure("consentActions requires an explicit consent source declaration.");
