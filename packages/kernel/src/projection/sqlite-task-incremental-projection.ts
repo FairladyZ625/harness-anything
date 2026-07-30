@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../layout/index.ts";
@@ -48,6 +48,9 @@ import {
   projectionChange,
   type IncrementalTaskProjectionResult
 } from "./projection-change-event.ts";
+import { updateProjectionWithRecovery } from "./sqlite-projection-recovery.ts";
+import { isDeclaredEntityFile, isPathWithin } from "./projection-path.ts";
+import { realPathIfExists } from "./toctou-safe-fs.ts";
 
 export interface IncrementalProjectionPhase {
   readonly phase: "load-current" | "capture-source" | "derive-affected" | "declared-delta" | "hash-next" | "verify-source" | "source-delta" | "publish";
@@ -110,8 +113,8 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
   }
   recordPhase("load-current");
-  const authoredRoot = resolveHarnessLayout(runtimeContext).authoredRoot;
-  const attributionEventsRoot = resolveHarnessLayout(runtimeContext).attributionEventsRoot;
+  const authoredRoot = realPathIfExists(resolveHarnessLayout(runtimeContext).authoredRoot);
+  const attributionEventsRoot = realPathIfExists(resolveHarnessLayout(runtimeContext).attributionEventsRoot);
   const declaredEntityOnly = options.touchedPaths.length > 0 && options.touchedPaths
     .every((filePath) => isDeclaredEntityFile(authoredRoot, realPathIfExists(filePath)));
   const touchedDeclaredPaths = declaredEntityOnly ? options.touchedPaths : [];
@@ -279,35 +282,47 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   }
   recordPhase("source-delta");
 
-  updateProjectionDatabase(projectionPath, {
-    deleteTaskIds: [...taskChange.deleteIds],
-    upsertTaskRows: taskChange.currentRows,
-    deleteDecisionIds: [...decisionChange.deleteIds],
-    upsertDecisionRows: decisionChange.currentRows,
-    meta: {
-      sourceHash,
-      rowsHash,
-      decisionRowsHash,
-      declaredRowsHash,
-      declaredManifestHash,
-      attributionRowsHash: existing.meta.attributionRowsHash,
-      attributionSourceHash: snapshot.attributionSource.hash,
-      taskSourceHash: snapshot.taskSource.hash,
-      sourceCacheHash: sourceCache?.hash ?? existing.meta.sourceCacheHash,
-      legacyPersonIdsHash: hashProjectionLegacyPersonIds(snapshot.legacyPersonIds)
-    },
-    ...(newGraph ? { graphRows: {
-      relationEdges: newGraph.edges,
-      coverageRows: newGraph.coverageRows,
-      factAnchors: newGraph.factAnchors,
-      factRows: newGraph.factRows,
-      warnings: newGraph.warnings
-    }, preserveGraphFactRows } : {}),
-    declaredDelta,
-    ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
-    ...(attributionDelta ? { attributionDelta } : {}),
-    taskFieldExtensions: options.taskFieldExtensions
-  });
+  const recovery = updateProjectionWithRecovery(
+    () => updateProjectionDatabase(projectionPath, {
+      deleteTaskIds: [...taskChange.deleteIds],
+      upsertTaskRows: taskChange.currentRows,
+      deleteDecisionIds: [...decisionChange.deleteIds],
+      upsertDecisionRows: decisionChange.currentRows,
+      meta: {
+        sourceHash,
+        rowsHash,
+        decisionRowsHash,
+        declaredRowsHash,
+        declaredManifestHash,
+        attributionRowsHash: existing.meta.attributionRowsHash,
+        attributionSourceHash: snapshot.attributionSource.hash,
+        taskSourceHash: snapshot.taskSource.hash,
+        sourceCacheHash: sourceCache?.hash ?? existing.meta.sourceCacheHash,
+        legacyPersonIdsHash: hashProjectionLegacyPersonIds(snapshot.legacyPersonIds)
+      },
+      ...(newGraph ? { graphRows: {
+        relationEdges: newGraph.edges,
+        coverageRows: newGraph.coverageRows,
+        factAnchors: newGraph.factAnchors,
+        factRows: newGraph.factRows,
+        warnings: newGraph.warnings
+      }, preserveGraphFactRows } : {}),
+      declaredDelta,
+      ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
+      ...(attributionDelta ? { attributionDelta } : {}),
+      taskFieldExtensions: options.taskFieldExtensions
+    }),
+    () => rebuildTaskProjection({
+      rootDir,
+      layoutOverrides: options.layoutOverrides,
+      projectionPath,
+      taskFieldExtensions: options.taskFieldExtensions
+    })
+  );
+  if (recovery.recovered) {
+    recordPhase("publish");
+    return { ...recovery.value, mode: "rebuild" };
+  }
   recordPhase("publish");
   rememberProjectionValidation(
     projectionPath,
@@ -476,13 +491,14 @@ function affectedProjectionEntities(input: {
   const rootDir = realPathIfExists(input.rootDir);
   const tasksRoot = realPathIfExists(layout.tasksRoot);
   const decisionsRoot = realPathIfExists(layout.decisionsRoot);
+  const authoredRoot = realPathIfExists(layout.authoredRoot);
   const taskIds = new Set<string>();
   const decisionIds = new Set<string>();
   const decisionPaths = new Set<string>();
   const touchedRelativePaths = new Set(input.touchedPaths.map((filePath) => sourcePath(rootDir, realPathIfExists(filePath))));
   const declaredEntityRelativePaths = new Set(input.touchedPaths
     .map(realPathIfExists)
-    .filter((filePath) => isDeclaredEntityFile(layout.authoredRoot, filePath))
+    .filter((filePath) => isDeclaredEntityFile(authoredRoot, filePath))
     .map((filePath) => sourcePath(rootDir, filePath)));
   const taskTouchedRelativePaths = [...touchedRelativePaths]
     .filter((relativePath) => !declaredEntityRelativePaths.has(relativePath));
@@ -493,7 +509,7 @@ function affectedProjectionEntities(input: {
   for (const filePath of input.touchedPaths) {
     const resolved = realPathIfExists(filePath);
     const taskSlug = taskSlugForPath(tasksRoot, resolved);
-    if (taskSlug && !isDeclaredEntityFile(layout.authoredRoot, resolved)) taskIds.add(taskSlug);
+    if (taskSlug && !isDeclaredEntityFile(authoredRoot, resolved)) taskIds.add(taskSlug);
     if (path.basename(resolved) === "decision.md" && isPathWithin(decisionsRoot, resolved)) {
       decisionPaths.add(path.join(input.rootDir, sourcePath(rootDir, resolved)));
     }
@@ -551,38 +567,6 @@ function taskSlugForPath(tasksRoot: string, filePath: string): string | undefine
   const relative = path.relative(tasksRoot, filePath);
   const [slug] = relative.split(path.sep);
   return slug && slug.length > 0 ? slug : undefined;
-}
-
-function isDeclaredEntityFile(authoredRoot: string, filePath: string): boolean {
-  if (!isPathWithin(authoredRoot, filePath)) return false;
-  const relative = path.relative(realPathIfExists(authoredRoot), realPathIfExists(filePath)).split(path.sep).join("/");
-  return /^sessions\/[^/]+\.md$/u.test(relative) ||
-    /^tasks\/[^/]+\/(?:executions|consents|reviews)\/[^/]+\.md$/u.test(relative);
-}
-
-function isPathWithin(parent: string, child: string): boolean {
-  const relative = path.relative(realPathIfExists(parent), realPathIfExists(child));
-  return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function realPathIfExists(filePath: string): string {
-  try {
-    return realpathSync.native(filePath);
-  } catch {
-    const missingSegments: string[] = [];
-    let existingParent = path.resolve(filePath);
-    while (!existsSync(existingParent)) {
-      const parent = path.dirname(existingParent);
-      if (parent === existingParent) return path.resolve(filePath);
-      missingSegments.unshift(path.basename(existingParent));
-      existingParent = parent;
-    }
-    try {
-      return path.join(realpathSync.native(existingParent), ...missingSegments);
-    } catch {
-      return path.resolve(filePath);
-    }
-  }
 }
 
 function addEntityRef(ref: string, taskIds: Set<string>, decisionIds: Set<string>): void {

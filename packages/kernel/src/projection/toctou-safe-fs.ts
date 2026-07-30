@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
+import path from "node:path";
 
 export function readTextFileIfPresent(filePath: string): string | null {
   try {
@@ -34,6 +35,26 @@ export function readDirNamesIfPresent(inputPath: string): string[] | null {
   } catch (error) {
     if (isVanishedPathError(error)) return null;
     throw error;
+  }
+}
+
+export function realPathIfExists(filePath: string): string {
+  try {
+    return realpathSync.native(filePath);
+  } catch {
+    const missingSegments: string[] = [];
+    let existingParent = path.resolve(filePath);
+    while (!existsSync(existingParent)) {
+      const parent = path.dirname(existingParent);
+      if (parent === existingParent) return path.resolve(filePath);
+      missingSegments.unshift(path.basename(existingParent));
+      existingParent = parent;
+    }
+    try {
+      return path.join(realpathSync.native(existingParent), ...missingSegments);
+    } catch {
+      return path.resolve(filePath);
+    }
   }
 }
 

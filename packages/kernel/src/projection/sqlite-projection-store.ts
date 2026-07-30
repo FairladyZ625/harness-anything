@@ -35,32 +35,16 @@ import type {
   TaskProjectionQueryFilters,
   TaskProjectionRow
 } from "./types.ts";
+import { annotateProjectionSqliteStatement } from "./sqlite-projection-error.ts";
+import {
+  baseTaskProjectionColumns,
+  queryableTaskFieldExtensions,
+  quoteIdentifier
+} from "./sqlite-projection-columns.ts";
 
 export const projectionVersion = "entity-projection/d4-v15";
-const baseTaskProjectionColumns = [
-  "task_id",
-  "title",
-  "parent_task_id",
-  "work_kind",
-  "risk_tier",
-  "urgency",
-  "canonical_status",
-  "coordination_status",
-  "raw_status",
-  "package_disposition",
-  "closeout_readiness",
-  "lifecycle_engine",
-  "freshness",
-  "updated_at",
-  "source",
-  "source_path",
-  "vertical",
-  "preset",
-  "profile",
-  "module_key",
-  "module_title",
-  "has_lesson_candidates"
-] as const;
+export { queryableTaskFieldExtensions, quoteIdentifier } from "./sqlite-projection-columns.ts";
+const projectionBusyTimeoutMs = 10_000;
 
 export type { ProjectionGraphRows } from "./sqlite-relation-graph-store.ts";
 export {
@@ -82,7 +66,7 @@ export function writeProjectionDatabase(
 ): void {
   mkdirSync(path.dirname(projectionPath), { recursive: true });
   const tempPath = `${projectionPath}.${process.pid}.${Date.now()}.tmp`;
-  rmSync(tempPath, { force: true });
+  removeProjectionDatabaseFiles(tempPath);
   const materializeEffect = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`;
@@ -184,9 +168,12 @@ export function writeProjectionDatabase(
   try {
     runSqlite(tempPath, writeEffect);
   } catch (error) {
-    rmSync(tempPath, { force: true });
+    removeProjectionDatabaseFiles(tempPath);
     throw error;
   }
+  // The main database is published by rename, so sidecars from the previous
+  // generation must not be replayed against the replacement database.
+  removeProjectionDatabaseSidecars(projectionPath);
   renameSync(tempPath, projectionPath);
 }
 
@@ -332,11 +319,24 @@ function readProjectionDatabase(
 }
 
 export function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
-  return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename })));
+  return Effect.runSync(Effect.provide(withProjectionBusyTimeout(effect), SqliteClient.layer({ filename, disableWAL: true })));
 }
 
 export function runSqliteReadonly<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
-  return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename, readonly: true, disableWAL: true })));
+  return Effect.runSync(Effect.provide(
+    withProjectionBusyTimeout(effect),
+    SqliteClient.layer({ filename, readonly: true, disableWAL: true })
+  ));
+}
+
+function withProjectionBusyTimeout<A>(
+  effect: Effect.Effect<A, unknown, SqlClient.SqlClient>
+): Effect.Effect<A, unknown, SqlClient.SqlClient> {
+  return Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql.unsafe(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}`);
+    return yield* effect;
+  });
 }
 
 function insertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effect.Effect<unknown, unknown> {
@@ -358,9 +358,13 @@ export function insertTaskRow(
   const assignments = [...baseTaskProjectionColumns, ...extensionColumns]
     .filter((column) => column !== "task_id")
     .map((column) => `${quoteIdentifier(column)} = excluded.${quoteIdentifier(column)}`);
-  return sql.unsafe(
-    `INSERT INTO task_projection (${columns.join(", ")}) VALUES (${values.map(() => "?").join(", ")}) ON CONFLICT (task_id) DO UPDATE SET ${assignments.join(", ")}`,
-    values
+  return annotateProjectionSqliteStatement(
+    "projection.task.upsert",
+    "task_projection",
+    sql.unsafe(
+      `INSERT INTO task_projection (${columns.join(", ")}) VALUES (${values.map(() => "?").join(", ")}) ON CONFLICT (task_id) DO UPDATE SET ${assignments.join(", ")}`,
+      values
+    )
   );
 }
 
@@ -561,23 +565,13 @@ function chunks<Value>(values: ReadonlyArray<Value>, size: number): ReadonlyArra
   return output;
 }
 
-export function queryableTaskFieldExtensions(
-  extensions: ReadonlyArray<TaskFieldExtensionProjection>
-): ReadonlyArray<TaskFieldExtensionProjection> {
-  const seen = new Set<string>(baseTaskProjectionColumns);
-  const projected: TaskFieldExtensionProjection[] = [];
-  for (const extension of extensions) {
-    if (!extension.projection.queryable) continue;
-    if (seen.has(extension.projection.column)) continue;
-    seen.add(extension.projection.column);
-    projected.push(extension);
+function removeProjectionDatabaseSidecars(projectionPath: string): void {
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    rmSync(`${projectionPath}${suffix}`, { force: true });
   }
-  return projected;
 }
 
-export function quoteIdentifier(identifier: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(identifier)) {
-    throw new Error(`Invalid SQLite identifier: ${identifier}`);
-  }
-  return `"${identifier}"`;
+function removeProjectionDatabaseFiles(projectionPath: string): void {
+  rmSync(projectionPath, { force: true });
+  removeProjectionDatabaseSidecars(projectionPath);
 }
