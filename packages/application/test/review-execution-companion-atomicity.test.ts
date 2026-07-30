@@ -17,7 +17,6 @@ import {
 } from "../src/index.ts";
 import {
   executionDeclaration,
-  declaredDocumentSetSha256,
   reviewDeclaration,
   sha256Text,
   stablePayloadHash,
@@ -100,7 +99,11 @@ test("declared document-set CAS rejects concurrent Execution creation before com
     const currentIndex = taskIndex(taskId, "in_review");
     writeFileSync(indexPath, currentIndex, "utf8");
     const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "codex") });
-    const expectedEmptyHistory = declaredDocumentSetSha256([], ["executions/", "reviews/"]);
+    const expectedEmptyHistory = stablePayloadHash({
+      schema: "declared-document-set/v1",
+      pathPrefixes: ["executions/", "reviews/"],
+      entries: []
+    });
     writeFileSync(path.join(executionRoot, `${executionId}.md`), executionDeclaration.documentCodec.encode(execution("submitted")), "utf8");
 
     await assert.rejects(runEffect(writeDeclaredEntityTransaction(
@@ -224,15 +227,7 @@ test("completion evidence public declaration writes, projects, and reads its dec
       { taskId },
       completionEvidence(),
       [{ taskId, path: "INDEX.md", body: completedIndex }],
-      [
-        { taskId, path: "completion-evidence.json", bodySha256: null },
-        { taskId, path: "INDEX.md", bodySha256: sha256Text(fixture.currentIndex) },
-        {
-          taskId,
-          pathPrefixes: ["executions/", "reviews/"],
-          documentSetSha256: declaredDocumentSetSha256([], ["executions/", "reviews/"])
-        }
-      ]
+      [{ taskId, path: "INDEX.md", bodySha256: sha256Text(fixture.currentIndex) }]
     ));
 
     const projectionPath = path.join(fixture.rootDir, ".harness/cache/completion-projection.sqlite");

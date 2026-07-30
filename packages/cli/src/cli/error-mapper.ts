@@ -40,11 +40,7 @@ const cliErrorMappers = {
     `${error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."} Direct recovery remains mutually exclusive with a live daemon; stop or drain the current writer and verify with 'ha daemon status' before retrying.`
   ),
   WriteRejected: (error) => {
-    const code = error.code === "execution_review_required"
-      ? CliErrorCode.ExecutionReviewRequired
-      : error.code === "execution_submission_required"
-        ? CliErrorCode.ExecutionSubmissionRequired
-        : error.code;
+    const code = error.code;
     return code && isCliErrorCode(code)
       ? cliError(
         code,

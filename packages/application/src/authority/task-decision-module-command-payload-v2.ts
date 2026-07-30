@@ -31,7 +31,6 @@ export interface TaskDocumentPayloadV2 {
   readonly taskId: string;
   readonly path: string;
   readonly body: string;
-  readonly historyDocumentSetSha256?: string;
 }
 
 export interface TaskAmendPayloadV2 {

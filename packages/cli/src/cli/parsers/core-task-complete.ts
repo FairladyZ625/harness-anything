@@ -104,10 +104,10 @@ function parseCommitAnchorApproval(
   judgment: string | undefined
 ): ParseResult {
   if (Boolean(commitRef) !== Boolean(judgment)) {
-    return { ok: false, error: cliError(CliErrorCode.CompletionEvidenceModeInvalid, "Use --commit-anchor and --judgment together.") };
+    return taskCompleteFailure("Use --commit-anchor and --judgment together.");
   }
   if (args.includes("--reviewer")) {
-    return { ok: false, error: cliError(CliErrorCode.CompletionEvidenceModeInvalid, "Commit-anchor approval records the authenticated judge; --reviewer belongs only to --approve completion.") };
+    return taskCompleteFailure("Commit-anchor approval records the authenticated judge; --reviewer belongs only to --approve completion.");
   }
   const ciGate = readOption(args, "--ci");
   if (ciGate !== undefined && ciGate !== "passed" && ciGate !== "failed" && ciGate !== "not-applicable") {

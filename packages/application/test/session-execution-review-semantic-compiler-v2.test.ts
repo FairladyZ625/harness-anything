@@ -25,7 +25,6 @@ import {
 import {
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
-  declaredDocumentSetSha256,
   entityRegistry,
   executionDeclaration,
   sha256Text,
@@ -224,10 +223,9 @@ test("execution submit atomically transitions the task index to in_review", asyn
   ]);
 });
 
-test("commit completion compiles one task transition with evidence, INDEX, and history-set CAS", async () => {
+test("commit completion compiles one task transition with evidence and fixed-document CAS", async () => {
   const taskRef = ref("task", `task/${taskId}`);
   const taskPath = `tasks/${taskId}/INDEX.md`;
-  const evidencePath = `tasks/${taskId}/completion-evidence.json`;
   const contractPath = `tasks/${taskId}/task-contract.json`;
   const closeoutPath = `tasks/${taskId}/closeout.md`;
   const codeDocPath = `tasks/${taskId}/code-doc-anchors.json`;
@@ -235,13 +233,11 @@ test("commit completion compiles one task transition with evidence, INDEX, and h
   const doneIndex = activeIndex.body.replace("status: active", "status: done");
   const closeout = snapshot("# Closeout\n\nCompleted.\n");
   const codeDoc = snapshot("{\"schema\":\"code-doc-reconciliation/v1\"}\n");
-  const emptyHistory = declaredDocumentSetSha256([], ["executions/", "reviews/"]);
   const payload: SessionExecutionReviewCommandPayloadV2 = {
     schema: "completion.commit/v1",
     taskId,
     taskIndexBody: doneIndex,
     completionContractBodySha256: null,
-    historyDocumentSetSha256: emptyHistory,
     evidence: {
       schema: "task-completion-evidence/v1",
       taskId,
@@ -266,7 +262,7 @@ test("commit completion compiles one task transition with evidence, INDEX, and h
     new Map([[taskPath, activeIndex], [closeoutPath, closeout], [codeDocPath, codeDoc]])
   );
   const pathCas = [
-    cas(taskPath, activeIndex), cas(evidencePath, absentDocument(evidencePath)),
+    cas(taskPath, activeIndex),
     cas(contractPath, absentDocument(contractPath)), cas(closeoutPath, closeout), cas(codeDocPath, codeDoc)
   ];
   const compiled = await makeSessionExecutionReviewSemanticCompilerV2({ state }).compile(envelope(
@@ -279,14 +275,9 @@ test("commit completion compiles one task transition with evidence, INDEX, and h
     readonly preconditions?: ReadonlyArray<Record<string, unknown>>;
   };
   assert.deepEqual(transaction.companionWrites, [{ taskId, path: "INDEX.md", body: doneIndex }]);
-  assert.deepEqual(transaction.preconditions?.at(-1), {
-    taskId, pathPrefixes: ["executions/", "reviews/"], documentSetSha256: emptyHistory
-  });
-
-  await assert.rejects(makeSessionExecutionReviewSemanticCompilerV2({ state }).compile(envelope({
-    ...payload,
-    historyDocumentSetSha256: declaredDocumentSetSha256([{ path: `executions/${executionId}.md`, body: "history" }], ["executions/", "reviews/"])
-  }, [present(taskRef, "task-v1")], pathCas)), /COMMIT_COMPLETION_HISTORY_SET_INVALID/u);
+  assert.deepEqual(transaction.preconditions?.map((entry) => entry.path), [
+    "INDEX.md", "task-contract.json", "closeout.md", "code-doc-anchors.json"
+  ]);
 });
 
 test("execution retirement closes only an active round and atomically appends its audit record", async () => {

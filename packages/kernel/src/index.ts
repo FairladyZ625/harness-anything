@@ -58,7 +58,6 @@ export {
 } from "./entity/declaration.ts";
 export type { DeclaredEntityDocumentPrecondition } from "./entity/declaration.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
-export { declaredDocumentSetSha256 } from "./integrity/document-set-hash.ts";
 export { computeExecutionConsentPin } from "./integrity/execution-consent-pin.ts";
 export {
   actorAxesBindingCoreDigestV2,

@@ -236,21 +236,19 @@ function setStatus(
     }
     if (input.status === "in_review" || input.status === "done") {
       return yield* Effect.fail({
-        _tag: "WriteRejected",
+        _tag: "InvalidTransition",
         taskId: input.taskId,
-        code: input.status === "in_review" ? "execution_submission_required" : "execution_completion_required",
-        reason: input.status === "in_review"
-          ? "Task review state is written only by an Execution submit-for-review transaction."
-          : "Task done state is written only by an Execution completion transaction."
-      } satisfies WriteError);
+        from: index.status,
+        to: input.status
+      } satisfies EngineError);
     }
     if (index.status === "in_review") {
       return yield* Effect.fail({
-        _tag: "WriteRejected",
+        _tag: "InvalidTransition",
         taskId: input.taskId,
-        code: "execution_review_required",
-        reason: "A Task in review can leave that state only through an execution-scoped Review transaction."
-      } satisfies WriteError);
+        from: index.status,
+        to: input.status
+      } satisfies EngineError);
     }
     if (!explainStatusTransition(index.status, input.status).allowed) {
       return yield* Effect.fail({
@@ -332,7 +330,7 @@ function replaceTaskDocument(
 function writeCodeDocReconciliation(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
-  input: { readonly taskId: string; readonly body: string; readonly historyDocumentSetSha256: string }
+  input: { readonly taskId: string; readonly body: string }
 ): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
@@ -341,8 +339,7 @@ function writeCodeDocReconciliation(
       kind: "code_doc_reconcile",
       payload: {
         path: "code-doc-anchors.json",
-        body: input.body,
-        historyDocumentSetSha256: input.historyDocumentSetSha256
+        body: input.body
       }
     });
     return { taskId: input.taskId, path: "code-doc-anchors.json" } satisfies LocalProgressResult;

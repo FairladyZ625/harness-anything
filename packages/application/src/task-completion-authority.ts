@@ -1,7 +1,6 @@
 import { Effect, Schema } from "effect";
 import {
   decodeEntityDeclaration,
-  declaredDocumentSetSha256,
   jsonEntityDocumentCodec,
   projectDeclaredEntities,
   readDeclaredProjectionRows,
@@ -37,7 +36,7 @@ const CompletionEvidenceSchema = Schema.Struct({
       executor: Schema.NullOr(Schema.Struct({ kind: Schema.Literal("agent"), id: NonBlank }))
     }),
     sessionRef: NonBlank,
-    rationale: NonBlank,
+    rationale: Schema.String,
     judgedAt: NonBlank
   }),
   gateReceipt: Schema.Struct({
@@ -112,13 +111,9 @@ export type TaskCompletionEvidenceMode = "execution-review" | "commit-anchor";
 export interface TaskCompletionAuthorityIssue {
   readonly code:
     | ExecutionCompletionReadinessIssue["code"]
-    | "completion_evidence_mode_invalid"
-    | "commit_completion_execution_history_present"
     | "commit_completion_anchor_missing"
     | "commit_completion_git_ref_missing"
-    | "commit_completion_non_commit_object"
-    | "commit_completion_judgment_required"
-    | "commit_completion_evidence_exists";
+    | "commit_completion_non_commit_object";
   readonly message: string;
   readonly nextCommand?: string;
 }
@@ -170,34 +165,7 @@ export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityIn
   }
 
   const issues: TaskCompletionAuthorityIssue[] = [];
-  const history = input.documents.filter((document) =>
-    /^executions\/[^/]+\.md$/u.test(document.path) || /^reviews\/[^/]+\.md$/u.test(document.path)
-  );
-  if (history.length > 0) {
-    issues.push({
-      code: "commit_completion_execution_history_present",
-      message: `Commit-anchor completion requires zero Execution and typed Review documents; found ${history.length}: ${history.map((document) => document.path).join(", ")}.`
-    });
-  }
-  if (input.documents.some((document) => document.path === TASK_COMPLETION_EVIDENCE_DOCUMENT)) {
-    issues.push({
-      code: "commit_completion_evidence_exists",
-      message: `${TASK_COMPLETION_EVIDENCE_DOCUMENT} already exists and is immutable.`
-    });
-  }
-  if (["done", "cancelled"].includes(input.status)) {
-    issues.push({
-      code: "completion_evidence_mode_invalid",
-      message: `Commit-anchor completion cannot complete a terminal task in status ${input.status}.`
-    });
-  }
   const rationale = input.judgment?.trim() ?? "";
-  if (!rationale) {
-    issues.push({
-      code: "commit_completion_judgment_required",
-      message: "Commit-anchor completion requires a non-blank judgment explaining why the commit completes the task."
-    });
-  }
   if (!input.commitRef?.trim()) {
     issues.push({ code: "commit_completion_anchor_missing", message: "Commit-anchor completion requires --commit-anchor." });
   }
@@ -218,17 +186,8 @@ export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityIn
   }
 
   const codeDoc = input.documents.find((document) => document.path === "code-doc-anchors.json");
-  const anchored = codeDoc ? matchingCodeDocRecords(codeDoc.body, input.taskId, commit.sha) : null;
-  if (!codeDoc || !anchored || anchored.length === 0) {
-    return {
-      ok: false,
-      evidenceMode: "commit-anchor",
-      issues: [{
-        code: "commit_completion_anchor_missing",
-        message: `code-doc-anchors.json must bind at least one task ledger record to workspace commit ${commit.sha} with a commit or path anchor.`
-      }]
-    };
-  }
+  const anchored = codeDoc ? matchingCodeDocRecords(codeDoc.body, input.taskId, commit.sha) ?? [] : [];
+  const codeDocBody = codeDoc?.body ?? "";
 
   const evidence: TaskCompletionEvidence = {
     schema: "task-completion-evidence/v1",
@@ -238,7 +197,7 @@ export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityIn
       sha: commit.sha,
       repository: "workspace",
       codeDocRecordIds: [...anchored],
-      codeDocDocumentSha256: `sha256:${sha256Text(codeDoc.body)}`
+      codeDocDocumentSha256: `sha256:${sha256Text(codeDocBody)}`
     },
     judgment: {
       actor: {
@@ -345,12 +304,6 @@ function completionEvidencePreconditions(
       const document = documents.find((candidate) => candidate.path === documentPath);
       return { taskId, path: documentPath, bodySha256: document ? sha256Text(document.body) : null };
     }),
-    {
-      taskId,
-      pathPrefixes: ["executions/", "reviews/"],
-      documentSetSha256: declaredDocumentSetSha256(documents, ["executions/", "reviews/"])
-    },
-    { taskId, path: TASK_COMPLETION_EVIDENCE_DOCUMENT, bodySha256: null }
   ];
 }
 

@@ -42,10 +42,7 @@ for (const status of ["in_review", "done"] as const) {
 
       const failure = Effect.runSync(Effect.flip(engine.setStatus({ taskId: executionTaskId, status })));
 
-      assert.equal(failure._tag, "WriteRejected");
-      if (failure._tag === "WriteRejected") {
-        assert.equal(failure.code, status === "in_review" ? "execution_submission_required" : "execution_completion_required");
-      }
+      assert.equal(failure._tag, "InvalidTransition");
       assert.equal(enqueued.length, 0);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
@@ -62,8 +59,7 @@ test("generic local status writer rejects exits from in_review outside the Execu
 
     for (const status of ["active", "blocked"] as const) {
       const failure = Effect.runSync(Effect.flip(engine.setStatus({ taskId: executionTaskId, status })));
-      assert.equal(failure._tag, "WriteRejected");
-      if (failure._tag === "WriteRejected") assert.equal(failure.code, "execution_review_required");
+      assert.equal(failure._tag, "InvalidTransition");
     }
     assert.equal(enqueued.length, 0);
   } finally {

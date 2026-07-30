@@ -172,7 +172,7 @@ test("local controller service reads projection and writes through injected task
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "in_review" }), {
       ok: false,
       error: {
-        code: "execution_submission_required",
+        code: "invalid_transition",
         hint: "Task review state is created only by an Execution submit-for-review transaction."
       }
     });

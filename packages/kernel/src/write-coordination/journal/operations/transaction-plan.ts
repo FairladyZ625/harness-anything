@@ -12,7 +12,7 @@ import { taskIdForWriteOp } from "./entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "../durable.ts";
 import { rejectTaskWrite, rejectWrite } from "../rejection.ts";
 import { resolveContentAddressedBlobPath } from "../../../persistence/blob/content-addressed-blob-store.ts";
-import { assertCodeDocHistoryDocumentSetPrecondition, assertReservedCodeDocWrite } from "./code-doc-policy.ts";
+import { assertReservedCodeDocWrite } from "./code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
 import {
   prepareRetiredAttributionFieldCleanup,
@@ -358,20 +358,6 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     && op.payload && typeof op.payload === "object" && "preconditions" in op.payload
     ? declaredEntityPreconditions(op.payload as never)
     : [];
-  if (op.kind === "code_doc_reconcile") {
-    return {
-      touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
-      documentWrites: () => [write],
-      apply: (rootInput) => {
-        assertCodeDocHistoryDocumentSetPrecondition(rootInput, op);
-        writeDocument(rootInput, write);
-        return write;
-      },
-      validate: (rootInput) => {
-        assertCodeDocHistoryDocumentSetPrecondition(rootInput, op);
-      }
-    };
-  }
   return {
     touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
     documentWrites: () => [write],
@@ -404,7 +390,7 @@ function forceAuditProgressWrite(rootInput: HarnessLayoutInput, indexWrite: Docu
 
 export function validateWriteTransaction(rootInput: HarnessLayoutInput, op: WriteOp): void {
   const plan = writeTransactionPlan(op);
-  assertReservedCodeDocWrite(op, plan.reservedDocumentWrites?.(rootInput) ?? plan.documentWrites());
+  assertReservedCodeDocWrite(op, documentWritesForWriteValidation(rootInput, op));
   plan.validate(rootInput);
 }
 
@@ -418,6 +404,14 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
+}
+
+export function documentWritesForWriteValidation(
+  rootInput: HarnessLayoutInput,
+  op: WriteOp
+): ReadonlyArray<DocumentWrite> {
+  const plan = writeTransactionPlan(op);
+  return plan.reservedDocumentWrites?.(rootInput) ?? plan.documentWrites();
 }
 
 function optionalWrite(write: DocumentWrite | null): ReadonlyArray<DocumentWrite> {

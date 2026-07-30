@@ -4,7 +4,6 @@ import {
   type TaskCompletionEvidence
 } from "../../src/index.ts";
 import {
-  declaredDocumentSetSha256,
   sha256Text,
   stablePayloadHash,
   writeDeclaredEntityTransaction
@@ -55,13 +54,5 @@ await runEffect(writeDeclaredEntityTransaction(
   { taskId },
   evidence,
   [{ taskId, path: "INDEX.md", body: completedIndex }],
-  [
-    { taskId, path: "completion-evidence.json", bodySha256: null },
-    { taskId, path: "INDEX.md", bodySha256: sha256Text(currentIndex) },
-    {
-      taskId,
-      pathPrefixes: ["executions/", "reviews/"],
-      documentSetSha256: declaredDocumentSetSha256([], ["executions/", "reviews/"])
-    }
-  ]
+  [{ taskId, path: "INDEX.md", bodySha256: sha256Text(currentIndex) }]
 ));

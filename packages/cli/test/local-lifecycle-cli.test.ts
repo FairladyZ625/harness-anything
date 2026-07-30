@@ -132,7 +132,7 @@ test("CLI never lets forced done bypass Execution completion and keeps audited c
 
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
-    assert.equal(invalidForce.error?.code, "execution_completion_required");
+    assert.equal(invalidForce.error?.code, "terminal_status_requires_task_complete");
     assert.match(invalidForce.error?.hint ?? "", /Execution.*approved Review.*task-complete/iu);
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
@@ -153,7 +153,7 @@ test("CLI never lets forced done bypass Execution completion and keeps audited c
 
     const forcedDone = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "fixture recovery"], false);
     assert.equal(forcedDone.ok, false);
-    assert.equal(forcedDone.error?.code, "execution_completion_required");
+    assert.equal(forcedDone.error?.code, "terminal_status_requires_task_complete");
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     const forced = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force", "--reason", "fixture recovery"]);

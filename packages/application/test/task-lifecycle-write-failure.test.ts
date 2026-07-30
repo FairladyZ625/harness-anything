@@ -122,7 +122,7 @@ test("setTaskStatus rejects a generic in_review transition without an Execution 
 
   assert.equal(result.ok, false);
   if (!result.ok) {
-    assert.equal(result.error.code, "execution_submission_required");
+    assert.equal(result.error.code, "invalid_transition");
     assert.match(result.error.hint, /Execution.*submit/iu);
   }
   assert.equal(statusWriteCount, 0);
@@ -156,7 +156,7 @@ test("setTaskStatus rejects a generic exit from in_review without an Execution R
   for (const status of ["active", "blocked"] as const) {
     const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status }));
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "execution_review_required");
+    if (!result.ok) assert.equal(result.error.code, "invalid_transition");
   }
   assert.equal(statusWriteCount, 0);
 });
@@ -261,7 +261,7 @@ test("a valid legacy review cannot complete a task without a submitted Execution
       }
     }));
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "execution_completion_required");
+    if (!result.ok) assert.equal(result.error.code, "completion_gate_failed");
     assert.equal(statusWriteCount, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
