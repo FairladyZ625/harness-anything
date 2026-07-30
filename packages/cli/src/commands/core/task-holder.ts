@@ -1,8 +1,5 @@
 import { Effect } from "effect";
-import {
-  readTaskLifecyclePolicy,
-  type TaskHolderPrincipal
-} from "@harness-anything/application";
+import { readTaskLifecyclePolicy, type TaskHolderPrincipal } from "@harness-anything/application";
 import type { WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
@@ -11,7 +8,7 @@ import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-regis
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { preflightActiveStatusSet } from "./task-active-transition.ts";
 import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
-import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
+import { canonicalTaskStartResult, resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
@@ -33,7 +30,7 @@ function runExecutionClaim(
           taskId: action.taskId,
           error: cliError(
             CliErrorCode.WriteRejected,
-            `Task ${action.taskId} is planned but already has an authored active Execution from a legacy split claim. Repair the lifecycle state before retrying; this command will not create or renew another lease.`
+            `Task ${action.taskId} has an incomplete pre-CH2 publication: its authored Execution is active while the Task is still planned. Repair the lifecycle state before retrying; task start will not create or renew another lease.`
           )
         } satisfies CliResult;
       }
@@ -89,7 +86,7 @@ export function runExecutionSubmit(
         ok: false,
         command: "status-set",
         taskId: action.taskId,
-        error: cliError(CliErrorCode.WriteRejected, `Execution submit requires an active Holder V2 execution. Next: run \`ha task claim ${action.taskId}\`, then retry the same submit packet; use an explicit executionId only to select an existing active round.`)
+        error: cliError(CliErrorCode.WriteRejected, `Execution submit requires an active Holder V2 execution. Next: run \`ha task start ${action.taskId}\`, then retry the same submit packet; use an explicit executionId only to select an existing active round.`)
       } satisfies CliResult;
     }
     const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId, "status-set");
@@ -169,36 +166,37 @@ export function runTaskClaim(
 ): Effect.Effect<CliResult> {
   return Effect.gen(function* () {
     const principal = taskHolderPrincipal(context);
-    if (!principal.ok) return principal.result;
+    if (!principal.ok) return canonicalTaskStartResult(action.taskId, principal.result);
     const policy = yield* readTaskLifecyclePolicy(context.artifactStore, action.taskId);
     let activation: { readonly taskPlanBodySha256: string } | undefined;
     if (policy?.status === "planned") {
       const preflight = yield* preflightActiveStatusSet(context, action.taskId);
       if (!preflight.ok) {
-        return {
+        return canonicalTaskStartResult(action.taskId, {
           ...preflight.result,
           command: "task-claim",
           status: "planned"
-        };
+        }, "planned");
       }
       activation = { taskPlanBodySha256: preflight.taskPlanBodySha256 };
     }
     const claimed = yield* runExecutionClaim(context, action, principal.value, activation);
-    if (!claimed.ok || policy?.status === null || policy?.status === undefined) return claimed;
+    if (!claimed.ok) return canonicalTaskStartResult(action.taskId, claimed);
+    if (policy?.status === null || policy?.status === undefined) return canonicalTaskStartResult(action.taskId, claimed);
     if (policy.status === "planned" && claimed.executionId) {
-      return {
+      return canonicalTaskStartResult(action.taskId, {
         ...claimed,
         status: "active",
         report: {
           ...(claimed.report ?? {}),
           activation: { schema: "task-claim-activation/v1", status: "active" }
         }
-      };
+      });
     }
-    return {
+    return canonicalTaskStartResult(action.taskId, {
       ...claimed,
       status: policy.status
-    };
+    }, policy.status);
   });
 }
 

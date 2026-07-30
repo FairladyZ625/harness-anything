@@ -13,7 +13,7 @@ export function plannedTaskClaimGuidance(taskId: string): PlannedTaskClaimGuidan
   return {
     severity: "warning",
     code: "task_still_planned",
-    message: `Task ${taskId} remains planned after claim; move it to active before writing facts or closing out.`,
+    message: `Task ${taskId} remains planned because activation was not published; retry the canonical start path before writing facts or closing out.`,
     nextCommand
   };
 }
@@ -53,7 +53,7 @@ function lifecycleFacadeNextCommand(failure: CommandFailureReceipt, step: Parsed
   const failureHint = failure.error?.hint ?? "";
   if (step.action.kind === "status-set" && step.action.executionSubmission && isLeaseRequiredFailure(failure, failureHint)) {
     if (/current holder none; lease status none|lease status orphaned/iu.test(failureHint)) {
-      return joinLifecycleCommand("ha", "task", "claim", step.action.taskId, "--execution", step.action.executionSubmission.executionId && "--execution-id", step.action.executionSubmission.executionId);
+      return joinLifecycleCommand("ha", "task", "start", step.action.taskId, step.action.executionSubmission.executionId && "--execution-id", step.action.executionSubmission.executionId);
     }
     return joinLifecycleCommand("ha", "task", "holder", step.action.taskId);
   }
@@ -73,7 +73,7 @@ function isLeaseRequiredFailure(failure: CommandFailureReceipt, hint: string): b
 function renderLifecycleStep(command: ParsedCommand): string {
   const action = command.action;
   if (action.kind === "task-claim") {
-    return joinLifecycleCommand("ha", "task", "claim", action.taskId, "--execution", action.executionId && "--execution-id", action.executionId, action.ttlMs && "--ttl-ms", action.ttlMs);
+    return joinLifecycleCommand("ha", "task", "start", action.taskId, action.executionId && "--execution-id", action.executionId, action.ttlMs && "--ttl-ms", action.ttlMs);
   }
   if (action.kind === "status-set" && action.status === "active") return joinLifecycleCommand("ha", "task", "transition", action.taskId, "active");
   if (action.kind === "status-set" && action.executionSubmission) {

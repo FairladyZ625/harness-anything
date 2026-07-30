@@ -16,29 +16,7 @@ export async function runTaskStartFacade(command: ParsedCommand, dispatch: Dispa
   const startCommand = command as TaskStartCommand;
   const steps = taskStartFacadeSteps(startCommand);
   if (command.action.dryRun) return dryRun(startCommand, steps);
-  const receipts: CommandReceipt[] = [];
-  for (const step of steps) {
-    const receipt = await dispatch(step);
-    if (!receipt.ok) return guidedLifecycleFacadeFailure(receipt, receipts, step, "task-start");
-    receipts.push(receipt);
-  }
-  const claimData = lifecycleFacadeReceiptData(receipts[0]!);
-  const claimReport = lifecycleFacadeRecord(claimData.report);
-  return {
-    ok: true,
-    command: "task-start",
-    taskId: command.action.taskId,
-    executionId: text(claimData.executionId) ?? text(claimReport?.executionId),
-    status: "active",
-    report: {
-      schema: "task-start-result/v1",
-      executionId: text(claimData.executionId) ?? text(claimReport?.executionId),
-      leaseToken: text(claimReport?.leaseToken),
-      leaseExpiresAt: text(claimReport?.leaseExpiresAt),
-      reused: claimReport?.reused === true,
-      steps: receipts
-    }
-  } satisfies CliResult;
+  return dispatch(steps[0]!);
 }
 
 export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {

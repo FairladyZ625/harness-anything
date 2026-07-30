@@ -153,7 +153,7 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
     assert.equal(blockedWithoutExecution.ok, false);
     assert.equal(blockedWithoutExecution.error?.code, "execution_completion_required");
     assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
-    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task claim task-1[\s\S]+ha task transition task-1 in_review/u);
+    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task start task-1[\s\S]+ha task transition task-1 in_review/u);
     assert.equal(readFileSync(indexPath, "utf8"), before);
   });
 });
@@ -659,8 +659,8 @@ test("CLI claim reuses one active round and requires --execution-id when legacy 
 
     const ambiguous = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], false, testActorEnv);
     assert.equal(ambiguous.ok, false);
-    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task claim ${executionTaskId} --execution-id ${first.executionId}`, "u"));
-    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task claim ${executionTaskId} --execution-id ${duplicateActiveExecutionId}`, "u"));
+    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task start ${executionTaskId} --execution-id ${first.executionId}`, "u"));
+    assert.match(ambiguous.error?.hint ?? "", new RegExp(`ha task start ${executionTaskId} --execution-id ${duplicateActiveExecutionId}`, "u"));
 
     const selected = runJson(rootDir, [
       "task", "claim", executionTaskId, "--execution", "--execution-id", String(first.executionId)

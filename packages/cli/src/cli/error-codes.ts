@@ -391,7 +391,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.SupersedeConfirmRequired]: { category: "command", defaultHint: "Supersede confirmation is required." },
   [CliErrorCode.SupersedeTargetNotFound]: { category: "command", defaultHint: "Supersede target was not found." },
   [CliErrorCode.TaskAlreadyExists]: { category: "domain", defaultHint: "Task already exists." },
-  [CliErrorCode.TaskLeaseRequired]: { category: "domain", defaultHint: "Task lease is required. Run 'ha task claim <task-id>' before retrying." },
+  [CliErrorCode.TaskLeaseRequired]: { category: "domain", defaultHint: "Task lease is required. Run 'ha task start <task-id>' before retrying." },
   [CliErrorCode.TaskPlanPlaceholder]: { category: "command", defaultHint: "Task plan still contains template scaffold content." },
   [CliErrorCode.TaskTreeDirty]: { category: "command", defaultHint: "Task package has uncommitted changes." },
   [CliErrorCode.TaskNotFound]: { category: "domain", defaultHint: "Task was not found." },

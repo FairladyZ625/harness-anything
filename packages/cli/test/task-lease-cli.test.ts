@@ -28,13 +28,14 @@ test("workspace lease configuration rejects unclaimed writes and permits the cla
   withTempRoot((rootDir) => {
     writeHarnessLeaseEnforcement(rootDir, true);
     const created = runJson(rootDir, ["new-task", "--title", "Configured Lease"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const taskId = assertGeneratedTaskId(created.taskId);
 
     const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "unclaimed write"], false);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "task_lease_required");
     assert.match(rejected.error?.hint ?? "", /requires an active lease/u);
-    assert.match(rejected.error?.hint ?? "", new RegExp(`ha task claim ${taskId}`, "u"));
+    assert.match(rejected.error?.hint ?? "", new RegExp(`ha task start ${taskId}`, "u"));
 
     const claimed = runJson(rootDir, ["task", "claim", taskId]);
     assert.equal(claimed.ok, true);
@@ -47,6 +48,7 @@ test("configured writes recover the caller's orphaned lease but reject another p
   withTempRoot((rootDir) => {
     writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_zeyu", "Zeyu Li", true);
     const created = runJson(rootDir, ["new-task", "--title", "Recover Orphaned Lease"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const taskId = assertGeneratedTaskId(created.taskId);
 
     runJson(rootDir, ["task", "claim", taskId, "--ttl-ms", "60000"], true, {
@@ -107,6 +109,7 @@ test("explicit true environment override enables lease enforcement without confi
 test("task claim defaults to a 24 hour lease when no TTL setting is present", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Default Lease TTL"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const claimed = runJson(rootDir, ["task", "claim", created.taskId]);
 
     assert.equal(leaseDurationMs(claimed.report), 86_400_000);
@@ -130,6 +133,7 @@ test("task claim resolves YAML then environment TTL defaults while explicit --tt
       "    leaseTtlMs: 120000"
     ]);
     const created = runJson(rootDir, ["new-task", "--title", "Configured Lease TTL"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const fromYaml = runJson(rootDir, ["task", "claim", created.taskId]);
     assert.equal(leaseDurationMs(fromYaml.report), 120_000);
@@ -218,6 +222,7 @@ test("configured identity supplies principal while HARNESS_ACTOR supplies only a
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Configured Agent Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, {
       HARNESS_ACTOR: "agent:claude-code"
@@ -235,6 +240,7 @@ test("configured identity supports direct human claim through --actor", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Configured Human Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     const claimed = runJson(rootDir, ["--actor", "human:person_zeyu", "task", "claim", created.taskId], true, {
       HARNESS_ACTOR: ""
@@ -380,6 +386,8 @@ test("lease-enforced relation writes fail closed and persist after the related t
     writeHarnessLeaseEnforcement(rootDir, true);
     const source = runJson(rootDir, ["new-task", "--title", "Relation Source"]);
     const target = runJson(rootDir, ["new-task", "--title", "Relation Target"]);
+    writeSubstantiveTaskPlan(rootDir, source.packagePath);
+    writeSubstantiveTaskPlan(rootDir, target.packagePath);
 
     const taskRejected = runJson(rootDir, [
       "task", "relate", source.taskId, "depends-on", target.taskId,
@@ -425,6 +433,7 @@ test("an active Execution lease remains executor-bound across deprecated claim r
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Agent Handoff Claim"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
 
     runJson(rootDir, ["task", "claim", created.taskId], true, { HARNESS_ACTOR: "agent:codex" });
     const rejected = runJson(rootDir, ["task", "claim", created.taskId], false, {
@@ -572,11 +581,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       encoding: "utf8",
       env: childEnv
     });
-    const receipt = unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
-    if (args[0] === "new-task") {
-      writeSubstantiveTaskPlan(rootDir, String(receipt.packagePath));
-    }
-    return receipt;
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };

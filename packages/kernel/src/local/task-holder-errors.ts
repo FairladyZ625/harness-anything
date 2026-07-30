@@ -48,7 +48,7 @@ export class TaskLeaseRequiredError extends Error {
   readonly orphan: boolean;
 
   constructor(input: TaskHolderErrorInput) {
-    const claimCommand = `run 'ha task claim ${input.taskId}'`;
+    const claimCommand = `run 'ha task start ${input.taskId}'`;
     const next = input.holder
       ? `${claimCommand} if this is your lease; otherwise wait or contact the current holder`
       : `${claimCommand} before retrying`;
