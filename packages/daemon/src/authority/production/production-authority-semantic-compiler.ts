@@ -37,6 +37,9 @@ export function createProductionAuthoritySemanticCompiler(authoredRoot: string) 
     commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("execution.")),
     compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
   }, {
+    commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("completion.")),
+    compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
+  }, {
     commandNames: sessionExecutionReviewTypedCommandsV2.filter((command) => command.startsWith("review.")),
     compiler: makeSessionExecutionReviewSemanticCompilerV2({ state: semanticState })
   }, {

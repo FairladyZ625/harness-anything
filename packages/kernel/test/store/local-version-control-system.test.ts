@@ -17,6 +17,41 @@ test("local Git subprocesses stay hidden on Windows while preserving captured ou
   assert.deepEqual(options.stdio, ["ignore", "pipe", "pipe"]);
 });
 
+test("local Git subprocesses discard repository, object, ref, and indexed-config redirects", () => {
+  const redirects = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_QUARANTINE_PATH",
+    "GIT_DIR",
+    "GIT_COMMON_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_SUPER_PREFIX",
+    "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_GRAFT_FILE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0"
+  ];
+  const previous = new Map(redirects.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of redirects) process.env[key] = "redirected";
+    const environment = localGitProcessOptions().env ?? {};
+    for (const key of redirects) assert.equal(environment[key], undefined, key);
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("local Git execution preserves captured output and typed command errors", () => {
   const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-hidden-git-"));
   const nonRepoRoot = mkdtempSync(path.join(tmpdir(), "ha-hidden-git-error-"));
@@ -42,6 +77,89 @@ test("local Git execution preserves captured output and typed command errors", (
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
     rmSync(nonRepoRoot, { recursive: true, force: true });
+  }
+});
+
+test("commit resolution rejects a nested repository commit exposed through Git alternates", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-workspace-commit-"));
+  const privateRoot = path.join(workspaceRoot, "harness");
+  try {
+    fixtureGit(workspaceRoot, "init", "-b", "main");
+    fixtureGit(
+      workspaceRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "workspace"
+    );
+    mkdirSync(privateRoot, { recursive: true });
+    fixtureGit(privateRoot, "init", "-b", "main");
+    fixtureGit(
+      privateRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "private ledger"
+    );
+    const privateSha = fixtureGit(privateRoot, "rev-parse", "HEAD").trim();
+    const previousAlternates = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+    process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = path.join(privateRoot, ".git", "objects");
+    try {
+      const resolution = makeLocalVersionControlSystem().resolveCommit(workspaceRoot, privateSha);
+      assert.deepEqual(resolution, { ok: false, reason: "missing" });
+    } finally {
+      if (previousAlternates === undefined) delete process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+      else process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES = previousAlternates;
+    }
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("commit resolution accepts only commits reachable from the workspace HEAD", () => {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-workspace-reachable-"));
+  try {
+    fixtureGit(repoRoot, "init", "-b", "main");
+    fixtureGit(
+      repoRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "workspace"
+    );
+    const head = fixtureGit(repoRoot, "rev-parse", "HEAD").trim();
+    fixtureGit(repoRoot, "checkout", "-b", "unmerged");
+    fixtureGit(
+      repoRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "unmerged"
+    );
+    const unmerged = fixtureGit(repoRoot, "rev-parse", "HEAD").trim();
+    fixtureGit(repoRoot, "checkout", "main");
+    const vcs = makeLocalVersionControlSystem();
+
+    assert.deepEqual(vcs.resolveCommit(repoRoot, head), { ok: true, sha: head });
+    assert.deepEqual(vcs.resolveCommit(repoRoot, unmerged), { ok: false, reason: "missing" });
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("commit resolution treats option-shaped refs as object operands", () => {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-workspace-option-ref-"));
+  try {
+    fixtureGit(repoRoot, "init", "-b", "main");
+    fixtureGit(
+      repoRoot,
+      "-c", "user.name=Harness Test",
+      "-c", "user.email=harness@example.test",
+      "commit", "--allow-empty", "-m", "workspace"
+    );
+
+    assert.deepEqual(
+      makeLocalVersionControlSystem().resolveCommit(repoRoot, "--batch"),
+      { ok: false, reason: "missing" }
+    );
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
   }
 });
 

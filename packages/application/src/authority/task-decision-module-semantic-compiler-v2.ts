@@ -65,6 +65,10 @@ import {
   compileModuleUnregisterV2
 } from "./task-decision-module-module-mutations-v2.ts";
 import { taskCreateModuleReadDependencyV2 } from "./task-decision-module-task-create-module-selection-v2.ts";
+import {
+  assertTaskDocumentHistoryPreconditionV2,
+  assertTaskDocumentSurfaceV2
+} from "./task-document-admission-policy-v2.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -217,12 +221,16 @@ async function compileTaskDocument(
   payload: TaskDocumentPayloadV2
 ): Promise<CompiledTaskDecisionModuleCommandV2> {
   const documentPath = normalizeRelativeDocumentPath(payload.path);
-  assertTaskDocumentSurface(documentPath);
+  assertTaskDocumentSurfaceV2(documentPath);
+  const isCodeDoc = assertTaskDocumentHistoryPreconditionV2(documentPath, payload);
   const path = taskPath(payload.taskId, documentPath);
   const snapshot = await state.readHostedDocument(path);
-  return taskCompilation(payload.taskId, "document", documentPath === "code-doc-anchors.json" ? "code_doc_reconcile" : "doc_write", {
+  return taskCompilation(payload.taskId, "document", isCodeDoc ? "code_doc_reconcile" : "doc_write", {
     path: documentPath,
-    body: payload.body
+    body: payload.body,
+    ...(payload.historyDocumentSetSha256 === undefined
+      ? {}
+      : { historyDocumentSetSha256: payload.historyDocumentSetSha256 })
   }, [taskDecisionModuleEntityRef("task", `task/${payload.taskId}`)], snapshot ? [{ path, snapshot }] : []);
 }
 
@@ -519,13 +527,6 @@ function replaceTaskStatus(body: string, status: string): string {
   const matches = [...body.matchAll(/^  status:[ \t]*(.*)$/gmu)];
   if (matches.length !== 1) throw admission("TASK_INDEX_INVALID");
   return body.replace(/^  status:[ \t]*(.*)$/mu, `  status: ${status}`);
-}
-
-function assertTaskDocumentSurface(path: string): void {
-  if (path === "INDEX.md" || path === "progress.md" || path === "facts.md"
-    || path.startsWith("executions/") || path.startsWith("reviews/")) {
-    throw admission("TASK_DOCUMENT_SURFACE_OWNED_BY_TYPED_ACTION");
-  }
 }
 
 function decodeTaskDecisionModuleDecision(value: unknown): DecisionPackage {

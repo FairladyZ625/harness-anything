@@ -70,6 +70,28 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    resolveCommit: (repoRoot, ref) => {
+      let sha: string;
+      try {
+        sha = runGit(repoRoot, "rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`).trim();
+      } catch {
+        try {
+          const objectType = runGit(repoRoot, "cat-file", "-t", "--", ref).trim();
+          return objectType.length > 0
+            ? { ok: false, reason: "non-commit", objectType }
+            : { ok: false, reason: "missing" };
+        } catch {
+          return { ok: false, reason: "missing" };
+        }
+      }
+      if (!/^[0-9a-f]{40}$/u.test(sha)) return { ok: false, reason: "missing" };
+      try {
+        runGit(repoRoot, "merge-base", "--is-ancestor", sha, "HEAD");
+        return { ok: true, sha };
+      } catch {
+        return { ok: false, reason: "missing" };
+      }
+    },
     pathExistsAtCommit: (repoRoot, sha, relativePath) => {
       try {
         runGit(repoRoot, "cat-file", "-e", `${sha}:${relativePath}`);
@@ -320,13 +342,18 @@ function vcsCommandError(repoRoot: string, args: ReadonlyArray<string>, error: u
 }
 
 export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOptionsWithStringEncoding {
+  const env = { ...process.env };
+  for (const key of gitRepositoryRedirectEnvironmentKeys) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)) delete env[key];
+  }
   return {
     encoding: "utf8",
     maxBuffer: gitMaxBuffer,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     env: {
-      ...process.env,
+      ...env,
       ...(author ? {
         GIT_AUTHOR_NAME: author.name,
         GIT_AUTHOR_EMAIL: author.email,
@@ -336,6 +363,26 @@ export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOp
     }
   };
 }
+
+const gitRepositoryRedirectEnvironmentKeys = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_QUARANTINE_PATH",
+  "GIT_DIR",
+  "GIT_COMMON_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_NAMESPACE",
+  "GIT_PREFIX",
+  "GIT_SUPER_PREFIX",
+  "GIT_INTERNAL_SUPER_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_GRAFT_FILE",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT"
+] as const;
 
 function commandErrorCode(error: unknown): string | number | undefined {
   if (typeof error === "object" && error && "status" in error) {

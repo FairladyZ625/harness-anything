@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import type { EngineError, ProvenancePayload, TaskContractSnapshot, WriteError } from "@harness-anything/kernel";
 import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
 import { evaluateEntityDisposition } from "@harness-anything/kernel";
-import { stablePayloadHash } from "@harness-anything/kernel";
+import { stablePayloadHash, taskEntityId, writeCoordinatedPayload } from "@harness-anything/kernel";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import { createHarnessRuntimeContext, harnessRuntimeRoot, resolveGitMaxBufferBytes, taskPackagePath } from "@harness-anything/kernel";
 import type { WriteCoordinator } from "@harness-anything/kernel";
@@ -332,11 +332,19 @@ function replaceTaskDocument(
 function writeCodeDocReconciliation(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
-  input: { readonly taskId: string; readonly body: string }
+  input: { readonly taskId: string; readonly body: string; readonly historyDocumentSetSha256: string }
 ): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
-    yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "code-doc-anchors.json", input.body, { kind: "code_doc_reconcile" });
+    yield* writeCoordinatedPayload(coordinator, stablePayloadHash, {
+      entityId: taskEntityId(input.taskId),
+      kind: "code_doc_reconcile",
+      payload: {
+        path: "code-doc-anchors.json",
+        body: input.body,
+        historyDocumentSetSha256: input.historyDocumentSetSha256
+      }
+    });
     return { taskId: input.taskId, path: "code-doc-anchors.json" } satisfies LocalProgressResult;
   });
 }

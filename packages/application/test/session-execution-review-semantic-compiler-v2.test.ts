@@ -25,6 +25,7 @@ import {
 import {
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
+  declaredDocumentSetSha256,
   entityRegistry,
   executionDeclaration,
   sha256Text,
@@ -215,6 +216,71 @@ test("execution submit atomically transitions the task index to in_review", asyn
   assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
     { taskId, path: "INDEX.md", body: inReviewIndex }
   ]);
+});
+
+test("commit completion compiles one task transition with evidence, INDEX, and history-set CAS", async () => {
+  const taskRef = ref("task", `task/${taskId}`);
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const evidencePath = `tasks/${taskId}/completion-evidence.json`;
+  const contractPath = `tasks/${taskId}/task-contract.json`;
+  const closeoutPath = `tasks/${taskId}/closeout.md`;
+  const codeDocPath = `tasks/${taskId}/code-doc-anchors.json`;
+  const activeIndex = snapshot("---\n  status: active\n---\n");
+  const doneIndex = activeIndex.body.replace("status: active", "status: done");
+  const closeout = snapshot("# Closeout\n\nCompleted.\n");
+  const codeDoc = snapshot("{\"schema\":\"code-doc-reconciliation/v1\"}\n");
+  const emptyHistory = declaredDocumentSetSha256([], ["executions/", "reviews/"]);
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "completion.commit/v1",
+    taskId,
+    taskIndexBody: doneIndex,
+    completionContractBodySha256: null,
+    historyDocumentSetSha256: emptyHistory,
+    evidence: {
+      schema: "task-completion-evidence/v1",
+      taskId,
+      mode: "commit-anchor",
+      anchor: {
+        sha: "a".repeat(40), repository: "workspace", codeDocRecordIds: ["closeout"],
+        codeDocDocumentSha256: `sha256:${sha256Text(codeDoc.body)}`
+      },
+      judgment: {
+        actor: {
+          principal: { kind: "person", personId: "person_zeyu" },
+          executor: { kind: "agent", id: "codex" }
+        },
+        sessionRef: "session/commit-completion", rationale: "This commit satisfies the task.",
+        judgedAt: "2026-07-30T00:00:00.000Z"
+      },
+      gateReceipt: { applicableGates: ["ci"], ci: "passed", closeout: "passed", codeDoc: "passed" }
+    }
+  };
+  const state = authorityState(
+    new Map([[key(taskRef), base("task-v1")]]),
+    new Map([[taskPath, activeIndex], [closeoutPath, closeout], [codeDocPath, codeDoc]])
+  );
+  const pathCas = [
+    cas(taskPath, activeIndex), cas(evidencePath, absentDocument(evidencePath)),
+    cas(contractPath, absentDocument(contractPath)), cas(closeoutPath, closeout), cas(codeDocPath, codeDoc)
+  ];
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({ state }).compile(envelope(
+    payload, [present(taskRef, "task-v1")], pathCas
+  ));
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair), [`task/${taskId}:transition`]);
+  const transaction = compiled.operation.payload as {
+    readonly companionWrites?: ReadonlyArray<unknown>;
+    readonly preconditions?: ReadonlyArray<Record<string, unknown>>;
+  };
+  assert.deepEqual(transaction.companionWrites, [{ taskId, path: "INDEX.md", body: doneIndex }]);
+  assert.deepEqual(transaction.preconditions?.at(-1), {
+    taskId, pathPrefixes: ["executions/", "reviews/"], documentSetSha256: emptyHistory
+  });
+
+  await assert.rejects(makeSessionExecutionReviewSemanticCompilerV2({ state }).compile(envelope({
+    ...payload,
+    historyDocumentSetSha256: declaredDocumentSetSha256([{ path: `executions/${executionId}.md`, body: "history" }], ["executions/", "reviews/"])
+  }, [present(taskRef, "task-v1")], pathCas)), /COMMIT_COMPLETION_HISTORY_SET_INVALID/u);
 });
 
 test("execution retirement closes only an active round and atomically appends its audit record", async () => {
@@ -521,6 +587,11 @@ function operationDocument(payload: unknown): {
 
 function snapshot(body: string): HostedDocumentSnapshotV2 {
   return { body, epoch: "epoch-w4", revision: 7n, blobDigest: Buffer.alloc(32, 0x77) };
+}
+
+function absentDocument(documentPath: string): HostedDocumentSnapshotV2 {
+  const digest = sha256Text(`harness-absent-hosted-document/v1:${documentPath}`);
+  return { body: "", epoch: digest, revision: 0n, blobDigest: Buffer.from(digest, "hex") };
 }
 
 function base(semanticVersion: string): SemanticEntityBaseV2 {

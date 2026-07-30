@@ -87,6 +87,7 @@ export interface WriteTaskDocumentInput extends StageTaskDocumentInput {
 export interface WriteCodeDocReconciliationInput {
   readonly taskId: TaskId;
   readonly body: string;
+  readonly historyDocumentSetSha256: string;
 }
 
 export interface TaskReasonInput {

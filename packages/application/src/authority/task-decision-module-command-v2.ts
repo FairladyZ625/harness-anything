@@ -19,6 +19,39 @@ import {
   taskDecisionModuleText,
   taskDecisionModuleTextList as textList
 } from "./task-decision-module-payload-values-v2.ts";
+import type {
+  DecisionRelationPayloadV2,
+  DecisionStateTransitionV2,
+  ModuleRecordV2,
+  ModuleStepPayloadV2,
+  TaskCreatePayloadV2,
+  TaskDecisionModuleCommandPayloadV2,
+  TaskSupersedePayloadV2
+} from "./task-decision-module-command-payload-v2.ts";
+export type {
+  DecisionAmendPayloadV2,
+  DecisionProposePayloadV2,
+  DecisionRelationPayloadV2,
+  DecisionRelationReplacePayloadV2,
+  DecisionRelationRetirePayloadV2,
+  DecisionStatePayloadV2,
+  DecisionStateTransitionV2,
+  ModuleRecordV2,
+  ModuleRegisterPayloadV2,
+  ModuleStepPayloadV2,
+  ModuleUnregisterPayloadV2,
+  TaskAmendPayloadV2,
+  TaskAppendPayloadV2,
+  TaskArchivePayloadV2,
+  TaskCreatePayloadV2,
+  TaskDecisionModuleCommandPayloadV2,
+  TaskDeletePayloadV2,
+  TaskDocumentPayloadV2,
+  TaskRelatePayloadV2,
+  TaskReopenPayloadV2,
+  TaskSupersedePayloadV2,
+  TaskTransitionPayloadV2
+} from "./task-decision-module-command-payload-v2.ts";
 
 export const taskDecisionModuleTypedCommandsV2 = [
   "task.create",
@@ -43,181 +76,6 @@ export const taskDecisionModuleTypedCommandsV2 = [
 ] as const;
 
 export type TaskDecisionModuleTypedCommandV2 = (typeof taskDecisionModuleTypedCommandsV2)[number];
-
-export interface TaskCreatePayloadV2 {
-  readonly schema: "task.create/v1";
-  readonly taskId: string;
-  readonly packageSlug?: string;
-  readonly indexBody: string;
-  readonly writes?: ReadonlyArray<{
-    readonly path: string;
-    readonly body: string;
-    readonly packageSlug?: string;
-  }>;
-}
-
-export interface TaskTransitionPayloadV2 {
-  readonly schema: "task.transition/v1";
-  readonly taskId: string;
-  readonly to: string;
-  readonly auditText?: string;
-}
-
-export interface TaskAppendPayloadV2 {
-  readonly schema: "task.append/v1";
-  readonly taskId: string;
-  readonly text: string;
-}
-
-export interface TaskDocumentPayloadV2 {
-  readonly schema: "task.document/v1";
-  readonly taskId: string;
-  readonly path: string;
-  readonly body: string;
-}
-
-export interface TaskAmendPayloadV2 {
-  readonly schema: "task.amend/v1";
-  readonly taskId: string;
-  readonly fields: ReadonlyArray<string>;
-  readonly body: string;
-}
-
-export interface TaskArchivePayloadV2 {
-  readonly schema: "task.archive/v1";
-  readonly taskId: string;
-  readonly reason: string;
-  readonly body: string;
-}
-
-export interface TaskSupersedePayloadV2 {
-  readonly schema: "task.supersede/v1";
-  readonly taskId: string;
-  readonly body?: string;
-  readonly replacementTaskId?: string;
-  readonly writes?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string; readonly packageSlug?: string }>;
-}
-
-export interface TaskDeletePayloadV2 {
-  readonly schema: "task.delete/v1";
-  readonly taskId: string;
-  readonly mode: "soft";
-  readonly reason: string;
-  readonly body: string;
-}
-
-export interface TaskReopenPayloadV2 {
-  readonly schema: "task.reopen/v1";
-  readonly taskId: string;
-  readonly reason: string;
-  readonly body: string;
-}
-
-export interface TaskRelatePayloadV2 {
-  readonly schema: "task.relate/v1";
-  readonly taskId: string;
-  readonly targetTaskId: string;
-  readonly relation: EntityRelationRecord;
-  readonly body: string;
-}
-
-export interface DecisionProposePayloadV2 {
-  readonly schema: "decision.propose/v1";
-  readonly decision: DecisionPackage;
-  readonly body?: string;
-}
-
-export type DecisionStateTransitionV2 = "accept" | "reject" | "defer" | "supersede" | "retire";
-
-export interface DecisionStatePayloadV2 {
-  readonly schema: "decision.state/v1";
-  readonly transition: DecisionStateTransitionV2;
-  readonly decision: DecisionPackage;
-  readonly body?: string;
-}
-
-export interface DecisionAmendPayloadV2 {
-  readonly schema: "decision.amend/v1";
-  readonly decision: DecisionPackage;
-  readonly body?: string;
-}
-
-export interface DecisionRelationPayloadV2 {
-  readonly schema: "decision.relation/v1";
-  readonly decisionId: string;
-  readonly relation: EntityRelationRecord;
-  readonly taskWrites?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
-}
-
-export interface DecisionRelationRetirePayloadV2 {
-  readonly schema: "decision.relation-retire/v1";
-  readonly decisionId: string;
-  readonly relationId: string;
-  readonly decision: DecisionPackage;
-  readonly body?: string;
-}
-
-export interface DecisionRelationReplacePayloadV2 {
-  readonly schema: "decision.relation-replace/v1";
-  readonly decisionId: string;
-  readonly relationId: string;
-  readonly replacement: EntityRelationRecord;
-  readonly decision: DecisionPackage;
-  readonly taskWrites?: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly body: string }>;
-  readonly body?: string;
-}
-
-export interface ModuleRecordV2 {
-  readonly key: string;
-  readonly title: string;
-  readonly prefix?: string;
-  readonly status: string;
-  readonly branch?: string;
-  readonly owner?: string;
-  readonly currentStep?: string;
-  readonly scopes: ReadonlyArray<string>;
-  readonly shared?: ReadonlyArray<string>;
-  readonly dependsOn?: ReadonlyArray<string>;
-  readonly steps: ReadonlyArray<{ readonly id: string; readonly state: string }>;
-}
-
-export interface ModuleRegisterPayloadV2 {
-  readonly schema: "module.register/v1";
-  readonly module: ModuleRecordV2;
-}
-
-export interface ModuleUnregisterPayloadV2 {
-  readonly schema: "module.unregister/v1";
-  readonly moduleKey: string;
-}
-
-export interface ModuleStepPayloadV2 {
-  readonly schema: "module.step/v1";
-  readonly moduleKey: string;
-  readonly stepId: string;
-  readonly state: "planned" | "in-progress" | "blocked" | "done";
-}
-
-export type TaskDecisionModuleCommandPayloadV2 =
-  | TaskCreatePayloadV2
-  | TaskTransitionPayloadV2
-  | TaskAppendPayloadV2
-  | TaskDocumentPayloadV2
-  | TaskAmendPayloadV2
-  | TaskArchivePayloadV2
-  | TaskSupersedePayloadV2
-  | TaskDeletePayloadV2
-  | TaskReopenPayloadV2
-  | TaskRelatePayloadV2
-  | DecisionProposePayloadV2
-  | DecisionStatePayloadV2
-  | DecisionAmendPayloadV2
-  | DecisionRelationPayloadV2
-  | DecisionRelationRetirePayloadV2
-  | DecisionRelationReplacePayloadV2
-  | ModuleRegisterPayloadV2
-  | ModuleUnregisterPayloadV2
-  | ModuleStepPayloadV2;
 
 export function decodeTaskDecisionModuleCommandPayloadV2(envelope: SemanticMutationEnvelopeV2): {
   readonly payload: TaskDecisionModuleCommandPayloadV2;
@@ -281,8 +139,16 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), text: taskDecisionModuleNonBlank(row.text) };
     }
     case "task.document/v1": {
-      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body"]);
-      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), path: taskDecisionModuleText(row.path), body: semanticStringValueV2(row.body) };
+      const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body", "historyDocumentSetSha256"], false, ["historyDocumentSetSha256"]);
+      return {
+        schema: discriminator.schema,
+        taskId: taskDecisionModuleText(row.taskId),
+        path: taskDecisionModuleText(row.path),
+        body: semanticStringValueV2(row.body),
+        ...(row.historyDocumentSetSha256 === undefined
+          ? {}
+          : { historyDocumentSetSha256: taskDecisionModuleText(row.historyDocumentSetSha256) })
+      };
     }
     case "task.amend/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "fields", "body"]);
@@ -400,7 +266,15 @@ function canonicalTaskDecisionModulePayloadWire(payload: TaskDecisionModuleComma
     case "task.append/v1":
       return { schema: payload.schema, taskId: payload.taskId, text: payload.text };
     case "task.document/v1":
-      return { schema: payload.schema, taskId: payload.taskId, path: payload.path, body: payload.body };
+      return {
+        schema: payload.schema,
+        taskId: payload.taskId,
+        path: payload.path,
+        body: payload.body,
+        ...(payload.historyDocumentSetSha256 === undefined
+          ? {}
+          : { historyDocumentSetSha256: payload.historyDocumentSetSha256 })
+      };
     case "task.amend/v1":
       return { schema: payload.schema, taskId: payload.taskId, fields: [...payload.fields], body: payload.body };
     case "task.archive/v1":

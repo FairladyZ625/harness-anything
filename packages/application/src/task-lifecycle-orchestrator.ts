@@ -8,10 +8,15 @@ import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-co
 import { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
-import type { ExecutionCompletionReadiness, ExecutionCompletionService } from "./execution-completion-service.ts";
+import type { ExecutionCompletionService } from "./execution-completion-service.ts";
+import { evaluateTaskCompletionAuthority, type CommitCompletionService, type TaskCompletionEvidence, type TaskCompletionEvidenceMode } from "./task-completion-authority.ts";
+import { completeTaskWithCommitEvidence } from "./commit-completion-orchestrator.ts";
+import { readTaskDocument, taskFailure, terminalStatusFailure } from "./task-lifecycle-orchestrator-helpers.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 
-type CompletionGateResult = ReturnType<typeof evaluateCompletionGate>;
+type CompletionGateResult = ReturnType<typeof evaluateCompletionGate> & {
+  readonly evidenceMode?: TaskCompletionEvidenceMode;
+};
 
 export interface TaskLifecycleStatusWriteResult {
   readonly taskId: string;
@@ -43,9 +48,10 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly taskWriter: TaskLifecycleWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
-  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit">;
+  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit" | "resolveCommit">;
   readonly now?: () => string;
   readonly executionCompletionService?: ExecutionCompletionService;
+  readonly commitCompletionService?: CommitCompletionService;
   readonly completionGateResolver?: (input: {
     readonly vertical?: string;
     readonly preset?: string;
@@ -76,6 +82,7 @@ export interface TaskLifecycleSuccess {
   readonly reviewContract?: VerifierBackedReviewContract;
   readonly completionGate?: CompletionGateResult;
   readonly executionId?: string;
+  readonly completionEvidence?: TaskCompletionEvidence;
 }
 
 export type TaskLifecycleResult = TaskLifecycleSuccess | TaskLifecycleFailure;
@@ -84,7 +91,16 @@ export interface TaskLifecycleOrchestrator {
   readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
   readonly startTaskReview: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleResult>;
   readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
-  readonly completeTask: (payload: { readonly taskId: string; readonly reviewerId: string; readonly ciGate?: CompletionCiGateStatus; readonly actor?: TaskHolderPrincipal }) => Effect.Effect<TaskLifecycleResult>;
+  readonly completeTask: (payload: {
+    readonly taskId: string;
+    readonly reviewerId: string;
+    readonly ciGate?: CompletionCiGateStatus;
+    readonly actor?: TaskHolderPrincipal;
+    readonly evidenceMode?: TaskCompletionEvidenceMode;
+    readonly commitRef?: string;
+    readonly judgment?: string;
+    readonly sessionRef?: string;
+  }) => Effect.Effect<TaskLifecycleResult>;
 }
 
 export interface TaskLifecyclePolicy {
@@ -150,7 +166,10 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       return { ok: true, taskId: payload.taskId, path: staged.path, report: review.report, reviewContract: review.reviewContract };
     }),
     completeTask: (payload) => Effect.gen(function* () {
-      if (!options.executionCompletionService || !payload.actor) {
+      const evidenceMode = payload.evidenceMode ?? "execution-review";
+      if (!payload.actor
+        || (evidenceMode === "execution-review" && !options.executionCompletionService)
+        || (evidenceMode === "commit-anchor" && !options.commitCompletionService)) {
         return taskFailure(
           payload.taskId,
           "execution_completion_required",
@@ -207,24 +226,36 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         );
       }
 
+      const closeoutBody = taskPackage.documents.find((document) => document.path === "closeout.md")?.body;
+      const closeoutReadiness = evidenceMode === "commit-anchor"
+        ? closeoutBody && !documentPlaceholder ? "ready" : "missing"
+        : row.closeoutReadiness;
       const completionGate = evaluateCompletionGate({
         taskId: payload.taskId,
         coordinationStatus: row.coordinationStatus,
         packageDisposition: row.packageDisposition,
-        closeoutReadiness: row.closeoutReadiness,
+        closeoutReadiness,
         reviewGate: "passed",
         ciGate: payload.ciGate,
         applicableGates: completionGates.gates
       });
-      let executionReadiness: ExecutionCompletionReadiness = { ok: true, issues: [] };
+      let completionAuthority;
       try {
-        executionReadiness = options.executionCompletionService.inspectTaskExecutionCompletion
-          ? options.executionCompletionService.inspectTaskExecutionCompletion({
-            taskId: payload.taskId,
-            actor: payload.actor,
-            documents: taskPackage.documents
-          })
-          : executionReadiness;
+        completionAuthority = evaluateTaskCompletionAuthority({
+          taskId: payload.taskId,
+          mode: evidenceMode,
+          status: row.coordinationStatus,
+          documents: taskPackage.documents,
+          actor: payload.actor,
+          sessionRef: payload.sessionRef ?? "session/unavailable",
+          judgedAt: options.now ? options.now() : new Date().toISOString(),
+          applicableGates: completionGates.gates,
+          ciGate: payload.ciGate,
+          commitRef: payload.commitRef,
+          judgment: payload.judgment,
+          rootDir: options.rootDir,
+          versionControlSystem: options.codeDocVersionControlSystem
+        });
       } catch (error) {
         return taskFailure(payload.taskId, "write_rejected", error instanceof Error ? error.message : String(error));
       }
@@ -234,7 +265,9 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         documentPlaceholder,
         codeDocReconciliation,
         completionGate,
-        executionReadiness
+        completionAuthority: completionAuthority.ok
+          ? { executionId: completionAuthority.evidenceMode === "execution-review" ? completionAuthority.executionId : undefined, issues: [] }
+          : { issues: completionAuthority.issues }
       });
       if (requirementIssues.length > 0) {
         if (requirementIssues.every((issue) => isExecutionCompletionRequirement(issue.code))) {
@@ -246,6 +279,23 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
 
       const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);
       if (taskTreeFailure) return taskTreeFailure;
+      if (evidenceMode === "commit-anchor") {
+        return yield* completeTaskWithCommitEvidence(options.commitCompletionService!, {
+          taskId: payload.taskId,
+          mode: "commit-anchor",
+          status: row.coordinationStatus,
+          documents: taskPackage.documents,
+          actor: payload.actor!,
+          sessionRef: payload.sessionRef ?? "session/unavailable",
+          judgedAt: options.now ? options.now() : new Date().toISOString(),
+          applicableGates: completionGates.gates,
+          ciGate: payload.ciGate,
+          commitRef: payload.commitRef,
+          judgment: payload.judgment,
+          rootDir: options.rootDir
+        }, completionGate);
+      }
+
       const completion = yield* Effect.tryPromise({
         try: () => options.executionCompletionService!.completeTaskExecution({
           taskId: payload.taskId,
@@ -272,7 +322,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         taskId: payload.taskId,
         executionId: completion.result.executionId,
         status: "done",
-        completionGate
+        completionGate: { ...completionGate, evidenceMode: "execution-review" }
       } satisfies TaskLifecycleResult;
     })
   };
@@ -446,27 +496,6 @@ function reviewTask(
 
     return { ok: true, taskId, report: gate, reviewContract: gate.contract };
   });
-}
-
-function readTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, documentPath: string): Effect.Effect<string | null> {
-  return artifactStore.readTaskPackage(taskId as TaskId).pipe(
-    Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === documentPath)?.body ?? null),
-    Effect.catchAll(() => Effect.succeed(null))
-  );
-}
-
-function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecycleFailure {
-  return taskFailure(
-    taskId,
-    "terminal_status_requires_task_complete",
-    status === "done"
-      ? "Use task-complete after review, CI, and closeout gates pass."
-      : "Terminal cancellation requires an audited recovery path."
-  );
-}
-
-function taskFailure(taskId: string, code: string, hint: string): TaskLifecycleFailure {
-  return { ok: false, taskId, error: { code, hint } };
 }
 
 function taskTreeDirtyFailure(

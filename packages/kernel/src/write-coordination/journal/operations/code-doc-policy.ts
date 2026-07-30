@@ -5,8 +5,10 @@ import { normalizeRelativeDocumentPath } from "../../../layout/index.ts";
 import { makeCodeDocGitEvidenceResolver } from "../../../git/code-doc-git-evidence.ts";
 import { rejectWrite } from "../rejection.ts";
 import { taskIdForWriteOp } from "./entity.ts";
+import { assertTaskDocumentSetPrecondition } from "./declared-entity-preconditions.ts";
 
 export const CODE_DOC_RECONCILIATION_PATH = "code-doc-anchors.json";
+export const TASK_COMPLETION_EVIDENCE_PATH = "completion-evidence.json";
 
 interface CodeDocAnchor {
   readonly kind: "commit" | "path" | "pr";
@@ -35,15 +37,48 @@ export function assertReservedCodeDocWrite(
   const stagedPath = op.kind === "doc_stage" ? payloadPath(op) : undefined;
   const reservedWrites = writes.filter((write) => normalizedPath(write.path, op) === CODE_DOC_RECONCILIATION_PATH);
   const stagesReservedPath = stagedPath !== undefined && normalizedPath(stagedPath, op) === CODE_DOC_RECONCILIATION_PATH;
+  const writesCompletionEvidence = writes.some((write) => normalizedPath(write.path, op) === TASK_COMPLETION_EVIDENCE_PATH);
+  const stagesCompletionEvidence = stagedPath !== undefined && normalizedPath(stagedPath, op) === TASK_COMPLETION_EVIDENCE_PATH;
+
+  if (stagesCompletionEvidence) {
+    rejectWrite(completionEvidenceRemediation(taskIdForWriteOp(op)), op.entityId);
+  }
+  if (writesCompletionEvidence && !hasCompletionEvidenceAbsencePrecondition(op, writes)) {
+    rejectWrite(
+      `${completionEvidenceRemediation(reservedTaskId(op, writes))}; declared completion evidence requires an exact absence precondition`,
+      op.entityId
+    );
+  }
 
   if ((reservedWrites.length > 0 || stagesReservedPath) && op.kind !== "code_doc_reconcile") {
-    rejectWrite(remediation(taskIdForWriteOp(op)), op.entityId);
+    rejectWrite(remediation(reservedTaskId(op, writes)), op.entityId);
   }
   if (op.kind !== "code_doc_reconcile") return;
   if (writes.length !== 1 || reservedWrites.length !== 1) {
     rejectWrite(`code_doc_reconcile may only write ${CODE_DOC_RECONCILIATION_PATH}`, op.entityId);
   }
   parseAndValidateDocument(reservedWrites[0]!, op);
+}
+
+function hasCompletionEvidenceAbsencePrecondition(op: WriteOp, writes: ReadonlyArray<DocumentWrite>): boolean {
+  if (op.kind !== "doc_write" || !isObject(op.payload) || !Array.isArray(op.payload.preconditions)) return false;
+  const taskIds = new Set(writes
+    .filter((write) => normalizedPath(write.path, op) === TASK_COMPLETION_EVIDENCE_PATH)
+    .map((write) => write.taskId));
+  return op.payload.preconditions.some((entry) => isObject(entry)
+    && !("pathPrefixes" in entry)
+    && typeof entry.taskId === "string"
+    && taskIds.has(entry.taskId)
+    && typeof entry.path === "string"
+    && normalizedPath(entry.path, op) === TASK_COMPLETION_EVIDENCE_PATH
+    && entry.bodySha256 === null);
+}
+
+function reservedTaskId(op: WriteOp, writes: ReadonlyArray<DocumentWrite>): string {
+  return writes.find((write) => [
+    CODE_DOC_RECONCILIATION_PATH,
+    TASK_COMPLETION_EVIDENCE_PATH
+  ].includes(normalizedPath(write.path, op)))?.taskId ?? taskIdForWriteOp(op);
 }
 
 export function assertCodeDocGitEvidence(
@@ -72,13 +107,35 @@ export function assertCodeDocGitEvidence(
   }
 }
 
+export function assertCodeDocHistoryDocumentSetPrecondition(
+  rootInput: Parameters<typeof assertTaskDocumentSetPrecondition>[0],
+  op: WriteOp
+): void {
+  if (op.kind !== "code_doc_reconcile") return;
+  if (!isObject(op.payload)
+    || typeof op.payload.historyDocumentSetSha256 !== "string"
+    || !/^[a-f0-9]{64}$/u.test(op.payload.historyDocumentSetSha256)) {
+    rejectWrite("code_doc_reconcile requires an exact Execution/Review document-set precondition", op.entityId);
+  }
+  assertTaskDocumentSetPrecondition(rootInput, {
+    taskId: taskIdForWriteOp(op),
+    pathPrefixes: ["executions/", "reviews/"],
+    documentSetSha256: op.payload.historyDocumentSetSha256
+  }, op);
+}
+
 export function assertNoUncoordinatedCodeDocChange(op: WriteOp, status: string): void {
   if (op.kind !== "task_tree_stage") return;
   const dirtyReservedPath = status
     .split(/\r?\n/u)
     .map(statusPath)
-    .find((entry) => entry && entry.split("/").at(-1) === CODE_DOC_RECONCILIATION_PATH);
-  if (dirtyReservedPath) rejectWrite(remediation(taskIdForWriteOp(op)), op.entityId);
+    .find((entry) => entry && [CODE_DOC_RECONCILIATION_PATH, TASK_COMPLETION_EVIDENCE_PATH].includes(entry.split("/").at(-1) ?? ""));
+  if (dirtyReservedPath) {
+    const taskId = taskIdForWriteOp(op);
+    rejectWrite(dirtyReservedPath.endsWith(TASK_COMPLETION_EVIDENCE_PATH)
+      ? completionEvidenceRemediation(taskId)
+      : remediation(taskId), op.entityId);
+  }
 }
 
 function parseAndValidateDocument(write: DocumentWrite, op: WriteOp): CodeDocDocument {
@@ -181,6 +238,10 @@ function statusPath(line: string): string {
 
 function remediation(taskId: string): string {
   return `${CODE_DOC_RECONCILIATION_PATH} is a reserved machine document; do not write or stage it directly. Run ha task code-doc reconcile ${taskId} --commit <40-sha> --path <repo-relative-path> [--pr <url>]`;
+}
+
+function completionEvidenceRemediation(taskId: string): string {
+  return `${TASK_COMPLETION_EVIDENCE_PATH} is immutable machine evidence; do not write or stage it directly. Run ha task complete ${taskId} --commit-anchor <workspace-sha> --judgment <reason>`;
 }
 
 function isFullSha(value: string | undefined): value is string {

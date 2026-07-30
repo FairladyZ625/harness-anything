@@ -12,7 +12,7 @@ import { taskIdForWriteOp } from "./entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "../durable.ts";
 import { rejectTaskWrite, rejectWrite } from "../rejection.ts";
 import { resolveContentAddressedBlobPath } from "../../../persistence/blob/content-addressed-blob-store.ts";
-import { assertReservedCodeDocWrite } from "./code-doc-policy.ts";
+import { assertCodeDocHistoryDocumentSetPrecondition, assertReservedCodeDocWrite } from "./code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
 import {
   prepareRetiredAttributionFieldCleanup,
@@ -32,6 +32,7 @@ import {
   bodySha256AtPath,
   declaredEntityCompanionWrites,
   declaredEntityDocument,
+  declaredEntityPrimaryDocumentWrite,
   declaredEntityTouchedPaths,
   hasDeclaredEntityDocument
 } from "./declared-entity-document.ts";
@@ -65,6 +66,7 @@ import {
 export interface WriteTransactionPlan {
   readonly touchedPaths: (rootInput: HarnessLayoutInput) => ReadonlyArray<string>;
   readonly documentWrites: () => ReadonlyArray<DocumentWrite>;
+  readonly reservedDocumentWrites?: (rootInput: HarnessLayoutInput) => ReadonlyArray<DocumentWrite>;
   readonly apply: (rootInput: HarnessLayoutInput, op: WriteOp) => DocumentWrite | null;
   readonly validate: (rootInput: HarnessLayoutInput) => void;
 }
@@ -118,6 +120,10 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
         ...companionWrites.map((write) => documentTargetPath(rootInput, write))
       ],
       documentWrites: () => companionWrites,
+      reservedDocumentWrites: (rootInput) => [
+        ...optionalWrite(declaredEntityPrimaryDocumentWrite(rootInput, op)),
+        ...companionWrites
+      ],
       apply: (rootInput) => {
         const document = declaredEntityDocument(rootInput, op);
         const transactionWrites = [
@@ -348,6 +354,20 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
   const write = toDocumentWrite(op);
+  if (op.kind === "code_doc_reconcile") {
+    return {
+      touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
+      documentWrites: () => [write],
+      apply: (rootInput) => {
+        assertCodeDocHistoryDocumentSetPrecondition(rootInput, op);
+        writeDocument(rootInput, write);
+        return write;
+      },
+      validate: (rootInput) => {
+        assertCodeDocHistoryDocumentSetPrecondition(rootInput, op);
+      }
+    };
+  }
   return {
     touchedPaths: (rootInput) => [documentTargetPath(rootInput, write)],
     documentWrites: () => [write],
@@ -378,7 +398,7 @@ function forceAuditProgressWrite(rootInput: HarnessLayoutInput, indexWrite: Docu
 
 export function validateWriteTransaction(rootInput: HarnessLayoutInput, op: WriteOp): void {
   const plan = writeTransactionPlan(op);
-  assertReservedCodeDocWrite(op, plan.documentWrites());
+  assertReservedCodeDocWrite(op, plan.reservedDocumentWrites?.(rootInput) ?? plan.documentWrites());
   plan.validate(rootInput);
 }
 
@@ -392,6 +412,10 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
+}
+
+function optionalWrite(write: DocumentWrite | null): ReadonlyArray<DocumentWrite> {
+  return write ? [write] : [];
 }
 
 export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./internal.ts";

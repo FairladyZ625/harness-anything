@@ -5,6 +5,10 @@ export interface VcsCommitAuthor {
   readonly email: string;
 }
 
+export type VcsCommitResolution =
+  | { readonly ok: true; readonly sha: string }
+  | { readonly ok: false; readonly reason: "missing" | "non-commit"; readonly objectType?: string };
+
 export interface VersionControlSystem {
   readonly normalizePath: (inputPath: string) => string;
   readonly topLevel: (inputPath: string) => string | null;
@@ -18,6 +22,7 @@ export interface VersionControlSystem {
   readonly originHeadBranch: (repoRoot: string) => string | null;
   readonly refExists: (repoRoot: string, ref: string) => boolean;
   readonly commitExists: (repoRoot: string, sha: string) => boolean;
+  readonly resolveCommit: (repoRoot: string, ref: string) => VcsCommitResolution;
   readonly pathExistsAtCommit: (repoRoot: string, sha: string, relativePath: string) => boolean;
   /**
    * Returns requested canonical repo-relative file paths present below one

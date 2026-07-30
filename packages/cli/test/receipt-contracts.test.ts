@@ -358,6 +358,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     reason: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
   }, {
     command: "task-complete",
+    field: "data.completionEvidence",
+    reason: "Only emitted when completion accepts an immutable commit-anchor judgment record."
+  }, {
+    command: "task-complete",
     field: "data.executionId",
     reason: "Only emitted when completion accepts a submitted Execution."
   }, {

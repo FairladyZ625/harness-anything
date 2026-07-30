@@ -142,6 +142,7 @@ export interface CliResult {
   readonly generated?: ReadonlyArray<string>;
   readonly reviewContract?: unknown;
   readonly completionGate?: unknown;
+  readonly completionEvidence?: unknown;
   readonly capabilityReceipt?: unknown;
   readonly forced?: boolean;
   readonly forceAudit?: {
@@ -239,7 +240,7 @@ export interface ParsedCommand {
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-consent-record"; readonly taskId: string; readonly executionId: string; readonly utterance?: string; readonly standingPolicyDecisionId?: string; readonly assertedRationale?: string; readonly consentActions: ReadonlyArray<ConsentAction> }
     | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId?: string; readonly executionSelectionError?: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly generatedConsentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
-    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate?: "passed" | "failed" | "not-applicable"; readonly reviewerId: string }
+    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate?: "passed" | "failed" | "not-applicable"; readonly reviewerId: string; readonly evidenceMode: "execution-review" | "commit-anchor"; readonly commitRef?: string; readonly judgment?: string }
     | { readonly kind: "task-show"; readonly taskId: string; readonly view: "summary" | "trace" | "tree" }
     | { readonly kind: "session-show"; readonly sessionId: string; readonly view: "summary" | "trace" }
     | { readonly kind: "execution-show"; readonly executionId: string }

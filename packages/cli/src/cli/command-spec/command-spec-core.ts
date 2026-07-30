@@ -512,12 +512,12 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-complete",
-    "usage": "task complete <id> [--ci passed|failed|not-applicable] [--reviewer <id>]",
-    "options": [{"flag":"--ci","description":"Set passed or failed when CI applies; use not-applicable only when the resolved contract declares no CI obligation."},{"flag":"--reviewer","description":"Set the reviewer id."}],
+    "usage": "task complete <id> [--ci passed|failed|not-applicable] [--reviewer <id>] [--commit-anchor <sha-or-ref> --judgment <reason>]",
+    "options": [{"flag":"--ci","description":"Set passed or failed when CI applies; use not-applicable only when the resolved contract declares no CI obligation."},{"flag":"--reviewer","description":"Set the reviewer id for Execution/Review completion only."},{"flag":"--commit-anchor","description":"Select the explicit commit-anchor completion path using a workspace commit SHA or ref."},{"flag":"--judgment","description":"Explain why the anchored commit completes this task; required with --commit-anchor."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)":"hidden"},
-    "summary": "Evaluate the Task's resolved preset/profile completionGates. Completion always requires exactly one submitted Execution, no active Execution rounds, and an approved typed Review; legacy review.md is only a compatibility blocker check. If an abandoned active round remains without a live lease, retire it explicitly with ha task retire-execution <id> --execution-id <execution-id> --reason <reason>. Use not-applicable only when the contract declares no CI obligation; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
-    "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id"],
+    "summary": "Evaluate the Task's resolved preset/profile completionGates through one explicit evidence mode. The default path requires exactly one submitted Execution, no active Execution rounds, and an approved typed Review; legacy review.md is only a compatibility blocker check. If an abandoned active round remains without a live lease, retire it explicitly with ha task retire-execution <id> --execution-id <execution-id> --reason <reason>. The commit-anchor path requires zero Execution/typed Review history, a real workspace commit already present in code-doc-anchors.json, and an authenticated judgment. Use not-applicable only when the contract declares no CI obligation; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
+    "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id", "harness-anything task complete task_01ABC --commit-anchor 0123456789abcdef0123456789abcdef01234567 --judgment \"This commit completes and verifies the task\" --ci passed"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
     "receiptContract": {
@@ -525,6 +525,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "report": "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate.",
         "executionId": "Only emitted when completion accepts a submitted Execution.",
+        "completionEvidence": "Only emitted when completion accepts an immutable commit-anchor judgment record.",
         "reviewContract": "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
       },
       "paths": []

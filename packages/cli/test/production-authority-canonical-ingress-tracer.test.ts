@@ -13,6 +13,7 @@ import {
   stopDaemon
 } from "./helpers/daemon-cli.ts";
 import {
+  authorityEventBodies,
   createFixture,
   latestAuthorityOperation
 } from "./production-authority-canonical-ingress/fixture.ts";
@@ -71,6 +72,102 @@ test("PR canonical ingress tracer starts the real daemon and publishes one full-
     assert.equal(publication.physicalChanges.some((change) => change.path ===
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"), true);
     assert.equal(publication.physicalChanges.some((change) => change.path.startsWith("attribution-events/")), true);
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("commit-anchor completion crosses production authority with daemon judgment and atomic task transition", { timeout: 60_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNY0";
+  const taskRoot = path.join(fixture.authoredRoot, "tasks", taskId);
+  const sessionId = "commit-anchor-authority-tracer";
+  const env = {
+    HARNESS_ACTOR: "agent:codex",
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
+    CODEX_THREAD_ID: sessionId
+  };
+  try {
+    mkdirSync(taskRoot, { recursive: true });
+    const sourceIndex = readFileSync(path.join(
+      fixture.authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"
+    ), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), sourceIndex.replaceAll("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4", taskId));
+    writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Complete from a public workspace commit."));
+    writeFileSync(path.join(taskRoot, "closeout.md"), [
+      "# Closeout", "", "## Summary", "", "The public commit completes the task.", "",
+      "## Verification", "", "Authority verifies the commit and anchor.", "",
+      "## Residual Risk", "", "None known.", ""
+    ].join("\n"));
+    writeFileSync(path.join(taskRoot, "code-doc-anchors.json"), `${JSON.stringify({
+      schema: "code-doc-reconciliation/v1",
+      taskId,
+      records: [{
+        id: "closeout", ledgerPath: "closeout.md", kind: "closeout",
+        anchors: [{ kind: "commit", sha: fixture.publicHead }, { kind: "path", sha: fixture.publicHead, path: "README.md" }]
+      }]
+    }, null, 2)}\n`);
+    writeFileSync(path.join(fixture.authoredRoot, "harness.yaml"), [
+      "schema: harness-anything/v1", "project: production-ingress", "settings:", "  tasks:", "    leaseEnforcement: true", ""
+    ].join("\n"));
+    execFileSync("git", ["-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "add", "."], { cwd: fixture.authoredRoot });
+    execFileSync("git", ["-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-q", "-m", "seed commit completion fixture"], { cwd: fixture.authoredRoot });
+
+    const registered = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical", "--canonical-root", fixture.repoRoot,
+      "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+    try {
+      runDaemonCommand(fixture.repoRoot, [
+        "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+      ], env);
+    } catch {
+      // Observe the detached service if startup exceeds the CLI reachability wait.
+    }
+    await pollUntil(
+      () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
+      (value) => value.reachable === true,
+      (value, error) => JSON.stringify({ value, error: String(error ?? "") }),
+      { timeoutMs: 20_000 }
+    );
+
+    const completed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId,
+      "--commit-anchor", fixture.publicHead,
+      "--judgment", "The anchored public workspace commit satisfies this task's implementation and verification scope.",
+      "--ci", "passed"
+    ], env);
+    assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
+    assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
+    const evidencePath = path.join(taskRoot, "completion-evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as Record<string, any>;
+    assert.equal(evidence.mode, "commit-anchor");
+    assert.equal(evidence.anchor.sha, fixture.publicHead);
+    assert.equal(evidence.judgment.actor.principal.personId, "person_alice");
+    assert.deepEqual(evidence.judgment.actor.executor, { kind: "agent", id: "codex" });
+    assert.equal(evidence.judgment.sessionRef, `session/${sessionId}`);
+    assert.deepEqual(evidence.gateReceipt.applicableGates, ["ci", "code-doc-reconciliation"]);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /status: done/u);
+    assert.equal(authorityEventBodies(fixture.authoredRoot).some((body) =>
+      body.includes(sessionId) && body.includes(`task/${taskId}`)
+    ), true);
+
+    const operation = latestAuthorityOperation(fixture.serviceRoot);
+    assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
+    assert.deepEqual(
+      operation.authorityIntegrity?.canonicalMutationSet.mutations.map((mutation) => [mutation.entity.entityKind, mutation.action.action]),
+      [["task", "transition"]]
+    );
+    const publication = await createGitCanonicalPublicationInspector(fixture.authoredRoot)
+      .findPublicationForOperation(operation.opId!);
+    assert.equal(publication.physicalChanges.some((change) => change.path === `tasks/${taskId}/completion-evidence.json`), true);
+    assert.equal(publication.physicalChanges.some((change) => change.path === `tasks/${taskId}/INDEX.md`), true);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

@@ -78,6 +78,7 @@ export interface CommandRunnerEngine {
   readonly writeCodeDocReconciliation: (input: {
     readonly taskId: string;
     readonly body: string;
+    readonly historyDocumentSetSha256: string;
   }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
   readonly archiveTask: (input: {
     readonly taskId: string;

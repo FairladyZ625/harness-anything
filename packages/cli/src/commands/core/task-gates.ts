@@ -1,8 +1,8 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
-import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
+import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeCommitCompletionService, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft } from "@harness-anything/application";
+import { declaredDocumentSetSha256, makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { runDistillCommand } from "./distill.ts";
@@ -14,23 +14,32 @@ import { runExecutionConsent } from "./task-execution-consent.ts";
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { resolvePreset } from "../extensions/state.ts";
 import { resolvePresetCompletionGates } from "./task-completion-contract.ts";
+import { activeTaskLeaseFailure } from "./task-lease-guard.ts";
+import { taskLifecycleResultToCliResult } from "./task-gate-receipt.ts";
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-consent-record" | "task-review-execution" | "task-complete" }>;
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskGateAction;
   if (action.kind === "task-code-doc-reconcile") return runTaskCodeDocReconcile(context, action);
   if (action.kind === "task-consent-record") return runExecutionConsent(context, action);
   if (action.kind === "task-review-execution") return runExecutionReview(context, action);
+  const versionControlSystem = makeLocalVersionControlSystem();
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
     taskWriter: context.engine,
     artifactStore: context.artifactStore,
     documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy(),
-    codeDocVersionControlSystem: makeLocalVersionControlSystem(),
+    codeDocVersionControlSystem: versionControlSystem,
     executionCompletionService: makeExecutionCompletionService({
       rootInput: context.layoutInput,
       coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-completion" }),
       artifactStore: context.artifactStore
+    }),
+    commitCompletionService: makeCommitCompletionService({
+      rootDir: context.rootDir,
+      coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "commit-completion" }),
+      artifactStore: context.artifactStore,
+      versionControlSystem
     }),
     completionGateResolver: ({ vertical, preset, profile }) => {
       if (!vertical || !preset) throw new Error("Task vertical and preset are required for completion gate resolution");
@@ -47,13 +56,30 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   }
   const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId);
   if (lineageFailure) return Effect.succeed(lineageFailure);
-  return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate, actor: context.taskHolderPrincipal() }).pipe(
+  const complete = () => context.currentSessionProbe.currentSession.pipe(Effect.flatMap((session) => orchestrator.completeTask({
+    taskId: action.taskId,
+    reviewerId: action.reviewerId,
+    ciGate: action.ciGate,
+    actor: context.taskHolderPrincipal(),
+    evidenceMode: action.evidenceMode,
+    commitRef: action.commitRef,
+    judgment: action.judgment,
+    sessionRef: `session/${session.sessionId}`
+  })),
     Effect.map((result): CliResult => {
-      const output = taskLifecycleResultToCliResult("task-complete", result);
+      const evidencePath = path.relative(
+        context.rootDir,
+        taskDocumentPath(context.layoutInput, action.taskId, "completion-evidence.json")
+      ).split(path.sep).join("/");
+      const output = taskLifecycleResultToCliResult("task-complete", result, evidencePath);
       if (!output.ok) return output;
       return { ...output, warnings: [...(taskTreeSoftGateWarnings(context, action.taskId) ?? []), ...(docSyncDirtyWarnings(context.layoutInput) ?? [])] };
     }),
     Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
+  );
+  if (action.evidenceMode === "commit-anchor") return complete();
+  return activeTaskLeaseFailure(context, action.taskId, action.kind).pipe(
+    Effect.flatMap((failure) => failure ? Effect.succeed(failure) : complete())
   );
 };
 
@@ -63,6 +89,13 @@ function runTaskCodeDocReconcile(
 ): ReturnType<CommandRunner> {
   return Effect.gen(function* () {
     const taskPackage = yield* context.artifactStore.readTaskPackage(action.taskId);
+    const hasExecutionOrReviewHistory = taskPackage.documents.some((document) =>
+      /^executions\/[^/]+\.md$/u.test(document.path) || /^reviews\/[^/]+\.md$/u.test(document.path)
+    );
+    if (hasExecutionOrReviewHistory) {
+      const leaseFailure = yield* activeTaskLeaseFailure(context, action.taskId, action.kind);
+      if (leaseFailure) return leaseFailure;
+    }
     const existing = taskPackage.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
     if (existing && !action.force && !context.outerProceedingRecovery) {
       return {
@@ -112,7 +145,8 @@ function runTaskCodeDocReconcile(
 
     const write = yield* context.engine.writeCodeDocReconciliation({
       taskId: action.taskId,
-      body: draft.body
+      body: draft.body,
+      historyDocumentSetSha256: declaredDocumentSetSha256(taskPackage.documents, ["executions/", "reviews/"])
     });
     return {
       ok: true,
@@ -129,30 +163,6 @@ function runTaskCodeDocReconcile(
       }
     } satisfies CliResult;
   });
-}
-
-function taskLifecycleResultToCliResult(command: "task-review" | "task-complete", result: TaskLifecycleResult): CliResult {
-  if (result.ok) {
-    return {
-      ok: true,
-      command,
-      taskId: result.taskId,
-      executionId: result.executionId,
-      status: result.status,
-      report: result.report,
-      reviewContract: result.reviewContract,
-      completionGate: result.completionGate
-    };
-  }
-  return {
-    ok: false,
-    command,
-    taskId: result.taskId,
-    report: result.report,
-    issues: result.issues,
-    completionGate: result.completionGate,
-    error: cliError(cliErrorCode(result.error.code), taskGateHint(result.error.code, result.error.hint, result.taskId))
-  };
 }
 
 function queueCloseoutDistillCandidate(
@@ -219,27 +229,4 @@ function withDistillCandidateWarning(output: CliResult, reason: string): CliResu
 
 function isCliReportRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function taskGateHint(code: string, hint: string, taskId: string): string {
-  if (hint.startsWith("Task completion has ")) return hint;
-  if (/review\.md material findings table failed validation/i.test(hint)) return `${hint} Valid severity values: P0, P1, P2, P3.`;
-  if (code === CliErrorCode.CodeDocReconciliationFailed) {
-    return `${hint} Generate the required file with ha task code-doc reconcile ${taskId} --commit <full-sha> [--path <repo-relative-path>]... [--pr <url>].`;
-  }
-  if (code !== "closeout_not_ready" && !/closeout/i.test(hint)) return hint;
-  return [
-    hint,
-    `To make closeoutReadiness ready/passed, replace closeout.md placeholder content with real Summary/Verification/Residual Risk. Submit an active Execution with a six-field packet and obtain an approved review-execution with rationale, or use ha task review ${taskId} for a legacy task. Then run ha task complete ${taskId}; add --ci passed only when the resolved completionGates declares ci (dec_mrg3z1we/CH1; ADR-0027 D3, D5, D7).`
-  ].join(" ");
-}
-
-function cliErrorCode(code: string): CliErrorCodeValue {
-  // The orchestrator's writeFailureCode maps every kernel writer/engine error to a
-  // registered CLI error code, so a real write failure (e.g. malformed_snapshot,
-  // write_rejected) passes through untouched and surfaces its true cause. The
-  // CompletionGateFailed fallback is a defensive guard for an unexpected unregistered
-  // code, not the normal path — it must not mask a recognized writer error code.
-  if (isCliErrorCode(code)) return code;
-  return CliErrorCode.CompletionGateFailed;
 }

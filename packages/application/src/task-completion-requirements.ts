@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import type { ArtifactStore, TaskId } from "@harness-anything/kernel";
-import type { ExecutionCompletionReadiness } from "./execution-completion-service.ts";
 import { isCloseoutPlaceholderMarkdown } from "./task-lifecycle-gates.ts";
 import type { evaluateCompletionGate, TaskDocumentPlaceholderPolicy } from "./task-lifecycle-gates.ts";
 import type { TaskLifecycleFailure } from "./task-lifecycle-orchestrator.ts";
@@ -20,7 +19,10 @@ export function collectCompletionRequirementIssues(input: {
   readonly documentPlaceholder: TaskLifecycleFailure | null;
   readonly codeDocReconciliation: TaskLifecycleFailure | null;
   readonly completionGate: CompletionGateResult;
-  readonly executionReadiness: ExecutionCompletionReadiness;
+  readonly completionAuthority: {
+    readonly executionId?: string;
+    readonly issues: ReadonlyArray<{ readonly code: string; readonly message: string; readonly nextCommand?: string }>;
+  };
 }): ReadonlyArray<TaskCompletionRequirementIssue> {
   const issues: TaskCompletionRequirementIssue[] = [];
   if (input.legacyReviewBlocker) {
@@ -49,18 +51,18 @@ export function collectCompletionRequirementIssues(input: {
           : {})
     });
   }
-  for (const issue of input.executionReadiness.issues) {
+  for (const issue of input.completionAuthority.issues) {
     issues.push({
       code: issue.code,
       message: issue.message,
       ...(issue.nextCommand
         ? { nextCommand: issue.nextCommand }
-        : issue.code === "execution_review_required" && input.executionReadiness.executionId
-        ? { nextCommand: `ha task review-execution ${input.taskId} --execution-id ${input.executionReadiness.executionId} --verdict approved --findings <text> --rationale <text>` }
+        : issue.code === "execution_review_required" && input.completionAuthority.executionId
+        ? { nextCommand: `ha task review-execution ${input.taskId} --execution-id ${input.completionAuthority.executionId} --verdict approved --findings <text> --rationale <text>` }
         : issue.code === "execution_submission_required"
           ? { nextCommand: `Claim and submit one Execution for ${input.taskId}, then rerun ha task complete.` }
-          : issue.code === "archive_warnings_acknowledgement_required" && input.executionReadiness.executionId
-            ? { nextCommand: `Review Execution ${input.executionReadiness.executionId} with --acknowledge-archive-warnings.` }
+          : issue.code === "archive_warnings_acknowledgement_required" && input.completionAuthority.executionId
+            ? { nextCommand: `Review Execution ${input.completionAuthority.executionId} with --acknowledge-archive-warnings.` }
             : {})
     });
   }

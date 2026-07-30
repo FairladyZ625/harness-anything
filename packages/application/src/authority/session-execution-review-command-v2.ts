@@ -17,6 +17,7 @@ import {
   semanticAdmissionV2,
   semanticStringValueV2
 } from "./semantic-authority-helpers-v2.ts";
+import { decodeTaskCompletionEvidence, type TaskCompletionEvidence } from "../task-completion-authority.ts";
 
 export const sessionExecutionReviewTypedCommandsV2 = [
   "session.export",
@@ -25,6 +26,7 @@ export const sessionExecutionReviewTypedCommandsV2 = [
   "execution.claim",
   "execution.submit",
   "execution.close",
+  "completion.commit",
   "review.create",
   "review.dismiss",
   "review.record"
@@ -60,9 +62,19 @@ export type ReviewActionPayloadV2 = {
   readonly taskIndexBody?: string;
 };
 
+export type CommitCompletionActionPayloadV2 = {
+  readonly schema: "completion.commit/v1";
+  readonly taskId: string;
+  readonly evidence: TaskCompletionEvidence;
+  readonly taskIndexBody: string;
+  readonly completionContractBodySha256: string | null;
+  readonly historyDocumentSetSha256: string;
+};
+
 export type SessionExecutionReviewCommandPayloadV2 =
   | SessionActionPayloadV2
   | ExecutionActionPayloadV2
+  | CommitCompletionActionPayloadV2
   | ReviewActionPayloadV2;
 
 export function decodeSessionExecutionReviewCommandPayloadV2(envelope: SemanticMutationEnvelopeV2): {
@@ -135,6 +147,17 @@ function decodeStrictSessionExecutionReviewPayloadV2(value: unknown): SessionExe
           ? {}
           : { completionContractBodySha256: nullableSha256(row.completionContractBodySha256) }),
         ...(row.retirement === undefined ? {} : { retirement: decodeExecutionRetirement(row.retirement) })
+      };
+    }
+    case "completion.commit/v1": {
+      const row = exactSemanticObjectV2(value, ["schema", "taskId", "evidence", "taskIndexBody", "completionContractBodySha256", "historyDocumentSetSha256"]);
+      return {
+        schema: discriminator.schema,
+        taskId: nonBlankText(row.taskId),
+        evidence: decodeTaskCompletionEvidence(row.evidence),
+        taskIndexBody: semanticStringValueV2(row.taskIndexBody),
+        completionContractBodySha256: nullableSha256(row.completionContractBodySha256),
+        historyDocumentSetSha256: sha256(row.historyDocumentSetSha256)
       };
     }
     case "review.create/v1":

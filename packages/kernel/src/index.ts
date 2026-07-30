@@ -50,9 +50,15 @@ export {
   writeSessionEntity
 } from "./entity/session.ts";
 export type { SessionManifest } from "./schemas/session-manifest.ts";
-export { resolveEntityDocumentPath, writeDeclaredEntityTransaction } from "./entity/declaration.ts";
+export {
+  decodeEntityDeclaration,
+  jsonEntityDocumentCodec,
+  resolveEntityDocumentPath,
+  writeDeclaredEntityTransaction
+} from "./entity/declaration.ts";
 export type { DeclaredEntityDocumentPrecondition } from "./entity/declaration.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
+export { declaredDocumentSetSha256 } from "./integrity/document-set-hash.ts";
 export { computeExecutionConsentPin } from "./integrity/execution-consent-pin.ts";
 export {
   actorAxesBindingCoreDigestV2,
@@ -111,6 +117,10 @@ export {
   queryTaskExecutionTrace
 } from "./projection/entity-projection-readers.ts";
 export { queryExecutionEvidencePage } from "./projection/sqlite-execution-evidence-reader.ts";
+export {
+  projectDeclaredEntities,
+  readDeclaredProjectionRows
+} from "./projection/entity-declaration-projection.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export {

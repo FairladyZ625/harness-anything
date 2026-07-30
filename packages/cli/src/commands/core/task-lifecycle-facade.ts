@@ -87,7 +87,8 @@ export function taskCloseoutFacadeSteps(command: TaskCloseoutCommand, sha: strin
       kind: "task-complete",
       taskId: action.taskId,
       ciGate: action.ciGate,
-      reviewerId: action.reviewerId
+      reviewerId: action.reviewerId,
+      evidenceMode: "execution-review"
     })
   ];
 }

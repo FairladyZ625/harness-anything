@@ -560,7 +560,10 @@ test("production generic canonical ingress accepts and journals one write for ev
       authoredMarker: /"verdict": "approved"/u
     }, {
       kind: "task-complete",
-      action: { kind: "task-complete", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0", reviewerId: "person_alice" },
+      action: {
+        kind: "task-complete", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0",
+        reviewerId: "person_alice", evidenceMode: "execution-review"
+      },
       canonicalEntityId: "execution/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5" as EntityId,
       authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md",
       authoredMarker: /status: done/u

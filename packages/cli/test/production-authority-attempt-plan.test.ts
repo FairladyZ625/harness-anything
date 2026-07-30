@@ -541,7 +541,8 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
       rootDir: fixture.repoRoot,
       action: {
         kind: "task-complete",
-        taskId: "task_A"
+        taskId: "task_A",
+        evidenceMode: "execution-review"
       }
     }), false);
     assert.equal(productionAuthorityCommandHasPurePlan({
