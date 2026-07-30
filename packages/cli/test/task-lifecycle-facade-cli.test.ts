@@ -161,12 +161,17 @@ test("task submit held by another worker recommends waiting or contacting the ho
 
 test("closeout failures retain the true gate cause, partial receipts, and one copyable next command", () => {
   withTempRoot((gateRoot) => {
-    const fixture = prepareActiveTask(gateRoot, "Failed CI");
-    const packet = writeCloseoutPacket(gateRoot, { ci: "failed" });
+    const fixture = prepareActiveTask(gateRoot, "Placeholder Closeout");
+    const packet = writeCloseoutPacket(gateRoot);
     runJson(gateRoot, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(gateRoot)], true, fixture.env);
+    writeCloseout(gateRoot, path.basename(fixture.packagePath), [
+      "## Summary", "", "Summarize the completed behavior change.", "",
+      "## Verification", "", "List passing checks and CI.", "",
+      "## Residual Risk", "", "Record accepted non-blocking risks."
+    ]);
     const rejected = runJson(gateRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
-    assert.match(rejected.error.code, /ci/u);
-    assert.match(rejected.error.hint, /CI|ci/u);
+    assert.equal(rejected.error.code, "closeout_placeholder");
+    assert.match(rejected.error.hint, /closeout\.md|closeout placeholder/iu);
     assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task closeout ${fixture.taskId}`, "u"));
     assert.equal(rejected.facade.completedSteps.length, 2);
     assert.deepEqual(rejected.facade.completedSteps.map((step: Record<string, unknown>) => step.command), [
