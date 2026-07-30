@@ -14,11 +14,13 @@ import {
 } from "@harness-anything/kernel";
 import {
   decodeSessionExecutionReviewCommandPayloadV2,
+  type CommitCompletionActionPayloadV2,
   type ExecutionActionPayloadV2,
   type ReviewActionPayloadV2,
   type SessionActionPayloadV2,
   type SessionExecutionReviewCommandPayloadV2
 } from "./session-execution-review-command-v2.ts";
+import { compileCommitCompletion } from "./commit-completion-semantic-compiler-v2.ts";
 import {
   type AuthoritySemanticCompilerV2,
   type RegistryEntityRefV2
@@ -39,6 +41,7 @@ export {
   encodeSessionExecutionReviewCommandPayloadV2,
   sessionExecutionReviewTypedCommandsV2,
   type ExecutionActionPayloadV2,
+  type CommitCompletionActionPayloadV2,
   type ReviewActionPayloadV2,
   type SessionActionPayloadV2,
   type SessionExecutionReviewCommandPayloadV2,
@@ -90,6 +93,7 @@ async function compileSessionExecutionReviewPayloadV2(
 ): Promise<CompiledSessionExecutionReviewCommandV2> {
   if (payload.schema.startsWith("session.")) return compileSession(state, payload as SessionActionPayloadV2);
   if (payload.schema.startsWith("execution.")) return compileExecution(state, payload as ExecutionActionPayloadV2);
+  if (payload.schema === "completion.commit/v1") return compileCommitCompletion(state, payload as CommitCompletionActionPayloadV2);
   return compileReview(state, payload as ReviewActionPayloadV2);
 }
 

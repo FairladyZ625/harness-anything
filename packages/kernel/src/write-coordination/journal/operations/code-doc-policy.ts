@@ -7,6 +7,7 @@ import { rejectWrite } from "../rejection.ts";
 import { taskIdForWriteOp } from "./entity.ts";
 
 export const CODE_DOC_RECONCILIATION_PATH = "code-doc-anchors.json";
+export const TASK_COMPLETION_EVIDENCE_PATH = "completion-evidence.json";
 
 interface CodeDocAnchor {
   readonly kind: "commit" | "path" | "pr";
@@ -35,6 +36,12 @@ export function assertReservedCodeDocWrite(
   const stagedPath = op.kind === "doc_stage" ? payloadPath(op) : undefined;
   const reservedWrites = writes.filter((write) => normalizedPath(write.path, op) === CODE_DOC_RECONCILIATION_PATH);
   const stagesReservedPath = stagedPath !== undefined && normalizedPath(stagedPath, op) === CODE_DOC_RECONCILIATION_PATH;
+  const writesCompletionEvidence = writes.some((write) => normalizedPath(write.path, op) === TASK_COMPLETION_EVIDENCE_PATH);
+  const stagesCompletionEvidence = stagedPath !== undefined && normalizedPath(stagedPath, op) === TASK_COMPLETION_EVIDENCE_PATH;
+
+  if (writesCompletionEvidence || stagesCompletionEvidence) {
+    rejectWrite(completionEvidenceRemediation(taskIdForWriteOp(op)), op.entityId);
+  }
 
   if ((reservedWrites.length > 0 || stagesReservedPath) && op.kind !== "code_doc_reconcile") {
     rejectWrite(remediation(taskIdForWriteOp(op)), op.entityId);
@@ -77,8 +84,13 @@ export function assertNoUncoordinatedCodeDocChange(op: WriteOp, status: string):
   const dirtyReservedPath = status
     .split(/\r?\n/u)
     .map(statusPath)
-    .find((entry) => entry && entry.split("/").at(-1) === CODE_DOC_RECONCILIATION_PATH);
-  if (dirtyReservedPath) rejectWrite(remediation(taskIdForWriteOp(op)), op.entityId);
+    .find((entry) => entry && [CODE_DOC_RECONCILIATION_PATH, TASK_COMPLETION_EVIDENCE_PATH].includes(entry.split("/").at(-1) ?? ""));
+  if (dirtyReservedPath) {
+    const taskId = taskIdForWriteOp(op);
+    rejectWrite(dirtyReservedPath.endsWith(TASK_COMPLETION_EVIDENCE_PATH)
+      ? completionEvidenceRemediation(taskId)
+      : remediation(taskId), op.entityId);
+  }
 }
 
 function parseAndValidateDocument(write: DocumentWrite, op: WriteOp): CodeDocDocument {
@@ -181,6 +193,10 @@ function statusPath(line: string): string {
 
 function remediation(taskId: string): string {
   return `${CODE_DOC_RECONCILIATION_PATH} is a reserved machine document; do not write or stage it directly. Run ha task code-doc reconcile ${taskId} --commit <40-sha> --path <repo-relative-path> [--pr <url>]`;
+}
+
+function completionEvidenceRemediation(taskId: string): string {
+  return `${TASK_COMPLETION_EVIDENCE_PATH} is immutable machine evidence; do not write or stage it directly. Run ha task complete ${taskId} --commit-anchor <workspace-sha> --judgment <reason>`;
 }
 
 function isFullSha(value: string | undefined): value is string {

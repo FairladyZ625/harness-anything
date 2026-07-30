@@ -622,6 +622,51 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
     });
     assert.equal(passed.executionId, executionId);
     assert.equal(passed.status, "done");
+    assert.equal(passed.completionGate.evidenceMode, "execution-review");
     assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /status: done/);
+  });
+});
+
+test("CLI task-complete accepts a judged workspace commit anchor without Execution history", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task-commit-anchor";
+    initializeNestedHarnessRepo(rootDir);
+    writeIndex(rootDir, taskId, "Commit Anchor Task", "in_review");
+    writeSubstantiveTaskPlan(rootDir, `harness/tasks/${taskId}`);
+    writeFileSync(path.join(rootDir, `harness/tasks/${taskId}/closeout.md`), [
+      "# Closeout",
+      "",
+      "## Summary",
+      "",
+      "The anchored workspace commit completes the requested task.",
+      "",
+      "## Verification",
+      "",
+      "The commit and its load-bearing path are present in the workspace repository.",
+      "",
+      "## Residual Risk",
+      "",
+      "None known.",
+      ""
+    ].join("\n"), "utf8");
+    writeCodeDocAnchors(rootDir, taskId);
+    const sha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+    const completed = runJson(rootDir, [
+      "task", "complete", taskId,
+      "--commit-anchor", sha,
+      "--judgment", "This workspace commit implements and verifies the task contract.",
+      "--ci", "passed"
+    ], true, executionActorEnv);
+
+    assert.equal(completed.ok, true);
+    assert.equal(completed.status, "done");
+    assert.equal(completed.completionGate.evidenceMode, "commit-anchor");
+    assert.equal(completed.completionEvidence.schema, "task-completion-evidence-receipt/v1");
+    assert.equal(completed.completionEvidence.mode, "commit-anchor");
+    assert.equal(completed.completionEvidence.path, `harness/tasks/${taskId}/completion-evidence.json`);
+    assert.equal(completed.completionEvidence.sha, sha);
+    assert.equal(completed.completionEvidence.verifiedObjectType, "commit");
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/completion-evidence.json`)), true);
   });
 });

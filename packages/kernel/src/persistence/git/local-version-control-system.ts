@@ -70,6 +70,23 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    resolveCommit: (repoRoot, ref) => {
+      try {
+        const sha = runGit(repoRoot, "rev-parse", "--verify", `${ref}^{commit}`).trim();
+        return /^[0-9a-f]{40}$/u.test(sha)
+          ? { ok: true, sha }
+          : { ok: false, reason: "missing" };
+      } catch {
+        try {
+          const objectType = runGit(repoRoot, "cat-file", "-t", ref).trim();
+          return objectType.length > 0
+            ? { ok: false, reason: "non-commit", objectType }
+            : { ok: false, reason: "missing" };
+        } catch {
+          return { ok: false, reason: "missing" };
+        }
+      }
+    },
     pathExistsAtCommit: (repoRoot, sha, relativePath) => {
       try {
         runGit(repoRoot, "cat-file", "-e", `${sha}:${relativePath}`);

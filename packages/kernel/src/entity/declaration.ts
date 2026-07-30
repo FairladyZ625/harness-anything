@@ -42,11 +42,21 @@ export interface DeclaredEntityDocumentWritePayload {
   readonly preconditions?: ReadonlyArray<DeclaredEntityDocumentPrecondition>;
 }
 
-export interface DeclaredEntityDocumentPrecondition {
+export interface DeclaredEntityDocumentBodyPrecondition {
   readonly taskId: DocumentWrite["taskId"];
   readonly path: string;
   readonly bodySha256: string | null;
 }
+
+export interface DeclaredEntityDocumentSetPrecondition {
+  readonly taskId: DocumentWrite["taskId"];
+  readonly pathPrefixes: ReadonlyArray<string>;
+  readonly documentSetSha256: string;
+}
+
+export type DeclaredEntityDocumentPrecondition =
+  | DeclaredEntityDocumentBodyPrecondition
+  | DeclaredEntityDocumentSetPrecondition;
 
 export function writeDeclaredEntityTransaction(
   coordinator: WriteCoordinator,

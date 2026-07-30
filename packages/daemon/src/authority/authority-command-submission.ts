@@ -258,6 +258,7 @@ function commandWithCompletionContractFence(
   const action = command.action;
   const payload = operation.kind === "doc_write" && operation.payload && typeof operation.payload === "object"
     ? operation.payload as {
+        readonly entityDocument?: { readonly body?: unknown };
         readonly preconditions?: ReadonlyArray<{
           readonly taskId?: unknown;
           readonly path?: unknown;
@@ -272,11 +273,26 @@ function commandWithCompletionContractFence(
     && (typeof contract.bodySha256 !== "string" || !/^[a-f0-9]{64}$/u.test(contract.bodySha256)))) {
     throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_CONTRACT_PRECONDITION_REQUIRED");
   }
+  let completionApplicableGates: ReadonlyArray<string> | undefined;
+  if (action.evidenceMode === "commit-anchor" && typeof payload?.entityDocument?.body === "string") {
+    let evidence: { readonly gateReceipt?: { readonly applicableGates?: unknown } };
+    try {
+      evidence = JSON.parse(payload.entityDocument.body) as typeof evidence;
+    } catch {
+      throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_GATE_RECEIPT_REQUIRED");
+    }
+    if (!Array.isArray(evidence.gateReceipt?.applicableGates)
+      || evidence.gateReceipt.applicableGates.some((gate) => typeof gate !== "string" || gate.length === 0)) {
+      throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_GATE_RECEIPT_REQUIRED");
+    }
+    completionApplicableGates = evidence.gateReceipt.applicableGates as ReadonlyArray<string>;
+  }
   return {
     ...command,
     action: {
       ...action,
-      completionContractBodySha256: contract.bodySha256
+      completionContractBodySha256: contract.bodySha256,
+      ...(completionApplicableGates ? { completionApplicableGates } : {})
     }
   };
 }

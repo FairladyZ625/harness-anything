@@ -7,6 +7,7 @@ import {
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
+  evaluateTaskCompletionAuthority,
   finalizeExecutionSessionBindings,
   renderCodeDocReconciliationDraft,
   type ConsentCommandPayloadV2,
@@ -18,7 +19,9 @@ import {
 } from "@harness-anything/application";
 import {
   executionDeclaration,
+  declaredDocumentSetSha256,
   deriveRelationId,
+  makeLocalVersionControlSystem,
   sha256Text,
   taskEntityId,
   taskPackagePath,
@@ -115,10 +118,12 @@ export function productionLifecycleAttemptIntent(input: {
   if (action.kind === "task-complete") {
     return taskCompletionIntent(
       input.authoredRoot,
+      input.command.rootDir,
       input.currentSession.detectedAt,
-      action.taskId,
+      input.currentSession.sessionId,
+      action,
       input.canonicalEntityId,
-      action.completionContractBodySha256
+      input.actor
     );
   }
   return null;
@@ -394,31 +399,38 @@ function requiredReviewExecutionId(
 
 function taskCompletionIntent(
   authoredRoot: string,
+  rootDir: string,
   completedAt: string,
-  taskId: string,
+  sessionId: string,
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-complete" }>,
   canonicalEntityId: string,
-  evaluatedContractBodySha256: string | null | undefined
+  actor: ExecutionRecord["primary_actor"]
 ): CanonicalAttemptIntent {
-  const executionRoot = path.join(resolvedTaskRoot(authoredRoot, taskId), "executions");
-  const executions = existsSync(executionRoot)
-    ? readdirSync(executionRoot).filter((name) => name.endsWith(".md")).map((name) => ({
-      name,
-      record: executionDeclaration.documentCodec.decode(readFileSync(path.join(executionRoot, name), "utf8")) as ExecutionRecord
-    }))
-    : [];
-  const submitted = executions.filter(({ record }) => record.state === "submitted");
-  if (submitted.length !== 1 || executions.some(({ record }) => record.state === "active")) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_EXECUTION_SET_UNSUPPORTED: completion requires exactly one submitted execution and no stale active execution");
-  }
-  const current = submitted[0]!.record;
-  const execution: ExecutionRecord = { ...current, state: "accepted", closed_at: completedAt };
+  const taskId = action.taskId;
+  const taskRoot = resolvedTaskRoot(authoredRoot, taskId);
+  const documents = readTaskDocuments(taskRoot);
   const taskPath = taskLifecyclePath(authoredRoot, taskId, "INDEX.md");
   const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
+  const status = /^  status:\s*(\S+)$/mu.exec(taskSnapshot.body)?.[1] ?? "unknown";
+  const evaluation = evaluateTaskCompletionAuthority({
+    taskId,
+    mode: action.evidenceMode,
+    status,
+    documents,
+    actor,
+    sessionRef: `session/${sessionId}`,
+    judgedAt: completedAt,
+    applicableGates: action.completionApplicableGates ?? [],
+    ciGate: action.ciGate,
+    commitRef: action.commitRef,
+    judgment: action.judgment,
+    rootDir,
+    versionControlSystem: makeLocalVersionControlSystem()
+  });
+  if (!evaluation.ok) {
+    throw new Error(`AUTHORITY_TASK_COMPLETE_REJECTED:${evaluation.issues.map((issue) => issue.code).join(",")}`);
+  }
   const taskBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
-  const payload: SessionExecutionReviewCommandPayloadV2 = {
-    schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody
-  };
-  const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
   const contractPath = taskLifecyclePath(authoredRoot, taskId, "task-contract.json");
   const contractSnapshot = optionalLifecycleSnapshot(authoredRoot, contractPath.logical, contractPath.physical);
   const absentContract = absentHostedDocumentSnapshotV2(contractPath.logical);
@@ -429,27 +441,76 @@ function taskCompletionIntent(
     expectedBlobDigest: absentContract.blobDigest
   };
   const currentContractBodySha256 = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
-  const contractBodySha256 = evaluatedContractBodySha256 === undefined
+  const contractBodySha256 = action.completionContractBodySha256 === undefined
     ? currentContractBodySha256
-    : evaluatedContractBodySha256;
+    : action.completionContractBodySha256;
   if (contractBodySha256 !== currentContractBodySha256) {
     throw new Error("AUTHORITY_TASK_COMPLETE_CONTRACT_CHANGED");
   }
-  const fencedPayload: SessionExecutionReviewCommandPayloadV2 = {
-    ...payload,
-    completionContractBodySha256: contractBodySha256
+  if (evaluation.evidenceMode === "execution-review") {
+    const executionDocument = documents.find((document) => document.path === `executions/${evaluation.executionId}.md`);
+    if (!executionDocument) throw new Error("AUTHORITY_TASK_COMPLETE_EXECUTION_DOCUMENT_REQUIRED");
+    const current = executionDeclaration.documentCodec.decode(executionDocument.body) as ExecutionRecord;
+    const execution: ExecutionRecord = { ...current, state: "accepted", closed_at: completedAt };
+    const payload: SessionExecutionReviewCommandPayloadV2 = {
+      schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody,
+      completionContractBodySha256: contractBodySha256
+    };
+    const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
+    return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
+      lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
+      lifecycleMutation("task", `task/${taskId}`, "transition")
+    ], [
+      lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
+      lifecycleRef("task", `task/${taskId}`)
+    ], portableLifecyclePaths(executionPath, taskPath, contractPath), canonicalEntityId, [
+      requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
+      taskSnapshot,
+      contractCas
+    ]);
+  }
+
+  const evidencePath = taskLifecyclePath(authoredRoot, taskId, "completion-evidence.json");
+  const closeoutPath = taskLifecyclePath(authoredRoot, taskId, "closeout.md");
+  const codeDocPath = taskLifecyclePath(authoredRoot, taskId, "code-doc-anchors.json");
+  const payload: SessionExecutionReviewCommandPayloadV2 = {
+    schema: "completion.commit/v1",
+    taskId,
+    evidence: evaluation.evidence,
+    taskIndexBody: taskBody,
+    completionContractBodySha256: contractBodySha256,
+    historyDocumentSetSha256: declaredDocumentSetSha256(documents, ["executions/", "reviews/"])
   };
-  return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(fencedPayload), [
-    lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
+  return lifecycleIntent("completion.commit", encodeSessionExecutionReviewCommandPayloadV2(payload), [
     lifecycleMutation("task", `task/${taskId}`, "transition")
-  ], [
-    lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
-    lifecycleRef("task", `task/${taskId}`)
-  ], portableLifecyclePaths(executionPath, taskPath, contractPath), canonicalEntityId, [
-    requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
+  ], [lifecycleRef("task", `task/${taskId}`)], portableLifecyclePaths(
+    evidencePath, taskPath, contractPath, closeoutPath, codeDocPath
+  ), canonicalEntityId, [
     taskSnapshot,
-    contractCas
+    contractCas,
+    requiredLifecycleSnapshot(authoredRoot, closeoutPath.logical, closeoutPath.physical),
+    requiredLifecycleSnapshot(authoredRoot, codeDocPath.logical, codeDocPath.physical),
+    (() => {
+      const absent = absentHostedDocumentSnapshotV2(evidencePath.logical);
+      return {
+        path: evidencePath.logical,
+        expectedEpoch: absent.epoch,
+        expectedRevision: absent.revision,
+        expectedBlobDigest: absent.blobDigest
+      };
+    })()
   ]);
+}
+
+function readTaskDocuments(taskRoot: string, relativeRoot = ""): ReadonlyArray<{ readonly path: string; readonly body: string }> {
+  const current = path.join(taskRoot, relativeRoot);
+  if (!existsSync(current)) return [];
+  return readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = path.posix.join(relativeRoot.split(path.sep).join("/"), entry.name);
+    if (entry.isDirectory()) return readTaskDocuments(taskRoot, relativePath);
+    if (!entry.isFile()) return [];
+    return [{ path: relativePath, body: readFileSync(path.join(taskRoot, relativePath), "utf8") }];
+  });
 }
 
 function lifecycleIntent(

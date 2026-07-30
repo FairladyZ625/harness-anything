@@ -7,6 +7,7 @@ import test from "node:test";
 import { makeJournaledWriteCoordinator, taskHolderActor } from "../src/index.ts";
 import {
   executionDeclaration,
+  declaredDocumentSetSha256,
   reviewDeclaration,
   sha256Text,
   stablePayloadHash,
@@ -73,6 +74,72 @@ test("changes_requested review rolls back review and prior companions when eithe
       if (existsSync(executionRoot)) chmodSync(executionRoot, 0o700);
       rmSync(rootDir, { recursive: true, force: true });
     }
+  }
+});
+
+test("declared document-set CAS rejects concurrent Execution creation before companion publication", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-document-set-cas-"));
+  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+  const executionRoot = path.join(taskRoot, "executions");
+  const reviewRoot = path.join(taskRoot, "reviews");
+  const indexPath = path.join(taskRoot, "INDEX.md");
+  const reviewPath = path.join(reviewRoot, `${reviewId}.md`);
+  try {
+    mkdirSync(executionRoot, { recursive: true });
+    mkdirSync(reviewRoot, { recursive: true });
+    const currentIndex = taskIndex(taskId, "in_review");
+    writeFileSync(indexPath, currentIndex, "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "codex") });
+    const expectedEmptyHistory = declaredDocumentSetSha256([], ["executions/", "reviews/"]);
+    writeFileSync(path.join(executionRoot, `${executionId}.md`), executionDeclaration.documentCodec.encode(execution("submitted")), "utf8");
+
+    await assert.rejects(runEffect(writeDeclaredEntityTransaction(
+      coordinator,
+      stablePayloadHash,
+      reviewDeclaration,
+      { taskId, reviewId },
+      review(),
+      [{ taskId, path: "INDEX.md", body: currentIndex.replace(/^(  status:\s*).+$/mu, "$1done") }],
+      [{ taskId, pathPrefixes: ["executions/", "reviews/"], documentSetSha256: expectedEmptyHistory }]
+    )), /document-set precondition changed/u);
+
+    assert.equal(existsSync(reviewPath), false);
+    assert.equal(readFileSync(indexPath, "utf8"), currentIndex);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("declared body CAS rejects code-doc replacement without partial companion publication", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-code-doc-cas-"));
+  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+  const reviewRoot = path.join(taskRoot, "reviews");
+  const indexPath = path.join(taskRoot, "INDEX.md");
+  const codeDocPath = path.join(taskRoot, "code-doc-anchors.json");
+  const reviewPath = path.join(reviewRoot, `${reviewId}.md`);
+  try {
+    mkdirSync(reviewRoot, { recursive: true });
+    const currentIndex = taskIndex(taskId, "in_review");
+    const judgedCodeDoc = "{\"schema\":\"code-doc-reconciliation/v1\"}\n";
+    writeFileSync(indexPath, currentIndex, "utf8");
+    writeFileSync(codeDocPath, judgedCodeDoc, "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "codex") });
+    writeFileSync(codeDocPath, "{\"schema\":\"replacement\"}\n", "utf8");
+
+    await assert.rejects(runEffect(writeDeclaredEntityTransaction(
+      coordinator,
+      stablePayloadHash,
+      reviewDeclaration,
+      { taskId, reviewId },
+      review(),
+      [{ taskId, path: "INDEX.md", body: currentIndex.replace(/^(  status:\s*).+$/mu, "$1done") }],
+      [{ taskId, path: "code-doc-anchors.json", bodySha256: sha256Text(judgedCodeDoc) }]
+    )), /declared entity precondition changed/u);
+
+    assert.equal(existsSync(reviewPath), false);
+    assert.equal(readFileSync(indexPath, "utf8"), currentIndex);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 

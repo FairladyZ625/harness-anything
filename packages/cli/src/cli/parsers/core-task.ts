@@ -14,6 +14,7 @@ import { parseTaskSubmit } from "./task-submit.ts";
 import { parseTaskCloseout, parseTaskStart } from "./task-lifecycle-facade.ts";
 import { parseTaskRetireExecution } from "./task-execution-retirement.ts";
 import type { CommandJsonInput } from "../json-input.ts";
+import { parseTaskComplete } from "./core-task-complete.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean, _commandSpecs?: ReadonlyArray<unknown>, input?: CommandJsonInput): ParseResult | null {
   if (args[0] === "init") {
@@ -184,19 +185,6 @@ function parseTaskReview(args: ReadonlyArray<string>, rootDir: string, json: boo
   return ok(rootDir, json, {
     kind: "task-review",
     taskId: args[1],
-    reviewerId: readOption(args, "--reviewer") ?? "local-reviewer"
-  });
-}
-
-function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
-  const ciGate = readOption(args, "--ci");
-  if (ciGate !== undefined && ciGate !== "passed" && ciGate !== "failed" && ciGate !== "not-applicable") {
-    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}. Valid CI gate values: passed, failed, not-applicable.`) };
-  }
-  return ok(rootDir, json, {
-    kind: "task-complete",
-    taskId: args[1],
-    ...(ciGate ? { ciGate } : {}),
     reviewerId: readOption(args, "--reviewer") ?? "local-reviewer"
   });
 }

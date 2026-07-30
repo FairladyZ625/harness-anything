@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +12,7 @@ import {
   type ProductionAuthorityCommand,
   type SemanticMutationEnvelopeV2
 } from "@harness-anything/application";
-import { sha256Text, type ExecutionRecord } from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel";
 import { makeDaemonAuthorityWriteCoordinator } from "../src/authority/authority-command-submission.ts";
 import { productionLifecycleAttemptIntent } from "../src/authority/production/production-authority-lifecycle-intents.ts";
 
@@ -28,15 +29,20 @@ test("daemon completion intent fences present and absent task-contract snapshots
   try {
     const authoredRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(authoredRoot, "tasks", `${taskId}-contract-fence`);
-    mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+    mkdirSync(taskRoot, { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), [
       "---", `task_id: ${taskId}`, "task:", "  status: in_review", "---", "", "# Contract fence", ""
     ].join("\n"), "utf8");
-    writeFileSync(
-      path.join(taskRoot, "executions", `${executionId}.md`),
-      `${JSON.stringify(executionRecord(), null, 2)}\n`,
-      "utf8"
-    );
+    writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nComplete.\n", "utf8");
+    writeFileSync(path.join(rootDir, "README.md"), "# Public workspace\n", "utf8");
+    execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    execFileSync("git", ["-C", rootDir, "add", "README.md"]);
+    execFileSync("git", ["-C", rootDir, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-q", "-m", "public anchor"]);
+    const publicHead = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    writeFileSync(path.join(taskRoot, "code-doc-anchors.json"), `${JSON.stringify({
+      schema: "code-doc-reconciliation/v1", taskId,
+      records: [{ id: "closeout", ledgerPath: "closeout.md", kind: "closeout", anchors: [{ kind: "commit", sha: publicHead }] }]
+    })}\n`, "utf8");
     const contractPath = path.join(taskRoot, "task-contract.json");
 
     for (const initial of ["{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n", null] as const) {
@@ -53,7 +59,9 @@ test("daemon completion intent fences present and absent task-contract snapshots
           action: {
             kind: "task-complete",
             taskId,
-            reviewerId: "person_reviewer",
+            evidenceMode: "commit-anchor",
+            commitRef: publicHead,
+            judgment: "The public commit completes the contract-fence task.",
             completionContractBodySha256: evaluatedDigest
           }
         } as ProductionAuthorityCommand,
@@ -63,7 +71,7 @@ test("daemon completion intent fences present and absent task-contract snapshots
           source: "runtime",
           detectedAt: "2026-07-24T00:00:00.000Z"
         },
-        canonicalEntityId: `execution/${executionId}`,
+        canonicalEntityId: `task/${taskId}`,
         authoredRoot,
         actor
       } as const;
@@ -90,7 +98,7 @@ test("daemon completion intent fences present and absent task-contract snapshots
       });
       await assert.rejects(
         compiler.compile(envelope(intent)),
-        /EXECUTION_COMPLETION_CONTRACT_CHANGED|PATH_CAS_CONFLICT/u
+        /EXECUTION_COMPLETION_CONTRACT_CHANGED|COMMIT_COMPLETION_CONTRACT_CHANGED|PATH_CAS_CONFLICT/u
       );
     }
   } finally {
@@ -104,7 +112,7 @@ test("daemon authority coordinator carries the evaluated contract precondition i
   const command = {
     rootDir: "/unused",
     json: true,
-    action: { kind: "task-complete", taskId }
+    action: { kind: "task-complete", taskId, evidenceMode: "execution-review" }
   } as ProductionAuthorityCommand;
   const coordinator = makeDaemonAuthorityWriteCoordinator({
     submit: async (input) => {
@@ -197,29 +205,6 @@ function hostedSnapshot(taskRoot: string, logicalPath: string) {
   }
   const digest = sha256Text(body);
   return { body, epoch: digest, revision: 0n, blobDigest: Buffer.from(digest, "hex") };
-}
-
-function executionRecord(): ExecutionRecord {
-  return {
-    schema: "execution/v2",
-    execution_id: executionId,
-    task_ref: `task/${taskId}`,
-    state: "submitted",
-    primary_actor: actor,
-    claimed_at: "2026-07-24T00:00:00.000Z",
-    submitted_at: "2026-07-24T00:01:00.000Z",
-    closed_at: null,
-    session_bindings: [],
-    outputs: [],
-    submission: {
-      completion_claim: "Complete.",
-      deliverables: [],
-      evidence_refs: [],
-      verification_notes: [],
-      known_gaps: [],
-      residual_risks: []
-    }
-  };
 }
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

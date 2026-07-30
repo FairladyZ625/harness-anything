@@ -659,6 +659,7 @@ function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
     originHeadBranch: () => null,
     refExists: (_repoRoot, ref) => ref === "refs/heads/main" || ref === "main",
     commitExists: () => true,
+    resolveCommit: (_repoRoot, ref) => ({ ok: true, sha: ref.padEnd(40, "0").slice(0, 40) }),
     pathExistsAtCommit: () => true,
     filesExistingAtCommit: (_repoRoot, _sha, input) => new Set(input.relativePaths),
     checkout: () => undefined,

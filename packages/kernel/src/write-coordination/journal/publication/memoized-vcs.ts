@@ -4,12 +4,14 @@ export function memoizePublicationVcs(delegate: VersionControlSystem): VersionCo
   const normalizedPaths = new Map<string, string>();
   const topLevels = new Map<string, string | null>();
   const commitExistence = new Map<string, boolean>();
+  const commitResolutions = new Map<string, ReturnType<VersionControlSystem["resolveCommit"]>>();
   const pathExistence = new Map<string, boolean>();
   return {
     ...delegate,
     normalizePath: (inputPath) => memoized(normalizedPaths, inputPath, () => delegate.normalizePath(inputPath)),
     topLevel: (inputPath) => memoized(topLevels, inputPath, () => delegate.topLevel(inputPath)),
     commitExists: (repoRoot, ref) => memoized(commitExistence, `${repoRoot}\0${ref}`, () => delegate.commitExists(repoRoot, ref)),
+    resolveCommit: (repoRoot, ref) => memoized(commitResolutions, `${repoRoot}\0${ref}`, () => delegate.resolveCommit(repoRoot, ref)),
     pathExistsAtCommit: (repoRoot, ref, relativePath) => memoized(
       pathExistence,
       `${repoRoot}\0${ref}\0${relativePath}`,

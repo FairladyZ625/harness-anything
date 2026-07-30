@@ -391,6 +391,21 @@ export {
   makeTaskLifecycleOrchestrator,
   readTaskLifecyclePolicy
 } from "./task-lifecycle-orchestrator.ts";
+export {
+  evaluateTaskCompletionAuthority,
+  decodeTaskCompletionEvidence,
+  makeCommitCompletionService,
+  TASK_COMPLETION_EVIDENCE_DOCUMENT,
+  taskCompletionEvidenceDeclaration
+} from "./task-completion-authority.ts";
+export type {
+  TaskCompletionAuthorityInput,
+  TaskCompletionAuthorityIssue,
+  TaskCompletionAuthorityResult,
+  CommitCompletionService,
+  TaskCompletionEvidence,
+  TaskCompletionEvidenceMode
+} from "./task-completion-authority.ts";
 export { validateTaskActivationReadiness } from "./task-activation-readiness.ts";
 export type { TaskActivationReadiness } from "./task-activation-readiness.ts";
 export type {
