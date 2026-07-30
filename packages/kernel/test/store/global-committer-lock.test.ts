@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import type { VersionControlSystem } from "../../src/ports/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { declaredDocumentSetSha256, makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { docWrite, runEffect, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
@@ -28,7 +28,7 @@ test("WriteCoordinator rejects semantic writes without document payload", () => 
       payload: { to: "active" }
     }));
 
-    assert.equal(failure._tag, "WriteRejected");
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
     assert.equal(failure.taskId, "task-1");
     assert.match(failure.reason, /requires path and body payload/);
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
@@ -578,7 +578,11 @@ test("WriteCoordinator accepts validated dedicated code-doc writes", () => {
       opId: "valid-code-doc",
       entityId: taskEntityId("task-1"),
       kind: "code_doc_reconcile",
-      payload: { path: "code-doc-anchors.json", body: validCodeDocDocument() }
+      payload: {
+        path: "code-doc-anchors.json",
+        body: validCodeDocDocument(),
+        historyDocumentSetSha256: declaredDocumentSetSha256([], ["executions/", "reviews/"])
+      }
     }));
 
     assert.equal(ack.accepted, true);

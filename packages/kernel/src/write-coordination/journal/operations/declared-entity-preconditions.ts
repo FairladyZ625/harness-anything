@@ -32,13 +32,7 @@ export function assertDeclaredEntityPreconditions(
       const key = `${precondition.taskId}:${precondition.pathPrefixes.join("\0")}`;
       if (seen.has(key)) rejectWrite("duplicate declared entity document-set precondition", op.entityId);
       seen.add(key);
-      const actual = readDocumentSetSha256(rootInput, precondition.taskId, precondition.pathPrefixes, op);
-      if (actual !== precondition.documentSetSha256) {
-        rejectWrite(
-          `declared entity document-set precondition changed; expected ${precondition.documentSetSha256}, current ${actual}`,
-          op.entityId
-        );
-      }
+      assertTaskDocumentSetPrecondition(rootInput, precondition, op);
       continue;
     }
     const targetPath = documentTargetPath(rootInput, {
@@ -55,6 +49,24 @@ export function assertDeclaredEntityPreconditions(
         op.entityId
       );
     }
+  }
+}
+
+export function assertTaskDocumentSetPrecondition(
+  rootInput: HarnessLayoutInput,
+  precondition: {
+    readonly taskId: string;
+    readonly pathPrefixes: ReadonlyArray<string>;
+    readonly documentSetSha256: string;
+  },
+  op: WriteOp
+): void {
+  const actual = readDocumentSetSha256(rootInput, precondition.taskId, precondition.pathPrefixes, op);
+  if (actual !== precondition.documentSetSha256) {
+    rejectWrite(
+      `declared entity document-set precondition changed; expected ${precondition.documentSetSha256}, current ${actual}`,
+      op.entityId
+    );
   }
 }
 

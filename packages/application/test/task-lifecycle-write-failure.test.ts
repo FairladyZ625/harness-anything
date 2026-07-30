@@ -5,18 +5,32 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeMarkdownArtifactStore, type ArtifactStore, type TaskPackageRead, type VersionControlSystem } from "../../kernel/src/index.ts";
+import {
+  computeExecutionConsentPin,
+  consentDeclaration,
+  executionDeclaration,
+  makeMarkdownArtifactStore,
+  reviewDeclaration,
+  type ArtifactStore,
+  type ConsentRecord,
+  type ExecutionRecord,
+  type ReviewRecord,
+  type TaskPackageRead,
+  type VersionControlSystem
+} from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 const codeDocSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const completionTaskId = "task_01KX7H00000000000000000000";
 
 test("completeTask surfaces an Execution transaction failure without falling back to generic status write", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
   try {
     let statusWriteCount = 0;
-    writeTaskPackage(rootDir, "task-1", "Complete Task");
-    writeFact(rootDir, "task-1");
+    writeTaskPackage(rootDir, completionTaskId, "Complete Task");
+    writeFact(rootDir, completionTaskId);
+    writeApprovedExecutionReview(rootDir, completionTaskId);
     const orchestrator = makeTaskLifecycleOrchestrator({
       rootDir,
       taskWriter: {
@@ -35,7 +49,7 @@ test("completeTask surfaces an Execution transaction failure without falling bac
     });
 
     const result = await runEffect(orchestrator.completeTask({
-      taskId: "task-1",
+      taskId: completionTaskId,
       reviewerId: "reviewer-a",
       ciGate: "passed",
       actor: completionActor()
@@ -277,8 +291,8 @@ test("software preset contract continues to require CI", async () => {
 test("completeTask evaluates closeout and review placeholders through ArtifactStore", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
   try {
-    writeIndexOnly(rootDir, "task-1", "Complete Task", "in_review");
-    writeCloseout(rootDir, "task-1", [
+    writeIndexOnly(rootDir, completionTaskId, "Complete Task", "in_review");
+    writeCloseout(rootDir, completionTaskId, [
       "## Summary",
       "",
       "Summarize the completed behavior change."
@@ -287,10 +301,12 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
     const orchestrator = makeTaskLifecycleOrchestrator({
       rootDir,
       taskWriter: writer,
-      artifactStore: inMemoryTaskPackageStore("task-1", {
+      artifactStore: inMemoryTaskPackageStore(completionTaskId, {
+        "INDEX.md": taskIndexBody(completionTaskId, "Complete Task", "in_review"),
         "review.md": validReview(),
         "facts.md": validFact(),
-        "code-doc-anchors.json": validCodeDocAnchors(),
+        "code-doc-anchors.json": validCodeDocAnchors(completionTaskId),
+        ...approvedExecutionReviewDocuments(completionTaskId),
         "closeout.md": [
           "# Closeout",
           "",
@@ -312,7 +328,7 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
       now: () => "2026-06-13T00:00:00.000Z"
     });
 
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
+    const result = await runEffect(orchestrator.completeTask({ taskId: completionTaskId, reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -429,10 +445,10 @@ function validFact(): string {
   ].join("\n");
 }
 
-function validCodeDocAnchors(): string {
+function validCodeDocAnchors(taskId = "task-1"): string {
   return `${JSON.stringify({
     schema: "code-doc-reconciliation/v1",
-    taskId: "task-1",
+    taskId,
     records: [{
       id: "A4-001",
       ledgerPath: "closeout.md",
@@ -460,10 +476,24 @@ function writeIndexOnly(
   preset = "default"
 ): void {
   mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
+  writeFileSync(
+    path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"),
+    taskIndexBody(directoryName, title, status, vertical, preset),
+    "utf8"
+  );
+}
+
+function taskIndexBody(
+  taskId: string,
+  title: string,
+  status: string,
+  vertical = "default",
+  preset = "default"
+): string {
+  return [
     "---",
     "schema: task-package/v2",
-    `task_id: ${directoryName}`,
+    `task_id: ${taskId}`,
     `title: ${title}`,
     "lifecycle:",
     "  bindingSchema: lifecycle-binding/v1",
@@ -483,7 +513,7 @@ function writeIndexOnly(
     "",
     `# ${title}`,
     ""
-  ].join("\n"), "utf8");
+  ].join("\n");
 }
 
 function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyArray<string>): void {
@@ -539,7 +569,7 @@ function writeTaskPackage(rootDir: string, directoryName: string, title: string)
     "No residual risk accepted.",
     ""
   ].join("\n"), "utf8");
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), validCodeDocAnchors(), "utf8");
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), validCodeDocAnchors(directoryName), "utf8");
 }
 
 function writeFact(rootDir: string, directoryName: string): void {
@@ -549,4 +579,95 @@ function writeFact(rootDir: string, directoryName: string): void {
     "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
+}
+
+function writeApprovedExecutionReview(rootDir: string, taskId: string): void {
+  const documents = approvedExecutionReviewDocuments(taskId);
+  for (const [documentPath, body] of Object.entries(documents)) {
+    const target = path.join(rootDir, "harness/tasks", taskId, documentPath);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, body, "utf8");
+  }
+}
+
+function approvedExecutionReviewDocuments(taskId: string): Record<string, string> {
+  const executionId = "exe_01KX7H00000000000000000001";
+  const reviewId = "rev_01KX7H00000000000000000002";
+  const consentId = "cns_01KX7H00000000000000000003";
+  const actor = completionActor();
+  const execution: ExecutionRecord = {
+    schema: "execution/v2",
+    execution_id: executionId,
+    task_ref: `task/${taskId}`,
+    state: "submitted",
+    primary_actor: actor,
+    claimed_at: "2026-06-13T00:00:00.000Z",
+    submitted_at: "2026-06-13T00:01:00.000Z",
+    closed_at: null,
+    session_bindings: [],
+    outputs: [],
+    submission: {
+      completion_claim: "The task lifecycle fixture is complete.",
+      deliverables: [],
+      evidence_refs: [],
+      verification_notes: ["Contract fixture"],
+      known_gaps: [],
+      residual_risks: []
+    }
+  };
+  const consentSnapshot = {
+    principal: { personId: "reviewer-a" },
+    scope: {
+      actions: ["approve_execution", "complete_task"] as const,
+      content_pin: {
+        algorithm: "execution-consent-pin/v1" as const,
+        digest: computeExecutionConsentPin(execution)
+      }
+    },
+    disclosure: {
+      completion_claim: execution.submission!.completion_claim,
+      known_gaps: [],
+      residual_risks: []
+    },
+    channel: { kind: "agent-relayed" as const, assurance: "relayed-assertion" as const },
+    response: { kind: "authorization-declaration" as const, source: "asserted" as const },
+    source: { strength: "asserted" as const, rationale: "Approved fixture completion." },
+    recorded_by: actor,
+    granted_at: "2026-06-13T00:02:00.000Z",
+    expires_at: "2026-06-14T00:02:00.000Z"
+  };
+  const consent: ConsentRecord = {
+    schema: "consent/v2",
+    consent_id: consentId,
+    task_ref: `task/${taskId}`,
+    execution_ref: `execution/${taskId}/${executionId}`,
+    ...consentSnapshot,
+    state: "consumed",
+    consumed_by: `review/${taskId}/${reviewId}`,
+    consumed_at: "2026-06-13T00:03:00.000Z"
+  };
+  const review: ReviewRecord = {
+    schema: "review/v3",
+    review_id: reviewId,
+    task_ref: `task/${taskId}`,
+    execution_ref: `execution/${taskId}/${executionId}`,
+    reviewer_actor: actor,
+    reviewer_session_ref: "session/reviewer",
+    findings: "The submitted execution satisfies the fixture.",
+    evidence_checked: [],
+    rationale: "The completion transaction may now be exercised.",
+    verdict: "approved",
+    archive_warnings_acknowledged: false,
+    approval_basis: {
+      kind: "human-consent",
+      consent_ref: `consent/${taskId}/${consentId}`,
+      consent_snapshot: consentSnapshot
+    },
+    reviewed_at: "2026-06-13T00:03:00.000Z"
+  };
+  return {
+    [`executions/${executionId}.md`]: executionDeclaration.documentCodec.encode(execution),
+    [`consents/${consentId}.md`]: consentDeclaration.documentCodec.encode(consent),
+    [`reviews/${reviewId}.md`]: reviewDeclaration.documentCodec.encode(review)
+  };
 }

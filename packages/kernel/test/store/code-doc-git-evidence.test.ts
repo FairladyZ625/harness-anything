@@ -6,8 +6,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { taskEntityId } from "../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
+import { declaredDocumentSetSha256, makeJournaledWriteCoordinator } from "../../src/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -44,6 +44,24 @@ test("WriteCoordinator code-doc preflight resolves mixed outer and authored repo
   });
 });
 
+test("code-doc reconciliation rejects Execution history created after its zero-history snapshot", () => {
+  withTempStore((rootDir) => {
+    const fixture = initializeNestedGitFixture(rootDir);
+    const op = codeDocOp("stale-zero-history-code-doc", [
+      { kind: "commit", sha: fixture.authoredSha }
+    ]);
+    const executionRoot = path.join(fixture.authoredRoot, "tasks/task-1/executions");
+    mkdirSync(executionRoot, { recursive: true });
+    writeFileSync(path.join(executionRoot, "exe_race.md"), "late execution\n", "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+
+    const failure = runWriteFailure(coordinator.enqueue(op));
+
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
+    assert.match(failure.reason, /document-set precondition changed/u);
+  });
+});
+
 function codeDocOp(opId: string, anchors: ReadonlyArray<Record<string, string>>) {
   return {
     opId,
@@ -51,6 +69,7 @@ function codeDocOp(opId: string, anchors: ReadonlyArray<Record<string, string>>)
     kind: "code_doc_reconcile" as const,
     payload: {
       path: "code-doc-anchors.json",
+      historyDocumentSetSha256: declaredDocumentSetSha256([], ["executions/", "reviews/"]),
       body: `${JSON.stringify({
         schema: "code-doc-reconciliation/v1",
         taskId: "task-1",
@@ -102,4 +121,11 @@ function runHermeticGit(repoRoot: string, ...args: ReadonlyArray<string>): strin
     env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
+}
+
+function runWriteFailure<A>(effect: Effect.Effect<A, WriteError>): WriteError {
+  const result = Effect.runSync(Effect.either(effect));
+  assert.equal(result._tag, "Left");
+  if (result._tag !== "Left") throw new Error("expected write effect to fail");
+  return result.left;
 }

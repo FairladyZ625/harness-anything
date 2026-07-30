@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeCommitCompletionService, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
+import { declaredDocumentSetSha256, makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -145,7 +145,8 @@ function runTaskCodeDocReconcile(
 
     const write = yield* context.engine.writeCodeDocReconciliation({
       taskId: action.taskId,
-      body: draft.body
+      body: draft.body,
+      historyDocumentSetSha256: declaredDocumentSetSha256(taskPackage.documents, ["executions/", "reviews/"])
     });
     return {
       ok: true,

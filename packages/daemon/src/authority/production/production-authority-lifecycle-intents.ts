@@ -238,14 +238,17 @@ function codeDocIntent(
   action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-code-doc-reconcile" }>
 ): CanonicalAttemptIntent {
   const taskRoot = resolvedTaskRoot(authoredRoot, action.taskId);
-  const documents = ["closeout.md", "review.md"]
-    .filter((name) => existsSync(path.join(taskRoot, name)))
-    .map((name) => ({ path: name, body: readFileSync(path.join(taskRoot, name), "utf8") }));
+  const taskDocuments = readTaskDocuments(taskRoot);
+  const documents = taskDocuments.filter((document) => document.path === "closeout.md" || document.path === "review.md");
   const draft = renderCodeDocReconciliationDraft({
     taskId: action.taskId, documents, sha: action.sha, paths: action.paths, prRef: action.prRef
   });
   const payload: TaskDecisionModuleCommandPayloadV2 = {
-    schema: "task.document/v1", taskId: action.taskId, path: "code-doc-anchors.json", body: draft.body
+    schema: "task.document/v1",
+    taskId: action.taskId,
+    path: "code-doc-anchors.json",
+    body: draft.body,
+    historyDocumentSetSha256: declaredDocumentSetSha256(taskDocuments, ["executions/", "reviews/"])
   };
   const portablePath = taskLifecyclePath(authoredRoot, action.taskId, "code-doc-anchors.json");
   const existing = optionalLifecycleSnapshot(authoredRoot, portablePath.logical, portablePath.physical);

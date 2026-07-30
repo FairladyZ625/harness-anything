@@ -1,10 +1,11 @@
+import path from "node:path";
 import {
   decodeEntityPathDeclaration,
   resolveEntityDocumentPath,
   type DeclaredEntityDocumentWritePayload
 } from "../../../entity/declaration.ts";
 import { sha256Text } from "../../../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../../../layout/index.ts";
+import { normalizeRelativeDocumentPath, taskPackagePath, type HarnessLayoutInput } from "../../../layout/index.ts";
 import { localLayoutFileSystem } from "../../../local/local-layout-file-system.ts";
 import type { DocumentWrite } from "../../../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../../../ports/write-coordinator.ts";
@@ -75,6 +76,21 @@ export function declaredEntityDocument(
 export function declaredEntityTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
   const document = declaredEntityDocument(rootInput, op);
   return [document.targetPath, ...(document.blobPath ? [document.blobPath] : [])];
+}
+
+export function declaredEntityPrimaryDocumentWrite(
+  rootInput: HarnessLayoutInput,
+  op: WriteOp
+): DocumentWrite | null {
+  if (!hasDeclaredEntityDocument(op.payload)) return null;
+  const taskId = op.payload.entityDocument.identity?.taskId;
+  if (typeof taskId !== "string" || taskId.length === 0) return null;
+  const document = declaredEntityDocument(rootInput, op);
+  const relativePath = path.relative(taskPackagePath(rootInput, taskId), document.targetPath)
+    .split(path.sep)
+    .join("/");
+  if (relativePath.startsWith("../") || path.isAbsolute(relativePath)) return null;
+  return { taskId, path: normalizeRelativeDocumentPath(relativePath), body: document.body };
 }
 
 function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {

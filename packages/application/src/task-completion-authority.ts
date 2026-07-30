@@ -3,10 +3,13 @@ import {
   decodeEntityDeclaration,
   declaredDocumentSetSha256,
   jsonEntityDocumentCodec,
+  projectDeclaredEntities,
+  readDeclaredProjectionRows,
   sha256Text,
   stablePayloadHash,
   writeDeclaredEntityTransaction,
   type ArtifactStore,
+  type HarnessLayoutInput,
   type TaskHolderPrincipal,
   type VersionControlSystem,
   type WriteCoordinator
@@ -46,6 +49,11 @@ const CompletionEvidenceSchema = Schema.Struct({
 });
 
 export type TaskCompletionEvidence = Schema.Schema.Type<typeof CompletionEvidenceSchema>;
+export type TaskCompletionEvidenceProjectionRow = Readonly<Record<string, string | number | null>>;
+export interface TaskCompletionEvidenceProjectionResult {
+  readonly table: string;
+  readonly rows: ReadonlyArray<TaskCompletionEvidenceProjectionRow>;
+}
 
 export function decodeTaskCompletionEvidence(value: unknown): TaskCompletionEvidence {
   return Schema.decodeUnknownSync(CompletionEvidenceSchema)(value);
@@ -85,6 +93,19 @@ export const taskCompletionEvidenceDeclaration: ReturnType<typeof decodeEntityDe
     columns: [{ name: "task_id", field: "taskId", type: "text", primaryKey: true }]
   }
 });
+
+export function projectTaskCompletionEvidence(
+  rootInput: HarnessLayoutInput,
+  projectionPath: string
+): TaskCompletionEvidenceProjectionResult {
+  return projectDeclaredEntities(rootInput, taskCompletionEvidenceDeclaration, projectionPath);
+}
+
+export function readTaskCompletionEvidenceProjection(
+  projectionPath: string
+): ReadonlyArray<TaskCompletionEvidenceProjectionRow> {
+  return readDeclaredProjectionRows(projectionPath, taskCompletionEvidenceDeclaration);
+}
 
 export type TaskCompletionEvidenceMode = "execution-review" | "commit-anchor";
 

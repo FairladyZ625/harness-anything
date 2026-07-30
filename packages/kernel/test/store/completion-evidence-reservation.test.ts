@@ -47,8 +47,52 @@ test("WriteCoordinator rejects task-tree staging with hand-written completion ev
       kind: "task_tree_stage",
       payload: { scope: "task-package" }
     }));
-    assert.equal(failure._tag, "WriteRejected");
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
     assert.match(failure.reason, /immutable machine evidence/u);
+  });
+});
+
+test("declared entity writes cannot replace immutable completion evidence without absence CAS", () => {
+  withTempStore((rootDir) => {
+    const taskRoot = path.join(rootDir, "harness/tasks/task-1");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "completion-evidence.json"), "{\"original\":true}\n", "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+
+    const failure = runWriteFailure(coordinator.enqueue(declaredHostedWrite("completion-evidence.json")));
+
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
+    assert.match(failure.reason, /absence precondition/u);
+  });
+});
+
+test("completion evidence absence CAS rejects replacement after reserved-path admission", () => {
+  withTempStore((rootDir) => {
+    const taskRoot = path.join(rootDir, "harness/tasks/task-1");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "completion-evidence.json"), "{\"original\":true}\n", "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+
+    const failure = runWriteFailure(coordinator.enqueue(declaredHostedWrite(
+      "completion-evidence.json",
+      [{ taskId: "task-1", path: "completion-evidence.json", bodySha256: null }]
+    )));
+
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
+    assert.match(failure.reason, /expected <missing>/u);
+  });
+});
+
+test("declared primary targets cannot bypass the reserved code-doc operation", () => {
+  withTempStore((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness/tasks/task-1"), { recursive: true });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+
+    const failure = runWriteFailure(coordinator.enqueue(declaredHostedWrite("code-doc-anchors.json")));
+
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
+    assert.match(failure.reason, /reserved machine document/u);
+    assert.match(failure.reason, /ha task code-doc reconcile task-1/u);
   });
 });
 
@@ -58,6 +102,33 @@ function documentWrite(): WriteOp {
     entityId: taskEntityId("task-1"),
     kind: "doc_write",
     payload: { path: "completion-evidence.json", body: "{}" }
+  };
+}
+
+function declaredHostedWrite(
+  documentPath: string,
+  preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: null }> = []
+): WriteOp {
+  return {
+    opId: `declared-${documentPath}`,
+    entityId: "entity/task/task-1" as WriteOp["entityId"],
+    kind: "doc_write",
+    payload: {
+      entityDocument: {
+        declaration: {
+          kind: "task",
+          storageForm: "hosted-entity",
+          rootResolver: {
+            pathTemplate: `tasks/{taskId}/${documentPath}`,
+            identity: ["taskId"],
+            host: { entityKind: "task", pathTemplate: "tasks/{taskId}", identity: ["taskId"] }
+          }
+        },
+        identity: { taskId: "task-1" },
+        body: "{\"replacement\":true}\n"
+      },
+      preconditions
+    }
   };
 }
 

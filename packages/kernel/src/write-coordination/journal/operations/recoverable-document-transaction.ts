@@ -43,6 +43,7 @@ export function applyRecoverableDocumentTransaction(
   try {
     for (const [index, write] of writes.entries()) {
       writeFileDurably(write.targetPath, write.body);
+      declaredTransactionTestFault(write.targetPath);
       if (index === 0 && process.env.HARNESS_TEST_DECLARED_TRANSACTION_KILLPOINT === "after-first-rename") {
         process.kill(process.pid, "SIGTERM");
       }
@@ -74,6 +75,16 @@ export function applyRecoverableDocumentTransaction(
     // transaction must no longer be eligible for restart replay.
     removeFileDurably(target);
     throw error;
+  }
+}
+
+function declaredTransactionTestFault(targetPath: string): void {
+  const targetName = path.basename(targetPath);
+  if (process.env.HARNESS_TEST_DECLARED_TRANSACTION_FAILURE_AFTER_WRITE === targetName) {
+    throw new Error(`injected recoverable document transaction failure after ${targetName}`);
+  }
+  if (process.env.HARNESS_TEST_DECLARED_TRANSACTION_KILLPOINT_AFTER_WRITE === targetName) {
+    process.kill(process.pid, "SIGTERM");
   }
 }
 
