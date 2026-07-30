@@ -90,9 +90,46 @@ if (mode === "exit") {
       return;
     }
     if (message.kind === "proceed") {
-      if (mode === "swallow-proceed") return;
+      if (mode === "swallow-proceed") {
+        void transport.send({
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "telemetry",
+          requestId: message.requestId,
+          opId: message.opId,
+          phase: "git",
+          elapsedMs: 2.5
+        });
+        return;
+      }
       if (mode === "crash-after-proceed") {
         process.exit(24);
+      }
+      if (mode === "slow-terminal") {
+        void transport.send({
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "telemetry",
+          requestId: message.requestId,
+          opId: message.opId,
+          phase: "git",
+          elapsedMs: 2.5
+        });
+        setTimeout(() => {
+          void transport.send({
+            protocol: repoWriteProtocolType,
+            repoId: message.repoId,
+            generation: message.generation,
+            kind: "terminal",
+            requestId: message.requestId,
+            opId: message.opId,
+            outcome: "committed",
+            receipt: committedCommandReceipt("slow canonical publication")
+          });
+        }, 60);
+        return;
       }
       void transport.send({
         protocol: repoWriteProtocolType,

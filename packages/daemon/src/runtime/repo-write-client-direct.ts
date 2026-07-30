@@ -212,6 +212,7 @@ export class RepoWriteDirectClientLane {
       commandName: pending.command.commandName,
       lane: "direct",
       deadlineMs: this.options.requestTimeoutMs,
+      watchdogStage: "deadline",
       ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
     });
     pending.reject(pending.phase === "sent"

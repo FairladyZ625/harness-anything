@@ -27,7 +27,7 @@ export function expireRepoWriteSubmit(
   pending: PendingSubmit,
   timeoutMs: number,
   observer: TimeoutObserver | undefined
-): void {
+): "observed" | "expired" {
   const diagnostic =
     `Repo writer request exceeded its ${timeoutMs}ms deadline.`
     + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
@@ -36,20 +36,46 @@ export function expireRepoWriteSubmit(
     commandName: pending.command.commandName,
     lane: "durable",
     deadlineMs: timeoutMs,
+    watchdogStage: pending.phase === "proceeded" && pending.opId
+      ? "observation"
+      : "deadline",
     ...(pending.opId ? { opId: pending.opId } : {}),
     ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
   });
-  pending.reject(pending.phase === "proceeded" && pending.opId
-    ? new RepoWriteOutcomeUnknownError(
-        "REPO_WRITE_REQUEST_TIMEOUT",
-        diagnostic,
-        pending.opId
-      )
-    : new RepoWriteNotStartedError(
-        "REPO_WRITE_REQUEST_TIMEOUT",
-        diagnostic,
-        pending.opId
-      ));
+  // PROCEED transfers terminal ownership to the durable child operation. From
+  // that point onward the deadline is a stall observation, not permission to
+  // manufacture an unknown outcome or replace a writer during publication.
+  if (pending.phase === "proceeded" && pending.opId) return "observed";
+  pending.reject(new RepoWriteNotStartedError(
+    "REPO_WRITE_REQUEST_TIMEOUT",
+    diagnostic,
+    pending.opId
+  ));
+  return "expired";
+}
+
+export function escalateRepoWriteSubmitStall(
+  pending: PendingSubmit,
+  timeoutMs: number,
+  observer: TimeoutObserver | undefined
+): void {
+  const diagnostic =
+    `Repo writer proceeded operation exceeded its bounded ${timeoutMs}ms stall deadline.`
+    + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
+  observeRepoWriteRequestTimeout(observer, {
+    requestId: pending.requestId,
+    commandName: pending.command.commandName,
+    lane: "durable",
+    deadlineMs: timeoutMs,
+    watchdogStage: "escalation",
+    opId: pending.opId!,
+    ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
+  });
+  pending.reject(new RepoWriteOutcomeUnknownError(
+    "REPO_WRITE_STALL_TIMEOUT",
+    diagnostic,
+    pending.opId!
+  ));
 }
 
 export function expireRepoWriteLookup(
@@ -62,6 +88,7 @@ export function expireRepoWriteLookup(
     commandName: "repo-write.lookup",
     lane: "lookup",
     deadlineMs: timeoutMs,
+    watchdogStage: "deadline",
     opId: pending.opId,
     ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
   });

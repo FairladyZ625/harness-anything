@@ -23,6 +23,12 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
   readonly coordinator: WriteCoordinator;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
 }): ExecutionAuthoredStore {
+  const submissionAttempts = new Map<string, {
+    readonly beforeExecutionBody: string;
+    readonly beforeIndexBody: string;
+    readonly afterExecutionBody: string;
+    readonly afterIndexBody: string;
+  }>();
   return {
     listExecutions: async (request) => {
       const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
@@ -147,15 +153,113 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
         evidence: allEvidence
       });
       const submitted = submittedExecution(current, finalizedBindings, request.submittedAt, request.submission);
+      const currentIndex = task.documents.find((candidate) => candidate.path === "INDEX.md")?.body;
+      if (!currentIndex) throw new Error(`task INDEX.md missing: ${request.taskId}`);
+      const submittedIndex = taskIndex(task.documents, request.taskId, ["active", "in_review"], "in_review");
+      const attemptKey = submissionAttemptKey(request);
+      submissionAttempts.set(attemptKey, {
+        beforeExecutionBody: document.body,
+        beforeIndexBody: currentIndex,
+        afterExecutionBody: executionDeclaration.documentCodec.encode(submitted),
+        afterIndexBody: submittedIndex
+      });
       await writeExecutionTransaction(
         input,
         request.taskId,
         submitted,
-        taskIndex(task.documents, request.taskId, ["active", "in_review"], "in_review"),
-        { stageTaskTree: true }
+        submittedIndex,
+        {
+          stageTaskTree: true,
+          preconditions: [
+            {
+              taskId: request.taskId,
+              path: executionPath(request.executionId),
+              bodySha256: sha256Text(document.body)
+            },
+            {
+              taskId: request.taskId,
+              path: "INDEX.md",
+              bodySha256: sha256Text(currentIndex)
+            }
+          ]
+        }
       );
+      submissionAttempts.delete(attemptKey);
+    },
+    submitPublicationState: async (request) => {
+      const attemptKey = submissionAttemptKey(request);
+      const attempt = submissionAttempts.get(attemptKey);
+      submissionAttempts.delete(attemptKey);
+      const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
+      const executionBody = task.documents.find((candidate) =>
+        candidate.path === executionPath(request.executionId))?.body;
+      const indexBody = task.documents.find((candidate) => candidate.path === "INDEX.md")?.body;
+      if (!attempt) {
+        const current = executionBody
+          ? Schema.decodeUnknownSync(executionDeclaration.schema)(
+            executionDeclaration.documentCodec.decode(executionBody)
+          ) as ExecutionRecord
+          : null;
+        if (current?.state === "active") return "absent";
+        if (current && submissionPayloadMatches(current, request)) {
+          try {
+            const expectedIndex = taskIndex(task.documents, request.taskId, ["in_review"], "in_review");
+            if (indexBody === expectedIndex) return "committed";
+          } catch {
+            // A missing or non-review INDEX is a partial publication even when
+            // the Execution payload itself is exact.
+          }
+        }
+        return "partial";
+      }
+      if (executionBody === attempt.afterExecutionBody && indexBody === attempt.afterIndexBody) {
+        return "committed";
+      }
+      if (executionBody === attempt.beforeExecutionBody && indexBody === attempt.beforeIndexBody) {
+        return "absent";
+      }
+      return "partial";
     }
   };
+}
+
+function submissionPayloadMatches(
+  execution: ExecutionRecord,
+  request: {
+    readonly submittedAt: string;
+    readonly submission: ExecutionSubmission;
+  }
+): boolean {
+  const expectedSubmission = {
+    completion_claim: request.submission.completionClaim,
+    deliverables: request.submission.deliverables,
+    evidence_refs: request.submission.evidence.map((evidence) => evidence.evidence_id),
+    verification_notes: request.submission.verificationNotes,
+    known_gaps: request.submission.knownGaps,
+    residual_risks: request.submission.residualRisks
+  };
+  const evidenceCount = request.submission.evidence.length;
+  return execution.state === "submitted"
+    && execution.submitted_at === request.submittedAt
+    && isDeepStrictEqual(execution.submission, expectedSubmission)
+    && (evidenceCount === 0 || isDeepStrictEqual(
+      execution.outputs.slice(-evidenceCount),
+      request.submission.evidence
+    ));
+}
+
+function submissionAttemptKey(request: {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly submittedAt: string;
+  readonly submission: ExecutionSubmission;
+}): string {
+  return stablePayloadHash({
+    taskId: request.taskId,
+    executionId: request.executionId,
+    submittedAt: request.submittedAt,
+    submission: request.submission
+  });
 }
 
 function writeExecutionOnlyTransaction(

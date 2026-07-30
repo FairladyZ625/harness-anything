@@ -52,6 +52,27 @@ export function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {
         }
       });
       store.taskStatus = "in_review";
+    },
+    submitPublicationState: async (input) => {
+      const current = executions.get(input.executionId);
+      if (!current) return "absent";
+      const expectedSubmission = {
+        completion_claim: input.submission.completionClaim,
+        deliverables: input.submission.deliverables,
+        evidence_refs: input.submission.evidence.map((evidence) => evidence.evidence_id),
+        verification_notes: input.submission.verificationNotes,
+        known_gaps: input.submission.knownGaps,
+        residual_risks: input.submission.residualRisks
+      };
+      if (current.state === "submitted"
+          && current.submitted_at === input.submittedAt
+          && JSON.stringify(current.submission) === JSON.stringify(expectedSubmission)
+          && store.taskStatus === "in_review") {
+        return "committed";
+      }
+      return current.state === "active" && store.taskStatus === "active"
+        ? "absent"
+        : "partial";
     }
   };
   return store;

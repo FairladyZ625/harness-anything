@@ -10,7 +10,7 @@ export interface PendingSubmit {
   readonly command: RepoWriteCommandDto;
   readonly resolve: (receipt: RepoWriteJsonObject) => void;
   readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout;
   phase: "queued" | "submitted" | "prepared" | "proceeded";
   opId?: string;
   lastTelemetry?: RepoWriteTelemetryFrame;

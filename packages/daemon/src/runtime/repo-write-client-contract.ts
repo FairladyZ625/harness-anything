@@ -27,6 +27,11 @@ export interface RepoWriteClientLimits {
   readonly maxPendingRequests: number;
   readonly readyTimeoutMs: number;
   readonly requestTimeoutMs: number;
+  /**
+   * Total wall time from submit until a proceeded operation is escalated.
+   * The default is two request windows: 30s observes, 60s replaces and looks up.
+   */
+  readonly proceededStallTimeoutMs: number;
 }
 
 export interface RepoWriteRequestDiagnostic {
@@ -39,6 +44,7 @@ export interface RepoWriteRequestDiagnostic {
 
 export interface RepoWriteRequestTimeoutDiagnostic extends RepoWriteRequestDiagnostic {
   readonly deadlineMs: number;
+  readonly watchdogStage: "deadline" | "observation" | "escalation";
 }
 
 export interface RepoWriteRequestFailureDiagnostic extends RepoWriteRequestDiagnostic {

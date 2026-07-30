@@ -333,6 +333,7 @@ test("execution claim activates once and the Holder V2 actor can submit without 
 
     assert.equal(submitted.status, "in_review");
     assert.equal(submitted.report.leaseReleased, true);
+    assert.deepEqual(submitted.report.cleanup, { status: "released", diagnostics: [] });
     const holder = runJson(rootDir, ["task", "holder", created.taskId]);
     assert.equal(holder.report.effectiveHolder, null);
   });

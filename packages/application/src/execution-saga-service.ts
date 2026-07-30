@@ -64,12 +64,33 @@ export interface ExecutionAuthoredStore {
     readonly submittedAt: string;
     readonly submission: ExecutionSubmission;
   }) => Promise<void>;
+  readonly submitPublicationState: (input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly submittedAt: string;
+    readonly submission: ExecutionSubmission;
+  }) => Promise<"committed" | "absent" | "partial">;
 }
 
 export interface ExecutionClaimResult extends ExecutionLeaseContext {
   readonly execution: ExecutionRecord;
   readonly reused: boolean;
   readonly leaseAcquiredAt: string;
+}
+
+export interface ExecutionSubmitResult {
+  /**
+   * Authored submission success is authoritative. Lease release is a
+   * post-commit cleanup result and cannot reverse that committed outcome.
+   */
+  readonly leaseReleased: boolean;
+  readonly cleanup: {
+    readonly status: "released" | "retained" | "unknown";
+    readonly diagnostics: ReadonlyArray<{
+      readonly phase: "release" | "verification";
+      readonly message: string;
+    }>;
+  };
 }
 
 export interface ExecutionSagaService {
@@ -98,7 +119,7 @@ export interface ExecutionSagaService {
     readonly leaseToken?: string;
     readonly principal: TaskHolderPrincipal;
     readonly submission: ExecutionSubmission;
-  }) => Promise<void>;
+  }) => Promise<ExecutionSubmitResult>;
 }
 
 export interface ExecutionSagaServiceOptions {
@@ -274,16 +295,78 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
       const execution = await options.authoredStore.readExecution({ taskId: input.taskId, executionId: input.executionId });
       const primarySession = execution ? boundPrimarySession(execution.session_bindings) : null;
       if (primarySession && options.finalizeSession) await options.finalizeSession(primarySession);
-      await options.authoredStore.submitForReview({
+      const submissionAttempt = {
         taskId: input.taskId,
         executionId: input.executionId,
         submittedAt: now(),
         submission: input.submission
-      });
-      await options.taskHolderService.releaseExecution(input);
+      };
+      try {
+        await options.authoredStore.submitForReview(submissionAttempt);
+      } catch (error) {
+        let publication: "committed" | "absent" | "partial";
+        try {
+          publication = await options.authoredStore.submitPublicationState(submissionAttempt);
+        } catch (queryError) {
+          throw new Error(
+            `execution submit publication is indeterminate because its exact authored state could not be read: ${input.executionId}`,
+            { cause: new AggregateError([error, queryError]) }
+          );
+        }
+        if (publication === "absent") throw error;
+        if (publication === "partial") {
+          throw new Error(
+            `execution submit publication is indeterminate because only part of the exact submission is observable: ${input.executionId}`,
+            { cause: error }
+          );
+        }
+        // Exact authored execution and INDEX bytes are authoritative even if
+        // the coordinator failed after their canonical publication.
+      }
+      let cleanup: ExecutionSubmitResult["cleanup"] = {
+        status: "released",
+        diagnostics: []
+      };
+      try {
+        await options.taskHolderService.releaseExecution(input);
+      } catch (releaseError) {
+        // Publication is already committed. Reconcile cleanup from authored
+        // state, but never translate a cleanup race into a failed write.
+        const diagnostics: Array<ExecutionSubmitResult["cleanup"]["diagnostics"][number]> = [
+          { phase: "release", message: cleanupErrorMessage(releaseError) }
+        ];
+        try {
+          await reconcileTask(options, input.taskId);
+          const released = (await options.taskHolderService.holder({
+            taskId: input.taskId
+          })).effectiveHolder === null;
+          cleanup = {
+            status: released ? "released" : "retained",
+            diagnostics
+          };
+        } catch (verificationError) {
+          cleanup = {
+            status: "unknown",
+            diagnostics: [
+              ...diagnostics,
+              { phase: "verification", message: cleanupErrorMessage(verificationError) }
+            ]
+          };
+        }
+      }
+      return {
+        leaseReleased: cleanup.status === "released",
+        cleanup
+      };
     },
     reconcileTask: (taskId) => reconcileTask(options, taskId)
   };
+}
+
+function cleanupErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : String(error);
 }
 
 function selectReusableExecution(

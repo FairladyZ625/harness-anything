@@ -54,6 +54,7 @@ export function formatRepoWriteTimeoutDiagnostic(
   const telemetry = diagnostic.lastTelemetry;
   return [
     `Repo-write child request timed out after ${diagnostic.deadlineMs}ms`,
+    `watchdog=${diagnostic.watchdogStage}`,
     `command=${diagnostic.commandName}`,
     `lane=${diagnostic.lane}`,
     `waiting=${repoWriteWaitingStage(telemetry?.phase)}`,

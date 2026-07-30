@@ -123,8 +123,9 @@ test("connected child that never announces READY is terminated at the readiness 
   assert.equal(supervisor.status().connected, false);
 });
 
-test("child that swallows PROCEED releases the pending request at its deadline", async (context) => {
+test("child that swallows PROCEED is replaced after the bounded stall window and recovered by exact lookup", async (context) => {
   let forks = 0;
+  const timeoutDiagnostics: RepoWriteRequestTimeoutDiagnostic[] = [];
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
@@ -137,16 +138,35 @@ test("child that swallows PROCEED releases the pending request at its deadline",
         modulePath: fixturePath,
         args: ["swallow-proceed"]
       });
-    }
+    },
+    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  await assert.rejects(supervisor.submit(command()), (error) => {
-    assert.ok(error instanceof RepoWriteOutcomeUnknownError);
-    assert.equal(error.code, "REPO_WRITE_REQUEST_TIMEOUT");
-    return true;
-  });
+  // Boundedness is asserted by awaiting the rejection itself: an unbounded
+  // regression hangs into the runner's per-test timeout instead of racing a
+  // wall-clock budget that slow CI child spawns cannot meet.
+  const outcome = await supervisor.submit(command()).then(
+    () => ({ kind: "committed" as const }),
+    (error: unknown) => ({ kind: "rejected" as const, error })
+  );
+
+  assert.equal(outcome.kind, "rejected");
+  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteOutcomeUnknownError);
+  assert.equal(outcome.error.code, "REPO_WRITE_STALL_TIMEOUT");
   assert.equal(forks, 2);
+  assert.deepEqual(
+    timeoutDiagnostics.map((diagnostic) => [
+      diagnostic.watchdogStage,
+      diagnostic.deadlineMs,
+      diagnostic.opId,
+      diagnostic.lastTelemetry?.phase
+    ]),
+    [
+      ["observation", 40, timeoutDiagnostics[0]?.opId, "git"],
+      ["escalation", 80, timeoutDiagnostics[0]?.opId, "git"]
+    ]
+  );
 });
 
 test("non-durable task-claim timeout replaces the child without replay or lookup", async (context) => {

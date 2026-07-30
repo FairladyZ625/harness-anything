@@ -9,6 +9,7 @@ import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { preflightActiveStatusSet } from "./task-active-transition.ts";
 import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
 import { canonicalTaskStartResult, resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
+import { executionSubmitSuccessResult } from "./task-holder-submit-result.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
@@ -113,7 +114,7 @@ export function runExecutionSubmit(
       catch: (error) => error
     }).pipe(Effect.match({
       onFailure: (error) => ({ ok: false as const, error }),
-      onSuccess: () => ({ ok: true as const })
+      onSuccess: (result) => ({ ok: true as const, result })
     }));
     if (!submitted.ok) {
       return {
@@ -138,19 +139,13 @@ export function runExecutionSubmit(
         sessionRef: binding.session_ref,
         archiveStatus: binding.archive_status
       })) ?? [];
-    return {
-      ok: true,
-      command: "status-set",
+    return executionSubmitSuccessResult({
       taskId: action.taskId,
       executionId,
-      status: "in_review",
-      report: {
-        schema: "execution-submit-result/v1",
-        executionId,
-        leaseReleased: true,
-        unavailableBindings
-      }
-    } satisfies CliResult;
+      leaseReleased: submitted.result.leaseReleased,
+      cleanup: submitted.result.cleanup,
+      unavailableBindings
+    });
   });
 }
 
