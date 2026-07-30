@@ -20,6 +20,7 @@ import {
 } from "../src/index.ts";
 import { memoryAuthoredStore } from "./execution-saga-fixtures.ts";
 import { taskIndex } from "./execution-saga-fixtures.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 import { writeAttribution } from "./test-attribution.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
@@ -277,10 +278,10 @@ test("journal recovery completes a claim transaction after SIGTERM follows its f
       rootDir,
       attribution: writeAttribution("alice", "recovery")
     });
-    await Effect.runPromise(recovery.recover);
+    await runEffect(recovery.recover);
     assert.equal(exists(executionPath), true);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: active$/mu);
-    await Effect.runPromise(recovery.recover);
+    await runEffect(recovery.recover);
     assert.equal(readdirSync(path.join(taskRoot, "executions")).length, 1);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
