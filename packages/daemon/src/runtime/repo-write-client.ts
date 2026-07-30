@@ -13,8 +13,8 @@ import type {
   PendingShutdown,
   PendingSubmit
 } from "./repo-write-client-pending.ts";
-import { defaultRepoWriteRequestTimeoutMs } from "./repo-write-client-contract.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
+import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
 import {
   expireRepoWriteLookup,
   expireRepoWriteSubmit,
@@ -30,6 +30,7 @@ import {
   observeRepoWriteTelemetry,
   repoWriteClientFrameBase
 } from "./repo-write-client-observers.ts";
+import { armRepoWriteSubmitEscalation } from "./repo-write-client-watchdog.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
@@ -79,16 +80,7 @@ export class RepoWriteClient {
       throw new Error("generation must be a positive safe integer");
     }
     this.options = options;
-    this.limits = {
-      maxPendingRequests: options.limits?.maxPendingRequests ?? 1_024,
-      readyTimeoutMs: options.limits?.readyTimeoutMs ?? 30_000,
-      requestTimeoutMs: options.limits?.requestTimeoutMs ?? defaultRepoWriteRequestTimeoutMs
-    };
-    for (const [name, value] of Object.entries(this.limits)) {
-      if (!Number.isSafeInteger(value) || value <= 0) {
-        throw new Error(`${name} must be a positive safe integer`);
-      }
-    }
+    this.limits = resolveRepoWriteClientLimits(options.limits);
     this.directLane = new RepoWriteDirectClientLane({
       repoId: options.repoId,
       generation: options.generation,
@@ -511,6 +503,15 @@ export class RepoWriteClient {
       this.options.onRequestTimeout
     );
     if (outcome === "expired") this.pending.delete(requestId);
+    if (outcome === "observed") {
+      armRepoWriteSubmitEscalation({
+        pending,
+        pendingRequests: this.pending,
+        delayMs: this.limits.proceededStallTimeoutMs - this.limits.requestTimeoutMs,
+        totalTimeoutMs: this.limits.proceededStallTimeoutMs,
+        onTimeout: this.options.onRequestTimeout
+      });
+    }
   }
 
   private expireLookup(requestId: string): void {

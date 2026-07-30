@@ -36,6 +36,9 @@ export function expireRepoWriteSubmit(
     commandName: pending.command.commandName,
     lane: "durable",
     deadlineMs: timeoutMs,
+    watchdogStage: pending.phase === "proceeded" && pending.opId
+      ? "observation"
+      : "deadline",
     ...(pending.opId ? { opId: pending.opId } : {}),
     ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
   });
@@ -51,6 +54,30 @@ export function expireRepoWriteSubmit(
   return "expired";
 }
 
+export function escalateRepoWriteSubmitStall(
+  pending: PendingSubmit,
+  timeoutMs: number,
+  observer: TimeoutObserver | undefined
+): void {
+  const diagnostic =
+    `Repo writer proceeded operation exceeded its bounded ${timeoutMs}ms stall deadline.`
+    + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
+  observeRepoWriteRequestTimeout(observer, {
+    requestId: pending.requestId,
+    commandName: pending.command.commandName,
+    lane: "durable",
+    deadlineMs: timeoutMs,
+    watchdogStage: "escalation",
+    opId: pending.opId!,
+    ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
+  });
+  pending.reject(new RepoWriteOutcomeUnknownError(
+    "REPO_WRITE_STALL_TIMEOUT",
+    diagnostic,
+    pending.opId!
+  ));
+}
+
 export function expireRepoWriteLookup(
   pending: PendingLookup,
   timeoutMs: number,
@@ -61,6 +88,7 @@ export function expireRepoWriteLookup(
     commandName: "repo-write.lookup",
     lane: "lookup",
     deadlineMs: timeoutMs,
+    watchdogStage: "deadline",
     opId: pending.opId,
     ...(pending.lastTelemetry ? { lastTelemetry: pending.lastTelemetry } : {})
   });

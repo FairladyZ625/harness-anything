@@ -56,7 +56,7 @@ export class RepoWriteProcessSupervisor {
       return decodeReceipt(await writer.client.submit(command));
     } catch (error) {
       if (error instanceof RepoWriteOutcomeUnknownError) {
-        return this.recoverExact(error.opId, error);
+        return this.recoverAfterUnknown(writer, error);
       }
       if (error instanceof RepoWriteNotStartedError
         && error.code === "REPO_WRITE_REQUEST_TIMEOUT") {
@@ -73,7 +73,7 @@ export class RepoWriteProcessSupervisor {
         return decodeReceipt(await writer.client.submit(command));
       } catch (retryError) {
         if (retryError instanceof RepoWriteOutcomeUnknownError) {
-          return this.recoverExact(retryError.opId, retryError);
+          return this.recoverAfterUnknown(writer, retryError);
         }
         throw retryError;
       }
@@ -166,6 +166,26 @@ export class RepoWriteProcessSupervisor {
       `Repo-write outcome remains ${result.state}; query the stable outer opId ${opId}.`,
       opId
     );
+  }
+
+  private async recoverAfterUnknown(
+    writer: ActiveWriter,
+    error: RepoWriteOutcomeUnknownError
+  ): Promise<CommandReceiptEnvelope> {
+    if (error.code === "REPO_WRITE_STALL_TIMEOUT") {
+      try {
+        await this.replace(writer);
+      } catch (replacementError) {
+        throw new RepoWriteOutcomeUnknownError(
+          "REPO_WRITE_LOOKUP_FAILED",
+          `Repo-write stall replacement failed for ${error.opId}: ${
+            replacementError instanceof Error ? replacementError.message : String(replacementError)
+          }`,
+          error.opId
+        );
+      }
+    }
+    return this.recoverExact(error.opId, error);
   }
 
   private current(): Promise<ActiveWriter> {

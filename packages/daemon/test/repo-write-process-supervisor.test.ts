@@ -13,6 +13,7 @@ import {
 } from "../src/runtime/repo-write-process-supervisor.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
+  RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
   RepoWriteReadyTimeoutError
 } from "../src/runtime/repo-write-client.ts";
@@ -122,8 +123,9 @@ test("connected child that never announces READY is terminated at the readiness 
   assert.equal(supervisor.status().connected, false);
 });
 
-test("child that swallows PROCEED remains terminal owner after the observation deadline", async (context) => {
+test("child that swallows PROCEED is replaced after the bounded stall window and recovered by exact lookup", async (context) => {
   let forks = 0;
+  const timeoutDiagnostics: RepoWriteRequestTimeoutDiagnostic[] = [];
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
@@ -136,20 +138,37 @@ test("child that swallows PROCEED remains terminal owner after the observation d
         modulePath: fixturePath,
         args: ["swallow-proceed"]
       });
-    }
+    },
+    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  let settled = false;
-  const submission = supervisor.submit(command()).then(
-    () => { settled = true; },
-    () => { settled = true; }
+  const outcome = await Promise.race([
+    supervisor.submit(command()).then(
+      () => ({ kind: "committed" as const }),
+      (error: unknown) => ({ kind: "rejected" as const, error })
+    ),
+    new Promise<{ readonly kind: "still-pending" }>((resolve) => {
+      setTimeout(() => resolve({ kind: "still-pending" }), 1_600);
+    })
+  ]);
+
+  assert.equal(outcome.kind, "rejected");
+  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteOutcomeUnknownError);
+  assert.equal(outcome.error.code, "REPO_WRITE_STALL_TIMEOUT");
+  assert.equal(forks, 2);
+  assert.deepEqual(
+    timeoutDiagnostics.map((diagnostic) => [
+      diagnostic.watchdogStage,
+      diagnostic.deadlineMs,
+      diagnostic.opId,
+      diagnostic.lastTelemetry?.phase
+    ]),
+    [
+      ["observation", 40, timeoutDiagnostics[0]?.opId, "git"],
+      ["escalation", 80, timeoutDiagnostics[0]?.opId, "git"]
+    ]
   );
-  await new Promise<void>((resolve) => setTimeout(resolve, 80));
-  assert.equal(settled, false);
-  assert.equal(forks, 1);
-  await supervisor.stop().catch(() => undefined);
-  await submission;
 });
 
 test("non-durable task-claim timeout replaces the child without replay or lookup", async (context) => {
