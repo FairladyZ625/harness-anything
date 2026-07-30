@@ -42,7 +42,7 @@ import {
 } from "./records.ts";
 import {
   applyWriteOp,
-  documentWritesForWriteOp,
+  documentWritesForWriteValidation,
   readHardDeletePayload,
   validateWriteTransaction,
   writeOpTouchedPaths
@@ -461,7 +461,7 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
   const vcs = versionControlSystem ?? makeLocalVersionControlSystem();
   assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
-  const documentWrites = documentWritesForWriteOp(op);
+  const documentWrites = documentWritesForWriteValidation(rootInput, op);
   assertCodeDocGitEvidence(rootDir, resolveHarnessLayout(rootInput).authoredRoot, op, documentWrites, vcs);
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWrites);

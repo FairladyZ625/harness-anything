@@ -83,12 +83,7 @@ test("declared primary targets may write a structurally valid code-doc document"
     mkdirSync(path.join(rootDir, "harness/tasks/task-1"), { recursive: true });
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
-    const ack = Effect.runSync(coordinator.enqueue({
-      opId: "generic-code-doc",
-      entityId: taskEntityId("task-1"),
-      kind: "doc_write",
-      payload: { path: "code-doc-anchors.json", body: validCodeDocBody() }
-    }));
+    const ack = Effect.runSync(coordinator.enqueue(declaredHostedWrite("code-doc-anchors.json")));
     assert.equal(ack.accepted, true);
   });
 });
@@ -144,7 +139,28 @@ test("generic code-doc writes still reject nonexistent commit anchors", () => {
       }
     }));
 
-    assert.equal(failure._tag, "WriteRejected");
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
+    assert.match(failure.reason, /anchor commit does not exist/u);
+  });
+});
+
+test("declared entity code-doc writes still reject nonexistent commit anchors", () => {
+  withTempStore((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness/tasks/task-1"), { recursive: true });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+
+    const failure = runWriteFailure(coordinator.enqueue(declaredHostedWrite(
+      "code-doc-anchors.json",
+      [],
+      codeDocBody([{
+        id: "closeout",
+        ledgerPath: "closeout.md",
+        kind: "closeout",
+        anchors: [{ kind: "commit", sha: "a".repeat(40) }]
+      }])
+    )));
+
+    assert.equal(failure._tag, "WriteRejected", JSON.stringify(failure));
     assert.match(failure.reason, /anchor commit does not exist/u);
   });
 });
@@ -160,7 +176,8 @@ function documentWrite(): WriteOp {
 
 function declaredHostedWrite(
   documentPath: string,
-  preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: null }> = []
+  preconditions: ReadonlyArray<{ readonly taskId: string; readonly path: string; readonly bodySha256: null }> = [],
+  body?: string
 ): WriteOp {
   return {
     opId: `declared-${documentPath}`,
@@ -178,7 +195,7 @@ function declaredHostedWrite(
           }
         },
         identity: { taskId: "task-1" },
-        body: documentPath === "code-doc-anchors.json" ? validCodeDocBody() : "{\"replacement\":true}\n"
+        body: body ?? (documentPath === "code-doc-anchors.json" ? validCodeDocBody() : "{\"replacement\":true}\n")
       },
       preconditions
     }

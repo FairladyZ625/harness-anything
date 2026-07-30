@@ -390,7 +390,7 @@ function forceAuditProgressWrite(rootInput: HarnessLayoutInput, indexWrite: Docu
 
 export function validateWriteTransaction(rootInput: HarnessLayoutInput, op: WriteOp): void {
   const plan = writeTransactionPlan(op);
-  assertReservedCodeDocWrite(op, plan.reservedDocumentWrites?.(rootInput) ?? plan.documentWrites());
+  assertReservedCodeDocWrite(op, documentWritesForWriteValidation(rootInput, op));
   plan.validate(rootInput);
 }
 
@@ -404,6 +404,14 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
+}
+
+export function documentWritesForWriteValidation(
+  rootInput: HarnessLayoutInput,
+  op: WriteOp
+): ReadonlyArray<DocumentWrite> {
+  const plan = writeTransactionPlan(op);
+  return plan.reservedDocumentWrites?.(rootInput) ?? plan.documentWrites();
 }
 
 function optionalWrite(write: DocumentWrite | null): ReadonlyArray<DocumentWrite> {

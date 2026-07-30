@@ -4,7 +4,6 @@ import type { WriteOp } from "../../../ports/write-coordinator.ts";
 import { normalizeRelativeDocumentPath } from "../../../layout/index.ts";
 import { makeCodeDocGitEvidenceResolver } from "../../../git/code-doc-git-evidence.ts";
 import { rejectWrite } from "../rejection.ts";
-import { taskIdForWriteOp } from "./entity.ts";
 
 export const CODE_DOC_RECONCILIATION_PATH = "code-doc-anchors.json";
 
@@ -78,7 +77,7 @@ function parseAndValidateDocument(write: DocumentWrite, op: WriteOp): CodeDocDoc
   if (!isObject(value) || value.schema !== "code-doc-reconciliation/v1") {
     rejectWrite(`${CODE_DOC_RECONCILIATION_PATH} must use schema code-doc-reconciliation/v1`, op.entityId);
   }
-  const taskId = taskIdForWriteOp(op);
+  const taskId = write.taskId;
   if (value.taskId !== taskId || !Array.isArray(value.records)) {
     rejectWrite(`${CODE_DOC_RECONCILIATION_PATH} must match task ${taskId} and contain a records array`, op.entityId);
   }
