@@ -107,7 +107,6 @@ const publicRuntimeSurface = [
   "decisionIdFromEntityId",
   "decisionSemanticMutationActions",
   "decisionStates",
-  "declaredDocumentSetSha256",
   "decodeAndVerifyAttributionEventV2",
   "decodeCanonicalCbor",
   "decodeEntityDeclaration",

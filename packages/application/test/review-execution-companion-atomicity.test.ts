@@ -17,7 +17,6 @@ import {
 } from "../src/index.ts";
 import {
   executionDeclaration,
-  declaredDocumentSetSha256,
   reviewDeclaration,
   sha256Text,
   stablePayloadHash,
@@ -100,7 +99,11 @@ test("declared document-set CAS rejects concurrent Execution creation before com
     const currentIndex = taskIndex(taskId, "in_review");
     writeFileSync(indexPath, currentIndex, "utf8");
     const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "codex") });
-    const expectedEmptyHistory = declaredDocumentSetSha256([], ["executions/", "reviews/"]);
+    const expectedEmptyHistory = stablePayloadHash({
+      schema: "declared-document-set/v1",
+      pathPrefixes: ["executions/", "reviews/"],
+      entries: []
+    });
     writeFileSync(path.join(executionRoot, `${executionId}.md`), executionDeclaration.documentCodec.encode(execution("submitted")), "utf8");
 
     await assert.rejects(runEffect(writeDeclaredEntityTransaction(
