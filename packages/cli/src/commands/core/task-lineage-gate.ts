@@ -54,7 +54,7 @@ function decisionLineageNextStep(taskId: string, command: "task-complete" | "sta
   }
   return [
     `Milestone or long-running task ${taskId} requires at least one active decision --derives--> task/${taskId} lineage edge before completion.`,
-    `The submitted Execution is incomplete because the required decision lineage edge is missing. Run \`ha task review-execution ${taskId} --execution-id <submitted-execution-id> --verdict changes_requested --findings "Missing required decision lineage edge." --rationale "The submitted Execution is incomplete because the required decision lineage edge is missing."\`.`,
+    `The approved Execution is incomplete because the required decision lineage edge is missing. Run \`ha task review-execution ${taskId} --execution-id <accepted-execution-id> --verdict changes_requested --findings "Missing required decision lineage edge." --rationale "The approved Execution is incomplete because the required decision lineage edge is missing."\`.`,
     `When no other submitted round remains and the task returns to active, run \`ha task claim ${taskId}\`, run \`${relate}\` while that lease is active, then submit and review the corrected Execution. If other submitted rounds remain, review each non-authoritative round with changes_requested until the task can return to active.`
   ].join(" ");
 }

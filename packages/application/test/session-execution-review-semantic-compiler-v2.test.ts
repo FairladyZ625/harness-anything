@@ -416,6 +416,42 @@ test("changes_requested review compiles review, execution, and task companions i
   ]);
 });
 
+test("changes_requested review can correct an accepted execution without erasing its approval history", async () => {
+  const review = { ...reviewRecord("changes_requested"), reviewed_at: "2026-07-14T00:30:00.000Z" };
+  const accepted = executionRecord("accepted");
+  const changed = { ...accepted, state: "changes_requested" as const, closed_at: review.reviewed_at };
+  const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
+  const taskPath = `tasks/${taskId}/INDEX.md`;
+  const executionSnapshot = snapshot(JSON.stringify(accepted));
+  const taskSnapshot = snapshot("---\n  status: in_review\n---\n");
+  const activeIndex = taskSnapshot.body.replace("status: in_review", "status: active");
+  const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
+  const executionRef = ref("execution", `execution/${taskId}/${executionId}`);
+  const taskRef = ref("task", `task/${taskId}`);
+
+  const compiled = await makeSessionExecutionReviewSemanticCompilerV2({
+    state: authorityState(
+      new Map([[key(executionRef), base("execution-approved")], [key(taskRef), base("task-v1")]]),
+      new Map([[executionPath, executionSnapshot], [taskPath, taskSnapshot]])
+    )
+  }).compile(envelope({
+    schema: "review.create/v1", taskId, review, execution: changed, taskIndexBody: activeIndex
+  }, [absent(reviewRef), present(executionRef, "execution-approved"), present(taskRef, "task-v1")], [
+    cas(executionPath, executionSnapshot), cas(taskPath, taskSnapshot)
+  ]));
+
+  const planned = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+  assert.deepEqual(planned.mutationSet.mutations.map(pair).sort(), [
+    `review/${taskId}/${reviewId}:create`,
+    `execution/${taskId}/${executionId}:close`,
+    `task/${taskId}:transition`
+  ].sort());
+  assert.deepEqual((compiled.operation.payload as { readonly companionWrites?: unknown }).companionWrites, [
+    { taskId, path: `executions/${executionId}.md`, body: executionDeclaration.documentCodec.encode(changed) },
+    { taskId, path: "INDEX.md", body: activeIndex }
+  ]);
+});
+
 test("changes_requested review rejects an incomplete companion transaction", async () => {
   const reviewRef = ref("review", `review/${taskId}/${reviewId}`);
   await assert.rejects(makeSessionExecutionReviewSemanticCompilerV2({ state: authorityState() }).compile(envelope({

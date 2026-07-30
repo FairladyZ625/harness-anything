@@ -156,8 +156,7 @@ function resolveExecutionCompletionReadiness(input: {
   const accepted = executions.filter((candidate) => candidate.state === "accepted");
   const staleActive = executions.filter((candidate) => candidate.state === "active");
   const acceptedCandidate = submitted.length === 0
-    && accepted.length === 1
-    && staleActive.length === 0;
+    && accepted.length === 1;
   const completedReplay = acceptedCandidate && taskStatus(input.documents) === "done";
   if (submitted.length !== 1 && !acceptedCandidate) {
     const claimCommand = staleActive.length === 1

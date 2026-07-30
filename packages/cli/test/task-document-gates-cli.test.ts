@@ -241,7 +241,7 @@ test("CLI typed completion remains blocked by a substantive open legacy release 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "release_blocking_findings");
     assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: in_review$/mu);
-    assert.equal(JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/executions/${executionId}.md`), "utf8")).state, "submitted");
+    assert.equal(JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/executions/${executionId}.md`), "utf8")).state, "accepted");
   });
 });
 
@@ -549,10 +549,10 @@ test("CLI milestone completion requires active decision derives lineage while a 
     assert.equal(blocked.error?.code, "closeout_not_ready");
     assert.match(blocked.error?.hint ?? "", new RegExp(`decision.*derives.*${milestoneTaskId}`, "u"));
     assert.match(blocked.error?.hint ?? "", new RegExp(
-      `ha task review-execution ${milestoneTaskId} --execution-id <submitted-execution-id> --verdict changes_requested`,
+      `ha task review-execution ${milestoneTaskId} --execution-id <accepted-execution-id> --verdict changes_requested`,
       "u"
     ));
-    assert.match(blocked.error?.hint ?? "", /incomplete because the required decision lineage edge is missing/u);
+    assert.match(blocked.error?.hint ?? "", /approved Execution is incomplete because the required decision lineage edge is missing/u);
 
     runJson(rootDir, [
       "decision", "propose", "--id", "dec_MILESTONE_LINEAGE", "--title", "Milestone lineage",

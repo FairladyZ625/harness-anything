@@ -71,7 +71,10 @@ export function makeReviewExecutionService(options: {
       const execution = decodeExecutionForConsent(executionDocument, input.taskId, input.executionId);
       const existingApproval = equivalentApprovedReview(task.documents, input);
       if (existingApproval) return { review: existingApproval };
-      if (execution.state !== "submitted") throw new Error(`execution is not submitted: ${input.executionId}`);
+      const correctsAcceptedApproval = input.verdict === "changes_requested" && execution.state === "accepted";
+      if (execution.state !== "submitted" && !correctsAcceptedApproval) {
+        throw new Error(`execution is not submitted: ${input.executionId}`);
+      }
       assertExecutionTaskReviewable(task.documents, input.taskId);
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
         throw new Error("execution archive warnings must be explicitly acknowledged by the reviewer");

@@ -442,7 +442,8 @@ async function dismissedReviewCompanion(
 
 function assertChangesRequestedExecution(current: ExecutionRecord, next: ExecutionRecord, reviewedAt: string): void {
   assertSameExecution(current, next);
-  if (current.state !== "submitted" || next.state !== "changes_requested" || next.closed_at !== reviewedAt
+  if ((current.state !== "submitted" && current.state !== "accepted")
+    || next.state !== "changes_requested" || next.closed_at !== reviewedAt
     || next.submitted_at !== current.submitted_at || !same(current.session_bindings, next.session_bindings)
     || !same(current.outputs, next.outputs) || !same(current.submission, next.submission)) {
     throw admission("REVIEW_CHANGES_REQUESTED_EXECUTION_INVALID");
