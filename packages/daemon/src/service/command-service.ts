@@ -149,7 +149,19 @@ export function createDaemonCommandService<
           }));
         }
         if (parsedCommand.action.kind === "materializer-run") {
-          const report = await runtime.enqueueMaterializerBatch({ dryRun: parsedCommand.action.dryRun });
+          if (parsedCommand.action.currentSessionOnly && currentSession.source !== "runtime") {
+            return hostServices.toErrorReceipt({
+              command: parsedCommand.action.kind,
+              error: {
+                code: "invalid_session",
+                context: { cause: "Current-session materialization requires a runtime session." }
+              }
+            });
+          }
+          const report = await runtime.enqueueMaterializerBatch({
+            dryRun: parsedCommand.action.dryRun,
+            ...(parsedCommand.action.currentSessionOnly ? { sessionId: currentSession.sessionId } : {})
+          });
           return hostServices.toReceipt(hostServices.materializerCommandResult(report));
         }
         const attribution = daemonActor

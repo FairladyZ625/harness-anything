@@ -153,10 +153,11 @@ function resolveExecutionCompletionReadiness(input: {
       return execution;
     });
   const submitted = executions.filter((candidate) => candidate.state === "submitted");
-  const accepted = executions.filter((candidate) => candidate.state === "accepted");
+  const accepted = executions.filter((candidate) => candidate.state === "accepted")
+    .sort((left, right) => replayOrder(right, left));
   const staleActive = executions.filter((candidate) => candidate.state === "active");
   const acceptedCandidate = submitted.length === 0
-    && accepted.length === 1;
+    && accepted.length > 0;
   const completedReplay = acceptedCandidate && taskStatus(input.documents) === "done";
   if (submitted.length !== 1 && !acceptedCandidate) {
     const claimCommand = staleActive.length === 1
@@ -231,6 +232,11 @@ function resolveExecutionCompletionReadiness(input: {
   }
 
   return { ok: issues.length === 0, executionId: execution.execution_id, execution, staleActive, issues };
+}
+
+function replayOrder(left: ExecutionRecord, right: ExecutionRecord): number {
+  return (left.closed_at ?? "").localeCompare(right.closed_at ?? "")
+    || left.execution_id.localeCompare(right.execution_id);
 }
 
 function reviewHasCompletionConsent(

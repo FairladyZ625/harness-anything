@@ -141,7 +141,7 @@ export function taskCompleteFacadeSteps(
       kind: "doc-sync",
       mode: "submit",
       paths: docSyncPaths
-    })] : []),
+    }), child(command, { kind: "materializer-run", dryRun: false, currentSessionOnly: true })] : []),
     ...(approval ? [child(command, {
       kind: "task-review-execution",
       taskId: action.taskId,

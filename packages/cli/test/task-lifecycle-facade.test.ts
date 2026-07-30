@@ -131,7 +131,7 @@ test("task complete owner approval requires consent to grant complete_task", () 
   }
 });
 
-test("task complete owner approval expands only to internal sync, Review, reconcile, and complete steps", () => {
+test("task complete owner approval materializes accepted prose before Review, reconcile, and complete", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-approval-parser-"));
   const packet = path.join(root, "approval.json");
   writeFileSync(packet, JSON.stringify({
@@ -157,8 +157,10 @@ test("task complete owner approval expands only to internal sync, Review, reconc
       ["tasks/task_BOUNDARY/closeout.md"]
     );
     assert.deepEqual(steps.map((step) => step.action.kind), [
-      "doc-sync", "task-review-execution", "task-code-doc-reconcile", "task-complete"
+      "doc-sync", "materializer-run", "task-review-execution", "task-code-doc-reconcile", "task-complete"
     ]);
+    const materializer = steps[1];
+    assert.deepEqual(materializer?.action, { kind: "materializer-run", dryRun: false, currentSessionOnly: true });
     assert.equal(steps.some((step) => step.action.kind === "status-set"), false);
     const reconcile = steps.find((step) => step.action.kind === "task-code-doc-reconcile");
     assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.sha, "a".repeat(40));

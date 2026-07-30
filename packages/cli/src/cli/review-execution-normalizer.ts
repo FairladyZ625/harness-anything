@@ -23,8 +23,9 @@ export async function normalizeReviewExecutionSelection(
     const submitted = executions.filter((execution) => execution.state === "submitted");
     const acceptedReplay = action.verdict === "approved" && submitted.length === 0
       ? executions.filter((execution) => execution.state === "accepted")
+        .sort((left, right) => replayOrder(right, left))
       : [];
-    const candidates = submitted.length > 0 ? submitted : acceptedReplay;
+    const candidates = submitted.length > 0 ? submitted : acceptedReplay.slice(0, 1);
     if (candidates.length === 1) {
       return { ...command, action: { ...action, executionId: candidates[0]!.execution_id } };
     }
@@ -45,6 +46,11 @@ export async function normalizeReviewExecutionSelection(
       }
     };
   }
+}
+
+function replayOrder(left: ExecutionRecord, right: ExecutionRecord): number {
+  return (left.closed_at ?? "").localeCompare(right.closed_at ?? "")
+    || left.execution_id.localeCompare(right.execution_id);
 }
 
 export function normalizeReviewConsentIdentity(command: ParsedCommand): ParsedCommand {

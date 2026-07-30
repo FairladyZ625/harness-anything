@@ -268,7 +268,7 @@ export interface ParsedCommand {
     | { readonly kind: "distill-commit"; readonly taskId: string; readonly candidatePath: string; readonly claim: string; readonly factId?: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: FactMemoryClass; readonly memoryTags: ReadonlyArray<FactMemoryTag> }
     | { readonly kind: "runtime-event-append"; readonly sessionId: string; readonly eventKind: RuntimeEventKind; readonly runtime: RuntimeEventRuntime | "unknown"; readonly eventId?: string; readonly recordedAt?: string; readonly taskId?: string; readonly turnId?: string; readonly stepId?: string; readonly toolName?: string; readonly approval?: RuntimeEventApprovalDecision; readonly interrupt?: RuntimeEventInterruptAction; readonly result?: RuntimeEventResultStatus; readonly summary?: string; readonly totalTokens?: number }
     | { readonly kind: "runtime-event-list"; readonly sessionId: string }
-    | { readonly kind: "materializer-run"; readonly dryRun: boolean }
+    | { readonly kind: "materializer-run"; readonly dryRun: boolean; readonly currentSessionOnly?: true }
     | { readonly kind: "session-export"; readonly sessionId?: string; readonly runtime?: SessionExportRuntime; readonly source?: SessionExportSource; readonly detectedAt?: string; readonly user?: string; readonly transcriptFile?: string }
     | { readonly kind: "session-backfill"; readonly runtime?: SessionExportRuntime; readonly limit?: number }
     | { readonly kind: "session-sync"; readonly mode: "dry-run" | "apply" }

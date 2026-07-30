@@ -122,10 +122,21 @@ test("retrying an equivalent approved Review reuses the existing approval", asyn
     };
 
     const first = await service.reviewExecution(input);
-    const retried = await service.reviewExecution(input);
+    const transportEnrichedReviewer = taskHolderActor({
+      personId: "alice",
+      displayName: "Alice",
+      primaryEmail: "alice@example.test",
+      providerId: "transport-derived/v1",
+      credential: { kind: "unix-socket-owner-boundary", issuer: "host:test", subject: "501" }
+    }, { kind: "agent", id: "worker" });
+    const retried = await service.reviewExecution({ ...input, reviewer: transportEnrichedReviewer });
 
     assert.equal(first.review.review_id, firstReviewId);
     assert.equal(retried.review.review_id, firstReviewId);
+    await assert.rejects(
+      service.reviewExecution({ ...input, reviewer: aliceRenamed }),
+      /execution is not submitted/u
+    );
     assert.equal(existsSync(reviewPath(rootDir, secondReviewId)), false);
     assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);
 
@@ -134,7 +145,7 @@ test("retrying an equivalent approved Review reuses the existing approval", asyn
       coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
       artifactStore
     }).completeTaskExecution({ taskId, actor: aliceWorker });
-    const acceptedReplay = await service.reviewExecution(input);
+    const acceptedReplay = await service.reviewExecution({ ...input, reviewer: transportEnrichedReviewer });
     assert.equal(acceptedReplay.review.review_id, firstReviewId);
     assert.equal(readExecution(rootDir).state, "accepted");
     assert.deepEqual(readdirSync(path.join(rootDir, "harness/tasks", taskId, "reviews")), [`${firstReviewId}.md`]);

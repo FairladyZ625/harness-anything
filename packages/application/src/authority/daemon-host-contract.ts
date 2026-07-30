@@ -198,6 +198,7 @@ export interface DaemonHostCommand {
   readonly action: {
     readonly kind: string;
     readonly dryRun?: boolean;
+    readonly currentSessionOnly?: true;
   };
 }
 
