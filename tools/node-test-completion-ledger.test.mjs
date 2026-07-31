@@ -1,5 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import test from "node:test";
 import {
   canIgnoreReapedFileFailures,
@@ -9,6 +11,7 @@ import {
 
 const repoRoot = "/repo";
 const file = "packages/cli/test/daemon-control-replacement-safety.test.ts";
+const workspaceRoot = path.resolve(import.meta.dirname, "..");
 
 test("file summary marks an isolation child complete only after a terminated reporter record", () => {
   const ledger = parseCompletionLedger(`${JSON.stringify({
@@ -73,6 +76,29 @@ test("result override requires every selected file and only synthetic reaped SIG
     selectedFiles: [file, other, "packages/missing.test.ts"],
     reapedFiles: new Set([file])
   }), false);
+});
+
+test("completion reporter flushes every proof record before its consumer can exit", () => {
+  const result = spawnSync(process.execPath, [
+    "tools/test-fixtures/.runner-stall/completion-reporter-flush.mjs"
+  ], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "ignore", "pipe", "pipe"],
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 15_000
+  });
+  const ledger = parseCompletionLedger(result.output[3] ?? "", repoRoot);
+
+  assert.equal(result.error, undefined, result.output[2] ?? "");
+  assert.equal(result.status, 0, result.output[2] ?? "");
+  assert.equal(ledger.valid, true, ledger.error);
+  assert.equal(ledger.incompleteTrailingRecord, false);
+  assert.equal(ledger.fileSummaries.size, 20_000);
+  assert.deepEqual(ledger.runSummary, {
+    success: true,
+    counts: counts({ tests: 20_000, passed: 20_000 })
+  });
 });
 
 function fileSummary(relativeFile) {
