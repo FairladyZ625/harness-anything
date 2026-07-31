@@ -5,6 +5,8 @@ Global options:
   --root DIR         Use DIR as the harness repository root.
   --json             Emit machine-readable JSON.
 
+Discover: ha <kind> --help | ha capabilities --json
+
 Commands:
   adopt - Bind external snapshots to local tasks.
   audit - Inspect execution provenance coverage.

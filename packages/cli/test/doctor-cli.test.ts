@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { commandGroups } from "../src/cli/command-spec/command-groups.ts";
+import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { commandRegistry } from "../src/cli/command-registry.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -149,12 +150,37 @@ test("CLI task help lists every task leaf and declares --json only as a global o
       encoding: "utf8"
     });
     const renderedTaskLeaves = stdout.split("\n").filter((line) => line.startsWith("  harness-anything task "));
-    const expectedTaskLeaves = commandRegistry
+    const expectedDefaultTaskLeaves = commandRegistry
       .filter((entry) => entry.commandPath[0] === "task")
+      .filter((entry) => displayForCommand(entry.kind) === "default")
+      .map((entry) => `  ${entry.primary.replace(/ \[--json\]/gu, "").replace(/ --json$/u, "")} - ${entry.summary}`);
+    const expectedAdvancedTaskLeaves = commandRegistry
+      .filter((entry) => entry.commandPath[0] === "task")
+      .filter((entry) => displayForCommand(entry.kind) === "advanced")
       .map((entry) => `  ${entry.primary.replace(/ \[--json\]/gu, "").replace(/ --json$/u, "")} - ${entry.summary}`);
 
-    assert.deepEqual(renderedTaskLeaves, expectedTaskLeaves);
+    assert.deepEqual(renderedTaskLeaves, [...expectedDefaultTaskLeaves, ...expectedAdvancedTaskLeaves]);
+    assert.match(stdout, /Primary workflow:[\s\S]+1\. ha task create[\s\S]+2\. ha task start[\s\S]+3\. ha task progress append[\s\S]+4\. ha task submit[\s\S]+5\. ha task complete/u);
+    assert.match(stdout, /Advanced commands:[\s\S]+task claim[\s\S]+Deprecated compatibility spelling/u);
     assert.equal(stdout.match(/--json(?!-input)/gu)?.length, 1);
+  });
+});
+
+test("CLI primary task leaf help links the workflow and explains structured packets", () => {
+  withTempRoot((rootDir) => {
+    const create = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "create", "--help"], { encoding: "utf8" });
+    const start = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "start", "--help"], { encoding: "utf8" });
+    const progress = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "progress", "append", "--help"], { encoding: "utf8" });
+    const submit = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "submit", "--help"], { encoding: "utf8" });
+    const complete = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "complete", "--help"], { encoding: "utf8" });
+
+    assert.match(create, /Next:\s+ha task start <task-id>/u);
+    assert.match(start, /Next:\s+ha task progress append <task-id>/u);
+    assert.match(progress, /Next:\s+ha task submit <task-id> --from-file submission\.json/u);
+    assert.match(submit, /completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks/u);
+    assert.match(submit, /Next:\s+ha task complete <task-id> --approve --from-file approval\.json/u);
+    assert.match(complete, /findings, rationale, and exactly one consent source/u);
+    assert.match(complete, /Next:\s+ha task show <task-id> --view trace/u);
   });
 });
 
@@ -239,6 +265,11 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function displayForCommand(kind: string): "default" | "advanced" | "hidden" {
+  const spec = commandSpecs.find((entry) => entry.kind === kind);
+  return spec && "display" in spec ? spec.display : "default";
 }
 
 function runGit(rootDir: string, ...args: string[]): void {

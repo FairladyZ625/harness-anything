@@ -302,13 +302,19 @@ function renderHelp(result: Record<string, unknown>): string {
   }
   if (report?.kind === "prefix") {
     const prefix = Array.isArray(report.prefix) ? report.prefix.join(" ") : "";
+    const defaultCommands = commands.filter((entry) => (entry.display ?? "default") === "default");
+    const advancedCommands = commands.filter((entry) => entry.display === "advanced");
     return [
       `Usage: harness-anything ${prefix} <subcommand> [options]`,
       `Alias: ha ${prefix} <subcommand> [options]`,
       ...renderGlobalOptions(),
+      ...renderPrefixWorkflow(prefix),
       "",
       "Commands:",
-      ...commands.map((entry) => `  ${entry.primary} - ${entry.summary}`)
+      ...defaultCommands.map(renderHelpCommandSummary),
+      ...(advancedCommands.length > 0
+        ? ["", "Advanced commands:", ...advancedCommands.map(renderHelpCommandSummary)]
+        : [])
     ].join("\n");
   }
   return [
@@ -316,8 +322,10 @@ function renderHelp(result: Record<string, unknown>): string {
     "Alias: ha <kind> [options]",
     ...renderGlobalOptions(),
     "",
+    "Discover: ha <kind> --help | ha capabilities --json",
+    "",
     "Commands:",
-    ...commands.map((entry) => `  ${entry.primary} - ${entry.summary}`)
+    ...commands.map(renderHelpCommandSummary)
   ].join("\n");
 }
 
@@ -325,7 +333,8 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
   const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
   const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
   const additional = command.kind === "new-task" ? taskCreatePresetHelp() : [];
-  const examples = command.examples.length > 0 ? ["", "Example:", ...command.examples.map((example) => `  ${example}`)] : [];
+  const workflow = taskWorkflowNextHelp(command.kind);
+  const examples = command.examples.length > 0 ? ["", command.examples.length === 1 ? "Example:" : "Examples:", ...command.examples.map((example) => `  ${example}`)] : [];
   return [
     `Usage: ${command.primary}`,
     "",
@@ -334,8 +343,39 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     ...aliases,
     ...options,
     ...additional,
+    ...workflow,
     ...examples
   ].join("\n");
+}
+
+function renderHelpCommandSummary(entry: CommandRegistryEntry): string {
+  return `  ${entry.primary} - ${entry.summary}`;
+}
+
+function renderPrefixWorkflow(prefix: string): ReadonlyArray<string> {
+  if (prefix !== "task") return [];
+  return [
+    "",
+    "Primary workflow:",
+    "  1. ha task create --title \"<title>\"",
+    "  2. ha task start <task-id>",
+    "  3. ha task progress append <task-id> --text \"<update>\"",
+    "  4. ha task submit <task-id> --from-file submission.json",
+    "  5. ha task complete <task-id> --approve --from-file approval.json",
+    "  Inspect a step with: ha task <subcommand> --help"
+  ];
+}
+
+function taskWorkflowNextHelp(kind: string): ReadonlyArray<string> {
+  const nextByKind: Readonly<Record<string, string>> = {
+    "new-task": "ha task start <task-id>",
+    "task-start": "ha task progress append <task-id> --text \"<update>\"",
+    "progress-append": "ha task submit <task-id> --from-file submission.json",
+    "task-submit": "ha task complete <task-id> --approve --from-file approval.json",
+    "task-complete": "ha task show <task-id> --view trace"
+  };
+  const next = nextByKind[kind];
+  return next ? ["", "Next:", `  ${next}`] : [];
 }
 
 function renderGlobalOptions(): ReadonlyArray<string> {

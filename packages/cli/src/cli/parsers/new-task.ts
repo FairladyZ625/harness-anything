@@ -47,7 +47,10 @@ export function parseNewTaskArgs(
   if (!explicitTitle && !fromLegacyId) {
     return {
       ok: false,
-      error: cliError(CliErrorCode.MissingTitle, "Use task create --title <title>. Legacy rebuilds may use --from-legacy <legacy-id> without --title.")
+      error: cliError(
+        CliErrorCode.MissingTitle,
+        "Received task create without a title. Expected --title <title> unless this is a --from-legacy rebuild. Next: run `ha task create --title \"<title>\"`."
+      )
     };
   }
   const title = explicitTitle ?? "Untitled task";

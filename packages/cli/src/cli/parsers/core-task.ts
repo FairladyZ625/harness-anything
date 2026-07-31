@@ -87,7 +87,13 @@ function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: bool
 function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const text = readOption(args, "--text");
   if (!text) {
-    return { ok: false, error: cliError(CliErrorCode.MissingText, "Use --text for progress append.") };
+    return {
+      ok: false,
+      error: cliError(
+        CliErrorCode.MissingText,
+        `Received task progress append ${args[3]} without progress text. Expected --text <text>. Next: run \`ha task progress append ${args[3]} --text "<update>"\`.`
+      )
+    };
   }
   const evidence = parseEvidence(readRepeatedRawOption(args, "--evidence"));
   if (!evidence.ok) return { ok: false, error: evidence.error };
