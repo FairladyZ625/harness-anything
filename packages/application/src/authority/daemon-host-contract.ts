@@ -312,6 +312,10 @@ export interface DaemonServiceHostServices<
     rootInput: Exclude<HarnessLayoutInput, string>,
     commandOptions: { readonly onCommandStart: () => void; readonly onCommandSettled: () => void }
   ) => Pick<LocalControllerServiceOptions, "catalogSnapshotReader" | "decisionMutationPort">;
+  readonly readTaskReturnToIdeaSnapshot: (
+    rootInput: HarnessLayoutInput,
+    taskId: string
+  ) => Promise<import("./task-return-to-idea-policy.ts").TaskReturnToIdeaSnapshotV1>;
   readonly leaseEnforcementEnabled: (rootInput: HarnessLayoutInput) => boolean;
   readonly version: () => string;
 }

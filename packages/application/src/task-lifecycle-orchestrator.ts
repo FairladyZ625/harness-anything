@@ -5,7 +5,7 @@ import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
 import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
-import { evaluateCompletionGate } from "./task-lifecycle-gates.ts";
+import { evaluateCompletionGate, evaluateTaskReturnToIdeaGate } from "./task-lifecycle-gates.ts";
 import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionService } from "./execution-completion-service.ts";
 import { evaluateTaskCompletionAuthority, type CommitCompletionService, type TaskCompletionEvidence, type TaskCompletionEvidenceMode } from "./task-completion-authority.ts";
@@ -19,6 +19,7 @@ import {
 } from "./task-lifecycle-orchestrator-helpers.ts";
 import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 import { validateTaskPlanAdmissionPreflight } from "./task-plan-admission-preflight.ts";
+import type { ReadTaskReturnToIdeaSnapshotV1 } from "./authority/task-return-to-idea-policy.ts";
 
 type CompletionGateResult = ReturnType<typeof evaluateCompletionGate> & {
   readonly evidenceMode?: TaskCompletionEvidenceMode;
@@ -63,6 +64,7 @@ export interface TaskLifecycleOrchestratorOptions {
     readonly preset?: string;
     readonly profile?: string;
   }) => ReadonlyArray<string>;
+  readonly readTaskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 
 export interface TaskLifecycleError {
@@ -155,6 +157,31 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           "invalid_transition",
           "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
         );
+      }
+      if (payload.status === "planned") {
+        const inspection = yield* Effect.tryPromise({
+          try: () => options.readTaskReturnToIdeaSnapshot
+            ? options.readTaskReturnToIdeaSnapshot(payload.taskId)
+            : Promise.reject(new Error("Return-to-idea snapshot reader is unavailable.")),
+          catch: (error) => error
+        }).pipe(Effect.match({
+          onFailure: (error) => ({
+            ok: false as const,
+            hint: `Return-to-idea safety inspection failed closed: ${error instanceof Error ? error.message : String(error)}`
+          }),
+          onSuccess: (snapshot) => ({ ok: true as const, snapshot })
+        }));
+        if (!inspection.ok) {
+          return taskFailure(payload.taskId, "task_return_to_idea_blocked", inspection.hint);
+        }
+        const gate = evaluateTaskReturnToIdeaGate(inspection.snapshot);
+        if (!gate.ok) {
+          return taskFailure(
+            payload.taskId,
+            "task_return_to_idea_blocked",
+            `Task ${payload.taskId} cannot return to planned. ${gate.issues.map((issue) => issue.message).join(" ")}`
+          );
+        }
       }
       if (payload.status === "active" || payload.status === "blocked") {
         const planPlaceholder = yield* validateTaskPlanAdmissionPreflight({

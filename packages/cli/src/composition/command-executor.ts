@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import {
   bindCreateProvenance,
-  evaluateTaskReturnToIdeaGate,
   isTaskHolderError,
+  makeTaskLifecycleOrchestrator,
   makeDecisionWriteService,
   makeEnvironmentCurrentSessionProbe,
   makeFactWriteService,
@@ -207,7 +207,7 @@ export async function runRegisteredCommandWithCliComposition(
     artifactStore: makeArtifactStore()
   });
 
-  return Effect.runPromise(runRegisteredCommand(command, () => withReturnToIdeaGuard(withOptionalLeaseGuard(provider.createLifecycleEngine({
+  return Effect.runPromise(runRegisteredCommand(command, () => withLifecycleOrchestration(withOptionalLeaseGuard(provider.createLifecycleEngine({
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides,
     coordinator: makeWriteCoordinator(operationalActor("task-lifecycle")),
@@ -218,7 +218,7 @@ export async function runRegisteredCommandWithCliComposition(
         syncExportedSession
       })
     }, boundAt)
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), layoutInput), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), layoutInput, makeArtifactStore()), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, makeMigrationWriteCoordinator, makeOperationalWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => {
     const attribution = getActorAttribution().writeAttribution;
     const repin = command.action.kind === "decision-repin" ? command.action : undefined;
     return makeDecisionWriteService({
@@ -281,38 +281,35 @@ function failClosedMissingCoordinator(writer: string): WriteCoordinator {
 }
 
 type LifecycleEngine = ReturnType<CliCompositionAdapterProvider["createLifecycleEngine"]>;
+type CliArtifactStore = ReturnType<CliCompositionAdapterProvider["createArtifactStore"]>;
 type FactWriteService = ReturnType<typeof makeFactWriteService>;
 type TaskHolderServiceFactory = () => ReturnType<typeof makeTaskHolderService>;
 type TaskHolderPrincipalFactory = () => TaskHolderPrincipal;
 
-function withReturnToIdeaGuard(
+function withLifecycleOrchestration(
   engine: LifecycleEngine,
-  rootInput: ReturnType<typeof createHarnessRuntimeContext>
+  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
+  artifactStore: CliArtifactStore
 ): LifecycleEngine {
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: rootInput.rootDir,
+    layoutOverrides: rootInput.layoutOverrides,
+    taskWriter: engine,
+    artifactStore,
+    readTaskReturnToIdeaSnapshot: (taskId) => readTaskReturnToIdeaSnapshot(rootInput, taskId)
+  });
   return {
     ...engine,
-    setStatus: (input) => {
-      if (input.status !== "planned") return engine.setStatus(input);
-      return Effect.tryPromise({
-        try: () => readTaskReturnToIdeaSnapshot(rootInput, input.taskId),
-        catch: (error): WriteError => ({
+    setStatus: (input) => input.status === "planned"
+      ? orchestrator.setTaskStatus(input).pipe(Effect.flatMap((result) => result.ok
+        ? Effect.succeed({ taskId: result.taskId, status: result.status!, engine: "local" as const })
+        : Effect.fail({
           _tag: "WriteRejected",
           taskId: input.taskId,
-          code: "task_return_to_idea_blocked",
-          reason: `Return-to-idea safety inspection failed closed: ${error instanceof Error ? error.message : String(error)}`
-        })
-      }).pipe(Effect.flatMap((snapshot) => {
-        const gate = evaluateTaskReturnToIdeaGate(snapshot);
-        return gate.ok
-          ? engine.setStatus(input)
-          : Effect.fail({
-            _tag: "WriteRejected",
-            taskId: input.taskId,
-            code: "task_return_to_idea_blocked",
-            reason: `Task ${input.taskId} cannot return to planned. ${gate.issues.map((issue) => issue.message).join(" ")}`
-          } satisfies WriteError);
-      }));
-    }
+          code: result.error.code,
+          reason: result.error.hint
+        } satisfies WriteError)))
+      : engine.setStatus(input)
   };
 }
 

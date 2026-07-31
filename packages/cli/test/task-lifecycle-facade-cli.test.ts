@@ -270,6 +270,13 @@ test("return to planned requires explicit lease release and active Execution ret
     assert.match(leased.error.hint, new RegExp(`ha task release ${fixture.taskId}`, "u"));
 
     runJson(rootDir, ["task", "release", fixture.taskId], true, leaseEnv);
+    const blockedWithoutLease = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "blocked"
+    ], false, leaseEnv);
+    assert.equal(blockedWithoutLease.error.code, "task_lease_required");
+    assert.match(blockedWithoutLease.error.hint, /requires an active lease/iu);
+    assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
+
     const executing = runJson(rootDir, [
       "task", "transition", fixture.taskId, "planned"
     ], false, leaseEnv);
