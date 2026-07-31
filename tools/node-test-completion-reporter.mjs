@@ -1,5 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { spec } from "node:test/reporters";
 
 /**
@@ -15,6 +16,7 @@ export default async function* completionReporter(source) {
     for await (const chunk of formatted) yield chunk;
   } finally {
     completionStream.end();
+    await finished(completionStream, { cleanup: true });
   }
 }
 
