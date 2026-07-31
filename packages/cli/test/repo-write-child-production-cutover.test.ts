@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  buildDocSyncSubmitRequest,
   createDaemonGenerationWitness,
   calculateDaemonArtifactIdentity,
   decodeRepoWriteCommandReceiptV2,
@@ -30,6 +31,8 @@ import {
 } from "@harness-anything/kernel";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { defaultCliAdapterProvider } from "../src/composition/adapter-registry.ts";
+import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
+import { dispatchDocSyncSubmitToWriter } from "../../daemon/src/service/doc-sync-writer-dispatch.ts";
 import {
   productionAuthorityActor,
   productionAuthorityConnection
@@ -219,6 +222,100 @@ cutoverTest("production child owns the only writer lock and restart lookup retur
     await first?.stop().catch(() => undefined);
     await restarted?.stop().catch(() => undefined);
     await parentReader?.stop().catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+cutoverTest("doc-sync submits a working-tree file larger than the repo-writer IPC frame", async () => {
+  const fixture = createProductionAuthorityLifecycleFixture();
+  const userRoot = path.join(fixture.root, "daemon-user");
+  const endpoint = path.join(userRoot, "daemon.sock");
+  let supervisor: RepoWriteProcessSupervisor | undefined;
+  try {
+    mkdirSync(path.join(fixture.repoRoot, "tools"), { recursive: true });
+    writeFileSync(
+      path.join(fixture.repoRoot, "tools/write-road-registry.json"),
+      readFileSync(fileURLToPath(new URL("../../../tools/write-road-registry.json", import.meta.url)))
+    );
+    const largeRelativePath = "tasks/task_A/artifacts/subject-logs/large.raw.jsonl";
+    const largeAbsolutePath = path.join(fixture.authoredRoot, largeRelativePath);
+    mkdirSync(path.dirname(largeAbsolutePath), { recursive: true });
+    writeFileSync(largeAbsolutePath, `${"x".repeat(1_100_000)}\n`, "utf8");
+
+    const actor = productionAuthorityActor();
+    const request = buildDocSyncSubmitRequest(
+      fixture.repoRoot,
+      "canonical",
+      [largeRelativePath],
+      { kind: "agent", id: "codex" },
+      cliDaemonServiceHostServices.docSync,
+      {
+        runtime: "codex",
+        sessionId: "session-large-doc-sync",
+        source: "manual",
+        detectedAt: "2026-07-31T00:00:00.000Z"
+      }
+    );
+    assert.ok(Buffer.byteLength(JSON.stringify(request)) > 1024 * 1024);
+
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    const generationRecord = publishNextDaemonGeneration({
+      userRoot,
+      endpointIdentity: endpoint,
+      machineId,
+      daemonInstanceId: "production-child-large-doc-sync-test"
+    });
+    supervisor = new RepoWriteProcessSupervisor({
+      repoId: "canonical",
+      generation: generationRecord.daemonGeneration,
+      expectedArtifactIdentity: entrypointArtifactIdentity,
+      spawn: () => forkRepoWriteProcess({
+        modulePath: entrypoint,
+        args: [
+          "__repo-write-child",
+          encodeRepoWriteChildLaunchConfig({
+            schema: repoWriteChildLaunchConfigSchema,
+            repoId: "canonical",
+            canonicalRoot: fixture.repoRoot,
+            authoredRoot: "harness",
+            authorityManifest: fixture.manifestPath,
+            userRoot,
+            endpointIdentity: endpoint,
+            machineId,
+            generation: generationRecord.daemonGeneration,
+            entrypointArtifactIdentity,
+            runtimePolicy: defaultDaemonRuntimePolicy
+          })
+        ],
+        cwd: fixture.repoRoot,
+        env: { ...process.env, HARNESS_DAEMON_SERVER_HOST: "1" }
+      })
+    });
+    await supervisor.start();
+
+    const result = await dispatchDocSyncSubmitToWriter({
+      rootDir: fixture.repoRoot,
+      request,
+      actor,
+      executor: { kind: "agent", id: "codex" },
+      authority: {
+        available: true,
+        context: productionAuthorityConnection(actor),
+        assertActive: () => undefined
+      },
+      supervisor
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(fixtureGit(fixture.authoredRoot, "status", "--short"), "");
+    assert.equal(fixtureGit(
+      fixture.authoredRoot,
+      "cat-file",
+      "-s",
+      `sessions/session-large-doc-sync:${largeRelativePath}`
+    ), "1100001");
+  } finally {
+    await supervisor?.stop().catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

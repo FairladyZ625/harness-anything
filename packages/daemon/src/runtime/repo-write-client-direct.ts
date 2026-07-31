@@ -20,6 +20,7 @@ import {
 } from "./repo-write-client-timeout.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
+  RepoWriteIpcPayloadTooLargeError,
   RepoWriteNotStartedError,
   RepoWriteSendDeliveryError
 } from "./repo-write-client-errors.ts";
@@ -234,6 +235,10 @@ export class RepoWriteDirectClientLane {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    if (error instanceof RepoWriteIpcPayloadTooLargeError) {
+      pending.reject(error);
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const definitelyNotSent = synchronous
       || (error instanceof RepoWriteSendDeliveryError

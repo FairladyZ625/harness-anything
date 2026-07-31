@@ -12,7 +12,10 @@ import {
   RepoWriteParentProcessTransport,
   RepoWriteProcessDisconnectError,
 } from "../src/runtime/repo-write-child-process-transport.ts";
-import { RepoWriteSendDeliveryError } from "../src/runtime/repo-write-client.ts";
+import {
+  RepoWriteIpcPayloadTooLargeError,
+  RepoWriteSendDeliveryError
+} from "../src/runtime/repo-write-client.ts";
 import {
   repoWriteProtocolType,
   type RepoWriteChildMessage
@@ -240,6 +243,33 @@ test("marks synchronous IPC rejection as definitely not sent before disconnect n
 
   const disconnect = await disconnected;
   assertDisconnect(disconnect, "send");
+});
+
+test("reports the exact oversized IPC field, byte overage, and next action", () => {
+  const transport = new RepoWriteParentProcessTransport(stalledChild());
+
+  assert.throws(() => transport.send({
+    protocol: repoWriteProtocolType,
+    repoId: "repo-transport",
+    generation: 1,
+    kind: "direct",
+    requestId: "oversized-direct",
+    command: {
+      commandName: "doc-sync-submit",
+      actor: {},
+      context: {},
+      payload: { body: "x".repeat(256 * 1024 + 1) }
+    }
+  }), (error) => {
+    assert.ok(error instanceof RepoWriteIpcPayloadTooLargeError);
+    assert.equal(error.code, "REPO_WRITE_IPC_PAYLOAD_TOO_LARGE");
+    assert.equal(error.path, "$.command.payload.body");
+    assert.equal(error.actualBytes, 256 * 1024 + 1);
+    assert.equal(error.maximumBytes, 256 * 1024);
+    assert.equal(error.excessBytes, 1);
+    assert.match(error.message, /Next: split the request or send large content by working-tree path or attachment reference/u);
+    return true;
+  });
 });
 
 test("marks callback send failure as possibly sent", async () => {

@@ -38,6 +38,7 @@ import {
   RepoWriteClientCapacityError,
   RepoWriteClientClosedError,
   RepoWriteDrainError,
+  RepoWriteIpcPayloadTooLargeError,
   RepoWriteLookupError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
@@ -50,6 +51,7 @@ export {
   RepoWriteClientCapacityError,
   RepoWriteClientClosedError,
   RepoWriteDrainError,
+  RepoWriteIpcPayloadTooLargeError,
   RepoWriteLookupError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
@@ -540,6 +542,10 @@ export class RepoWriteClient {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    if (error instanceof RepoWriteIpcPayloadTooLargeError) {
+      pending.reject(error);
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const definitelyNotSent = synchronous
       || (error instanceof RepoWriteSendDeliveryError && error.delivery === "definitely-not-sent");

@@ -9,6 +9,7 @@ import type { AuthorityConnectionDispatch } from "../protocol/connection-context
 import { encodeRepoWriteCommand } from "../runtime/repo-write-progress-command.ts";
 import type { RepoWriteProcessSupervisor } from "../runtime/repo-write-process-supervisor.ts";
 import { docSyncJournalUnavailable } from "./doc-sync-journal-failure.ts";
+import { referenceDocSyncWriterWorkingTree } from "./doc-sync-writer-working-tree.ts";
 
 export async function dispatchDocSyncSubmitToWriter(input: {
   readonly rootDir: string;
@@ -31,7 +32,7 @@ export async function dispatchDocSyncSubmitToWriter(input: {
       command: {
         rootDir: input.rootDir,
         action: { kind: "doc-sync-submit" },
-        request: input.request
+        request: referenceDocSyncWriterWorkingTree(input.rootDir, input.request)
       },
       context: {
         actor: input.actor,

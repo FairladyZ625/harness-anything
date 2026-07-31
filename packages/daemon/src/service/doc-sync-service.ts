@@ -32,6 +32,7 @@ import {
 } from "@harness-anything/application/doc-sync";
 import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
+import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
 
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
@@ -162,7 +163,7 @@ export function validateDocSyncSubmitRequest(input: { readonly rootInput: Harnes
   const unresolvedTouches: Array<{ readonly path: string; readonly reason: string; readonly bearing?: string; readonly zoneClass?: string }> = [];
 
   for (const change of input.request.payload.changes) {
-    const target = resolveChangePath(layout.authoredRoot, change.path);
+    const target = resolveDocSyncChangePath(layout.authoredRoot, change.path);
     if (!target.ok) {
       unresolvedTouches.push({ path: change.path, reason: target.reason });
       continue;
@@ -289,7 +290,9 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
           semanticMutationPlan: validation.semanticMutationPlan,
           writes: validation.acceptedChanges.map((change) => ({
             path: change.path,
-            body: change.body,
+            ...(currentBlobSha(change.absolutePath) === change.newBlobSha256
+              ? { bodySha256: change.newBlobSha256 }
+              : { body: change.body }),
             baseBlobSha256: change.baseBlobSha256
           }))
         }
@@ -561,18 +564,6 @@ function reject(request: DocSyncSubmitRequestV1, code: Extract<DocSyncSubmitResu
     retryable,
     ...extra
   };
-}
-
-function resolveChangePath(authoredRoot: string, pathInput: string): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string } {
-  if (path.isAbsolute(pathInput)) return { ok: false, reason: "doc sync path must be authored-root relative" };
-  const normalized = pathInput.split(/[\\/]+/u).filter(Boolean).join("/");
-  if (normalized.includes("..")) return { ok: false, reason: "doc sync path traversal is forbidden" };
-  const absolute = path.resolve(authoredRoot, normalized);
-  const relative = path.relative(authoredRoot, absolute);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    return { ok: false, reason: "doc sync path is outside authored root" };
-  }
-  return { ok: true, path: absolute };
 }
 
 function gitText(cwd: string, args: ReadonlyArray<string>): string | null {

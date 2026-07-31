@@ -12,11 +12,22 @@ export interface RepoWriteEncodedBytes {
 
 export class RepoWriteProtocolDecodeError extends Error {
   readonly code: "REPO_WRITE_PROTOCOL_INVALID" | "REPO_WRITE_PROTOCOL_LIMIT";
+  readonly limit?: {
+    readonly path: string;
+    readonly boundary: string;
+    readonly actual: number;
+    readonly maximum: number;
+  };
 
-  constructor(code: RepoWriteProtocolDecodeError["code"], message: string) {
+  constructor(
+    code: RepoWriteProtocolDecodeError["code"],
+    message: string,
+    limit?: RepoWriteProtocolDecodeError["limit"]
+  ) {
     super(message);
     this.name = "RepoWriteProtocolDecodeError";
     this.code = code;
+    this.limit = limit;
   }
 }
 
