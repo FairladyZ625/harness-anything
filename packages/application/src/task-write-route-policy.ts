@@ -88,3 +88,7 @@ export const taskWriteCliRoutePolicies = [
 export function taskWriteCliRoutePolicy(actionKind: string): TaskWriteCliRoutePolicy | undefined {
   return taskWriteCliRoutePolicies.find((policy) => policy.actionKind === actionKind);
 }
+
+export function taskStatusLeaseRequired(status: unknown): boolean {
+  return status !== "planned";
+}

@@ -10,6 +10,7 @@ import {
   makeRuntimeEventLedgerService,
   makeRuntimeEventAppendPromise,
   makeTaskHolderService,
+  taskStatusLeaseRequired,
   type ProvenanceSessionExporterRejected,
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
@@ -331,7 +332,9 @@ function withOptionalLeaseGuard(
   );
   return {
     ...engine,
-    setStatus: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.setStatus(input))),
+    setStatus: (input) => taskStatusLeaseRequired(input.status)
+      ? guard(input.taskId).pipe(Effect.flatMap(() => engine.setStatus(input)))
+      : engine.setStatus(input),
     appendProgress: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.appendProgress(input))),
     archiveTask: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.archiveTask(input))),
     supersedeTask: (input) => guard(input.oldTaskId).pipe(Effect.flatMap(() => engine.supersedeTask(input))),

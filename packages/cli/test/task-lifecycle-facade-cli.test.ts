@@ -259,19 +259,20 @@ test("task retire-execution rejects live and submitted rounds, then records an a
 test("return to planned requires explicit lease release and active Execution retirement", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Return To Idea Guard");
+    const leaseEnv = { ...fixture.env, HARNESS_TASK_LEASE_ENFORCEMENT: "1" };
 
     const leased = runJson(rootDir, [
       "task", "transition", fixture.taskId, "planned"
-    ], false, fixture.env);
+    ], false, leaseEnv);
     assert.equal(leased.error.code, "task_return_to_idea_blocked");
     assert.match(leased.error.hint, new RegExp(`Execution ${fixture.executionId}`, "u"));
     assert.match(leased.error.hint, /person:.+\/agent:facade-worker/u);
     assert.match(leased.error.hint, new RegExp(`ha task release ${fixture.taskId}`, "u"));
 
-    runJson(rootDir, ["task", "release", fixture.taskId], true, fixture.env);
+    runJson(rootDir, ["task", "release", fixture.taskId], true, leaseEnv);
     const executing = runJson(rootDir, [
       "task", "transition", fixture.taskId, "planned"
-    ], false, fixture.env);
+    ], false, leaseEnv);
     assert.equal(executing.error.code, "task_return_to_idea_blocked");
     assert.match(executing.error.hint, new RegExp(
       `ha task retire-execution ${fixture.taskId} --execution-id ${fixture.executionId} --reason`,
@@ -282,11 +283,40 @@ test("return to planned requires explicit lease release and active Execution ret
       "task", "retire-execution", fixture.taskId,
       "--execution-id", fixture.executionId,
       "--reason", "returning task to the idea inbox"
-    ], true, fixture.env);
+    ], true, leaseEnv);
     const planned = runJson(rootDir, [
       "task", "transition", fixture.taskId, "planned"
-    ], true, fixture.env);
+    ], true, leaseEnv);
     assert.equal(planned.status, "planned");
+
+    const reacquireRequired = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "active"
+    ], false, leaseEnv);
+    assert.equal(reacquireRequired.ok, false);
+    assert.match(reacquireRequired.error.hint, /requires an active lease/iu);
+    assert.match(reacquireRequired.error.hint, new RegExp(`ha task start ${fixture.taskId}`, "u"));
+    assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: planned$/mu);
+  });
+});
+
+test("blocked task returns to planned without reacquiring a lease after cleanup", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "Blocked Return To Idea");
+    const leaseEnv = { ...fixture.env, HARNESS_TASK_LEASE_ENFORCEMENT: "1" };
+    runJson(rootDir, ["task", "transition", fixture.taskId, "blocked"], true, leaseEnv);
+    runJson(rootDir, ["task", "release", fixture.taskId], true, leaseEnv);
+    runJson(rootDir, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "returning blocked task to the idea inbox"
+    ], true, leaseEnv);
+
+    const planned = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "planned"
+    ], true, leaseEnv);
+
+    assert.equal(planned.status, "planned");
+    assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: planned$/mu);
   });
 });
 
