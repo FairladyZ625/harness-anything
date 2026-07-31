@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 
 const gitIdentityFailurePattern = /Author identity unknown|unable to auto-detect email address|no email was given and auto-detection is disabled|Please tell me who you are/iu;
@@ -32,8 +32,8 @@ export function createHermeticTestEnvironment(baseEnv = process.env) {
   const env = {
     ...baseEnv,
     HOME: home,
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_SYSTEM: devNull,
     // macOS Git can synthesize "user@host" even with both config files
     // disabled. CI cannot, so require an explicitly configured fixture
     // identity on every platform.

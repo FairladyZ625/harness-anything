@@ -28,7 +28,7 @@ test("SIGKILL wait observes an exit emitted synchronously by kill", async () => 
     return true;
   }) as ChildProcess["kill"];
 
-  await killAndWaitForSigkill(child);
+  await killAndWaitForAbruptExit(child);
 });
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {
@@ -490,7 +490,7 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
     const deadline = Date.now() + 10_000;
     while (!existsSync(readyPath) && Date.now() < deadline) await delay(10);
     assert.equal(existsSync(readyPath), true, "fixture did not persist its incremental checkpoint");
-    await killAndWaitForSigkill(child);
+    await killAndWaitForAbruptExit(child);
     const partial = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
     assert.equal(partial.schema, "authority-recovery-watermark/v2");
     assert.equal(partial.phase, "partial");
@@ -519,20 +519,31 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
     assert.deepEqual(scanInputs, ["a".repeat(40)]);
     assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, "b".repeat(40));
   } finally {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        terminateRecoveryFixture(child);
+      } catch {
+        // The bounded wait above retains the primary failure when cleanup races process exit.
+      }
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-function killAndWaitForSigkill(child: ChildProcess): Promise<void> {
+function killAndWaitForAbruptExit(child: ChildProcess): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    const exitTimeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("recovery fixture did not exit within 5 seconds after forced termination"));
+    }, 5_000);
     const cleanup = () => {
+      clearTimeout(exitTimeout);
       child.off("exit", onExit);
       child.off("error", onError);
     };
-    const onExit = (_code: number | null, signal: NodeJS.Signals | null) => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
-      if (signal === "SIGKILL") resolve();
+      if (signal === "SIGKILL" || (process.platform === "win32" && (code !== null || signal !== null))) resolve();
       else reject(new Error(`expected SIGKILL, received ${signal ?? "clean exit"}`));
     };
     const onError = (error: Error) => {
@@ -542,12 +553,26 @@ function killAndWaitForSigkill(child: ChildProcess): Promise<void> {
     child.once("exit", onExit);
     child.once("error", onError);
     try {
-      assert.equal(child.kill("SIGKILL"), true);
+      terminateRecoveryFixture(child);
     } catch (error) {
       cleanup();
       reject(error);
     }
   });
+}
+
+function terminateRecoveryFixture(child: ChildProcess): void {
+  if (process.platform === "win32") {
+    assert.notEqual(child.pid, undefined);
+    execFileSync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+      timeout: 5_000,
+      killSignal: "SIGKILL",
+      windowsHide: true
+    });
+    return;
+  }
+  assert.equal(child.kill("SIGKILL"), true);
 }
 
 test("recovery watermark remains partial while an indexed operation is unresolved", async () => {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
@@ -23,8 +23,8 @@ test("hermetic test environment rejects ambient Git identity and preserves the n
     assert.equal(implicitCommit.status, 128);
     assert.match(implicitCommit.stderr, /identity|email/iu);
     assert.equal(environment.env.HOME, environment.home);
-    assert.equal(environment.env.GIT_CONFIG_GLOBAL, "/dev/null");
-    assert.equal(environment.env.GIT_CONFIG_SYSTEM, "/dev/null");
+    assert.equal(environment.env.GIT_CONFIG_GLOBAL, devNull);
+    assert.equal(environment.env.GIT_CONFIG_SYSTEM, devNull);
     assert.equal(environment.env.npm_config_cache, "/developer/npm-cache");
 
     execFileSync("git", [

@@ -9,7 +9,22 @@ import type { CliResult } from "../cli/types.ts";
 import { resolveActiveVertical } from "./extensions/active-vertical.ts";
 import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.ts";
 
-export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string, commitAuthor?: VcsCommitAuthor): CliResult {
+const DEFAULT_INIT_GIT_TIMEOUT_MS = 10_000;
+
+export interface InitGitRuntime {
+  readonly executable?: string;
+  readonly prefixArgs?: ReadonlyArray<string>;
+  readonly timeoutMs?: number;
+  readonly killSignal?: NodeJS.Signals;
+}
+
+export function initializeHarness(
+  rootInput: HarnessLayoutInput,
+  addNpmScripts = false,
+  projectName?: string,
+  commitAuthor?: VcsCommitAuthor,
+  gitRuntime: InitGitRuntime = {}
+): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const warnings: unknown[] = [];
@@ -35,7 +50,7 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
   materializeRepositoryScaffold(rootInput, vertical);
-  const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot, commitAuthor);
+  const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot, commitAuthor, gitRuntime);
   warnings.push(...isolation.warnings);
   const packagePath = path.join(layout.rootDir, "package.json");
   if (addNpmScripts) {
@@ -97,18 +112,23 @@ interface HarnessIsolationReport {
   readonly nextSteps: readonly string[];
 }
 
-function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string, commitAuthor?: VcsCommitAuthor): HarnessIsolationResult {
+function ensureHarnessRepositoryIsolation(
+  rootDir: string,
+  authoredRoot: string,
+  commitAuthor: VcsCommitAuthor | undefined,
+  gitRuntime: InitGitRuntime
+): HarnessIsolationResult {
   const warnings: unknown[] = [];
   const authoredRootRelative = initRelativeLayoutPath(rootDir, authoredRoot);
   const innerGitDir = path.join(authoredRoot, ".git");
-  const outerRepository = ensureOuterGitRepository(rootDir, commitAuthor);
+  const outerRepository = ensureOuterGitRepository(rootDir, commitAuthor, gitRuntime);
   warnings.push(...outerRepository.warnings);
-  const outerGit = isInsideInitGitWorkTree(rootDir);
+  const outerGit = isInsideInitGitWorkTree(rootDir, gitRuntime);
   const gitignore = ensureOuterGitignoreIsolation(rootDir, outerGit, authoredRootRelative);
   warnings.push(...gitignore.warnings);
-  const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir, commitAuthor);
+  const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir, commitAuthor, gitRuntime);
   warnings.push(...innerRepository.warnings);
-  const completedOuterRepository = completeOuterGitRepository(rootDir, outerRepository.report, commitAuthor);
+  const completedOuterRepository = completeOuterGitRepository(rootDir, outerRepository.report, commitAuthor, gitRuntime);
   warnings.push(...completedOuterRepository.warnings);
 
   return {
@@ -136,25 +156,30 @@ function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string,
   };
 }
 
-function ensureOuterGitRepository(rootDir: string, commitAuthor?: VcsCommitAuthor): {
+function ensureOuterGitRepository(
+  rootDir: string,
+  commitAuthor: VcsCommitAuthor | undefined,
+  gitRuntime: InitGitRuntime
+): {
   readonly report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">;
   readonly warnings: ReadonlyArray<unknown>;
 } {
-  if (isInsideInitGitWorkTree(rootDir)) {
+  if (isInsideInitGitWorkTree(rootDir, gitRuntime)) {
     return {
       warnings: [],
       report: {
         action: "skipped-existing",
         initialCommitCreated: false,
-        commitCount: readCommitCount(rootDir)
+        commitCount: readCommitCount(rootDir, gitRuntime)
       }
     };
   }
   try {
     try {
-      runInitGit(rootDir, ["init", "--initial-branch=main"], commitAuthor);
-    } catch {
-      runInitGit(rootDir, ["init"], commitAuthor);
+      runInitGit(rootDir, ["init", "--initial-branch=main"], commitAuthor, gitRuntime);
+    } catch (error) {
+      if (isGitTimeoutError(error)) throw error;
+      runInitGit(rootDir, ["init"], commitAuthor, gitRuntime);
     }
     return {
       warnings: [],
@@ -179,20 +204,21 @@ function ensureOuterGitRepository(rootDir: string, commitAuthor?: VcsCommitAutho
 function completeOuterGitRepository(
   rootDir: string,
   report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">,
-  commitAuthor?: VcsCommitAuthor
+  commitAuthor: VcsCommitAuthor | undefined,
+  gitRuntime: InitGitRuntime
 ): {
   readonly report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">;
   readonly warnings: ReadonlyArray<unknown>;
 } {
   if (report.action !== "initialized") return { report, warnings: [] };
   try {
-    runInitGit(rootDir, ["commit", "--allow-empty", "-m", "chore: initialize harness workspace"], commitAuthor);
+    runInitGit(rootDir, ["commit", "--no-gpg-sign", "--allow-empty", "-m", "chore: initialize harness workspace"], commitAuthor, gitRuntime);
     return {
       warnings: [],
       report: {
         action: "initialized",
         initialCommitCreated: true,
-        commitCount: readCommitCount(rootDir)
+        commitCount: readCommitCount(rootDir, gitRuntime)
       }
     };
   } catch (error) {
@@ -201,7 +227,7 @@ function completeOuterGitRepository(
       report: {
         action: "failed",
         initialCommitCreated: false,
-        commitCount: readCommitCount(rootDir)
+        commitCount: readCommitCount(rootDir, gitRuntime)
       }
     };
   }
@@ -248,7 +274,12 @@ function ensureOuterGitignoreIsolation(rootDir: string, outerGit: boolean, autho
   }
 }
 
-function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, commitAuthor?: VcsCommitAuthor): {
+function ensureInnerGitRepository(
+  authoredRoot: string,
+  innerGitDir: string,
+  commitAuthor: VcsCommitAuthor | undefined,
+  gitRuntime: InitGitRuntime
+): {
   readonly report: HarnessIsolationReport["innerRepository"];
   readonly warnings: ReadonlyArray<unknown>;
 } {
@@ -258,30 +289,31 @@ function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, com
       report: {
         gitDirExists: true,
         action: "skipped-existing",
-        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || null,
+        branch: readGitText(authoredRoot, ["branch", "--show-current"], gitRuntime) || null,
         initialCommitCreated: false,
-        commitCount: readCommitCount(authoredRoot)
+        commitCount: readCommitCount(authoredRoot, gitRuntime)
       }
     };
   }
 
   try {
     try {
-      runInitGit(authoredRoot, ["init", "--initial-branch=master"], commitAuthor);
-    } catch {
-      runInitGit(authoredRoot, ["init"], commitAuthor);
-      runInitGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"], commitAuthor);
+      runInitGit(authoredRoot, ["init", "--initial-branch=master"], commitAuthor, gitRuntime);
+    } catch (error) {
+      if (isGitTimeoutError(error)) throw error;
+      runInitGit(authoredRoot, ["init"], commitAuthor, gitRuntime);
+      runInitGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"], commitAuthor, gitRuntime);
     }
-    runInitGit(authoredRoot, ["add", "."], commitAuthor);
-    runInitGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"], commitAuthor);
+    runInitGit(authoredRoot, ["add", "."], commitAuthor, gitRuntime);
+    runInitGit(authoredRoot, ["commit", "--no-gpg-sign", "-m", "chore: initialize harness ledger"], commitAuthor, gitRuntime);
     return {
       warnings: [],
       report: {
         gitDirExists: existsSync(innerGitDir),
         action: "initialized",
-        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || "master",
+        branch: readGitText(authoredRoot, ["branch", "--show-current"], gitRuntime) || "master",
         initialCommitCreated: true,
-        commitCount: readCommitCount(authoredRoot)
+        commitCount: readCommitCount(authoredRoot, gitRuntime)
       }
     };
   } catch (error) {
@@ -290,42 +322,52 @@ function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, com
       report: {
         gitDirExists: existsSync(innerGitDir),
         action: "failed",
-        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || null,
+        branch: readGitText(authoredRoot, ["branch", "--show-current"], gitRuntime) || null,
         initialCommitCreated: false,
-        commitCount: readCommitCount(authoredRoot)
+        commitCount: readCommitCount(authoredRoot, gitRuntime)
       }
     };
   }
 }
 
-function isInsideInitGitWorkTree(rootDir: string): boolean {
-  return readGitText(rootDir, ["rev-parse", "--is-inside-work-tree"]) === "true";
+function isInsideInitGitWorkTree(rootDir: string, gitRuntime: InitGitRuntime): boolean {
+  return readGitText(rootDir, ["rev-parse", "--is-inside-work-tree"], gitRuntime) === "true";
 }
 
-function readCommitCount(rootDir: string): number | null {
-  const output = readGitText(rootDir, ["rev-list", "--count", "HEAD"]);
+function readCommitCount(rootDir: string, gitRuntime: InitGitRuntime): number | null {
+  const output = readGitText(rootDir, ["rev-list", "--count", "HEAD"], gitRuntime);
   return output ? Number.parseInt(output, 10) : null;
 }
 
-function readGitText(rootDir: string, args: ReadonlyArray<string>): string | undefined {
+function readGitText(rootDir: string, args: ReadonlyArray<string>, gitRuntime: InitGitRuntime): string | undefined {
   try {
-    return execFileSync("git", ["-C", rootDir, ...args], {
+    return execFileSync(gitRuntime.executable ?? "git", [...(gitRuntime.prefixArgs ?? []), "-C", rootDir, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true
+      windowsHide: true,
+      timeout: gitRuntime.timeoutMs ?? DEFAULT_INIT_GIT_TIMEOUT_MS,
+      killSignal: gitRuntime.killSignal ?? "SIGKILL"
     }).trim();
   } catch {
     return undefined;
   }
 }
 
-function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: VcsCommitAuthor): void {
-  execFileSync("git", ["-C", rootDir, ...args], {
+function runInitGit(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  author: VcsCommitAuthor | undefined,
+  gitRuntime: InitGitRuntime
+): void {
+  execFileSync(gitRuntime.executable ?? "git", [...(gitRuntime.prefixArgs ?? []), "-C", rootDir, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    timeout: gitRuntime.timeoutMs ?? DEFAULT_INIT_GIT_TIMEOUT_MS,
+    killSignal: gitRuntime.killSignal ?? "SIGKILL",
     env: {
       ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
       ...(author ? {
         GIT_AUTHOR_NAME: author.name,
         GIT_AUTHOR_EMAIL: author.email,
@@ -334,6 +376,10 @@ function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: VcsCo
       } : {})
     }
   });
+}
+
+function isGitTimeoutError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
 }
 
 function isolationWarning(code: string, error: unknown): Record<string, string> {

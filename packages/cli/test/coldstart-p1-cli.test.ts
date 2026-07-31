@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
@@ -12,8 +12,8 @@ const cliEntry = path.resolve("packages/cli/src/index.ts");
 const cleanGitEnv = {
   PATH: process.env.PATH,
   HOME: path.join(tmpdir(), "ha-coldstart-empty-home"),
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_CONFIG_GLOBAL: devNull,
+  GIT_CONFIG_SYSTEM: devNull,
   HARNESS_ACTOR: "agent:coldstart-test",
   HARNESS_GIT_AUTHOR_NAME: "Harness Coldstart Test",
   HARNESS_GIT_AUTHOR_EMAIL: "coldstart@example.invalid",

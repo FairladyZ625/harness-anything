@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -639,7 +639,7 @@ function gitCommit(harnessRoot: string, message: string): void {
     env: {
       ...process.env,
       HOME: path.join(harnessRoot, ".empty-home"),
-      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_GLOBAL: devNull,
       GIT_AUTHOR_NAME: "Harness Test",
       GIT_AUTHOR_EMAIL: "harness@example.test",
       GIT_COMMITTER_NAME: "Harness Test",
@@ -655,7 +655,7 @@ function git(harnessRoot: string, ...args: ReadonlyArray<string>): string {
     env: {
       ...process.env,
       HOME: path.join(harnessRoot, ".empty-home"),
-      GIT_CONFIG_GLOBAL: "/dev/null"
+      GIT_CONFIG_GLOBAL: devNull
     }
   }).trimEnd();
 }
