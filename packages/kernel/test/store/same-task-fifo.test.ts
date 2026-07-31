@@ -474,7 +474,8 @@ test("retained no-op journal record stays watermarked after the recent-id window
 
     const coordinator = makeJournaledWriteCoordinator({
       attribution: testWriteAttribution(),
-      rootDir
+      rootDir,
+      commitAuthor: testCommitAuthor
     });
     Effect.runSync(coordinator.enqueue(
       docWrite("op-retained-noop", "task-1", "notes.md", "already committed")
