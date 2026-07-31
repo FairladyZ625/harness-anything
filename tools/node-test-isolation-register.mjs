@@ -1,3 +1,7 @@
 import { registerCurrentTestIsolation } from "./node-test-isolation-registry.mjs";
 
-registerCurrentTestIsolation();
+try {
+  await registerCurrentTestIsolation();
+} catch {
+  // Stall diagnostics are best-effort and never own test module loading.
+}

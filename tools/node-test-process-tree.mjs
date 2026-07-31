@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { registeredTestIsolationIdentityMatches } from "./node-test-isolation-registry.mjs";
 
 const PROCESS_TREE_KILL_GRACE_MS = 2_000;
 
@@ -33,6 +34,44 @@ export function forceTerminateProcessTree(pid) {
     killer.once("error", () => finish(signalProcess(pid, "SIGKILL")));
     killer.once("close", (code) => finish(code === 0 || !processIsAlive(pid)));
   });
+}
+
+export async function reapPostCompletionChild({
+  hostPid,
+  isolationChildPid,
+  file,
+  identity,
+  probeIdentity,
+  captureDiagnostics,
+  terminateProcessTree = forceTerminateProcessTree
+}) {
+  console.error(
+    `\n[node-test-stall] isolation child pid=${isolationChildPid} completed reporter summary for ${file}; collecting diagnostics before post-completion reap`
+  );
+  await captureDiagnostics();
+  if (
+    identity !== undefined
+    && !await registeredTestIsolationIdentityMatches(
+      { pid: isolationChildPid, ppid: hostPid, identity },
+      { probeIdentity }
+    )
+  ) {
+    console.error(
+      `[node-test-stall] post-completion child pid=${isolationChildPid} no longer matches its registered process identity; skipping termination`
+    );
+    return false;
+  }
+  const reaped = await terminateProcessTree(isolationChildPid);
+  if (reaped) {
+    console.error(
+      `[node-test-stall] reaped post-completion child pid=${isolationChildPid} file=${file} termination=${process.platform === "win32" ? "taskkill" : "SIGKILL"}`
+    );
+  } else {
+    console.error(
+      `[node-test-stall] post-completion child pid=${isolationChildPid} exited before forced termination; no result override recorded`
+    );
+  }
+  return reaped;
 }
 
 export async function terminateLingeringPosixProcessGroup(pid) {

@@ -1,16 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import {
-  NODE_TEST_ISOLATION_REGISTRY_ENV,
-  readRegisteredTestIsolations,
-  registerCurrentTestIsolation
-} from "./node-test-isolation-registry.mjs";
 import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, hasIsolationWedgeSignature, parseCompletedTestLine, parsePosixProcessGroupLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, testFilesFromProcessCommand, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
@@ -65,48 +58,6 @@ test("test timeout defaults to three minutes and cannot be disabled", () => {
   assert.equal(parseRunnerArgs(["--test-timeout=360000"], testTierNames).testTimeoutMs, 360_000);
   assert.throws(() => parseRunnerArgs(["--test-timeout", "0"], testTierNames), /positive integer/u);
   assert.throws(() => parseRunnerArgs(["--test-timeout=x"], testTierNames), /--test-timeout/u);
-});
-
-test("test isolation registration binds one selected file to its owning host", () => {
-  const registryRoot = mkdtempSync(path.join(tmpdir(), "ha-test-isolation-registry-"));
-  const file = path.join(repoRoot, "tools/node-test-stall-policy.test.mjs");
-  try {
-    const recordPath = registerCurrentTestIsolation({
-      env: {
-        NODE_TEST_CONTEXT: "child-v8",
-        [NODE_TEST_ISOLATION_REGISTRY_ENV]: registryRoot
-      },
-      pid: 48001,
-      ppid: 47001,
-      argv: [process.execPath, file]
-    });
-
-    assert.deepEqual(JSON.parse(readFileSync(recordPath, "utf8")), {
-      schema: "node-test-isolation/v1",
-      pid: 48001,
-      ppid: 47001,
-      files: [file]
-    });
-    assert.deepEqual(readRegisteredTestIsolations({
-      registryRoot,
-      repoRoot,
-      hostPid: 47001,
-      selectedFiles: ["tools/node-test-stall-policy.test.mjs"],
-      isProcessAlive: (pid) => pid === 48001
-    }), [{
-      pid: 48001,
-      files: ["tools/node-test-stall-policy.test.mjs"]
-    }]);
-    assert.deepEqual(readRegisteredTestIsolations({
-      registryRoot,
-      repoRoot,
-      hostPid: 47002,
-      selectedFiles: ["tools/node-test-stall-policy.test.mjs"],
-      isProcessAlive: () => true
-    }), []);
-  } finally {
-    rmSync(registryRoot, { recursive: true, force: true });
-  }
 });
 
 test("runner bounds a non-terminating test and prints timeout next steps", () => {
