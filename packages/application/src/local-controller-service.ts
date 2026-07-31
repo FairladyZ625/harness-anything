@@ -61,7 +61,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     result: (payload) => options.agentRuntimeControl?.result(payload) ?? runtimeControlUnavailable(),
     getCatalogSnapshot: () => options.catalogSnapshotReader?.() ?? ({
       ok: false,
-      error: { code: "catalog_unavailable", hint: "Catalog snapshot reader is not configured." }
+      error: { code: "catalog_unavailable", hint: "Catalog access failed because the snapshot reader is not configured. Run `ha daemon restart --json`, verify with `ha daemon status --json`, then retry." }
     }),
     getTasks: () => {
       const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
@@ -214,7 +214,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ok: false,
       error: {
         code: "unsupported_in_kr09",
-        hint: "Archive mutation is reserved for the closeout workflow task."
+        hint: "This controller archive request was rejected because archive mutation is reserved for the governed closeout path. Run `ha task archive <task-id> --reason <reason>` instead."
       }
     }),
     openShell: () => ({
@@ -251,22 +251,22 @@ function toTaskDocumentKind(kind: ArtifactDocumentKind): TaskDocumentKind {
 }
 
 function taskNotFound(taskId: string): LocalControllerFailure {
-  return { ok: false, error: { code: "task_not_found", hint: `task not found: ${taskId}` } };
+  return { ok: false, error: { code: "task_not_found", hint: `Task ${taskId} was not found, so the requested controller action was rejected. Run \`ha task list --json\`, choose an existing task id, then retry.` } };
 }
 
 function decisionNotFound(decisionId: string): LocalControllerFailure {
-  return { ok: false, error: { code: "decision_not_found", hint: `decision not found: ${decisionId}` } };
+  return { ok: false, error: { code: "decision_not_found", hint: `Decision ${decisionId} was not found, so the requested controller action was rejected. Run \`ha decision list --compact --json\`, choose an existing decision id, then retry.` } };
 }
 
 function decisionMutationUnavailable(): Promise<LocalControllerFailure> {
   return Promise.resolve({
     ok: false,
-    error: { code: "decision_mutation_unavailable", hint: "Decision mutation port is not configured." }
+    error: { code: "decision_mutation_unavailable", hint: "Decision mutation failed because the controller write port is not configured. Run `ha daemon restart --json`, verify with `ha daemon status --json`, then retry." }
   });
 }
 
 function documentNotFound(documentPath: string): LocalControllerFailure {
-  return { ok: false, error: { code: "document_not_found", hint: documentPath } };
+  return { ok: false, error: { code: "document_not_found", hint: `Document ${documentPath} was not found in the readable authored scope. Run \`ha doc status --json\`, correct the portable document path, then retry.` } };
 }
 
 type PeripheralDocumentBoundary =
@@ -281,7 +281,7 @@ function peripheralDocumentBoundary(layout: Pick<HarnessLayout, "authoredRoot" |
       ok: false,
       error: {
         code: "invalid_layout",
-        hint: "Peripheral documents require tasksRoot to differ from authoredRoot."
+        hint: "Peripheral document access was rejected because tasksRoot and authoredRoot overlap. Run `ha doctor --json`, configure distinct roots in `harness/harness.yaml`, then retry."
       }
     };
   }
@@ -301,7 +301,7 @@ function isContainedRelativePath(relativePath: string): boolean {
 }
 
 function entityNotFound(kind: string, id: string): LocalControllerFailure {
-  return { ok: false, error: { code: `${kind}_not_found`, hint: `${kind} not found: ${id}` } };
+  return { ok: false, error: { code: `${kind}_not_found`, hint: `${kind} ${id} was not found, so the requested controller read was rejected. Run \`ha capabilities --kind ${kind} --json\`, select an existing id, then retry.` } };
 }
 
 function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
@@ -309,9 +309,9 @@ function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTask
     Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === portablePath) ?? null),
     Effect.catchAll(() => Effect.succeed(null)),
     Effect.map((document) => document === null
-      ? ({ ok: false, error: { code: "document_not_found", hint: portablePath } } satisfies LocalControllerFailure)
+      ? documentNotFound(portablePath)
       : document.kind === "attachment"
-        ? ({ ok: false, error: { code: "attachment_not_renderable", hint: portablePath } } satisfies LocalControllerFailure)
+        ? ({ ok: false, error: { code: "attachment_not_renderable", hint: `Attachment ${portablePath} cannot be rendered because the controller only returns text documents. Run \`ha task show ${taskId} --json\`, locate the attachment, then open it with a binary-capable tool.` } } satisfies LocalControllerFailure)
         : ({ ok: true, taskId, path: portablePath, body: document.body }))
   );
 }

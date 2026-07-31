@@ -166,6 +166,34 @@ test("CLI task help lists every task leaf and declares --json only as a global o
   });
 });
 
+test("CLI noun help exposes a bounded primary workflow and common/advanced tiers", () => {
+  withTempRoot((rootDir) => {
+    const nestedNouns = new Set(commandRegistry
+      .filter((entry) => entry.commandPath.length > 1)
+      .map((entry) => entry.commandPath[0]!));
+
+    for (const noun of nestedNouns) {
+      const group = commandGroups.find((candidate) => candidate.name === noun);
+      assert.notEqual(group, undefined, noun);
+      assert.equal((group?.primaryWorkflow?.length ?? 0) >= 1, true, noun);
+      assert.equal((group?.primaryWorkflow?.length ?? 0) <= 5, true, noun);
+
+      const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, noun, "--help"], {
+        encoding: "utf8"
+      });
+      assert.match(stdout, /Primary workflow:/u, noun);
+      assert.match(stdout, /Common commands:/u, noun);
+
+      const advanced = commandSpecs.filter((entry) =>
+        commandRegistry.find((candidate) => candidate.kind === entry.kind)?.commandPath[0] === noun
+          && "display" in entry
+          && entry.display === "advanced"
+      );
+      if (advanced.length > 0) assert.match(stdout, /Advanced commands:/u, noun);
+    }
+  });
+});
+
 test("CLI primary task leaf help links the workflow and explains structured packets", () => {
   withTempRoot((rootDir) => {
     const create = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "create", "--help"], { encoding: "utf8" });

@@ -79,7 +79,9 @@ function parseHelpRequest(
   if (!isExplicitHelpCommand && !hasHelpFlag) return null;
 
   const topic = isExplicitHelpCommand
-    ? args.slice(1)
+    ? args.length === 2 && hasHelpFlag
+      ? [first]
+      : args.slice(1).filter((arg) => arg !== "--help" && arg !== "-h")
     : args.filter((arg) => arg !== "--help" && arg !== "-h");
   const match = findCommandHelpMatch(topic);
   if (match.kind === "global") {

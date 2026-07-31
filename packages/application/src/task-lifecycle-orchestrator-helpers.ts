@@ -51,7 +51,7 @@ export function legacyReviewCompatibility(
           issues: parsed.issues,
           error: {
             code: "review_schema_invalid",
-            hint: "Legacy review.md contains malformed material findings; repair or migrate them before typed completion."
+            hint: "Typed completion was rejected because legacy review.md contains malformed material findings. Open `harness/tasks/<task-package>/review.md`, repair the reported table cells, then rerun `ha task complete <task-id> --approve --from-file approval.json`."
           }
         },
         warnings: []
@@ -90,7 +90,7 @@ export function reviewTask(
         issues: parsed.issues,
         error: {
           code: "review_schema_invalid",
-          hint: "review.md material findings table failed validation."
+          hint: "Task review was rejected because review.md material findings failed schema validation. Open `harness/tasks/<task-package>/review.md`, repair the reported table cells, then rerun `ha task review <task-id>`."
         }
       };
     }

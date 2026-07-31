@@ -91,6 +91,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "session-backfill",
+    "display": "advanced",
     "usage": "session backfill [--runtime claude-code|codex|zcode|antigravity] [--limit <n>] [--json]",
     "options": [{"flag":"--runtime","description":"Set the observed runtime kind."},{"flag":"--limit","description":"Limit the number of planned items."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Backfill managed session documents from discovered local runtime logs.",
@@ -108,6 +109,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "session-sync",
+    "display": "advanced",
     "usage": "session sync [--apply] [--json]",
     "options": [{"flag":"--apply","description":"Apply the one-time conversion; omission performs a dry-run."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Dry-run or apply the one-time conversion of legacy session markdown into compact Session Entity manifests.",

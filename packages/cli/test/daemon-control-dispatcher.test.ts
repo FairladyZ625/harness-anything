@@ -619,6 +619,9 @@ test("daemon control RPC rejection is returned as a failed daemon receipt", asyn
 
 test("daemon help exposes logs, restart, refresh, and refresh trigger selection", () => {
   const help = renderDaemonHelp();
+  assert.match(help, /Primary workflow:[\s\S]+daemon repo register[\s\S]+daemon start --service[\s\S]+daemon status --json/u);
+  assert.match(help, /Common commands:[\s\S]+connect --stdio[\s\S]+repo <subcommand>/u);
+  assert.match(help, /Advanced commands:[\s\S]+stop[\s\S]+restart[\s\S]+refresh[\s\S]+upgrade/u);
   assert.match(help, /logs \[options\]/u);
   assert.match(help, /--levels <csv>/u);
   assert.match(help, /restart/u);

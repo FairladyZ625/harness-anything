@@ -75,14 +75,14 @@ test("local controller service reads projection and writes through injected task
       ok: false,
       error: {
         code: "document_not_found",
-        hint: "tasks/task-1/INDEX.md"
+        hint: "Document tasks/task-1/INDEX.md was not found in the readable authored scope. Run `ha doc status --json`, correct the portable document path, then retry."
       }
     });
     assert.deepEqual(await service.getPeripheralDocument({ path: "../secret.md" }), {
       ok: false,
       error: {
         code: "invalid_payload",
-        hint: "portable document path is required."
+        hint: "Controller payload rejected: portable document path is required. Run `ha capabilities --json`, supply the required field in the documented shape, then retry."
       }
     });
 
@@ -93,7 +93,7 @@ test("local controller service reads projection and writes through injected task
       ok: false,
       error: {
         code: "attachment_not_renderable",
-        hint: "artifacts/diagram.png"
+        hint: "Attachment artifacts/diagram.png cannot be rendered because the controller only returns text documents. Run `ha task show task-1 --json`, locate the attachment, then open it with a binary-capable tool."
       }
     });
     writeTaskFacts(rootDir, "task-1");
@@ -157,7 +157,7 @@ test("local controller service reads projection and writes through injected task
       ok: false,
       error: {
         code: "invalid_payload",
-        hint: "portable document path is required."
+        hint: "Controller payload rejected: portable document path is required. Run `ha capabilities --json`, supply the required field in the documented shape, then retry."
       }
     });
     assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "notes/../INDEX.md" }), {
@@ -322,7 +322,7 @@ test("local controller service fails loudly when tasks root equals authored root
       ok: false,
       error: {
         code: "invalid_layout",
-        hint: "Peripheral documents require tasksRoot to differ from authoredRoot."
+        hint: "Peripheral document access was rejected because tasksRoot and authoredRoot overlap. Run `ha doctor --json`, configure distinct roots in `harness/harness.yaml`, then retry."
       }
     });
   } finally {
