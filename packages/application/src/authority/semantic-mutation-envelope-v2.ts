@@ -127,6 +127,23 @@ export interface AuthoritySemanticCompilationV2 {
   readonly operation: WriteOp;
   readonly decodedBytes: bigint;
   readonly publicationRevalidation?: () => Promise<void>;
+  /** A no-op candidate must be confirmed by a fresh read at the terminal boundary. */
+  readonly alreadySatisfied?: {
+    readonly verify: () => Promise<AuthorityAlreadySatisfiedStateProofV1 | undefined>;
+  };
+}
+
+export interface AuthorityAlreadySatisfiedStateProofV1 {
+  readonly schema: "authority-already-satisfied-state-proof/v1";
+  readonly entityKind: string;
+  readonly canonicalRef: string;
+  readonly path: string;
+  readonly field: string;
+  readonly requestedValue: string;
+  readonly observedValue: string;
+  readonly observedEpoch: string;
+  readonly observedRevision: string;
+  readonly observedBlobDigest: string;
 }
 
 export interface AuthoritySemanticCompilerContextV2 {

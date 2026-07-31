@@ -18,7 +18,7 @@ type OperationIdentity = Pick<AuthorityOperationEnvelope, "workspaceId" | "opId"
 export type PersistAuthorityTerminal = (
   envelope: OperationIdentity,
   digest: string,
-  state: Extract<AuthorityOperationState, "COMMITTED" | "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
+  state: Extract<AuthorityOperationState, "COMMITTED" | "ALREADY_SATISFIED" | "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
   receipt: AuthorityOperationReceipt,
   authorityIntegrity?: AuthorityOperationIntegrity,
   canonicalRequestEnvelope?: string,

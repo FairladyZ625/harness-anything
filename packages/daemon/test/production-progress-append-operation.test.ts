@@ -12,6 +12,7 @@ import {
   DurableRepoWriteOutcomeStoreV1,
   ProductionProgressAppendOperationHost,
   decodeRepoWriteProgressCommand,
+  encodeRepoWriteCommand,
   encodeRepoWriteProgressCommand,
   type AuthorityRepoComponent,
   type AuthorityRepoConnectionBinding,
@@ -104,7 +105,7 @@ operationTest("progress pilot orders outer fsync before read-only lease and inne
     });
     const authority = authorityComponent(events);
     const host = operationHost(store, authority, events);
-    const dto = encodeRepoWriteProgressCommand({
+    const dto = encodeRepoWriteCommand({
       command: command as unknown as Record<string, unknown>,
       context: {
         actor,
@@ -162,6 +163,65 @@ operationTest("progress pilot orders outer fsync before read-only lease and inne
       JSON.stringify(restarted.outcome.receipt),
       JSON.stringify(terminal.receipt)
     );
+  } finally {
+    rmSync(outcomeDirectory, { recursive: true, force: true });
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+operationTest("same-state transition returns an already-satisfied success receipt", async () => {
+  const fixture = createProductionAuthorityLifecycleFixture();
+  const outcomeDirectory = mkdtempSync(path.join(os.tmpdir(), "ha-status-already-satisfied-"));
+  const events: string[] = [];
+  try {
+    enableLeaseEnforcement(fixture.authoredRoot);
+    installTask(fixture.authoredRoot);
+    const actor = productionAuthorityActor();
+    const attribution = daemonActorAttribution(actor, { kind: "agent", id: "codex" });
+    await makeTaskHolderService({ rootInput: fixture.repoRoot }).claim({
+      taskId,
+      principal: taskHolderActor(attribution.taskHolderPrincipal, attribution.executor),
+      ttlMs: 60_000
+    });
+    const store = new DurableRepoWriteOutcomeStoreV1({
+      directory: outcomeDirectory,
+      ...axes(),
+      __testOnlyDurabilityHooks: durabilityEvents(events)
+    });
+    const authority = authorityComponent(events, undefined, "already-satisfied");
+    const host = operationHost(store, authority, events);
+    const dto = encodeRepoWriteCommand({
+      command: statusCommand(fixture.repoRoot) as unknown as Record<string, unknown>,
+      context: {
+        actor,
+        authorityConnection: productionAuthorityConnection(actor),
+        currentSession: {
+          runtime: "codex",
+          sessionId: "session-status-already-satisfied",
+          source: "manual",
+          detectedAt: "2026-07-24T00:00:00.000Z"
+        },
+        executor: { kind: "agent", id: "codex" }
+      }
+    });
+
+    const prepared = await host.prepare({
+      repoId: axes().repoId,
+      generation: axes().generation,
+      requestId: "request-status-already-satisfied",
+      command: dto
+    });
+    const terminal = await prepared.execute();
+
+    assert.equal(terminal.phase, "TERMINAL");
+    assert.equal(terminal.terminalKind, "committed");
+    assert.equal(terminal.terminalProof.evidence.tag, "ALREADY_SATISFIED");
+    assert.equal(terminal.receipt.ok, true);
+    assert.equal(terminal.receipt.summary, "目标状态已满足,本次无变更");
+    assert.deepEqual(terminal.receipt.details?.data?.authorityOutcome, {
+      kind: "already-satisfied",
+      message: "目标状态已满足,本次无变更"
+    });
   } finally {
     rmSync(outcomeDirectory, { recursive: true, force: true });
     rmSync(fixture.root, { recursive: true, force: true });
@@ -289,7 +349,8 @@ function authorityComponent(
   expectedRecovery?: {
     readonly outerOpId: string;
     readonly outerRequestDigest: string;
-  }
+  },
+  outcome: "committed" | "already-satisfied" = "committed"
 ): AuthorityRepoComponent {
   const bindConnection = (): AuthorityRepoConnectionBinding => ({
     submit: async () => { throw new Error("unplanned authority submit"); },
@@ -318,7 +379,9 @@ function authorityComponent(
           assert.equal(recovery, undefined);
           events.push("inner-submit");
         }
-        return committedEvidence(fixed.semanticDigest);
+        return outcome === "already-satisfied"
+          ? alreadySatisfiedEvidence(fixed.semanticDigest)
+          : committedEvidence(fixed.semanticDigest);
       }
     }),
     planProgressAppend: async (expected) => {
@@ -393,7 +456,7 @@ function committedEvidence(semanticDigest: string) {
           entity: {
             registryVersion: 1,
             entityKind: "task",
-            canonicalRef: taskId
+            canonicalRef: `task/${taskId}`
           },
           action: { registryVersion: 1, action: "progress-append" }
         }]
@@ -405,6 +468,39 @@ function committedEvidence(semanticDigest: string) {
       changeSetDigest: "5".repeat(64),
       semanticMutationSetDigest: "2".repeat(64),
       actorAxesBindingDigest: "3".repeat(64)
+    }
+  };
+}
+
+function alreadySatisfiedEvidence(semanticDigest: string) {
+  const integrity = committedEvidence(semanticDigest).authorityIntegrity;
+  return {
+    tag: "ALREADY_SATISFIED" as const,
+    workspaceId: axes().workspaceId,
+    opId: "inner-progress-operation",
+    semanticDigest,
+    message: "目标状态已满足,本次无变更" as const,
+    stateProof: {
+      schema: "authority-already-satisfied-state-proof/v1" as const,
+      entityKind: "task",
+      canonicalRef: `task/${taskId}`,
+      path: `tasks/${taskId}/INDEX.md`,
+      field: "status",
+      requestedValue: "active",
+      observedValue: "active",
+      observedEpoch: "epoch-status",
+      observedRevision: "0",
+      observedBlobDigest: "6".repeat(64)
+    },
+    authorityIntegrity: {
+      ...integrity,
+      canonicalMutationSet: {
+        ...integrity.canonicalMutationSet,
+        mutations: integrity.canonicalMutationSet.mutations.map((mutation) => ({
+          ...mutation,
+          action: { registryVersion: 1, action: "transition" }
+        }))
+      }
     }
   };
 }
@@ -468,6 +564,20 @@ function progressCommand(rootDir: string): ParsedCommand {
   };
 }
 
+function statusCommand(rootDir: string): ParsedCommand {
+  return {
+    rootDir,
+    json: true,
+    action: {
+      kind: "status-set",
+      taskId,
+      status: "active",
+      force: false,
+      dryRun: false
+    }
+  };
+}
+
 function enableLeaseEnforcement(authoredRoot: string): void {
   writeFileSync(path.join(authoredRoot, "harness.yaml"), [
     "schema: harness-anything/v1",
@@ -504,6 +614,14 @@ function installTask(authoredRoot: string): void {
     "---",
     "",
     "# Progress operation",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(taskRoot, "task_plan.md"), [
+    "# Task Plan",
+    "",
+    "## Goal",
+    "",
+    "Exercise the exact same-state transition path with a substantive plan.",
     ""
   ].join("\n"));
 }

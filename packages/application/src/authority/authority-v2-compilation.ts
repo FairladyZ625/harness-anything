@@ -36,6 +36,7 @@ export async function compileAuthorityV2Admission(input: {
   readonly operation: WriteOp;
   readonly authorityIntegrity: AuthorityOperationIntegrity;
   readonly publicationRevalidation?: () => Promise<void>;
+  readonly alreadySatisfied?: NonNullable<import("./semantic-mutation-envelope-v2.ts").AuthoritySemanticCompilationV2["alreadySatisfied"]>;
 }> {
   const { envelope, verified, options } = input;
   if (!sameProtocolSchemaTupleV2(envelope.schemaTuple, options.schemaTuple)) {
@@ -99,6 +100,9 @@ export async function compileAuthorityV2Admission(input: {
       authorityIntegrity
     },
     authorityIntegrity,
+    ...(semanticCompilation.alreadySatisfied
+      ? { alreadySatisfied: semanticCompilation.alreadySatisfied }
+      : {}),
     ...(semanticCompilation.publicationRevalidation
       ? { publicationRevalidation: semanticCompilation.publicationRevalidation }
       : {})

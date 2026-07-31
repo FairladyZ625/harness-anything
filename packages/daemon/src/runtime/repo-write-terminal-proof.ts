@@ -1,5 +1,6 @@
 import {
   isCompleteAuthorityCommittedReceiptV2,
+  type AuthorityAlreadySatisfiedReceipt,
   type AuthorityCommittedReceipt,
   type AuthorityOperationReceipt,
   type AuthorityRejectedReceipt,
@@ -20,6 +21,7 @@ const maximumMutationItems = 16_384;
 
 export type RepoWriteTerminalEvidenceV1 =
   | AuthorityCommittedReceipt
+  | AuthorityAlreadySatisfiedReceipt
   | AuthorityRejectedReceipt
   | AuthorityRetryableReceipt;
 
@@ -36,7 +38,7 @@ export function createRepoWriteTerminalProofV1(
   const normalized = decodeAuthorityTerminalEvidenceV1(evidence, "$.evidence");
   return {
     schema: repoWriteTerminalProofSchema,
-    disposition: normalized.tag === "COMMITTED" ? "committed" : "rejected",
+    disposition: successfulAuthorityEvidence(normalized) ? "committed" : "rejected",
     evidence: normalized,
     evidenceDigest: repoWriteTerminalProofEvidenceDigest(normalized)
   };
@@ -57,7 +59,7 @@ export function decodeRepoWriteTerminalProofV1(
     repoWriteTerminalProofInvalid(`${path}.schema`, repoWriteTerminalProofSchema);
   }
   const evidence = decodeAuthorityTerminalEvidenceV1(record.evidence, `${path}.evidence`);
-  const disposition = evidence.tag === "COMMITTED" ? "committed" : "rejected";
+  const disposition = successfulAuthorityEvidence(evidence) ? "committed" : "rejected";
   if (record.disposition !== disposition) {
     repoWriteTerminalProofInvalid(
       `${path}.disposition`,
@@ -90,14 +92,119 @@ export function decodeAuthorityTerminalEvidenceV1(
   const record = repoWriteTerminalProofRecordAt(value, path);
   const tag = record.tag;
   if (tag === "COMMITTED") return repoWriteTerminalProofCommittedEvidenceAt(record, path);
+  if (tag === "ALREADY_SATISFIED") {
+    return repoWriteTerminalProofAlreadySatisfiedEvidenceAt(record, path);
+  }
   if (tag === "REJECTED") return repoWriteTerminalProofRejectedEvidenceAt(record, path);
   if (tag === "RETRYABLE_NOT_COMMITTED") {
     return repoWriteTerminalProofRetryableEvidenceAt(record, path);
   }
   repoWriteTerminalProofInvalid(
     `${path}.tag`,
-    "COMMITTED, REJECTED, or RETRYABLE_NOT_COMMITTED"
+    "COMMITTED, ALREADY_SATISFIED, REJECTED, or RETRYABLE_NOT_COMMITTED"
   );
+}
+
+function successfulAuthorityEvidence(evidence: RepoWriteTerminalEvidenceV1): boolean {
+  return evidence.tag === "COMMITTED" || evidence.tag === "ALREADY_SATISFIED";
+}
+
+function repoWriteTerminalProofAlreadySatisfiedEvidenceAt(
+  record: Record<string, unknown>,
+  path: string
+): AuthorityAlreadySatisfiedReceipt {
+  repoWriteTerminalProofExactKeys(record, [
+    "tag", "workspaceId", "opId", "semanticDigest", "message", "stateProof",
+    "authorityIntegrity"
+  ], path);
+  if (record.message !== "目标状态已满足,本次无变更") {
+    repoWriteTerminalProofInvalid(`${path}.message`, "canonical already-satisfied message");
+  }
+  const stateProof = repoWriteTerminalProofRecordAt(record.stateProof, `${path}.stateProof`);
+  repoWriteTerminalProofExactKeys(stateProof, [
+    "schema", "entityKind", "canonicalRef", "path", "field", "requestedValue",
+    "observedValue", "observedEpoch", "observedRevision", "observedBlobDigest"
+  ], `${path}.stateProof`);
+  if (stateProof.schema !== "authority-already-satisfied-state-proof/v1") {
+    repoWriteTerminalProofInvalid(
+      `${path}.stateProof.schema`,
+      "authority-already-satisfied-state-proof/v1"
+    );
+  }
+  if (stateProof.field !== "status") {
+    repoWriteTerminalProofInvalid(`${path}.stateProof.field`, "status");
+  }
+  const requestedValue = repoWriteTerminalProofIdentifierAt(
+    stateProof.requestedValue,
+    `${path}.stateProof.requestedValue`
+  );
+  const observedValue = repoWriteTerminalProofIdentifierAt(
+    stateProof.observedValue,
+    `${path}.stateProof.observedValue`
+  );
+  if (observedValue !== requestedValue) {
+    repoWriteTerminalProofInvalid(
+      `${path}.stateProof.observedValue`,
+      "exact equality with requestedValue"
+    );
+  }
+  const observedRevision = repoWriteTerminalProofJsonTextAt(
+    stateProof.observedRevision,
+    `${path}.stateProof.observedRevision`
+  );
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(observedRevision)) {
+    repoWriteTerminalProofInvalid(`${path}.stateProof.observedRevision`, "unsigned decimal integer");
+  }
+  const semanticDigest = repoWriteTerminalProofDigestAt(
+    record.semanticDigest,
+    `${path}.semanticDigest`
+  );
+  const authorityIntegrity = repoWriteTerminalProofAuthorityIntegrityAt(
+    record.authorityIntegrity,
+    `${path}.authorityIntegrity`
+  );
+  const entityKind = repoWriteTerminalProofIdentifierAt(
+    stateProof.entityKind,
+    `${path}.stateProof.entityKind`
+  );
+  const canonicalRef = repoWriteTerminalProofIdentifierAt(
+    stateProof.canonicalRef,
+    `${path}.stateProof.canonicalRef`
+  );
+  const mutation = authorityIntegrity.canonicalMutationSet.mutations[0];
+  if (authorityIntegrity.semanticRequestDigest !== semanticDigest
+    || authorityIntegrity.canonicalMutationSet.mutations.length !== 1
+    || mutation?.entity.entityKind !== entityKind
+    || mutation.entity.canonicalRef !== canonicalRef
+    || mutation.action.action !== "transition") {
+    repoWriteTerminalProofInvalid(
+      `${path}.authorityIntegrity`,
+      "single transition mutation bound to the reread target and semantic digest"
+    );
+  }
+  return {
+    tag: "ALREADY_SATISFIED",
+    workspaceId: repoWriteTerminalProofIdentifierAt(record.workspaceId, `${path}.workspaceId`),
+    opId: repoWriteTerminalProofIdentifierAt(record.opId, `${path}.opId`),
+    semanticDigest,
+    message: "目标状态已满足,本次无变更",
+    stateProof: {
+      schema: "authority-already-satisfied-state-proof/v1",
+      entityKind,
+      canonicalRef,
+      path: repoWriteTerminalProofIdentifierAt(stateProof.path, `${path}.stateProof.path`),
+      field: "status",
+      requestedValue,
+      observedValue,
+      observedEpoch: repoWriteTerminalProofIdentifierAt(stateProof.observedEpoch, `${path}.stateProof.observedEpoch`),
+      observedRevision,
+      observedBlobDigest: repoWriteTerminalProofDigestAt(
+        stateProof.observedBlobDigest,
+        `${path}.stateProof.observedBlobDigest`
+      )
+    },
+    authorityIntegrity
+  };
 }
 
 function repoWriteTerminalProofCommittedEvidenceAt(

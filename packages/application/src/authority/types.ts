@@ -6,7 +6,10 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "@harness-anything/kernel";
-import type { AuthorizedOperationAttemptV2 } from "./semantic-mutation-envelope-v2.ts";
+import type {
+  AuthorityAlreadySatisfiedStateProofV1,
+  AuthorizedOperationAttemptV2
+} from "./semantic-mutation-envelope-v2.ts";
 import type { ProtocolSchemaTupleV2 } from "./actor-axes-binding-v2.ts";
 
 export const authorityProtocolTuple = {
@@ -77,6 +80,7 @@ export type AuthorityOperationState =
   | "PUBLISHED"
   | "INDEXED"
   | "COMMITTED"
+  | "ALREADY_SATISFIED"
   | "REJECTED"
   | "RETRYABLE_NOT_COMMITTED"
   | "INDETERMINATE";
@@ -122,6 +126,16 @@ export interface AuthorityRejectedReceipt {
   readonly reason: string;
 }
 
+export interface AuthorityAlreadySatisfiedReceipt {
+  readonly tag: "ALREADY_SATISFIED";
+  readonly workspaceId: string;
+  readonly opId: string;
+  readonly semanticDigest: string;
+  readonly message: "目标状态已满足,本次无变更";
+  readonly stateProof: AuthorityAlreadySatisfiedStateProofV1;
+  readonly authorityIntegrity: AuthorityOperationIntegrity;
+}
+
 export type AuthorityRetryableReceipt = {
   readonly tag: "RETRYABLE_NOT_COMMITTED";
   readonly workspaceId: string;
@@ -153,6 +167,7 @@ export type AuthorityIndeterminateReceipt = {
 
 export type AuthorityOperationReceipt =
   | AuthorityCommittedReceipt
+  | AuthorityAlreadySatisfiedReceipt
   | AuthorityRejectedReceipt
   | AuthorityRetryableReceipt
   | AuthorityIndeterminateReceipt;

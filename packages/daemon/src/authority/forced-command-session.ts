@@ -26,7 +26,7 @@ import {
 
 export interface AuthorityTransportObserver {
   readonly observe: (event: {
-    readonly kind: "connected" | "request" | "committed" | "rejected" | "closed";
+    readonly kind: "connected" | "request" | "committed" | "already-satisfied" | "rejected" | "closed";
     readonly connectionGeneration: number;
     readonly requestId?: string;
     readonly opId?: string;
@@ -285,7 +285,11 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
         });
         write(response(value.requestId, generation, true, receipt));
         options.observer?.observe({
-          kind: receipt.tag === "COMMITTED" ? "committed" : "rejected",
+          kind: receipt.tag === "COMMITTED"
+            ? "committed"
+            : receipt.tag === "ALREADY_SATISFIED"
+              ? "already-satisfied"
+              : "rejected",
           connectionGeneration: generation,
           requestId: value.requestId,
           opId: receipt.opId,
@@ -312,7 +316,11 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     const receipt = await options.submissionService.submit(value.envelope);
     write(response(value.requestId, generation, true, receipt));
     options.observer?.observe({
-      kind: receipt.tag === "COMMITTED" ? "committed" : "rejected",
+      kind: receipt.tag === "COMMITTED"
+        ? "committed"
+        : receipt.tag === "ALREADY_SATISFIED"
+          ? "already-satisfied"
+          : "rejected",
       connectionGeneration: generation,
       requestId: value.requestId,
       opId: value.envelope.opId,

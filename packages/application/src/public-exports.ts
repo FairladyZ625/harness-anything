@@ -38,6 +38,7 @@ export {
 } from "./authority/index.ts";
 export type {
   AttributedCoordinatorFactory,
+  AuthorityAlreadySatisfiedReceipt,
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedPhysicalObservationPortV2,
   AuthorityCommittedPhysicalObservationV2,
@@ -88,6 +89,7 @@ export { decodeTaskDecisionModuleCommandPayloadV2 } from "./authority/task-decis
 export { decodeSessionExecutionReviewCommandPayloadV2 } from "./authority/session-execution-review-command-v2.ts";
 export * from "./authority/fact-relation-semantic-compiler-v2.ts";
 export * from "./authority/task-decision-module-semantic-compiler-v2.ts";
+export * from "./authority/task-decision-module-semantic-compiler-types.ts";
 export type { TaskReturnToIdeaSnapshotV1 } from "./authority/task-return-to-idea-policy.ts";
 export type { TaskWipSnapshotEntryV1, TaskWipSnapshotV1 } from "./authority/task-wip-policy.ts";
 export {
