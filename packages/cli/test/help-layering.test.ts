@@ -21,6 +21,19 @@ test("every primary-workflow line names a registered command path", () => {
   }
 });
 
+test("task primary workflow exposes the complete six-step lifecycle", () => {
+  const taskWorkflow = commandGroups.find((group) => group.name === "task")?.primaryWorkflow;
+
+  assert.deepEqual(taskWorkflow, [
+    "ha task create --title \"<title>\"",
+    "ha task start <task-id>",
+    "ha task progress append <task-id> --text \"<update>\"",
+    "ha fact record --task <task-id> --statement \"<verified fact>\"",
+    "ha task submit <task-id> --from-file submission.json",
+    "ha task complete <task-id> --approve --from-file approval.json"
+  ]);
+});
+
 test("every registered leaf remains directly reachable through help", () => {
   for (const entry of commandRegistry) {
     const parsed = parseArgs([...entry.commandPath, "--help"]);

@@ -639,13 +639,21 @@ function gitCommit(harnessRoot: string, message: string): void {
     env: {
       ...process.env,
       HOME: path.join(harnessRoot, ".empty-home"),
-      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_GLOBAL: emptyGitConfigPath(harnessRoot),
       GIT_AUTHOR_NAME: "Harness Test",
       GIT_AUTHOR_EMAIL: "harness@example.test",
       GIT_COMMITTER_NAME: "Harness Test",
       GIT_COMMITTER_EMAIL: "harness@example.test"
     }
   });
+}
+
+function emptyGitConfigPath(harnessRoot: string): string {
+  const emptyHome = path.join(harnessRoot, ".empty-home");
+  mkdirSync(emptyHome, { recursive: true });
+  const configPath = path.join(emptyHome, "empty.gitconfig");
+  writeFileSync(configPath, "", "utf8");
+  return configPath;
 }
 
 function git(harnessRoot: string, ...args: ReadonlyArray<string>): string {
@@ -655,7 +663,7 @@ function git(harnessRoot: string, ...args: ReadonlyArray<string>): string {
     env: {
       ...process.env,
       HOME: path.join(harnessRoot, ".empty-home"),
-      GIT_CONFIG_GLOBAL: "/dev/null"
+      GIT_CONFIG_GLOBAL: emptyGitConfigPath(harnessRoot)
     }
   }).trimEnd();
 }

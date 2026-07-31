@@ -139,6 +139,7 @@ export const commandGroups = [
     "ha task create --title \"<title>\"",
     "ha task start <task-id>",
     "ha task progress append <task-id> --text \"<update>\"",
+    "ha fact record --task <task-id> --statement \"<verified fact>\"",
     "ha task submit <task-id> --from-file submission.json",
     "ha task complete <task-id> --approve --from-file approval.json"
   ]),

@@ -27,7 +27,10 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(result.report.isolation.innerRepository.gitDirExists, true);
     assert.equal(result.report.isolation.innerRepository.branch, "master");
     assert.equal(result.report.isolation.innerRepository.commitCount, 1);
-    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
+    assert.equal(result.report.isolation.outerGit.action, "initialized");
+    assert.equal(result.report.isolation.outerGit.initialCommitCreated, true);
+    assert.equal(result.report.isolation.outerGit.commitCount, 1);
+    assert.equal(result.report.isolation.outerGitignore.action, "updated");
     assert.equal(resolveHarnessLayout(path.join(rootDir, "harness")).rootDir, rootDir);
     assert.match(result.receiptSummary, /Code PRs must not include harness\/ changes/u);
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
@@ -112,6 +115,8 @@ test("CLI init isolates harness in an outer git repository", () => {
     assert.match(gitignore, /^\.harness\/$/m);
     assert.match(gitignore, /^harness\/$/m);
     assert.equal(result.report.isolation.outerGit.insideWorkTree, true);
+    assert.equal(result.report.isolation.outerGit.action, "skipped-existing");
+    assert.equal(result.report.isolation.outerGit.initialCommitCreated, false);
     assert.equal(result.report.isolation.outerGitignore.action, "updated");
     assert.equal(result.report.isolation.innerRepository.action, "initialized");
   });
@@ -132,15 +137,18 @@ test("CLI init skips existing inner harness git repository and keeps gitignore i
   });
 });
 
-test("CLI init creates an inner harness repo without an outer git repository", () => {
+test("CLI init creates both workspace and inner harness repositories", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["init"]);
 
     assert.equal(result.ok, true);
     assert.equal(existsSync(path.join(rootDir, "harness/.git")), true);
-    assert.equal(existsSync(path.join(rootDir, ".gitignore")), false);
-    assert.equal(result.report.isolation.outerGit.insideWorkTree, false);
-    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
+    assert.equal(existsSync(path.join(rootDir, ".git")), true);
+    assert.equal(existsSync(path.join(rootDir, ".gitignore")), true);
+    assert.equal(result.report.isolation.outerGit.insideWorkTree, true);
+    assert.equal(result.report.isolation.outerGit.action, "initialized");
+    assert.equal(result.report.isolation.outerGit.initialCommitCreated, true);
+    assert.equal(result.report.isolation.outerGitignore.action, "updated");
   });
 });
 

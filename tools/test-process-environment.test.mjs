@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,8 +23,9 @@ test("hermetic test environment rejects ambient Git identity and preserves the n
     assert.equal(implicitCommit.status, 128);
     assert.match(implicitCommit.stderr, /identity|email/iu);
     assert.equal(environment.env.HOME, environment.home);
-    assert.equal(environment.env.GIT_CONFIG_GLOBAL, "/dev/null");
-    assert.equal(environment.env.GIT_CONFIG_SYSTEM, "/dev/null");
+    assert.equal(environment.env.GIT_CONFIG_GLOBAL, path.join(environment.home, "empty.gitconfig"));
+    assert.equal(environment.env.GIT_CONFIG_SYSTEM, environment.env.GIT_CONFIG_GLOBAL);
+    assert.equal(readFileSync(environment.env.GIT_CONFIG_GLOBAL, "utf8"), "");
     assert.equal(environment.env.npm_config_cache, "/developer/npm-cache");
 
     execFileSync("git", [

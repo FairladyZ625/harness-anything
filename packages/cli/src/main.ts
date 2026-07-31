@@ -15,6 +15,7 @@ import { runCompoundReceiptExitCommand } from "./receipt/compound-exit-command.t
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { commandGroups, globalCommandOptions } from "./cli/command-spec/command-groups.ts";
+import { taskPacketTemplateFor } from "./cli/task-packet-templates.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
 import {
   runDaemonCommand,
@@ -333,6 +334,7 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
   const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
   const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
   const additional = command.kind === "new-task" ? taskCreatePresetHelp() : [];
+  const packetTemplate = renderTaskPacketTemplate(command.kind);
   const workflow = taskWorkflowNextHelp(command.kind);
   const examples = command.examples.length > 0 ? ["", command.examples.length === 1 ? "Example:" : "Examples:", ...command.examples.map((example) => `  ${example}`)] : [];
   return [
@@ -343,9 +345,20 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     ...aliases,
     ...options,
     ...additional,
+    ...packetTemplate,
     ...workflow,
     ...examples
   ].join("\n");
+}
+
+function renderTaskPacketTemplate(commandKind: string): ReadonlyArray<string> {
+  const template = taskPacketTemplateFor(commandKind);
+  if (!template) return [];
+  return [
+    "",
+    `Packet template (copy as ${template.fileName}):`,
+    ...JSON.stringify(template.value, null, 2).split("\n").map((line) => `  ${line}`)
+  ];
 }
 
 function renderHelpCommandSummary(entry: CommandRegistryEntry): string {
@@ -367,7 +380,8 @@ function taskWorkflowNextHelp(kind: string): ReadonlyArray<string> {
   const nextByKind: Readonly<Record<string, string>> = {
     "new-task": "ha task start <task-id>",
     "task-start": "ha task progress append <task-id> --text \"<update>\"",
-    "progress-append": "ha task submit <task-id> --from-file submission.json",
+    "progress-append": "ha fact record --task <task-id> --statement \"<verified fact>\"",
+    "record-fact": "ha task submit <task-id> --from-file submission.json",
     "task-submit": "ha task complete <task-id> --approve --from-file approval.json",
     "task-complete": "ha task show <task-id> --view trace"
   };

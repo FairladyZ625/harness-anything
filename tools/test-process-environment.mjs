@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -29,11 +29,17 @@ export function createHermeticTestEnvironment(baseEnv = process.env) {
     ?? baseEnv.NPM_CONFIG_CACHE
     ?? (baseEnv.HOME ? path.join(baseEnv.HOME, ".npm") : path.join(tmpdir(), "ha-npm-cache"));
 
+  // Git for Windows rejects the platform null device as a config path
+  // ("unable to access '//./nul'"), so point both config files at an empty
+  // regular file inside the hermetic home instead.
+  const emptyGitConfig = path.join(home, "empty.gitconfig");
+  writeFileSync(emptyGitConfig, "", "utf8");
+
   const env = {
     ...baseEnv,
     HOME: home,
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_GLOBAL: emptyGitConfig,
+    GIT_CONFIG_SYSTEM: emptyGitConfig,
     // macOS Git can synthesize "user@host" even with both config files
     // disabled. CI cannot, so require an explicitly configured fixture
     // identity on every platform.
