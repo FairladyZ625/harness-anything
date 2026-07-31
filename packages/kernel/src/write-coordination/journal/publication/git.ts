@@ -16,6 +16,7 @@ export function commitTouchedPaths(
   sessionId?: string,
   options: {
     readonly forceAddPaths?: ReadonlyArray<string>;
+    readonly preserveExplicitLogPaths?: ReadonlyArray<string>;
     readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
   } = {}
@@ -29,6 +30,12 @@ export function commitTouchedPaths(
   });
   if (!plan) return "no-git-change";
   const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
+  const preserveExplicitLogs = resolveExplicitLogSet(
+    rootDir,
+    options.preserveExplicitLogPaths ?? [],
+    layoutInput,
+    vcs
+  );
   // A failed commit can leave a hard-delete already staged while its path no
   // longer exists in either the worktree or index. Re-adding that path fails;
   // preserve its staged deletion and continue the recovery commit.
@@ -48,6 +55,11 @@ export function commitTouchedPaths(
     if (forcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: forcedPaths, force: true });
     if (unforcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: unforcedPaths });
     unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
+    const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
+    const preservedForcedLogs = preservedLogs.filter((relativePath) => forceAdd.has(relativePath));
+    const preservedUnforcedLogs = preservedLogs.filter((relativePath) => !forceAdd.has(relativePath));
+    if (preservedForcedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedForcedLogs, force: true });
+    if (preservedUnforcedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedUnforcedLogs });
     const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
     if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
 
@@ -138,6 +150,19 @@ function resolveForceAddSet(
 ): ReadonlySet<string> {
   if (forceAddPaths.length === 0) return new Set<string>();
   return new Set(resolveCommitPlan(rootDir, forceAddPaths, layoutInput, vcs)?.relativePaths ?? []);
+}
+
+function resolveExplicitLogSet(
+  rootDir: string,
+  explicitLogPaths: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput,
+  vcs: VersionControlSystem
+): ReadonlySet<string> {
+  if (explicitLogPaths.length === 0) return new Set<string>();
+  return new Set(
+    (resolveCommitPlan(rootDir, explicitLogPaths, layoutInput, vcs)?.relativePaths ?? [])
+      .filter((relativePath) => relativePath.endsWith(".log"))
+  );
 }
 
 function excludeLocalRootPaths(localRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): ReadonlyArray<string> {

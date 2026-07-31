@@ -398,6 +398,9 @@ function flushRecords(
     sessionId,
     {
       author: commitAuthor,
+      preserveExplicitLogPaths: plannedRecords.flatMap(({ record, touchedPaths: plannedTouchedPaths }) =>
+        record.kind === "doc_sync_submit" ? plannedTouchedPaths : []
+      ),
       versionControlSystem: publicationVcs
     }
   );
