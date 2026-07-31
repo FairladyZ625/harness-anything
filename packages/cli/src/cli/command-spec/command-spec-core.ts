@@ -133,6 +133,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-claim",
+    "display": "advanced",
     "usage": "task claim <id> [--execution] [--execution-id <execution-id>] [--ttl-ms <ms>] [--json]",
     "options": [{"flag":"--execution","description":"Use the Execution claim path; the sole active round is reused instead of opening a duplicate."},{"flag":"--execution-id","description":"Select the active Execution to resume when legacy state contains multiple active rounds."},{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Deprecated compatibility spelling for task start; claim activates planned tasks and always uses an Execution lease.",
@@ -178,6 +179,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-holder",
+    "display": "advanced",
     "usage": "task holder <id> [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Read the effective holder lease state for a task.",
@@ -195,6 +197,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-release",
+    "display": "advanced",
     "usage": "task release <id> [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Release the authenticated principal's task holder lease.",
@@ -213,7 +216,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-submit",
     "usage": "task submit <id> --from-file <submission.json> [--dry-run]",
-    "options": [{"flag":"--from-file","description":"Read the six-field Execution Submission packet."},{"flag":"--dry-run","description":"Preview the internal submission transaction without writing."}],
+    "options": [{"flag":"--from-file","description":"Read JSON fields completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks."},{"flag":"--dry-run","description":"Preview the internal submission transaction without writing."}],
     "summary": "Finalize/export the bound Session and atomically submit the active Execution into in_review.",
     "examples": ["harness-anything task submit task_01ABC --from-file submission.json"],
     "parse": parseCoreTaskArgs,
@@ -235,6 +238,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-closeout",
+    "display": "advanced",
     "usage": "task closeout <id> --from-file <closeout.json> [--execution-id <execution-id>] [--lease-token <token>] [--commit <git-ref>] [--reviewer <id>] [--dry-run] [--json]",
     "options": [{"flag":"--from-file","description":"Read the human completion claim, Review judgment and consent, CI result, and optional evidence fields."},{"flag":"--execution-id","description":"Select the active Execution; otherwise use Holder V2 and the sole submitted round."},{"flag":"--lease-token","description":"Authenticate the active Holder V2 lease when it is not available implicitly."},{"flag":"--commit","description":"Resolve this git ref to a full 40-character commit SHA; defaults to HEAD."},{"flag":"--reviewer","description":"Set the completion reviewer id recorded by the existing completion gate."},{"flag":"--dry-run","description":"Resolve the commit and list the separately admitted gate steps without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Compatibility approval entry: after task submit, record the owner's Review, sync task prose, reconcile the workspace commit, and complete.",
@@ -339,6 +343,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-contract-migrate",
+    "display": "advanced",
     "usage": "task contract migrate (--dry-run|--apply) [--task <id>] [--json]",
     "options": [{"flag":"--dry-run","description":"Preview deterministic snapshot writes without mutating Task packages."},{"flag":"--apply","description":"Write snapshots for deterministically attributable legacy Tasks."},{"flag":"--task","description":"Limit migration to one Task id."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Backfill immutable Task contract snapshots; ambiguous Tasks remain in a manual queue.",
@@ -456,6 +461,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-review",
+    "display": "advanced",
     "usage": "task review <id> [--reviewer <id>]",
     "options": [{"flag":"--reviewer","description":"Set the reviewer id."}],
     "aliases": ["task-review <id> (deprecated, use task review; retires at E77/F6 acceptance)"],
@@ -478,6 +484,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-consent-record",
+    "display": "advanced",
     "usage": "task consent-record <id> --execution-id <execution-id> (--utterance <text>|--standing-policy <decision-id>|--asserted <rationale>) [--consent-action approve_execution] [--consent-action complete_task]",
     "options": [{"flag":"--execution-id","description":"Bind consent to this exact submitted Execution."},{"flag":"--utterance","description":"Verify the human's exact approval words against a bound user transcript turn."},{"flag":"--standing-policy","description":"Use an existing active decision as standing authorization."},{"flag":"--asserted","description":"Explicitly record unverified external approval with a required rationale."},{"flag":"--consent-action","description":"Grant approve_execution and optionally complete_task; repeat for both. Defaults to both actions."}],
     "summary": "Record a principal-bound, content-pinned human consent as an independent consumable entity.",
@@ -495,6 +502,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-review-execution",
+    "display": "advanced",
     "usage": "task review-execution <id> [--from-file <review.json>] [--execution-id <execution-id>] --verdict approved|changes_requested|dismissed --findings <text> --rationale <text> [--consent <consent-id>|--consent-utterance <text>|--consent-standing-policy <decision-id>|--consent-asserted <rationale>] [--consent-action approve_execution] [--consent-action complete_task] [--evidence-checked <id>]... [--acknowledge-archive-warnings]",
     "options": [{"flag":"--from-file","description":"Read Review fields; executionId may be omitted only when exactly one submitted Execution exists."},{"flag":"--execution-id","description":"Review the exact submitted Execution, or correct an accepted Execution with changes_requested."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--consent","description":"Consume an existing open consent for approved verdicts."},{"flag":"--consent-utterance","description":"Verify exact words against a bound user transcript turn, then record and consume consent."},{"flag":"--consent-standing-policy","description":"Record and consume consent authorized by an existing active decision."},{"flag":"--consent-asserted","description":"Record and consume unverified external approval with an explicit rationale."},{"flag":"--consent-action","description":"When creating consent, grant approve_execution and optionally complete_task; defaults to both."},{"flag":"--evidence-checked","description":"Record an inspected OutputEvidence id; repeat as needed."},{"flag":"--rationale","description":"Record the Reviewer's semantic rationale."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
     "summary": "Create an immutable Review round; approved verdicts require content-pinned human consent, while executor identity never substitutes for consent.",
@@ -513,7 +521,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-complete",
     "usage": "task complete <id> (--approve --from-file <approval.json> | --commit-anchor <sha-or-ref> --judgment <reason>) [--ci passed|failed|not-applicable] [--execution-id <execution-id>] [--reviewer <id>] [--commit <git-ref>] [--dry-run]",
-    "options": [{"flag":"--approve","description":"Record this invocation as the owner's explicit approval action."},{"flag":"--from-file","description":"Read Review findings, rationale, consent, CI, and optional anchor fields."},{"flag":"--ci","description":"Override the packet CI result when the resolved contract declares CI."},{"flag":"--execution-id","description":"Select the submitted Execution; inferred when exactly one exists."},{"flag":"--reviewer","description":"Set the reviewer id recorded with completion."},{"flag":"--commit","description":"Resolve the workspace commit to reconcile; defaults to HEAD."},{"flag":"--dry-run","description":"Preview the internal doc-sync, Review, reconcile, and completion steps."},{"flag":"--commit-anchor","description":"Compatibility owner-judgment mode; reconcile is still internal and --judgment remains required."},{"flag":"--judgment","description":"Explain why the compatibility commit-anchor completes the task."}],
+    "options": [{"flag":"--approve","description":"Record this invocation as the owner's explicit approval action."},{"flag":"--from-file","description":"Read JSON with findings, rationale, and exactly one consent source; optional evidenceChecked, paths, CI, and anchor fields may follow."},{"flag":"--ci","description":"Override the packet CI result when the resolved contract declares CI."},{"flag":"--execution-id","description":"Select the submitted Execution; inferred when exactly one exists."},{"flag":"--reviewer","description":"Set the reviewer id recorded with completion."},{"flag":"--commit","description":"Resolve the workspace commit to reconcile; defaults to HEAD."},{"flag":"--dry-run","description":"Preview the internal doc-sync, Review, reconcile, and completion steps."},{"flag":"--commit-anchor","description":"Compatibility owner-judgment mode; reconcile is still internal and --judgment remains required."},{"flag":"--judgment","description":"Explain why the compatibility commit-anchor completes the task."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)":"hidden"},
     "summary": "One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator. Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally.",

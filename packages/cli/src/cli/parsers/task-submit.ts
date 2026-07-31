@@ -14,7 +14,11 @@ export function parseTaskSubmit(
   input?: CommandJsonInput
 ): ParseResult {
   const payload = jsonPayloadFor(input, "task-submit");
-  if (!payload) return taskSubmitFailure("task submit requires --from-file <submission.json>.");
+  if (!payload) {
+    return taskSubmitFailure(
+      `Received task submit ${args[2]} without a submission packet. Expected --from-file <submission.json>. Next: run \`ha task submit ${args[2]} --from-file submission.json\`.`
+    );
+  }
   const completionClaim = payload.completionClaim;
   if (typeof completionClaim !== "string" || completionClaim.trim().length === 0) {
     return taskSubmitFailure("Submission field completionClaim must be a non-empty string.");

@@ -17,6 +17,7 @@ import type { DecisionAmendField, DecisionAmendOperation } from "@harness-anythi
 import type { DecisionClaimFulfillment } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { CliError } from "./error-codes.ts";
+import type { CommandDisplayTier } from "./command-spec/types.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
@@ -197,6 +198,7 @@ export interface CommandRegistryEntry {
   readonly primary: string;
   readonly aliases: ReadonlyArray<string>;
   readonly commandPath: ReadonlyArray<string>;
+  readonly display?: CommandDisplayTier;
   readonly summary: string;
   readonly options: ReadonlyArray<CommandHelpOption>;
   readonly examples: ReadonlyArray<string>;

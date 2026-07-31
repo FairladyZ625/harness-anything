@@ -22,7 +22,7 @@ function helpCommands(action: HelpAction, commandRegistry: ReadonlyArray<Command
   }
   if (action.commandPrefix) {
     return commandRegistry
-      .filter((entry) => displayForKind(entry.kind) === "default")
+      .filter((entry) => displayForKind(entry.kind) !== "hidden")
       .filter((entry) => action.commandPrefix!.every((token, index) => entry.commandPath[index] === token))
       .map(helpEntry);
   }
@@ -43,6 +43,7 @@ function helpCommands(action: HelpAction, commandRegistry: ReadonlyArray<Command
 function helpEntry(entry: CommandRegistryEntry): CommandRegistryEntry {
   return {
     ...entry,
+    display: displayForKind(entry.kind),
     summary: migrationCommandDeprecation(entry.kind)
       ? `${entry.summary} Deprecated — sunset stage 1/3; use the Legacy Intake flow.`
       : entry.summary,

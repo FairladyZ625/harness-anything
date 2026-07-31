@@ -23,7 +23,11 @@ export function parseTaskComplete(
     return parseReviewedExecutionCompatibility(args, rootDir, json);
   }
   const payload = jsonPayloadFor(input, "task-complete");
-  if (!payload) return taskCompleteFailure("task complete --approve requires --from-file <approval.json>.");
+  if (!payload) {
+    return taskCompleteFailure(
+      `Received task complete ${args[1]} --approve without an approval packet. Expected --from-file <approval.json>. Next: run \`ha task complete ${args[1]} --approve --from-file approval.json\`.`
+    );
+  }
   const findings = requiredText(payload.findings, "Approval field findings");
   if (!findings.ok) return findings;
   const rationale = requiredText(payload.rationale, "Approval field rationale");

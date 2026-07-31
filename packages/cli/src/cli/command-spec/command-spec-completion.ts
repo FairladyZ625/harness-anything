@@ -7,6 +7,7 @@ import { runTaskRetireExecution } from "../../commands/core/task-execution-retir
 export const completionCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-retire-execution",
+    "display": "advanced",
     "usage": "task retire-execution <id> --execution-id <execution-id> --reason <reason> [--json]",
     "options": [{"flag":"--execution-id","description":"Select the stale active Execution round to retire."},{"flag":"--reason","description":"Record why the abandoned active round is being retired."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Explicitly retire an active Execution only when the Task has no live holder lease, preserving an actor/time/reason audit entry.",

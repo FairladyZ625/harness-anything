@@ -464,6 +464,24 @@ test("parseArgs pins stable parse error envelopes", () => {
   }
 });
 
+test("primary task parse failures answer received, expected, and next command", () => {
+  const cases = [
+    { argv: ["task", "create"], received: /Received task create/u, expected: /Expected --title <title>/u, next: /Next: run `ha task create --title/u },
+    { argv: ["task", "progress", "append", "task_1"], received: /Received task progress append task_1/u, expected: /Expected --text <text>/u, next: /Next: run `ha task progress append task_1/u },
+    { argv: ["task", "submit", "task_1"], received: /Received task submit task_1/u, expected: /Expected --from-file <submission\.json>/u, next: /Next: run `ha task submit task_1/u },
+    { argv: ["task", "complete", "task_1", "--approve"], received: /Received task complete task_1 --approve/u, expected: /Expected --from-file <approval\.json>/u, next: /Next: run `ha task complete task_1/u }
+  ] as const;
+
+  for (const candidate of cases) {
+    const parsed = parseArgs(candidate.argv);
+    assert.equal(parsed.ok, false, candidate.argv.join(" "));
+    if (parsed.ok) continue;
+    assert.match(parsed.error.hint, candidate.received);
+    assert.match(parsed.error.hint, candidate.expected);
+    assert.match(parsed.error.hint, candidate.next);
+  }
+});
+
 test("parseArgs rejects invalid task metadata enum values", () => {
   const invalidCreateKind = parseArgs(["task", "create", "--title", "Bad", "--kind", "feature"]);
   assert.equal(invalidCreateKind.ok, false);
