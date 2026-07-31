@@ -49,7 +49,11 @@ export function authenticateSshForcedCommandFrame(
 ): TransportAuthenticationResult {
   if (!isSshForcedCommandBootstrapFrame(frame)) {
     if (isForcedCommandFrameType(frame)) {
-      return { ok: false, code: "forced_command_malformed", message: "Malformed SSH forced-command authentication frame." };
+      return {
+        ok: false,
+        code: "forced_command_malformed",
+        message: "The SSH forced-command authentication frame is invalid because personId or canonicalRoot is missing. Reconnect through the configured relay with `ha daemon connect --stdio`; custom clients must send harness-daemon.ssh-forced-command/v1 with both fields."
+      };
     }
     return { ok: true, authContext, forwardFrame: true };
   }

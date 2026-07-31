@@ -82,7 +82,9 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     : parsed.value.action.kind === "task-start"
       ? await runTaskStartFacade(parsed.value, runParsedCommand)
       : parsed.value.action.kind === "task-complete"
-          && (parsed.value.action.approval !== undefined || parsed.value.action.evidenceMode === "commit-anchor")
+          && (parsed.value.action.approval !== undefined
+            || parsed.value.action.evidenceMode === "commit-anchor"
+            || parsed.value.action.dryRun === true)
         ? await runTaskCompleteFacade(parsed.value, runParsedCommand)
         : parsed.value.action.kind === "task-closeout"
           ? await runTaskCloseoutFacade(parsed.value, runParsedCommand)

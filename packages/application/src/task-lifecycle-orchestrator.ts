@@ -122,6 +122,8 @@ export interface TaskLifecycleOrchestrator {
     readonly commitRef?: string;
     readonly judgment?: string;
     readonly sessionRef?: string;
+    /** Read-only evaluation of the same requirements used by completion. */
+    readonly preflight?: boolean;
   }) => Effect.Effect<TaskLifecycleResult>;
 }
 
@@ -333,6 +335,15 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           if (taskTreeFailure) return taskTreeFailure;
         }
         return completionRequirementsFailure(payload.taskId, requirementIssues, completionGate);
+      }
+
+      if (payload.preflight) {
+        return {
+          ok: true,
+          taskId: payload.taskId,
+          status: "done",
+          completionGate: { ...completionGate, evidenceMode }
+        } satisfies TaskLifecycleResult;
       }
 
       const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);

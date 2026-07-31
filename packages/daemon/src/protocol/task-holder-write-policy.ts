@@ -35,11 +35,11 @@ export async function validateTaskLeaseForServiceWrite(
   if (!repo || !options.leaseEnforcementEnabled?.(repo) || contract.leaseRequired !== true) return undefined;
   if (contract.method === "repo.tasks.status.set" && !taskStatusLeaseRequired(payload?.status)) return undefined;
   const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId.");
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId, but the request omitted it. Inspect the intended task with `ha task holder <task-id> --json`, then retry the task-scoped CLI command.");
   if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is unavailable because the running daemon composition is incomplete. Run `ha daemon restart --json`, then verify it with `ha daemon status --check --json` before retrying.");
   }
-  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor.");
+  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor, but this request has none. Verify the authenticated task path with `ha task holder <task-id> --json`, then retry the original CLI command.");
   try {
     const executor = readTaskHolderExecutor(payload);
     await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor, { executor }) });
@@ -48,7 +48,7 @@ export async function validateTaskLeaseForServiceWrite(
     if (isTaskHolderError(error)) {
       return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
     }
-    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
+    return failureReceipt(contract.method, "task_holder_failed", `Task holder validation failed unexpectedly: ${error instanceof Error ? error.message : String(error)}. Inspect daemon diagnostics with \`ha daemon logs --errors --json\`, then retry the original command.`);
   }
 }
 

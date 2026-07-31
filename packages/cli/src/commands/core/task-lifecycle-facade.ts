@@ -11,6 +11,13 @@ import {
   taskCompleteFacadeSteps,
   type TaskCompleteCommand
 } from "./task-complete-facade-steps.ts";
+import {
+  taskCompleteDryRunResult,
+  taskCompletePreflightCompletionGate,
+  taskCompletePreflightFailure,
+  taskCompletePreflightReport,
+  taskCompletePreflightStep
+} from "./task-complete-preflight.ts";
 import { dispatchLifecycleFacadeSteps, shellLifecycleToken } from "./task-lifecycle-facade-guidance.ts";
 export {
   isCodeDocReconciliationCurrent,
@@ -61,24 +68,39 @@ export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Di
 export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {
   if (command.action.kind !== "task-complete") throw new Error("task complete facade received a non-complete command");
   const completeCommand = command as TaskCompleteCommand;
+  const preflightReceipt = await dispatch(taskCompletePreflightStep(completeCommand));
   const resolved = resolveCommit(command.rootDir, command.action.commitRef ?? "HEAD", "task-complete");
-  if (!resolved.ok) return resolved.result;
   const layoutInput = { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides };
   const docPaths = resolveTaskDocSyncPaths(layoutInput, command.action.taskId, "task-complete");
-  if (!docPaths.ok) return docPaths.result;
-  const codeDocAlreadyCurrent = docPaths.paths.length === 0
+  const codeDocAlreadyCurrent = resolved.ok && docPaths.ok && docPaths.paths.length === 0
     ? await taskCompleteCodeDocAlreadyCurrent(completeCommand, resolved.sha)
     : false;
-  const steps = taskCompleteFacadeSteps(
-    completeCommand,
-    resolved.sha,
-    docPaths.paths,
-    { codeDocAlreadyCurrent }
-  );
-  if (command.action.dryRun) return dryRun(completeCommand, steps, {
-    commit: resolved.sha,
-    codeDocReconciliation: codeDocAlreadyCurrent ? "already-current" : "reconcile-required"
+  const preflight = taskCompletePreflightReport({
+    command: completeCommand,
+    receipt: preflightReceipt,
+    commit: resolved,
+    docPaths
   });
+  const steps = resolved.ok && docPaths.ok
+    ? taskCompleteFacadeSteps(
+        completeCommand,
+        resolved.sha,
+        docPaths.paths,
+        { codeDocAlreadyCurrent }
+      )
+    : [];
+  const completionGate = taskCompletePreflightCompletionGate(preflightReceipt);
+  if (command.action.dryRun) return taskCompleteDryRunResult(completeCommand, steps, {
+    commit: resolved.ok ? resolved.sha : null,
+    codeDocReconciliation: resolved.ok
+      ? codeDocAlreadyCurrent ? "already-current" : "reconcile-required"
+      : "commit-unresolved",
+    preflight,
+    completionGate
+  });
+  if (preflight.status === "blocked") return taskCompletePreflightFailure(completeCommand, preflight, completionGate);
+  if (!resolved.ok) return resolved.result;
+  if (!docPaths.ok) return docPaths.result;
   const dispatched = await dispatchLifecycleFacadeSteps(steps, dispatch, "task-complete");
   if (!dispatched.ok) return dispatched.receipt;
   const { receipts, warnings } = dispatched;
@@ -182,6 +204,7 @@ function dryRun(
     }
   } satisfies CliResult);
 }
+
 function resolveCommit(rootDir: string, commitRef: string, command = "task-closeout"):
   { readonly ok: true; readonly sha: string } | { readonly ok: false; readonly result: CliResult } {
   const resolved = inspectGitCommitRef(rootDir, commitRef);

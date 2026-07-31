@@ -49,7 +49,7 @@ async function resolveIdentityActor(
     return identityFailure(
       options.identityProvider.providerId,
       "person_registry_unavailable",
-      "Authenticated daemon requests require a core person registry."
+      "Authenticated daemon requests require a core person registry, but no roster was loaded. Add the principal to harness/people.yaml and run `ha daemon restart --json` before retrying."
     );
   }
   const authentication = await options.identityProvider.authenticate(authContext);
@@ -59,7 +59,7 @@ async function resolveIdentityActor(
     return identityFailure(
       options.identityProvider.providerId,
       "person_unregistered",
-      `Identity provider authenticated an unregistered personId: ${authentication.personId}`,
+      `Identity provider authenticated personId ${authentication.personId}, but that person is not registered in the active roster. Add the person to harness/people.yaml and run \`ha daemon restart --json\` before retrying.`,
       authentication.credential
     );
   }
@@ -67,7 +67,7 @@ async function resolveIdentityActor(
     return identityFailure(
       options.identityProvider.providerId,
       "person_disabled",
-      `Person is disabled: ${person.personId}`,
+      `Person ${person.personId} is disabled in the active roster, so the request is rejected. Re-enable the person in harness/people.yaml and run \`ha daemon restart --json\` before retrying.`,
       authentication.credential
     );
   }

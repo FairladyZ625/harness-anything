@@ -197,11 +197,11 @@ async function handleRequest(
   }
 
   if (!session.handshaken) {
-    return response(failureReceipt(request.method, "hello_required", "Call protocol.hello before any repo or admin method."));
+    return response(failureReceipt(request.method, "hello_required", "The request is rejected because protocol.hello has not completed for this connection. Use `ha daemon status --json` to connect through the versioned client before calling repo or admin methods."));
   }
 
   if (contract.mode === "reserved") {
-    return response(failureReceipt(request.method, "method_reserved", `Method namespace is reserved for future admin API: ${request.method}.`));
+    return response(failureReceipt(request.method, "method_reserved", `Method ${request.method} is unavailable because its namespace is reserved for a future admin API. Inspect supported operations with \`ha daemon --help\` and use a listed command instead.`));
   }
 
   const params = requestParams;
@@ -302,7 +302,7 @@ function handleHello(
 ): unknown {
   const requestedVersion = typeof params.protocolVersion === "number" ? params.protocolVersion : undefined;
   if (requestedVersion !== currentDaemonProtocolVersion) {
-    return failureReceipt("protocol.hello", "incompatible_protocol_version", "Incompatible daemon protocol version.", {
+    return failureReceipt("protocol.hello", "incompatible_protocol_version", "The requested protocolVersion is incompatible with this daemon, so the handshake is rejected. Run `ha daemon upgrade --ref HEAD --json`, then reconnect with `ha daemon status --json`.", {
       supported: { currentProtocolVersion: currentDaemonProtocolVersion },
       requested: { protocolVersion: requestedVersion ?? null }
     });
@@ -358,10 +358,10 @@ async function callServiceMethod(
     if (rootMismatch) return rootMismatch;
   }
   const services = repo ? resolveServicesForRepo(contract.method, repo, options) : options.services;
-  if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host is not configured for ${repo?.repoId ?? "unknown"}.`);
+  if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host for ${repo?.repoId ?? "unknown"} is unavailable because that repository has no active composition. Run \`ha daemon repo register --root <canonical-root>\`, then \`ha daemon restart --json\` before retrying.`);
   if (contract.method === "repo.daemon.status") {
     if (!services.DaemonStatusService) {
-      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
+      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is unavailable because the running service composition is incomplete. Run `ha daemon restart --json`, then verify the replacement with `ha daemon status --check --json`.");
     }
     try {
       const request = validateDaemonStatusRequest(params);
@@ -383,7 +383,7 @@ async function callServiceMethod(
   }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
-      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
+      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is unavailable because the repository command host is not configured. Run `ha daemon restart --json`, then verify the replacement with `ha daemon status --check --json`.");
     }
     return services.CliCommandService.runCommand(payload, {
       actor,
@@ -397,7 +397,7 @@ async function callServiceMethod(
   }
   if (contract.method === "repo.doc.sync.submit") {
     if (!services.DocSyncService) {
-      return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is not configured.");
+      return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is unavailable because the repository write composition is incomplete. Run `ha daemon restart --json`, then retry the governed write with `ha doc sync --submit --path <authored-path>`.");
     }
     const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, {
       actor,
@@ -426,15 +426,15 @@ async function callTaskHolderMethod(
   actor: AuthenticatedActor | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is unavailable because the running daemon composition is incomplete. Run `ha daemon restart --json`, then verify it with `ha daemon status --check --json` before retrying.");
   }
   const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task holder methods require payload.taskId.");
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task holder methods require payload.taskId, but the request omitted it. Inspect the intended task with `ha task holder <task-id> --json`, then retry the task-scoped CLI command.");
   try {
     if (contract.method === "repo.task.holder") {
       return successReceipt(contract.method, "read task holder", toJsonValue(await services.TaskHolderService.holder({ taskId })) as JsonObject);
     }
-    if (!actor) return failureReceipt(contract.method, "actor_required", "Task holder writes require a per-request authenticated actor.");
+    if (!actor) return failureReceipt(contract.method, "actor_required", "Task holder writes require a per-request authenticated actor, but this request has none. Verify the authenticated task path with `ha task holder <task-id> --json`, then retry the original CLI command.");
     const executor = readTaskHolderExecutor(payload);
     const principal = taskHolderPrincipalFromActor(actor, { executor });
     if (contract.method === "repo.task.claim") {
@@ -446,7 +446,7 @@ async function callTaskHolderMethod(
     if (isTaskHolderError(error)) {
       return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
     }
-    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
+    return failureReceipt(contract.method, "task_holder_failed", `Task holder operation failed unexpectedly: ${error instanceof Error ? error.message : String(error)}. Inspect daemon diagnostics with \`ha daemon logs --errors --json\`, then retry the original command.`);
   }
 }
 
@@ -493,7 +493,7 @@ async function handleAdminMethod(
     return successReceipt(contract.method, `accepted daemon ${result.accepted.kind}`, toJsonValue(result.accepted) as JsonObject);
   }
   if (!options.identityAdminSnapshot) {
-    return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods require a loaded people roster.");
+    return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods require a loaded people roster, but none is available to this daemon. Add the roster at harness/people.yaml and run `ha daemon restart --json` before retrying.");
   }
   if (contract.method === "admin.people.list") {
     return successReceipt(contract.method, "listed people", {
@@ -515,7 +515,7 @@ async function handleAdminMethod(
       }))
     });
   }
-  return failureReceipt(contract.method, "method_not_implemented", `Admin method is not implemented: ${contract.method}`);
+  return failureReceipt(contract.method, "method_not_implemented", `Admin method ${contract.method} is not implemented by the running daemon. Run \`ha daemon upgrade --ref HEAD --json\`, then inspect the available surface with \`ha daemon --help\` before retrying.`);
 }
 
 function stampReceipt<T extends ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>>(receipt: T, actor?: AuthenticatedActor): T {

@@ -522,10 +522,10 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-complete",
     "usage": "task complete <id> (--approve --from-file <approval.json> | --commit-anchor <sha-or-ref> --judgment <reason>) [--ci passed|failed|not-applicable] [--execution-id <execution-id>] [--reviewer <id>] [--commit <git-ref>] [--dry-run]",
-    "options": [{"flag":"--approve","description":"Record this invocation as the owner's explicit approval action."},{"flag":"--from-file","description":"Read JSON with findings, rationale, and exactly one consent source; optional evidenceChecked, paths, CI, and anchor fields may follow."},{"flag":"--ci","description":"Override the packet CI result when the resolved contract declares CI."},{"flag":"--execution-id","description":"Select the submitted Execution; inferred when exactly one exists."},{"flag":"--reviewer","description":"Set the reviewer id recorded with completion."},{"flag":"--commit","description":"Resolve the workspace commit to reconcile; defaults to HEAD."},{"flag":"--dry-run","description":"Preview the internal doc-sync, Review, reconcile, and completion steps."},{"flag":"--commit-anchor","description":"Compatibility owner-judgment mode; reconcile is still internal and --judgment remains required."},{"flag":"--judgment","description":"Explain why the compatibility commit-anchor completes the task."}],
+    "options": [{"flag":"--approve","description":"Record this invocation as the owner's explicit approval action."},{"flag":"--from-file","description":"Read JSON with findings, rationale, and exactly one consent source; optional evidenceChecked, paths, CI, and anchor fields may follow."},{"flag":"--ci","description":"Override the packet CI result when the resolved contract declares CI."},{"flag":"--execution-id","description":"Select the submitted Execution; inferred when exactly one exists."},{"flag":"--reviewer","description":"Set the reviewer id recorded with completion."},{"flag":"--commit","description":"Resolve the workspace commit to reconcile; defaults to HEAD."},{"flag":"--dry-run","description":"Run a read-only preflight that aggregates every current completion requirement and planned internal step."},{"flag":"--commit-anchor","description":"Compatibility owner-judgment mode; reconcile is still internal and --judgment remains required."},{"flag":"--judgment","description":"Explain why the compatibility commit-anchor completes the task."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)":"hidden"},
-    "summary": "One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator. Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally.",
+    "summary": "Before any facade writes, completion reports the same existing closeout, consent/Review, commit, and code-doc requirements together. One owner approval then writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the unchanged lifecycle evaluator.",
     "examples": ["harness-anything task complete task_01ABC --approve --from-file approval.json", "harness-anything task complete task_01ABC --commit-anchor HEAD --judgment \"This commit completes and verifies the task\" --ci passed"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
@@ -539,7 +539,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       },
       "paths": [],
       "dryRun": {
-        "data": ["taskId", "report"],
+        "data": ["taskId", "status", "completionGate", "report"],
         "paths": []
       }
     },
