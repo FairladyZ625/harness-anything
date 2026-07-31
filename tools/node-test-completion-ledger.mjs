@@ -90,7 +90,7 @@ export function canIgnoreReapedFileFailures({
     ledger.failures.length !== reapedFiles.size
     || ledger.failures.some((failure) =>
       !reapedFiles.has(failure.file)
-      || failure.name !== failure.file
+      || !reportedFileNameMatches(failure.name, failure.file)
       || !isForcedTermination(failure)
     )
   ) {
@@ -103,6 +103,10 @@ export function canIgnoreReapedFileFailures({
 function isForcedTermination(failure) {
   return failure.signal === "SIGKILL"
     || (failure.signal === null && Number.isInteger(failure.exitCode) && failure.exitCode !== 0);
+}
+
+function reportedFileNameMatches(name, repositoryFile) {
+  return name.replaceAll("\\", "/") === repositoryFile;
 }
 
 function repositoryRelativeFile(file, repoRoot) {

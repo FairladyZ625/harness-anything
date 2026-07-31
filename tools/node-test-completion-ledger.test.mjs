@@ -89,6 +89,45 @@ test("result override requires every selected file and only synthetic forced-ter
   }), false);
 });
 
+test("result override recognizes a Windows file-level failure name", () => {
+  const records = [
+    fileSummary(file),
+    {
+      type: "test-failure",
+      file: `${repoRoot}/${file}`,
+      name: file.replaceAll("/", "\\"),
+      signal: null,
+      exitCode: 1
+    },
+    {
+      type: "test-run-summary",
+      success: false,
+      counts: counts({ tests: 2, passed: 1, failed: 1 })
+    }
+  ];
+  const ledger = parseCompletionLedger(
+    `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+    repoRoot
+  );
+
+  assert.equal(canIgnoreReapedFileFailures({
+    ledger,
+    selectedFiles: [file],
+    reapedFiles: new Set([file])
+  }), true);
+  const realFailureLedger = parseCompletionLedger(
+    `${records.map((record) => JSON.stringify(record.type === "test-failure"
+      ? { ...record, name: "real test failure" }
+      : record)).join("\n")}\n`,
+    repoRoot
+  );
+  assert.equal(canIgnoreReapedFileFailures({
+    ledger: realFailureLedger,
+    selectedFiles: [file],
+    reapedFiles: new Set([file])
+  }), false);
+});
+
 test("completion reporter flushes every proof record before its consumer can exit", () => {
   const result = spawnSync(process.execPath, [
     "tools/test-fixtures/.runner-stall/completion-reporter-flush.mjs"
