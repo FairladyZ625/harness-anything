@@ -21,14 +21,24 @@ import {
   recoverPendingProductionEvents
 } from "@harness-anything/daemon";
 
-test("SIGKILL wait observes an exit emitted synchronously by kill", async () => {
-  const child = new EventEmitter() as ChildProcess;
-  child.kill = (() => {
-    child.emit("exit", null, "SIGKILL");
-    return true;
-  }) as ChildProcess["kill"];
+test("abrupt-exit wait observes an exit emitted synchronously by termination", async () => {
+  const exitShapes: ReadonlyArray<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }> = [
+    { code: 1, signal: null },
+    { code: null, signal: "SIGKILL" }
+  ];
 
-  await killAndWaitForAbruptExit(child);
+  for (const { code, signal } of exitShapes) {
+    const child = new EventEmitter() as ChildProcess;
+    let terminationCalled = false;
+    await killAndWaitForAbruptExit(child, (target) => {
+      terminationCalled = true;
+      target.emit("exit", code, signal);
+    });
+    assert.equal(terminationCalled, true);
+  }
 });
 
 test("publication proof accepts only the declared hosted path inside a slugged task package", () => {
@@ -480,17 +490,19 @@ test("recovery watermark falls back on missing or corrupt state and then scans o
   }
 });
 
-test("SIGKILL during a scan resumes from the last fully checkpointed commit", async () => {
+test("forced termination during a scan resumes from the last fully checkpointed commit", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-kill-resume-"));
   const watermarkPath = path.join(root, "recovery-watermark.json");
   const readyPath = path.join(root, "checkpoint-ready");
   const fixturePath = path.resolve("packages/daemon/test/fixtures/recovery-watermark-kill-target.ts");
   const child = spawn(process.execPath, [fixturePath, watermarkPath, readyPath], { stdio: "inherit" });
+  let exitObserved = false;
   try {
     const deadline = Date.now() + 10_000;
     while (!existsSync(readyPath) && Date.now() < deadline) await delay(10);
     assert.equal(existsSync(readyPath), true, "fixture did not persist its incremental checkpoint");
     await killAndWaitForAbruptExit(child);
+    exitObserved = true;
     const partial = JSON.parse(readFileSync(watermarkPath, "utf8")) as Record<string, unknown>;
     assert.equal(partial.schema, "authority-recovery-watermark/v2");
     assert.equal(partial.phase, "partial");
@@ -519,7 +531,7 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
     assert.deepEqual(scanInputs, ["a".repeat(40)]);
     assert.equal(JSON.parse(readFileSync(watermarkPath, "utf8")).commitSha, "b".repeat(40));
   } finally {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (!exitObserved && child.exitCode === null && child.signalCode === null) {
       try {
         terminateRecoveryFixture(child);
       } catch {
@@ -530,7 +542,10 @@ test("SIGKILL during a scan resumes from the last fully checkpointed commit", as
   }
 });
 
-function killAndWaitForAbruptExit(child: ChildProcess): Promise<void> {
+function killAndWaitForAbruptExit(
+  child: ChildProcess,
+  terminate: (target: ChildProcess) => void = terminateRecoveryFixture
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const exitTimeout = setTimeout(() => {
       cleanup();
@@ -541,10 +556,9 @@ function killAndWaitForAbruptExit(child: ChildProcess): Promise<void> {
       child.off("exit", onExit);
       child.off("error", onError);
     };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const onExit = () => {
       cleanup();
-      if (signal === "SIGKILL" || (process.platform === "win32" && (code !== null || signal !== null))) resolve();
-      else reject(new Error(`expected SIGKILL, received ${signal ?? "clean exit"}`));
+      resolve();
     };
     const onError = (error: Error) => {
       cleanup();
@@ -553,7 +567,7 @@ function killAndWaitForAbruptExit(child: ChildProcess): Promise<void> {
     child.once("exit", onExit);
     child.once("error", onError);
     try {
-      terminateRecoveryFixture(child);
+      terminate(child);
     } catch (error) {
       cleanup();
       reject(error);
