@@ -415,9 +415,6 @@ function moduleScaffoldWrites(rootInput: HarnessLayoutInput, op: WriteOp): Reado
   return op.payload.writes.map((write) => {
     const safePath = normalizeWriteDocumentPath(write.path, op.entityId);
     const targetPath = path.join(moduleRoot, safePath);
-    if (!targetPath.startsWith(`${moduleRoot}${path.sep}`) && targetPath !== moduleRoot) {
-      rejectWrite(`module scaffold path escapes module root: ${write.path}`, op.entityId);
-    }
     return { targetPath, body: write.body };
   });
 }
