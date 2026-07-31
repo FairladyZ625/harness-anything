@@ -39,7 +39,7 @@ export function writeDecisionDocument(rootInput: HarnessLayoutInput, op: WriteOp
   }
   const materialized = op.payload.writeMode?.kind === "append_relation"
     ? appendDecisionRelationPayload(targetPath, op.payload)
-    : casSnapshotPayload(targetPath, op);
+    : casSnapshotPayload(targetPath, op, op.payload);
   mkdirSync(path.dirname(targetPath), { recursive: true });
   writeFileDurably(targetPath, serializeDecisionDocument(materialized.payload, op.opId, materialized.bodyTail));
 }
@@ -89,14 +89,15 @@ interface MaterializedDecisionDocument {
   readonly bodyTail?: string;
 }
 
-function casSnapshotPayload(targetPath: string, op: WriteOp): MaterializedDecisionDocument {
-  if (!isDecisionDocumentPayload(op.payload)) {
-    rejectWrite(`${op.kind} op requires decision document payload: ${op.opId}`, op.entityId);
-  }
-  const mode = op.payload.writeMode;
+function casSnapshotPayload(
+  targetPath: string,
+  op: WriteOp,
+  payload: DecisionDocumentPayload
+): MaterializedDecisionDocument {
+  const mode = payload.writeMode;
   const currentDocument = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : null;
   if (mode?.kind !== "snapshot" || !("expectedWatermark" in mode)) {
-    return bodyPreservingSnapshot(op.payload, currentDocument);
+    return bodyPreservingSnapshot(payload, currentDocument);
   }
   const currentWatermark = currentDocument === null ? null : readDecisionWatermark(currentDocument);
   if (currentWatermark !== (mode.expectedWatermark ?? null)) {
@@ -106,7 +107,7 @@ function casSnapshotPayload(targetPath: string, op: WriteOp): MaterializedDecisi
       currentWatermark
     });
   }
-  return bodyPreservingSnapshot(op.payload, currentDocument);
+  return bodyPreservingSnapshot(payload, currentDocument);
 }
 
 function appendDecisionRelationPayload(
