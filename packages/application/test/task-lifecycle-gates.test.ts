@@ -141,6 +141,7 @@ test("phase validation rejects agent-owned human gate and missing exit commands"
 test("completion gate reports readiness without mutating lifecycle axes", () => {
   const result = evaluateCompletionGate({
     taskId: "task-1",
+    canonicalStatus: "in_review",
     coordinationStatus: "in_review",
     packageDisposition: "active",
     closeoutReadiness: "ready",
@@ -150,6 +151,7 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.axes, {
+    canonicalStatus: "in_review",
     coordinationStatus: "in_review",
     packageDisposition: "active",
     closeoutReadiness: "ready"
@@ -157,6 +159,7 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
 
   const formerlyBlocked = evaluateCompletionGate({
     taskId: "task-1",
+    canonicalStatus: "in_review",
     coordinationStatus: "in_review",
     packageDisposition: "active",
     closeoutReadiness: "missing",
@@ -170,6 +173,7 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
 test("completion readiness is descriptive for coding and non-coding contracts", () => {
   const base = {
     taskId: "task-writing",
+    canonicalStatus: "in_review",
     coordinationStatus: "in_review",
     packageDisposition: "active",
     closeoutReadiness: "ready" as const,

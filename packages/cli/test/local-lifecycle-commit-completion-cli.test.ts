@@ -58,6 +58,36 @@ test("task complete dry-run preflight reports every current prerequisite without
   });
 });
 
+test("task complete dry-run projects the canonical planned status for an open task", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task-open-completion-preview";
+    initializeNestedHarnessRepo(rootDir);
+    writeIndex(rootDir, taskId, "Open Completion Preview", "planned");
+    writeSubstantiveTaskPlan(rootDir, `harness/tasks/${taskId}`);
+
+    const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
+
+    assert.equal(preview.status, "planned");
+    assert.equal(preview.completionGate.axes.canonicalStatus, "planned");
+    assert.equal(preview.completionGate.axes.coordinationStatus, "open");
+  });
+});
+
+test("task complete dry-run projects the canonical done status for a terminal task", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task-terminal-completion-preview";
+    initializeNestedHarnessRepo(rootDir);
+    writeIndex(rootDir, taskId, "Terminal Completion Preview", "done");
+    writeSubstantiveTaskPlan(rootDir, `harness/tasks/${taskId}`);
+
+    const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
+
+    assert.equal(preview.status, "done");
+    assert.equal(preview.completionGate.axes.canonicalStatus, "done");
+    assert.equal(preview.completionGate.axes.coordinationStatus, "terminal");
+  });
+});
+
 test("task complete preflight blocks approval and reconciliation writes when closeout is incomplete", () => {
   withTempRoot((rootDir) => {
     const taskId = "task_01KX7H00000000000000000004";

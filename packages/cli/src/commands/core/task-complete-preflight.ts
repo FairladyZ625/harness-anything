@@ -104,6 +104,7 @@ export function taskCompletePreflightReviewAlreadyReady(
     return typeof code === "string" && (
       code.startsWith("execution_")
       || code === "archive_warnings_acknowledgement_required"
+      || code === "stale_execution_retirement_required"
     );
   });
 }
@@ -189,7 +190,7 @@ function preflightRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function completionGateTaskStatus(value: unknown): CliResult["status"] | undefined {
-  const status = preflightRecord(preflightRecord(value)?.axes)?.coordinationStatus;
+  const status = preflightRecord(preflightRecord(value)?.axes)?.canonicalStatus;
   return typeof status === "string" && ["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status)
     ? status as CliResult["status"]
     : undefined;

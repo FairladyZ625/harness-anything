@@ -73,6 +73,7 @@ export interface PhaseValidationIssue {
 
 export interface CompletionGateInput {
   readonly taskId: string;
+  readonly canonicalStatus: string;
   readonly coordinationStatus: string;
   readonly packageDisposition: string;
   readonly closeoutReadiness: CloseoutGateReadiness;
@@ -309,12 +310,13 @@ export function validatePhaseRows(rows: ReadonlyArray<PhaseRow>): { readonly ok:
 export function evaluateCompletionGate(input: CompletionGateInput): {
   readonly ok: boolean;
   readonly issues: ReadonlyArray<CompletionGateIssue>;
-  readonly axes: Pick<CompletionGateInput, "coordinationStatus" | "packageDisposition" | "closeoutReadiness">;
+  readonly axes: Pick<CompletionGateInput, "canonicalStatus" | "coordinationStatus" | "packageDisposition" | "closeoutReadiness">;
 } {
   return {
     ok: true,
     issues: [],
     axes: {
+      canonicalStatus: input.canonicalStatus,
       coordinationStatus: input.coordinationStatus,
       packageDisposition: input.packageDisposition,
       closeoutReadiness: input.closeoutReadiness

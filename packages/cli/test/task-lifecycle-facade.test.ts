@@ -21,6 +21,27 @@ import {
   taskStartFacadeSteps
 } from "../src/commands/core/task-lifecycle-facade.ts";
 import { dispatchLifecycleFacadeSteps } from "../src/commands/core/task-lifecycle-facade-guidance.ts";
+import { taskCompletePreflightReviewAlreadyReady } from "../src/commands/core/task-complete-preflight.ts";
+
+test("stale execution retirement keeps the completion approval review pending", () => {
+  const receipt = {
+    details: {
+      data: {
+        completionGate: {
+          axes: {
+            canonicalStatus: "in_review",
+            coordinationStatus: "in_review",
+            packageDisposition: "active",
+            closeoutReadiness: "ready"
+          }
+        },
+        issues: [{ code: "stale_execution_retirement_required" }]
+      }
+    }
+  } as Parameters<typeof taskCompletePreflightReviewAlreadyReady>[0];
+
+  assert.equal(taskCompletePreflightReviewAlreadyReady(receipt), false);
+});
 
 test("non-local terminal status success preserves the owner-visible demotion warning", () => {
   const taskId = "task-external";

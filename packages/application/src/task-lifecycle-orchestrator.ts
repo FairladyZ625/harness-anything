@@ -292,6 +292,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         : row.closeoutReadiness;
       const completionGate = evaluateCompletionGate({
         taskId: payload.taskId,
+        canonicalStatus: row.canonicalStatus,
         coordinationStatus: row.coordinationStatus,
         packageDisposition: row.packageDisposition,
         closeoutReadiness,
