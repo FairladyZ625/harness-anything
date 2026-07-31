@@ -110,7 +110,7 @@ test("CLI rejects naked local review transitions as an invalid transition", () =
   });
 });
 
-test("CLI rejects generic exits from in_review without a changes_requested Execution Review", () => {
+test("CLI rejects generic exits from in_review while preserving audited cancellation", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -125,11 +125,15 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
     }
     const forcedCancellation = runJson(rootDir, [
       "task", "status", "set", taskId, "cancelled", "--force", "--reason", "invalid review escape"
-    ], false);
-    assert.equal(forcedCancellation.ok, false);
-    assert.equal(forcedCancellation.error?.code, "invalid_transition");
-    assert.equal(existsSync(path.join(rootDir, String(created.packagePath), "progress.md")), false);
-    assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
+    ]);
+    assert.equal(forcedCancellation.ok, true);
+    assert.equal(forcedCancellation.status, "cancelled");
+    assert.equal(forcedCancellation.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
+    assert.match(
+      readFileSync(path.join(rootDir, String(created.packagePath), "progress.md"), "utf8"),
+      /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=invalid review escape/u
+    );
+    assert.match(readFileSync(indexPath, "utf8"), /^  status: cancelled$/mu);
   });
 });
 

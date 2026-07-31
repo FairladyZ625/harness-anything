@@ -242,7 +242,7 @@ function setStatus(
         to: input.status
       } satisfies EngineError);
     }
-    if (index.status === "in_review") {
+    if (index.status === "in_review" && input.status !== "cancelled") {
       return yield* Effect.fail({
         _tag: "InvalidTransition",
         taskId: input.taskId,

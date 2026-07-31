@@ -1,9 +1,20 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "@harness-anything/application";
-import { isTerminalStatus } from "@harness-anything/kernel";
+import type { DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import { explainStatusTransition, isTerminalStatus } from "@harness-anything/kernel";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
-import type { CommandRunner } from "../../cli/runner-registry.ts";
-import { runTaskLifecycleCommand } from "./task-lifecycle.ts";
+import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import type { CliResult } from "../../cli/types.ts";
+import { withAuditedCancellationLease } from "./task-cancellation-lease.ts";
+import {
+  FORCE_STATUS_AUDIT_MARKER,
+  renderForceStatusAudit,
+  runTaskLifecycleCommand,
+  taskTreeSoftGateWarnings
+} from "./task-lifecycle.ts";
+
+type StatusSetAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "status-set" }>;
 
 export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) => {
   const action = command.action;
@@ -18,6 +29,9 @@ export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) =
   return Effect.gen(function* () {
     const taskPolicy = yield* readTaskLifecyclePolicy(context.artifactStore, action.taskId);
     if (taskPolicy?.engine === "local") {
+      if (action.status === "cancelled" && action.force) {
+        return yield* runLocalAuditedCancellation(context, action, taskPolicy.status);
+      }
       return yield* runTaskLifecycleCommand(context, command).pipe(Effect.map((result) => {
         if (result.ok || result.error?.code !== "terminal_status_requires_task_complete") return result;
         return {
@@ -43,6 +57,39 @@ export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) =
       warnings: [warning]
     };
   });
+}
+
+function runLocalAuditedCancellation(
+  context: CommandRunnerContext,
+  action: StatusSetAction,
+  currentStatus?: DomainStatus | null
+): Effect.Effect<CliResult, EngineError | WriteError> {
+  if (currentStatus && !explainStatusTransition(currentStatus, "cancelled").allowed) {
+    return Effect.succeed({
+      ok: false,
+      command: "status-set",
+      taskId: action.taskId,
+      status: "cancelled",
+      error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${currentStatus} -> cancelled; move the task to active before task complete, or use task archive/task supersede for non-completion closure.`)
+    } satisfies CliResult);
+  }
+  return withAuditedCancellationLease(context, action.taskId, Effect.gen(function* () {
+    const audit = yield* context.engine.appendProgress({
+      taskId: action.taskId,
+      text: renderForceStatusAudit("cancelled", action.reason ?? "unspecified")
+    });
+    const result = yield* context.engine.setStatus({ taskId: action.taskId, status: "cancelled" });
+    return {
+      ok: true,
+      command: "status-set",
+      taskId: result.taskId,
+      status: result.status,
+      path: audit.path,
+      forced: true,
+      forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER },
+      warnings: taskTreeSoftGateWarnings(context, action.taskId)
+    } satisfies CliResult;
+  }));
 }
 
 function terminalStatusRecoveryHint(taskId: string, status: "done" | "cancelled"): string {

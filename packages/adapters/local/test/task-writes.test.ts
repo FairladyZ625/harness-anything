@@ -50,7 +50,7 @@ for (const status of ["in_review", "done"] as const) {
   });
 }
 
-test("generic local status writer rejects exits from in_review outside the Execution Review aggregate", () => {
+test("generic local status writer rejects non-cancellation exits from in_review", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-status-gate-"));
   const enqueued: WriteOp[] = [];
   try {
@@ -62,6 +62,11 @@ test("generic local status writer rejects exits from in_review outside the Execu
       assert.equal(failure._tag, "InvalidTransition");
     }
     assert.equal(enqueued.length, 0);
+
+    const cancelled = Effect.runSync(engine.setStatus({ taskId: executionTaskId, status: "cancelled" }));
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0]?.kind, "transition_local");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

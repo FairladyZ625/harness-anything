@@ -44,6 +44,55 @@ test("workspace lease configuration rejects unclaimed writes and permits the cla
   });
 });
 
+test("audited cancellation closes an unheld placeholder task and releases its temporary lease", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessLeaseEnforcement(rootDir, true);
+    const created = runJson(rootDir, [
+      "task", "create", "--title", "Placeholder Cancellation",
+      "--vertical", "software/coding", "--preset", "standard-task"
+    ]);
+
+    const startBlocked = runJson(rootDir, ["task", "start", created.taskId], false);
+    assert.equal(startBlocked.error?.code, "task_plan_placeholder");
+    const cancelled = runJson(rootDir, [
+      "task", "transition", created.taskId, "cancelled",
+      "--force", "--reason", "retire empty scaffold"
+    ]);
+
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.forced, true);
+    assert.equal(cancelled.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
+    assert.match(
+      readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8"),
+      /一句话说明任务目标与范围。/u
+    );
+    assert.match(
+      readFileSync(path.join(rootDir, created.packagePath, "progress.md"), "utf8"),
+      /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=retire empty scaffold/u
+    );
+    assert.equal(readTaskHolder(rootDir, created.taskId).holder, null);
+  });
+});
+
+test("audited cancellation never displaces another live holder", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_zeyu", "Zeyu Li", true);
+    const created = runJson(rootDir, ["new-task", "--title", "Live Holder Cancellation"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    runJson(rootDir, ["task", "start", created.taskId], true, { HARNESS_ACTOR: "agent:active-worker" });
+
+    const rejected = runJson(rootDir, [
+      "task", "transition", created.taskId, "cancelled",
+      "--force", "--reason", "must not stop live work"
+    ], false, { HARNESS_ACTOR: "agent:cleanup-worker" });
+
+    assert.equal(rejected.error?.code, "task_lease_required");
+    assert.match(rejected.error?.hint ?? "", /current holder principal=person_zeyu, executor=agent:active-worker/u);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "progress.md")), false);
+  });
+});
+
 test("configured writes recover the caller's orphaned lease but reject another principal", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_zeyu", "Zeyu Li", true);
