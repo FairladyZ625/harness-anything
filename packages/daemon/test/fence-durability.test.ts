@@ -13,6 +13,7 @@ import {
   readSingleAuthorityDurabilityLedger,
   runSingleAuthorityBoundedRpoCommit
 } from "../src/index.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 test("bounded-RPO commit audits every fsync boundary and withholds COMMITTED when backup is unsatisfied", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ha-durability-order-"));
@@ -236,7 +237,9 @@ test("kill -9 and restart preserves every fsynced durability audit record", asyn
       "commit-after-restart"
     );
   } finally {
-    if (activeChild?.exitCode === null && activeChild.signalCode === null) activeChild.kill("SIGKILL");
+    if (activeChild?.exitCode === null && activeChild.signalCode === null) {
+      await forceTerminateChildAndWait(activeChild, { label: "durability audit child cleanup" }).catch(() => undefined);
+    }
     await rm(root, { recursive: true, force: true });
   }
 });

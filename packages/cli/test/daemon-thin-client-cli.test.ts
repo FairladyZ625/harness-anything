@@ -5,6 +5,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 import { JsonRpcLineClient } from "../../daemon/src/index.ts";
 import { readDaemonClientConfig } from "../src/daemon/client.ts";
 import {
@@ -169,9 +170,7 @@ test("persistent daemon connection prevents idle exit after a command settles", 
   });
 });
 
-test("SIGKILL of a GUI notification holder closes its socket and restores daemon idle exit", {
-  skip: process.platform === "win32" ? "SIGKILL is unavailable on Windows" : false
-}, async () => {
+test("abrupt exit of a GUI notification holder closes its socket and restores daemon idle exit", async () => {
   await withTempRootAsync(async (rootDir) => {
     const userRoot = defaultDaemonUserRoot(rootDir);
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
@@ -207,8 +206,7 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       await waitForChildOutput(holder, "GUI_NOTIFICATION_SOCKET_READY");
       await pollDaemonConnectionCount(readDaemonStatus, 2);
 
-      assert.equal(holder.kill("SIGKILL"), true);
-      await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
+      await forceTerminateChildAndWait(holder, { label: "GUI notification holder" });
       // This status probe is the only remaining connection. Once it closes,
       // the daemon's active count returns to zero and its idle timer starts.
       await pollDaemonConnectionCount(readDaemonStatus, 1);
@@ -223,7 +221,9 @@ test("SIGKILL of a GUI notification holder closes its socket and restores daemon
       );
       assert.equal(daemon.exitCode, 0);
     } finally {
-      if (holder.exitCode === null && holder.signalCode === null) holder.kill("SIGKILL");
+      if (holder.exitCode === null && holder.signalCode === null) {
+        await forceTerminateChildAndWait(holder, { label: "GUI notification holder cleanup" }).catch(() => undefined);
+      }
       if (!statusSocket.destroyed) {
         statusClient.close();
         statusSocket.destroy();

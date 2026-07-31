@@ -14,6 +14,7 @@ import {
   type ReceiptIdentity
 } from "../../application/src/index.ts";
 import { createDurableCompoundReceiptStore, renderCompoundCliExit } from "../src/receipt/index.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 const workerFlag = "--compound-receipt-crash-worker";
 const identity: ReceiptIdentity = {
@@ -88,8 +89,7 @@ async function runUntilDurableThenKill(directory: string, phase: CompoundReceipt
     child.once("error", reject);
     child.once("exit", (code) => reject(new Error(`crash worker exited before kill (${code}): ${stderr}`)));
   });
-  assert.equal(child.kill("SIGKILL"), true);
-  await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  await forceTerminateChildAndWait(child, { label: "compound receipt crash worker" });
 }
 
 async function advanceTo(directory: string, phase: CompoundReceiptPhase): Promise<void> {

@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { createCompoundReceiptServiceV2 } from "@harness-anything/application";
 import { createDurableCompoundReceiptStoreV2 } from "../src/index.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 test("two processes publishing the same terminal sequence cannot overwrite each other", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-terminal-sequence-race-"));
@@ -53,7 +54,8 @@ test("two processes publishing the same terminal sequence cannot overwrite each 
     assert.equal(recovered?.terminalLSN, 1);
     assert.equal(recovered?.sequence, initial.sequence + 1);
   } finally {
-    for (const child of children) child.kill("SIGKILL");
+    await Promise.all(children.map((child) =>
+      forceTerminateChildAndWait(child, { label: "terminal sequence racer" })));
     rmSync(root, { recursive: true, force: true });
   }
 });

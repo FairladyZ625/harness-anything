@@ -19,6 +19,7 @@ import {
   stopDaemon
 } from "./helpers/daemon-cli.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 test("kill -9 replacement fences stale terminal residue across launch status control and receipt", {
   skip: process.platform === "win32" ? "SIGKILL and durable generation publication are unavailable on Windows" : false,
@@ -175,9 +176,8 @@ test("kill -9 replacement fences stale terminal residue across launch status con
     assert.equal((rejected.context as Record<string, unknown>).schema, "daemon-generation-write-rejection/v1");
     assert.equal(readFileSync(statePath).equals(currentBytes), true, "stale terminal attempt changed replacement receipt bytes");
   } finally {
-    for (const child of children) {
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    }
+    await Promise.all(children.map((child) =>
+      forceTerminateChildAndWait(child, { label: "generation disease racer" })));
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });
   }

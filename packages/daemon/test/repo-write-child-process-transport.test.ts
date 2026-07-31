@@ -4,7 +4,7 @@ import {
   fork,
   type ChildProcess
 } from "node:child_process";
-import { EventEmitter, once } from "node:events";
+import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -21,6 +21,10 @@ import {
   type RepoWriteChildMessage
 } from "../src/runtime/repo-write-protocol.ts";
 import { committedCommandReceipt } from "./support/repo-write-terminal-fixture.ts";
+import {
+  forceTerminateChildAndWait,
+  waitForChildExit
+} from "../../../tools/test-child-process-lifecycle.mjs";
 
 const fixturePath = fileURLToPath(new URL("./support/repo-write-ipc-child.ts", import.meta.url));
 
@@ -314,13 +318,12 @@ function assertDisconnect(error: Error, reason: RepoWriteProcessDisconnectError[
 }
 
 async function waitForExit(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await once(child, "exit");
+  await waitForChildExit(child, { label: "repo-write child process" });
 }
 
-function stop(transport: RepoWriteParentProcessTransport): void {
+async function stop(transport: RepoWriteParentProcessTransport): Promise<void> {
   if (transport.child.exitCode === null && transport.child.signalCode === null) {
-    transport.terminate("SIGKILL");
+    await forceTerminateChildAndWait(transport.child, { label: "repo-write child cleanup" });
   }
 }
 

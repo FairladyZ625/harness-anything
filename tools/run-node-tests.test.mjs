@@ -1,9 +1,16 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import {
+  NODE_TEST_ISOLATION_REGISTRY_ENV,
+  readRegisteredTestIsolations,
+  registerCurrentTestIsolation
+} from "./node-test-isolation-registry.mjs";
 import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, hasIsolationWedgeSignature, parseCompletedTestLine, parsePosixProcessGroupLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, testFilesFromProcessCommand, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
@@ -58,6 +65,48 @@ test("test timeout defaults to three minutes and cannot be disabled", () => {
   assert.equal(parseRunnerArgs(["--test-timeout=360000"], testTierNames).testTimeoutMs, 360_000);
   assert.throws(() => parseRunnerArgs(["--test-timeout", "0"], testTierNames), /positive integer/u);
   assert.throws(() => parseRunnerArgs(["--test-timeout=x"], testTierNames), /--test-timeout/u);
+});
+
+test("test isolation registration binds one selected file to its owning host", () => {
+  const registryRoot = mkdtempSync(path.join(tmpdir(), "ha-test-isolation-registry-"));
+  const file = path.join(repoRoot, "tools/node-test-stall-policy.test.mjs");
+  try {
+    const recordPath = registerCurrentTestIsolation({
+      env: {
+        NODE_TEST_CONTEXT: "child-v8",
+        [NODE_TEST_ISOLATION_REGISTRY_ENV]: registryRoot
+      },
+      pid: 48001,
+      ppid: 47001,
+      argv: [process.execPath, file]
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(recordPath, "utf8")), {
+      schema: "node-test-isolation/v1",
+      pid: 48001,
+      ppid: 47001,
+      files: [file]
+    });
+    assert.deepEqual(readRegisteredTestIsolations({
+      registryRoot,
+      repoRoot,
+      hostPid: 47001,
+      selectedFiles: ["tools/node-test-stall-policy.test.mjs"],
+      isProcessAlive: (pid) => pid === 48001
+    }), [{
+      pid: 48001,
+      files: ["tools/node-test-stall-policy.test.mjs"]
+    }]);
+    assert.deepEqual(readRegisteredTestIsolations({
+      registryRoot,
+      repoRoot,
+      hostPid: 47002,
+      selectedFiles: ["tools/node-test-stall-policy.test.mjs"],
+      isProcessAlive: () => true
+    }), []);
+  } finally {
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
 });
 
 test("runner bounds a non-terminating test and prints timeout next steps", () => {
@@ -240,11 +289,7 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
   );
 });
 
-test("runner reaps a child only after its file summary is complete", {
-  skip: process.platform === "win32"
-    ? "post-completion reaping uses POSIX isolation process evidence"
-    : false
-}, () => {
+test("runner reaps a completed isolation child without POSIX process inspection", () => {
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "post-complete-wedge",
@@ -252,6 +297,7 @@ test("runner reaps a child only after its file summary is complete", {
     HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
     HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
   };
+  if (process.platform !== "win32") childEnv.PATH = path.dirname(process.execPath);
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
@@ -268,15 +314,11 @@ test("runner reaps a child only after its file summary is complete", {
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
   assert.match(output, /✔ post-complete wedge fixture passes before native-style exit deadlock/u);
-  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs signal=SIGKILL/u);
-  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated SIGKILL file failure/u);
+  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs termination=(?:SIGKILL|taskkill)/u);
+  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated forced-termination file failure/u);
 });
 
-test("runner waits for an in-flight reap record before accepting the host result", {
-  skip: process.platform === "win32"
-    ? "post-completion reaping uses POSIX isolation process evidence"
-    : false
-}, () => {
+test("runner waits for an in-flight reap record before accepting the host result", () => {
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "post-complete-close-before-reap",
@@ -284,6 +326,7 @@ test("runner waits for an in-flight reap record before accepting the host result
     HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
     HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
   };
+  if (process.platform !== "win32") childEnv.PATH = path.dirname(process.execPath);
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
@@ -299,8 +342,8 @@ test("runner waits for an in-flight reap record before accepting the host result
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
-  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs signal=SIGKILL/u);
-  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated SIGKILL file failure/u);
+  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs termination=(?:SIGKILL|taskkill)/u);
+  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated forced-termination file failure/u);
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {

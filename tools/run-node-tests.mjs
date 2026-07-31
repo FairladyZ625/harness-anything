@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -36,11 +36,20 @@ import {
   completedIsolationFile,
   parseCompletionLedger
 } from "./node-test-completion-ledger.mjs";
+import {
+  NODE_TEST_ISOLATION_REGISTRY_ENV,
+  readRegisteredTestIsolations
+} from "./node-test-isolation-registry.mjs";
+import {
+  forceTerminateProcessTree,
+  signalProcessGroup,
+  terminateLingeringPosixProcessGroup,
+  terminateWindowsProcessTree
+} from "./node-test-process-tree.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const PROCESS_TREE_KILL_GRACE_MS = 2_000;
 // `--test-timeout` bounds any single test, so silence lasting several windows
 // means the wedge is outside a test body — module load, a blocked thread, a
 // child that never exits — where the per-test timeout can never fire. Reporting
@@ -127,6 +136,8 @@ const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
 const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
 const timingPath = path.join(timingRoot, "results.xml");
 const stallReportRoot = mkdtempSync(path.join(timingRoot, "stall-reports-"));
+const isolationRegistryRoot = path.join(timingRoot, "isolation-registry");
+mkdirSync(isolationRegistryRoot);
 const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
   DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
@@ -139,6 +150,7 @@ const stallAbortWindows = positiveIntegerOrDefault(
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, [
+    `--import=${pathToFileURL(resolve(repoRoot, "tools/node-test-isolation-register.mjs")).href}`,
     "--test",
     `--test-reporter=${pathToFileURL(resolve(repoRoot, "tools/node-test-completion-reporter.mjs")).href}`,
     "--test-reporter-destination=stdout",
@@ -154,6 +166,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     ...selection.files
   ]);
   const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
+  testEnvironment.env[NODE_TEST_ISOLATION_REGISTRY_ENV] = isolationRegistryRoot;
   const child = spawn(invocation.command, invocation.args, {
     cwd: repoRoot,
     stdio: ["inherit", "pipe", "pipe", "pipe"],
@@ -214,9 +227,20 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       const processGroupMembers = processGroupLines
         .map((line) => parsePosixProcessGroupLine(line))
         .filter((member) => member !== null);
-      const isolationCandidates = isolationCandidatesFromProcessGroup(
+      const processGroupCandidates = isolationCandidatesFromProcessGroup(
         processGroupMembers,
         child.pid
+      );
+      const completionLedger = readCompletionLedger();
+      const registeredCompletionCandidates = readRegisteredTestIsolations({
+        registryRoot: isolationRegistryRoot,
+        repoRoot,
+        hostPid: child.pid,
+        selectedFiles: selection.files
+      }).filter((candidate) => completedIsolationFile(completionLedger, candidate.files) !== null);
+      const isolationCandidates = mergeIsolationCandidates(
+        registeredCompletionCandidates,
+        processGroupCandidates
       );
       const decision = stallPolicy.tick({
         at: performance.now(),
@@ -236,7 +260,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         );
         const completion = candidate === undefined
           ? null
-          : completedIsolationFile(readCompletionLedger(), candidate.files);
+          : completedIsolationFile(completionLedger, candidate.files);
         if (completion !== null) {
           startPostCompleteReap({
             isolationChildPid: decision.abort.isolationChildPid,
@@ -337,7 +361,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         });
       if (ignoredSyntheticFailures) {
         console.error(
-          `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated SIGKILL file failure(s)`
+          `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated forced-termination file failure(s)`
         );
       }
       resolveExitCode(signal === null && !leakedDescendants
@@ -453,14 +477,14 @@ async function reapPostCompletionChild({
     `\n[node-test-stall] isolation child pid=${isolationChildPid} completed reporter summary for ${file}; collecting diagnostics before post-completion reap`
   );
   await captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, isolationChildPid);
-  const reaped = signalProcess(isolationChildPid, "SIGKILL");
+  const reaped = await forceTerminateProcessTree(isolationChildPid);
   if (reaped) {
     console.error(
-      `[node-test-stall] reaped post-completion child pid=${isolationChildPid} file=${file} signal=SIGKILL`
+      `[node-test-stall] reaped post-completion child pid=${isolationChildPid} file=${file} termination=${process.platform === "win32" ? "taskkill" : "SIGKILL"}`
     );
   } else {
     console.error(
-      `[node-test-stall] post-completion child pid=${isolationChildPid} exited before SIGKILL; no result override recorded`
+      `[node-test-stall] post-completion child pid=${isolationChildPid} exited before forced termination; no result override recorded`
     );
   }
   return reaped;
@@ -505,6 +529,18 @@ function isolationCandidatesFromProcessGroup(members, processGroupId) {
       files: testFilesFromProcessCommand(member.command, repoRoot)
     }))
     .filter((candidate) => candidate.files.length > 0);
+}
+
+function mergeIsolationCandidates(...groups) {
+  const candidates = new Map();
+  for (const candidate of groups.flat()) {
+    const previous = candidates.get(candidate.pid);
+    candidates.set(candidate.pid, {
+      pid: candidate.pid,
+      files: [...new Set([...(previous?.files ?? []), ...candidate.files])].sort()
+    });
+  }
+  return [...candidates.values()];
 }
 
 /**
@@ -599,38 +635,4 @@ function installTestTreeSignalForwarding(child) {
     process.prependOnceListener(signal, handler);
   }
   return remove;
-}
-
-function terminateWindowsProcessTree(child) {
-  if (child.pid === undefined) return;
-  const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-  killer.once("error", () => child.kill("SIGKILL"));
-}
-
-async function terminateLingeringPosixProcessGroup(pid) {
-  if (process.platform === "win32" || pid === undefined || !signalProcessGroup(pid, "SIGTERM")) return false;
-  console.error("node --test completed with lingering descendants; terminating its process tree");
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
-  signalProcessGroup(pid, "SIGKILL");
-  return true;
-}
-
-function signalProcessGroup(pid, signal) {
-  try {
-    process.kill(-pid, signal);
-    return true;
-  } catch (error) {
-    if (error?.code !== "ESRCH") throw error;
-    return false;
-  }
-}
-
-function signalProcess(pid, signal) {
-  try {
-    process.kill(pid, signal);
-    return true;
-  } catch (error) {
-    if (error?.code !== "ESRCH") throw error;
-    return false;
-  }
 }

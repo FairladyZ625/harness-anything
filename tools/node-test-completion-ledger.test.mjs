@@ -44,7 +44,7 @@ test("missing or incomplete reporter records fail closed", () => {
   assert.equal(completedIsolationFile(parseCompletionLedger("", repoRoot), [file, "packages/other.test.ts"]), null);
 });
 
-test("result override requires every selected file and only synthetic reaped SIGKILL failures", () => {
+test("result override requires every selected file and only synthetic forced-termination failures", () => {
   const other = "packages/kernel/test/healthy.test.ts";
   const records = [
     fileSummary(file),
@@ -68,6 +68,17 @@ test("result override requires every selected file and only synthetic reaped SIG
 
   assert.equal(canIgnoreReapedFileFailures({
     ledger,
+    selectedFiles: [file, other],
+    reapedFiles: new Set([file])
+  }), true);
+  const signalLessLedger = parseCompletionLedger(
+    `${records.map((record) => JSON.stringify(record.type === "test-failure"
+      ? { ...record, signal: null, exitCode: 1 }
+      : record)).join("\n")}\n`,
+    repoRoot
+  );
+  assert.equal(canIgnoreReapedFileFailures({
+    ledger: signalLessLedger,
     selectedFiles: [file, other],
     reapedFiles: new Set([file])
   }), true);
