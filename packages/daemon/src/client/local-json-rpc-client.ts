@@ -99,6 +99,7 @@ export interface LocalDaemonJsonRpcOptions {
   readonly repoIdOverride?: string;
   readonly autoRegisterSingleRepo?: boolean;
   readonly allowLegacySocket?: boolean;
+  readonly requestTimeoutMs?: number;
   readonly autostart?: LocalDaemonAutostartOptions;
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -265,7 +266,7 @@ export async function requestLocalDaemonJsonRpc(
   const socketPath = options.socketPath ?? localUserDaemonEndpoint(userRoot, options.daemonId ?? daemonIdFromEnv(options.env));
   const legacySocketPath = process.platform === "win32" ? undefined : localDaemonSocketPath(rootDir);
   const socket = await connectUnixSocketWithLegacyFallback(socketPath, options.allowLegacySocket === false ? undefined : legacySocketPath, timeoutMs);
-  return requestWithSocket(socket, method, params);
+  return requestWithSocket(socket, method, params, options.requestTimeoutMs);
 }
 
 export async function requestLocalDaemonJsonRpcForTarget(

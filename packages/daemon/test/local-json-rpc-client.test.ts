@@ -13,6 +13,7 @@ import {
   DaemonJsonRpcResponseError,
   JsonRpcLineClient,
   replaceSpawnLocalDaemonForTest,
+  requestLocalDaemonJsonRpc,
   requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
 } from "../src/client/local-json-rpc-client.ts";
@@ -164,6 +165,33 @@ test("JSON-RPC requests reject within their deadline when the peer never respond
     input.destroy();
     output.destroy();
   }
+});
+
+test("non-autostart requests keep connect and response deadlines separate", async (t) => {
+  if (process.platform === "win32") return;
+  const socketPath = uniqueSocketPath("ha-daemon-explicit-request-timeout");
+  const server = await startJsonRpcServer(socketPath, { ignoreMethod: "admin.daemon.refresh" });
+  t.after(async () => {
+    await closeServer(server);
+    rmSync(socketPath, { force: true });
+  });
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpc(
+      "/tmp/canonical",
+      "admin.daemon.refresh",
+      {},
+      200,
+      {
+        socketPath,
+        allowLegacySocket: false,
+        requestTimeoutMs: 40
+      }
+    ),
+    (error: unknown) => error instanceof DaemonJsonRpcRequestTimeoutError
+      && error.method === "admin.daemon.refresh"
+      && error.timeoutMs <= 40
+  );
 });
 
 test("autostart coalesces concurrent requests to one spawn per socket path", async (t) => {
