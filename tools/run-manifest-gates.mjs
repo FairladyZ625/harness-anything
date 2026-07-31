@@ -97,10 +97,17 @@ export function buildManifestGatePlan(manifest, options) {
   });
 
   return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)))
-    .map((entry) => ({
-      ...entry,
-      advisory: gatesById.get(entry.id)?.tier === "pr-advisory"
-    }));
+    .map((entry) => {
+      const gate = gatesById.get(entry.id);
+      const revivalCondition = gate?.revivalCondition;
+      return {
+        ...entry,
+        advisory: gate?.tier === "pr-advisory",
+        ...(typeof revivalCondition === "string" && revivalCondition.trim().length > 0
+          ? { revivalCondition }
+          : {})
+      };
+    });
 }
 
 function dedupeCommands(gates) {
@@ -226,16 +233,25 @@ function runCommand(label, command) {
   return true;
 }
 
+export function formatAdvisoryGateWarning(label, entry) {
+  return (
+    `::warning title=Advisory gate failed::${label} failed; ` +
+    `the preceding checker output retains the exact reason. Repair: run ${entry.command} ` +
+    "and correct the reported findings." +
+    (entry.revivalCondition ? ` Revival condition: ${entry.revivalCondition}` : "")
+  );
+}
+
 export function runManifestGatePlan(plan, {
   run = runCommand,
-  warn = (label) => console.log(`::warning title=Advisory gate failed::${label} failed; see the preceding log for details.`)
+  warn = (label, entry) => console.log(formatAdvisoryGateWarning(label, entry))
 } = {}) {
   const advisoryFailures = [];
   for (const entry of plan) {
     if (run(entry.id, entry.command)) continue;
     if (entry.advisory) {
       advisoryFailures.push(entry.id);
-      warn(entry.id);
+      warn(entry.id, entry);
       continue;
     }
     return { ok: false, advisoryFailures, failedRequiredGate: entry.id };
