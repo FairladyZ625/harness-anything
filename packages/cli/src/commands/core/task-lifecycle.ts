@@ -170,16 +170,15 @@ function runStatusSet(
     }
 
     const auditText = renderForceStatusAudit(status, reason ?? "unspecified");
-    const audit = yield* context.engine.appendProgress({ taskId, text: auditText });
-    const result = yield* context.engine.setStatus({ taskId, status });
+    const result = yield* context.engine.setStatus({ taskId, status, auditText });
     return {
       ok: true,
       command: "status-set",
       taskId: result.taskId,
       status: result.status,
-      path: audit.path,
+      path: "progress.md",
       forced: true,
-      forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER },
+      forceAudit: { path: "progress.md", marker: FORCE_STATUS_AUDIT_MARKER },
       warnings: taskTreeSoftGateWarnings(context, taskId)
     } satisfies CliResult;
   });

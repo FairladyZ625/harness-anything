@@ -37,6 +37,7 @@ test("same-state task transition is proven by a terminal reread and returns alre
   await withHermeticGit(async ({ rootDir, env }) => {
     const fixture = installTask(rootDir, env, "task_ALREADY_ACTIVE", "active");
     let reads = 0;
+    let consumed = 0;
     const readHostedDocument = diskReader(rootDir, fixture.taskId, () => { reads += 1; });
     const initial = (await readHostedDocument(fixture.path))!;
     reads = 0;
@@ -48,11 +49,13 @@ test("same-state task transition is proven by a terminal reread and returns alre
       to: "active",
       initial,
       readHostedDocument,
+      onConsume: () => { consumed += 1; },
       randomByte: 8
     });
 
     assert.equal(receipt.tag, "ALREADY_SATISFIED", JSON.stringify(receipt));
     assert.equal(reads, 2, "terminal success must be based on a fresh state reread");
+    assert.equal(consumed, 1, "a proven terminal success consumes exactly one operation slot");
     assert.equal(git(rootDir, env, "rev-parse", "HEAD"), fixture.head);
   });
 });
@@ -63,6 +66,7 @@ test("same-state candidate fails closed when the terminal reread no longer equal
     const active = taskIndex(taskId, "active");
     const blocked = taskIndex(taskId, "blocked");
     let reads = 0;
+    let consumed = 0;
     const readHostedDocument = async (): Promise<HostedDocumentSnapshotV2> => {
       reads += 1;
       return snapshot(reads === 1 ? active : blocked, BigInt(reads));
@@ -76,12 +80,47 @@ test("same-state candidate fails closed when the terminal reread no longer equal
       to: "active",
       initial,
       readHostedDocument,
+      onConsume: () => { consumed += 1; },
       randomByte: 6
     });
 
     assert.equal(receipt.tag, "INDETERMINATE", JSON.stringify(receipt));
     assert.equal(receipt.reason, "ALREADY_SATISFIED_STATE_RECHECK_MISMATCH");
     assert.equal(reads, 2);
+    assert.equal(consumed, 0, "a failed terminal verifier must not consume an operation slot");
+  });
+});
+
+test("same-state candidate fails closed when any terminal path-CAS component drifts", async () => {
+  await withHermeticGit(async ({ rootDir, env }) => {
+    const taskId = "task_REREAD_CAS_CHANGED";
+    const active = taskIndex(taskId, "active");
+    const initial = snapshot(active, 1n);
+    const cases: ReadonlyArray<readonly [string, HostedDocumentSnapshotV2]> = [
+      ["epoch", { ...initial, epoch: `${initial.epoch}-changed` }],
+      ["revision", { ...initial, revision: 2n }],
+      ["blob digest", { ...initial, blobDigest: Buffer.alloc(32, 0x7f) }]
+    ];
+
+    for (const [label, terminal] of cases) {
+      let reads = 0;
+      const receipt = await submitTransition({
+        rootDir,
+        env,
+        taskId,
+        to: "active",
+        initial,
+        readHostedDocument: async () => {
+          reads += 1;
+          return reads === 1 ? initial : terminal;
+        },
+        randomByte: reads + label.length
+      });
+
+      assert.equal(receipt.tag, "INDETERMINATE", `${label}: ${JSON.stringify(receipt)}`);
+      assert.equal(receipt.reason, "ALREADY_SATISFIED_STATE_RECHECK_MISMATCH", label);
+      assert.equal(reads, 2, label);
+    }
   });
 });
 
@@ -127,6 +166,7 @@ async function submitTransition(input: {
   readonly initial: HostedDocumentSnapshotV2;
   readonly readHostedDocument: (path: string) => Promise<HostedDocumentSnapshotV2 | null>;
   readonly publicationInspector?: CanonicalPublicationInspector;
+  readonly onConsume?: () => void;
   readonly randomByte: number;
 }) {
   const claims = actorClaims();
@@ -193,7 +233,7 @@ async function submitTransition(input: {
     v2: {
       schemaTuple,
       channelNonceDigest,
-      bindingRuntime: bindingRuntime(claims, secret, tokenDigest),
+      bindingRuntime: bindingRuntime(claims, secret, tokenDigest, input.onConsume),
       entityRegistrations: [entityRegistry.task],
       semanticCompiler: makeTaskDecisionModuleSemanticCompilerV2({
         state: { readEntityBase: async () => null, readHostedDocument: input.readHostedDocument }
@@ -215,7 +255,12 @@ async function submitTransition(input: {
   });
 }
 
-function bindingRuntime(claims: ActorAxesBindingClaimsV2, secret: Uint8Array, tokenDigest: Uint8Array) {
+function bindingRuntime(
+  claims: ActorAxesBindingClaimsV2,
+  secret: Uint8Array,
+  tokenDigest: Uint8Array,
+  onConsume?: () => void
+) {
   return {
     proofKeys: { resolve: () => ({ algorithm: "HMAC-SHA-256" as const, secret }) },
     validatePresentationToken: async (input: { readonly tokenDigest: Uint8Array }) => bytesEqual(input.tokenDigest, tokenDigest),
@@ -240,7 +285,10 @@ function bindingRuntime(claims: ActorAxesBindingClaimsV2, secret: Uint8Array, to
     currentAuthorityGeneration: () => claims.authorityGeneration,
     currentRevocationEpochs: async () => claims.revocationEpochs,
     nowMs: () => 2_000n,
-    consumeOperation: async () => "consumed" as const,
+    consumeOperation: async () => {
+      onConsume?.();
+      return "consumed" as const;
+    },
     validateAdmissionTokenRef: async (input: { readonly tokenId: string; readonly tokenDigest: Uint8Array }) =>
       input.tokenId === claims.tokenId && bytesEqual(input.tokenDigest, tokenDigest)
   };

@@ -62,6 +62,7 @@ export interface CommandRunnerEngine {
   readonly setStatus: (input: {
     readonly taskId: string;
     readonly status: DomainStatus;
+    readonly auditText?: string;
   }) => EngineEffect<{ readonly taskId: string; readonly status: DomainStatus }>;
   readonly appendProgress: (input: {
     readonly taskId: string;

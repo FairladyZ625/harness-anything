@@ -7,7 +7,7 @@
     "packages/cli/src/commands/core/decision-propose.ts": "8b97336df933154a9b6bc7c85b92728ec33459ae",
     "packages/cli/src/commands/core/decision-relate.ts": "22b3eff78b8115c6c97e870d0218b6f779064dca",
     "packages/cli/src/commands/core/decision-relation-record.ts": "b802dcbb858030d86d40e2b928750afd7150d239",
-    "packages/cli/src/commands/core/task-lifecycle.ts": "ca002e96498531aef065647cabe7ed6279caa54e",
+    "packages/cli/src/commands/core/task-lifecycle.ts": "47dfd367e72a0e3e935649202118db0cf9d2e58c",
     "packages/cli/src/commands/daemon/productization.ts": "565a8eb9ebc5ddf5de9c631154088d30c0bc9476",
     "packages/cli/src/commands/preset-task.ts": "cd7bb2b01ddad1c4ee2d8f3b49bf067e1bf597a8",
     "packages/cli/src/commands/settings.ts": "dcc83b0f0775494d4f6d7326aaa7285d5f67b619",

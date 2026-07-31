@@ -8,12 +8,21 @@ export function taskTransitionAlreadySatisfiedVerifierV1(input: {
   readonly taskId: string;
   readonly path: string;
   readonly requestedStatus: DomainStatus;
+  readonly expected: {
+    readonly epoch: string;
+    readonly revision: bigint;
+    readonly blobDigest: Uint8Array;
+  };
 }): () => Promise<AuthorityAlreadySatisfiedStateProofV1 | undefined> {
   return async () => {
     const observed = await input.state.readHostedDocument(input.path);
     if (!observed) return undefined;
     const reread = parseTaskIndex(observed.body);
-    if (reread.taskId !== input.taskId || reread.status !== input.requestedStatus) {
+    if (reread.taskId !== input.taskId
+      || reread.status !== input.requestedStatus
+      || observed.epoch !== input.expected.epoch
+      || observed.revision !== input.expected.revision
+      || !Buffer.from(observed.blobDigest).equals(Buffer.from(input.expected.blobDigest))) {
       return undefined;
     }
     return {
