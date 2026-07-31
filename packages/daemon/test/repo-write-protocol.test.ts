@@ -76,6 +76,22 @@ test("historical recovery diagnostics carry a bounded startup failure without re
     parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(diagnostic)),
     diagnostic
   );
+
+  const rejected: RepoWriteChildMessage = {
+    ...base("recovery-rejected"),
+    outerOpId: "repo-write:historical-rejected",
+    code: "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH",
+    diagnostic: "Historical recovery evidence conflicts with the canonical publication.",
+    next: "Run `ha daemon logs --errors --json`, then escalate for operator-reviewed repair."
+  };
+  assert.deepEqual(
+    parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(rejected)),
+    rejected
+  );
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...rejected,
+    authorityTerminalProof: { disposition: "rejected" }
+  }), protocolInvalid);
 });
 
 test("volatile direct execution carries an exact receipt without durable recovery fields", () => {

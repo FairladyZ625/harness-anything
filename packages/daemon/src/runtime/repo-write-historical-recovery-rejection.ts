@@ -47,6 +47,7 @@ interface HistoricalRecoveryRejectionStoreInput {
   readonly axes: RepoWriteOutcomeAxesV1;
   readonly current: RepoWriteOutcomeV1 | undefined;
   readonly hooks?: RepoWriteOutcomeDurabilityTestHooks;
+  readonly allowNewerRejectingGeneration?: boolean;
 }
 
 export function repoWriteHistoricalRecoveryRejectionRead(
@@ -58,7 +59,13 @@ export function repoWriteHistoricalRecoveryRejectionRead(
       "historical recovery rejection has no unsettled PROCEEDING"
     );
   }
-  return readCanonical(input.file, input.current, input.axes, input.hooks);
+  return readCanonical(
+    input.file,
+    input.current,
+    input.axes,
+    input.hooks,
+    input.allowNewerRejectingGeneration === true
+  );
 }
 
 export function repoWriteHistoricalRecoveryReject(
@@ -84,7 +91,11 @@ export function repoWriteHistoricalRecoveryReject(
     );
   }
   const candidate = createRejection(current, input.axes.generation, input.code);
-  const existing = repoWriteHistoricalRecoveryRejectionRead(input);
+  const raceTolerantInput = {
+    ...input,
+    allowNewerRejectingGeneration: true
+  };
+  const existing = repoWriteHistoricalRecoveryRejectionRead(raceTolerantInput);
   if (existing) return idempotent(existing, candidate);
   const published = repoWriteOutcomePublishOnce(
     input.directory,
@@ -92,7 +103,7 @@ export function repoWriteHistoricalRecoveryReject(
     canonicalText(candidate),
     input.hooks
   );
-  const durable = repoWriteHistoricalRecoveryRejectionRead(input);
+  const durable = repoWriteHistoricalRecoveryRejectionRead(raceTolerantInput);
   if (!durable) {
     throw new RepoWriteOutcomeCorruptionError(
       "historical recovery rejection publication disappeared"
@@ -130,7 +141,8 @@ function readCanonical(
   file: string,
   proceeding: RepoWriteProceedingOutcomeV1,
   axes: RepoWriteOutcomeAxesV1,
-  hooks?: RepoWriteOutcomeDurabilityTestHooks
+  hooks?: RepoWriteOutcomeDurabilityTestHooks,
+  allowNewerRejectingGeneration = false
 ): RepoWriteHistoricalRecoveryRejectionV1 {
   try {
     const { descriptor, text } = repoWriteOutcomeReadPrivateText(file);
@@ -138,7 +150,8 @@ function readCanonical(
       const record = parseRecord(text);
       if (!Number.isSafeInteger(record.rejectedByGeneration)
         || (record.rejectedByGeneration as number) <= proceeding.generation
-        || (record.rejectedByGeneration as number) > axes.generation) {
+        || (!allowNewerRejectingGeneration
+          && (record.rejectedByGeneration as number) > axes.generation)) {
         throw new RepoWriteOutcomeValidationError(
           "historical recovery rejection has invalid generation fencing"
         );
@@ -200,7 +213,10 @@ function idempotent(
   current: RepoWriteHistoricalRecoveryRejectionV1,
   candidate: RepoWriteHistoricalRecoveryRejectionV1
 ): RepoWriteHistoricalRecoveryRejectionV1 {
-  if (canonicalText(current) !== canonicalText(candidate)) {
+  const currentRecord = current as unknown as Record<string, unknown>;
+  const candidateRecord = candidate as unknown as Record<string, unknown>;
+  if (Object.entries(candidateRecord).some(([key, value]) =>
+    key !== "rejectedByGeneration" && currentRecord[key] !== value)) {
     throw new RepoWriteOutcomeConflictError("historical recovery rejection is immutable");
   }
   return current;

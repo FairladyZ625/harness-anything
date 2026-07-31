@@ -351,7 +351,7 @@ export class RepoWriteClient {
       );
       return;
     }
-    if (message.kind === "recovery-deferred") {
+    if (message.kind === "recovery-deferred" || message.kind === "recovery-rejected") {
       observeRepoWriteRecoveryDiagnostic(this.options.onDiagnostic, message);
       return;
     }

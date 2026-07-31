@@ -270,12 +270,17 @@ export async function runDaemonServe<
               }
             }),
             onDiagnostic: (frame) => {
+              const rejected = frame.kind === "recovery-rejected";
               void daemonLogService.append({
                 level: "error",
                 source: "daemon",
                 component: "repo-write-child",
-                event: "repo-write.historical-recovery.deferred",
-                message: `Deferred repo-write historical recovery for outerOpId=${frame.outerOpId}: ${frame.diagnostic}`,
+                event: rejected
+                  ? "repo-write.historical-recovery.rejected"
+                  : "repo-write.historical-recovery.deferred",
+                message: rejected
+                  ? `Permanently rejected repo-write historical recovery for outerOpId=${frame.outerOpId}: ${frame.diagnostic} Next: ${frame.next}`
+                  : `Deferred repo-write historical recovery for outerOpId=${frame.outerOpId}: ${frame.diagnostic}`,
                 errorCode: frame.code,
                 requestId: frame.outerOpId
               }, { repo }).catch(() => undefined);

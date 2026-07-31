@@ -191,6 +191,21 @@ test("reports historical recovery diagnostics before READY without failing the w
     code: "GIT_PATH_NOT_SAFE",
     diagnostic: "historical recovery remains fail-closed"
   });
+
+  transport.emit({
+    ...childFrame("recovery-rejected"),
+    outerOpId: "repo-write:historical-rejected",
+    code: "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH",
+    diagnostic: "Historical recovery evidence conflicts with the canonical publication.",
+    next: "Run `ha daemon logs --errors --json`, then escalate for operator-reviewed repair."
+  });
+  assert.deepEqual(diagnostics[1], {
+    ...childFrame("recovery-rejected"),
+    outerOpId: "repo-write:historical-rejected",
+    code: "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH",
+    diagnostic: "Historical recovery evidence conflicts with the canonical publication.",
+    next: "Run `ha daemon logs --errors --json`, then escalate for operator-reviewed repair."
+  });
 });
 
 test("resolves an exact rejected terminal receipt instead of converting it to transport failure", async () => {

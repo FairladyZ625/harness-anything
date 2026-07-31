@@ -1,5 +1,7 @@
 // @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
+import type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
+export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
   decodeRepoWriteBigInt,
@@ -133,25 +135,11 @@ export type RepoWriteOperationLookupResult =
     };
 
 export type RepoWriteStatusFrame = RepoWriteOperationFrame<"status"> & RepoWriteOperationLookupResult;
-export type RepoWriteTelemetryPhase =
-  "queue" | "compile" | "journal" | "git" | "fsync" | "materializer" | "projection" | "total";
-
-export interface RepoWriteTelemetryFrame extends RepoWriteRequestFrame<"telemetry"> {
-  readonly opId?: string;
-  readonly phase: RepoWriteTelemetryPhase;
-  readonly elapsedMs: number;
-}
-export interface RepoWriteRecoveryDeferredFrame extends RepoWriteFrameBase {
-  readonly kind: "recovery-deferred";
-  readonly outerOpId: string;
-  readonly code: string;
-  readonly diagnostic: string;
-}
 
 export type RepoWriteChildMessage =
   RepoWriteReadyFrame | RepoWritePreparedFrame | RepoWriteTerminalFrame | RepoWriteFailureFrame
   | RepoWriteDirectResultFrame | RepoWriteDirectFailureFrame
-  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDeferredFrame
+  | RepoWriteStatusFrame | RepoWriteTelemetryFrame | RepoWriteRecoveryDiagnosticFrame
   | RepoWriteDrainedFrame;
 
 export type RepoWriteMessage = RepoWriteParentMessage | RepoWriteChildMessage;
@@ -203,6 +191,7 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "status") return decodeStatus(frame, limits, budget);
   if (frame.kind === "telemetry") return decodeTelemetry(frame, limits);
   if (frame.kind === "recovery-deferred") return decodeRecoveryDeferred(frame, limits);
+  if (frame.kind === "recovery-rejected") return decodeRecoveryRejected(frame, limits);
   if (frame.kind === "drained") return decodeRequestFrame(frame, limits, "drained");
   invalid("$.kind", "child message kind");
 }
@@ -451,6 +440,20 @@ function decodeRecoveryDeferred(
     outerOpId: identifier(frame.outerOpId, "$.outerOpId", limits),
     code: identifier(frame.code, "$.code", limits),
     diagnostic: stringAt(frame.diagnostic, "$.diagnostic", limits.maxDiagnosticBytes)
+  };
+}
+function decodeRecoveryRejected(
+  frame: FrameRecord,
+  limits: RepoWriteProtocolLimits
+): RepoWriteRecoveryRejectedFrame {
+  assertExactKeys(frame, baseKeys(["outerOpId", "code", "diagnostic", "next"]), [], "$");
+  return {
+    ...baseFields(frame),
+    kind: "recovery-rejected",
+    outerOpId: identifier(frame.outerOpId, "$.outerOpId", limits),
+    code: identifier(frame.code, "$.code", limits),
+    diagnostic: stringAt(frame.diagnostic, "$.diagnostic", limits.maxDiagnosticBytes),
+    next: stringAt(frame.next, "$.next", limits.maxDiagnosticBytes)
   };
 }
 function frameBase(value: unknown, limits: RepoWriteProtocolLimits, budget: { nodes: number }): FrameRecord {

@@ -204,7 +204,7 @@ export class DurableRepoWriteOutcomeStoreV1 {
         const current = this.get(proceeding.outerOpId);
         return current?.phase === "PROCEEDING"
           && current.generation < this.axes.generation
-          && !this.getHistoricalRecoveryRejection(current.outerOpId)
+          && !this.usableHistoricalRecoveryRejection(current)
           ? [current]
           : [];
       });
@@ -321,6 +321,26 @@ export class DurableRepoWriteOutcomeStoreV1 {
       throw new RepoWriteOutcomeConflictError(
         "repo-write outcome input does not match the store repo/workspace/generation axes"
       );
+    }
+  }
+
+  private usableHistoricalRecoveryRejection(
+    current: RepoWriteOutcomeV1
+  ): RepoWriteHistoricalRecoveryRejectionV1 | undefined {
+    try {
+      return repoWriteHistoricalRecoveryRejectionRead({
+        directory: this.directory,
+        file: repoWriteOutcomePaths(
+          this.directory,
+          current.outerOpId
+        ).historicalRecoveryRejection,
+        axes: this.axes,
+        current,
+        ...(this.durabilityHooks ? { hooks: this.durabilityHooks } : {})
+      });
+    } catch (error) {
+      if (error instanceof RepoWriteOutcomeCorruptionError) return undefined;
+      throw error;
     }
   }
 

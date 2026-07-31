@@ -41,6 +41,13 @@ export interface RepoWriteAuthorityRecoveryAttemptWitness {
   };
 }
 
+export type RepoWriteHistoricalProceedingRecoveryResult =
+  | { readonly disposition: "committed" }
+  | {
+      readonly disposition: "permanently-rejected";
+      readonly code: string;
+    };
+
 /**
  * Binds both recovery admission stages to the same child-owned, fsynced outer
  * PROCEEDING row. Temporal or revocation drift is deliberately absent here;
@@ -117,7 +124,7 @@ export class RepoWriteAuthorityRecoveryGate {
 
   async recoverHistoricalProceeding(
     outcome: RepoWriteProceedingOutcomeV1
-  ): Promise<void> {
+  ): Promise<RepoWriteHistoricalProceedingRecoveryResult> {
     if (outcome.generation >= this.axes.generation
       || outcome.repoId !== this.axes.repoId
       || outcome.workspaceId !== this.axes.workspaceId
@@ -136,6 +143,7 @@ export class RepoWriteAuthorityRecoveryGate {
       await this.assertCurrentWriterFence();
       const committed = await this.recoverHistorical(outcome, publication);
       this.terminalizeHistorical(outcome, publication, committed);
+      return { disposition: "committed" };
     } catch (error) {
       const permanentCode = permanentHistoricalRecoveryRejectionCode(error);
       if (!permanentCode) throw error;
@@ -146,6 +154,10 @@ export class RepoWriteAuthorityRecoveryGate {
         requestDigest: outcome.requestDigest,
         code: permanentCode
       });
+      return {
+        disposition: "permanently-rejected",
+        code: permanentCode
+      };
     }
   }
 

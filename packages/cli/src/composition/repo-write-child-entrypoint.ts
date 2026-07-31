@@ -153,7 +153,24 @@ export async function runRepoWriteChildEntrypoint(
   const transport = new RepoWriteChildIpcTransport();
   for (const proceeding of outcomes.listHistoricalProceedings()) {
     try {
-      await recoveryGate.recoverHistoricalProceeding(proceeding);
+      const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
+      if (recovery.disposition === "permanently-rejected") {
+        await transport.send({
+          protocol: "harness-repo-write-ipc/v1",
+          repoId: config.repoId,
+          generation: config.generation,
+          kind: "recovery-rejected",
+          outerOpId: proceeding.outerOpId,
+          code: recovery.code,
+          diagnostic:
+            "Historical recovery evidence permanently conflicts with the canonical publication. "
+            + "The outer operation remains outcome-unknown; no authority terminal proof was created.",
+          next:
+            "Run `ha daemon logs --errors --json`, then escalate this outer op for "
+            + "operator-reviewed canonical Git and authority-state repair. "
+            + "Do not delete WAL, outcome, or recovery files."
+        });
+      }
     } catch (error) {
       await transport.send({
         protocol: "harness-repo-write-ipc/v1",
