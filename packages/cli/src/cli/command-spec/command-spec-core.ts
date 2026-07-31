@@ -1,4 +1,5 @@
 import { defineCommandSpecs } from "./types.ts";
+import { readCommandEventPolicy, writeCommandEventPolicy } from "./command-event-policies.ts";
 import { parseCapabilitiesArgs } from "../parsers/capabilities.ts";
 import { parseCoreTaskArgs } from "../parsers/core-task.ts";
 import { parseHelpArgs, parseVersionArgs } from "../parsers/meta.ts";
@@ -536,12 +537,13 @@ export const coreCommandSpecs = defineCommandSpecs([
         "completionEvidence": "Only emitted when completion accepts an immutable commit-anchor judgment record.",
         "reviewContract": "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
       },
-      "paths": []
+      "paths": [],
+      "dryRun": {
+        "data": ["taskId", "report"],
+        "paths": []
+      }
     },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
+    "eventPolicy": writeCommandEventPolicy
   },
   {
     "kind": "task-show",
@@ -557,10 +559,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "data": ["taskId", "report"],
       "paths": ["primary"]
     },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
+    "eventPolicy": readCommandEventPolicy
   },
   {
     "kind": "relation-list",

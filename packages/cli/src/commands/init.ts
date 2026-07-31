@@ -77,6 +77,9 @@ interface HarnessIsolationReport {
   readonly innerGitDir: string;
   readonly outerGit: {
     readonly insideWorkTree: boolean;
+    readonly action: "initialized" | "skipped-existing" | "failed";
+    readonly initialCommitCreated: boolean;
+    readonly commitCount: number | null;
   };
   readonly innerRepository: {
     readonly gitDirExists: boolean;
@@ -98,11 +101,15 @@ function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string,
   const warnings: unknown[] = [];
   const authoredRootRelative = initRelativeLayoutPath(rootDir, authoredRoot);
   const innerGitDir = path.join(authoredRoot, ".git");
+  const outerRepository = ensureOuterGitRepository(rootDir, commitAuthor);
+  warnings.push(...outerRepository.warnings);
   const outerGit = isInsideInitGitWorkTree(rootDir);
   const gitignore = ensureOuterGitignoreIsolation(rootDir, outerGit, authoredRootRelative);
   warnings.push(...gitignore.warnings);
   const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir, commitAuthor);
   warnings.push(...innerRepository.warnings);
+  const completedOuterRepository = completeOuterGitRepository(rootDir, outerRepository.report, commitAuthor);
+  warnings.push(...completedOuterRepository.warnings);
 
   return {
     warnings,
@@ -111,7 +118,8 @@ function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string,
       authoredRoot: authoredRootRelative,
       innerGitDir: `${authoredRootRelative}/.git`,
       outerGit: {
-        insideWorkTree: outerGit
+        insideWorkTree: outerGit,
+        ...completedOuterRepository.report
       },
       innerRepository: innerRepository.report,
       outerGitignore: gitignore.report,
@@ -120,11 +128,83 @@ function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string,
         "ha daemon repo register --root .",
         "ha daemon start --service",
         "ha doctor --json",
+        "git status",
         `git -C ${authoredRootRelative} status`,
         `git -C ${authoredRootRelative} add . && git -C ${authoredRootRelative} commit`
       ]
     }
   };
+}
+
+function ensureOuterGitRepository(rootDir: string, commitAuthor?: VcsCommitAuthor): {
+  readonly report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">;
+  readonly warnings: ReadonlyArray<unknown>;
+} {
+  if (isInsideInitGitWorkTree(rootDir)) {
+    return {
+      warnings: [],
+      report: {
+        action: "skipped-existing",
+        initialCommitCreated: false,
+        commitCount: readCommitCount(rootDir)
+      }
+    };
+  }
+  try {
+    try {
+      runInitGit(rootDir, ["init", "--initial-branch=main"], commitAuthor);
+    } catch {
+      runInitGit(rootDir, ["init"], commitAuthor);
+    }
+    return {
+      warnings: [],
+      report: {
+        action: "initialized",
+        initialCommitCreated: false,
+        commitCount: null
+      }
+    };
+  } catch (error) {
+    return {
+      warnings: [isolationWarning("outer_git_init_failed", error)],
+      report: {
+        action: "failed",
+        initialCommitCreated: false,
+        commitCount: null
+      }
+    };
+  }
+}
+
+function completeOuterGitRepository(
+  rootDir: string,
+  report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">,
+  commitAuthor?: VcsCommitAuthor
+): {
+  readonly report: Omit<HarnessIsolationReport["outerGit"], "insideWorkTree">;
+  readonly warnings: ReadonlyArray<unknown>;
+} {
+  if (report.action !== "initialized") return { report, warnings: [] };
+  try {
+    runInitGit(rootDir, ["commit", "--allow-empty", "-m", "chore: initialize harness workspace"], commitAuthor);
+    return {
+      warnings: [],
+      report: {
+        action: "initialized",
+        initialCommitCreated: true,
+        commitCount: readCommitCount(rootDir)
+      }
+    };
+  } catch (error) {
+    return {
+      warnings: [isolationWarning("outer_git_initial_commit_failed", error)],
+      report: {
+        action: "failed",
+        initialCommitCreated: false,
+        commitCount: readCommitCount(rootDir)
+      }
+    };
+  }
 }
 
 function ensureOuterGitignoreIsolation(rootDir: string, outerGit: boolean, authoredRootRelative: string): {

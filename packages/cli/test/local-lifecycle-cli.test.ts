@@ -25,7 +25,7 @@ const executionTaskId = "task_01KX7H00000000000000000000";
 const executionId = "exe_01KX7H00000000000000000001";
 const executionActorEnv = { HARNESS_ACTOR: "agent:test" } as const;
 
-test("CLI init creates authored harness and skips outer gitignore outside git repos", () => {
+test("CLI init creates authored harness and a root commit anchor", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["init"]);
 
@@ -38,8 +38,10 @@ test("CLI init creates authored harness and skips outer gitignore outside git re
     assert.match(config, /defaultProfile: baseline/);
     assert.match(config, /locale: zh-CN/);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /harness\/harness.yaml/);
-    assert.equal(existsSync(path.join(rootDir, ".gitignore")), false);
-    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
+    assert.equal(existsSync(path.join(rootDir, ".gitignore")), true);
+    assert.equal(result.report.isolation.outerGit.action, "initialized");
+    assert.equal(result.report.isolation.outerGit.initialCommitCreated, true);
+    assert.equal(result.report.isolation.outerGitignore.action, "updated");
     assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
   }, { identity: false });
 });

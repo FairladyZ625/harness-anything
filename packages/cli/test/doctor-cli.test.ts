@@ -160,7 +160,7 @@ test("CLI task help lists every task leaf and declares --json only as a global o
       .map((entry) => `  ${entry.primary.replace(/ \[--json\]/gu, "").replace(/ --json$/u, "")} - ${entry.summary}`);
 
     assert.deepEqual(renderedTaskLeaves, [...expectedDefaultTaskLeaves, ...expectedAdvancedTaskLeaves]);
-    assert.match(stdout, /Primary workflow:[\s\S]+1\. ha task create[\s\S]+2\. ha task start[\s\S]+3\. ha task progress append[\s\S]+4\. ha task submit[\s\S]+5\. ha task complete/u);
+    assert.match(stdout, /Primary workflow:[\s\S]+1\. ha task create[\s\S]+2\. ha task start[\s\S]+3\. ha task progress append[\s\S]+4\. ha fact record[\s\S]+5\. ha task submit[\s\S]+6\. ha task complete/u);
     assert.match(stdout, /Advanced commands:[\s\S]+task claim[\s\S]+Deprecated compatibility spelling/u);
     assert.equal(stdout.match(/--json(?!-input)/gu)?.length, 1);
   });
@@ -176,7 +176,7 @@ test("CLI noun help exposes a bounded primary workflow and common/advanced tiers
       const group = commandGroups.find((candidate) => candidate.name === noun);
       assert.notEqual(group, undefined, noun);
       assert.equal((group?.primaryWorkflow?.length ?? 0) >= 1, true, noun);
-      assert.equal((group?.primaryWorkflow?.length ?? 0) <= 5, true, noun);
+      assert.equal((group?.primaryWorkflow?.length ?? 0) <= 6, true, noun);
 
       const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, noun, "--help"], {
         encoding: "utf8"
@@ -204,10 +204,12 @@ test("CLI primary task leaf help links the workflow and explains structured pack
 
     assert.match(create, /Next:\s+ha task start <task-id>/u);
     assert.match(start, /Next:\s+ha task progress append <task-id>/u);
-    assert.match(progress, /Next:\s+ha task submit <task-id> --from-file submission\.json/u);
+    assert.match(progress, /Next:\s+ha fact record --task <task-id> --statement "<verified fact>"/u);
     assert.match(submit, /completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks/u);
+    assert.match(submit, /Packet template \(copy as submission\.json\):[\s\S]+"completionClaim"[\s\S]+"residualRisks"/u);
     assert.match(submit, /Next:\s+ha task complete <task-id> --approve --from-file approval\.json/u);
     assert.match(complete, /findings, rationale, and exactly one consent source/u);
+    assert.match(complete, /Packet template \(copy as approval\.json\):[\s\S]+"findings"[\s\S]+"consentActions"/u);
     assert.match(complete, /Next:\s+ha task show <task-id> --view trace/u);
   });
 });
