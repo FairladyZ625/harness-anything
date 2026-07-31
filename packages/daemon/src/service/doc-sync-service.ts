@@ -31,6 +31,7 @@ import {
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
 import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
+import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledger.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
 
@@ -299,7 +300,11 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       }));
       await runDocSyncJournalEffect(options.coordinator!.flush("explicit"));
     }
-    const appliedLedgerSha = gitText(layout.authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
+    const appliedLedgerSha = resolveDocSyncAppliedLedgerSha(
+      layout,
+      request.payload.intentId,
+      validation.acceptedChanges.length > 0
+    );
     return {
       ok: true,
       schema: "daemon.doc-sync-submit-result/v1",
@@ -494,13 +499,12 @@ function docSyncEntityId(intentId: string): EntityId {
 
 function loadRegistry(rootDir: string): { readonly present: boolean; readonly sha256: string; readonly rows: ReadonlyArray<RegistryRow> } {
   const absolutePath = registryPath(rootDir);
-  // The write-road registry is a dogfood-internal file that is not shipped in the
-  // published package and does not exist in consumer repos. A missing registry means
-  // the doc-sync layer has no rules to enforce — treat it as absent (inert) rather than
-  // crashing the whole decision write path. See issue #644 (same dogfood-assumption
-  // class as #269's hardcoded trunk).
+  // The write-road registry is a dogfood-internal file that is not shipped in consumer
+  // repos. Keep status scanning inert when it is absent, while submit retains the one
+  // built-in task-prose lane needed by artifact and document ingress. Typed surfaces
+  // still fail classification because the fallback has no rows for them. See issue #644.
   if (!existsSync(absolutePath)) {
-    return { present: false, sha256: sha256Text(""), rows: [] };
+    return { present: false, sha256: sha256Text(""), rows: consumerDocSyncRows };
   }
   const body = readFileSync(absolutePath, "utf8");
   const parsed = JSON.parse(body) as { readonly schema?: string; readonly rows?: ReadonlyArray<RegistryRow> };
@@ -509,6 +513,15 @@ function loadRegistry(rootDir: string): { readonly present: boolean; readonly sh
   }
   return { present: true, sha256: sha256Text(body), rows: parsed.rows };
 }
+
+const consumerDocSyncRows: ReadonlyArray<RegistryRow> = [{
+  id: "task.document.write-stage",
+  bearing: "task-document",
+  channel: {
+    pathClass: "doc-sync-allowed",
+    zoneClass: "task-authored-prose-or-stage"
+  }
+}];
 
 function registryPath(rootDir: string): string {
   return path.join(rootDir, "tools", "write-road-registry.json");
@@ -564,14 +577,6 @@ function reject(request: DocSyncSubmitRequestV1, code: Extract<DocSyncSubmitResu
     retryable,
     ...extra
   };
-}
-
-function gitText(cwd: string, args: ReadonlyArray<string>): string | null {
-  try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trimEnd();
-  } catch {
-    return null;
-  }
 }
 
 function gitBlobText(cwd: string, args: ReadonlyArray<string>): string | null {

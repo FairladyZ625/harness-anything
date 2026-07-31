@@ -85,10 +85,11 @@ test("task packet help templates pass submission and approval dry-runs", () => {
     const approvalPath = path.join(rootDir, "approval.json");
     writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`, "utf8");
     const approvalDryRun = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "complete", created.taskId,
+      "task", "complete", created.taskId,
       "--approve", "--from-file", approvalPath, "--dry-run"
     ], sessionEnv);
     assert.equal(approvalDryRun.ok, true);
+    assert.equal(approvalDryRun.status, "in_review");
   });
 });
 

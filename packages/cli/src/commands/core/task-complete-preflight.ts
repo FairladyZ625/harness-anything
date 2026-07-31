@@ -49,6 +49,7 @@ export function taskCompletePreflightReport(input: {
   readonly receipt: CommandReceipt | CommandFailureReceipt;
   readonly commit: TaskCompleteCommitResolution;
   readonly docPaths: TaskCompleteDocPathsResolution;
+  readonly additionalIssues?: ReadonlyArray<TaskCompletePreflightIssue>;
 }): TaskCompletePreflightReport {
   const data = preflightRecord(input.receipt.details?.data) ?? {};
   const rawIssues = Array.isArray(data.issues) ? data.issues : [];
@@ -78,6 +79,7 @@ export function taskCompletePreflightReport(input: {
   }
   if (!input.commit.ok) issues.unshift(cliResultIssue(input.commit.result, input.command.action.taskId));
   if (!input.docPaths.ok) issues.push(cliResultIssue(input.docPaths.result, input.command.action.taskId));
+  issues.push(...(input.additionalIssues ?? []));
   const deduplicated = issues.filter((issue, index) => issues.findIndex((candidate) => candidate.code === issue.code) === index);
   return {
     schema: "task-complete-preflight/v1",
@@ -90,16 +92,38 @@ export function taskCompletePreflightCompletionGate(receipt: CommandReceipt | Co
   return preflightRecord(receipt.details?.data)?.completionGate ?? { ok: false, issues: [] };
 }
 
+export function taskCompletePreflightReviewAlreadyReady(
+  receipt: CommandReceipt | CommandFailureReceipt
+): boolean {
+  const data = preflightRecord(receipt.details?.data);
+  const completionGate = preflightRecord(data?.completionGate);
+  if (!preflightRecord(completionGate?.axes)) return false;
+  const issues = Array.isArray(data?.issues) ? data.issues : [];
+  return !issues.some((raw) => {
+    const code = preflightRecord(raw)?.code;
+    return typeof code === "string" && (
+      code.startsWith("execution_")
+      || code === "archive_warnings_acknowledgement_required"
+      || code === "stale_execution_retirement_required"
+    );
+  });
+}
+
 export function taskCompleteDryRunResult(
   command: TaskCompleteCommand,
   steps: ReadonlyArray<ParsedCommand>,
-  extra: Readonly<Record<string, unknown>> & { readonly completionGate: unknown }
+  extra: Readonly<Record<string, unknown>> & {
+    readonly completionGate: unknown;
+    readonly preflight: TaskCompletePreflightReport;
+  }
 ): CliResult {
+  const status = completionGateTaskStatus(extra.completionGate);
+  if (!status) return taskCompletePreflightFailure(command, extra.preflight, extra.completionGate);
   return finalizeDryRunResult(command.action, {
     ok: true,
     command: command.action.kind,
     taskId: command.action.taskId,
-    status: "done",
+    status,
     completionGate: extra.completionGate,
     report: {
       schema: "task-complete-dry-run/v1",
@@ -163,4 +187,11 @@ function taskShowCommand(taskId: string): string {
 
 function preflightRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function completionGateTaskStatus(value: unknown): CliResult["status"] | undefined {
+  const status = preflightRecord(preflightRecord(value)?.axes)?.canonicalStatus;
+  return typeof status === "string" && ["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status)
+    ? status as CliResult["status"]
+    : undefined;
 }

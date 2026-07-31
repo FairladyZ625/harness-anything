@@ -7,6 +7,7 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { inspectGitCommitRef } from "./authored-git.ts";
 import { resolveTaskDocSyncPaths } from "./doc-sync.ts";
 import {
+  taskCompleteApprovalPreflightIssues,
   taskCompleteCodeDocAlreadyCurrent,
   taskCompleteFacadeSteps,
   type TaskCompleteCommand
@@ -16,16 +17,22 @@ import {
   taskCompletePreflightCompletionGate,
   taskCompletePreflightFailure,
   taskCompletePreflightReport,
+  taskCompletePreflightReviewAlreadyReady,
   taskCompletePreflightStep
 } from "./task-complete-preflight.ts";
 import { dispatchLifecycleFacadeSteps, shellLifecycleToken } from "./task-lifecycle-facade-guidance.ts";
+import {
+  resolveFacadeCommandRoot,
+  taskStartFacadeSteps,
+  type TaskStartCommand
+} from "./task-lifecycle-facade-steps.ts";
 export {
   isCodeDocReconciliationCurrent,
   taskCompleteFacadeSteps
 } from "./task-complete-facade-steps.ts";
+export { taskStartFacadeSteps } from "./task-lifecycle-facade-steps.ts";
 
 type Dispatch = (step: ParsedCommand) => Promise<CommandReceipt | CommandFailureReceipt>;
-type TaskStartCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-start" }> };
 type TaskCloseoutCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-closeout" }> };
 
 export async function runTaskStartFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {
@@ -38,11 +45,11 @@ export async function runTaskStartFacade(command: ParsedCommand, dispatch: Dispa
 
 export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {
   if (command.action.kind !== "task-closeout") throw new Error("task closeout facade received a non-closeout command");
-  const closeoutCommand = command as TaskCloseoutCommand;
-  const resolved = resolveCommit(command.rootDir, command.action.commitRef);
+  const closeoutCommand = resolveFacadeCommandRoot(command) as TaskCloseoutCommand;
+  const resolved = resolveCommit(closeoutCommand.rootDir, closeoutCommand.action.commitRef);
   if (!resolved.ok) return resolved.result;
-  const layoutInput = { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides };
-  const docPaths = resolveTaskDocSyncPaths(layoutInput, command.action.taskId, "task-closeout");
+  const layoutInput = { rootDir: closeoutCommand.rootDir, layoutOverrides: closeoutCommand.layoutOverrides };
+  const docPaths = resolveTaskDocSyncPaths(layoutInput, closeoutCommand.action.taskId, "task-closeout");
   if (!docPaths.ok) return docPaths.result;
   const steps = taskCloseoutFacadeSteps(closeoutCommand, resolved.sha, docPaths.paths);
   if (command.action.dryRun) return dryRun(closeoutCommand, steps, { commit: resolved.sha });
@@ -67,11 +74,15 @@ export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Di
 
 export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {
   if (command.action.kind !== "task-complete") throw new Error("task complete facade received a non-complete command");
-  const completeCommand = command as TaskCompleteCommand;
+  const completeCommand = resolveFacadeCommandRoot(command) as TaskCompleteCommand;
   const preflightReceipt = await dispatch(taskCompletePreflightStep(completeCommand));
-  const resolved = resolveCommit(command.rootDir, command.action.commitRef ?? "HEAD", "task-complete");
-  const layoutInput = { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides };
-  const docPaths = resolveTaskDocSyncPaths(layoutInput, command.action.taskId, "task-complete");
+  const resolved = resolveCommit(completeCommand.rootDir, completeCommand.action.commitRef ?? "HEAD", "task-complete");
+  const layoutInput = { rootDir: completeCommand.rootDir, layoutOverrides: completeCommand.layoutOverrides };
+  const docPaths = resolveTaskDocSyncPaths(layoutInput, completeCommand.action.taskId, "task-complete");
+  const reviewAlreadyReady = taskCompletePreflightReviewAlreadyReady(preflightReceipt);
+  const approvalPreflightIssues = reviewAlreadyReady
+    ? []
+    : await taskCompleteApprovalPreflightIssues(completeCommand);
   const codeDocAlreadyCurrent = resolved.ok && docPaths.ok && docPaths.paths.length === 0
     ? await taskCompleteCodeDocAlreadyCurrent(completeCommand, resolved.sha)
     : false;
@@ -79,18 +90,19 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
     command: completeCommand,
     receipt: preflightReceipt,
     commit: resolved,
-    docPaths
+    docPaths,
+    additionalIssues: approvalPreflightIssues
   });
   const steps = resolved.ok && docPaths.ok
     ? taskCompleteFacadeSteps(
         completeCommand,
         resolved.sha,
         docPaths.paths,
-        { codeDocAlreadyCurrent }
+        { codeDocAlreadyCurrent, reviewAlreadyReady }
       )
     : [];
   const completionGate = taskCompletePreflightCompletionGate(preflightReceipt);
-  if (command.action.dryRun) return taskCompleteDryRunResult(completeCommand, steps, {
+  if (completeCommand.action.dryRun) return taskCompleteDryRunResult(completeCommand, steps, {
     commit: resolved.ok ? resolved.sha : null,
     codeDocReconciliation: resolved.ok
       ? codeDocAlreadyCurrent ? "already-current" : "reconcile-required"
@@ -125,19 +137,6 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
       }
     }
   };
-}
-
-export function taskStartFacadeSteps(command: TaskStartCommand): ReadonlyArray<ParsedCommand> {
-  const action = command.action;
-  return [
-    child(command, {
-      kind: "task-claim",
-      taskId: action.taskId,
-      execution: true,
-      ...(action.executionId ? { executionId: action.executionId } : {}),
-      ...(action.ttlMs === undefined ? {} : { ttlMs: action.ttlMs })
-    })
-  ];
 }
 
 export function taskCloseoutFacadeSteps(
@@ -182,10 +181,6 @@ export const rejectDaemonTaskLifecycleFacade: CommandRunner = (_context, command
     `${command.action.kind === "task-start" ? "task start" : "task closeout"} is a CLI composition facade. Run the same ha command so every underlying lifecycle gate enters daemon admission independently.`
   )
 } satisfies CliResult);
-
-function child(command: ParsedCommand, action: ParsedCommand["action"]): ParsedCommand {
-  return { ...command, action };
-}
 
 function dryRun(
   command: TaskStartCommand | TaskCloseoutCommand | TaskCompleteCommand,

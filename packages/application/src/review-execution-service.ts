@@ -79,9 +79,7 @@ export function makeReviewExecutionService(options: {
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
         throw new Error("execution archive warnings must be explicitly acknowledged by the reviewer");
       }
-      const evidenceIds = new Set(execution.outputs.map((evidence) => evidence.evidence_id));
-      const unknownEvidence = input.evidenceChecked.find((evidenceId) => !evidenceIds.has(evidenceId));
-      if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${input.executionId}: ${unknownEvidence}`);
+      assertReviewEvidenceBelongsToExecution(execution, input.evidenceChecked);
       assertConsentInputShape(input, execution);
 
       const approvalIdentity = input.verdict === "approved" ? stableApprovalIdentity(input) : null;
@@ -188,6 +186,15 @@ export function makeReviewExecutionService(options: {
       return { review };
     }
   };
+}
+
+export function assertReviewEvidenceBelongsToExecution(
+  execution: Pick<ExecutionRecord, "execution_id" | "outputs">,
+  evidenceChecked: ReadonlyArray<string>
+): void {
+  const evidenceIds = new Set(execution.outputs.map((evidence) => evidence.evidence_id));
+  const unknownEvidence = evidenceChecked.find((evidenceId) => !evidenceIds.has(evidenceId));
+  if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${execution.execution_id}: ${unknownEvidence}`);
 }
 
 function stableApprovalIdentity(

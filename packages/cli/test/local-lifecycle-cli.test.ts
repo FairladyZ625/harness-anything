@@ -619,6 +619,7 @@ test("CLI task-complete treats failed or missing CI as descriptive readiness", (
     const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "failed"], true, executionActorEnv);
     assert.equal(completed.ok, true);
     assert.deepEqual(completed.completionGate.axes, {
+      canonicalStatus: "in_review",
       coordinationStatus: "in_review",
       packageDisposition: "active",
       closeoutReadiness: "ready"

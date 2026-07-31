@@ -49,6 +49,10 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
   if (forceAudit && typeof forceAudit === "object" && typeof (forceAudit as { path?: unknown }).path === "string") {
     setPath(paths, "forceAudit", (forceAudit as { path: string }).path);
   }
+  const warnings = [
+    ...(result.warnings ?? []),
+    ...taskCreatePlanGuidance(raw)
+  ];
 
   const legacy = {
     ok: true,
@@ -57,7 +61,7 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
     summary: summarizeResult(raw),
     ...(Object.keys(data).length > 0 ? { data } : {}),
     ...(Object.keys(paths).length > 0 ? { paths } : {}),
-    ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {})
+    ...(warnings.length > 0 ? { warnings } : {})
   } satisfies LegacyCommandReceipt;
   const contractViolation = validateReceiptContract(legacy);
   if (contractViolation) {
@@ -68,6 +72,17 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
     } satisfies CliFailureResult);
   }
   return legacyToV2(legacy);
+}
+
+function taskCreatePlanGuidance(raw: Record<string, unknown>): ReadonlyArray<unknown> {
+  if (raw.command !== "new-task" || typeof raw.taskId !== "string" || typeof raw.packagePath !== "string") return [];
+  const report = raw.report;
+  if (report && typeof report === "object" && !Array.isArray(report)
+    && (report as { readonly dryRun?: unknown }).dryRun === true) return [];
+  return [{
+    code: "task_plan_required_before_start",
+    message: `Before running \`ha task start ${raw.taskId}\`, replace the generated placeholders in ${raw.packagePath}/task_plan.md with substantive plan content; an untouched scaffold is rejected as task_plan_placeholder.`
+  }];
 }
 
 export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
