@@ -221,7 +221,8 @@ async function compileTaskTransition(
           state,
           taskId: payload.taskId,
           path,
-          requestedStatus: to
+          requestedStatus: to,
+          expected: snapshot
         })
       }
     };

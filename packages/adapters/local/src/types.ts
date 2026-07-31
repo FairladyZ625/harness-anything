@@ -58,6 +58,7 @@ export interface CreateLocalTaskInput {
 export interface SetLocalStatusInput {
   readonly taskId: TaskId;
   readonly status: DomainStatus;
+  readonly auditText?: string;
 }
 
 export interface AppendProgressInput {

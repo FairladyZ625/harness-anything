@@ -63,10 +63,16 @@ test("generic local status writer rejects non-cancellation exits from in_review"
     }
     assert.equal(enqueued.length, 0);
 
-    const cancelled = Effect.runSync(engine.setStatus({ taskId: executionTaskId, status: "cancelled" }));
+    const auditText = "FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=test; recordedAt=2026-08-01T00:00:00.000Z";
+    const cancelled = Effect.runSync(engine.setStatus({
+      taskId: executionTaskId,
+      status: "cancelled",
+      auditText
+    }));
     assert.equal(cancelled.status, "cancelled");
     assert.equal(enqueued.length, 1);
     assert.equal(enqueued[0]?.kind, "transition_local");
+    assert.equal((enqueued[0]?.payload as { readonly auditText?: string }).auditText, auditText);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

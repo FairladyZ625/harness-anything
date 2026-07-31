@@ -201,7 +201,6 @@ export async function prepareAuthorityV2(input: {
       if (verifyAlreadySatisfied) {
         try {
           await options.fenceWitness.assertHeld("before-prepare", identity);
-          await consumeAuthorityOperationForModeV2({ mode, verified, opId, options: v2 });
           const stateProof = await verifyAlreadySatisfied();
           if (!stateProof) {
             return terminal(await input.persistTerminal(
@@ -213,6 +212,7 @@ export async function prepareAuthorityV2(input: {
               canonicalRequestEnvelope
             ));
           }
+          await consumeAuthorityOperationForModeV2({ mode, verified, opId, options: v2 });
           return terminal(await input.persistTerminal(
             identity,
             semanticDigest,

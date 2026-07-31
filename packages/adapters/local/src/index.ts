@@ -227,6 +227,15 @@ function setStatus(
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const index = yield* readIndexEffect(rootInput, input.taskId);
+    if (input.auditText !== undefined
+      && (input.status !== "cancelled" || !input.auditText.startsWith("FORCE_STATUS_SET_AUDIT:"))) {
+      return yield* Effect.fail({
+        _tag: "InvalidTransition",
+        taskId: input.taskId,
+        from: index.status,
+        to: input.status
+      } satisfies EngineError);
+    }
     if (index.engine !== "local") {
       return yield* Effect.fail({
         _tag: "EngineOwnsStatus",
@@ -258,7 +267,15 @@ function setStatus(
         to: input.status
       } satisfies EngineError);
     }
-    yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, status: input.status }), { kind: "transition_local" });
+    yield* writeCoordinatedPayload(coordinator, stablePayloadHash, {
+      entityId: taskEntityId(input.taskId),
+      kind: "transition_local",
+      payload: {
+        path: "INDEX.md",
+        body: renderIndex({ ...index, status: input.status }),
+        ...(input.auditText === undefined ? {} : { auditText: input.auditText })
+      }
+    });
     return { taskId: input.taskId, status: input.status, engine: "local" } satisfies LocalTaskResult;
   });
 }

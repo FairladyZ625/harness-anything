@@ -76,6 +76,60 @@ test("non-local terminal status success preserves the owner-visible demotion war
   assert.match(result.warnings?.[0]?.revivalCondition ?? "", /third independent user/u);
 });
 
+test("failed audited cancellation leaves no unpaired audit progress", () => {
+  const taskId = "task-audit-atomic";
+  const progress: string[] = [];
+  const statusInputs: Array<{ readonly auditText?: string }> = [];
+  const context = {
+    rootDir: "/fixture",
+    layoutInput: "/fixture",
+    artifactStore: {
+      readTaskPackage: () => Effect.succeed({
+        taskId,
+        rootPath: "/fixture/task-audit-atomic",
+        disposition: "active",
+        documents: [{
+          path: "INDEX.md",
+          kind: "document",
+          body: ["---", "lifecycle:", "  engine: local", "  status: active", "---"].join("\n")
+        }]
+      })
+    },
+    engine: {
+      appendProgress: (input: { readonly text: string }) => Effect.sync(() => {
+        progress.push(input.text);
+        return { taskId, path: "progress.md" };
+      }),
+      setStatus: (input: { readonly auditText?: string }) => {
+        statusInputs.push(input);
+        return Effect.fail({
+          _tag: "InvalidTransition" as const,
+          taskId,
+          from: "done" as const,
+          to: "cancelled" as const
+        });
+      }
+    }
+  } as unknown as CommandRunnerContext;
+  const command = {
+    rootDir: "/fixture",
+    json: true,
+    action: {
+      kind: "status-set",
+      taskId,
+      status: "cancelled",
+      force: true,
+      reason: "atomic audit regression"
+    }
+  } as ParsedCommand;
+
+  const failure = Effect.runSync(Effect.flip(runTaskLifecycleWithDemotions(context, command)));
+
+  assert.equal(failure._tag, "InvalidTransition");
+  assert.deepEqual(progress, []);
+  assert.match(statusInputs[0]?.auditText ?? "", /^FORCE_STATUS_SET_AUDIT:/u);
+});
+
 test("task start is one admitted claim-and-activate boundary that cannot enter review", () => {
   const parsed = parseArgs(["task", "start", "task_BOUNDARY", "--ttl-ms", "60000"]);
   assert.equal(parsed.ok, true);

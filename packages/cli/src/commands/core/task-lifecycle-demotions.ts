@@ -74,19 +74,19 @@ function runLocalAuditedCancellation(
     } satisfies CliResult);
   }
   return withAuditedCancellationLease(context, action.taskId, Effect.gen(function* () {
-    const audit = yield* context.engine.appendProgress({
+    const result = yield* context.engine.setStatus({
       taskId: action.taskId,
-      text: renderForceStatusAudit("cancelled", action.reason ?? "unspecified")
+      status: "cancelled",
+      auditText: renderForceStatusAudit("cancelled", action.reason ?? "unspecified")
     });
-    const result = yield* context.engine.setStatus({ taskId: action.taskId, status: "cancelled" });
     return {
       ok: true,
       command: "status-set",
       taskId: result.taskId,
       status: result.status,
-      path: audit.path,
+      path: "progress.md",
       forced: true,
-      forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER },
+      forceAudit: { path: "progress.md", marker: FORCE_STATUS_AUDIT_MARKER },
       warnings: taskTreeSoftGateWarnings(context, action.taskId)
     } satisfies CliResult;
   }));
