@@ -137,6 +137,122 @@ recoveryTest("historical recovery terminalizes only from matching canonical publ
   );
 });
 
+recoveryTest("immutable historical recovery mismatch is durably rejected and not replayed after restart", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-rejected-"));
+  try {
+    const historical = { ...proceedingInput(), generation: 403 };
+    const previous = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: historical.generation
+    }).begin(historical);
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409
+    });
+    const gate = new RepoWriteAuthorityRecoveryGate({
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409,
+      store: current,
+      assertCurrentWriterFence: () => undefined,
+      resolveHistoricalPublication: async () => ({
+        commitSha: "a".repeat(40),
+        semanticDigest: historical.authoritySemanticDigest
+      }),
+      recoverHistoricalCommittedReceipt: async () => {
+        throw new Error("AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH");
+      }
+    });
+
+    assert.deepEqual(
+      await gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+      {
+        disposition: "permanently-rejected",
+        code: "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH"
+      }
+    );
+
+    assert.equal(current.lookup(previous.outerOpId).state, "outcome-unknown");
+    assert.deepEqual(current.getHistoricalRecoveryRejection(previous.outerOpId), {
+      schema: "repo-write-historical-recovery-rejection/v1",
+      disposition: "permanently-rejected",
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      proceedingGeneration: historical.generation,
+      rejectedByGeneration: 409,
+      outerOpId: historical.outerOpId,
+      requestDigest: previous.requestDigest,
+      innerOpId: historical.innerOpId,
+      authoritySemanticDigest: historical.authoritySemanticDigest,
+      code: "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH"
+    });
+    assert.equal(
+      readdirSync(directory).filter((name) => name.endsWith(".terminal.json")).length,
+      0
+    );
+
+    const restarted = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 410
+    });
+    assert.deepEqual(restarted.listHistoricalProceedings(), []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+recoveryTest("NON_LINEAR semicolon diagnostic is durably rejected once", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-nonlinear-"));
+  try {
+    const historical = { ...proceedingInput(), generation: 403 };
+    const previous = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: historical.generation
+    }).begin(historical);
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409
+    });
+    const gate = new RepoWriteAuthorityRecoveryGate({
+      repoId: historical.repoId,
+      workspaceId: historical.workspaceId,
+      generation: 409,
+      store: current,
+      assertCurrentWriterFence: () => undefined,
+      resolveHistoricalPublication: async () => {
+        throw new Error(
+          "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR;expectedPreviousHead=abc"
+        );
+      }
+    });
+
+    assert.deepEqual(
+      await gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+      {
+        disposition: "permanently-rejected",
+        code: "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR"
+      }
+    );
+    assert.equal(
+      current.getHistoricalRecoveryRejection(previous.outerOpId)?.code,
+      "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR"
+    );
+    assert.deepEqual(current.listHistoricalProceedings(), []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 recoveryTest("historical recovery stays outcome-unknown when publication is absent", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-absent-"));
   try {

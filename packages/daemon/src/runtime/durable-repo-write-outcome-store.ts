@@ -1,20 +1,4 @@
-import { randomBytes } from "node:crypto";
-import {
-  chmodSync,
-  closeSync,
-  constants,
-  fchmodSync,
-  fstatSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync
-} from "node:fs";
+import { closeSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { CommandReceiptEnvelope } from "@harness-anything/application";
 import { sha256Text } from "@harness-anything/kernel";
@@ -26,7 +10,6 @@ import {
   decodeRepoWriteOutcomeV1,
   repoWriteActorStampDigestV1,
   repoWriteReceiptSeedSchema,
-  RepoWriteOutcomeValidationError,
   sameRepoWriteOutcomeImmutableFieldsV1,
   type RepoWriteOutcomeAxesV1,
   type RepoWriteOutcomeV1,
@@ -35,62 +18,43 @@ import {
   type RepoWriteTerminalEvidenceV1,
   type RepoWriteTerminalOutcomeV1
 } from "./repo-write-outcome-schema.ts";
+import {
+  repoWriteOutcomeDurablePathExists,
+  repoWriteOutcomeEnsurePrivateDirectory,
+  repoWriteOutcomeFsyncDirectory,
+  repoWriteOutcomeFsyncOpened,
+  repoWriteOutcomePublishOnce,
+  repoWriteOutcomeReadPrivateText,
+  type RepoWriteOutcomeDurabilityTestHooks
+} from "./repo-write-outcome-durable-file.ts";
+import {
+  repoWriteHistoricalRecoveryRejectionRead,
+  repoWriteHistoricalRecoveryReject,
+  type RepoWriteHistoricalRecoveryRejectionV1,
+  type RepoWriteHistoricalRecoveryRejectInputV1
+} from "./repo-write-historical-recovery-rejection.ts";
+import {
+  RepoWriteOutcomeConflictError,
+  RepoWriteOutcomeCorruptionError,
+  RepoWriteOutcomeGenerationFenceError,
+  RepoWriteOutcomeUnsupportedPlatformError
+} from "./repo-write-outcome-errors.ts";
+
+export {
+  RepoWriteOutcomeConflictError,
+  RepoWriteOutcomeCorruptionError,
+  RepoWriteOutcomeGenerationFenceError,
+  RepoWriteOutcomeUnsupportedPlatformError
+} from "./repo-write-outcome-errors.ts";
+export type { RepoWriteOutcomeDurabilityTestHooks } from "./repo-write-outcome-durable-file.ts";
+export type {
+  RepoWriteHistoricalRecoveryRejectionV1,
+  RepoWriteHistoricalRecoveryRejectInputV1
+} from "./repo-write-historical-recovery-rejection.ts";
 
 const proceedingSuffix = ".proceeding.json";
 const terminalSuffix = ".terminal.json";
-const maximumOutcomeBytes = 2 * 1_024 * 1_024;
-
-export class RepoWriteOutcomeConflictError extends Error {
-  readonly code = "REPO_WRITE_OUTCOME_CONFLICT";
-
-  constructor(message: string) {
-    super(message);
-    this.name = "RepoWriteOutcomeConflictError";
-  }
-}
-
-export class RepoWriteOutcomeCorruptionError extends Error {
-  readonly code = "REPO_WRITE_OUTCOME_CORRUPT";
-
-  constructor(message: string, options: ErrorOptions = {}) {
-    super(message, options);
-    this.name = "RepoWriteOutcomeCorruptionError";
-  }
-}
-
-export class RepoWriteOutcomeUnsupportedPlatformError extends Error {
-  readonly code = "REPO_WRITE_OUTCOME_PLATFORM_UNSUPPORTED";
-
-  constructor() {
-    super("repo-write outcome durability is unsupported on win32");
-    this.name = "RepoWriteOutcomeUnsupportedPlatformError";
-  }
-}
-
-export class RepoWriteOutcomeGenerationFenceError extends Error {
-  readonly code = "REPO_WRITE_OUTCOME_GENERATION_FENCED";
-
-  constructor(message: string) {
-    super(message);
-    this.name = "RepoWriteOutcomeGenerationFenceError";
-  }
-}
-
-type DirectoryFsyncReason = "publish" | "observe-existing" | "eexist-observer";
-type TargetFsyncReason = "observe-existing" | "eexist-observer";
-
-export interface RepoWriteOutcomeDurabilityTestHooks {
-  /** Test-only fault injection; native fsync still runs unless this throws. */
-  readonly beforeDirectoryFsync?: (reason: DirectoryFsyncReason) => void;
-  /** Test-only observation emitted after the native directory fsync succeeds. */
-  readonly afterDirectoryFsync?: (reason: DirectoryFsyncReason) => void;
-  /** Test-only race injection; cannot replace the native link/fsync sequence. */
-  readonly beforePublishLink?: (input: { readonly target: string; readonly text: string }) => void;
-  /** Test-only observation emitted after the native target-inode fsync succeeds. */
-  readonly afterTargetFsync?: (
-    input: { readonly reason: TargetFsyncReason; readonly target: string }
-  ) => void;
-}
+const historicalRecoveryRejectionSuffix = ".recovery-rejected.json";
 
 export interface DurableRepoWriteOutcomeStoreV1Options extends RepoWriteOutcomeAxesV1 {
   readonly directory: string;
@@ -238,10 +202,39 @@ export class DurableRepoWriteOutcomeStoreV1 {
         }
         this.assertIdentity(proceeding, proceeding.outerOpId);
         const current = this.get(proceeding.outerOpId);
-        return current?.phase === "PROCEEDING" && current.generation < this.axes.generation
+        return current?.phase === "PROCEEDING"
+          && current.generation < this.axes.generation
+          && !this.usableHistoricalRecoveryRejection(current)
           ? [current]
           : [];
       });
+  }
+
+  getHistoricalRecoveryRejection(
+    outerOpId: string
+  ): RepoWriteHistoricalRecoveryRejectionV1 | undefined {
+    return repoWriteHistoricalRecoveryRejectionRead({
+      directory: this.directory,
+      file: repoWriteOutcomePaths(this.directory, outerOpId).historicalRecoveryRejection,
+      axes: this.axes,
+      current: this.get(outerOpId),
+      ...(this.durabilityHooks ? { hooks: this.durabilityHooks } : {})
+    });
+  }
+
+  rejectHistoricalRecovery(
+    input: RepoWriteHistoricalRecoveryRejectInputV1
+  ): RepoWriteHistoricalRecoveryRejectionV1 {
+    this.assertInputAxes(input);
+    return repoWriteHistoricalRecoveryReject({
+      directory: this.directory,
+      file: repoWriteOutcomePaths(this.directory, input.outerOpId).historicalRecoveryRejection,
+      axes: this.axes,
+      current: this.get(input.outerOpId),
+      requestDigest: input.requestDigest,
+      code: input.code,
+      ...(this.durabilityHooks ? { hooks: this.durabilityHooks } : {})
+    });
   }
 
   begin(input: RepoWriteProceedingInputV1): RepoWriteOutcomeV1 {
@@ -331,6 +324,26 @@ export class DurableRepoWriteOutcomeStoreV1 {
     }
   }
 
+  private usableHistoricalRecoveryRejection(
+    current: RepoWriteOutcomeV1
+  ): RepoWriteHistoricalRecoveryRejectionV1 | undefined {
+    try {
+      return repoWriteHistoricalRecoveryRejectionRead({
+        directory: this.directory,
+        file: repoWriteOutcomePaths(
+          this.directory,
+          current.outerOpId
+        ).historicalRecoveryRejection,
+        axes: this.axes,
+        current,
+        ...(this.durabilityHooks ? { hooks: this.durabilityHooks } : {})
+      });
+    } catch (error) {
+      if (error instanceof RepoWriteOutcomeCorruptionError) return undefined;
+      throw error;
+    }
+  }
+
   private assertIdentity(outcome: RepoWriteOutcomeV1, outerOpId: string): void {
     if (outcome.repoId !== this.axes.repoId || outcome.workspaceId !== this.axes.workspaceId) {
       throw new RepoWriteOutcomeCorruptionError(
@@ -404,9 +417,8 @@ function repoWriteOutcomeReadCanonical(
   hooks?: RepoWriteOutcomeDurabilityTestHooks
 ): RepoWriteOutcomeV1 {
   try {
-    const descriptor = repoWriteOutcomeOpenPrivateRegularFile(file);
+    const { descriptor, text } = repoWriteOutcomeReadPrivateText(file);
     try {
-      const text = readFileSync(descriptor, "utf8");
       const parsed = decodeRepoWriteOutcomeV1(JSON.parse(text) as unknown);
       if (text !== canonicalRepoWriteOutcomeText(parsed)) {
         throw new RepoWriteOutcomeCorruptionError(`repo-write outcome is not canonically encoded: ${path.basename(file)}`);
@@ -425,128 +437,10 @@ function repoWriteOutcomeReadCanonical(
   }
 }
 
-function repoWriteOutcomePublishOnce(
-  directory: string,
-  target: string,
-  text: string,
-  hooks?: RepoWriteOutcomeDurabilityTestHooks
-): boolean {
-  if (Buffer.byteLength(text, "utf8") > maximumOutcomeBytes) {
-    throw new RepoWriteOutcomeValidationError(
-      `repo-write outcome exceeds the ${maximumOutcomeBytes}-byte durable record limit`
-    );
-  }
-  repoWriteOutcomeEnsurePrivateDirectory(directory);
-  const temporary = path.join(
-    directory,
-    `.${path.basename(target)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
-  );
-  let descriptor: number | undefined;
-  try {
-    descriptor = openSync(temporary, "wx", 0o600);
-    fchmodSync(descriptor, 0o600);
-    if (process.platform !== "win32" && (fstatSync(descriptor).mode & 0o777) !== 0o600) {
-      throw new RepoWriteOutcomeCorruptionError("repo-write temporary outcome must have mode 0600");
-    }
-    writeFileSync(descriptor, text, "utf8");
-    fsyncSync(descriptor);
-    closeSync(descriptor);
-    descriptor = undefined;
-    hooks?.beforePublishLink?.({ target, text });
-    try {
-      linkSync(temporary, target);
-    } catch (error) {
-      if (repoWriteOutcomeIsAlreadyExists(error)) {
-        repoWriteOutcomeFsyncExisting(target, hooks, "eexist-observer");
-        repoWriteOutcomeFsyncDirectory(directory, hooks, "eexist-observer");
-        return false;
-      }
-      throw error;
-    }
-    repoWriteOutcomeFsyncDirectory(directory, hooks, "publish");
-    return true;
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
-    rmSync(temporary, { force: true });
-  }
-}
-
-function repoWriteOutcomeFsyncExisting(
-  file: string,
-  hooks: RepoWriteOutcomeDurabilityTestHooks | undefined,
-  reason: TargetFsyncReason
-): void {
-  const descriptor = repoWriteOutcomeOpenPrivateRegularFile(file);
-  try {
-    repoWriteOutcomeFsyncOpened(descriptor, file, hooks, reason);
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
-function repoWriteOutcomeFsyncOpened(
-  descriptor: number,
-  file: string,
-  hooks: RepoWriteOutcomeDurabilityTestHooks | undefined,
-  reason: TargetFsyncReason
-): void {
-  fsyncSync(descriptor);
-  hooks?.afterTargetFsync?.({ reason, target: file });
-}
-
-function repoWriteOutcomeEnsurePrivateDirectory(directory: string): void {
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const status = lstatSync(directory);
-  if (!status.isDirectory() || status.isSymbolicLink()) {
-    throw new RepoWriteOutcomeCorruptionError("repo-write outcome root must be a real directory");
-  }
-  if (process.platform !== "win32") {
-    chmodSync(directory, 0o700);
-    if ((lstatSync(directory).mode & 0o777) !== 0o700) {
-      throw new RepoWriteOutcomeCorruptionError("repo-write outcome root must have mode 0700");
-    }
-  }
-}
-
-function repoWriteOutcomeOpenPrivateRegularFile(file: string): number {
-  const descriptor = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  const status = fstatSync(descriptor);
-  if (!status.isFile()) {
-    closeSync(descriptor);
-    throw new RepoWriteOutcomeCorruptionError(`repo-write outcome is not a regular file: ${path.basename(file)}`);
-  }
-  if (status.size <= 0 || status.size > maximumOutcomeBytes) {
-    closeSync(descriptor);
-    throw new RepoWriteOutcomeCorruptionError(
-      `repo-write outcome has an invalid byte length: ${path.basename(file)}`
-    );
-  }
-  if (process.platform !== "win32" && (status.mode & 0o777) !== 0o600) {
-    closeSync(descriptor);
-    throw new RepoWriteOutcomeCorruptionError(`repo-write outcome must have mode 0600: ${path.basename(file)}`);
-  }
-  return descriptor;
-}
-
-function repoWriteOutcomeFsyncDirectory(
-  directory: string,
-  hooks: RepoWriteOutcomeDurabilityTestHooks | undefined,
-  reason: DirectoryFsyncReason
-): void {
-  if (process.platform === "win32") throw new RepoWriteOutcomeUnsupportedPlatformError();
-  hooks?.beforeDirectoryFsync?.(reason);
-  const descriptor = openSync(directory, "r");
-  try {
-    fsyncSync(descriptor);
-  } finally {
-    closeSync(descriptor);
-  }
-  hooks?.afterDirectoryFsync?.(reason);
-}
-
 function repoWriteOutcomePaths(directory: string, outerOpId: string): {
   readonly proceeding: string;
   readonly terminal: string;
+  readonly historicalRecoveryRejection: string;
 } {
   const normalized = createRepoWriteProceedingOutcomeV1({
     repoId: "path-check",
@@ -564,22 +458,9 @@ function repoWriteOutcomePaths(directory: string, outerOpId: string): {
   const prefix = path.join(directory, `repo-write-outcome-v1.${key}`);
   return {
     proceeding: `${prefix}${proceedingSuffix}`,
-    terminal: `${prefix}${terminalSuffix}`
+    terminal: `${prefix}${terminalSuffix}`,
+    historicalRecoveryRejection: `${prefix}${historicalRecoveryRejectionSuffix}`
   };
-}
-
-function repoWriteOutcomeIsAlreadyExists(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "EEXIST";
-}
-
-function repoWriteOutcomeDurablePathExists(file: string): boolean {
-  try {
-    lstatSync(file);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
 }
 
 function repoWriteOutcomeSafeIdentity(value: string): string {

@@ -1,5 +1,5 @@
 import type {
-  RepoWriteRecoveryDeferredFrame,
+  RepoWriteRecoveryDiagnosticFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
 import { repoWriteProtocolType } from "./repo-write-protocol.ts";
@@ -21,8 +21,8 @@ export function observeRepoWriteTelemetry(
 }
 
 export function observeRepoWriteRecoveryDiagnostic(
-  observer: ((frame: RepoWriteRecoveryDeferredFrame) => void) | undefined,
-  frame: RepoWriteRecoveryDeferredFrame
+  observer: ((frame: RepoWriteRecoveryDiagnosticFrame) => void) | undefined,
+  frame: RepoWriteRecoveryDiagnosticFrame
 ): void {
   try {
     observer?.(frame);
