@@ -15,7 +15,6 @@ export function commitTouchedPaths(
   message?: string,
   sessionId?: string,
   options: {
-    readonly forceAddPaths?: ReadonlyArray<string>;
     readonly preserveExplicitLogPaths?: ReadonlyArray<string>;
     readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
@@ -25,11 +24,9 @@ export function commitTouchedPaths(
   const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
 
   const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
-    forceAddPaths: options.forceAddPaths,
     versionControlSystem: vcs
   });
   if (!plan) return "no-git-change";
-  const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
   const preserveExplicitLogs = resolveExplicitLogSet(
     rootDir,
     options.preserveExplicitLogPaths ?? [],
@@ -43,8 +40,6 @@ export function commitTouchedPaths(
     const staged = vcs.stagedFiles(plan.repoRoot, [relativePath]).trim().length > 0;
     return !staged || hasUnstagedChanges(vcs.workingTreeFiles(plan.repoRoot, [relativePath]));
   });
-  const forcedPaths = addablePaths.filter((relativePath) => forceAdd.has(relativePath));
-  const unforcedPaths = addablePaths.filter((relativePath) => !forceAdd.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
   // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
   // moves us onto the session branch; the finally must return to the same trunk.
@@ -52,14 +47,10 @@ export function commitTouchedPaths(
 
   if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
   try {
-    if (forcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: forcedPaths, force: true });
-    if (unforcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: unforcedPaths });
+    if (addablePaths.length > 0) vcs.add(plan.repoRoot, { paths: addablePaths });
     unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
     const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
-    const preservedForcedLogs = preservedLogs.filter((relativePath) => forceAdd.has(relativePath));
-    const preservedUnforcedLogs = preservedLogs.filter((relativePath) => !forceAdd.has(relativePath));
-    if (preservedForcedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedForcedLogs, force: true });
-    if (preservedUnforcedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedUnforcedLogs });
+    if (preservedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedLogs });
     const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
     if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
 

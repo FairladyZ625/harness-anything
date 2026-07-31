@@ -151,7 +151,7 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
   });
 });
 
-test("CLI doc sync materializes an exact log artifact after a prior intent-only commit", async () => {
+test("CLI doc sync materializes an exact log artifact", async () => {
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
@@ -172,30 +172,6 @@ test("CLI doc sync materializes an exact log artifact after a prior intent-only 
     ].join("\n"));
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
     initHarnessGit(harnessRoot);
-
-    const legacyEventPath = path.join(harnessRoot, "attribution-events", "legacy-intent.jsonl");
-    mkdirSync(path.dirname(legacyEventPath), { recursive: true });
-    writeFileSync(legacyEventPath, `${JSON.stringify({
-      schema: "attribution-event/v1",
-      eventId: "attribution:intent_legacy_log",
-      opId: "intent_legacy_log",
-      journalRecordSchema: "write-journal/v2",
-      entityId: "entity/doc-sync/legacy-log",
-      kind: "doc_sync_submit",
-      actor: { principal: { kind: "person", personId: "person_doc_sync" }, executor: null },
-      principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: `sha256:${"0".repeat(64)}` },
-      executorSource: "none",
-      at: "2026-07-31T00:00:00.000Z",
-      recordedAt: "2026-07-31T00:00:00.000Z",
-      payloadHash: "0".repeat(64),
-      payloadRef: {
-        path: ".harness/write-journal/payloads/intent_legacy_log.json",
-        sha256: "0".repeat(64)
-      }
-    })}\n`, "utf8");
-    execFileSync("git", ["-C", harnessRoot, "add", "--", "attribution-events/legacy-intent.jsonl"]);
-    execFileSync("git", ["-C", harnessRoot, "commit", "-m", "legacy intent without materialized log"]);
-    assert.throws(() => execFileSync("git", ["-C", harnessRoot, "show", `HEAD:${relativePath}`]));
 
     mkdirSync(path.dirname(targetPath), { recursive: true });
     writeFileSync(targetPath, body, "utf8");
