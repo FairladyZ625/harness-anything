@@ -16,6 +16,7 @@ import {
   rejectStaleGeneration
 } from "./generation-fence-enforcement.ts";
 import {
+  alreadySatisfied,
   indeterminate,
   rejected,
   terminal
@@ -75,6 +76,7 @@ export async function prepareAuthorityV2(input: {
   let fixedOperation: WriteOp | undefined;
   let computedIntegrity: AuthorityOperationIntegrity | undefined;
   let publicationRevalidation: (() => Promise<void>) | undefined;
+  let verifyAlreadySatisfied: NonNullable<import("./semantic-mutation-envelope-v2.ts").AuthoritySemanticCompilationV2["alreadySatisfied"]>["verify"] | undefined;
   let recoveryPublicationPolicy: AuthorityRecoveryPublicationPolicyV1 | undefined;
   let fixedOperationBinding: AuthorityFixedOperationBindingV1 | undefined;
   if (known) {
@@ -195,6 +197,48 @@ export async function prepareAuthorityV2(input: {
       fixedOperation = compilation.operation;
       computedIntegrity = compilation.authorityIntegrity;
       publicationRevalidation = compilation.publicationRevalidation;
+      verifyAlreadySatisfied = compilation.alreadySatisfied?.verify;
+      if (verifyAlreadySatisfied) {
+        try {
+          await options.fenceWitness.assertHeld("before-prepare", identity);
+          await consumeAuthorityOperationForModeV2({ mode, verified, opId, options: v2 });
+          const stateProof = await verifyAlreadySatisfied();
+          if (!stateProof) {
+            return terminal(await input.persistTerminal(
+              identity,
+              semanticDigest,
+              "INDETERMINATE",
+              indeterminate(identity, semanticDigest, "ALREADY_SATISFIED_STATE_RECHECK_MISMATCH"),
+              computedIntegrity,
+              canonicalRequestEnvelope
+            ));
+          }
+          return terminal(await input.persistTerminal(
+            identity,
+            semanticDigest,
+            "ALREADY_SATISFIED",
+            alreadySatisfied(identity, semanticDigest, stateProof, computedIntegrity),
+            computedIntegrity,
+            canonicalRequestEnvelope
+          ));
+        } catch (error) {
+          if (isDaemonGenerationFenced(error)) {
+            return terminal(generationFencedReceipt(identity, semanticDigest, error));
+          }
+          return terminal(await input.persistTerminal(
+            identity,
+            semanticDigest,
+            "INDETERMINATE",
+            indeterminate(
+              identity,
+              semanticDigest,
+              `ALREADY_SATISFIED_STATE_RECHECK_FAILED:${describePreparationError(error)}`
+            ),
+            computedIntegrity,
+            canonicalRequestEnvelope
+          ));
+        }
+      }
       recoveryPublicationPolicy = publicationRevalidation
         ? "REVALIDATION_REQUIRED"
         : "EXACT_FIXED_OPERATION";

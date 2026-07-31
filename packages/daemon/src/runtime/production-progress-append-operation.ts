@@ -352,7 +352,7 @@ export class ProductionRepoWriteOperationHost<
           assertActive: () => undefined
         }
       }
-    ), proceeding);
+    ), proceeding, authorityEvidence);
     const evidence = terminalEvidence(authorityEvidence, receipt, proceeding);
     return { receipt, authorityEvidence: evidence };
   }
@@ -370,16 +370,25 @@ function commandReceiptJsonObject(
 
 function exactReceipt(
   receipt: CommandReceiptEnvelope,
-  proceeding: RepoWriteProceedingOutcomeV1
+  proceeding: RepoWriteProceedingOutcomeV1,
+  authorityEvidence: AuthorityOperationReceipt | undefined
 ): CommandReceiptEnvelope {
+  const alreadySatisfied = authorityEvidence?.tag === "ALREADY_SATISFIED"
+    ? {
+        kind: "already-satisfied",
+        message: authorityEvidence.message
+      }
+    : undefined;
   return {
     ...receipt,
+    ...(alreadySatisfied ? { summary: alreadySatisfied.message } : {}),
     command: proceeding.receiptSeed.command,
     action: proceeding.receiptSeed.action,
     details: {
       ...(receipt.details ?? {}),
       data: {
         ...receiptDetailsData(receipt),
+        ...(alreadySatisfied ? { authorityOutcome: alreadySatisfied } : {}),
         repoWrite: {
           schema: "repo-write-recovery/v1",
           repoId: proceeding.repoId,

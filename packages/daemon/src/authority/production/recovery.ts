@@ -251,6 +251,7 @@ function isRecoverablePendingRecord(record: AuthorityStoredOperationRecord): boo
 function isUnsettledV2Record(record: AuthorityStoredOperationRecord): boolean {
   return record.recordedProtocol?.kind === "semantic-mutation-envelope/v2"
     && record.state !== "COMMITTED"
+    && record.state !== "ALREADY_SATISFIED"
     && record.state !== "REJECTED"
     && record.state !== "RETRYABLE_NOT_COMMITTED";
 }

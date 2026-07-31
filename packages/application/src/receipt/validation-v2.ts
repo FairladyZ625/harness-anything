@@ -9,7 +9,7 @@ import {
   type ImmutableReceiptAcknowledgementV2
 } from "./v2-types.ts";
 
-const authorityTags = ["COMMITTED", "REJECTED", "RETRYABLE_NOT_COMMITTED", "INDETERMINATE"] as const;
+const authorityTags = ["COMMITTED", "ALREADY_SATISFIED", "REJECTED", "RETRYABLE_NOT_COMMITTED", "INDETERMINATE"] as const;
 const originTags = ["APPLIED_EXACT_AT_CUT", "SUPERSEDED", "LOCAL_CONFLICT", "APPLY_BLOCKED", "NONQUIESCENT", "VIEW_UNAVAILABLE"] as const;
 const deliveryStates = ["PENDING", "RESULT_PREPARED", "ACK_COMMITTED", "DETACHED", "PROTOCOL_DAMAGED"] as const;
 const leaseStates = ["NOT_REQUESTED", "SATISFIED", "REVOKED"] as const;

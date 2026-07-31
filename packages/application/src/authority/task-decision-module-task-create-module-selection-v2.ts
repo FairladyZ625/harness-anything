@@ -1,6 +1,6 @@
 import type { ModuleRecordV2, TaskCreatePayloadV2 } from "./task-decision-module-command-v2.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
-import type { TaskDecisionModuleAuthorityStateV2 } from "./task-decision-module-semantic-compiler-v2.ts";
+import type { TaskDecisionModuleAuthorityStateV2 } from "./task-decision-module-semantic-compiler-types.ts";
 import { readModuleRegistryV2 } from "./task-decision-module-module-mutations-v2.ts";
 import {
   semanticAdmissionV2 as admission,

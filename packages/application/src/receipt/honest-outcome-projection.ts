@@ -77,7 +77,7 @@ type ProjectedMoment =
     }
   | {
       readonly status: "not_reached";
-      readonly reason: "pending" | "terminal_failure";
+      readonly reason: "pending" | "terminal_failure" | "already_satisfied";
       readonly failureId?: string;
     }
   | {
@@ -252,6 +252,11 @@ const authorityProjectors = {
         freshness: "historical_exact_at_cut"
       }
     });
+  },
+  ALREADY_SATISFIED: (_authority, { state }) => {
+    state.committed = { status: "not_reached", reason: "already_satisfied" };
+    state.applied = { status: "not_reached", reason: "already_satisfied" };
+    state.visible = { status: "not_reached", reason: "already_satisfied" };
   },
   REJECTED: (authority, context) => {
     const failure = addFailure(context, "request_rejected", "before_commit", {

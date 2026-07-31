@@ -50,7 +50,7 @@ import {
   verifySemanticBaseCasV2,
   verifySemanticPathCasV2
 } from "./semantic-authority-helpers-v2.ts";
-import type { HostedDocumentSnapshotV2, SemanticEntityBaseV2 } from "./fact-relation-semantic-compiler-v2.ts";
+import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import {
   compileDecisionAmendV2,
   compileDecisionRelationReplaceV2,
@@ -73,7 +73,13 @@ import {
 } from "./task-decision-module-refs.ts";
 import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
 import { enteringExecutionWip } from "./task-wip-policy.ts";
-import { taskReturnToIdeaPublicationRevalidation, type ReadTaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
+import { taskTransitionAlreadySatisfiedVerifierV1 } from "./task-transition-already-satisfied-v1.ts";
+import type {
+  CompiledTaskDecisionModuleCommandV2,
+  TaskDecisionModuleAuthorityStateV2,
+  TaskDecisionModuleSemanticCompilerV2Options
+} from "./task-decision-module-semantic-compiler-types.ts";
+import { taskReturnToIdeaPublicationRevalidation } from "./task-return-to-idea-policy.ts";
 import { taskExecutionAdmissionPublicationRevalidation, type TaskExecutionAdmissionPortsV1 } from "./task-execution-admission-policy.ts";
 
 export {
@@ -104,24 +110,6 @@ export {
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 
-export interface TaskDecisionModuleAuthorityStateV2 {
-  readonly readEntityBase: (entityRef: RegistryEntityRefV2) => Promise<SemanticEntityBaseV2 | null>;
-  readonly readHostedDocument: (path: string) => Promise<HostedDocumentSnapshotV2 | null>;
-}
-
-export interface TaskDecisionModuleSemanticCompilerV2Options extends TaskExecutionAdmissionPortsV1 {
-  readonly state: TaskDecisionModuleAuthorityStateV2;
-  readonly taskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
-}
-
-export interface CompiledTaskDecisionModuleCommandV2 {
-  readonly mutationPlan: RegistryMutationPlanInput;
-  readonly operation: WriteOp;
-  readonly requiredBaseRefs: ReadonlyArray<RegistryEntityRefV2>;
-  readonly requiredPathSnapshots: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>;
-  readonly publicationRevalidation?: () => Promise<void>;
-}
-
 export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionModuleSemanticCompilerV2Options): AuthoritySemanticCompilerV2 {
   return {
     compile: async (envelope) => {
@@ -133,6 +121,7 @@ export function makeTaskDecisionModuleSemanticCompilerV2(options: TaskDecisionMo
         mutationPlan: compiled.mutationPlan,
         operation: compiled.operation,
         decodedBytes,
+        ...(compiled.alreadySatisfied ? { alreadySatisfied: compiled.alreadySatisfied } : {}),
         ...(compiled.publicationRevalidation ? { publicationRevalidation: compiled.publicationRevalidation } : {})
       };
     }
@@ -224,6 +213,19 @@ async function compileTaskTransition(
     { path, snapshot },
     ...completionContractSnapshots
   ]);
+  if (current.status === to) {
+    return {
+      ...compiled,
+      alreadySatisfied: {
+        verify: taskTransitionAlreadySatisfiedVerifierV1({
+          state,
+          taskId: payload.taskId,
+          path,
+          requestedStatus: to
+        })
+      }
+    };
+  }
   if (to === "planned" && (current.status === "active" || current.status === "blocked")) {
     return { ...compiled, publicationRevalidation: taskReturnToIdeaPublicationRevalidation(options.taskReturnToIdeaSnapshot, payload.taskId) };
   }

@@ -42,6 +42,7 @@ export { decodeSessionExecutionReviewCommandPayloadV2 } from "./session-executio
 export { createAuthorityCutoverEntityRegistryQualification } from "./cutover-registry-qualification.ts";
 export type {
   AttributedCoordinatorFactory,
+  AuthorityAlreadySatisfiedReceipt,
   AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
   AuthorityFenceWitness,

@@ -532,6 +532,7 @@ export function validateAuthorityCutoverV2WriterCoverage(
 
 const terminalStates = new Set<AuthorityOperationState>([
   "COMMITTED",
+  "ALREADY_SATISFIED",
   "REJECTED",
   "RETRYABLE_NOT_COMMITTED",
   "INDETERMINATE"

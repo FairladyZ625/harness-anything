@@ -423,7 +423,7 @@ outcomeTest("terminalization requires exact authoritative committed or not-commi
         semanticDigest: "1".repeat(64),
         reason: "outcome unknown"
       } as unknown as RepoWriteTerminalEvidenceV1
-    }), /COMMITTED, REJECTED, or RETRYABLE_NOT_COMMITTED/u);
+    }), /COMMITTED, ALREADY_SATISFIED, REJECTED, or RETRYABLE_NOT_COMMITTED/u);
     assert.throws(() => store.terminalize({
       ...axes(),
       outerOpId: input.outerOpId,

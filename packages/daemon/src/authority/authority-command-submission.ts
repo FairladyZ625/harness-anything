@@ -358,6 +358,7 @@ export function assertAuthorityReceiptOperation(
 export function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason: FlushReason): FlushReport {
   switch (receipt.tag) {
     case "COMMITTED": return { reason, opCount: 1, committed: true, watermark: receipt.opId };
+    case "ALREADY_SATISFIED": return { reason, opCount: 0, committed: false, watermark: receipt.opId };
     case "REJECTED": throw authorityWriteRejected(receipt.reason, false, authorityRejectionCode(receipt.reason));
     case "RETRYABLE_NOT_COMMITTED": throw authorityWriteRejected(
       receipt.reason,

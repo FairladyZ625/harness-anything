@@ -1,10 +1,12 @@
 import type {
+  AuthorityAlreadySatisfiedReceipt,
   AuthorityIndeterminateReceipt,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityRejectedReceipt,
   AuthorityRetryableReceipt
 } from "./types.ts";
+import type { AuthorityAlreadySatisfiedStateProofV1 } from "./semantic-mutation-envelope-v2.ts";
 import type {
   AuthorityAdmission,
   PreparedAuthoritySubmission,
@@ -33,6 +35,23 @@ export function rejected(
   reason: string
 ): AuthorityRejectedReceipt {
   return { tag: "REJECTED", workspaceId: envelope.workspaceId, opId: envelope.opId, semanticDigest: digest, reason };
+}
+
+export function alreadySatisfied(
+  envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
+  digest: string,
+  stateProof: AuthorityAlreadySatisfiedStateProofV1,
+  authorityIntegrity: AuthorityAlreadySatisfiedReceipt["authorityIntegrity"]
+): AuthorityAlreadySatisfiedReceipt {
+  return {
+    tag: "ALREADY_SATISFIED",
+    workspaceId: envelope.workspaceId,
+    opId: envelope.opId,
+    semanticDigest: digest,
+    message: "目标状态已满足,本次无变更",
+    stateProof,
+    authorityIntegrity
+  };
 }
 
 export function retryable(
