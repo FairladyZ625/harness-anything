@@ -44,6 +44,7 @@ import {
   documentWritesForWriteValidation,
   readHardDeletePayload,
   validateWriteTransaction,
+  verifyAlreadyAppliedWriteOp,
   writeOpTouchedPaths
 } from "./operations/transaction-plan.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./receipt.ts";
@@ -362,6 +363,7 @@ function flushRecords(
     if (!fileApplied.has(record.opId)) {
       applyRecord(rootDir, rootInput, journalPath, record);
     } else {
+      verifyAlreadyAppliedWriteOp(rootInput, recordToOp(rootDir, record));
       finalizeRecoverableDocumentTransaction(rootInput, record.opId);
     }
     touchedPaths.push(...recordTouchedPaths);

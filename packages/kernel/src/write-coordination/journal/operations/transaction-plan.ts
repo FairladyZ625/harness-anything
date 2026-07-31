@@ -21,7 +21,8 @@ import {
 import {
   applyCanonicalAuthoredBatch,
   canonicalAuthoredBatchPaths,
-  validateCanonicalAuthoredBatch
+  validateCanonicalAuthoredBatch,
+  verifyAppliedCanonicalAuthoredBatch
 } from "./canonical-authored-batch.ts";
 import { applyWithCompensatedCasBody } from "./composite-cas-compensation.ts";
 import {
@@ -396,6 +397,10 @@ export function validateWriteTransaction(rootInput: HarnessLayoutInput, op: Writ
 
 export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
   return writeTransactionPlan(op).apply(rootInput, op);
+}
+
+export function verifyAlreadyAppliedWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
+  if (op.kind === "doc_sync_submit") verifyAppliedCanonicalAuthoredBatch(rootInput, op);
 }
 
 export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {

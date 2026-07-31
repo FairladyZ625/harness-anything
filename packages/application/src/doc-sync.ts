@@ -130,6 +130,17 @@ export type DocSyncSubmitResultV1 =
     readonly forbiddenTouches?: ReadonlyArray<DocSyncForbiddenTouchV1>;
     readonly unresolvedTouches?: ReadonlyArray<{ readonly path: string; readonly reason: string; readonly bearing?: string; readonly zoneClass?: string }>;
     readonly postApplyViolations?: ReadonlyArray<DocSyncForbiddenTouchV1>;
+    readonly ipcError?: {
+      readonly name: "RepoWriteIpcPayloadTooLargeError";
+      readonly code: "REPO_WRITE_IPC_PAYLOAD_TOO_LARGE";
+      readonly delivery: "definitely-not-sent";
+      readonly sender: "parent" | "child";
+      readonly path: string;
+      readonly boundary: string;
+      readonly actualBytes: number;
+      readonly maximumBytes: number;
+      readonly excessBytes: number;
+    };
   };
 
 export interface DocSyncValidationResult {

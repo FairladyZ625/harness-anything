@@ -2,11 +2,22 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
 import {
+  normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   type HarnessLayoutInput
 } from "@harness-anything/kernel";
 
 const docSyncWriterWorkingTreeContentKind = "writer-working-tree/v1";
+
+export class ExternalDocSyncWorkingTreeReferenceError extends Error {
+  constructor() {
+    super(
+      "The internal writer-working-tree content kind cannot be supplied at the doc-sync wire boundary. "
+      + "Run 'ha doc status --json', rebuild the request with inline content, then retry 'ha doc sync --submit'."
+    );
+    this.name = "ExternalDocSyncWorkingTreeReferenceError";
+  }
+}
 
 export function referenceDocSyncWriterWorkingTree(
   rootInput: HarnessLayoutInput,
@@ -18,6 +29,9 @@ export function referenceDocSyncWriterWorkingTree(
     payload: {
       ...request.payload,
       changes: request.payload.changes.map((change) => {
+        if (change.content.kind === docSyncWriterWorkingTreeContentKind) {
+          throw new ExternalDocSyncWorkingTreeReferenceError();
+        }
         if (change.content.kind !== "inline"
           || !("body" in change.content)
           || typeof change.content.body !== "string") return change;
@@ -76,9 +90,11 @@ export function resolveDocSyncChangePath(
   if (path.isAbsolute(pathInput)) {
     return { ok: false, reason: "doc sync path must be authored-root relative" };
   }
-  const normalized = pathInput.split(/[\\/]+/u).filter(Boolean).join("/");
-  if (normalized.includes("..")) {
-    return { ok: false, reason: "doc sync path traversal is forbidden" };
+  let normalized: string;
+  try {
+    normalized = normalizeRelativeDocumentPath(pathInput);
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
   const absolute = path.resolve(authoredRoot, normalized);
   const relative = path.relative(authoredRoot, absolute);

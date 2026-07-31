@@ -4,15 +4,21 @@ import type {
   TaskHolderExecutor
 } from "@harness-anything/application";
 import type { CurrentSessionRef } from "@harness-anything/kernel";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../identity/types.ts";
 import type { AuthorityConnectionDispatch } from "../protocol/connection-context.ts";
 import { encodeRepoWriteCommand } from "../runtime/repo-write-progress-command.ts";
 import type { RepoWriteProcessSupervisor } from "../runtime/repo-write-process-supervisor.ts";
+import { RepoWriteIpcPayloadTooLargeError } from "../runtime/repo-write-client-errors.ts";
 import { docSyncJournalUnavailable } from "./doc-sync-journal-failure.ts";
-import { referenceDocSyncWriterWorkingTree } from "./doc-sync-writer-working-tree.ts";
+import {
+  ExternalDocSyncWorkingTreeReferenceError,
+  referenceDocSyncWriterWorkingTree
+} from "./doc-sync-writer-working-tree.ts";
 
 export async function dispatchDocSyncSubmitToWriter(input: {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly request: DocSyncSubmitRequestV1;
   readonly actor?: AuthenticatedActor;
   readonly executor?: TaskHolderExecutor | null;
@@ -32,7 +38,12 @@ export async function dispatchDocSyncSubmitToWriter(input: {
       command: {
         rootDir: input.rootDir,
         action: { kind: "doc-sync-submit" },
-        request: referenceDocSyncWriterWorkingTree(input.rootDir, input.request)
+        request: referenceDocSyncWriterWorkingTree(
+          input.layoutOverrides
+            ? { rootDir: input.rootDir, layoutOverrides: input.layoutOverrides }
+            : input.rootDir,
+          input.request
+        )
       },
       context: {
         actor: input.actor,
@@ -46,11 +57,60 @@ export async function dispatchDocSyncSubmitToWriter(input: {
       ? report
       : docSyncJournalUnavailable(input.request, "The doc-sync writer child returned no typed report.");
   } catch (error) {
+    if (error instanceof RepoWriteIpcPayloadTooLargeError) {
+      return writerRejection(
+        input.request,
+        "doc_sync_invalid_payload",
+        `Repo writer ${error.sender} IPC payload cannot be sent because it is too large at ${error.path}: ${error.boundary} is `
+          + `${error.actualBytes} bytes, limit ${error.maximumBytes} bytes, over by ${error.excessBytes} bytes. `
+          + "Next: split the request or send large content by working-tree path or attachment reference.",
+        {
+          ipcError: {
+            name: "RepoWriteIpcPayloadTooLargeError",
+            code: error.code,
+            delivery: "definitely-not-sent",
+            sender: error.sender,
+            path: error.path,
+            boundary: error.boundary,
+            actualBytes: error.actualBytes,
+            maximumBytes: error.maximumBytes,
+            excessBytes: error.excessBytes
+          }
+        }
+      );
+    }
+    if (error instanceof ExternalDocSyncWorkingTreeReferenceError) {
+      return writerRejection(
+        input.request,
+        "doc_sync_invalid_payload",
+        "The internal writer-working-tree content kind cannot be supplied at the doc-sync wire boundary. "
+          + "Run 'ha doc status --json', rebuild the request with inline content, then retry 'ha doc sync --submit'."
+      );
+    }
     return docSyncJournalUnavailable(
       input.request,
       error instanceof Error ? error.stack ?? error.message : String(error)
     );
   }
+}
+
+function writerRejection(
+  request: DocSyncSubmitRequestV1,
+  code: Extract<DocSyncSubmitResultV1, { readonly ok: false }>["code"],
+  reason: string,
+  extra: Partial<Extract<DocSyncSubmitResultV1, { readonly ok: false }>> = {}
+): DocSyncSubmitResultV1 {
+  return {
+    ok: false,
+    _tag: "WriteRejected",
+    schema: "daemon.doc-sync-submit-result/v1",
+    status: "rejected",
+    intentId: request.payload.intentId,
+    code,
+    reason,
+    retryable: false,
+    ...extra
+  };
 }
 
 function docSyncCurrentSession(request: DocSyncSubmitRequestV1): CurrentSessionRef | undefined {

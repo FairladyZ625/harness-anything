@@ -38,7 +38,7 @@ export class RepoWriteIpcPayloadTooLargeError extends RepoWriteSendDeliveryError
     const excessBytes = actualBytes - maximumBytes;
     super(
       "definitely-not-sent",
-      `Repo writer ${sender} IPC payload is too large at ${path}: ${boundary} is `
+      `Repo writer ${sender} IPC payload cannot be sent because it is too large at ${path}: ${boundary} is `
         + `${actualBytes} bytes, limit ${maximumBytes} bytes, over by ${excessBytes} bytes. `
         + "Next: split the request or send large content by working-tree path or attachment reference.",
       options
