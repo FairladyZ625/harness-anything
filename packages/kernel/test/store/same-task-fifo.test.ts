@@ -462,6 +462,57 @@ test("WriteCoordinator records nested harness HEAD when self-host flush has no s
   });
 });
 
+test("retained no-op journal record stays watermarked after the recent-id window fills", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    const harnessRoot = initializeNestedHarnessRepo(rootDir);
+    mkdirSync(path.join(harnessRoot, "tasks/task-1"), { recursive: true });
+    writeFileSync(path.join(harnessRoot, "tasks/task-1/notes.md"), "already committed", "utf8");
+    runGit(harnessRoot, "add", ".");
+    runGit(harnessRoot, "commit", "-m", "seed no-op target");
+
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir
+    });
+    Effect.runSync(coordinator.enqueue(
+      docWrite("op-retained-noop", "task-1", "notes.md", "already committed")
+    ));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    const watermarkPath = path.join(rootDir, ".harness/write-journal/watermark.json");
+    const firstWatermark = JSON.parse(readFileSync(watermarkPath, "utf8")) as {
+      readonly schema: "write-watermark/v1";
+      readonly lastCommittedOpIds: ReadonlyArray<string>;
+      readonly lastCommitSha: string;
+      readonly projectionHash: string;
+      readonly updatedAt: string;
+    };
+    writeFileSync(watermarkPath, `${JSON.stringify({
+      ...firstWatermark,
+      lastCommittedOpIds: [
+        "op-retained-noop",
+        ...Array.from({ length: 127 }, (_, index) => `op-historical-${index}`)
+      ]
+    })}\n`, "utf8");
+
+    Effect.runSync(coordinator.enqueue(
+      docWrite("op-new-commit", "task-1", "new.md", "new commit")
+    ));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    const finalWatermark = JSON.parse(readFileSync(watermarkPath, "utf8")) as {
+      readonly lastCommittedOpIds: ReadonlyArray<string>;
+    };
+    const journalBody = readFileSync(
+      path.join(rootDir, ".harness/write-journal/writes.jsonl"),
+      "utf8"
+    );
+    assert.match(journalBody, /"opId":"op-retained-noop"/u);
+    assert.equal(finalWatermark.lastCommittedOpIds.includes("op-retained-noop"), true);
+  });
+});
+
 test("WriteCoordinator fails closed when authored root is not an independent nested Git repo", () => {
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);

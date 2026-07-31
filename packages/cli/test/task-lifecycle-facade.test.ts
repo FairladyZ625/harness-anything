@@ -13,7 +13,13 @@ import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../src/cli/types.ts";
 import { canonicalTaskStartResult } from "../src/commands/core/task-holder-support.ts";
 import { runTaskLifecycleWithDemotions } from "../src/commands/core/task-lifecycle-demotions.ts";
-import { runTaskStartFacade, taskCloseoutFacadeSteps, taskCompleteFacadeSteps, taskStartFacadeSteps } from "../src/commands/core/task-lifecycle-facade.ts";
+import {
+  isCodeDocReconciliationCurrent,
+  runTaskStartFacade,
+  taskCloseoutFacadeSteps,
+  taskCompleteFacadeSteps,
+  taskStartFacadeSteps
+} from "../src/commands/core/task-lifecycle-facade.ts";
 import { dispatchLifecycleFacadeSteps } from "../src/commands/core/task-lifecycle-facade-guidance.ts";
 
 test("non-local terminal status success preserves the owner-visible demotion warning", () => {
@@ -176,6 +182,53 @@ test("task complete owner approval materializes accepted prose before Review, re
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("task complete explicitly deduplicates an already-current code-doc reconciliation", () => {
+  const sha = "a".repeat(40);
+  const documents = [
+    { path: "closeout.md", body: "# Closeout\n" },
+    {
+      path: "code-doc-anchors.json",
+      body: `${JSON.stringify({
+        schema: "code-doc-reconciliation/v1",
+        taskId: "task_BOUNDARY",
+        records: [{
+          id: "closeout",
+          ledgerPath: "closeout.md",
+          kind: "closeout",
+          anchors: [
+            { kind: "commit", sha },
+            { kind: "path", sha, path: "packages/kernel/src/index.ts" }
+          ]
+        }]
+      }, null, 2)}\n`
+    }
+  ];
+
+  assert.equal(isCodeDocReconciliationCurrent({
+    taskId: "task_BOUNDARY",
+    documents,
+    sha,
+    paths: ["packages/kernel/src/index.ts"]
+  }), true);
+  const command = {
+    rootDir: "/fixture",
+    json: true,
+    action: {
+      kind: "task-complete",
+      taskId: "task_BOUNDARY",
+      reviewerId: "person_reviewer",
+      evidenceMode: "execution-review"
+    }
+  } as ParsedCommand & {
+    readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>;
+  };
+  assert.deepEqual(
+    taskCompleteFacadeSteps(command, sha, [], { codeDocAlreadyCurrent: true })
+      .map((step) => step.action.kind),
+    ["task-complete"]
+  );
 });
 
 test("direct-mode doc sync unavailability becomes a completion warning", async () => {

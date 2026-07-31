@@ -46,6 +46,32 @@ export function flushExactAuthorizedJournalRecord(input: {
     record: ReadableJournalRecord
   ) => FlushReport;
 }): FlushReport {
+  return flushExactAuthorizedJournalRecords({
+    ...input,
+    witnesses: [input.witness],
+    flushRecords: (state, records) => input.flushRecord(state, records[0]!)
+  });
+}
+
+export function flushExactAuthorizedJournalRecords(input: {
+  readonly rootDir: string;
+  readonly rootInput: HarnessLayoutInput;
+  readonly journalPath: string;
+  readonly watermarkPath: string;
+  readonly operationalActor: OperationalActor;
+  readonly lockTtlMs: number;
+  readonly heldGlobalLock?: OwnedLock;
+  readonly witnesses: ReadonlyArray<JournalRecordWitnessV1>;
+  readonly authorizations: Map<string, JournalRecordWitnessV1>;
+  readonly pending: WriteOp[];
+  readonly flushRecords: (
+    state: {
+      readonly watermark: WriteWatermark | null;
+      readonly fileApplied: ReadonlySet<string>;
+    },
+    records: ReadonlyArray<ReadableJournalRecord>
+  ) => FlushReport;
+}): FlushReport {
   return withRepoLocks(
     input.rootDir,
     input.rootInput,
@@ -54,32 +80,46 @@ export function flushExactAuthorizedJournalRecord(input: {
     input.lockTtlMs,
     [],
     () => {
-      const authorized = input.authorizations.get(input.witness.opId);
-      if (!authorized
-        || authorized.schema !== input.witness.schema
-        || authorized.recordDigest !== input.witness.recordDigest) {
-        rejectWrite(`exact journal witness is not authorized: ${input.witness.opId}`);
+      if (input.witnesses.length === 0) {
+        rejectWrite("exact journal publication requires at least one witness");
+      }
+      const opIds = new Set(input.witnesses.map((witness) => witness.opId));
+      if (opIds.size !== input.witnesses.length) {
+        rejectWrite("exact journal publication witnesses must be unique");
+      }
+      for (const witness of input.witnesses) {
+        const authorized = input.authorizations.get(witness.opId);
+        if (!authorized
+          || authorized.schema !== witness.schema
+          || authorized.recordDigest !== witness.recordDigest) {
+          rejectWrite(`exact journal witness is not authorized: ${witness.opId}`);
+        }
       }
       const state = readDurableState(
         input.journalPath,
         input.watermarkPath,
         input.rootDir
       );
-      const record = state.records.find(
-        (candidate) => candidate.opId === input.witness.opId
-      );
-      if (!record) rejectWrite(`exact journal record is missing: ${input.witness.opId}`);
-      if (journalRecordWitnessV1(record).recordDigest !== input.witness.recordDigest) {
-        rejectWrite(
-          `exact journal witness does not match durable record: ${input.witness.opId}`
+      const records = input.witnesses.map((witness) => {
+        const record = state.records.find(
+          (candidate) => candidate.opId === witness.opId
         );
+        if (!record) rejectWrite(`exact journal record is missing: ${witness.opId}`);
+        if (journalRecordWitnessV1(record).recordDigest !== witness.recordDigest) {
+          rejectWrite(
+            `exact journal witness does not match durable record: ${witness.opId}`
+          );
+        }
+        return record;
+      });
+      const report = input.flushRecords(state, records);
+      for (const witness of input.witnesses) {
+        const pendingIndex = input.pending.findIndex(
+          (operation) => operation.opId === witness.opId
+        );
+        if (pendingIndex >= 0) input.pending.splice(pendingIndex, 1);
+        input.authorizations.delete(witness.opId);
       }
-      const report = input.flushRecord(state, record);
-      const pendingIndex = input.pending.findIndex(
-        (operation) => operation.opId === input.witness.opId
-      );
-      if (pendingIndex >= 0) input.pending.splice(pendingIndex, 1);
-      input.authorizations.delete(input.witness.opId);
       return report;
     },
     { heldGlobalLock: input.heldGlobalLock }
@@ -100,6 +140,24 @@ export function createExactJournalRecordFlusher(input: {
 ]> {
   return (reason, witness) => input.finish(Effect.try({
     try: () => input.run(reason, witness),
+    catch: input.mapError
+  }));
+}
+
+export function createExactJournalRecordsFlusher(input: {
+  readonly run: (
+    reason: import("../../ports/write-coordinator.ts").FlushReason,
+    witnesses: ReadonlyArray<JournalRecordWitnessV1>
+  ) => FlushReport;
+  readonly mapError: (cause: unknown) => WriteError;
+  readonly finish: (
+    effect: Effect.Effect<FlushReport, WriteError>
+  ) => Effect.Effect<FlushReport, WriteError>;
+}): NonNullable<import("../../ports/write-coordinator.ts").WriteCoordinator[
+  "flushExactJournalRecords"
+]> {
+  return (reason, witnesses) => input.finish(Effect.try({
+    try: () => input.run(reason, witnesses),
     catch: input.mapError
   }));
 }

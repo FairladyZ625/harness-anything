@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type {
@@ -22,7 +21,7 @@ import {
 } from "../../layout/index.ts";
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
 import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
-import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./durable.ts";
+import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably } from "./durable.ts";
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
@@ -55,11 +54,14 @@ import { memoizePublicationVcs } from "./publication/memoized-vcs.ts";
 import {
   authorizeExactJournalRecord,
   createExactJournalRecordFlusher,
+  createExactJournalRecordsFlusher,
+  flushExactAuthorizedJournalRecords,
   flushExactAuthorizedJournalRecord
 } from "./exact-journal-flush.ts";
 import { maybeAutoMaterialize } from "./publication/materialization.ts";
 import { rebuildProjectionHash } from "./publication/projection.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
+import { compactJournalAndCanTrimWatermark } from "./journal-compaction.ts";
+import type { JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
   JournalRecordV1,
@@ -166,6 +168,22 @@ function makeJournaledWriteCoordinatorInternal(
       effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem
     )
   });
+  const flushExactJournalRecords = createExactJournalRecordsFlusher({
+    run: (reason, witnesses) => flushExactAuthorizedJournalRecords({
+      rootDir, rootInput: runtimeContext, journalPath, watermarkPath,
+      operationalActor, lockTtlMs, ...(heldGlobalLock ? { heldGlobalLock } : {}),
+      witnesses, authorizations: exactJournalAuthorizations, pending,
+      flushRecords: (state, records) => flushRecords(
+        reason, rootDir, runtimeContext, journalPath, watermarkPath,
+        state.watermark, records, state.fileApplied, sessionId, commitAuthor,
+        versionControlSystem, attributionEventStore, options.onProjectionChange
+      )
+    }),
+    mapError: (cause) => toJournalError(cause),
+    finish: (effect) => maybeAutoMaterialize(
+      effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem
+    )
+  });
 
   return {
     enqueue: (op) => Effect.try({
@@ -232,6 +250,7 @@ function makeJournaledWriteCoordinatorInternal(
         }));
       return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
     },
+    flushExactJournalRecords,
     flushExactJournalRecord,
     recover: lockConflictRetry
       ? retryLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
@@ -411,7 +430,7 @@ function flushRecords(
       updatedAt: new Date().toISOString()
     } satisfies WriteWatermark;
     writeWatermarkDurably(watermarkPath, fullWatermark);
-    if (tryCompactJournal(journalPath, new Set(allCommitted), confirmedAttributionOpIds) && recentCommitted.length < allCommitted.length) {
+    if (compactJournalAndCanTrimWatermark(journalPath, new Set(allCommitted), confirmedAttributionOpIds) && recentCommitted.length < allCommitted.length) {
       writeWatermarkDurably(watermarkPath, {
         ...fullWatermark,
         lastCommittedOpIds: recentCommitted,
@@ -500,34 +519,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
 
 function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {
   return opIds.slice(-maxWatermarkCommittedOpIds);
-}
-
-function tryCompactJournal(journalPath: string, coveredOpIds: ReadonlySet<string>, confirmedAttributionOpIds: ReadonlySet<string>): boolean {
-  try {
-    compactJournalDurably(journalPath, coveredOpIds, confirmedAttributionOpIds);
-    return true;
-  } catch {
-    // Compaction is an optimization. The watermark is authoritative for replay,
-    // so a failed compaction must not turn a committed flush into a failure.
-    return false;
-  }
-}
-
-function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<string>, confirmedAttributionOpIds: ReadonlySet<string>): void {
-  if (!existsSync(journalPath)) return;
-  const body = readFileSync(journalPath, "utf8");
-  if (body.trim().length === 0) return;
-
-  const retained = body
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .filter((line) => {
-      const parsed = JSON.parse(line) as Partial<ReadableJournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
-      if (parsed.schema !== "write-journal/v1" && parsed.schema !== "write-journal/v2" && parsed.schema !== "apply-marker/v1") return true;
-      if (parsed.schema === "write-journal/v2" && typeof parsed.opId === "string" && !confirmedAttributionOpIds.has(parsed.opId)) return true;
-      return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
-    });
-  writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);
 }
 
 function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {

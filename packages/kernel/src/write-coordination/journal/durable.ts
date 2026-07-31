@@ -196,6 +196,10 @@ export function durableFileExists(filePath: string): boolean {
   return existsSync(filePath);
 }
 
+export function readDurableTextIfExists(filePath: string): string | null {
+  return existsSync(filePath) ? readFileSync(filePath, "utf8") : null;
+}
+
 export function readFileBytes(filePath: string): Uint8Array {
   return readFileSync(filePath);
 }

@@ -21,8 +21,15 @@ export function makeDeferredAuthorityCoordinator(input: {
       if (pending.length === 0) return Effect.succeed({ reason, opCount: 0, committed: false });
       const ops = pending.splice(0, pending.length);
       const coordinator = input.makeDurableCoordinator();
-      return Effect.forEach(ops, (op) => coordinator.enqueue(op), { discard: true }).pipe(
-        Effect.flatMap(() => coordinator.flush(reason)),
+      return Effect.forEach(ops, (op) => coordinator.enqueue(op)).pipe(
+        Effect.flatMap((acknowledgements) => {
+          const witnesses = acknowledgements.flatMap((acknowledgement) =>
+            acknowledgement.journalWitness ? [acknowledgement.journalWitness] : []
+          );
+          return coordinator.flushExactJournalRecords && witnesses.length === ops.length
+            ? coordinator.flushExactJournalRecords(reason, witnesses)
+            : coordinator.flush(reason);
+        }),
         Effect.ensuring(Effect.sync(() => {
           for (const projectionWrite of projectionWrites.splice(0, projectionWrites.length)) {
             projectionWrite.settle();

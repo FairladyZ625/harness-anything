@@ -6,12 +6,20 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { inspectGitCommitRef } from "./authored-git.ts";
 import { resolveTaskDocSyncPaths } from "./doc-sync.ts";
+import {
+  taskCompleteCodeDocAlreadyCurrent,
+  taskCompleteFacadeSteps,
+  type TaskCompleteCommand
+} from "./task-complete-facade-steps.ts";
 import { dispatchLifecycleFacadeSteps, shellLifecycleToken } from "./task-lifecycle-facade-guidance.ts";
+export {
+  isCodeDocReconciliationCurrent,
+  taskCompleteFacadeSteps
+} from "./task-complete-facade-steps.ts";
 
 type Dispatch = (step: ParsedCommand) => Promise<CommandReceipt | CommandFailureReceipt>;
 type TaskStartCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-start" }> };
 type TaskCloseoutCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-closeout" }> };
-type TaskCompleteCommand = ParsedCommand & { readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-complete" }> };
 
 export async function runTaskStartFacade(command: ParsedCommand, dispatch: Dispatch): Promise<CommandReceipt | CommandFailureReceipt | CliResult> {
   if (command.action.kind !== "task-start") throw new Error("task start facade received a non-start command");
@@ -58,8 +66,20 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
   const layoutInput = { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides };
   const docPaths = resolveTaskDocSyncPaths(layoutInput, command.action.taskId, "task-complete");
   if (!docPaths.ok) return docPaths.result;
-  const steps = taskCompleteFacadeSteps(completeCommand, resolved.sha, docPaths.paths);
-  if (command.action.dryRun) return dryRun(completeCommand, steps, { commit: resolved.sha });
+  const codeDocAlreadyCurrent = await taskCompleteCodeDocAlreadyCurrent(
+    completeCommand,
+    resolved.sha
+  );
+  const steps = taskCompleteFacadeSteps(
+    completeCommand,
+    resolved.sha,
+    docPaths.paths,
+    { codeDocAlreadyCurrent }
+  );
+  if (command.action.dryRun) return dryRun(completeCommand, steps, {
+    commit: resolved.sha,
+    codeDocReconciliation: codeDocAlreadyCurrent ? "already-current" : "reconcile-required"
+  });
   const dispatched = await dispatchLifecycleFacadeSteps(steps, dispatch, "task-complete");
   if (!dispatched.ok) return dispatched.receipt;
   const { receipts, warnings } = dispatched;
@@ -76,6 +96,9 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
         report: {
           schema: "task-complete-result/v1",
           commit: resolved.sha,
+          codeDocReconciliation: codeDocAlreadyCurrent
+            ? { status: "already-current", skippedWrite: true }
+            : { status: "reconciled", skippedWrite: false },
           steps: receipts
         }
       }
@@ -127,54 +150,6 @@ export function taskCloseoutFacadeSteps(
       }
     }
   }, sha, docSyncPaths);
-}
-
-export function taskCompleteFacadeSteps(
-  command: TaskCompleteCommand,
-  sha: string,
-  docSyncPaths: ReadonlyArray<string> = []
-): ReadonlyArray<ParsedCommand> {
-  const action = command.action;
-  const approval = action.approval;
-  return [
-    ...(docSyncPaths.length > 0 ? [child(command, {
-      kind: "doc-sync",
-      mode: "submit",
-      paths: docSyncPaths
-    }), child(command, { kind: "materializer-run", dryRun: false, currentSessionOnly: true })] : []),
-    ...(approval ? [child(command, {
-      kind: "task-review-execution",
-      taskId: action.taskId,
-      ...(approval.executionId ? { executionId: approval.executionId } : {}),
-      verdict: "approved",
-      findings: approval.findings,
-      evidenceChecked: approval.evidenceChecked,
-      rationale: approval.rationale,
-      archiveWarningsAcknowledged: approval.archiveWarningsAcknowledged,
-      ...(approval.consentId ? { consentId: approval.consentId } : {}),
-      ...(approval.consentUtterance ? { consentUtterance: approval.consentUtterance } : {}),
-      ...(approval.consentStandingPolicyDecisionId ? { consentStandingPolicyDecisionId: approval.consentStandingPolicyDecisionId } : {}),
-      ...(approval.consentAssertedRationale ? { consentAssertedRationale: approval.consentAssertedRationale } : {}),
-      ...(approval.consentActions ? { consentActions: approval.consentActions } : {})
-    })] : []),
-    child(command, {
-      kind: "task-code-doc-reconcile",
-      taskId: action.taskId,
-      sha,
-      paths: approval?.paths ?? [],
-      ...(approval?.prRef ? { prRef: approval.prRef } : {}),
-      force: true
-    }),
-    child(command, {
-      kind: "task-complete",
-      taskId: action.taskId,
-      ...(approval?.executionId ? { executionId: approval.executionId } : {}),
-      ciGate: action.ciGate,
-      reviewerId: action.reviewerId,
-      evidenceMode: action.evidenceMode,
-      ...(action.evidenceMode === "commit-anchor" ? { commitRef: sha, judgment: action.judgment } : {})
-    })
-  ];
 }
 
 export const rejectDaemonTaskLifecycleFacade: CommandRunner = (_context, command) => Effect.succeed({
