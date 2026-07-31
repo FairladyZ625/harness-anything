@@ -398,6 +398,7 @@ function flushRecords(
     sessionId,
     {
       author: commitAuthor,
+      preserveExplicitLogPaths: plannedRecords.flatMap(({ touchedPaths: operationPaths }) => operationPaths),
       versionControlSystem: publicationVcs
     }
   );

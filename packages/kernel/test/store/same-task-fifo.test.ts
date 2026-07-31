@@ -223,6 +223,35 @@ test("WriteCoordinator rejects tracked files that are now matched by gitignore",
   });
 });
 
+test("WriteCoordinator commits script-ingest log artifacts declared by the operation", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    const harnessRoot = initializeNestedHarnessRepo(rootDir);
+    writeFileSync(path.join(harnessRoot, "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+    runGit(harnessRoot, "add", "harness.yaml");
+    runGit(harnessRoot, "commit", "-m", "seed harness");
+
+    const relativePath = "tasks/task-1/artifacts/agent-trace.log";
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      commitAuthor: testCommitAuthor
+    });
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-script-ingest-log",
+      entityId: "entity/script-run/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      kind: "script_ingest",
+      payload: {
+        writes: [{ path: relativePath, body: "script trace\n", baseBlobSha256: null }]
+      }
+    }));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-script-ingest-log");
+    assert.equal(runGit(harnessRoot, "show", `HEAD:${relativePath}`), "script trace");
+  });
+});
+
 test("WriteCoordinator excludes localRoot machine artifacts from every git repo", () => {
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);

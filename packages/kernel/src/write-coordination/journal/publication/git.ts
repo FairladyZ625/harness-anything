@@ -15,7 +15,7 @@ export function commitTouchedPaths(
   message?: string,
   sessionId?: string,
   options: {
-    readonly forceAddPaths?: ReadonlyArray<string>;
+    readonly preserveExplicitLogPaths?: ReadonlyArray<string>;
     readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
   } = {}
@@ -24,11 +24,15 @@ export function commitTouchedPaths(
   const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
 
   const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
-    forceAddPaths: options.forceAddPaths,
     versionControlSystem: vcs
   });
   if (!plan) return "no-git-change";
-  const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
+  const preserveExplicitLogs = resolveExplicitLogSet(
+    rootDir,
+    options.preserveExplicitLogPaths ?? [],
+    layoutInput,
+    vcs
+  );
   // A failed commit can leave a hard-delete already staged while its path no
   // longer exists in either the worktree or index. Re-adding that path fails;
   // preserve its staged deletion and continue the recovery commit.
@@ -36,8 +40,6 @@ export function commitTouchedPaths(
     const staged = vcs.stagedFiles(plan.repoRoot, [relativePath]).trim().length > 0;
     return !staged || hasUnstagedChanges(vcs.workingTreeFiles(plan.repoRoot, [relativePath]));
   });
-  const forcedPaths = addablePaths.filter((relativePath) => forceAdd.has(relativePath));
-  const unforcedPaths = addablePaths.filter((relativePath) => !forceAdd.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
   // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
   // moves us onto the session branch; the finally must return to the same trunk.
@@ -45,9 +47,10 @@ export function commitTouchedPaths(
 
   if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
   try {
-    if (forcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: forcedPaths, force: true });
-    if (unforcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: unforcedPaths });
+    if (addablePaths.length > 0) vcs.add(plan.repoRoot, { paths: addablePaths });
     unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
+    const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
+    if (preservedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedLogs });
     const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
     if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
 
@@ -138,6 +141,19 @@ function resolveForceAddSet(
 ): ReadonlySet<string> {
   if (forceAddPaths.length === 0) return new Set<string>();
   return new Set(resolveCommitPlan(rootDir, forceAddPaths, layoutInput, vcs)?.relativePaths ?? []);
+}
+
+function resolveExplicitLogSet(
+  rootDir: string,
+  explicitLogPaths: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput,
+  vcs: VersionControlSystem
+): ReadonlySet<string> {
+  if (explicitLogPaths.length === 0) return new Set<string>();
+  return new Set(
+    (resolveCommitPlan(rootDir, explicitLogPaths, layoutInput, vcs)?.relativePaths ?? [])
+      .filter((relativePath) => relativePath.endsWith(".log"))
+  );
 }
 
 function excludeLocalRootPaths(localRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): ReadonlyArray<string> {

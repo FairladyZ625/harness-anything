@@ -151,6 +151,42 @@ test("CLI doc sync submit commits eligible prose through the daemon", async () =
   });
 });
 
+test("CLI doc sync materializes an exact log artifact", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    const relativePath = `tasks/${taskId}/artifacts/daemon-evidence.log`;
+    const targetPath = path.join(harnessRoot, relativePath);
+    const sessionBranch = "sessions/doc-sync-cli-test";
+    const body = `${"x".repeat(47_659)}\n`;
+    mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(harnessRoot, "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  identity:",
+      "    personId: person_doc_sync",
+      "    displayName: Doc Sync User",
+      ""
+    ].join("\n"));
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    initHarnessGit(harnessRoot);
+
+    mkdirSync(path.dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, body, "utf8");
+    const submitted = runJson(rootDir, ["doc", "sync", "--submit", "--path", relativePath]);
+
+    assert.equal(submitted.ok, true, JSON.stringify(submitted));
+    assert.equal(submitted.report.status, "accepted");
+    assert.equal(submitted.report.appliedChanges[0].path, relativePath);
+    assert.equal(
+      execFileSync("git", ["-C", harnessRoot, "show", `${sessionBranch}:${relativePath}`], { encoding: "utf8" }),
+      body
+    );
+  });
+});
+
 test("task artifact add submits UTF-8 evidence through the existing doc-sync governance commit", async () => {
   await withTempRoot(async (rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
