@@ -192,26 +192,61 @@ export function FactInspector({
             <p className="mt-1 text-[12px] text-text-faint">{t("components.factInspector.currentProjectionHasNoIncomingEdgesPointing")}</p>
           ) : (
             <div className="mt-1 space-y-1.5">
-              {inbound.map((relation, index) => (
-                <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
-                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    <span className="text-text-faint">{shortEndpoint(relation.from)}</span>
-                    <ArrowSquareOut weight="bold" className="text-[10px] text-text-faint" />
-                    <span className={
-                      relation.kind === "invalidated-by" || relation.kind === "supersedes-fact"
-                        ? "text-stale"
-                        : "text-accent"
-                    }>
-                      {relation.kind}
-                    </span>
-                  </div>
-                  {relation.rationale && (
-                    <div className="mt-1 text-[11px] leading-snug text-text-muted">
-                      {relation.rationale}
+              {inbound.map((relation, index) => {
+                const fromRef = relation.from;
+                const short = shortEndpoint(fromRef);
+                const canJumpDecision =
+                  Boolean(onNavigateDecision) && fromRef.startsWith("decision/");
+                const canJumpTask =
+                  Boolean(onNavigateTask)
+                  && (fromRef.startsWith("task/")
+                    || (!fromRef.startsWith("decision/") && !fromRef.startsWith("fact/")));
+                const canJump = canJumpDecision || canJumpTask;
+                return (
+                  <div key={`${relation.from}-${relation.kind}-${index}`} className="rounded border border-border bg-surface px-2 py-1.5">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                      {canJump ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (canJumpDecision) {
+                              onNavigateDecision?.(normalizeDecisionId(fromRef));
+                            } else if (canJumpTask) {
+                              const taskId = fromRef.startsWith("task/")
+                                ? fromRef.slice("task/".length).split("/")[0]
+                                : fromRef.split("/")[0];
+                              if (taskId) onNavigateTask?.(taskId);
+                            }
+                          }}
+                          className="text-accent hover:underline"
+                          title={
+                            canJumpDecision
+                              ? t("components.factInspector.jumpDecision")
+                              : t("components.factInspector.jumpSourceTask")
+                          }
+                        >
+                          {short}
+                        </button>
+                      ) : (
+                        <span className="text-text-faint">{short}</span>
+                      )}
+                      <ArrowSquareOut weight="bold" className="text-[10px] text-text-faint" />
+                      <span className={
+                        relation.kind === "invalidated-by" || relation.kind === "supersedes-fact"
+                          ? "text-stale"
+                          : "text-accent"
+                      }>
+                        {relation.kind}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {relation.rationale && (
+                      <div className="mt-1 text-[11px] leading-snug text-text-muted">
+                        {relation.rationale}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

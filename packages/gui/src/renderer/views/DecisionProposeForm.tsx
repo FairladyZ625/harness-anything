@@ -57,6 +57,8 @@ export interface DecisionProposeFormProps {
 interface FormState {
   title: string;
   question: string;
+  /** Optional long-form body — daemon `body` field (context / rationale prose). */
+  body: string;
   riskTier: RiskTier;
   urgency: Urgency;
   chosen: DecisionProposeChosenInput[];
@@ -67,6 +69,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   title: "",
   question: "",
+  body: "",
   riskTier: "medium",
   urgency: "medium",
   chosen: [{ text: "" }],
@@ -151,6 +154,7 @@ export function DecisionProposeForm({ open, onClose, onSubmit, modules }: Decisi
     setSubmitError(null);
     setSubmitting(true);
     try {
+      const body = state.body.trim();
       const payload = buildDecisionProposePayload({
         title: state.title.trim(),
         question: state.question.trim(),
@@ -161,6 +165,7 @@ export function DecisionProposeForm({ open, onClose, onSubmit, modules }: Decisi
           .filter((entry) => entry.text.trim().length > 0)
           .map((entry) => ({ text: entry.text.trim(), whyNot: entry.whyNot.trim() })),
         claims: state.claims.filter((entry) => entry.text.trim().length > 0),
+        ...(body.length > 0 ? { body } : {}),
         ...(modules && modules.length > 0 ? { modules } : {})
       });
       const result = await onSubmit(payload);
@@ -234,6 +239,18 @@ export function DecisionProposeForm({ open, onClose, onSubmit, modules }: Decisi
             className={`${TEXT_INPUT_CLASS} resize-y`}
             rows={2}
             placeholder={t("views.decisionPropose.questionPlaceholder")}
+            disabled={submitting}
+          />
+        </Field>
+
+        <Field label={t("views.decisionPropose.bodyLabel")}>
+          <textarea
+            value={state.body}
+            data-testid="decision-propose-body"
+            onChange={(event) => patch({ body: event.target.value })}
+            className={`${TEXT_INPUT_CLASS} resize-y`}
+            rows={4}
+            placeholder={t("views.decisionPropose.bodyPlaceholder")}
             disabled={submitting}
           />
         </Field>

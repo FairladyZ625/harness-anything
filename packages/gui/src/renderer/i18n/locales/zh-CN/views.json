@@ -575,5 +575,9 @@
   "views.timelinePlot.focus": "焦点",
   "views.timelinePlot.noTime": "无时间",
   "views.timelinePlot.noTime2": "无时间",
-  "views.ledger.noPlt": "无 PLT"
+  "views.ledger.noPlt": "无 PLT",
+  "views.decisionPoolView.jumpDecision": "打开决策",
+  "views.decisionPoolView.jumpTask": "打开任务",
+  "views.decisionPropose.bodyLabel": "正文",
+  "views.decisionPropose.bodyPlaceholder": "长文本背景或理由（可选）"
 }

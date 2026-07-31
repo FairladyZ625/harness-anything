@@ -75,10 +75,12 @@ function RelationSummaryView({
   decision,
   relations,
   tasks,
+  onNavigateEntity,
 }: {
   decision: DecisionRow;
   relations: RelationEdge[];
   tasks: TaskRow[];
+  onNavigateEntity?: (ref: string) => void;
 }) {
   const lines = relationSummary(decision, relations, tasks);
   if (lines.length === 0) {
@@ -90,7 +92,21 @@ function RelationSummaryView({
         <div key={line.kind} className="flex flex-wrap items-center gap-1.5">
           <GitBranch weight="bold" className="text-text-faint" />
           <span className="font-mono text-text-faint">{line.label}</span>
-          <span className="font-mono text-text-muted">{line.targets.join(", ")}</span>
+          {line.targets.map((target, i) => {
+            const isTask = line.kind === "derives";
+            return (
+              <span key={`${line.kind}-${target}`} className="inline-flex items-center gap-1">
+                {i > 0 && <span className="text-text-faint">,</span>}
+                {onNavigateEntity ? (
+                  <button type="button" onClick={() => onNavigateEntity(isTask ? `task/${target}` : `decision/${target}`)} className="font-mono text-accent hover:underline" title={t(isTask ? "views.decisionPoolView.jumpTask" : "views.decisionPoolView.jumpDecision")}>
+                    {target}
+                  </button>
+                ) : (
+                  <span className="font-mono text-text-muted">{target}</span>
+                )}
+              </span>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -515,7 +531,12 @@ export function DecisionPoolView({
                           </div>
                         </div>
                         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 px-2.5 py-2">
-                          <RelationSummaryView decision={decision} relations={relations} tasks={tasks} />
+                          <RelationSummaryView
+                            decision={decision}
+                            relations={relations}
+                            tasks={tasks}
+                            onNavigateEntity={onNavigateEntity}
+                          />
                         </div>
                         {expanded && (
                           <div className="mt-2 rounded-md border border-border bg-surface-raised/30 px-2.5 py-2" data-testid={`decision-card-expanded-${decision.decisionId}`}>

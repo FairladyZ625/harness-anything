@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import type { EventEntry, RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
+import { normalizeTaskId } from "../model/triadic.ts";
 import {
   CloseoutBadge,
   EngineBadge,
@@ -63,10 +64,18 @@ export function TaskPreviewDrawer({
 
   if (!task) return null;
 
+  // Relation endpoints are entity refs (task/{id}, decision/{id}, fact/...).
+  // Normalize before comparing against the bare task.taskId so edges actually
+  // resolve — the old raw comparison silently dropped every prefixed edge.
   const related = relations
-    .filter((edge) => edge.from === task.taskId || edge.to === task.taskId)
+    .filter(
+      (edge) =>
+        normalizeTaskId(edge.from) === task.taskId ||
+        normalizeTaskId(edge.to) === task.taskId,
+    )
     .map((edge) => {
-      const otherId = edge.from === task.taskId ? edge.to : edge.from;
+      const fromIsSelf = normalizeTaskId(edge.from) === task.taskId;
+      const otherId = normalizeTaskId(fromIsSelf ? edge.to : edge.from);
       return { edge, task: tasks.find((candidate) => candidate.taskId === otherId) };
     })
     .filter((item) => item.task);
