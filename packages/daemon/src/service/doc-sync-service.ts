@@ -31,6 +31,7 @@ import {
   type TouchedZone
 } from "@harness-anything/application/doc-sync";
 import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
+import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledger.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
 
@@ -299,7 +300,11 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       }));
       await runDocSyncJournalEffect(options.coordinator!.flush("explicit"));
     }
-    const appliedLedgerSha = gitText(layout.authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
+    const appliedLedgerSha = resolveDocSyncAppliedLedgerSha(
+      layout,
+      request.payload.intentId,
+      validation.acceptedChanges.length > 0
+    );
     return {
       ok: true,
       schema: "daemon.doc-sync-submit-result/v1",
@@ -572,14 +577,6 @@ function reject(request: DocSyncSubmitRequestV1, code: Extract<DocSyncSubmitResu
     retryable,
     ...extra
   };
-}
-
-function gitText(cwd: string, args: ReadonlyArray<string>): string | null {
-  try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trimEnd();
-  } catch {
-    return null;
-  }
 }
 
 function gitBlobText(cwd: string, args: ReadonlyArray<string>): string | null {

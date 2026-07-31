@@ -6,17 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
 import {
   deriveRelationId,
   formatFactFlowRecord,
   formatRelationFlowRecord,
-  makeJournaledWriteCoordinator,
   sha256Text,
   writeContentAddressedBlobWithDisposition,
   type EntityRelationRecord,
-  type FactRecord,
-  type WriteCoordinator
+  type FactRecord
 } from "../../kernel/src/index.ts";
 import {
   buildDocSyncReport as daemonBuildDocSyncReport,
@@ -24,10 +21,13 @@ import {
   validateDocSyncSubmitRequest as validateDaemonDocSyncSubmitRequest
 } from "@harness-anything/daemon";
 import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
+import {
+  attributedCoordinator,
+  capturingAttributedCoordinator
+} from "./helpers/doc-sync-coordinator.ts";
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const registryBody = readFileSync(path.join(repoRoot, "tools/write-road-registry.json"), "utf8");
-const commitAuthor = { name: "Harness Test", email: "harness@example.test" };
 const buildDocSyncReport = (rootInput: Parameters<typeof daemonBuildDocSyncReport>[0]) =>
   daemonBuildDocSyncReport(rootInput, cliDaemonServiceHostServices.docSync);
 const makeDocSyncService = (
@@ -126,6 +126,30 @@ test("doc sync submit accepts pure task prose and commits with hermetic author",
       authoritySha256: `sha256:${"0".repeat(64)}`
     });
     assert.equal(record?.executorSource, "client-asserted");
+  });
+});
+
+test("doc sync accepted receipt names the session commit that contains every applied blob", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
+    const intentId = "intent-session-applied-ledger";
+    const sessionId = `session-${intentId}`;
+    const service = makeDocSyncService({
+      rootDir,
+      coordinator: attributedCoordinator(rootDir, sessionId)
+    });
+    const baseLedgerSha = git(harnessRoot, "rev-parse", "HEAD");
+    const next = planBody("Updated on the session branch.");
+    const result = await service.submit(submitRequest({
+      baseLedgerSha,
+      intentId,
+      changes: [inlineChange(`tasks/${taskId}/task_plan.md`, planBody("Original prose."), next)]
+    }));
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (!result.ok) return;
+    assert.equal(result.appliedLedgerSha, git(harnessRoot, "rev-parse", `sessions/${sessionId}`));
+    assert.equal(git(harnessRoot, "rev-parse", "HEAD"), baseLedgerSha);
+    assert.equal(git(harnessRoot, "show", `${result.appliedLedgerSha}:tasks/${taskId}/task_plan.md`), next.trimEnd());
   });
 });
 
@@ -666,30 +690,4 @@ function git(harnessRoot: string, ...args: ReadonlyArray<string>): string {
       GIT_CONFIG_GLOBAL: emptyGitConfigPath(harnessRoot)
     }
   }).trimEnd();
-}
-
-function attributedCoordinator(rootDir: string): WriteCoordinator {
-  return makeJournaledWriteCoordinator({
-    rootDir,
-    attribution: {
-      actor: {
-        principal: { kind: "person", personId: "person_test" },
-        executor: { kind: "agent", id: "codex-test" }
-      },
-      principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: `sha256:${"0".repeat(64)}` },
-      executorSource: "client-asserted"
-    },
-    commitAuthor
-  });
-}
-
-function capturingAttributedCoordinator(rootDir: string, captured: Array<Record<string, unknown>>): WriteCoordinator {
-  const coordinator = attributedCoordinator(rootDir);
-  const journalPath = path.join(rootDir, ".harness", "write-journal", "writes.jsonl");
-  return {
-    ...coordinator,
-    enqueue: (op) => coordinator.enqueue(op).pipe(Effect.tap(() => Effect.sync(() => {
-      captured.push(...readFileSync(journalPath, "utf8").trim().split(/\r?\n/u).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>));
-    })))
-  };
 }

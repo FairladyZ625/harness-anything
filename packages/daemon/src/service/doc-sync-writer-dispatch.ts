@@ -111,18 +111,25 @@ export async function dispatchDocSyncSubmitToWriter(input: {
 }
 
 function firstUnmaterializedChange(
-  input: Pick<Parameters<typeof dispatchDocSyncSubmitToWriter>[0], "rootDir" | "layoutOverrides">,
+  input: Pick<Parameters<typeof dispatchDocSyncSubmitToWriter>[0], "rootDir" | "layoutOverrides" | "request">,
   report: Extract<DocSyncSubmitResultV1, { readonly ok: true }>
 ): string | null {
   const layout = resolveHarnessLayout(input.layoutOverrides
     ? { rootDir: input.rootDir, layoutOverrides: input.layoutOverrides }
     : input.rootDir);
   for (const change of report.appliedChanges) {
+    const submittedChange = input.request.payload.changes.find((candidate) => candidate.path === change.path);
+    if (!submittedChange) return change.path;
     try {
       const body = execFileSync(
         "git",
         ["-C", layout.authoredRoot, "show", `${report.appliedLedgerSha}:${change.path}`],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+        {
+          encoding: "utf8",
+          maxBuffer: Math.max(1024 * 1024, submittedChange.size + 1),
+          stdio: ["ignore", "pipe", "ignore"],
+          windowsHide: true
+        }
       );
       if (sha256Text(body) !== change.newBlobSha256) return change.path;
     } catch {

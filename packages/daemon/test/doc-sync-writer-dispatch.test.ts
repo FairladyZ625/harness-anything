@@ -1,10 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
+import { sha256Text } from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../src/identity/types.ts";
 import type { AuthorityConnectionDispatch } from "../src/protocol/connection-context.ts";
 import { RepoWriteIpcPayloadTooLargeError } from "../src/runtime/repo-write-client-errors.ts";
@@ -116,6 +118,42 @@ test("doc-sync dispatch rejects an accepted report whose applied change is absen
       assert.equal(result.code, "doc_sync_invalid_payload");
       assert.match(result.reason, /reported accepted but did not materialize/u);
     }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("doc-sync dispatch verifies a materialized blob larger than the default exec buffer", async () => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-doc-sync-dispatch-"));
+  const authoredRoot = path.join(rootDir, "authored");
+  const body = `${"x".repeat(1_100_000)}\n`;
+  const relativePath = "tasks/task_A/artifacts/large.raw.jsonl";
+  try {
+    execFileSync("git", ["init", "-q", authoredRoot]);
+    execFileSync("git", ["-C", authoredRoot, "config", "user.name", "Harness Test"]);
+    execFileSync("git", ["-C", authoredRoot, "config", "user.email", "harness@example.test"]);
+    mkdirSync(path.dirname(path.join(authoredRoot, relativePath)), { recursive: true });
+    writeFileSync(path.join(authoredRoot, relativePath), body, "utf8");
+    execFileSync("git", ["-C", authoredRoot, "add", relativePath]);
+    execFileSync("git", ["-C", authoredRoot, "commit", "-qm", "materialize large blob"]);
+    const appliedLedgerSha = execFileSync("git", ["-C", authoredRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const largeRequest = request({ kind: "inline", body });
+
+    const result = await dispatchDocSyncSubmitToWriter({
+      ...dispatchInput(largeRequest, async () => acceptedReceipt({
+        appliedLedgerSha,
+        appliedChanges: [{
+          path: relativePath,
+          baseBlobSha256: null,
+          newBlobSha256: sha256Text(body),
+          zoneClassesTouched: ["task-authored-prose-or-stage"]
+        }]
+      })),
+      rootDir,
+      layoutOverrides: { authoredRoot: "authored" }
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
