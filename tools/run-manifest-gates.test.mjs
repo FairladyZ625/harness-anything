@@ -1,12 +1,24 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   buildManifestGatePlan,
+  formatAdvisoryGateWarning,
   manifestGateCommandInvocations,
   parseManifestGateArgs,
   runManifestGatePlan
 } from "./run-manifest-gates.mjs";
+
+const cBatchAdvisoryGateIds = [
+  "check-gate-surface",
+  "check-gate-manifest-invariants",
+  "check-enforcement-constants",
+  "check-staged-activation",
+  "check-runtime-release-readiness",
+  "check-stage0-manifest",
+  "check-legacy-intake-readiness"
+];
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
   const manifest = {
@@ -72,6 +84,39 @@ test("manifest gate runner reports advisory failures without failing or stopping
   });
   assert.deepEqual(seen, ["advisory-check", "required-check"]);
   assert.deepEqual(warnings, ["advisory-check"]);
+});
+
+test("C-batch contracted gates warn with machine-readable revival conditions", () => {
+  const manifest = JSON.parse(readFileSync(new URL("./gate-manifest.json", import.meta.url), "utf8"));
+  const plan = buildManifestGatePlan(
+    manifest,
+    parseManifestGateArgs(["--workflow-job", "boundaries"])
+  ).filter((entry) => cBatchAdvisoryGateIds.includes(entry.id));
+
+  assert.deepEqual(plan.map((entry) => entry.id), cBatchAdvisoryGateIds);
+  assert.equal(plan.every((entry) =>
+    entry.advisory === true &&
+    typeof entry.revivalCondition === "string" &&
+    entry.revivalCondition.length > 0
+  ), true);
+
+  const warnings = [];
+  const result = runManifestGatePlan(plan, {
+    run: () => false,
+    warn: (id, entry) => warnings.push({
+      id,
+      revivalCondition: entry.revivalCondition
+    })
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.advisoryFailures, cBatchAdvisoryGateIds);
+  assert.deepEqual(warnings.map((warning) => warning.id), cBatchAdvisoryGateIds);
+  assert.equal(warnings.every((warning) => typeof warning.revivalCondition === "string"), true);
+  const rendered = formatAdvisoryGateWarning(plan[0].id, plan[0]);
+  assert.match(rendered, /preceding checker output retains the exact reason/u);
+  assert.match(rendered, /Repair: run npm run harness:check-gate-surface/u);
+  assert.match(rendered, /Revival condition: Reinstate a hard rejection/u);
 });
 
 test("manifest gate runner still stops on a required gate failure", () => {

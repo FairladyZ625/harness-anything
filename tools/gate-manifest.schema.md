@@ -84,6 +84,9 @@ Each gate entry must declare:
   execute the same local runner and must emit an explicit `not applicable`
   result when that layout declaration is structurally absent.
 - `tierReason`: required for every non-`pr-required` gate.
+- `revivalCondition`: required for a contracted gate when its hard rejection was
+  demoted to advisory. The non-empty string records the observable condition
+  that must become true before hard enforcement can be proposed again.
 - `authoritySource`: non-empty array of authority files or declarations.
   Boundary gates must not use only their checker file as authority.
 - `consumerScope`: non-empty array describing the real checked consumer surface.

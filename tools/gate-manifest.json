@@ -95,22 +95,16 @@
         "check-mergify-queue-contexts",
         "check-settings-examples",
         "check-docs-release-map",
-        "check-gate-surface",
-        "check-gate-manifest-invariants",
-        "check-enforcement-constants",
         "check-template-command-surface",
         "check-locale-content",
         "check-catalog-schema",
-        "check-runtime-release-readiness",
         "check-package-policy",
         "check-cli-installability",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
         "check-schema-contracts",
-        "check-schema-field-coverage",
-        "check-legacy-intake-readiness",
-        "check-stage0-manifest"
+        "check-schema-field-coverage"
       ]
     },
     "packageJson": {
@@ -3193,8 +3187,9 @@
       "id": "check-gate-surface",
       "command": "npm run harness:check-gate-surface",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Gate-topology drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only after collaboration exceeds two people or external contributors enter and branch-protection or CI drift causes a documented incident.",
       "authoritySource": [
         "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d7--meta-gate-guards-cigate-itself",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
@@ -3212,9 +3207,7 @@
         "manifest tier reasons, boundary gate metadata, and boundary allowlist authority location checks"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -3254,10 +3247,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -3283,8 +3274,9 @@
       },
       "command": "npm run harness:check-gate-manifest-invariants",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Manifest graph drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only after collaboration exceeds two people or external contributors enter and branch-protection or CI drift causes a documented incident.",
       "authoritySource": [
         "decision/dec_mrepu7h7#CH1",
         "tools/gate-manifest.schema.md",
@@ -3295,9 +3287,7 @@
         "rewrite-ci workflow job and step topology"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -3336,10 +3326,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -3516,8 +3504,9 @@
       },
       "command": "npm run harness:check-enforcement-constants",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Enforcement-constant drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only after a third independent user, external auditor, or writer outside direct owner review exists and a real incident is documented.",
       "authoritySource": [
         "task_01KXE0493Q44XTR1DWY3P5VVWX#slice-2",
         "tools/gate-manifest.schema.md#enforcement-constant-declarations",
@@ -3528,9 +3517,7 @@
         "pull-request integration shard sequence and derived shard count"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -3572,10 +3559,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -3678,8 +3663,9 @@
       },
       "command": "npm run harness:check-staged-activation",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Staged-activation drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only when a corresponding migration or sunset condition re-enters the active roadmap and has a real consumer or documented incident.",
       "authoritySource": [
         "harness/adr/ADR-0028-dual-axis-attribution-trunk.md#d5",
         "task_01KXE0493Q44XTR1DWY3P5VVWX",
@@ -3691,9 +3677,7 @@
         "explicit staged-activation expiry dates"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -3733,10 +3717,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -3967,8 +3949,9 @@
       "id": "check-runtime-release-readiness",
       "command": "npm run harness:check-runtime-release-readiness",
       "category": "release-policy",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Runtime release-readiness drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only after a third independent user, external auditor, or writer outside direct owner review exists and a real incident is documented.",
       "authoritySource": [
         "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
         "packages/gui/src/distribution/runtime-release-readiness.ts",
@@ -3978,9 +3961,7 @@
         "runtime release readiness declarations"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -4017,10 +3998,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -4554,8 +4533,9 @@
       "id": "check-stage0-manifest",
       "command": "npm run harness:check-stage0-manifest",
       "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Stage0 declaration drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only after collaboration exceeds two people or external contributors enter and branch-protection or CI drift causes a documented incident.",
       "authoritySource": [
         "docs-release/constitution/stage0.md",
         "docs-release/constitution/stage0.pin",
@@ -4570,9 +4550,7 @@
         "stage0 machine block and kernel domain enumeration consistency"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -4612,10 +4590,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
@@ -4634,8 +4610,9 @@
       "id": "check-legacy-intake-readiness",
       "command": "npm run harness:check-legacy-intake-readiness",
       "category": "release-policy",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Legacy-intake readiness drift remains visible as a boundaries warning but does not block owner-reviewed changes under task_01KYTZ0A3RNMBTSHB2Z3XDX94Z.",
+      "revivalCondition": "Reinstate a hard rejection only when a corresponding migration or sunset condition re-enters the active roadmap and has a real consumer or documented incident.",
       "authoritySource": [
         "docs-release/",
         "packages/cli/src/commands/legacy",
@@ -4645,9 +4622,7 @@
         "Legacy Intake readiness and retired full-cutover surface"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
+        "requiredContexts": [],
         "workflowJobs": [
           "boundaries"
         ],
@@ -4684,10 +4659,8 @@
           "nonPullRequestJobs": []
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "required": false,
+          "contexts": []
         },
         "classes": [
           "local",
