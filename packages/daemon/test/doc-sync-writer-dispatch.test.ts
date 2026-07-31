@@ -95,6 +95,32 @@ test("doc-sync dispatch applies authored-root layout overrides before framing", 
   }
 });
 
+test("doc-sync dispatch rejects an accepted report whose applied change is absent from the reported ledger", async () => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-doc-sync-dispatch-"));
+  try {
+    const result = await dispatchDocSyncSubmitToWriter({
+      ...dispatchInput(request(), async () => acceptedReceipt({
+        appliedLedgerSha: "missing-ledger",
+        appliedChanges: [{
+          path: "tasks/task_A/artifacts/large.raw.jsonl",
+          baseBlobSha256: null,
+          newBlobSha256: "a".repeat(64),
+          zoneClassesTouched: ["task-authored-prose-or-stage"]
+        }]
+      })),
+      rootDir
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.code, "doc_sync_invalid_payload");
+      assert.match(result.reason, /reported accepted but did not materialize/u);
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("writer working-tree paths use the canonical portable path normalizer", () => {
   const backslash = resolveDocSyncChangePath("/tmp/authored", "tasks\\task_A\\note.md");
   const nul = resolveDocSyncChangePath("/tmp/authored", "tasks/task_A/note\0.md");
@@ -182,7 +208,15 @@ function dispatchInput(
   };
 }
 
-function acceptedReceipt() {
+function acceptedReceipt(overrides: {
+  readonly appliedLedgerSha?: string;
+  readonly appliedChanges?: ReadonlyArray<{
+    readonly path: string;
+    readonly baseBlobSha256: string | null;
+    readonly newBlobSha256: string;
+    readonly zoneClassesTouched: ReadonlyArray<string>;
+  }>;
+} = {}) {
   return {
     ok: true as const,
     schema: "command-receipt/v2" as const,
@@ -196,8 +230,8 @@ function acceptedReceipt() {
         status: "accepted",
         intentId: "intent-dispatch",
         baseLedgerSha: "base",
-        appliedLedgerSha: "head",
-        appliedChanges: []
+        appliedLedgerSha: overrides.appliedLedgerSha ?? "head",
+        appliedChanges: overrides.appliedChanges ?? []
       }
     },
     meta: {

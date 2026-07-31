@@ -36,7 +36,7 @@ test("task complete dry-run preflight reports every current prerequisite without
 
     const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
 
-    assert.equal(preview.status, "done");
+    assert.equal(preview.status, "in_review");
     assert.equal(typeof preview.completionGate, "object");
     assert.equal(preview.report.schema, "task-complete-dry-run/v1");
     assert.equal(preview.report.preflight.schema, "task-complete-preflight/v1");
@@ -117,7 +117,7 @@ test("task complete successful dry-run exposes completion fields without complet
 
     const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
 
-    assert.equal(preview.status, "done");
+    assert.equal(preview.status, "in_review");
     assert.equal(preview.completionGate.ok, true);
     assert.equal(preview.report.preflight.status, "ready");
     assert.deepEqual(preview.report.preflight.issues, []);
@@ -125,6 +125,23 @@ test("task complete successful dry-run exposes completion fields without complet
     assert.equal(readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"), before.anchors);
     assert.equal(execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--short"], { encoding: "utf8" }), before.harnessStatus);
     assert.equal(existsSync(path.join(taskRoot, "completion-evidence.json")), false);
+  });
+});
+
+test("task complete resolves workspace Git from the canonical root when invoked through the authored repository", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task-canonical-completion-git-root";
+    const anchoredSha = prepareCommitCompletionTask(rootDir, taskId, false);
+
+    const completed = runJson(path.join(rootDir, "harness"), [
+      "task", "complete", taskId,
+      "--commit-anchor", anchoredSha,
+      "--judgment", "The canonical workspace commit completes this task.",
+      "--ci", "passed"
+    ], true, executionActorEnv);
+
+    assert.equal(completed.status, "done");
+    assert.equal(completed.completionEvidence.sha, anchoredSha);
   });
 });
 

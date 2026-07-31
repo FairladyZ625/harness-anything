@@ -1,10 +1,15 @@
+import { execFileSync } from "node:child_process";
 import type {
   DocSyncSubmitRequestV1,
   DocSyncSubmitResultV1,
   TaskHolderExecutor
 } from "@harness-anything/application";
-import type { CurrentSessionRef } from "@harness-anything/kernel";
-import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
+import {
+  resolveHarnessLayout,
+  sha256Text,
+  type CurrentSessionRef,
+  type HarnessLayoutOverrides
+} from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../identity/types.ts";
 import type { AuthorityConnectionDispatch } from "../protocol/connection-context.ts";
 import { encodeRepoWriteCommand } from "../runtime/repo-write-progress-command.ts";
@@ -53,9 +58,20 @@ export async function dispatchDocSyncSubmitToWriter(input: {
       }
     }));
     const report = receipt.details?.data;
-    return isDocSyncSubmitResult(report)
-      ? report
-      : docSyncJournalUnavailable(input.request, "The doc-sync writer child returned no typed report.");
+    if (!isDocSyncSubmitResult(report)) {
+      return docSyncJournalUnavailable(input.request, "The doc-sync writer child returned no typed report.");
+    }
+    if (report.ok) {
+      const missing = firstUnmaterializedChange(input, report);
+      if (missing) {
+        return writerRejection(
+          input.request,
+          "doc_sync_invalid_payload",
+          `The doc-sync writer reported accepted but did not materialize ${missing} in ledger ${report.appliedLedgerSha}.`
+        );
+      }
+    }
+    return report;
   } catch (error) {
     if (error instanceof RepoWriteIpcPayloadTooLargeError) {
       return writerRejection(
@@ -92,6 +108,28 @@ export async function dispatchDocSyncSubmitToWriter(input: {
       error instanceof Error ? error.stack ?? error.message : String(error)
     );
   }
+}
+
+function firstUnmaterializedChange(
+  input: Pick<Parameters<typeof dispatchDocSyncSubmitToWriter>[0], "rootDir" | "layoutOverrides">,
+  report: Extract<DocSyncSubmitResultV1, { readonly ok: true }>
+): string | null {
+  const layout = resolveHarnessLayout(input.layoutOverrides
+    ? { rootDir: input.rootDir, layoutOverrides: input.layoutOverrides }
+    : input.rootDir);
+  for (const change of report.appliedChanges) {
+    try {
+      const body = execFileSync(
+        "git",
+        ["-C", layout.authoredRoot, "show", `${report.appliedLedgerSha}:${change.path}`],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
+      );
+      if (sha256Text(body) !== change.newBlobSha256) return change.path;
+    } catch {
+      return change.path;
+    }
+  }
+  return null;
 }
 
 function writerRejection(

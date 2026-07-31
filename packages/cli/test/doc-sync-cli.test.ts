@@ -158,7 +158,6 @@ test("task artifact add submits UTF-8 evidence through the existing doc-sync gov
     const sessionBranch = "sessions/doc-sync-cli-test";
     const taskRoot = path.join(harnessRoot, "tasks", taskId);
     mkdirSync(taskRoot, { recursive: true });
-    seedDocSyncWriteRoadRegistry(rootDir);
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
     initHarnessGit(harnessRoot);
     const source = path.join(rootDir, "artifact-report.txt");
@@ -186,7 +185,6 @@ test("progress evidence ingests an untracked artifact before recording its gover
     const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
     const taskRoot = path.join(harnessRoot, "tasks", taskId);
     mkdirSync(taskRoot, { recursive: true });
-    seedDocSyncWriteRoadRegistry(rootDir);
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
     writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
     initHarnessGit(harnessRoot);

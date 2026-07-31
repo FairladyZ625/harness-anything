@@ -246,6 +246,18 @@ test("CLI task create persists work kind and priority metadata", () => {
   });
 });
 
+test("CLI task create receipt warns that the generated plan must be made substantive before start", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["task", "create", "--title", "Plan Guidance"], true, {});
+    const warning = result.warnings?.find((candidate: Record<string, unknown>) => candidate.code === "task_plan_required_before_start");
+
+    assert.ok(warning);
+    assert.match(String(warning.message), new RegExp(`${result.packagePath}/task_plan\\.md`, "u"));
+    assert.match(String(warning.message), /task_plan_placeholder/u);
+    assert.match(String(warning.message), new RegExp(`ha task start ${result.taskId}`, "u"));
+  });
+});
+
 test("CLI task create keeps runtime provenance without fabricating a missing transcript", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");

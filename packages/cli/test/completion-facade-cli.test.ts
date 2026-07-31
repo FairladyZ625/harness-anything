@@ -102,6 +102,63 @@ test("owner coldstart approves after the submitted execution lease is released",
   });
 });
 
+test("task complete dry-run reports Review evidence that is outside the selected Execution", () => {
+  withTempRoot((rootDir) => {
+    const chain = prepareSubmitted(rootDir, "Review Evidence Preflight", "facade");
+    const packetPath = path.join(rootDir, "invalid-review-evidence-approval.json");
+    writeFileSync(packetPath, JSON.stringify({
+      executionId: chain.executionId,
+      findings: "The submitted evidence was inspected.",
+      evidenceChecked: ["F-NOT-AN-EXECUTION-OUTPUT"],
+      rationale: "The approval packet must be validated before Review writes.",
+      consentAssertedRationale: "Approval was received through an external channel.",
+      consentActions: ["approve_execution", "complete_task"],
+      ci: "passed",
+      paths: ["evidence/equivalence.txt"],
+      reviewerId: "person_reviewer"
+    }), "utf8");
+
+    const preview = runJson(rootDir, [
+      "--actor", "human:person_test", "task", "complete", chain.taskId,
+      "--approve", "--from-file", packetPath, "--dry-run"
+    ], true, chain.env);
+
+    assert.equal(preview.status, "in_review");
+    assert.equal(preview.report.preflight.status, "blocked");
+    assert.match(
+      preview.report.preflight.issues.find((issue: { readonly code: string }) => issue.code === "write_rejected")?.message ?? "",
+      /review evidence does not belong to execution/iu
+    );
+    assert.equal(existsSync(path.join(rootDir, chain.packagePath, "reviews")), false);
+  });
+});
+
+test("task complete converges when a different valid approval already accepted the Execution", () => {
+  withTempRoot((rootDir) => {
+    const chain = prepareSubmitted(rootDir, "Accepted Review Convergence", "facade");
+    runJson(rootDir, [
+      "--actor", "human:person_test", "task", "review-execution", chain.taskId,
+      "--execution-id", chain.executionId, "--verdict", "approved",
+      "--findings", "The independently reviewed delivery satisfies the task.",
+      "--evidence-checked", "ev_cli_1",
+      "--rationale", "The existing Review is already sufficient for completion.",
+      "--consent-asserted", "Approval was received through an external channel.",
+      "--consent-action", "approve_execution", "--consent-action", "complete_task"
+    ], true, chain.env);
+
+    const completed = runJson(rootDir, [
+      "--actor", "human:person_test", "task", "complete", chain.taskId,
+      "--approve", "--from-file", writeRetryApprovalPacket(rootDir)
+    ], true, chain.env);
+
+    assert.equal(completed.status, "done");
+    assert.equal(
+      completed.report.steps.some((step: { readonly command: string }) => step.command === "task review execution"),
+      false
+    );
+  });
+});
+
 test("owner approval retries converge after every committed facade boundary", () => {
   for (const breakpoint of ["review", "reconcile", "complete"] as const) {
     withTempRoot((rootDir) => {
