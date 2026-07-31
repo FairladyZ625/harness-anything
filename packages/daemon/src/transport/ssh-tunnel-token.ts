@@ -165,7 +165,11 @@ function authenticateAttachTokenFrame(
   tokenStore: AttachTokenStore
 ): TransportAuthenticationResult {
   if (!isAttachTokenFrame(frame)) {
-    return { ok: false, code: "attach_token_required", message: "SSH tunnel transport requires an attach token bootstrap frame." };
+    return {
+      ok: false,
+      code: "attach_token_required",
+      message: "SSH tunnel transport requires a valid attach-token bootstrap as its first frame, but none was received. Connect through the supported relay with `ha daemon connect --stdio`; custom tunnel clients must send harness-daemon.attach-token/v1 before RPC traffic."
+    };
   }
   const consumed = tokenStore.consume(frame);
   if (isAttachTokenFailure(consumed)) return { ok: false, code: consumed.code, message: consumed.message };

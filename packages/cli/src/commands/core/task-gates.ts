@@ -61,7 +61,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     evidenceMode: action.evidenceMode,
     commitRef: action.commitRef,
     judgment: action.judgment,
-    sessionRef: `session/${session.sessionId}`
+    sessionRef: `session/${session.sessionId}`,
+    preflight: action.dryRun === true
   })),
     Effect.map((result): CliResult => {
       const evidencePath = path.relative(
@@ -79,7 +80,9 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
         ]
       };
     }),
-    Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
+    Effect.flatMap((output) => output.ok && action.dryRun !== true
+      ? queueCloseoutDistillCandidate(context, command, action, output)
+      : Effect.succeed(output))
   );
   return complete();
 };

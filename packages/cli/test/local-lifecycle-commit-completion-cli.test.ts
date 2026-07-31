@@ -12,6 +12,122 @@ const executionTaskId = "task_01KX7H00000000000000000000";
 const executionId = "exe_01KX7H00000000000000000001";
 const executionActorEnv = { HARNESS_ACTOR: "agent:test" } as const;
 
+test("task complete dry-run preflight reports every current prerequisite without writing", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task_01KX7H00000000000000000002";
+    const submittedExecutionId = "exe_01KX7H00000000000000000003";
+    initializeNestedHarnessRepo(rootDir);
+    writeIndex(rootDir, taskId, "Completion Preflight Matrix", "in_review");
+    writeSubstantiveTaskPlan(rootDir, `harness/tasks/${taskId}`);
+    writeFileSync(path.join(rootDir, `harness/tasks/${taskId}/closeout.md`), [
+      "# Closeout",
+      "",
+      "## Summary",
+      "",
+      "Summarize the completed behavior change.",
+      ""
+    ].join("\n"), "utf8");
+    writeSubmittedExecution(rootDir, taskId, submittedExecutionId);
+    const taskRoot = path.join(rootDir, `harness/tasks/${taskId}`);
+    const before = {
+      index: readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"),
+      harnessStatus: execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--short"], { encoding: "utf8" })
+    };
+
+    const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
+
+    assert.equal(preview.status, "done");
+    assert.equal(typeof preview.completionGate, "object");
+    assert.equal(preview.report.schema, "task-complete-dry-run/v1");
+    assert.equal(preview.report.preflight.schema, "task-complete-preflight/v1");
+    assert.equal(preview.report.preflight.status, "blocked");
+    const issues = preview.report.preflight.issues as ReadonlyArray<Record<string, string>>;
+    assert.deepEqual(new Set(issues.map((issue) => issue.code)), new Set([
+      "commit_completion_git_ref_missing",
+      "closeout_placeholder",
+      "code_doc_anchors_missing",
+      "execution_review_required"
+    ]));
+    assert.equal(issues.every((issue) => typeof issue.nextCommand === "string" && issue.nextCommand.length > 0), true);
+    assert.match(issues.find((issue) => issue.code === "execution_review_required")?.message ?? "", /human consent/iu);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), before.index);
+    assert.equal(execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--short"], { encoding: "utf8" }), before.harnessStatus);
+    assert.equal(existsSync(path.join(taskRoot, "code-doc-anchors.json")), false);
+    assert.equal(existsSync(path.join(taskRoot, "reviews")), false);
+    assert.equal(existsSync(path.join(taskRoot, "consents")), false);
+  });
+});
+
+test("task complete preflight blocks approval and reconciliation writes when closeout is incomplete", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task_01KX7H00000000000000000004";
+    const submittedExecutionId = "exe_01KX7H00000000000000000005";
+    initializeNestedHarnessRepo(rootDir);
+    writeIndex(rootDir, taskId, "Blocking Completion Preflight", "in_review");
+    writeSubstantiveTaskPlan(rootDir, `harness/tasks/${taskId}`);
+    writeFileSync(path.join(rootDir, `harness/tasks/${taskId}/closeout.md`), "# Closeout\n\n## Summary\n\nSummarize the completed behavior change.\n", "utf8");
+    writeSubmittedExecution(rootDir, taskId, submittedExecutionId);
+    mkdirSync(path.join(rootDir, "evidence"), { recursive: true });
+    writeFileSync(path.join(rootDir, "evidence/preflight-anchor.txt"), "completion preflight anchor\n", "utf8");
+    execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.name", "Test User"]);
+    execFileSync("git", ["-C", rootDir, "add", "evidence/preflight-anchor.txt"]);
+    execFileSync("git", ["-C", rootDir, "commit", "-m", "seed preflight anchor"]);
+    const approvalPath = path.join(rootDir, "approval.json");
+    writeFileSync(approvalPath, JSON.stringify({
+      executionId: submittedExecutionId,
+      findings: "The submitted evidence was inspected.",
+      rationale: "The delivery satisfies its acceptance checks.",
+      consentAssertedRationale: "Approval was received through an external channel.",
+      consentActions: ["approve_execution", "complete_task"],
+      commit: "HEAD",
+      paths: ["evidence/preflight-anchor.txt"],
+      ci: "passed"
+    }), "utf8");
+    const taskRoot = path.join(rootDir, `harness/tasks/${taskId}`);
+
+    const rejected = runJson(rootDir, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], false, executionActorEnv);
+
+    assert.equal(rejected.error?.code, "closeout_placeholder");
+    assert.equal(rejected.report.preflight.status, "blocked");
+    assert.equal(rejected.issues.find((issue: Record<string, string>) => issue.code === "execution_review_required")?.disposition, "planned");
+    assert.equal(rejected.issues.find((issue: Record<string, string>) => issue.code === "code_doc_anchors_missing")?.disposition, "planned");
+    assert.equal(existsSync(path.join(taskRoot, "code-doc-anchors.json")), false);
+    assert.equal(existsSync(path.join(taskRoot, "reviews")), false);
+    assert.equal(existsSync(path.join(taskRoot, "consents")), false);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /status: in_review/u);
+  });
+});
+
+test("task complete successful dry-run exposes completion fields without completing the task", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task_01KX7H00000000000000000006";
+    const submittedExecutionId = "exe_01KX7H00000000000000000007";
+    prepareCommitCompletionTask(rootDir, taskId, false);
+    seedApprovedExecution(rootDir, taskId, submittedExecutionId);
+    const taskRoot = path.join(rootDir, `harness/tasks/${taskId}`);
+    const before = {
+      index: readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"),
+      anchors: readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"),
+      harnessStatus: execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--short"], { encoding: "utf8" })
+    };
+
+    const preview = runJson(rootDir, ["task", "complete", taskId, "--dry-run"], true, executionActorEnv);
+
+    assert.equal(preview.status, "done");
+    assert.equal(preview.completionGate.ok, true);
+    assert.equal(preview.report.preflight.status, "ready");
+    assert.deepEqual(preview.report.preflight.issues, []);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), before.index);
+    assert.equal(readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"), before.anchors);
+    assert.equal(execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--short"], { encoding: "utf8" }), before.harnessStatus);
+    assert.equal(existsSync(path.join(taskRoot, "completion-evidence.json")), false);
+  });
+});
+
 test("CLI task-complete rejects invalid commit-anchor packets without partial completion", () => {
   const rejectedCase = (
     taskId: string,
@@ -180,4 +296,25 @@ function prepareCommitCompletionTask(rootDir: string, taskId: string, placeholde
     : "# Closeout\n\n## Summary\n\nImplemented the anchored task.\n\n## Verification\n\nVerified the workspace commit.\n\n## Residual Risk\n\nNone known.\n", "utf8");
   writeCodeDocAnchors(rootDir, taskId);
   return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+}
+
+function writeSubmittedExecution(rootDir: string, taskId: string, submittedExecutionId: string): void {
+  mkdirSync(path.join(rootDir, `harness/tasks/${taskId}/executions`), { recursive: true });
+  writeFileSync(path.join(rootDir, `harness/tasks/${taskId}/executions/${submittedExecutionId}.md`), `${JSON.stringify({
+    schema: "execution/v1",
+    execution_id: submittedExecutionId,
+    task_ref: `task/${taskId}`,
+    state: "submitted",
+    primary_actor: {
+      principal: { personId: "worker" },
+      executor: { kind: "agent", id: "worker-agent" },
+      responsibleHuman: "worker"
+    },
+    claimed_at: "2026-07-31T00:00:00.000Z",
+    submitted_at: "2026-07-31T00:01:00.000Z",
+    closed_at: null,
+    session_bindings: [{ role: "primary", archive_status: "complete" }],
+    outputs: [],
+    submission: { summary: "submitted", verification: ["tests passed"], residual_risks: [] }
+  }, null, 2)}\n`, "utf8");
 }

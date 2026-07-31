@@ -94,7 +94,8 @@ function parseReviewedExecutionCompatibility(
         taskId: args[1]!,
         ...(ciGate ? { ciGate } : {}),
         reviewerId: readOption(args, "--reviewer") ?? "local-reviewer",
-        evidenceMode: "execution-review"
+        evidenceMode: "execution-review",
+        dryRun: args.includes("--dry-run")
       }
     }
   };
