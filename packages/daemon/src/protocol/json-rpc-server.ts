@@ -16,8 +16,9 @@ import {
 import type { RuntimeEventAppendInput } from "@harness-anything/application/runtime-event-ledger-service";
 import type { TerminalSessionService } from "@harness-anything/application/terminal-session-contract";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContract, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
+import { toJsonValue } from "./json-value.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
-import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor } from "./task-holder-payload.ts";
 import type { DocSyncServiceContext } from "./doc-sync-service-context.ts";
 import {
@@ -34,6 +35,7 @@ import {
   handleProjectionNotificationSubscription,
   type ProjectionNotificationOptions
 } from "./projection-notification-subscription.ts";
+import { taskHolderErrorDetails, validateTaskLeaseForServiceWrite } from "./task-holder-write-policy.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { daemonControlRequest } from "./daemon-control-request.ts";
 import {
@@ -441,51 +443,6 @@ async function callTaskHolderMethod(
   }
 }
 
-function taskHolderErrorDetails(error: {
-  readonly code: string;
-  readonly taskId: string;
-  readonly holder?: unknown;
-  readonly principal?: unknown;
-  readonly leaseExpiresAt?: string | null;
-  readonly orphan?: boolean;
-}): JsonObject {
-  return {
-    taskId: error.taskId,
-    code: error.code,
-    ...(error.holder ? { holder: toJsonValue(error.holder) } : {}),
-    ...(error.principal ? { principal: toJsonValue(error.principal) } : {}),
-    leaseExpiresAt: error.leaseExpiresAt ?? null,
-    ...(typeof error.orphan === "boolean" ? { orphan: error.orphan } : {})
-  };
-}
-
-async function validateTaskLeaseForServiceWrite(
-  contract: JsonRpcMethodContract,
-  payload: JsonObject | undefined,
-  services: DaemonServiceHost,
-  actor: AuthenticatedActor | undefined,
-  repo: DaemonRepoNamespace | undefined,
-  options: JsonRpcServerOptions
-): Promise<ReturnType<typeof failureReceipt> | undefined> {
-  if (!repo || !options.leaseEnforcementEnabled?.(repo) || contract.leaseRequired !== true) return undefined;
-  const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
-  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId.");
-  if (!services.TaskHolderService) {
-    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
-  }
-  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor.");
-  try {
-    const executor = readTaskHolderExecutor(payload);
-    await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor, { executor }) });
-    return undefined;
-  } catch (error) {
-    if (isTaskHolderError(error)) {
-      return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
-    }
-    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
-  }
-}
-
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {
   const commandClass = commandClassForJsonRpcRequest(contract, params);
   if (commandClass === contract.commandClass) return contract;
@@ -589,11 +546,4 @@ function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
 
 function errorResponse(id: JsonRpcId, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
-}
-
-function toJsonValue(value: unknown): JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.map(toJsonValue);
-  if (isJsonObject(value)) return value;
-  return String(value);
 }

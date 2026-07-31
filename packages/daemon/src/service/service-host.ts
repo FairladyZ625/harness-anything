@@ -442,6 +442,10 @@ function createRepoServiceBinding<
     layoutOverrides,
     taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides }),
+    readTaskReturnToIdeaSnapshot: (taskId) => hostServices.readTaskReturnToIdeaSnapshot(
+      { rootDir, layoutOverrides },
+      taskId
+    ),
     ...hostServices.makeGuiControllerOptions(runtime, { rootDir, layoutOverrides }, commandOptions),
     projectionQueries: {
       getExecutionEvidencePage: async (payload) => ({

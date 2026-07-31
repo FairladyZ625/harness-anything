@@ -40,7 +40,8 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     rootDir,
     layoutOverrides: options.layoutOverrides,
     taskWriter,
-    artifactStore: options.artifactStore
+    artifactStore: options.artifactStore,
+    readTaskReturnToIdeaSnapshot: options.readTaskReturnToIdeaSnapshot
   });
 
   return {

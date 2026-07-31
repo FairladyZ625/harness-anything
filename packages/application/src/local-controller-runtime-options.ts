@@ -17,6 +17,7 @@ import type {
   TaskDocumentPayload,
   TaskIdPayload
 } from "./index.ts";
+import type { ReadTaskReturnToIdeaSnapshotV1 } from "./authority/task-return-to-idea-policy.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
@@ -29,6 +30,7 @@ export interface LocalControllerServiceOptions {
   readonly agentRuntimeInventoryReader?: () => Promise<import("./index.ts").AgentRuntimeInventoryResult>;
   readonly agentRuntimeControl?: AgentRuntimeControlService;
   readonly agentHolderProjection?: AgentHolderProjectionService;
+  readonly readTaskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 export interface LocalControllerProjectionQueries {
   readonly getExecutionEvidencePage: (

@@ -203,6 +203,7 @@ export {
 export type { ExecutionRetirementResult, ExecutionRetirementService } from "./execution-retirement-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
+  taskStatusLeaseRequired,
   taskWriteApiRoutePolicies,
   taskWriteCliRoutePolicies,
   taskWriteCliRoutePolicy

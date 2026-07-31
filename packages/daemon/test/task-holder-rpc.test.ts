@@ -136,6 +136,49 @@ test("task lease enforcement guards daemon task progress API writes when enabled
   }
 });
 
+test("daemon status lease enforcement exempts only the planned return direction", async () => {
+  const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+  const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);
+  try {
+    delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    const statusWrites: string[] = [];
+    const { alice } = makeActorServers(rootDir, {
+      ...emptyLocalController(),
+      setTaskStatus: async (payload) => {
+        statusWrites.push(payload.status);
+        return { ok: true };
+      }
+    });
+    await hello(alice);
+
+    const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
+    const request = (status: "planned" | "active"): JsonRpcRequest => ({
+      jsonrpc: "2.0",
+      id: `status-${status}`,
+      method: "repo.tasks.status.set",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { taskId, status }
+      }
+    });
+
+    const planned = resultReceipt(await alice.handle(request("planned")));
+    const active = resultReceipt(await alice.handle(request("active")));
+
+    assert.equal(planned.ok, true);
+    assert.equal(active.ok, false);
+    assert.equal(active.error?.code, "task_lease_required");
+    assert.deepEqual(statusWrites, ["planned"]);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    } else {
+      process.env.HARNESS_TASK_LEASE_ENFORCEMENT = previous;
+    }
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task progress lease refresh and orphan recovery preserve the requesting executor", async () => {
   const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
   const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);

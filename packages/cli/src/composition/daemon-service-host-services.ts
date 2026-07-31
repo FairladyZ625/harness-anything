@@ -8,6 +8,7 @@ import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-contr
 import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
 import { leaseEnforcementEnabled } from "../commands/settings.ts";
 import { resolveCliVersion } from "../commands/core/version.ts";
+import { readTaskReturnToIdeaSnapshot } from "../commands/task-return-to-idea-snapshot.ts";
 import { daemonActorAttribution } from "./actor-attribution.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
 
@@ -35,6 +36,7 @@ export const cliDaemonServiceHostServices = {
     commandOptions,
     cliDaemonCommandHostServices
   ),
+  readTaskReturnToIdeaSnapshot,
   leaseEnforcementEnabled,
   version: resolveCliVersion
 } satisfies DaemonServiceHostServices<
