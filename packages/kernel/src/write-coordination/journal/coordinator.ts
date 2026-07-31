@@ -179,7 +179,10 @@ function makeJournaledWriteCoordinatorInternal(
           ? decodeWriteAttribution("attribution" in options ? options.attribution : undefined, journalOp.entityId)
           : undefined;
         if (mode === "recovery-only") {
-          rejectWrite("write coordinator requires request attribution", journalOp.entityId);
+          rejectWrite(
+            "WriteCoordinator enqueue is unavailable in recovery-only mode because recovery replays already-attributed journal records instead of accepting new write requests. Run the original `ha` command through the CLI or daemon authority path; use `ha daemon status --json` first if recovery was expected.",
+            journalOp.entityId
+          );
         }
         if (mode === "operational-machine-artifact" && !journalOp.kind.startsWith("machine_artifact_")) {
           rejectWrite("operational coordinator only accepts machine artifact writes", journalOp.entityId);

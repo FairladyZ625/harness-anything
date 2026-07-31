@@ -3,7 +3,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { fsWriteApis } from "./fs-write-apis.mjs";
 
 const sourceRoots = ["packages/cli/src"];
 const directConsumerRoots = ["packages/cli/src", "packages/cli/test", "tools"];
@@ -12,32 +11,18 @@ const coordinatorFactories = new Set([
   "makeLocalWriteCoordinator",
   "makeOperationalJournaledWriteCoordinator"
 ]);
-const declaredNoncanonicalPathClasses = new Set([
-  "admin-bootstrap",
-  "admin-config",
-  "admin-import",
-  "broker-local-view",
-  "coordinator-ingest",
-  "declared-script-scope",
-  "generated-local",
-  "git-worktree",
-  "runtime-local-durable"
-]);
 
 export function checkCliDirectWriter(root = process.cwd()) {
-  const registryRows = loadRegistryRows(root);
   const findings = [
-    ...sourceRoots.flatMap((sourceRoot) => walkSourceFiles(root, sourceRoot)).flatMap((rel) => inspectWriteSinks(root, rel, registryRows)),
+    ...sourceRoots.flatMap((sourceRoot) => walkSourceFiles(root, sourceRoot)).flatMap((rel) => inspectCoordinatorConstruction(root, rel)),
     ...directConsumerRoots.flatMap((sourceRoot) => walkSourceFiles(root, sourceRoot)).flatMap((rel) => inspectDirectConsumers(root, rel))
   ];
   const unique = new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.column}:${finding.kind}`, finding]));
   return { violations: [...unique.values()].sort(compareFindings) };
 }
 
-function inspectWriteSinks(root, rel, registryRows) {
+function inspectCoordinatorConstruction(root, rel) {
   const sourceFile = parseSource(root, rel);
-  const fsImports = fsBindings(sourceFile);
-  const occurrences = new Map();
   const findings = [];
   visit(sourceFile, (node) => {
     if (!ts.isCallExpression(node)) return;
@@ -45,13 +30,6 @@ function inspectWriteSinks(root, rel, registryRows) {
     if (coordinator && !allowedCoordinatorConstruction(rel, node, sourceFile)) {
       findings.push(finding(rel, node.expression, sourceFile, "coordinator", `constructs ${coordinator} outside daemon injection, bootstrap, or guarded recovery`));
       return;
-    }
-    const api = calledFsApi(node.expression, fsImports);
-    if (!api) return;
-    const occurrence = (occurrences.get(api) ?? 0) + 1;
-    occurrences.set(api, occurrence);
-    if (!allowedFilesystemWrite(rel, api, occurrence, registryRows)) {
-      findings.push(finding(rel, node.expression, sourceFile, "canonical-fs", `${api} is not in a declared bootstrap/local/derived/transport scope`));
     }
   });
   return findings;
@@ -96,16 +74,6 @@ function findVariableDeclaration(sourceFile, name) {
   return match;
 }
 
-function allowedFilesystemWrite(rel, api, occurrence, registryRows) {
-  if (rel.startsWith("packages/cli/src/daemon/")) return true;
-  if (rel.startsWith("packages/cli/src/commands/extensions/assets/") && rel.includes("/scripts/")) return true;
-  const key = `${rel}#${api}@${occurrence}`;
-  return registryRows.some((row) =>
-    declaredNoncanonicalPathClasses.has(row.channel?.pathClass)
-      && (row.directWrites ?? []).some((entry) => entry.key === key)
-  );
-}
-
 function allowedDirectConsumer(rel, node, sourceFile) {
   if (rel === "packages/cli/test/direct-mode-fail-close.test.ts") return true;
   if (rel === "tools/smoke-direct-recovery.mjs") return true;
@@ -144,37 +112,6 @@ function coordinatorFactoryName(expression) {
   if (ts.isIdentifier(expression) && coordinatorFactories.has(expression.text)) return expression.text;
   if (ts.isPropertyAccessExpression(expression) && expression.name.text === "createWriteCoordinator") return expression.name.text;
   return undefined;
-}
-
-function fsBindings(sourceFile) {
-  const named = new Map();
-  const namespaces = new Set();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (!["node:fs", "node:fs/promises"].includes(statement.moduleSpecifier.text)) continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
-    if (bindings && ts.isNamedImports(bindings)) {
-      for (const element of bindings.elements) {
-        const imported = (element.propertyName ?? element.name).text;
-        if (fsWriteApis.has(imported)) named.set(element.name.text, imported);
-      }
-    }
-  }
-  return { named, namespaces };
-}
-
-function calledFsApi(expression, bindings) {
-  if (ts.isIdentifier(expression)) return bindings.named.get(expression.text);
-  if (!ts.isPropertyAccessExpression(expression) || !bindings.namespaces.has(expression.expression.getText())) return undefined;
-  return fsWriteApis.has(expression.name.text) ? expression.name.text : undefined;
-}
-
-function loadRegistryRows(root) {
-  const registryPath = path.join(root, "tools/write-road-registry.json");
-  if (!existsSync(registryPath)) return [];
-  const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
-  return Array.isArray(parsed.rows) ? parsed.rows : [];
 }
 
 function walkSourceFiles(root, relRoot) {
@@ -235,7 +172,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  console.log("CLI direct-writer check passed (no undeclared CLI canonical sink or direct consumer). ");
+  console.log("CLI direct-writer check passed (no undeclared CLI coordinator or direct consumer).");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

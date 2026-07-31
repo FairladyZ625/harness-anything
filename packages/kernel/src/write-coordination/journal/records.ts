@@ -26,7 +26,10 @@ export function decodeWriteAttribution(value: unknown, entityId?: ReadableJourna
   try {
     return Schema.decodeUnknownSync(WriteAttributionSchema)(value);
   } catch {
-    rejectWrite("write coordinator requires valid principal attribution", entityId);
+    rejectWrite(
+      "WriteCoordinator request attribution is missing or invalid; attributed journal writes require a schema-valid principal, executor, and authority source. For a local CLI write, set `HARNESS_ACTOR=agent:<id>`, `HARNESS_GIT_AUTHOR_NAME`, and `HARNESS_GIT_AUTHOR_EMAIL`, then rerun the original `ha` command.",
+      entityId
+    );
   }
 }
 

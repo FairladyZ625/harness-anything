@@ -234,7 +234,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.ArchivedHardDeleteForbidden]: { category: "domain", defaultHint: "Archived tasks cannot be hard deleted." },
   [CliErrorCode.ArtifactReadFailed]: { category: "domain", defaultHint: "Artifact read failed." },
   [CliErrorCode.ArtifactWriteRejected]: { category: "domain", defaultHint: "Artifact write was rejected." },
-  [CliErrorCode.AuthorityIngressRejected]: { category: "domain", defaultHint: "Typed authority ingress rejected this command. Inspect the reason, correct the required options, then rerun ha <same command>." },
+  [CliErrorCode.AuthorityIngressRejected]: { category: "domain", defaultHint: "Application authority ingress rejected the command because its options or action shape are not authorized for the canonical write path. Run `ha help` to inspect the supported shape, read the receipt `reason`, remove or correct the named option, then rerun the original command." },
   [CliErrorCode.ArchiveReferenceUnresolved]: { category: "command", defaultHint: "Archive would leave a task-owned relation endpoint unresolved." },
   [CliErrorCode.CloseoutPlaceholder]: { category: "command", defaultHint: "Task completion requires closeout.md without template placeholder text; replace the placeholders. If closeout.md is already substantive, retry the exact command once unchanged to refresh a lagging read." },
   [CliErrorCode.CommitCompletionGitRefMissing]: { category: "command", defaultHint: "The requested commit ref is missing from the workspace repository; run git cat-file -e '<ref>^{commit}' and retry with an existing workspace commit." },

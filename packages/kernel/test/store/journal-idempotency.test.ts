@@ -79,7 +79,10 @@ test("WriteCoordinator fails closed when request principal attribution is missin
     assert.equal(result._tag, "Left");
     if (result._tag === "Left") {
       assert.equal(result.left._tag, "WriteRejected");
-      assert.equal(result.left.reason, "write coordinator requires valid principal attribution");
+      assert.match(result.left.reason, /^WriteCoordinator request attribution is missing or invalid;/u);
+      assert.match(result.left.reason, /require a schema-valid principal, executor, and authority source/u);
+      assert.match(result.left.reason, /HARNESS_ACTOR=agent:<id>.*HARNESS_GIT_AUTHOR_NAME.*HARNESS_GIT_AUTHOR_EMAIL/u);
+      assert.match(result.left.reason, /rerun the original `ha` command/u);
     }
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
