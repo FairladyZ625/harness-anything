@@ -39,7 +39,10 @@ import { requireAuthoritySubmissionForDispatch } from "../authority/authority-su
 import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payload.ts";
 import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
-import { daemonDeploymentStatusOptions } from "./deployment-status-options.ts";
+import {
+  createDaemonBuildIdentityWitness,
+  daemonDeploymentStatusOptions
+} from "./deployment-status-options.ts";
 import type {
   RepoWriteProcessSupervisor
 } from "../runtime/repo-write-process-supervisor.ts";
@@ -130,6 +133,7 @@ export async function createDaemonServiceHost<
   const daemonId = `ha-${process.pid}`;
   const daemonLogService = providedDaemonLogService
     ?? makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
+  const buildIdentity = createDaemonBuildIdentityWitness(build);
   const stopHandlers: Array<() => Promise<void>> = [];
   registerRepoWriteSupervisorStops(stopHandlers, repoWriteSupervisors);
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
@@ -232,6 +236,7 @@ export async function createDaemonServiceHost<
       daemonId,
       repos: protocolRepos(),
       services: defaultRepoBinding().services,
+      readBuildIdentity: buildIdentity.read,
       resolveRepoServices: (repo) => protocolRepoBinding(repo)?.services,
       resolveRepoIdentity: (repo) => protocolRepoBinding(repo)?.identity,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(
@@ -263,7 +268,8 @@ export async function createDaemonServiceHost<
     ),
     authorityWireIngress: createAuthorityWireIngressHandler({
       authorityLifecycle,
-      repoBindings: () => repoBindings.values()
+      repoBindings: () => repoBindings.values(),
+      assertBuildCurrent: buildIdentity.assertCurrent
     }),
     status: () => serviceStatus(defaultRepoBinding().repo.repoId),
     requestControl: controlService.requestControl,

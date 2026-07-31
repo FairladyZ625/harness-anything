@@ -9,6 +9,35 @@ export interface DaemonDeploymentStatusBuild {
   readonly loadedIdentity: string;
 }
 
+export function createDaemonBuildIdentityWitness(build: DaemonDeploymentStatusBuild): {
+  readonly read: () => { readonly loadedIdentity: string; readonly installedIdentity: string };
+  readonly assertCurrent: () => void;
+} {
+  const deploymentStatus = daemonDeploymentStatusOptions(build);
+  const read = () => ({
+    loadedIdentity: build.loadedIdentity,
+    installedIdentity: deploymentStatus.readInstalledIdentity()
+  });
+  return {
+    read,
+    assertCurrent: () => {
+      let identity: ReturnType<typeof read>;
+      try {
+        identity = read();
+      } catch (error) {
+        throw new Error(
+          `DAEMON_BUILD_IDENTITY_UNAVAILABLE: Daemon cannot verify that its running code matches the current dist build (${error instanceof Error ? error.message : String(error)}); mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+        );
+      }
+      if (identity.loadedIdentity !== identity.installedIdentity) {
+        throw new Error(
+          `DAEMON_BUILD_STALE: Daemon code version ${identity.loadedIdentity} does not match current dist version ${identity.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+        );
+      }
+    }
+  };
+}
+
 export function daemonDeploymentStatusOptions(build?: DaemonDeploymentStatusBuild): {
   readonly readInstalledIdentity: () => string;
   readonly readDeploymentStatus?: (installedIdentity: string) => DaemonDeploymentStatus;

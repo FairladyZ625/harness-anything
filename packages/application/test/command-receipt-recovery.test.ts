@@ -13,6 +13,15 @@ test("task lease recovery uses only the structured task id", () => {
   assert.equal(failureReceiptNextActions("task_lease_required", {}), undefined);
 });
 
+test("daemon build drift points to a service restart", () => {
+  for (const code of ["daemon_build_stale", "daemon_build_identity_unavailable"]) {
+    assert.deepEqual(failureReceiptNextActions(code), [{
+      command: "ha daemon start --service",
+      description: "Restart the daemon on the current dist build, then retry the original write."
+    }]);
+  }
+});
+
 test("repo recovery commands use structured repo identity and remain shell-copyable", () => {
   assert.deepEqual(failureReceiptNextActions("repo_unavailable", {
     repo: {

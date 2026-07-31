@@ -61,6 +61,12 @@ export function failureReceiptNextActions(
       description: "Start the task and acquire its lease, then retry the original command."
     }] : undefined;
   }
+  if (code === "daemon_build_stale" || code === "daemon_build_identity_unavailable") {
+    return [{
+      command: "ha daemon start --service",
+      description: "Restart the daemon on the current dist build, then retry the original write."
+    }];
+  }
   if (code !== "repo_unavailable" && code !== "repo_lock_held") return undefined;
 
   const repo = receiptRecord(details.repo) ?? receiptRecord(data?.repo);

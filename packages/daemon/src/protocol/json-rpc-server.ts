@@ -114,6 +114,10 @@ export interface JsonRpcServerOptions extends ProjectionNotificationOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
+  readonly readBuildIdentity?: () => {
+    readonly loadedIdentity: string;
+    readonly installedIdentity: string;
+  };
   readonly resolveRepoServices?: (repo: DaemonRepoNamespace) => DaemonServiceHost | undefined;
   readonly resolveRepoAvailability?: (repo: DaemonRepoNamespace) => DaemonRepoAvailabilityFailure | undefined;
   /** Workspace policy resolver supplied by the CLI composition root. */
@@ -207,6 +211,8 @@ async function handleRequest(
   const effectiveContract = withEffectiveCommandClass(contract, params);
   const forcedRootFailure = validateForcedCommandRoot(effectiveContract, params, repo, options.authContext);
   if (forcedRootFailure) return response(forcedRootFailure);
+  const buildDrift = buildDriftFailure(effectiveContract, options);
+  if (buildDrift) return response(buildDrift);
   const repoRuntimeFailure = validateRepoRuntime(effectiveContract, repo, options);
   if (repoRuntimeFailure) return response(repoRuntimeFailure);
 
@@ -447,6 +453,46 @@ function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: Json
   const commandClass = commandClassForJsonRpcRequest(contract, params);
   if (commandClass === contract.commandClass) return contract;
   return commandClass ? { ...contract, commandClass } : { ...contract };
+}
+
+function buildDriftFailure(
+  contract: JsonRpcMethodContract,
+  options: JsonRpcServerOptions
+): ReturnType<typeof failureReceipt> | undefined {
+  if (!options.readBuildIdentity
+    || contract.commandClass === "repo-read"
+    || contract.namespace === "admin") {
+    return undefined;
+  }
+  let build: ReturnType<NonNullable<JsonRpcServerOptions["readBuildIdentity"]>>;
+  try {
+    build = options.readBuildIdentity();
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    return failureReceipt(
+      contract.method,
+      "daemon_build_identity_unavailable",
+      `Daemon cannot verify that its running code matches the current dist build (${cause}); mixed-version writes are disabled. Run \`ha daemon start --service\`.`,
+      {
+        data: {
+          nextCommand: "ha daemon start --service"
+        }
+      }
+    );
+  }
+  if (build.loadedIdentity === build.installedIdentity) return undefined;
+  return failureReceipt(
+    contract.method,
+    "daemon_build_stale",
+    `Daemon code version ${build.loadedIdentity} does not match current dist version ${build.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`,
+    {
+      data: {
+        loadedIdentity: build.loadedIdentity,
+        installedIdentity: build.installedIdentity,
+        nextCommand: "ha daemon start --service"
+      }
+    }
+  );
 }
 
 async function handleAdminMethod(
