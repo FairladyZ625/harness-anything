@@ -126,15 +126,27 @@ export class RepoWriteAuthorityRecoveryGate {
         `historical authority recovery cannot admit outer PROCEEDING: ${outcome.outerOpId}`
       );
     }
-    const publication = await this.resolveHistoricalPublication(outcome);
-    if (publication.semanticDigest !== outcome.authoritySemanticDigest) {
-      throw new RepoWriteOutcomeGenerationFenceError(
-        `historical publication semantic digest does not match outer PROCEEDING: ${outcome.outerOpId}`
-      );
+    try {
+      const publication = await this.resolveHistoricalPublication(outcome);
+      if (publication.semanticDigest !== outcome.authoritySemanticDigest) {
+        throw new RepoWriteOutcomeGenerationFenceError(
+          `historical publication semantic digest does not match outer PROCEEDING: ${outcome.outerOpId}`
+        );
+      }
+      await this.assertCurrentWriterFence();
+      const committed = await this.recoverHistorical(outcome, publication);
+      this.terminalizeHistorical(outcome, publication, committed);
+    } catch (error) {
+      const permanentCode = permanentHistoricalRecoveryRejectionCode(error);
+      if (!permanentCode) throw error;
+      await this.assertCurrentWriterFence();
+      this.store.rejectHistoricalRecovery({
+        ...this.axes,
+        outerOpId: outcome.outerOpId,
+        requestDigest: outcome.requestDigest,
+        code: permanentCode
+      });
     }
-    await this.assertCurrentWriterFence();
-    const committed = await this.recoverHistorical(outcome, publication);
-    this.terminalizeHistorical(outcome, publication, committed);
   }
 
   private async recoverHistorical(
@@ -222,6 +234,17 @@ export class RepoWriteAuthorityRecoveryGate {
     await this.assertCurrentWriterFence();
     return useDurableProceeding(outcome);
   }
+}
+
+const permanentHistoricalRecoveryRejectionCodes = new Set([
+  "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
+  "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH"
+]);
+
+function permanentHistoricalRecoveryRejectionCode(error: unknown): string | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = /^([A-Z][A-Z0-9_]*)(?=[:;]|$)/u.exec(message)?.[1];
+  return code && permanentHistoricalRecoveryRejectionCodes.has(code) ? code : undefined;
 }
 
 function historicalRecoveryReceipt(
