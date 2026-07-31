@@ -42,6 +42,7 @@ import {
   authorizeIdentityActorForMethod,
   resolveIdentityActorForMethod
 } from "./identity-dispatch.ts";
+import { buildIdentityAdmissionFailure } from "./build-identity-admission.ts";
 import {
   resolveAuthorityConnectionForRequest,
   type AcceptedConnectionBinding,
@@ -114,6 +115,10 @@ export interface JsonRpcServerOptions extends ProjectionNotificationOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
+  readonly readBuildIdentity?: () => {
+    readonly loadedIdentity: string;
+    readonly installedIdentity: string;
+  };
   readonly resolveRepoServices?: (repo: DaemonRepoNamespace) => DaemonServiceHost | undefined;
   readonly resolveRepoAvailability?: (repo: DaemonRepoNamespace) => DaemonRepoAvailabilityFailure | undefined;
   /** Workspace policy resolver supplied by the CLI composition root. */
@@ -207,6 +212,8 @@ async function handleRequest(
   const effectiveContract = withEffectiveCommandClass(contract, params);
   const forcedRootFailure = validateForcedCommandRoot(effectiveContract, params, repo, options.authContext);
   if (forcedRootFailure) return response(forcedRootFailure);
+  const buildDrift = buildIdentityAdmissionFailure(effectiveContract, options.readBuildIdentity);
+  if (buildDrift) return response(buildDrift);
   const repoRuntimeFailure = validateRepoRuntime(effectiveContract, repo, options);
   if (repoRuntimeFailure) return response(repoRuntimeFailure);
 

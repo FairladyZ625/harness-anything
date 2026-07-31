@@ -17,8 +17,10 @@ export interface AuthorityWireRepoBinding {
 export function createAuthorityWireIngressHandler(input: {
   readonly authorityLifecycle?: AuthorityRepoLifecycleController;
   readonly repoBindings: () => Iterable<AuthorityWireRepoBinding>;
+  readonly assertBuildCurrent?: () => void;
 }): AuthorityWireIngressHandler {
   return async (request) => {
+    input.assertBuildCurrent?.();
     if (!input.authorityLifecycle) throw new Error("AUTHORITY_PRODUCTION_LIFECYCLE_DISABLED");
     const repoBinding = [...input.repoBindings()].find((binding) =>
       canonicalRootIdentity(binding.repo.canonicalRoot) === canonicalRootIdentity(request.bootstrap.canonicalRoot)

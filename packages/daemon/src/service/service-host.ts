@@ -11,7 +11,7 @@ import type { AcceptedConnectionBinding } from "../protocol/connection-context.t
 import type { AuthorityWireIngressHandler } from "../transport/authority-wire-ingress.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { JsonObject, JsonRpcNotification } from "../protocol/json-rpc-types.ts";
-import type { DaemonRepoAvailabilityFailure, DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
+import type { DaemonRepoNamespace } from "../protocol/json-rpc-server.ts";
 import { noRepoBindingsError } from "../authority/authority-lifecycle.ts";
 import type { AuthorityRepoComponent, AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
 import type { AuthenticatedActor, IdentityAdminSnapshot, IdentityProvider, PersonRegistry } from "../identity/types.ts";
@@ -40,6 +40,8 @@ import { daemonStatusPayload, type DaemonConnectionStats } from "./status-payloa
 import { projectDaemonLaunchConfiguration } from "../client/local-json-rpc-client.ts";
 import { createDaemonIdleExitScheduler } from "./idle-exit-scheduler.ts";
 import { daemonDeploymentStatusOptions } from "./deployment-status-options.ts";
+import { installDaemonBuildWriteGuard, runWhenBuildCurrent } from "./build-identity-write-guard.ts";
+import { repoAvailabilityFailure } from "./repo-availability.ts";
 import type {
   RepoWriteProcessSupervisor
 } from "../runtime/repo-write-process-supervisor.ts";
@@ -133,6 +135,9 @@ export async function createDaemonServiceHost<
   const stopHandlers: Array<() => Promise<void>> = [];
   registerRepoWriteSupervisorStops(stopHandlers, repoWriteSupervisors);
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
+  const buildIdentity = installDaemonBuildWriteGuard({
+    runtime, repos, defaultRepoId, build, daemonLogService
+  });
   let requestStop: ((request: DaemonServiceStopRequest) => void) | undefined;
   const stopRequested = new Promise<DaemonServiceStopRequest>((resolve) => {
     requestStop = resolve;
@@ -232,6 +237,7 @@ export async function createDaemonServiceHost<
       daemonId,
       repos: protocolRepos(),
       services: defaultRepoBinding().services,
+      readBuildIdentity: buildIdentity.read,
       resolveRepoServices: (repo) => protocolRepoBinding(repo)?.services,
       resolveRepoIdentity: (repo) => protocolRepoBinding(repo)?.identity,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(
@@ -263,7 +269,8 @@ export async function createDaemonServiceHost<
     ),
     authorityWireIngress: createAuthorityWireIngressHandler({
       authorityLifecycle,
-      repoBindings: () => repoBindings.values()
+      repoBindings: () => repoBindings.values(),
+      assertBuildCurrent: buildIdentity.assertCurrent
     }),
     status: () => serviceStatus(defaultRepoBinding().repo.repoId),
     requestControl: controlService.requestControl,
@@ -314,7 +321,10 @@ export async function createDaemonServiceHost<
 
   async function reconcileDaemonRepos(userRoot: string): Promise<void> {
     await reconcileDaemonRepoRegistry({
-      loadDesiredRepos: () => readDaemonRegistry({ userRoot }).repos.filter((repo) => repo.state === "enabled"),
+      loadDesiredRepos: () => {
+        buildIdentity.assertCurrent();
+        return readDaemonRegistry({ userRoot }).repos.filter((repo) => repo.state === "enabled");
+      },
       knownRepoIds: () => [...reposById.keys()],
       repoStatus: (repoId) => runtime.status().repos.find((candidate) => candidate.repoId === repoId),
       attachRepo: async (repo) => {
@@ -336,6 +346,7 @@ export async function createDaemonServiceHost<
         if (!repoRuntime) throw new Error(`daemon runtime missing repo context: ${repo.repoId}`);
         let authorityComponent: AuthorityRepoComponent | undefined;
         if (authorityLifecycle) {
+          buildIdentity.assertCurrent();
           const startedAuthority = await authorityLifecycle.startRepo(namespace, repoRuntime);
           if (!startedAuthority.ok) throw new Error(startedAuthority.error);
           authorityComponent = startedAuthority.component;
@@ -364,7 +375,8 @@ export async function createDaemonServiceHost<
         reposById.delete(repoId);
       }
     }, reconcileState);
-    publishRuntimeRegistrationSnapshot({ userRoot, ...build, runtimeStatus: runtime.status() });
+    runWhenBuildCurrent(buildIdentity, () =>
+      publishRuntimeRegistrationSnapshot({ userRoot, ...build, runtimeStatus: runtime.status() }));
   }
 
   function serviceStatus(repoId: string, includeGenerationAxes = false): DaemonStatusResultV2 {
@@ -555,38 +567,4 @@ function loadRepoIdentity<
       loadError: error instanceof Error ? error.message : String(error)
     };
   }
-}
-
-function repoAvailabilityFailure(
-  runtime: MultiRepoHarnessDaemonRuntime,
-  repo: DaemonRepoNamespace,
-  authorityUnavailable?: string
-): DaemonRepoAvailabilityFailure | undefined {
-  const status = runtime.status().repos.find((candidate) => candidate.repoId === repo.repoId);
-  if (!status) {
-    return {
-      code: "repo_unavailable",
-      repo: {
-        repoId: repo.repoId,
-        canonicalRoot: repo.canonicalRoot,
-        state: "unavailable",
-        lockPath: null,
-        lockOwnerToken: null,
-        lastError: "runtime context not found"
-      }
-    };
-  }
-  if (status.state === "attached" && !authorityUnavailable) return undefined;
-  const lockHeld = typeof status.lastError === "string" && /lock already held|global\.lock/u.test(status.lastError);
-  return {
-    code: lockHeld ? "repo_lock_held" : "repo_unavailable",
-    repo: {
-      repoId: repo.repoId,
-      canonicalRoot: repo.canonicalRoot,
-      state: status.state,
-      lockPath: status.lockPath ?? null,
-      lockOwnerToken: status.lockOwnerToken ?? null,
-      lastError: authorityUnavailable ?? status.lastError ?? null
-    }
-  };
 }

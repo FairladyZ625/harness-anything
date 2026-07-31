@@ -12,6 +12,28 @@ import {
 } from "../src/index.ts";
 import { createAuthorityWireIngressHandler } from "../src/index.ts";
 
+test("authority-wire ingress rejects artifact drift before binding a mixed-version writer", async () => {
+  let repoBindingReads = 0;
+  const handler = createAuthorityWireIngressHandler({
+    authorityLifecycle: {} as AuthorityRepoLifecycleController,
+    repoBindings: () => {
+      repoBindingReads += 1;
+      return [];
+    },
+    assertBuildCurrent: () => {
+      throw new Error(
+        `DAEMON_BUILD_STALE: Daemon code version sha256:${"a".repeat(64)} does not match current dist version sha256:${"b".repeat(64)}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+      );
+    }
+  });
+
+  await assert.rejects(
+    handler({} as never),
+    /DAEMON_BUILD_STALE:[\s\S]*sha256:a{64}[\s\S]*sha256:b{64}[\s\S]*ha daemon start --service/u
+  );
+  assert.equal(repoBindingReads, 0);
+});
+
 test("authority-wire service binds the authenticated principal to the exact accepted connection", async () => {
   const repo: DaemonRepoNamespace = { repoId: "canonical", canonicalRoot: process.cwd() };
   const generation = connectionGeneration("wire-generation");

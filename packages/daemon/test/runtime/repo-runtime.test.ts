@@ -439,6 +439,30 @@ test("daemon runtime runs the reservation reconciler at attach and on the existi
   });
 });
 
+test("artifact drift stops the materializer timer before any persistent reconciliation", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    let reconciliations = 0;
+    let stale = false;
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: 10,
+      assertBuildCurrent: () => {
+        if (stale) throw new Error("DAEMON_BUILD_STALE: restart required");
+      },
+      reservationReconciler: async () => {
+        reconciliations += 1;
+      }
+    });
+
+    await runtime.start();
+    assert.equal(reconciliations, 1);
+    stale = true;
+    await new Promise<void>((resolve) => setTimeout(resolve, 75));
+    assert.equal(reconciliations, 1);
+    await runtime.stop();
+  });
+});
+
 test("daemon restart after SIGKILL takes over stale lock and recovers durable journal", async () => {
   await withTempStoreAsync(async (rootDir) => {
     await spawnJournalOnlyDaemon(rootDir);
