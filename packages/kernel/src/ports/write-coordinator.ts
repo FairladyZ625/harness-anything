@@ -118,6 +118,7 @@ export interface FlushReport {
   readonly opCount: number;
   readonly committed: boolean;
   readonly watermark?: string;
+  readonly publicationMode?: "exact-batch" | "integrity-domain";
 }
 
 export interface RecoveryReport {
@@ -129,6 +130,14 @@ export interface RecoveryReport {
 export interface WriteCoordinator {
   readonly enqueue: (op: WriteOp) => Effect.Effect<WriteAck, WriteError>;
   readonly flush: (reason: FlushReason) => Effect.Effect<FlushReport, WriteError>;
+  /**
+   * Publishes only the durable journal records named by witnesses returned
+   * from this coordinator's validated enqueue calls.
+   */
+  readonly flushExactJournalRecords?: (
+    reason: FlushReason,
+    witnesses: ReadonlyArray<JournalRecordWitnessV1>
+  ) => Effect.Effect<FlushReport, WriteError>;
   /**
    * Recovery-only boundary. It may publish only the journal record named by
    * the exact witness returned from this coordinator's validated enqueue.

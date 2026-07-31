@@ -26,7 +26,8 @@ export function reconcileDurableFlush(
     reason,
     opCount: ownedOpIds.length,
     committed: true,
-    watermark: ownedOpIds.at(-1)
+    watermark: ownedOpIds.at(-1),
+    publicationMode: "integrity-domain"
   };
 }
 

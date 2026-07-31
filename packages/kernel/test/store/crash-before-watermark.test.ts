@@ -69,6 +69,47 @@ test("exact journal recovery publishes only the witnessed operation", () => {
   });
 });
 
+test("exact journal publication commits only the witnessed batch and leaves an orphan queued", () => {
+  withTempStore((rootDir) => {
+    const attribution = testWriteAttribution();
+    const orphan = makeJournaledWriteCoordinator({ attribution, rootDir });
+    const publication = makeJournaledWriteCoordinator({ attribution, rootDir });
+    Effect.runSync(orphan.enqueue(
+      docWrite("op-orphan", "task-orphan", "progress.md", "orphan")
+    ));
+    const firstAck = Effect.runSync(publication.enqueue(
+      docWrite("op-first", "task-first", "progress.md", "first")
+    ));
+    const secondAck = Effect.runSync(publication.enqueue(
+      docWrite("op-second", "task-second", "progress.md", "second")
+    ));
+
+    assert.ok(firstAck.journalWitness);
+    assert.ok(secondAck.journalWitness);
+    assert.ok(publication.flushExactJournalRecords);
+    const report = Effect.runSync(publication.flushExactJournalRecords(
+      "explicit",
+      [firstAck.journalWitness, secondAck.journalWitness]
+    ));
+
+    assert.equal(report.committed, true);
+    assert.equal(report.opCount, 2);
+    assert.equal(report.publicationMode, "exact-batch");
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/tasks/task-first/progress.md"), "utf8"),
+      "first"
+    );
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/tasks/task-second/progress.md"), "utf8"),
+      "second"
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, "harness/tasks/task-orphan/progress.md")),
+      false
+    );
+  });
+});
+
 test("exact journal recovery rejects a witness not authorized by validated enqueue", () => {
   withTempStore((rootDir) => {
     const first = makeJournaledWriteCoordinator({

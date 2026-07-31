@@ -250,6 +250,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await entry.publicationRevalidation?.();
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+          if (acknowledgement.journalWitness) {
+            journalWitnesses.set(entry, acknowledgement.journalWitness);
+          }
           if (entry.recoveryMode) {
             if (!acknowledgement.journalWitness || !entry.coordinator.flushExactJournalRecord) {
               receipts.set(entry, await persistTerminal(
@@ -269,7 +272,6 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
               ));
               continue;
             }
-            journalWitnesses.set(entry, acknowledgement.journalWitness);
           }
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await put(
@@ -305,12 +307,26 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       try {
       await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
       const recoveryCandidate = candidates[0]!.recoveryMode ? candidates[0] : undefined;
+      const batchCoordinator = candidates[0]!.coordinator;
+      const exactBatchWitnesses = candidates.flatMap((candidate) => {
+        const witness = journalWitnesses.get(candidate);
+        return witness ? [witness] : [];
+      });
+      const canFlushExactBatch = !recoveryCandidate
+        && candidates.every((candidate) => candidate.coordinator === batchCoordinator)
+        && exactBatchWitnesses.length === candidates.length
+        && batchCoordinator.flushExactJournalRecords;
       const flush = recoveryCandidate
         ? await Effect.runPromise(recoveryCandidate.coordinator.flushExactJournalRecord!(
           "recovery",
           journalWitnesses.get(recoveryCandidate)!
         ))
-        : await Effect.runPromise(candidates[0]!.coordinator.flush("explicit"));
+        : canFlushExactBatch
+          ? await Effect.runPromise(batchCoordinator.flushExactJournalRecords!(
+            "explicit",
+            exactBatchWitnesses
+          ))
+          : await Effect.runPromise(batchCoordinator.flush("explicit"));
       if (!flush.committed || flush.opCount !== candidates.length) {
         // Keep the v1 wire reason stable; the invariant now means exactly the
         // operation set owned by this publication batch, still never a subset.
