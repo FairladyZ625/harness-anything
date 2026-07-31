@@ -104,7 +104,7 @@ test("writer working-tree paths use the canonical portable path normalizer", () 
   assert.equal(nfc.ok, true);
   if (!backslash.ok) assert.match(backslash.reason, /POSIX separators/u);
   if (!nul.ok) assert.match(nul.reason, /NUL/u);
-  if (nfc.ok) assert.equal(nfc.path, "/tmp/authored/notes/café.md");
+  if (nfc.ok) assert.equal(nfc.path, path.resolve("/tmp/authored", "notes/café.md"));
 });
 
 function request(
