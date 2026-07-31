@@ -10,6 +10,7 @@ import {
   daemonBuildProvenanceFilename,
   inspectDaemonSupervision
 } from "../src/index.ts";
+import { daemonDeploymentStatusOptions } from "../src/service/deployment-status-options.ts";
 
 test("deployment identity binds commit, source bytes, loaded artifact bytes, and manager PID", () => {
   const fixture = deploymentFixture();
@@ -89,6 +90,37 @@ test("dead or mismatched manager unit cannot validate a manually started daemon"
   assert.equal(status.matchesPid, false);
   assert.equal(status.managerState, "inactive");
   assert.equal(status.observedPid, null);
+});
+
+test("installed build identity cache fails closed while provenance is unavailable and recovers on replacement", () => {
+  const fixture = deploymentFixture();
+  const provenancePath = path.join(
+    calculateDaemonArtifactIdentity(fixture.entrypoint).artifactRoot,
+    daemonBuildProvenanceFilename
+  );
+  try {
+    const status = daemonDeploymentStatusOptions({
+      entrypoint: fixture.entrypoint,
+      loadedIdentity: fixture.artifactIdentity
+    }, { requireBuildProvenance: true });
+    assert.equal(status.readInstalledIdentity(), fixture.artifactIdentity);
+    assert.equal(status.readInstalledIdentity(), fixture.artifactIdentity);
+
+    rmSync(provenancePath);
+    assert.throws(
+      () => status.readInstalledIdentity(),
+      /daemon build identity file is unavailable/u
+    );
+
+    const replacementIdentity = `sha256:${"b".repeat(64)}`;
+    writeFileSync(provenancePath, `${JSON.stringify({
+      schema: "daemon-build-provenance/v1",
+      contentFingerprint: replacementIdentity
+    })}\n`, "utf8");
+    assert.equal(status.readInstalledIdentity(), replacementIdentity);
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 function deploymentFixture(): {

@@ -59,6 +59,8 @@ export interface DaemonRuntimeOptions {
     readonly rootDir: string;
     readonly layoutOverrides?: HarnessLayoutOverrides;
   }) => Promise<void>;
+  /** Fail-closed build witness shared by every persistent writer in this daemon. */
+  readonly assertBuildCurrent?: () => void;
   /** Present only when this runtime is owned by a durable daemon generation. */
   readonly generationAxes?: {
     readonly machineId: string;
@@ -152,6 +154,7 @@ export interface MultiRepoHarnessDaemonRuntime {
   readonly attachRepo: (repo: DaemonRepoRuntimeOptions) => Promise<DaemonRepoRuntimeStatus>;
   readonly detachRepo: (repoId: string) => Promise<DaemonRepoRuntimeStatus>;
   readonly retryUnavailableRepos: () => Promise<ReadonlyArray<DaemonRepoRuntimeStatus>>;
+  readonly installWriteGuard?: (assertBuildCurrent: () => void) => void;
   readonly getRepoRuntime: (repoId: string) => HarnessDaemonRuntime | undefined;
   readonly enqueueInteractiveWrite: (repoId: string, request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
   readonly enqueueBackgroundBatch: <Result>(repoId: string, request: BackgroundBatchRequest<Result>) => Promise<Result>;

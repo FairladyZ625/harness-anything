@@ -87,8 +87,7 @@ export function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcR
   readonly schema: string;
   readonly command: string;
   readonly action?: string;
-  readonly error?: { readonly code?: string; readonly hint?: string };
-  readonly next?: ReadonlyArray<{ readonly command: string; readonly description?: string }>;
+  readonly error?: { readonly code?: string };
   readonly items?: ReadonlyArray<unknown>;
   readonly details: Record<string, any>;
 } {
@@ -99,8 +98,7 @@ export function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcR
     readonly schema: string;
     readonly command: string;
     readonly action?: string;
-    readonly error?: { readonly code?: string; readonly hint?: string };
-    readonly next?: ReadonlyArray<{ readonly command: string; readonly description?: string }>;
+    readonly error?: { readonly code?: string };
     readonly items?: ReadonlyArray<unknown>;
     readonly details: Record<string, any>;
   };

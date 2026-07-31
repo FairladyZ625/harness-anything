@@ -76,6 +76,8 @@ import {
 import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
 import { defaultDaemonRuntimePolicy } from "./runtime-policy.ts";
 import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts";
+import { mergeRepoRuntimeDefaults } from "./repo-runtime-options-merge.ts";
+import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 
@@ -109,9 +111,10 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
 export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOptions): MultiRepoHarnessDaemonRuntime {
   const contexts = new Map<string, DaemonRepoRuntimeContext>();
   let started = false;
+  let assertBuildCurrent = options.assertBuildCurrent;
 
   for (const repo of sortedRepoOptions(options.repos)) {
-    addContext(mergeRepoDefaults(repo, options));
+    addContext(mergeRepoRuntimeDefaults(repo, options));
   }
 
   const runtime: MultiRepoHarnessDaemonRuntime = {
@@ -138,7 +141,7 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
     },
     status,
     attachRepo: async (repo) => {
-      const context = contexts.get(repo.repoId) ?? addContext(mergeRepoDefaults(repo, options));
+      const context = contexts.get(repo.repoId) ?? addContext(mergeRepoRuntimeDefaults(repo, options));
       started = true;
       return context.attach({ failOnError: false });
     },
@@ -154,6 +157,10 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
         retried.push(await context.attach({ failOnError: false }));
       }
       return retried;
+    },
+    installWriteGuard: (guard) => {
+      assertBuildCurrent = guard;
+      for (const context of contexts.values()) context.installWriteGuard(guard);
     },
     getRepoRuntime: (repoId) => contexts.get(repoId),
     enqueueInteractiveWrite: (repoId, request) => requireContext(contexts, repoId).enqueueInteractiveWrite(request),
@@ -179,7 +186,11 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
     for (const existing of contexts.values()) {
       if (existing.rootDir === rootDir) throw new Error(`duplicate daemon repo root: ${rootDir}`);
     }
-    const context = new DaemonRepoRuntimeContext({ ...repo, rootDir });
+    const context = new DaemonRepoRuntimeContext({
+      ...repo,
+      rootDir,
+      ...(assertBuildCurrent ? { assertBuildCurrent } : {})
+    });
     contexts.set(repo.repoId, context);
     return context;
   }
@@ -209,6 +220,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   private lastMaterializerError: string | undefined;
   private materializerTimer: ReturnType<typeof setInterval> | undefined;
   private readonly reservationReconciler: ReservationReconcilerRunner;
+  private assertBuildCurrent: () => void;
   private runtimeRegistrationId: string | undefined;
 
   constructor(options: DaemonRepoRuntimeOptions) {
@@ -238,6 +250,11 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         } : {})
       }
     );
+    this.assertBuildCurrent = options.assertBuildCurrent ?? (() => undefined);
+  }
+
+  installWriteGuard(assertBuildCurrent: () => void): void {
+    this.assertBuildCurrent = assertBuildCurrent;
   }
 
   start(): Promise<DaemonRuntimeStatus> {
@@ -261,7 +278,9 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         this.state = "attached";
         return this.status();
       }
+      this.assertBuildCurrent();
       this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.operationalActor, this.lockTtlMs);
+      this.assertBuildCurrent();
       this.lastRecovery = Effect.runSync(recoverJournaledWrites({
         rootDir: this.rootDir,
         layoutOverrides: this.options.layoutOverrides,
@@ -273,6 +292,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.lastError = undefined;
       this.lastMaterializerError = undefined;
       this.state = "attached";
+      this.assertBuildCurrent();
       await this.reservationReconciler.run();
       if (this.options.generationAxes) this.runtimeRegistrationId = randomUUID();
       this.startMaterializerTimer();
@@ -454,6 +474,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         cause: new Error(`daemon repo "${this.repoId}" write ownership belongs to its child capsule`)
       } satisfies WriteError;
     }
+    this.assertBuildCurrent();
     return { lock: this.lock };
   }
 
@@ -483,10 +504,19 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       return;
     }
     this.materializerTimer = setInterval(() => {
-      void this.reservationReconciler.run().catch(() => undefined);
-      void this.enqueueMaterializerBatch().catch(() => undefined);
+      void this.runMaterializerTimerCycle();
     }, this.options.materializerPollMs);
     this.materializerTimer.unref();
+  }
+
+  private async runMaterializerTimerCycle(): Promise<void> {
+    try {
+      this.requireWriterAttached();
+      await this.reservationReconciler.run();
+      await this.enqueueMaterializerBatch();
+    } catch (error) {
+      this.lastMaterializerError = describeRepoRuntimeError(error);
+    }
   }
 
   private runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): LedgerMaterializerReport {
@@ -548,28 +578,6 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 }
 
-function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDaemonRuntimeOptions): DaemonRepoRuntimeOptions {
-  return {
-    ...repo,
-    ...(repo.writeOwnership ? {} : options.writeOwnership ? { writeOwnership: options.writeOwnership } : {}),
-    ...(repo.operationalActor ? {} : options.operationalActor ? { operationalActor: options.operationalActor } : {}),
-    ...(repo.lockTtlMs !== undefined ? {} : options.lockTtlMs !== undefined ? { lockTtlMs: options.lockTtlMs } : {}),
-    ...(repo.interactiveMicroBatchMs !== undefined ? {} : options.interactiveMicroBatchMs !== undefined ? { interactiveMicroBatchMs: options.interactiveMicroBatchMs } : {}),
-    ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),
-    ...(repo.materializerPollMs !== undefined ? {} : options.materializerPollMs !== undefined ? { materializerPollMs: options.materializerPollMs } : {}),
-    ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {}),
-    ...(repo.projectionReconcileIntervalMs !== undefined ? {} : options.projectionReconcileIntervalMs !== undefined ? { projectionReconcileIntervalMs: options.projectionReconcileIntervalMs } : {}),
-    ...(repo.admissionMaxOperations !== undefined ? {} : options.admissionMaxOperations !== undefined ? { admissionMaxOperations: options.admissionMaxOperations } : {}),
-    ...(repo.admissionMaxBytes !== undefined ? {} : options.admissionMaxBytes !== undefined ? { admissionMaxBytes: options.admissionMaxBytes } : {}),
-    ...(repo.admissionReservedOperationsPerPlane !== undefined ? {} : options.admissionReservedOperationsPerPlane !== undefined ? { admissionReservedOperationsPerPlane: options.admissionReservedOperationsPerPlane } : {}),
-    ...(repo.admissionReservedBytesPerPlane !== undefined ? {} : options.admissionReservedBytesPerPlane !== undefined ? { admissionReservedBytesPerPlane: options.admissionReservedBytesPerPlane } : {}),
-    ...(repo.projectionSourceFenceFactory ? {} : options.projectionSourceFenceFactory ? { projectionSourceFenceFactory: options.projectionSourceFenceFactory } : {}),
-    ...(repo.generationAxes ? {} : options.generationAxes ? { generationAxes: options.generationAxes } : {}),
-    ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {}),
-    ...(repo.generationCapability ? {} : options.generationCapability ? { generationCapability: options.generationCapability } : {})
-  };
-}
-
 function sortedRepoOptions(repos: ReadonlyArray<DaemonRepoRuntimeOptions>): ReadonlyArray<DaemonRepoRuntimeOptions> {
   return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || path.resolve(left.rootDir).localeCompare(path.resolve(right.rootDir)));
 }
@@ -582,12 +590,4 @@ function requireContext(contexts: Map<string, DaemonRepoRuntimeContext>, repoId:
   const context = contexts.get(repoId);
   if (!context) throw { _tag: "JournalUnavailable", cause: new Error(`unknown daemon repo "${repoId}"`) } satisfies WriteError;
   return context;
-}
-
-function describeRepoRuntimeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "cause" in error) {
-    return describeRepoRuntimeError((error as { readonly cause?: unknown }).cause);
-  }
-  return String(error);
 }
