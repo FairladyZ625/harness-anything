@@ -298,15 +298,20 @@ function AppShell() {
     navigate({ focusedEntityRef: `task/${id}`, entityFacet: null, previewId: null, selectedId: id });
   };
 
-  // W2B 活链接:跨实体跳转(task→详情, decision→决策池, fact→事实分诊)
+  // W2B 活链接:跨实体跳转(task→详情, decision→决策池, fact→事实分诊)。
+  // 决策预览抽屉是「精修」不推栈;进入 task/fact 真视图时先关掉抽屉,避免遮挡
+  // 目标面 + 保证 Cmd+[ 回到的是上一个实体视图而非被抽屉盖住的旧位置。
   const navigateToEntity = (ref: string) => {
     if (ref.startsWith("task/")) {
       const id = ref.slice(5).split("/")[0];
+      setDecisionPreviewId(null);
       openTaskDetail(id);
     } else if (ref.startsWith("decision/")) {
       const decisionId = ref.split("/")[1];
+      // 同抽屉内换 peer decision = 仍是预览,不推栈;title 列表由 drawer 解析。
       setDecisionPreviewId(decisionId ?? null);
     } else if (ref.startsWith("fact/")) {
+      setDecisionPreviewId(null);
       navigate({
         focusedEntityRef: ref,
         view: "factTriage",
@@ -558,11 +563,17 @@ function AppShell() {
       />
       <DecisionDetailDrawer
         decision={previewDecision}
+        decisions={decisions}
         tasks={projectTasks}
         facts={facts}
         relations={relations}
         onClose={() => setDecisionPreviewId(null)}
-        onOpenTask={(id) => { setDecisionPreviewId(null); openTaskPreview(id); }}
+        onOpenTask={(id) => {
+          setDecisionPreviewId(null);
+          openTaskDetail(id);
+        }}
+        onOpenDecision={(id) => setDecisionPreviewId(id)}
+        onOpenFact={(ref) => navigateToEntity(ref.startsWith("fact/") ? ref : `fact/${ref}`)}
       />
       <CommandPalette
         open={paletteOpen}

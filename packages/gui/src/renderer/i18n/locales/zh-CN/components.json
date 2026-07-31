@@ -286,5 +286,20 @@
   "components.verticalAndTemplateCards.loadBearing2": "·承重",
   "components.verticalAndTemplateCards.notDirectlySelectedByCurrentlyParsedPreset": "未被当前解析后的 preset 直接选用",
   "components.verticalAndTemplateCards.usedBy": "使用方",
-  "components.verticalAndTemplateCards.verticalDoesNotDefineStatusMappingAddingVertical": "Vertical 不定义 statusMapping；新增 vertical 不得改 kernel entity"
+  "components.verticalAndTemplateCards.verticalDoesNotDefineStatusMappingAddingVertical": "Vertical 不定义 statusMapping；新增 vertical 不得改 kernel entity",
+  "components.decisionDetailDrawer.acceptedBy": "采纳方",
+  "components.decisionDetailDrawer.chosen": "已采纳",
+  "components.decisionDetailDrawer.close": "关闭",
+  "components.decisionDetailDrawer.jumpDecision": "打开决策",
+  "components.decisionDetailDrawer.jumpFact": "打开事实",
+  "components.decisionDetailDrawer.jumpTask": "打开任务",
+  "components.decisionDetailDrawer.noRelatedDecisions": "无关联决策",
+  "components.decisionDetailDrawer.noRelatedFacts": "无关联事实",
+  "components.decisionDetailDrawer.noRelatedTasks": "无关联任务",
+  "components.decisionDetailDrawer.notAccepted": "未采纳",
+  "components.decisionDetailDrawer.question": "问题",
+  "components.decisionDetailDrawer.relatedDecisions": "关联决策 · {count}",
+  "components.decisionDetailDrawer.relatedFacts": "关联事实 · {count}",
+  "components.decisionDetailDrawer.relatedTasks": "关联任务 · {count}",
+  "components.decisionDetailDrawer.rejected": "已驳回"
 }

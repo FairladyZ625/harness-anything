@@ -575,5 +575,9 @@
   "views.timelinePlot.focus": "focus",
   "views.timelinePlot.noTime": "no time",
   "views.timelinePlot.noTime2": "no time",
-  "views.ledger.noPlt": "No PLT"
+  "views.ledger.noPlt": "No PLT",
+  "views.decisionPoolView.jumpDecision": "Open decision",
+  "views.decisionPoolView.jumpTask": "Open task",
+  "views.decisionPropose.bodyLabel": "Body",
+  "views.decisionPropose.bodyPlaceholder": "Long-form context or rationale (optional)"
 }

@@ -612,6 +612,7 @@ describe("dec_01KXARBFDR · DecisionProposeForm SSR smoke", () => {
     expect(html).toContain('data-testid="decision-propose-rejected-0"');
     expect(html).toContain('data-testid="decision-propose-rejected-0-why-not"');
     expect(html).toContain('data-testid="decision-propose-claim-0"');
+    expect(html).toContain('data-testid="decision-propose-body"');
     expect(html).toContain('data-testid="decision-propose-submit"');
   });
 

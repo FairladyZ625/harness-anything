@@ -286,5 +286,20 @@
   "components.verticalAndTemplateCards.loadBearing2": "·Load-bearing",
   "components.verticalAndTemplateCards.notDirectlySelectedByCurrentlyParsedPreset": "Not directly selected by the currently parsed preset",
   "components.verticalAndTemplateCards.usedBy": "usedBy",
-  "components.verticalAndTemplateCards.verticalDoesNotDefineStatusMappingAddingVertical": "Vertical does not define statusMapping; adding vertical must not change the kernel entity"
+  "components.verticalAndTemplateCards.verticalDoesNotDefineStatusMappingAddingVertical": "Vertical does not define statusMapping; adding vertical must not change the kernel entity",
+  "components.decisionDetailDrawer.acceptedBy": "Accepted by",
+  "components.decisionDetailDrawer.chosen": "Chosen",
+  "components.decisionDetailDrawer.close": "Close",
+  "components.decisionDetailDrawer.jumpDecision": "Open decision",
+  "components.decisionDetailDrawer.jumpFact": "Open fact",
+  "components.decisionDetailDrawer.jumpTask": "Open task",
+  "components.decisionDetailDrawer.noRelatedDecisions": "No related decisions",
+  "components.decisionDetailDrawer.noRelatedFacts": "No related facts",
+  "components.decisionDetailDrawer.noRelatedTasks": "No related tasks",
+  "components.decisionDetailDrawer.notAccepted": "Not accepted",
+  "components.decisionDetailDrawer.question": "Question",
+  "components.decisionDetailDrawer.relatedDecisions": "Related decisions · {count}",
+  "components.decisionDetailDrawer.relatedFacts": "Related facts · {count}",
+  "components.decisionDetailDrawer.relatedTasks": "Related tasks · {count}",
+  "components.decisionDetailDrawer.rejected": "Rejected"
 }
