@@ -28,6 +28,7 @@ import {
   publishNextDaemonGeneration,
   readOrCreateDaemonMachineId
 } from "../src/index.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 const posixOnly = process.platform === "win32"
   ? "durable generation publication is unsupported on Windows"
@@ -202,7 +203,8 @@ test("disease B: stale daemon cannot win compound terminal CAS after replacement
     assert.equal((staleResult.context as { schema?: string }).schema, "daemon-generation-write-rejection/v1");
     assert.equal(readFileSync(statePath).equals(afterCurrent), true, "stale child overwrote current terminal bytes");
   } finally {
-    for (const child of children) child.kill("SIGKILL");
+    await Promise.all(children.map((child) =>
+      forceTerminateChildAndWait(child, { label: "daemon generation racer" })));
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -253,7 +255,8 @@ test("two abandoned-lock contenders cannot quarantine the newly acquired winner"
     contenderB.send("release");
     assert.deepEqual(await nextChildMessage(contenderB), { type: "done", contenderId: "b" });
   } finally {
-    for (const child of children) child.kill("SIGKILL");
+    await Promise.all(children.map((child) =>
+      forceTerminateChildAndWait(child, { label: "daemon generation lock contender" })));
     rmSync(root, { recursive: true, force: true });
   }
 });

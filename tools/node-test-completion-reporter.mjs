@@ -34,7 +34,8 @@ async function* recordCompletionEvents(source, completionStream) {
         type: "test-failure",
         file: event.data.file,
         name: event.data.name,
-        signal: event.data.details?.error?.signal ?? null
+        signal: event.data.details?.error?.signal ?? null,
+        exitCode: event.data.details?.error?.exitCode ?? null
       });
     } else if (event.type === "test:summary" && event.data?.file === undefined) {
       record(completionStream, {

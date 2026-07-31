@@ -39,7 +39,8 @@ export function parseCompletionLedger(source, repoRoot) {
       failures.push({
         file,
         name: record.name,
-        signal: typeof record.signal === "string" ? record.signal : null
+        signal: typeof record.signal === "string" ? record.signal : null,
+        exitCode: Number.isInteger(record.exitCode) ? record.exitCode : null
       });
       continue;
     }
@@ -89,14 +90,23 @@ export function canIgnoreReapedFileFailures({
     ledger.failures.length !== reapedFiles.size
     || ledger.failures.some((failure) =>
       !reapedFiles.has(failure.file)
-      || failure.name !== failure.file
-      || failure.signal !== "SIGKILL"
+      || !reportedFileNameMatches(failure.name, failure.file)
+      || !isForcedTermination(failure)
     )
   ) {
     return false;
   }
   return ledger.runSummary.success === false
     && ledger.runSummary.counts.failed === reapedFiles.size;
+}
+
+function isForcedTermination(failure) {
+  return failure.signal === "SIGKILL"
+    || (failure.signal === null && Number.isInteger(failure.exitCode) && failure.exitCode !== 0);
+}
+
+function reportedFileNameMatches(name, repositoryFile) {
+  return name.replaceAll("\\", "/") === repositoryFile;
 }
 
 function repositoryRelativeFile(file, repoRoot) {

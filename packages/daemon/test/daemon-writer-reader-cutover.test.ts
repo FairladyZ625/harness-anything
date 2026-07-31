@@ -25,6 +25,10 @@ import { createFixture } from "../../cli/test/production-authority-canonical-ing
 import { cliTestEnv } from "../../cli/test/helpers/cli-test-env.ts";
 import { parseNewTaskArgs } from "../../cli/src/cli/parsers/new-task.ts";
 import { createTaskPackagePath } from "@harness-anything/kernel";
+import {
+  forceTerminateChildAndWait,
+  terminateChildAndWait
+} from "../../../tools/test-child-process-lifecycle.mjs";
 
 const integrationTest = process.platform === "win32" ? test.skip : test;
 const amplifierDelayMs = 5_250;
@@ -376,14 +380,13 @@ async function connectWhenReady(
 
 async function stopDaemon(daemon: ChildProcessWithoutNullStreams): Promise<void> {
   if (daemon.exitCode !== null || daemon.signalCode !== null) return;
-  daemon.kill("SIGTERM");
-  const exited = await Promise.race([
-    new Promise<true>((resolve) => daemon.once("exit", () => resolve(true))),
-    delay(1_000).then(() => false)
-  ]);
-  if (exited) return;
-  daemon.kill("SIGKILL");
-  await new Promise<void>((resolve) => daemon.once("exit", () => resolve()));
+  try {
+    await terminateChildAndWait(daemon, (target) => {
+      if (!target.kill("SIGTERM")) throw new Error("daemon rejected SIGTERM");
+    }, { timeoutMs: 1_000, label: "writer-reader daemon" });
+  } catch {
+    await forceTerminateChildAndWait(daemon, { label: "writer-reader daemon" });
+  }
 }
 
 async function waitFor(

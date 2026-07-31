@@ -240,11 +240,7 @@ test("runner treats a real failure hidden by a shutdown wedge as a named wedge f
   );
 });
 
-test("runner reaps a child only after its file summary is complete", {
-  skip: process.platform === "win32"
-    ? "post-completion reaping uses POSIX isolation process evidence"
-    : false
-}, () => {
+test("runner reaps a completed isolation child without POSIX process inspection", () => {
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "post-complete-wedge",
@@ -252,6 +248,7 @@ test("runner reaps a child only after its file summary is complete", {
     HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
     HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
   };
+  if (process.platform !== "win32") childEnv.PATH = path.dirname(process.execPath);
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
@@ -268,15 +265,11 @@ test("runner reaps a child only after its file summary is complete", {
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
   assert.match(output, /✔ post-complete wedge fixture passes before native-style exit deadlock/u);
-  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs signal=SIGKILL/u);
-  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated SIGKILL file failure/u);
+  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs termination=(?:SIGKILL|taskkill)/u);
+  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated forced-termination file failure/u);
 });
 
-test("runner waits for an in-flight reap record before accepting the host result", {
-  skip: process.platform === "win32"
-    ? "post-completion reaping uses POSIX isolation process evidence"
-    : false
-}, () => {
+test("runner waits for an in-flight reap record before accepting the host result", () => {
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_STALL_FIXTURE: "post-complete-close-before-reap",
@@ -284,6 +277,7 @@ test("runner waits for an in-flight reap record before accepting the host result
     HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
     HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
   };
+  if (process.platform !== "win32") childEnv.PATH = path.dirname(process.execPath);
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [
     "tools/run-node-tests.mjs",
@@ -299,8 +293,8 @@ test("runner waits for an in-flight reap record before accepting the host result
 
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 0, output);
-  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs signal=SIGKILL/u);
-  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated SIGKILL file failure/u);
+  assert.match(output, /\[node-test-stall\] reaped post-completion child pid=\d+ file=tools\/test-fixtures\/\.runner-stall\/post-complete-wedge\.test\.mjs termination=(?:SIGKILL|taskkill)/u);
+  assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated forced-termination file failure/u);
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
