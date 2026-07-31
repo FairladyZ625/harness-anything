@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, ftruncateSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, ftruncateSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Schema } from "effect";
@@ -194,6 +194,15 @@ export function writeWatermarkDurably(filePath: string, watermark: WriteWatermar
 
 export function durableFileExists(filePath: string): boolean {
   return existsSync(filePath);
+}
+
+export function durableFileIsRegularNoFollow(filePath: string): boolean {
+  try {
+    const stat = lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 export function readDurableTextIfExists(filePath: string): string | null {

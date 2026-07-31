@@ -36,6 +36,7 @@ export function makeDocSyncSubmitHandler(options: {
     if (options.supervisor) {
       return dispatchDocSyncSubmitToWriter({
         rootDir: options.rootDir,
+        ...(options.layoutOverrides ? { layoutOverrides: options.layoutOverrides } : {}),
         request,
         actor,
         executor: context?.executor,

@@ -100,6 +100,7 @@ export * from "./lifecycle/reservation-reconciler.ts";
 export * from "./lifecycle/run-daemon-serve.ts";
 export * from "./service/command-service.ts";
 export * from "./service/doc-sync-service.ts";
+export * from "./service/doc-sync-writer-working-tree.ts";
 export * from "./service/service-host.ts";
 export * from "./service/status-payload.ts";
 export * from "./protocol/receipt-envelope.ts";

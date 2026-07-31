@@ -2,10 +2,10 @@
 import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { checkTaskProjection, moduleEntityId } from "../../src/index.ts";
+import { checkTaskProjection, moduleEntityId, sha256Text } from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
 import { serializeDecisionDocument } from "../../src/domain/decision-document.ts";
 import { makeJournaledWriteCoordinator } from "../../src/index.ts";
@@ -24,6 +24,44 @@ test("WriteCoordinator recovers queued journal entries after crash before waterm
     assert.equal(report.replayedOps, 1);
     assert.equal(report.recoveredWatermark, "op-1");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), "replayed");
+  });
+});
+
+test("apply-marker recovery rechecks a doc-sync working-tree body reference", () => {
+  withTempStore((rootDir) => {
+    const opId = "op-doc-sync-applied-recovery";
+    const relativePath = "tasks/task_A/artifacts/large.raw.jsonl";
+    const targetPath = path.join(rootDir, "harness", relativePath);
+    const submittedBody = "submitted evidence\n";
+    mkdirSync(path.dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, submittedBody, "utf8");
+    const crashed = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+    Effect.runSync(crashed.enqueue({
+      opId,
+      entityId: "entity/doc-sync/recovery",
+      kind: "doc_sync_submit",
+      payload: {
+        writes: [{
+          path: relativePath,
+          bodySha256: sha256Text(submittedBody),
+          baseBlobSha256: null
+        }]
+      }
+    }));
+    appendFileSync(
+      path.join(rootDir, ".harness/write-journal/writes.jsonl"),
+      `${JSON.stringify({ schema: "apply-marker/v1", opId, entityId: "entity/doc-sync/recovery", at: "2026-07-31T00:00:00.000Z" })}\n`,
+      "utf8"
+    );
+    writeFileSync(targetPath, "drift after apply marker\n", "utf8");
+
+    const recovered = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+    const report = Effect.runSync(recovered.recover);
+
+    assert.equal(report.replayedOps, 0);
+    assert.equal(report.deferredOps, 1);
+    assert.equal(report.recoveredWatermark, undefined);
+    assert.equal(readFileSync(targetPath, "utf8"), "drift after apply marker\n");
   });
 });
 

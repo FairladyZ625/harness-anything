@@ -5,9 +5,12 @@ export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, 
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
   decodeRepoWriteBigInt,
-  decodeRepoWriteBytes,
-  RepoWriteProtocolDecodeError
+  decodeRepoWriteBytes
 } from "./repo-write-protocol-scalars.ts";
+import {
+  invalidRepoWriteProtocol as invalid,
+  limitRepoWriteProtocol as limit
+} from "./repo-write-protocol-errors.ts";
 export {
   decodeRepoWriteBigInt,
   decodeRepoWriteBytes,
@@ -530,7 +533,10 @@ function jsonValue(
 }
 function parseFrame(text: string, limits: RepoWriteProtocolLimits): unknown {
   if (typeof text !== "string") invalid("$", "JSON text");
-  if (utf8Bytes(text) > limits.maxFrameBytes) limit("$", "frame byte length");
+  const bytes = utf8Bytes(text);
+  if (bytes > limits.maxFrameBytes) {
+    limit("$", "frame byte length", bytes, limits.maxFrameBytes);
+  }
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -539,7 +545,10 @@ function parseFrame(text: string, limits: RepoWriteProtocolLimits): unknown {
 }
 function stringifyFrame(message: RepoWriteMessage, limits: RepoWriteProtocolLimits): string {
   const text = JSON.stringify(message);
-  if (utf8Bytes(text) > limits.maxFrameBytes) limit("$", "frame byte length");
+  const bytes = utf8Bytes(text);
+  if (bytes > limits.maxFrameBytes) {
+    limit("$", "frame byte length", bytes, limits.maxFrameBytes);
+  }
   return text;
 }
 function resolveLimits(overrides: Partial<RepoWriteProtocolLimits>): RepoWriteProtocolLimits {
@@ -571,7 +580,8 @@ function identifier(value: unknown, path: string, limits: RepoWriteProtocolLimit
 }
 function stringAt(value: unknown, path: string, maxBytes: number): string {
   if (typeof value !== "string") invalid(path, "string");
-  if (utf8Bytes(value) > maxBytes) limit(path, "string byte length");
+  const bytes = utf8Bytes(value);
+  if (bytes > maxBytes) limit(path, "string byte length", bytes, maxBytes);
   return value;
 }
 function utf8Bytes(value: string): number {
@@ -579,19 +589,4 @@ function utf8Bytes(value: string): number {
 }
 function boundedPathSegment(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
-}
-function invalid(path: string, expected: string): never {
-  throw new RepoWriteProtocolDecodeError(
-    "REPO_WRITE_PROTOCOL_INVALID",
-    `Invalid repo writer IPC at ${boundedProtocolPath(path)}: expected ${expected}.`
-  );
-}
-function limit(path: string, boundary: string): never {
-  throw new RepoWriteProtocolDecodeError(
-    "REPO_WRITE_PROTOCOL_LIMIT",
-    `Repo writer IPC limit exceeded at ${boundedProtocolPath(path)}: ${boundary}.`
-  );
-}
-function boundedProtocolPath(path: string): string {
-  return path.length <= 160 ? path : `${path.slice(0, 157)}...`;
 }

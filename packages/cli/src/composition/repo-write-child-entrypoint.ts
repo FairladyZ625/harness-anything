@@ -13,10 +13,14 @@ import {
   failureReceipt,
   makeDaemonQueuedWriteCoordinator,
   makeDocSyncService,
+  materializeDocSyncWriterWorkingTree,
   successReceipt,
   type HarnessDaemonRuntime
 } from "@harness-anything/daemon";
-import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
+import type {
+  DocSyncSubmitRequestV1,
+  DocSyncSubmitResultV1
+} from "@harness-anything/application";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
@@ -204,6 +208,31 @@ export async function runRepoWriteChildEntrypoint(
           "The writer child received no doc-sync request."
         );
       }
+      const materialized = materializeDocSyncWriterWorkingTree(
+        {
+          rootDir: config.canonicalRoot,
+          ...(layoutOverrides ? { layoutOverrides } : {})
+        },
+        wireCommand.request
+      );
+      if (!materialized.ok) {
+        const result: DocSyncSubmitResultV1 = {
+          ok: false,
+          _tag: "WriteRejected",
+          schema: "daemon.doc-sync-submit-result/v1",
+          status: "rejected",
+          intentId: wireCommand.request.payload.intentId,
+          code: "doc_sync_invalid_payload",
+          reason: `The writer child rejected a working-tree reference: ${materialized.reason}`,
+          retryable: false
+        };
+        return failureReceipt(
+          "repo.doc.sync.submit",
+          result.code,
+          result.reason,
+          { data: result as unknown as import("@harness-anything/daemon").JsonObject }
+        );
+      }
       const attribution = daemonActorAttribution(decoded.actor, decoded.executor);
       const result = await makeDocSyncService({
         rootDir: config.canonicalRoot,
@@ -220,7 +249,7 @@ export async function runRepoWriteChildEntrypoint(
               : {})
           }
         )
-      }).submit(wireCommand.request);
+      }).submit(materialized.request);
       return result.ok
         ? successReceipt("repo.doc.sync.submit", "completed repo.doc.sync.submit", result as unknown as import("@harness-anything/daemon").JsonObject)
         : failureReceipt("repo.doc.sync.submit", result.code, result.reason, {

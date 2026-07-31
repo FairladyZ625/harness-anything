@@ -6,6 +6,7 @@ import {
   RepoWriteClientClosedError,
   RepoWriteDirectOutcomeUnknownError,
   RepoWriteDrainError,
+  RepoWriteIpcPayloadTooLargeError,
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError,
   RepoWriteProtocolViolationError,
@@ -251,6 +252,29 @@ test("volatile direct execution resolves the exact existing receipt without PREP
 
   assert.deepEqual(await result, receipt);
   assert.deepEqual(transport.sent.map((message) => message.kind), ["direct"]);
+});
+
+test("volatile direct preserves an IPC payload-size diagnosis instead of reporting not-started", async () => {
+  const failure = new RepoWriteIpcPayloadTooLargeError(
+    "parent",
+    "$.command.payload.body",
+    "string byte length",
+    262_145,
+    262_144
+  );
+  class OversizedTransport extends FakeRepoWriteTransport {
+    override send(): never {
+      throw failure;
+    }
+  }
+  const transport = new OversizedTransport();
+  const client = readyClient(transport);
+
+  await assert.rejects(client.direct(command("doc-sync-submit")), (error) => {
+    assert.equal(error, failure);
+    assert.equal(error instanceof RepoWriteNotStartedError, false);
+    return true;
+  });
 });
 
 test("volatile direct timeout releases capacity without retry or durable lookup", async () => {

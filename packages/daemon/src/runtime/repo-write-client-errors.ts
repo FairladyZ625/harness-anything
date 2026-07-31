@@ -18,6 +18,41 @@ export class RepoWriteSendDeliveryError extends Error {
   }
 }
 
+export class RepoWriteIpcPayloadTooLargeError extends RepoWriteSendDeliveryError {
+  readonly code = "REPO_WRITE_IPC_PAYLOAD_TOO_LARGE" as const;
+  readonly sender: "parent" | "child";
+  readonly path: string;
+  readonly boundary: string;
+  readonly actualBytes: number;
+  readonly maximumBytes: number;
+  readonly excessBytes: number;
+
+  constructor(
+    sender: "parent" | "child",
+    path: string,
+    boundary: string,
+    actualBytes: number,
+    maximumBytes: number,
+    options: { readonly cause?: unknown } = {}
+  ) {
+    const excessBytes = actualBytes - maximumBytes;
+    super(
+      "definitely-not-sent",
+      `Repo writer ${sender} IPC payload cannot be sent because it is too large at ${path}: ${boundary} is `
+        + `${actualBytes} bytes, limit ${maximumBytes} bytes, over by ${excessBytes} bytes. `
+        + "Next: split the request or send large content by working-tree path or attachment reference.",
+      options
+    );
+    this.name = "RepoWriteIpcPayloadTooLargeError";
+    this.sender = sender;
+    this.path = path;
+    this.boundary = boundary;
+    this.actualBytes = actualBytes;
+    this.maximumBytes = maximumBytes;
+    this.excessBytes = excessBytes;
+  }
+}
+
 export class RepoWriteClientCapacityError extends Error {
   readonly code = "REPO_WRITE_PENDING_LIMIT" as const;
 

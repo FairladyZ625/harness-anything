@@ -3,12 +3,13 @@ import type { EntityId } from "../../../domain/index.ts";
 import { sha256Text } from "../../../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../layout/index.ts";
 import type { WriteOp } from "../../../ports/write-coordinator.ts";
-import { durableFileExists, readFileBytes, removeFileDurably, writeFileDurably } from "../durable.ts";
+import { durableFileExists, durableFileIsRegularNoFollow, readFileBytes, removeFileDurably, writeFileDurably } from "../durable.ts";
 import { rejectWrite } from "../rejection.ts";
 
 export interface CanonicalAuthoredWrite {
   readonly path: string;
-  readonly body: string;
+  readonly body?: string;
+  readonly bodySha256?: string;
   readonly baseBlobSha256: string | null;
 }
 
@@ -22,9 +23,15 @@ export function canonicalAuthoredBatchWrites(op: WriteOp): ReadonlyArray<Canonic
   return writes.map((write) => {
     if (!write || typeof write !== "object") malformed(op);
     const candidate = write as Partial<CanonicalAuthoredWrite>;
-    if (typeof candidate.path !== "string" || typeof candidate.body !== "string" ||
+    const hasBody = typeof candidate.body === "string";
+    const hasWorkingTreeBody = typeof candidate.bodySha256 === "string"
+      && /^[a-f0-9]{64}$/u.test(candidate.bodySha256);
+    if (typeof candidate.path !== "string" || hasBody === hasWorkingTreeBody ||
       (candidate.baseBlobSha256 !== null && typeof candidate.baseBlobSha256 !== "string")) {
       malformed(op);
+    }
+    if (hasWorkingTreeBody && op.kind !== "doc_sync_submit") {
+      rejectWrite(`${op.kind} cannot use a working-tree body reference`, op.entityId);
     }
     const normalized = normalizeBatchPath(candidate.path, op.entityId);
     if (isTaskTypedAuthorityPath(normalized)) {
@@ -32,7 +39,11 @@ export function canonicalAuthoredBatchWrites(op: WriteOp): ReadonlyArray<Canonic
     }
     if (paths.has(normalized)) rejectWrite(`duplicate canonical authored batch path: ${normalized}`, op.entityId);
     paths.add(normalized);
-    return { path: normalized, body: candidate.body, baseBlobSha256: candidate.baseBlobSha256 };
+    return {
+      path: normalized,
+      ...(hasBody ? { body: candidate.body } : { bodySha256: candidate.bodySha256 }),
+      baseBlobSha256: candidate.baseBlobSha256
+    };
   });
 }
 
@@ -52,7 +63,7 @@ export function validateCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op
   for (const write of canonicalAuthoredBatchWrites(op)) {
     const targetPath = path.join(authoredRoot, write.path);
     const currentHash = durableFileExists(targetPath) ? sha256Text(readText(targetPath)) : null;
-    const submittedHash = sha256Text(write.body);
+    const submittedHash = write.bodySha256 ?? sha256Text(write.body!);
     const acceptsPreAppliedDocSync = op.kind === "doc_sync_submit" && currentHash === submittedHash;
     if (currentHash !== write.baseBlobSha256 && !acceptsPreAppliedDocSync) {
       rejectWrite(`canonical authored base changed before ${op.kind}: ${write.path}`, op.entityId);
@@ -66,15 +77,21 @@ export function applyCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op: W
     ...write,
     targetPath: path.join(authoredRoot, write.path)
   }));
-  const backups = writes.map((write) => ({
+  verifyCanonicalAuthoredWorkingTreeReferences(op, writes);
+  const changedWrites = writes.filter((write) => write.body !== undefined);
+  const backups = changedWrites.map((write) => ({
     targetPath: write.targetPath,
     existed: durableFileExists(write.targetPath),
     body: durableFileExists(write.targetPath) ? readFileBytes(write.targetPath) : null
   }));
+  const writtenBackups: typeof backups[number][] = [];
   try {
-    for (const write of writes) writeFileDurably(write.targetPath, write.body);
+    for (const [index, write] of changedWrites.entries()) {
+      writeFileDurably(write.targetPath, write.body!);
+      writtenBackups.push(backups[index]!);
+    }
   } catch (error) {
-    for (const backup of backups.reverse()) {
+    for (const backup of writtenBackups.reverse()) {
       if (backup.existed && backup.body !== null) {
         writeFileDurably(backup.targetPath, backup.body);
       } else {
@@ -83,6 +100,52 @@ export function applyCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op: W
     }
     throw error;
   }
+}
+
+export function verifyAppliedCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op: WriteOp): void {
+  const authoredRoot = resolveHarnessLayout(rootInput).authoredRoot;
+  const writes = canonicalAuthoredBatchWrites(op).map((write) => ({
+    ...write,
+    targetPath: path.join(authoredRoot, write.path)
+  }));
+  verifyCanonicalAuthoredWorkingTreeReferences(op, writes);
+}
+
+function verifyCanonicalAuthoredWorkingTreeReferences(
+  op: WriteOp,
+  writes: ReadonlyArray<CanonicalAuthoredWrite & { readonly targetPath: string }>
+): void {
+  for (const write of writes) {
+    if (write.bodySha256 === undefined) continue;
+    assertRegularWorkingTreeReference(op, write);
+    let actualHash: string;
+    try {
+      actualHash = sha256Text(readText(write.targetPath));
+    } catch {
+      rejectWrite(
+        `canonical authored working-tree body reference could not be read before ${op.kind}: ${write.path}`,
+        op.entityId
+      );
+    }
+    assertRegularWorkingTreeReference(op, write);
+    if (actualHash !== write.bodySha256) {
+      rejectWrite(
+        `canonical authored working-tree body reference changed before ${op.kind}: ${write.path}; expected ${write.bodySha256}, current ${actualHash}`,
+        op.entityId
+      );
+    }
+  }
+}
+
+function assertRegularWorkingTreeReference(
+  op: WriteOp,
+  write: CanonicalAuthoredWrite & { readonly targetPath: string }
+): void {
+  if (durableFileIsRegularNoFollow(write.targetPath)) return;
+  rejectWrite(
+    `canonical authored working-tree body reference must remain a regular file before ${op.kind}: ${write.path}`,
+    op.entityId
+  );
 }
 
 function readText(filePath: string): string {
@@ -103,5 +166,5 @@ function normalizeBatchPath(input: string, entityId: EntityId): string {
 }
 
 function malformed(op: WriteOp): never {
-  rejectWrite(`${op.kind} requires writes with path, body, and baseBlobSha256`, op.entityId);
+  rejectWrite(`${op.kind} requires writes with path, exactly one of body/bodySha256, and baseBlobSha256`, op.entityId);
 }

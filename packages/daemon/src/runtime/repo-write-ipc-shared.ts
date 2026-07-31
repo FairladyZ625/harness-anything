@@ -1,5 +1,9 @@
 // @slice-activation P5-W2 repo-writer IPC primitives shared by parent and child transports.
-import { RepoWriteSendDeliveryError } from "./repo-write-client.ts";
+import {
+  RepoWriteIpcPayloadTooLargeError,
+  RepoWriteSendDeliveryError
+} from "./repo-write-client.ts";
+import { RepoWriteProtocolDecodeError } from "./repo-write-protocol-scalars.ts";
 
 export function repoWriteIpcJsonText(value: unknown): string {
   let text: string | undefined;
@@ -20,6 +24,16 @@ export function serializeRepoWriteIpcFrame<T>(
   try {
     return JSON.parse(stringify(message)) as object;
   } catch (error) {
+    if (error instanceof RepoWriteProtocolDecodeError && error.limit) {
+      throw new RepoWriteIpcPayloadTooLargeError(
+        sender,
+        error.limit.path,
+        error.limit.boundary,
+        error.limit.actual,
+        error.limit.maximum,
+        { cause: error }
+      );
+    }
     throw new RepoWriteSendDeliveryError(
       "definitely-not-sent",
       `Repo writer ${sender} frame could not be serialized for IPC.`,
