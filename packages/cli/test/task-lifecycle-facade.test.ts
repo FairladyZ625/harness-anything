@@ -231,6 +231,37 @@ test("task complete explicitly deduplicates an already-current code-doc reconcil
   );
 });
 
+test("task complete reconciles after doc sync can add a new ledger document", () => {
+  const sha = "a".repeat(40);
+  const command = {
+    rootDir: "/fixture",
+    json: true,
+    action: {
+      kind: "task-complete",
+      taskId: "task_BOUNDARY",
+      reviewerId: "person_reviewer",
+      evidenceMode: "execution-review"
+    }
+  } as ParsedCommand & {
+    readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>;
+  };
+
+  assert.deepEqual(
+    taskCompleteFacadeSteps(
+      command,
+      sha,
+      ["tasks/task_BOUNDARY/closeout.md"],
+      { codeDocAlreadyCurrent: true }
+    ).map((step) => step.action.kind),
+    [
+      "doc-sync",
+      "materializer-run",
+      "task-code-doc-reconcile",
+      "task-complete"
+    ]
+  );
+});
+
 test("direct-mode doc sync unavailability becomes a completion warning", async () => {
   const steps: ReadonlyArray<ParsedCommand> = [
     { rootDir: "/tmp", json: true, action: { kind: "doc-sync", mode: "submit", paths: ["tasks/task_BOUNDARY/closeout.md"] } },

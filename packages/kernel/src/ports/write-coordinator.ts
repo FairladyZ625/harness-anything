@@ -118,6 +118,7 @@ export interface FlushReport {
   readonly opCount: number;
   readonly committed: boolean;
   readonly watermark?: string;
+  readonly publicationMode?: "exact-batch" | "integrity-domain";
 }
 
 export interface RecoveryReport {

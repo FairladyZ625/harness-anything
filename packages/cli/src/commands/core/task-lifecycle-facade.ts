@@ -66,10 +66,9 @@ export async function runTaskCompleteFacade(command: ParsedCommand, dispatch: Di
   const layoutInput = { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides };
   const docPaths = resolveTaskDocSyncPaths(layoutInput, command.action.taskId, "task-complete");
   if (!docPaths.ok) return docPaths.result;
-  const codeDocAlreadyCurrent = await taskCompleteCodeDocAlreadyCurrent(
-    completeCommand,
-    resolved.sha
-  );
+  const codeDocAlreadyCurrent = docPaths.paths.length === 0
+    ? await taskCompleteCodeDocAlreadyCurrent(completeCommand, resolved.sha)
+    : false;
   const steps = taskCompleteFacadeSteps(
     completeCommand,
     resolved.sha,

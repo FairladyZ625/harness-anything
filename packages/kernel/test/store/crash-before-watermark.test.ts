@@ -94,6 +94,7 @@ test("exact journal publication commits only the witnessed batch and leaves an o
 
     assert.equal(report.committed, true);
     assert.equal(report.opCount, 2);
+    assert.equal(report.publicationMode, "exact-batch");
     assert.equal(
       readFileSync(path.join(rootDir, "harness/tasks/task-first/progress.md"), "utf8"),
       "first"

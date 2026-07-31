@@ -120,7 +120,7 @@ export function flushExactAuthorizedJournalRecords(input: {
         if (pendingIndex >= 0) input.pending.splice(pendingIndex, 1);
         input.authorizations.delete(witness.opId);
       }
-      return report;
+      return { ...report, publicationMode: "exact-batch" };
     },
     { heldGlobalLock: input.heldGlobalLock }
   );

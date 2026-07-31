@@ -449,7 +449,8 @@ function flushRecords(
     reason,
     opCount: records.length,
     committed: true,
-    watermark
+    watermark,
+    publicationMode: "integrity-domain"
   };
 }
 

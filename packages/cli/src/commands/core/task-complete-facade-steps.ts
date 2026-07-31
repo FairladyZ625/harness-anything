@@ -38,6 +38,8 @@ export function taskCompleteFacadeSteps(
 ): ReadonlyArray<ParsedCommand> {
   const action = command.action;
   const approval = action.approval;
+  const codeDocCanSkip = options.codeDocAlreadyCurrent === true
+    && docSyncPaths.length === 0;
   return [
     ...(docSyncPaths.length > 0 ? [completeChild(command, {
       kind: "doc-sync",
@@ -59,7 +61,7 @@ export function taskCompleteFacadeSteps(
       ...(approval.consentAssertedRationale ? { consentAssertedRationale: approval.consentAssertedRationale } : {}),
       ...(approval.consentActions ? { consentActions: approval.consentActions } : {})
     })] : []),
-    ...(!options.codeDocAlreadyCurrent ? [completeChild(command, {
+    ...(!codeDocCanSkip ? [completeChild(command, {
       kind: "task-code-doc-reconcile",
       taskId: action.taskId,
       sha,

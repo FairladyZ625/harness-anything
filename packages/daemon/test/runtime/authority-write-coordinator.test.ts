@@ -43,7 +43,47 @@ test("deferred authority flush publishes only records enqueued by that authority
   const report = Effect.runSync(deferred.flush("explicit"));
 
   assert.equal(report.opCount, 1);
+  assert.equal(report.publicationMode, "exact-batch");
   assert.equal(exactFlushes, 1);
+  assert.equal(broadFlushes, 0);
+});
+
+test("deferred authority flush fails closed when an accepted op has no exact journal witness", () => {
+  let broadFlushes = 0;
+  let exactFlushes = 0;
+  const durable: WriteCoordinator = {
+    enqueue: (op) => Effect.succeed({
+      opId: op.opId,
+      entityId: op.entityId,
+      accepted: true as const
+    }),
+    flush: (reason) => Effect.sync(() => {
+      broadFlushes += 1;
+      return { reason, opCount: 1, committed: true };
+    }),
+    flushExactJournalRecords: (reason, selected) => Effect.sync(() => {
+      exactFlushes += 1;
+      return { reason, opCount: selected.length, committed: true };
+    }),
+    recover: Effect.succeed({ replayedOps: 0 })
+  };
+  const deferred = makeDeferredAuthorityCoordinator({
+    beginProjectionWrite: () => ({ settle: () => undefined }),
+    makeDurableCoordinator: () => durable
+  });
+
+  Effect.runSync(deferred.enqueue(authorityWrite("op-already-watermarked")));
+  const result = Effect.runSync(Effect.either(deferred.flush("explicit")));
+
+  assert.equal(result._tag, "Left");
+  if (result._tag === "Left") {
+    assert.equal(result.left._tag, "WriteRejected");
+    assert.equal(
+      result.left._tag === "WriteRejected" ? result.left.code : undefined,
+      "authority_exact_journal_witness_required"
+    );
+  }
+  assert.equal(exactFlushes, 0);
   assert.equal(broadFlushes, 0);
 });
 

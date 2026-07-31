@@ -21,6 +21,7 @@ test("WriteCoordinator flushes same-task writes in FIFO order", () => {
 
     const report = Effect.runSync(coordinator.flush("explicit"));
     assert.equal(report.watermark, "op-2");
+    assert.equal(report.publicationMode, "integrity-domain");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "second");
   });
 });
