@@ -1,5 +1,6 @@
 import {
   calculateDaemonArtifactIdentity,
+  defaultDaemonJsonRpcRequestTimeoutMs,
   requestLocalDaemonJsonRpcForTarget,
   type JsonObject,
   type LocalDaemonTarget
@@ -8,6 +9,7 @@ import { makeLocalVersionControlSystem, readDaemonRegistry } from "@harness-anyt
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readOption } from "../../cli/parse-options.ts";
+import { parsePositiveIntegerOr } from "../../cli/value-utils.ts";
 import { requestLocalDaemonJsonRpc, resolveLocalDaemonTarget } from "../../daemon/client.ts";
 import type { DaemonLaunchConfiguration } from "../../daemon/daemon-launch-spec.ts";
 import {
@@ -68,17 +70,24 @@ export async function runDaemonControl(
     ? "admin.daemon.restart"
     : "admin.daemon.refresh";
   const lifecycle = input.daemonControlLifecycle ?? defaultDaemonControlLifecycle(input);
-  const request = input.requestDaemonControl ?? ((control: DaemonControlRequest) => requestLocalDaemonJsonRpc(
-    input.rootDir,
-    control.method,
-    control.params,
-    5_000,
-    {
-      userRoot: lifecycle.target.userRoot,
-      socketPath: readOption(input.args, "--socket"),
-      allowLegacySocket: false
-    }
-  ));
+  const request = input.requestDaemonControl ?? ((control: DaemonControlRequest) => {
+    const requestTimeoutMs = parsePositiveIntegerOr(
+      process.env.HARNESS_DAEMON_REQUEST_TIMEOUT_MS,
+      defaultDaemonJsonRpcRequestTimeoutMs
+    );
+    return requestLocalDaemonJsonRpc(
+      input.rootDir,
+      control.method,
+      control.params,
+      5_000,
+      {
+        userRoot: lifecycle.target.userRoot,
+        socketPath: readOption(input.args, "--socket"),
+        allowLegacySocket: false,
+        requestTimeoutMs
+      }
+    );
+  });
   const probedGeneration = lifecycle.probeGenerationStatus
     ? generationExpectationFromCapabilityStatus(
       await lifecycle.probeGenerationStatus(lifecycle.target),
