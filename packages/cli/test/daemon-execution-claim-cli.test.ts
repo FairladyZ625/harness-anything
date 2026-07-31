@@ -1,12 +1,63 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-daemon.ts";
 import { pollUntil, runRawJson, runRawJsonMaybeFail, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { git, receiptPath } from "./helpers/daemon-thin-client-fixtures.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+
+test("daemon-backed audited cancellation closes an unheld placeholder task without weakening its plan gate", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
+    const harnessRoot = path.join(rootDir, "harness");
+    git(harnessRoot, "config", "user.name", "Harness Test");
+    git(harnessRoot, "config", "user.email", "harness@example.test");
+    writePeopleRoster(rootDir, {
+      personId: "person_cancellation",
+      displayName: "Cancellation User",
+      email: "cancellation@example.test",
+      role: "owner"
+    });
+    const daemonEnv = {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      HARNESS_TASK_LEASE_ENFORCEMENT: "1"
+    };
+    const created = runRawJson(rootDir, [
+      "task", "create", "--title", "Daemon Placeholder Cancellation",
+      "--vertical", "software/coding", "--preset", "standard-task"
+    ], daemonEnv);
+    const taskId = receiptDataString(created, "taskId");
+    const packagePath = receiptPath(created, "package");
+
+    const startBlocked = runRawJsonMaybeFail(rootDir, ["task", "start", taskId], daemonEnv);
+    assert.equal(startBlocked.status, 1);
+    assert.equal((startBlocked.receipt.error as { readonly code?: string } | undefined)?.code, "task_plan_placeholder");
+
+    const cancelled = runRawJson(rootDir, [
+      "task", "transition", taskId, "cancelled",
+      "--force", "--reason", "retire empty daemon scaffold"
+    ], daemonEnv);
+    assert.equal(receiptDataString(cancelled, "status"), "cancelled", JSON.stringify(cancelled));
+    const cancellationData = (cancelled.details as { readonly data?: Record<string, unknown> } | undefined)?.data;
+    assert.equal(
+      (cancellationData?.forceAudit as { readonly marker?: string } | undefined)?.marker,
+      "FORCE_STATUS_SET_AUDIT"
+    );
+    assert.match(readFileSync(path.join(rootDir, packagePath, "task_plan.md"), "utf8"), /一句话说明任务目标与范围。/u);
+    const relativePackage = packagePath.replace(/^harness\//u, "");
+    assert.match(
+      git(harnessRoot, "show", `master:${relativePackage}/progress.md`),
+      /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=retire empty daemon scaffold/u
+    );
+
+    const holder = runRawJson(rootDir, ["task", "holder", taskId], daemonEnv);
+    const holderData = (holder.details as { readonly data?: { readonly effectiveHolder?: unknown } } | undefined)?.data;
+    assert.equal(holderData?.effectiveHolder, null);
+  });
+});
 
 test("daemon-backed deprecated claim enters the atomic Execution path and preserves the caller session binding", async () => {
   await withTempRootAsync(async (rootDir) => {

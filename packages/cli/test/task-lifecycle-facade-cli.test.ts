@@ -256,6 +256,43 @@ test("task retire-execution rejects live and submitted rounds, then records an a
   });
 });
 
+test("in-review cancellation retires an unsubmitted Execution before audited terminal closure", () => {
+  withTempRoot((rootDir) => {
+    const fixture = prepareActiveTask(rootDir, "In Review Cancellation");
+    const taskRoot = path.join(rootDir, fixture.packagePath);
+    const indexPath = path.join(taskRoot, "INDEX.md");
+    writeFileSync(
+      indexPath,
+      readFileSync(indexPath, "utf8").replace(/^(  status:\s*)active$/mu, "$1in_review"),
+      "utf8"
+    );
+    runJson(rootDir, ["task", "release", fixture.taskId], true, fixture.env);
+
+    const retired = runJson(rootDir, [
+      "task", "retire-execution", fixture.taskId,
+      "--execution-id", fixture.executionId,
+      "--reason", "abandon unsubmitted review round"
+    ], true, fixture.env);
+    const cancelled = runJson(rootDir, [
+      "task", "transition", fixture.taskId, "cancelled",
+      "--force", "--reason", "review work was abandoned"
+    ], true, { ...fixture.env, HARNESS_TASK_LEASE_ENFORCEMENT: "1" });
+
+    assert.equal(retired.report.auditMarker, "STALE_EXECUTION_RETIRED_AUDIT");
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
+    assert.equal(
+      JSON.parse(readFileSync(path.join(taskRoot, "executions", `${fixture.executionId}.md`), "utf8")).state,
+      "abandoned"
+    );
+    assert.match(readFileSync(indexPath, "utf8"), /^  status: cancelled$/mu);
+    const progress = readFileSync(path.join(taskRoot, "progress.md"), "utf8");
+    assert.match(progress, /STALE_EXECUTION_RETIRED_AUDIT/u);
+    assert.match(progress, /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=review work was abandoned/u);
+    assert.equal(runJson(rootDir, ["task", "holder", fixture.taskId]).report.effectiveHolder, null);
+  });
+});
+
 test("return to planned requires explicit lease release and active Execution retirement", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Return To Idea Guard");
