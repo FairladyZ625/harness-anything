@@ -78,6 +78,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-install",
+    "display": "advanced",
     "usage": "preset install <folder> [--project] [--json]",
     "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Install a preset folder into the project or user layer.",
@@ -95,6 +96,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-seed",
+    "display": "advanced",
     "usage": "preset seed [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Seed built-in presets into the harness workspace.",
@@ -112,6 +114,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-audit",
+    "display": "advanced",
     "usage": "preset audit [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Audit installed presets for validity and drift.",
@@ -129,6 +132,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-uninstall",
+    "display": "advanced",
     "usage": "preset uninstall <id> [--project] [--dry-run] [--json]",
     "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--dry-run","description":"Preview inbound Task impact without removing the preset."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Remove a preset from the project or user layer.",
@@ -295,6 +299,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "module-unregister",
+    "display": "advanced",
     "usage": "module unregister <key> [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Mark a module as unregistered.",
@@ -312,6 +317,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "module-step",
+    "display": "advanced",
     "usage": "module step <key> <step> --state <state> [--json]",
     "options": [{"flag":"--state","description":"Set the module step state."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["module-step <key> <step> (deprecated, use module step; retires at E77/F6 acceptance)"],

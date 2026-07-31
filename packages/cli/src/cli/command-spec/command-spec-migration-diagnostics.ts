@@ -48,6 +48,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-structure",
+    "display": "advanced",
     "usage": "migrate structure (--plan|--apply --confirm-plan) [--json]",
     "options": [{"flag":"--plan","description":"Plan without applying changes."},{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--confirm-plan","description":"Confirm a migration plan before applying it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["migrate-structure (deprecated, use migrate structure; retires at E77/F6 acceptance)"],
@@ -67,6 +68,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-anchors",
+    "display": "advanced",
     "usage": "migrate anchors [--dry-run|--apply] [--json]",
     "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["migrate-anchors (deprecated, use migrate anchors; retires at E77/F6 acceptance)"],
@@ -86,6 +88,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-fact-execution",
+    "display": "advanced",
     "usage": "migrate fact-execution [--dry-run|--apply --confirm-plan <id>] [--apply-manual <fact-ref-list>] [--batch-size <n>] [--batch <n>] [--sample-size <n>] [--json]",
     "options": [{"flag":"--dry-run","description":"Classify and preview without writing; this is the default."},{"flag":"--apply","description":"Apply the selected automatic or manual-list candidates in the selected batch."},{"flag":"--apply-manual","description":"Select exact fact/<task-id>/<fact-id> refs from a root-relative list file, bypassing three-signal classification."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--batch-size","description":"Limit each coordinated batch to 1-200 selected candidates."},{"flag":"--batch","description":"Select the one-based batch number."},{"flag":"--sample-size","description":"Set samples per classification bucket."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Migrate automatic three-signal Facts or an exact manually confirmed Fact list into execution outputs.",
@@ -103,6 +106,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-retired-attribution-fields",
+    "display": "advanced",
     "usage": "migrate retired-attribution-fields [--dry-run|--apply --confirm-plan <id> --evidence-ref <ref>] [--batch-size <n>] [--json]",
     "options": [{"flag":"--dry-run","description":"Preview every key-only document transform without writing; this is the default."},{"flag":"--apply","description":"Apply only the first confirmed batch through the attributed coordinator."},{"flag":"--confirm-plan","description":"Confirm the exact current plan id returned by dry-run."},{"flag":"--evidence-ref","description":"Bind apply attribution to the approved migration report digest or durable reference."},{"flag":"--batch-size","description":"Limit one coordinated apply batch to 1-32 documents; default 25."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Surgically remove retired top-level attribution fields while preserving every other authored byte.",
@@ -120,6 +124,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-provenance",
+    "display": "advanced",
     "usage": "migrate provenance [--dry-run|--apply] [--json]",
     "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["migrate-provenance (deprecated, use migrate provenance; retires at E77/F6 acceptance)"],
@@ -213,6 +218,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "legacy-copy-safe-docs",
+    "display": "advanced",
     "usage": "legacy copy-docs <path> [--apply] [--json]",
     "options": [{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["legacy copy-safe-docs <path> (deprecated, use legacy copy-docs; retires at E77/F6 acceptance)"],
@@ -232,6 +238,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "legacy-index",
+    "display": "advanced",
     "usage": "legacy index <path> [--apply] [--json]",
     "options": [{"flag":"--apply","description":"Apply the operation instead of planning it."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Build or apply the legacy task index.",

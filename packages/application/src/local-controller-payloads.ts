@@ -68,5 +68,11 @@ export function validateLocalControllerDecisionId(decisionId: string): void {
 }
 
 function invalidPayload(hint: string): LocalControllerFailure {
-  return { ok: false, error: { code: "invalid_payload", hint } };
+  return {
+    ok: false,
+    error: {
+      code: "invalid_payload",
+      hint: `Controller payload rejected: ${hint} Run \`ha capabilities --json\`, supply the required field in the documented shape, then retry.`
+    }
+  };
 }

@@ -43,6 +43,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-verify",
+    "display": "advanced",
     "usage": "decision verify <decision-id>|--all [--json]",
     "options": [{"flag":"--all","description":"Verify every decision that carries a content pin."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Recompute the last versioned decision content pin and report Git-attributed mismatch warnings without modifying the ledger.",
@@ -61,6 +62,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-repin",
+    "display": "advanced",
     "usage": "decision repin <decision-id> --migration-evidence task/<task-id>/<audit-marker> [--json]",
     "options": [{"flag":"--migration-evidence","description":"Bind the additive re-pin to an auditable migration task reference."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Append a current v1 content pin to a verified stale decision through migration-attributed coordination.",
@@ -114,6 +116,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-amend",
+    "display": "advanced",
     "usage": "decision amend <decision-id> [--title <title>] [--standing-policy] [--fulfillment <claim-id>:<mode>]... [--load-bearing <claim-id>|--non-load-bearing <claim-id>] [--set <field>:<value>] [--append <field>:<json>] [--body <text>|--body-file <path>] [--dry-run] [--json]",
     "options": [{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--standing-policy","description":"Classify the decision as a standing policy."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--load-bearing","description":"Mark an existing claim as covered by the reckon gate during decision amend."},{"flag":"--non-load-bearing","description":"Mark the proposed primary claim, or an existing amended claim, as exempt from reckon coverage."},{"flag":"--set","description":"Replace a schema-declared amendable field value."},{"flag":"--append","description":"Append a JSON value to a schema-declared amendable field."},{"flag":"--body","description":"Replace authored decision prose while preserving machine-owned frontmatter; mutually exclusive with --body-file."},{"flag":"--body-file","description":"Replace authored decision prose from a Markdown file; mutually exclusive with --body."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Amend a decision without changing its lifecycle state.",
@@ -131,6 +134,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-relate",
+    "display": "advanced",
     "usage": "decision relate <decision-id> --anchor <CH1|RJ1|C1> --type <supports|supersedes|refines|narrows|derives|blocks|relates|implements|produces|evidences|evidenced-by|invalidated-by|supersedes-fact> --target <entity-ref> --rationale <text> [--body <text>] [--dry-run] [--json]; derives->task seeds missing task risk-tier/urgency once, not live sync",
     "options": [{"flag":"--anchor","description":"Select the decision anchor id used as a relation source."},{"flag":"--type","description":"Set the relation type for the new decision edge."},{"flag":"--target","description":"Set the relation target entity ref."},{"flag":"--rationale","description":"Record the rationale for a relation or generated decision."},{"flag":"--body","description":"Set authored body content for the generated decision document."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Append a typed relation record to a decision through the relation-specific write surface.",
@@ -148,6 +152,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-reckon",
+    "display": "advanced",
     "usage": "decision reckon <decision-id> --task <task-id> [--dry-run] [--json]",
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Evaluate load-bearing decision claim coverage and record the verdict as a task-local fact.",
@@ -165,6 +170,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-relation-retire",
+    "display": "advanced",
     "usage": "decision relation retire <decision-id> --relation <relation-id> [--body <text>] [--dry-run] [--json]",
     "options": [{"flag":"--relation","description":"Select a hosted relation id."},{"flag":"--body","description":"Set authored body content for the generated decision document."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Retire a hosted decision relation by rewriting the source decision frontmatter.",
@@ -182,6 +188,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-relation-replace",
+    "display": "advanced",
     "usage": "decision relation replace <decision-id> --relation <relation-id> --anchor <CH1|RJ1|C1> --type <supports|supersedes|refines|narrows|derives|blocks|relates|implements|produces|evidences|evidenced-by|invalidated-by|supersedes-fact> --target <entity-ref> --rationale <text> [--body <text>] [--dry-run] [--json]; derives->task seeds missing task risk-tier/urgency once, not live sync",
     "options": [{"flag":"--relation","description":"Select a hosted relation id."},{"flag":"--anchor","description":"Select the decision anchor id used as a relation source."},{"flag":"--type","description":"Set the relation type for the replacement decision edge."},{"flag":"--target","description":"Set the relation target entity ref."},{"flag":"--rationale","description":"Record the rationale for a relation or generated decision."},{"flag":"--body","description":"Set authored body content for the generated decision document."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Replace a hosted decision relation by retiring the old edge and appending a new edge.",
@@ -252,6 +259,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "fact-invalidate",
+    "display": "advanced",
     "usage": "fact invalidate --task <task-id> --id <fact-id> --by <fact-id> --rationale <text> [--dry-run] [--json]",
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--id","description":"Set the explicit entity id when the command supports one."},{"flag":"--by","description":"Set the replacing task or invalidating fact id."},{"flag":"--rationale","description":"Record the rationale for a relation or generated decision."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Invalidate a task-local fact by recording a superseding fact relation through the fact write service.",

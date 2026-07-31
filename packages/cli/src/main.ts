@@ -14,7 +14,7 @@ import {
 import { runCompoundReceiptExitCommand } from "./receipt/compound-exit-command.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
-import { globalCommandOptions } from "./cli/command-spec/command-groups.ts";
+import { commandGroups, globalCommandOptions } from "./cli/command-spec/command-groups.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
 import {
   runDaemonCommand,
@@ -310,7 +310,7 @@ function renderHelp(result: Record<string, unknown>): string {
       ...renderGlobalOptions(),
       ...renderPrefixWorkflow(prefix),
       "",
-      "Commands:",
+      "Common commands:",
       ...defaultCommands.map(renderHelpCommandSummary),
       ...(advancedCommands.length > 0
         ? ["", "Advanced commands:", ...advancedCommands.map(renderHelpCommandSummary)]
@@ -353,16 +353,13 @@ function renderHelpCommandSummary(entry: CommandRegistryEntry): string {
 }
 
 function renderPrefixWorkflow(prefix: string): ReadonlyArray<string> {
-  if (prefix !== "task") return [];
+  const workflow = commandGroups.find((group) => group.name === prefix)?.primaryWorkflow;
+  if (!workflow) return [];
   return [
     "",
     "Primary workflow:",
-    "  1. ha task create --title \"<title>\"",
-    "  2. ha task start <task-id>",
-    "  3. ha task progress append <task-id> --text \"<update>\"",
-    "  4. ha task submit <task-id> --from-file submission.json",
-    "  5. ha task complete <task-id> --approve --from-file approval.json",
-    "  Inspect a step with: ha task <subcommand> --help"
+    ...workflow.map((command, index) => `  ${index + 1}. ${command}`),
+    `  Inspect a step with: ha ${prefix} <subcommand> --help`
   ];
 }
 
