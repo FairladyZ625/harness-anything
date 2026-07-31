@@ -401,8 +401,8 @@ test("CLI task complete help explains the resolved completion contract", () => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
     assert.match(output, /Usage: harness-anything task complete <id> \(--approve --from-file <approval\.json> \| --commit-anchor <sha-or-ref> --judgment <reason>\)/u);
-    assert.match(output, /One owner approval writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the existing lifecycle evaluator\./u);
-    assert.match(output, /Plain completion remains a compatibility entry only for a separately approved and reconciled Execution; the commit-anchor judgment path also reconciles internally\./u);
+    assert.match(output, /Before any facade writes, completion reports the same existing closeout, consent\/Review, commit, and code-doc requirements together\./u);
+    assert.match(output, /One owner approval then writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the unchanged lifecycle evaluator\./u);
   });
 });
 
