@@ -47,7 +47,7 @@ export type ReceiptMoment =
     }
   | {
       readonly status: "not_reached";
-      readonly reason: "pending" | "blocked" | "terminal_failure";
+      readonly reason: "pending" | "blocked" | "terminal_failure" | "already_satisfied";
       readonly failureId?: string;
       readonly evidence?: readonly [ReceiptEvidenceRef, ...ReceiptEvidenceRef[]];
     }
@@ -298,7 +298,7 @@ function validMoment(value: unknown): boolean {
   }
   if (value.status === "not_reached") {
     return honestOutcomeExactKeys(value, ["status", "reason"], ["failureId", "evidence"])
-      && includes(["pending", "blocked", "terminal_failure"] as const, value.reason)
+      && includes(["pending", "blocked", "terminal_failure", "already_satisfied"] as const, value.reason)
       && (value.failureId === undefined || nonEmptyString(value.failureId))
       && (value.evidence === undefined
         || (Array.isArray(value.evidence) && value.evidence.length > 0 && value.evidence.every(validEvidence)));

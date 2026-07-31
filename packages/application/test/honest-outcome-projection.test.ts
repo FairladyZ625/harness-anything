@@ -39,6 +39,7 @@ test("compound V1 and V2 receipts map every authority, origin, delivery, and wir
     ["COMMITTED", "confirmed"],
     ["REJECTED", "not_reached"],
     ["RETRYABLE_NOT_COMMITTED", "not_reached"],
+    ["ALREADY_SATISFIED", "not_reached"],
     ["INDETERMINATE", "unknown"]
   ];
   for (const [tag, expected] of authorityCases) {
@@ -47,6 +48,9 @@ test("compound V1 and V2 receipts map every authority, origin, delivery, and wir
       authority: authority(tag)
     }), coreFailureRegistry);
     assert.equal(mapped.moments.committed.status, expected, tag);
+    if (tag === "ALREADY_SATISFIED" && mapped.moments.committed.status === "not_reached") {
+      assert.equal(mapped.moments.committed.reason, "already_satisfied", tag);
+    }
     assert.equal(isHonestReceiptOutcomeV1(mapped), true, tag);
   }
 
@@ -185,6 +189,31 @@ function authority(tag: AuthorityOperationReceipt["tag"]): AuthorityOperationRec
     ...base,
     tag,
     reason: "commit continuity unavailable"
+  };
+  if (tag === "ALREADY_SATISFIED") return {
+    ...base,
+    tag,
+    message: "目标状态已满足,本次无变更",
+    stateProof: {
+      schema: "authority-already-satisfied-state-proof/v1",
+      entityKind: "task",
+      canonicalRef: "task/task_X",
+      path: "tasks/task_X/INDEX.md",
+      field: "status",
+      requestedValue: "active",
+      observedValue: "active",
+      observedEpoch: "44".repeat(32),
+      observedRevision: "0",
+      observedBlobDigest: "44".repeat(32)
+    },
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "11".repeat(32),
+      semanticMutationSetDigest: "22".repeat(32),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "33".repeat(32),
+      canonicalMutationSet: { registryVersion: 1, mutations: [] }
+    }
   };
   return {
     ...base,
