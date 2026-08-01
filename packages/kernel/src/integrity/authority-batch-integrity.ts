@@ -15,6 +15,11 @@ export interface AuthorityBatchIntegrity {
   readonly trailerValue: string;
 }
 
+export interface AuthorityBatchCommitMessage {
+  readonly subject: string;
+  readonly integrity: AuthorityBatchIntegrity;
+}
+
 /**
  * Canonical v1 batch preimage:
  *   utf8("ha/authority-batch-integrity/v1\\0")
@@ -84,6 +89,29 @@ export function parseAuthorityBatchIntegrityTrailer(value: string): AuthorityBat
     throw new Error("authority batch integrity aggregate mismatch");
   }
   return integrity;
+}
+
+export function parseAuthorityBatchCommitMessage(message: string): AuthorityBatchCommitMessage {
+  const lines = message.trim().split(/\r?\n/u);
+  const subject = lines[0] ?? "";
+  if (!subject) throw new Error("authority batch commit message requires a subject");
+  const prefix = `${authorityBatchTrailerName}: `;
+  const trailers = lines.filter((line) => line.startsWith(prefix));
+  if (trailers.length !== 1 || trailers[0] !== lines.at(-1)) {
+    throw new Error("authority batch commit message requires one final integrity trailer");
+  }
+  const integrity = parseAuthorityBatchIntegrityTrailer(trailers[0]!.slice(prefix.length));
+  const subjectOpIds = subjectOperationIds(subject);
+  if (subjectOpIds.length !== integrity.entries.length
+    || subjectOpIds.some((opId, index) => integrity.entries[index]?.opId !== opId)) {
+    throw new Error("authority batch commit subject and trailer operation ids differ");
+  }
+  return { subject, integrity };
+}
+
+function subjectOperationIds(subject: string): ReadonlyArray<string> {
+  const match = /\[([^\]]+)\]$/u.exec(subject);
+  return match?.[1] ? match[1].split(",").filter(Boolean) : [];
 }
 
 function rawDigest(value: string): Buffer {

@@ -1361,7 +1361,7 @@
       ],
       "cliActions": [],
       "evidence": [
-        "packages/kernel/src/write-coordination/attribution/legacy-attribution-event-store.ts:28",
+        "packages/kernel/src/write-coordination/attribution/inline-attribution-event-store.ts:28",
         "packages/kernel/src/write-coordination/journal/durable.ts:117"
       ],
       "freshness": "append-only-op-id-shard"

@@ -14,10 +14,13 @@ import {
   type PhysicalChangeV2,
   type SemanticMutationSetV2
 } from "@harness-anything/kernel";
+import { scanFirstParentPublicationMetadata } from "./publication-history.ts";
 import {
-  publicationSubjectOperationIds,
-  scanFirstParentPublicationMetadata
-} from "./publication-history.ts";
+  orderedOperationIdsEqual,
+  publicationMessageShape,
+  publicationMetadataOperationIds,
+  publicationTopologyError
+} from "./publication-message-shape.ts";
 import {
   readAuthorityEvidencePendingPathsAtCommit,
   readAuthorityEvidenceWorktreeState
@@ -193,7 +196,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       }>>();
       for (const commit of commits) {
         if (commit.parents.length !== 2) continue;
-        const opIds = publicationSubjectOperationIds(commit.sessionSubject ?? "");
+        const opIds = publicationMetadataOperationIds(commit);
         const anchor = {
           commitSha: commit.commitSha,
           previousCommit: commit.parents[0]!,
@@ -249,8 +252,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     // oldest-to-newest makes every reported commit a complete prefix.
     for (const commit of [...commits].reverse()) {
       if (commit.parents.length === 2) {
-        const sessionSubject = commit.sessionSubject ?? "";
-        const opIds = publicationSubjectOperationIds(sessionSubject);
+        const opIds = publicationMetadataOperationIds(commit);
         if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
           const anchor = {
             commitSha: commit.commitSha,
@@ -293,7 +295,21 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     const sessionSubject = sessionCommit
       ? publicationGitText(rootDir, "show", "-s", "--format=%s", sessionCommit)
       : "";
-    const expectedSessionSubjectSuffix = `[${expectedOpIds.join(",")}]`;
+    const mergeMessage = publicationGitText(rootDir, "show", "-s", "--format=%B", head);
+    const sessionMessage = sessionCommit
+      ? publicationGitText(rootDir, "show", "-s", "--format=%B", sessionCommit)
+      : "";
+    const {
+      mergeMessageMatchesSession,
+      legacySubjectShape,
+      semanticSubjectShape
+    } = publicationMessageShape({
+      mergeSubject,
+      sessionSubject,
+      mergeMessage,
+      sessionMessage,
+      expectedOpIds
+    });
     const mergeTreeMatchesSession = sessionCommit
       ? gitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
@@ -302,8 +318,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       || parentCommits[0] !== expectedPreviousHead
       || sessionParents.length !== 1
       || sessionParents[0] !== expectedPreviousHead
-      || !/^materializer: merge session [A-Za-z0-9][A-Za-z0-9._-]*$/u.test(mergeSubject)
-      || !sessionSubject.endsWith(expectedSessionSubjectSuffix)
+      || (!legacySubjectShape && !semanticSubjectShape)
       || !mergeTreeMatchesSession) {
       throw publicationTopologyError({
         expectedPreviousHead,
@@ -313,6 +328,9 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         sessionParents,
         mergeSubject,
         sessionSubject,
+        mergeMessageMatchesSession,
+        legacySubjectShape,
+        semanticSubjectShape,
         mergeTreeMatchesSession
       });
     }
@@ -376,13 +394,12 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     inspectPublication,
     scanFirstParentOperationAnchors,
     findPublication: async (expectedOpIds) => {
-      const expectedSessionSubjectSuffix = `[${expectedOpIds.join(",")}]`;
       const history = await indexedHistory();
       if (!history) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
       const matches: CanonicalPublicationEvidence[] = [];
       for (const commit of history.commits) {
         if (commit.parents.length !== 2
-          || !commit.sessionSubject?.endsWith(expectedSessionSubjectSuffix)) continue;
+          || !orderedOperationIdsEqual(publicationMetadataOperationIds(commit), expectedOpIds)) continue;
         matches.push(await inspectPublication(
           commit.parents[0]!,
           expectedOpIds,
@@ -411,29 +428,6 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
-}
-
-function publicationTopologyError(input: {
-  readonly expectedPreviousHead: string | null;
-  readonly expectedOpIds: ReadonlyArray<string>;
-  readonly head: string;
-  readonly parentCommits: ReadonlyArray<string>;
-  readonly sessionParents: ReadonlyArray<string>;
-  readonly mergeSubject: string;
-  readonly sessionSubject: string;
-  readonly mergeTreeMatchesSession: boolean;
-}): Error {
-  return new Error([
-    "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
-    `expectedPreviousHead=${input.expectedPreviousHead ?? "null"}`,
-    `expectedOpIds=${input.expectedOpIds.join(",")}`,
-    `head=${input.head}`,
-    `actualParents=${input.parentCommits.join(",") || "none"}`,
-    `actualSessionParents=${input.sessionParents.join(",") || "none"}`,
-    `mergeSubject=${JSON.stringify(input.mergeSubject)}`,
-    `sessionSubject=${JSON.stringify(input.sessionSubject)}`,
-    `mergeTreeMatchesSession=${String(input.mergeTreeMatchesSession)}`
-  ].join(";"));
 }
 
 /** Fail closed unless every observed tree change is covered by the canonical registry mutation set. */

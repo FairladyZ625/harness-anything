@@ -70,6 +70,7 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    commitMessage: (repoRoot, ref) => runGit(repoRoot, "show", "-s", "--format=%B", ref).trim(),
     resolveCommit: (repoRoot, ref) => {
       let sha: string;
       try {
