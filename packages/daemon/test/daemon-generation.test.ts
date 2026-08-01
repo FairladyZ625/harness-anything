@@ -68,6 +68,52 @@ test("generation publication is durable, endpoint-scoped, and strictly increasin
   }
 });
 
+test("a replacement endpoint advances beyond the registry generation for the same machine", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-generation-migration-"));
+  try {
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    const preparation = prepareDaemonGenerationForServe({
+      userRoot,
+      endpointIdentity: "/tmp/stable.sock",
+      daemonInstanceId: "daemon-stable",
+      priorGeneration: { machineId, daemonGeneration: 530 }
+    });
+
+    assert.equal(preparation.mode, "generation");
+    if (preparation.mode === "generation") assert.equal(preparation.daemonGeneration, 531);
+    const restarted = prepareDaemonGenerationForServe({
+      userRoot,
+      endpointIdentity: "/tmp/stable.sock",
+      daemonInstanceId: "daemon-stable-restarted",
+      priorGeneration: { machineId, daemonGeneration: 530 }
+    });
+    assert.equal(restarted.mode, "generation");
+    if (restarted.mode === "generation") assert.equal(restarted.daemonGeneration, 532);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("replacement endpoint generation rejects a registry from another machine", {
+  skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
+}, () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-generation-machine-mismatch-"));
+  const endpointIdentity = "/tmp/stable.sock";
+  try {
+    assert.throws(() => prepareDaemonGenerationForServe({
+      userRoot,
+      endpointIdentity,
+      daemonInstanceId: "daemon-stable",
+      priorGeneration: { machineId: "different-machine", daemonGeneration: 530 }
+    }), /prior generation machine identity mismatch/u);
+    assert.equal(existsSync(daemonGenerationRecordPath(userRoot, endpointIdentity)), false);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("generation publication fails closed on corrupt or exhausted state", {
   skip: process.platform === "win32" ? "durable generation publication is unsupported on Windows" : false
 }, () => {

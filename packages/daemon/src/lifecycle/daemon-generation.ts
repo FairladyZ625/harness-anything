@@ -92,6 +92,7 @@ export function prepareDaemonGenerationForServe(input: {
   readonly userRoot: string;
   readonly endpointIdentity: string;
   readonly daemonInstanceId: string;
+  readonly priorGeneration?: Pick<DaemonGenerationRecordV1, "machineId" | "daemonGeneration">;
   readonly platform?: NodeJS.Platform;
 }): DaemonGenerationServePreparation {
   const platform = input.platform ?? process.platform;
@@ -99,11 +100,15 @@ export function prepareDaemonGenerationForServe(input: {
     return { mode: "legacy", diagnostic: daemonGenerationDurabilityUnsupportedCode };
   }
   const machineId = readOrCreateDaemonMachineId(input.userRoot, platform);
+  if (input.priorGeneration && input.priorGeneration.machineId !== machineId) {
+    throw new Error("daemon prior generation machine identity mismatch");
+  }
   const generationRecord = publishNextDaemonGeneration({
     userRoot: input.userRoot,
     endpointIdentity: input.endpointIdentity,
     machineId,
     daemonInstanceId: input.daemonInstanceId,
+    ...(input.priorGeneration ? { minimumGeneration: input.priorGeneration.daemonGeneration } : {}),
     platform
   });
   return {
@@ -224,6 +229,7 @@ export function publishNextDaemonGeneration(input: {
   readonly endpointIdentity: string;
   readonly machineId: string;
   readonly daemonInstanceId: string;
+  readonly minimumGeneration?: number;
   readonly now?: () => Date;
   readonly platform?: NodeJS.Platform;
 }): DaemonGenerationRecordV1 {
@@ -231,6 +237,10 @@ export function publishNextDaemonGeneration(input: {
   assertNonEmpty(input.endpointIdentity, "endpointIdentity");
   assertNonEmpty(input.machineId, "machineId");
   assertNonEmpty(input.daemonInstanceId, "daemonInstanceId");
+  if (input.minimumGeneration !== undefined
+    && (!Number.isSafeInteger(input.minimumGeneration) || input.minimumGeneration < 1)) {
+    throw new Error("invalid minimum daemon generation");
+  }
   const directory = path.resolve(input.userRoot);
   const target = daemonGenerationRecordPath(directory, input.endpointIdentity);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -239,14 +249,15 @@ export function publishNextDaemonGeneration(input: {
     if (current && (current.machineId !== input.machineId || current.endpointIdentity !== input.endpointIdentity)) {
       throw new Error("daemon generation record identity mismatch");
     }
-    if (current?.daemonGeneration === Number.MAX_SAFE_INTEGER) {
+    const currentGeneration = Math.max(current?.daemonGeneration ?? 0, input.minimumGeneration ?? 0);
+    if (currentGeneration === Number.MAX_SAFE_INTEGER) {
       throw new Error("daemon generation space exhausted");
     }
     const record: DaemonGenerationRecordV1 = {
       schema: daemonGenerationRecordSchema,
       machineId: input.machineId,
       endpointIdentity: input.endpointIdentity,
-      daemonGeneration: (current?.daemonGeneration ?? 0) + 1,
+      daemonGeneration: currentGeneration + 1,
       daemonInstanceId: input.daemonInstanceId,
       publishedAt: (input.now ?? (() => new Date()))().toISOString()
     };
