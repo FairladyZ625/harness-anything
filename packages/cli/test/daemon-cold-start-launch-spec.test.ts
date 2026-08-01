@@ -6,7 +6,11 @@ import net from "node:net";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { localUserDaemonEndpoint, requestLocalDaemonJsonRpc } from "../../daemon/src/index.ts";
+import {
+  localUserDaemonEndpoint,
+  readOrCreateDaemonMachineId,
+  requestLocalDaemonJsonRpc
+} from "../../daemon/src/index.ts";
 import { readDaemonRegistry, registerDaemonRepo, unregisterDaemonRepo } from "../../kernel/src/index.ts";
 import { initializeHarness } from "../src/commands/init.ts";
 import {
@@ -247,6 +251,50 @@ test("a daemon started under one TMPDIR remains the single authority for clients
     ], { ...commonEnv, TMPDIR: sandboxedTmp });
     assert.equal(statusAfterCommand.pid, started.pid, JSON.stringify(statusAfterCommand));
     assert.equal(statusAfterCommand.endpoint, started.endpoint, JSON.stringify(statusAfterCommand));
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("cold start on a replacement endpoint advances beyond the registry projection generation", {
+  skip: process.platform === "win32",
+  timeout: 45_000
+}, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot
+  };
+  try {
+    registerDaemonRepo({
+      userRoot,
+      repoId: "canonical",
+      canonicalRoot: fixture.repoRoot,
+      authorityManifestPath: fixture.manifestPath,
+      createConvenienceLinks: false
+    });
+    const machineId = readOrCreateDaemonMachineId(userRoot);
+    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({
+      ...readDaemonRegistry({ userRoot }),
+      machineId,
+      daemonGeneration: 530
+    }, null, 2)}\n`, "utf8");
+
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    assert.equal(started.started, true, JSON.stringify(started));
+    const launchSpec = await requestLocalDaemonJsonRpc(
+      fixture.repoRoot,
+      "admin.daemon.launch-spec",
+      { includeGenerationAxes: true },
+      1_000,
+      { userRoot, allowLegacySocket: false }
+    );
+    assert.equal(launchSpecData(launchSpec).daemonGeneration, 531, JSON.stringify(launchSpec));
+    assert.equal(readDaemonRegistry({ userRoot }).daemonGeneration, 531);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

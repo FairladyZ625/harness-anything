@@ -152,10 +152,15 @@ export async function runDaemonServe<
       });
       await transport.start();
       transportStarted = true;
+      const registry = readDaemonRegistry({ userRoot });
+      const priorGeneration = registry.machineId !== undefined && registry.daemonGeneration !== undefined
+        ? { machineId: registry.machineId, daemonGeneration: registry.daemonGeneration }
+        : undefined;
       const generation = prepareDaemonGenerationForServe({
         userRoot,
         endpointIdentity: endpoint,
         daemonInstanceId: `ha-${process.pid}`,
+        ...(priorGeneration ? { priorGeneration } : {}),
         ...(input.platform ? { platform: input.platform } : {})
       });
       if (generation.mode === "legacy") {
