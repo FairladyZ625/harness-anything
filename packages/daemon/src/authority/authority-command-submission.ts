@@ -313,13 +313,16 @@ function isProvenanceSessionOperation(
   operation: WriteOp
 ): boolean {
   const action = input.command.action;
+  if (action.kind === "status-set" && action.executionSubmission) {
+    return operation.kind === "doc_write"
+      && /^entity\/session\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(operation.entityId);
+  }
   const sessionId = action.kind === "session-export"
     ? action.sessionId ?? input.currentSession.sessionId
     : input.currentSession.sessionId;
   return (
     action.kind === "new-task"
     || action.kind === "session-export"
-    || (action.kind === "status-set" && Boolean(action.executionSubmission))
   ) && operation.entityId === `entity/session/${sessionId}`;
 }
 
