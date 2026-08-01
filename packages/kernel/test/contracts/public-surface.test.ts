@@ -188,6 +188,7 @@ const publicRuntimeSurface = [
   "openDomainStatuses",
   "packageDispositions",
   "parseAgentRuntimeInventory",
+  "parseAuthorityBatchCommitMessage",
   "parseDecisionDocument",
   "parseEntityRef",
   "parseFactFlowRecords",

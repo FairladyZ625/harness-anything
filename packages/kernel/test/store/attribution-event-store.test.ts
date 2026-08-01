@@ -10,8 +10,8 @@ import {
   rebuildTaskProjection
 } from "../../src/index.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
-import type { AttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
-import { makeLocalGitAttributionEventStore } from "../../src/write-coordination/attribution/legacy-attribution-event-store.ts";
+import type { AttributionEventStore } from "../../src/write-coordination/attribution/inline-attribution-event-store.ts";
+import { makeInlineAttributionEventStore } from "../../src/write-coordination/attribution/inline-attribution-event-store.ts";
 import { readAttributionEvents } from "../../src/local/attribution-event-source.ts";
 import { readJournal } from "../../src/write-coordination/journal/durable.ts";
 import { testWriteAttribution } from "../test-attribution.ts";
@@ -138,7 +138,7 @@ test("deleting WAL and SQLite rebuilds identical attribution rows only from even
 });
 
 function failEventStore(point: "before" | "after"): AttributionEventStore {
-  const delegate = makeLocalGitAttributionEventStore();
+  const delegate = makeInlineAttributionEventStore();
   let failed = false;
   return {
     ...delegate,

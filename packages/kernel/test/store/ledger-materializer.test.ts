@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../src/index.ts";
+import { authorityBatchTrailerName, buildAuthorityBatchIntegrity } from "../../src/integrity/authority-batch-integrity.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -61,6 +62,60 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
       git(rootDir, "show", "-s", "--format=%an <%ae>", "HEAD"),
       "Harness Anything Materializer <materializer@harness-anything.local>"
     );
+  });
+});
+
+test("single authority commit materialization reuses its complete semantic message", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const opId = "namespace-test:semantic-merge";
+    const integrity = buildAuthorityBatchIntegrity([{
+      opId,
+      semanticMutationSetDigest: "ab".repeat(32)
+    }]);
+    const message = `task(progress-append): task-semantic progress.md [${opId}]\n\n${authorityBatchTrailerName}: ${integrity.trailerValue}`;
+    const harnessRoot = path.join(rootDir, "harness");
+    git(rootDir, "checkout", "-b", "sessions/semantic-merge");
+    writeFileSync(path.join(harnessRoot, "semantic.txt"), "semantic\n");
+    git(rootDir, "add", "--", "semantic.txt");
+    git(rootDir, "commit", "-m", message);
+    git(rootDir, "checkout", "master");
+
+    const report = runLedgerMaterializer(rootDir);
+
+    assert.equal(report.merged, 1);
+    assert.equal(git(rootDir, "show", "-s", "--format=%B", "HEAD"), message);
+    assert.equal(git(rootDir, "rev-list", "--count", "HEAD^2^..HEAD^2"), "1");
+  });
+});
+
+test("multi-commit authority branch retains the legacy materializer subject", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const opId = "namespace-test:multi-commit";
+    const integrity = buildAuthorityBatchIntegrity([{
+      opId,
+      semanticMutationSetDigest: "cd".repeat(32)
+    }]);
+    const harnessRoot = path.join(rootDir, "harness");
+    git(rootDir, "checkout", "-b", "sessions/multi-authority");
+    writeFileSync(path.join(harnessRoot, "first.txt"), "first\n");
+    git(rootDir, "add", "--", "first.txt");
+    git(rootDir, "commit", "-m", "legacy first");
+    writeFileSync(path.join(harnessRoot, "second.txt"), "second\n");
+    git(rootDir, "add", "--", "second.txt");
+    git(
+      rootDir,
+      "commit",
+      "-m",
+      `task(progress-append): task-multi progress.md [${opId}]\n\n${authorityBatchTrailerName}: ${integrity.trailerValue}`
+    );
+    git(rootDir, "checkout", "master");
+
+    const report = runLedgerMaterializer(rootDir);
+
+    assert.equal(report.merged, 1);
+    assert.equal(git(rootDir, "show", "-s", "--format=%s", "HEAD"), "materializer: merge session multi-authority");
   });
 });
 

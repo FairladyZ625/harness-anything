@@ -27,7 +27,7 @@ import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.t
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import { assertCodeDocGitEvidence } from "./operations/code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
-import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/legacy-attribution-event-store.ts";
+import { createAttributionEvent, makeInlineAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./operations/entity.ts";
 import { rejectWrite, WriteRejectedError } from "./rejection.ts";
@@ -110,7 +110,7 @@ function makeJournaledWriteCoordinatorInternal(
   const heldGlobalLock = options.heldGlobalLock;
   const commitAuthor = options.commitAuthor;
   const versionControlSystem = options.versionControlSystem;
-  const attributionEventStore = options.attributionEventStore ?? makeLocalGitAttributionEventStore();
+  const attributionEventStore = options.attributionEventStore ?? makeInlineAttributionEventStore();
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
@@ -338,7 +338,7 @@ function flushRecords(
   sessionId?: string,
   commitAuthor?: VcsCommitAuthor,
   versionControlSystem?: VersionControlSystem,
-  attributionEventStore: AttributionEventStore = makeLocalGitAttributionEventStore(),
+  attributionEventStore: AttributionEventStore = makeInlineAttributionEventStore(),
   onProjectionChange?: (event: ProjectionChangeEvent) => void
 ): FlushReport {
   const touchedPaths: string[] = [];

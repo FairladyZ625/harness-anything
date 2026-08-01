@@ -3,7 +3,6 @@ import { Schema } from "effect";
 import type { HarnessLayoutInput } from "../../layout/index.ts";
 import { resolveHarnessLayout } from "../../layout/index.ts";
 import { sha256Text, stableStringify } from "../../integrity/stable-hash.ts";
-import { readAttributionEvents } from "../../local/attribution-event-source.ts";
 import type { VersionControlSystem } from "../../ports/version-control-system.ts";
 import { AttributionEventSchema, type AttributionEvent } from "../../schemas/attribution-event.ts";
 import { resolveCommitPlan } from "../journal/publication/git.ts";
@@ -21,7 +20,6 @@ export interface AttributionEventStoreContext {
 export interface AttributionEventStore {
   readonly ensure: (record: JournalRecordV2, context: AttributionEventStoreContext) => AttributionEventWrite;
   readonly confirms: (event: AttributionEvent, context: AttributionEventStoreContext) => boolean;
-  readonly readAll: (rootInput: HarnessLayoutInput) => ReadonlyArray<AttributionEvent>;
 }
 
 export interface AttributionEventWrite {
@@ -49,11 +47,10 @@ export function planAttributionEventCommit(
   };
 }
 
-export function makeLocalGitAttributionEventStore(): AttributionEventStore {
+export function makeInlineAttributionEventStore(): AttributionEventStore {
   return {
     ensure: ensureLocalAttributionEvent,
-    confirms: localEventIsDurable,
-    readAll: readAttributionEvents
+    confirms: localEventIsDurable
   };
 }
 

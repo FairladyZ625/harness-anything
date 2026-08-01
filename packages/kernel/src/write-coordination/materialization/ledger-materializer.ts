@@ -1,4 +1,5 @@
 import path from "node:path";
+import { parseAuthorityBatchCommitMessage } from "../../integrity/authority-batch-integrity.ts";
 import type { HarnessLayoutInput } from "../../layout/index.ts";
 import { resolveHarnessLayout } from "../../layout/index.ts";
 import type { VersionControlSystem } from "../../ports/version-control-system.ts";
@@ -122,7 +123,8 @@ function materializeBranches(
 
     projectionSourceFingerprintBeforeMerge ??= captureAuthoredProjectionFingerprint(rootInput);
 
-    const mergeMessage = `materializer: merge session ${branch.slice("sessions/".length)}`;
+    const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
+      ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
     vcs.checkout(repoRoot, trunkBranch);
     const beforeMergeHead = vcs.currentHead(repoRoot);
     let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
@@ -215,6 +217,22 @@ function materializeBranches(
     projectionRebuilt,
     attributionEventsProjected
   };
+}
+
+function semanticMergeMessage(
+  commits: ReadonlyArray<string>,
+  repoRoot: string,
+  branch: string,
+  vcs: VersionControlSystem
+): string | undefined {
+  if (commits.length !== 1) return undefined;
+  const message = vcs.commitMessage(repoRoot, branch);
+  try {
+    parseAuthorityBatchCommitMessage(message);
+    return message;
+  } catch {
+    return undefined;
+  }
 }
 
 function reachedBranchLimit(processed: number, maxBranches: number | undefined): boolean {
