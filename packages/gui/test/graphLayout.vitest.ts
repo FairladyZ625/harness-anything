@@ -174,6 +174,7 @@ describe("computeGraphLayout: ego three-lane (dec_01KXA7811SVVT8P66HNDFZQ7DF)", 
       decisionRef: `decision/${FOCUS_DECISION_ID}`,
       claimRef: `decision/${FOCUS_DECISION_ID}/${claimId}`,
       status: "uncovered" as const,
+      fulfillment: "evidenced",
       relationPath: [],
     });
     const out = await computeGraphLayout(
@@ -194,6 +195,60 @@ describe("computeGraphLayout: ego three-lane (dec_01KXA7811SVVT8P66HNDFZQ7DF)", 
     expect(byClaim.get("C1")).toBe("uncovered");
     expect(byClaim.get("C3")).toBe("uncovered");
     expect(byClaim.get("CH1")).toBe("uncovered");
+  });
+
+
+  it("fulfillment 三形态从 coverageRows 透传到 focusClaims + claimRows", async () => {
+    const row = (
+      claimId: string,
+      fulfillment: "evidenced" | "delivered" | "standing-policy",
+      status: "covered" | "uncovered" = "covered",
+    ) => ({
+      decisionRef: `decision/${FOCUS_DECISION_ID}`,
+      claimRef: `decision/${FOCUS_DECISION_ID}/${claimId}`,
+      status,
+      fulfillment,
+      relationPath: [] as string[],
+      ...(status === "covered" && fulfillment === "evidenced"
+        ? { coveringFactRef: "fact/task_01KX3PGD74EXEEV6DFM49ARDJ2/F-96WH7P98" }
+        : {}),
+    });
+    const out = await computeGraphLayout(
+      baseInput({
+        coverageRows: [
+          row("C1", "evidenced"),
+          row("C2", "delivered"),
+          row("C3", "standing-policy"),
+          row("C4", "evidenced", "uncovered"),
+          row("C5", "delivered"),
+          row("CH1", "standing-policy"),
+        ],
+      }),
+    );
+    const byClaim = new Map(out.focusClaims.map((c) => [c.claimId, c]));
+    expect(byClaim.get("C1")?.fulfillment).toBe("evidenced");
+    expect(byClaim.get("C2")?.fulfillment).toBe("delivered");
+    expect(byClaim.get("C3")?.fulfillment).toBe("standing-policy");
+    expect(byClaim.get("C4")?.status).toBe("uncovered");
+    expect(byClaim.get("C4")?.fulfillment).toBe("evidenced");
+    expect(byClaim.get("CH1")?.fulfillment).toBe("standing-policy");
+
+    const focus = out.nodes.find((n) => n.type === "decisionFocus");
+    const claimRows = (focus?.data as {
+      claimRows: Array<{ claimId: string; fulfillment?: string; status: string }>;
+    }).claimRows;
+    const c2 = claimRows.find((r) => r.claimId === "C2");
+    const c3 = claimRows.find((r) => r.claimId === "C3");
+    expect(c2?.fulfillment).toBe("delivered");
+    expect(c3?.fulfillment).toBe("standing-policy");
+  });
+
+  it("coverageRows 缺失时 fulfillment 保持 unknown(不把 evidence 有无误判成形态)", async () => {
+    const out = await computeGraphLayout(baseInput({ coverageRows: undefined }));
+    // Path B may mark status covered from evidence, but fulfillment stays unknown
+    for (const info of out.focusClaims) {
+      expect(info.fulfillment).toBe("unknown");
+    }
   });
 
   it("渲染三个 lane 背景 + 一个 decisionFocus 节点", async () => {
@@ -296,6 +351,7 @@ describe("computeGraphLayout: ego three-lane (dec_01KXA7811SVVT8P66HNDFZQ7DF)", 
             decisionRef: `decision/${FOCUS_DECISION_ID}`,
             claimRef: `decision/${FOCUS_DECISION_ID}/CH1`,
             status: "covered" as const,
+            fulfillment: "evidenced",
             coveringFactRef: "fact/task_01KX3PGD74EXEEV6DFM49ARDJ2/F-COVERED",
           },
         ],

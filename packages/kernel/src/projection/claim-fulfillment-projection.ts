@@ -62,6 +62,7 @@ export function buildClaimFulfillmentRows(input: {
         decisionRef: decision.decisionRef,
         claimRef,
         status: coverage ? "covered" : "uncovered",
+        fulfillment: claim.fulfillment,
         ...(coverage?.factRef ? { coveringFactRef: coverage.factRef } : {}),
         ...(refutingFactRefs.length > 0 ? { refutingFactRefs } : {}),
         relationPath: coverage?.path ?? []

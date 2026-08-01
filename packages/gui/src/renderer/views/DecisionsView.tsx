@@ -59,7 +59,7 @@ export function DecisionsView({
   facts: FactRef[];
   onTraceSession: (sessionId: string) => void;
   onCallAgent?: (cmd: string) => void;
-  onDecide: (id: string, action: DecideAction, rationale?: string) => void;
+  onDecide: (id: string, action: DecideAction, rationale?: string) => void | Promise<void>;
   readOnly?: boolean;
   onNavigateDecision?: (decisionId: string) => void;
   onNavigateTask?: (taskId: string) => void;
@@ -107,23 +107,31 @@ export function DecisionsView({
     (id: string, action: DecideAction, rationale?: string) => {
       if (readOnly) return;
       const d = decisions.find((x) => x.decisionId === id);
-      if (d) {
-        const wb = action === "accept" ? d.readinessSignals?.needsWriteback : undefined;
-        setProcessed((p) =>
-          [
-            {
-              id,
-              title: d.title,
-              action,
-              at: new Date().toISOString(),
-              rationale,
-              writeback: wb,
-            },
-            ...p,
-          ].slice(0, 12),
-        );
-      }
-      onDecide(id, action, rationale);
+      // Fire the mutation first. Only record session history when it settles
+      // successfully — a rejected mutation must not paint a fake "accepted /
+      // rejected / deferred" row (task_01KXARE0RM1RW22G66GMK56H3Y).
+      void Promise.resolve(onDecide(id, action, rationale)).then(
+        () => {
+          if (!d) return;
+          const wb = action === "accept" ? d.readinessSignals?.needsWriteback : undefined;
+          setProcessed((p) =>
+            [
+              {
+                id,
+                title: d.title,
+                action,
+                at: new Date().toISOString(),
+                rationale,
+                writeback: wb,
+              },
+              ...p,
+            ].slice(0, 12),
+          );
+        },
+        // Failure path: ViewSwitch already surfaces the toast. Leave the
+        // queue/history untouched so the card stays actionable.
+        () => undefined,
+      );
     },
     [decisions, onDecide, readOnly],
   );

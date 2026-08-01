@@ -168,32 +168,38 @@ export function ViewSwitch(props: ViewSwitchProps) {
     }
   };
 
-  const handleDecide = (id: string, action: DecideAction, rationale?: string) => {
+  const handleDecide = (id: string, action: DecideAction, rationale?: string): Promise<void> => {
     // Authority act: call the existing renderer API only. Principal is derived
     // by the daemon from the unix-socket owner — never inject actor fields here.
-    decideMutation.mutate(
-      { decisionId: id, action, judgmentOnlyRationale: rationale },
-      {
-        onSuccess: () => {
-          const label =
-            action === "accept"
-              ? t("renderer.mutation.decisionAccepted")
-              : action === "reject"
-                ? t("renderer.mutation.decisionRejected")
-                : t("renderer.mutation.decisionDeferred");
-          showToast(`${label}: ${id}`, "success");
+    // Return a Promise so DecisionsView can wait for settlement before painting
+    // session history (mutation rejection must not look like success).
+    return new Promise<void>((resolve, reject) => {
+      decideMutation.mutate(
+        { decisionId: id, action, judgmentOnlyRationale: rationale },
+        {
+          onSuccess: () => {
+            const label =
+              action === "accept"
+                ? t("renderer.mutation.decisionAccepted")
+                : action === "reject"
+                  ? t("renderer.mutation.decisionRejected")
+                  : t("renderer.mutation.decisionDeferred");
+            showToast(`${label}: ${id}`, "success");
+            resolve();
+          },
+          onError: (error: Error) => {
+            showToast(
+              t("renderer.mutation.decisionMutationFailed", {
+                action,
+                error: error.message,
+              }),
+              "error",
+            );
+            reject(error);
+          },
         },
-        onError: (error: Error) => {
-          showToast(
-            t("renderer.mutation.decisionMutationFailed", {
-              action,
-              error: error.message,
-            }),
-            "error",
-          );
-        },
-      },
-    );
+      );
+    });
   };
 
   const handleCallAgent = (cmd: string) => {

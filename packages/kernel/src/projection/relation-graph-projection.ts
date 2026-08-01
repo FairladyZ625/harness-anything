@@ -41,6 +41,13 @@ export interface RelationCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
+  /**
+   * Claim-level fulfillment mode that drove the coverage verdict.
+   * Defaults to "evidenced" when the decision package left it undeclared.
+   * GUI coverage legend/node coloring uses this to distinguish
+   * evidenced / delivered / standing-policy (task_01KXARS0HWQX5XNBE6AHK0BD40).
+   */
+  readonly fulfillment: "evidenced" | "delivered" | "standing-policy";
   readonly coveringFactRef?: string;
   readonly refutingFactRefs?: ReadonlyArray<string>;
   readonly relationPath: ReadonlyArray<string>;

@@ -43,7 +43,7 @@ test("relation graph coverage rejects non-evidence paths and supersession edges"
       assert.deepEqual(readDecisionFactCoverage({ rootDir, decisionId }).rows, [{
         decisionRef: `decision/${decisionId}`,
         claimRef: `decision/${decisionId}/C1`,
-        status: "uncovered",
+        status: "uncovered", fulfillment: "evidenced",
         relationPath: []
       }]);
     }
@@ -70,7 +70,7 @@ test("relation graph coverage records active fact refutations and keeps the clai
     assert.deepEqual(readDecisionFactCoverage({ rootDir, decisionId: "dec_REFUTED" }).rows, [{
       decisionRef: "decision/dec_REFUTED",
       claimRef: "decision/dec_REFUTED/C1",
-      status: "uncovered",
+      status: "uncovered", fulfillment: "evidenced",
       refutingFactRefs: [refutingFactRef],
       relationPath: []
     }]);
@@ -121,6 +121,10 @@ test("relation graph coverage dispatches only by explicit claim fulfillment", ()
     assert.equal(coverageStatus(rootDir, "dec_DELIVERED"), "uncovered");
     assert.equal(coverageStatus(rootDir, "dec_POLICY"), "covered");
     assert.equal(coverageStatus(rootDir, "dec_UNDECLARED"), "uncovered");
+    assert.equal(coverageFulfillment(rootDir, "dec_EVIDENCED"), "evidenced");
+    assert.equal(coverageFulfillment(rootDir, "dec_DELIVERED"), "delivered");
+    assert.equal(coverageFulfillment(rootDir, "dec_POLICY"), "standing-policy");
+    assert.equal(coverageFulfillment(rootDir, "dec_UNDECLARED"), "evidenced");
 
     writeExecution(rootDir, deliveredTaskId, true);
     rebuildTaskProjection({ rootDir });
@@ -274,6 +278,11 @@ function writeExecution(rootDir: string, taskId: string, withReceipt: boolean): 
     outputs: withReceipt ? [output, receipt] : [output],
     submission: null
   }, null, 2));
+}
+
+
+function coverageFulfillment(rootDir: string, decisionId: string): string | undefined {
+  return readDecisionFactCoverage({ rootDir, decisionId }).rows[0]?.fulfillment;
 }
 
 function coverageStatus(rootDir: string, decisionId: string): "covered" | "uncovered" | undefined {

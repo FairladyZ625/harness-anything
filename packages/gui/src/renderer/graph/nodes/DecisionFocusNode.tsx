@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { COVERAGE_COLOR_VAR } from "../constants";
+import { COVERAGE_COLOR_VAR, FULFILLMENT_COLOR_VAR } from "../constants";
 import { t } from "../../i18n/index.tsx";
 
 /**
@@ -7,12 +7,15 @@ import { t } from "../../i18n/index.tsx";
  *
  * 把 decision 展开成 claim 行(CH/C/RJ),每行一个 coverage 灯
  * (covered 绿 / uncovered 红 / unknown 灰)+ claim id + 证据计数徽章。
+ * covered 时按 fulfillment 三形态分色(evidenced 绿 / delivered 蓝 /
+ * standing-policy 紫 / unknown 灰),与 GraphLegend 一致。
  * 每行挂一对 `<Handle id="claim-CH1">` 让边锚到具体 claim,
  * 停止 graphLayout 旧版把 decision/dec_x/CH1 折叠成 decision/dec_x。
  */
 interface ClaimRow {
   claimId: string;
   status: "covered" | "uncovered" | "unknown";
+  fulfillment?: "evidenced" | "delivered" | "standing-policy" | "unknown";
   evidenceCount: number;
   derivesCount: number;
   /**
@@ -39,6 +42,28 @@ const STATUS_TEXT: Record<ClaimRow["status"], string> = {
   get uncovered() { return t("graph.decisionFocusNode.noEvidence"); },
   unknown: "",
 };
+
+const FULFILLMENT_LABEL: Record<NonNullable<ClaimRow["fulfillment"]>, string> = {
+  get evidenced() { return t("graph.decisionFocusNode.fulfillmentEvidenced"); },
+  get delivered() { return t("graph.decisionFocusNode.fulfillmentDelivered"); },
+  get "standing-policy"() { return t("graph.decisionFocusNode.fulfillmentStandingPolicy"); },
+  get unknown() { return t("graph.decisionFocusNode.fulfillmentUnknown"); },
+};
+
+function lampColor(row: ClaimRow): string {
+  if (row.status === "uncovered") return COVERAGE_COLOR_VAR.uncovered;
+  if (row.status === "unknown") return COVERAGE_COLOR_VAR.unknown;
+  // covered — prefer fulfillment hue when known
+  const mode = row.fulfillment ?? "unknown";
+  return FULFILLMENT_COLOR_VAR[mode] ?? COVERAGE_COLOR_VAR.covered;
+}
+
+function lampTitle(row: ClaimRow): string {
+  if (row.status === "uncovered") return t("graph.decisionFocusNode.noEvidenceRisk");
+  if (row.status === "unknown") return t("graph.decisionFocusNode.unknownCoverage");
+  const mode = row.fulfillment ?? "unknown";
+  return `${t("graph.decisionFocusNode.corroborated")} · ${FULFILLMENT_LABEL[mode]}`;
+}
 
 export function DecisionFocusNode({ data, selected }: NodeProps) {
   const d = data as unknown as FocusData;
@@ -84,12 +109,18 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
             {t("graph.decisionFocusNode.noClaimAnchorEmptyDecision")}</div>
         )}
         {rows.map((row) => {
-          const covColor = COVERAGE_COLOR_VAR[row.status];
+          const covColor = lampColor(row);
           const hasFacts = (row.factRefs?.length ?? 0) > 0;
+          const fulfillmentLabel =
+            row.status === "covered" && row.fulfillment && row.fulfillment !== "unknown"
+              ? FULFILLMENT_LABEL[row.fulfillment]
+              : STATUS_TEXT[row.status];
           return (
             <div
               key={row.claimId}
               data-claim-id={row.claimId}
+              data-fulfillment={row.fulfillment ?? "unknown"}
+              data-coverage-status={row.status}
               className={`relative flex items-center gap-2 px-3 border-b border-white/5 last:border-b-0 ${
                 hasFacts ? "cursor-pointer hover:bg-white/[0.03]" : ""
               }`}
@@ -112,7 +143,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
                 style={{ backgroundColor: "var(--color-axis-authority)" }}
               />
               <span
-                title={row.status === "covered" ? t("graph.decisionFocusNode.corroborated") : row.status === "uncovered" ? t("graph.decisionFocusNode.noEvidenceRisk") : t("graph.decisionFocusNode.unknownCoverage")}
+                title={lampTitle(row)}
                 className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                 style={{
                   backgroundColor: covColor,
@@ -123,7 +154,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
                 {row.claimId}
               </span>
               <span className="text-[10px] text-text-faint shrink-0">
-                {STATUS_TEXT[row.status]}
+                {fulfillmentLabel}
               </span>
               <span className="ml-auto flex items-center gap-1.5">
                 {row.derivesCount > 0 && (

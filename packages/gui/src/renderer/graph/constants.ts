@@ -76,6 +76,21 @@ export const COVERAGE_COLOR_VAR = {
   unknown: "var(--color-text-faint)",
 } as const;
 
+/**
+ * Claim fulfillment 三形态配色(task_01KXARS0HWQX5XNBE6AHK0BD40)。
+ *   evidenced        绿 — 有 live fact 佐证
+ *   delivered        蓝 — derives→done task + OutputEvidence receipt
+ *   standing-policy  紫 — 常设政策(applies_to / refines / relates)
+ *   unknown          灰 — 投影尚未给出 fulfillment
+ * covered 仍走 COVERAGE_COLOR_VAR 当形态未知;有形态时优先用本表。
+ */
+export const FULFILLMENT_COLOR_VAR = {
+  evidenced: "var(--color-status-done)",
+  delivered: "var(--color-axis-execution)",
+  "standing-policy": "var(--color-accent)",
+  unknown: "var(--color-text-faint)",
+} as const;
+
 export const KIND_LABEL: Record<RelationKind, string> = {
   get supports() { return t("graph.constants.support"); },
   get supersedes() { return t("graph.constants.overthrow"); },

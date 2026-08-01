@@ -110,6 +110,7 @@ function coverage(
     decisionRef: `decision/${decisionId}`,
     claimRef: `decision/${decisionId}/CH1`,
     status: "covered",
+    fulfillment: "evidenced",
     coveringFactRef: `fact/${fact.anchor}`,
     relationPath: ["rel_1"],
   };

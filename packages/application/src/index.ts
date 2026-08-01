@@ -142,6 +142,8 @@ export interface RelationCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
+  /** Claim fulfillment mode; optional for older caches (kernel always sets it). */
+  readonly fulfillment?: "evidenced" | "delivered" | "standing-policy";
   readonly coveringFactRef?: string;
   readonly relationPath: ReadonlyArray<string>;
 }

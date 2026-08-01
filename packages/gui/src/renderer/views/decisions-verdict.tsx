@@ -216,7 +216,7 @@ export function VerdictCard({
   relations: RelationEdge[];
   onTrace: (sessionId: string) => void;
   onCallAgent?: (cmd: string) => void;
-  onDecide: (id: string, action: DecideAction, rationale?: string) => void;
+  onDecide: (id: string, action: DecideAction, rationale?: string) => void | Promise<void>;
   onInspectFact: (factRef: string) => void;
   onNavigateDecision?: (decisionId: string) => void;
   readOnly?: boolean;

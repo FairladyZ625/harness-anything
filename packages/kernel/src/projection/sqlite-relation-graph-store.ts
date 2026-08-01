@@ -40,6 +40,7 @@ export function createRelationGraphTables(sql: SqlClient.SqlClient): Effect.Effe
         claim_ref TEXT PRIMARY KEY,
         decision_ref TEXT NOT NULL,
         status TEXT NOT NULL,
+        fulfillment TEXT NOT NULL,
         covering_fact_ref TEXT,
         refuting_fact_refs_json TEXT,
         relation_path_json TEXT NOT NULL
@@ -102,7 +103,7 @@ export function readRelationGraphRowsFromStore(
       ORDER BY source_ref, target_ref, relation_id
     `;
     const coverageRecords = yield* sql<Record<string, unknown>>`
-      SELECT claim_ref, decision_ref, status, covering_fact_ref, refuting_fact_refs_json, relation_path_json
+      SELECT claim_ref, decision_ref, status, fulfillment, covering_fact_ref, refuting_fact_refs_json, relation_path_json
       FROM relation_coverage
       ORDER BY claim_ref
     `;
@@ -181,12 +182,13 @@ export function insertCoverageRows(
   return Effect.gen(function* () {
     for (const batch of chunks(rows, 500)) yield* sql.unsafe(`
     INSERT OR REPLACE INTO relation_coverage (
-      claim_ref, decision_ref, status, covering_fact_ref, refuting_fact_refs_json, relation_path_json
-    ) VALUES ${batch.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}
+      claim_ref, decision_ref, status, fulfillment, covering_fact_ref, refuting_fact_refs_json, relation_path_json
+    ) VALUES ${batch.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ")}
   `, batch.flatMap((row) => [
       row.claimRef,
       row.decisionRef,
       row.status,
+      row.fulfillment,
       row.coveringFactRef ?? null,
       row.refutingFactRefs ? JSON.stringify(row.refutingFactRefs) : null,
       JSON.stringify(row.relationPath)
@@ -264,10 +266,16 @@ function recordToRelationEdge(record: Readonly<Record<string, unknown>>): Relati
 }
 
 function recordToCoverageRow(record: Readonly<Record<string, unknown>>): RelationCoverageRow {
+  const rawFulfillment = record.fulfillment == null ? "evidenced" : String(record.fulfillment);
+  const fulfillment: RelationCoverageRow["fulfillment"] =
+    rawFulfillment === "delivered" || rawFulfillment === "standing-policy" || rawFulfillment === "evidenced"
+      ? rawFulfillment
+      : "evidenced";
   return {
     decisionRef: String(record.decision_ref),
     claimRef: String(record.claim_ref),
     status: String(record.status) as RelationCoverageRow["status"],
+    fulfillment,
     ...(record.covering_fact_ref === null ? {} : { coveringFactRef: String(record.covering_fact_ref) }),
     ...(record.refuting_fact_refs_json === null
       ? {}
