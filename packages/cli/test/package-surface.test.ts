@@ -46,8 +46,11 @@ test("CLI package exposes the CLI-only npm dry-run artifact surface", () => {
   assert.equal(cliPackage.bin?.ha, "dist/cli/src/index.js");
   assert.equal(cliPackage.exports?.["."], "./dist/cli/src/index.js");
   assert.equal(cliPackage.files?.includes("dist"), true);
-  assert.equal(cliPackage.dependencies?.["@effect/platform"], "0.96.2");
-  assert.equal(cliPackage.dependencies?.effect, "3.21.4");
+  assert.equal(cliPackage.dependencies?.["@effect/experimental"], "0.61.0");
+  assert.equal(cliPackage.dependencies?.["@effect/platform"], "0.97.0");
+  assert.equal(cliPackage.dependencies?.["@effect/sql"], "0.52.0");
+  assert.equal(cliPackage.dependencies?.["@effect/sql-sqlite-node"], "0.53.0");
+  assert.equal(cliPackage.dependencies?.effect, "3.22.0");
   const cliEntry = path.resolve("packages/cli/src/index.ts");
   assert.equal(readFileSync(cliEntry, "utf8").startsWith("#!/usr/bin/env node"), true);
   if (process.platform !== "win32") {

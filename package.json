@@ -119,7 +119,11 @@
     "typescript-eslint": "8.63.0"
   },
   "dependencies": {
-    "effect": "3.21.4"
+    "@effect/experimental": "0.61.0",
+    "@effect/platform": "0.97.0",
+    "@effect/sql": "0.52.0",
+    "@effect/sql-sqlite-node": "0.53.0",
+    "effect": "3.22.0"
   },
   "overrides": {
     "esbuild": "0.28.1"

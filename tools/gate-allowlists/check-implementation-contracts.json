@@ -30,8 +30,8 @@
       ]
     },
     "packageLockVersions": [
-      { "path": "node_modules/effect", "version": "3.21.4", "ref": "task_01KWNFNGG9H41724SADGFSMEZ3", "reason": "Effect version is pinned by the implementation contract." },
-      { "path": "node_modules/@effect/platform", "version": "0.96.2", "ref": "task_01KWNFNGG9H41724SADGFSMEZ3", "reason": "Effect platform version is pinned by the implementation contract." },
+      { "path": "node_modules/effect", "version": "3.22.0", "ref": "task_01KYYGC7B9J97PRA32A9BSAXSM", "reason": "Effect version is pinned by the implementation contract." },
+      { "path": "node_modules/@effect/platform", "version": "0.97.0", "ref": "task_01KYYGC7B9J97PRA32A9BSAXSM", "reason": "Effect platform version is pinned by the implementation contract." },
       { "path": "node_modules/typescript", "version": "5.9.3", "ref": "ADR-0023#D6", "reason": "TypeScript version drift is a governed implementation-contract change." },
       { "path": "node_modules/@types/node", "version": "24.13.2", "ref": "ADR-0023#D6", "reason": "Node type version drift is a governed implementation-contract change." }
     ],
