@@ -83,6 +83,21 @@ test("daemon client resolves the same Linux per-user runtime socket authority", 
   );
 });
 
+test("daemon client keeps the default POSIX endpoint stable across caller TMPDIR values", () => {
+  const userRoot = "/srv/harness-user";
+  const daemonId = "team";
+  const fromInteractiveShell = localUserDaemonEndpoint(userRoot, daemonId, "darwin", {
+    env: { TMPDIR: "/private/var/folders/interactive" },
+    uid: 1234
+  });
+  const fromSandboxedAgent = localUserDaemonEndpoint(userRoot, daemonId, "darwin", {
+    env: { TMPDIR: "/private/var/folders/sandboxed" },
+    uid: 1234
+  });
+
+  assert.equal(fromSandboxedAgent, fromInteractiveShell);
+});
+
 test("daemon serve transport wires the selected endpoint to the platform adapter", () => {
   const createProtocolServer = () => {
     throw new Error("not used by adapter selection test");

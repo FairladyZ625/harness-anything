@@ -18,6 +18,7 @@ import {
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
+  runRawJson,
   runRawJsonMaybeFail,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
@@ -201,6 +202,51 @@ test("service cold start restores, overrides, and diagnoses the persisted launch
     assert.match(rewrittenSpec, new RegExp(escapeRegExp(replacementManifest), "u"));
     assert.doesNotMatch(rewrittenSpec, new RegExp(escapeRegExp(damagedPrivateFragment), "u"));
     await stopDaemon(fixture.repoRoot, userRoot);
+  } finally {
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a daemon started under one TMPDIR remains the single authority for clients under another", {
+  skip: process.platform === "win32",
+  timeout: 45_000
+}, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const interactiveTmp = path.join(fixture.root, "interactive-tmp");
+  const sandboxedTmp = path.join(fixture.root, "sandboxed-tmp");
+  const commonEnv = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    XDG_RUNTIME_DIR: ""
+  };
+  mkdirSync(interactiveTmp);
+  mkdirSync(sandboxedTmp);
+  try {
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], { ...commonEnv, TMPDIR: interactiveTmp });
+    assert.equal(typeof started.pid, "number", JSON.stringify(started));
+
+    const statusFromSandbox = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "status", "--user-root", userRoot, "--json"
+    ], { ...commonEnv, TMPDIR: sandboxedTmp });
+    assert.equal(statusFromSandbox.reachable, true, JSON.stringify(statusFromSandbox));
+    assert.equal(statusFromSandbox.pid, started.pid, JSON.stringify(statusFromSandbox));
+    assert.equal(statusFromSandbox.endpoint, started.endpoint, JSON.stringify(statusFromSandbox));
+
+    const ordinaryCommand = runRawJson(fixture.repoRoot, ["task", "list"], {
+      ...commonEnv,
+      TMPDIR: sandboxedTmp
+    });
+    assert.equal(ordinaryCommand.ok, true, JSON.stringify(ordinaryCommand));
+
+    const statusAfterCommand = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "status", "--user-root", userRoot, "--json"
+    ], { ...commonEnv, TMPDIR: sandboxedTmp });
+    assert.equal(statusAfterCommand.pid, started.pid, JSON.stringify(statusAfterCommand));
+    assert.equal(statusAfterCommand.endpoint, started.endpoint, JSON.stringify(statusAfterCommand));
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

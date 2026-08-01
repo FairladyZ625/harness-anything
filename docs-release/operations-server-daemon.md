@@ -266,6 +266,12 @@ the right human to that key or that the human retained sole control of it.
 The local Unix socket is the real access boundary. The daemon creates the socket
 directory as `0700` and the socket file as `0600`.
 
+The default POSIX endpoint is stable for the same OS user, daemon user root, and
+daemon ID even when callers have different `TMPDIR` values. Linux still prefers
+`XDG_RUNTIME_DIR` and `/run/user/<uid>`; the shared fallback uses a UID-scoped
+private directory under `/tmp`. An explicit `--socket` continues to override the
+default endpoint.
+
 The Unix transport does not inspect the connected process identity. It records
 `unix-socket-owner-boundary`, whose subject is the socket file owner's
 `stat.uid`. Every accepted client is attributed to that owner solely because

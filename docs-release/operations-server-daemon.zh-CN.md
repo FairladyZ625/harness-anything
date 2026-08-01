@@ -230,6 +230,10 @@ daemon account 及其 `authorized_keys` / roster 文件，按最小权限授予 
 本地 Unix socket 才是真实访问边界。daemon 会用 `0700` 创建 socket 目录，并把
 socket 文件设为 `0600`。
 
+同一 OS 用户、daemon user root 与 daemon ID 的默认 POSIX endpoint 不会因调用者的
+`TMPDIR` 不同而变化。Linux 仍优先使用 `XDG_RUNTIME_DIR` 与 `/run/user/<uid>`；共享回退路径
+位于 `/tmp` 下按 UID 隔离的私有目录。显式 `--socket` 仍会覆盖默认 endpoint。
+
 Unix transport 不读取连接进程的身份。它记录
 `unix-socket-owner-boundary`，subject 是 socket 文件属主的 `stat.uid`。每个成功连接
 的客户端之所以归属该 owner，只因为 `0700` 目录与 `0600` socket 仅允许 owner

@@ -152,12 +152,6 @@ function testDaemonLocation(
   const socketPath = localUserDaemonEndpoint(userRoot, "default", process.platform, {
     env: { XDG_RUNTIME_DIR: runtimeDir, TMPDIR: runtimeDir }
   });
-  const relativeSocketPath = path.relative(rootDir, socketPath);
-  assert.equal(
-    relativeSocketPath !== "" && !relativeSocketPath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeSocketPath),
-    true,
-    `test daemon socket must stay beneath its temporary root: ${socketPath}`
-  );
   mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   return { userRoot, runtimeDir, socketPath };
 }
