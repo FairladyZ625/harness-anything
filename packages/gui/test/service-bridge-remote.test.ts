@@ -8,6 +8,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { SshStdioTransport } from "../../daemon-client/src/ssh-stdio-transport.ts";
 import {
+  FakeTransport,
+  hello,
+  receipt,
+  type RequestFrame
+} from "../../daemon-client/test/fake-transport.ts";
+import {
   createGuiProjectionNotifications,
   createGuiServiceBridge,
   createLocalGuiServiceBridge
@@ -119,3 +125,70 @@ test("GUI remote selection reads tasks and documents from a second repo over dae
     rmSync(remoteRoot, { recursive: true, force: true });
   }
 });
+
+test("GUI remote requests carry the canonical root required by the forced-command boundary", async () => {
+  const nearRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-near-"));
+  const requests: RequestFrame[] = [];
+  const transport = new FakeTransport((request, connection) => {
+    requests.push(request);
+    if (hello(connection, request)) return;
+    connection.respond(request.id, receipt(request.method, { ok: true, tasks: [] }));
+  });
+  const remoteRoot = "/srv/harness/gui-remote";
+  const bridge = createGuiServiceBridge(nearRoot, undefined, {
+    env: remoteDaemonEnv(remoteRoot),
+    createSshTransport: () => transport
+  });
+  try {
+    const tasks = await bridge.invoke("getTasks", null) as { readonly ok: boolean };
+
+    assert.equal(tasks.ok, true, JSON.stringify(tasks));
+    const request = requests.find((candidate) => candidate.method === "repo.tasks.list");
+    assert.deepEqual(request?.params, {
+      repo: { repoId: "canonical", canonicalRoot: remoteRoot }
+    });
+  } finally {
+    await bridge.dispose?.();
+    rmSync(nearRoot, { recursive: true, force: true });
+  }
+});
+
+test("GUI remote mode fails closed when the persistent daemon is unavailable", async () => {
+  const nearRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-near-"));
+  writeTaskIndex(nearRoot, "task-near", "Near-only task", "planned");
+  const bridge = createGuiServiceBridge(nearRoot, undefined, {
+    env: remoteDaemonEnv("/srv/harness/gui-remote"),
+    createSshTransport: () => ({
+      open: async () => {
+        throw new Error("No persistent daemon is listening on the remote host");
+      }
+    })
+  });
+  try {
+    const tasks = await bridge.invoke("getTasks", null) as {
+      readonly ok: boolean;
+      readonly tasks?: ReadonlyArray<unknown>;
+      readonly error?: { readonly code?: string; readonly hint?: string };
+    };
+
+    assert.equal(tasks.ok, false, JSON.stringify(tasks));
+    assert.equal(tasks.error?.code, "daemon_unavailable");
+    assert.match(tasks.error?.hint ?? "", /fixture-remote.*No persistent daemon/iu);
+    assert.equal(tasks.tasks, undefined);
+  } finally {
+    await bridge.dispose?.();
+    rmSync(nearRoot, { recursive: true, force: true });
+  }
+});
+
+function remoteDaemonEnv(remoteRoot: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HARNESS_DAEMON_MODE: "remote",
+    HARNESS_DAEMON_SSH_HOST: "fixture-remote",
+    HARNESS_DAEMON_REMOTE_HA: "/opt/ha",
+    HARNESS_DAEMON_REMOTE_ROOT: remoteRoot,
+    HARNESS_DAEMON_REPO_ID: "canonical",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: "5000"
+  };
+}

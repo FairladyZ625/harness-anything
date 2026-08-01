@@ -32,7 +32,7 @@ export class PersistentDaemonClient {
     & PersistentDaemonClientOptions;
   readonly #listeners = new Set<(event: ProjectionChangeNotification) => void>();
   readonly #stateListeners = new Set<(state: DaemonClientState) => void>();
-  readonly #subscriptions = new Map<string, { refs: number }>();
+  readonly #subscriptions = new Map<string, { refs: number; canonicalRoot?: string }>();
   #connection?: JsonRpcConnection;
   #writer?: JsonRpcWriter;
   #hello?: HelloResult;
@@ -75,16 +75,20 @@ export class PersistentDaemonClient {
     return writer.request(method, params, { signal, timeoutMs: this.#options.requestTimeoutMs }) as Promise<Output<M>>;
   }
 
-  async subscribe(repoId: string): Promise<Subscription> {
+  async subscribe(repoId: string, canonicalRoot?: string): Promise<Subscription> {
     const existing = this.#subscriptions.get(repoId);
     if (existing) {
+      if (canonicalRoot && existing.canonicalRoot && canonicalRoot !== existing.canonicalRoot) {
+        throw new Error(`repo ${repoId} is already subscribed with a different canonical root`);
+      }
+      if (canonicalRoot && !existing.canonicalRoot) existing.canonicalRoot = canonicalRoot;
       existing.refs += 1;
       return this.#subscriptionHandle(repoId);
     }
-    this.#subscriptions.set(repoId, { refs: 1 });
+    this.#subscriptions.set(repoId, { refs: 1, ...(canonicalRoot ? { canonicalRoot } : {}) });
     try {
       await this.connect();
-      await this.#sendSubscription("repo.notifications.subscribe", repoId);
+      await this.#sendSubscription("repo.notifications.subscribe", repoId, canonicalRoot);
       return this.#subscriptionHandle(repoId);
     } catch (error) {
       this.#subscriptions.delete(repoId);
@@ -120,7 +124,11 @@ export class PersistentDaemonClient {
     clearTimeout(this.#reconnectTimer);
     const repos = [...this.#subscriptions.keys()];
     if (this.#writer) {
-      await Promise.allSettled(repos.map((repoId) => this.#sendSubscription("repo.notifications.unsubscribe", repoId)));
+      await Promise.allSettled(repos.map((repoId) => this.#sendSubscription(
+        "repo.notifications.unsubscribe",
+        repoId,
+        this.#subscriptions.get(repoId)?.canonicalRoot
+      )));
     }
     this.#subscriptions.clear();
     this.#writer?.disconnect(new Error("daemon client disposed"));
@@ -201,8 +209,8 @@ export class PersistentDaemonClient {
     const delay = Math.max(0, Math.round(exponential * (0.5 + this.#options.jitter())));
     this.#reconnectTimer = setTimeout(() => {
       void this.connect().then(async () => {
-        for (const repoId of this.#subscriptions.keys()) {
-          await this.#sendSubscription("repo.notifications.subscribe", repoId);
+        for (const [repoId, subscription] of this.#subscriptions) {
+          await this.#sendSubscription("repo.notifications.subscribe", repoId, subscription.canonicalRoot);
         }
       }).catch((error: unknown) => {
         this.#diagnose({
@@ -220,7 +228,7 @@ export class PersistentDaemonClient {
     subscription.refs -= 1;
     if (subscription.refs > 0) return;
     this.#subscriptions.delete(repoId);
-    if (this.#writer) await this.#sendSubscription("repo.notifications.unsubscribe", repoId);
+    if (this.#writer) await this.#sendSubscription("repo.notifications.unsubscribe", repoId, subscription.canonicalRoot);
   }
 
   #subscriptionHandle(repoId: string): Subscription {
@@ -237,11 +245,14 @@ export class PersistentDaemonClient {
 
   async #sendSubscription(
     method: "repo.notifications.subscribe" | "repo.notifications.unsubscribe",
-    repoId: string
+    repoId: string,
+    canonicalRoot?: string
   ): Promise<void> {
     const writer = this.#writer;
     if (!writer) throw new Error("daemon connection is unavailable");
-    const result = await writer.request(method, { repo: { repoId } }, { timeoutMs: this.#options.requestTimeoutMs });
+    const result = await writer.request(method, {
+      repo: { repoId, ...(canonicalRoot ? { canonicalRoot } : {}) }
+    }, { timeoutMs: this.#options.requestTimeoutMs });
     requireSuccessfulReceipt(result, method);
   }
 

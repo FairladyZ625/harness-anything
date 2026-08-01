@@ -26,8 +26,8 @@ docs should link here instead of restating status tables.
 | Source CLI write path                             | Shipped      | Initialized repositories default to the local daemon single-writer queue. Local single-user identity can derive from `settings.identity` plus the OS-owned local transport; team/remote identity still requires roster credentials. Explicit direct mode is limited to bootstrap/test recovery. Registered human-read task prose submits through `ha doc sync --submit --path ...`; typed state uses dedicated RPC commands. Top-level ADR/standard/template prose remains outside doc-sync until its write-road rows are governed. Evidence: `packages/cli/src/daemon/client.ts`, `packages/cli/src/commands/daemon/productization.ts`, and `packages/daemon/src/service/doc-sync-service.ts`. |
 | Task hierarchy and relation semantics             | Shipped      | `ha task create --parent <id>`, `ha task show <id> --view tree [--json]`, and `ha task relate <src> depends-on <tgt> --rationale <t>` exist, with depends-on cycle detection. Completing a parent does not require completing children; it emits the `open_child_tasks` warning. The `parent` field is immutable after creation. Evidence: canon 1.4.                                                                                              |
 | Local daemon, including single-machine multi-repo | Shipped      | `ha daemon start`, auto-start, `ha daemon repo register`, hot registration reconciliation, and repo-scoped CLI routing use a daemon-held per-repo global lock. Initialized local repositories default to this path; `HARNESS_DAEMON_MODE=direct` is explicit bootstrap/test recovery only. Evidence: canon 1.3 plus the daemon single-writer cutover.                                                                                                  |
-| Desktop GUI source surface                        | Foundation   | The GUI can be built and run from source and can read real ledger data for several views, but status changes, review, progress append, archive, decision adjudication, terminal, presets, adapters, and parts of relations are either state-only, read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2.                                                             |
-| Remote SSH daemon mode                            | Experimental | Remote mode opens `ssh <host> ha daemon connect --stdio` to an existing daemon. Team principals require per-key `authorized_keys` forced commands and roster credentials; the relay verifies the sshd process context, exact original command, and pinned root. It is not GUI-to-remote-daemon, a tunnel product, TCP, HTTP, or WebSocket. Evidence: `packages/cli/src/commands/daemon/connect.ts`.                                               |
+| Desktop GUI source surface                        | Foundation   | The GUI can be built and run from source, reads real ledger data in supported views, and persists decision mutations through the daemon. Attributed task status/progress writes, archive, terminal, presets, adapters, and parts of relations remain read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2 and the GUI service bridge.                                                    |
+| Remote SSH daemon mode                            | Experimental | Remote mode opens `ssh <host> ha daemon connect --stdio` to an existing daemon. CLI and source GUI share this relay and the daemon method registry. Team principals require per-key `authorized_keys` forced commands and roster credentials; the relay verifies the sshd process context, exact original command, and pinned root. It is not a tunnel product, TCP, HTTP, or WebSocket. Evidence: `packages/cli/src/commands/daemon/connect.ts` and `packages/gui/src/main/local-composition-root.ts`. |
 | Runtime/release readiness                         | Foundation   | Source checkout, Node 24-only CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2.                                                                                                                                                                                                                       |
 | Supply-chain/license gate                         | Foundation   | SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Live npm audit runs in the scheduled advisory lane rather than the required merge gate, because its verdict follows upstream advisory data rather than this repository. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                                        |
 | M3-M7 backlog                                     | Planned      | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                                |
@@ -57,6 +57,8 @@ The GUI/daemon track has real foundation slices:
 - local daemon reads and writes through the method registry;
 - local daemon repo registration and multi-repo routing;
 - GUI source checkout that reads real ledger data in the supported read paths;
+- configured GUI remote reads, decision mutations, and projection notifications
+  over the persistent daemon SSH relay;
 - graph topology backed by real relation projection in graph-oriented views;
 - build, runtime, and distribution policy checks for source checkout and package
   smoke.
@@ -65,12 +67,9 @@ The same track also has explicit non-capabilities:
 
 - no signed installers, notarization, published release artifacts, or
   auto-update;
-- no GUI task management write path;
-- no GUI decision adjudication;
-- no GUI connection to a daemon on another machine;
-- no working remote tunnel, attach-token transport, TCP listener, HTTP API,
-  WebSocket server, live notification subscription, or enforced RBAC when no
-  `harness/people.yaml` roster exists.
+- no attributed GUI task status or progress write path;
+- no working attach-token transport, TCP listener, HTTP API, WebSocket server,
+  or enforced RBAC when no `harness/people.yaml` roster exists.
 
 These boundaries are why the GUI is foundation state, not a full desktop
 product.
@@ -81,7 +80,7 @@ product.
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Shipped and mechanism-complete CLI surfaces | Workflow proof and complete public documentation.                                                                                  | Old docs that call shipped hierarchy work planned, or docs that hide attribution requirements for write commands.             |
 | Adapter integrations                        | Real GitHub Issues or Linear implementations and proof.                                                                            | Placeholder packages as shipped integrations.                                                                                 |
-| Full GUI product                            | Persisted GUI writes, decision actions, real relations everywhere, non-mock terminal/adapters/presets, and supported distribution. | Page-only GUI assumptions, duplicate CLI/daemon business logic, or state-only drag/drop behavior as lifecycle truth.          |
+| Full GUI product                            | Attributed task writes, real relations everywhere, non-mock terminal/adapters/presets, and supported distribution.                | Page-only GUI assumptions, duplicate CLI/daemon business logic, or state-only drag/drop behavior as lifecycle truth.          |
 | Release hardening                           | Signed artifacts, notarization, update feeds, release artifact SBOMs, and publication evidence.                                    | Unsigned production, unreviewed license/SBOM gaps, or auto-update without signing, update-feed, rollback, and security tests. |
 
 ## Runtime and release readiness
