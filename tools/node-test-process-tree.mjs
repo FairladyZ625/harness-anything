@@ -1,7 +1,43 @@
 import { spawn } from "node:child_process";
 import { registeredTestIsolationIdentityMatches } from "./node-test-isolation-registry.mjs";
+import { hasIsolationWedgeSignature, testFilesFromProcessCommand } from "./node-test-runner-lib.mjs";
 
 const PROCESS_TREE_KILL_GRACE_MS = 2_000;
+
+export function isolationCandidatesFromProcessGroup(members, processGroupId, repoRoot) {
+  return members
+    .filter((member) => member.pid !== processGroupId && hasIsolationWedgeSignature(member))
+    .map((member) => ({
+      pid: member.pid,
+      files: testFilesFromProcessCommand(member.command, repoRoot)
+    }))
+    .filter((candidate) => candidate.files.length > 0);
+}
+
+export function mergeIsolationCandidates(...groups) {
+  const candidates = new Map();
+  for (const candidate of groups.flat()) {
+    const previous = candidates.get(candidate.pid);
+    candidates.set(candidate.pid, {
+      pid: candidate.pid,
+      ppid: previous?.ppid ?? candidate.ppid,
+      files: [...new Set([...(previous?.files ?? []), ...candidate.files])].sort(),
+      identity: previous?.identity ?? candidate.identity
+    });
+  }
+  return [...candidates.values()];
+}
+
+export function stalledTestFilesFromProcessGroup(members, processGroupId, repoRoot) {
+  const descendantFiles = new Set();
+  const hostFiles = new Set();
+  for (const member of members) {
+    const target = member.pid === processGroupId ? hostFiles : descendantFiles;
+    for (const file of testFilesFromProcessCommand(member.command, repoRoot)) target.add(file);
+  }
+  if (descendantFiles.size > 0) return [...descendantFiles];
+  return hostFiles.size === 1 ? [...hostFiles] : [];
+}
 
 export function terminateWindowsProcessTree(child) {
   if (child.pid === undefined) return;

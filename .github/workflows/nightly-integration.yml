@@ -12,6 +12,8 @@ concurrency:
 jobs:
   production-authority-perf-matrix:
     runs-on: ubuntu-latest
+    env:
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +23,14 @@ jobs:
       - run: npm ci
       - name: Run startup performance and canonical ingress matrices
         run: npm run test:nightly
+      - name: Upload node test failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-diagnostics-nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
 
   # Live `npm audit` resolves advisories from the upstream registry, so its verdict changes
   # without any change to this repository. Governance authority dec_01KYB7TMSPAASW4XTAAA0CVH5W

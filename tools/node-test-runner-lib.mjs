@@ -5,6 +5,33 @@ import { DEFAULT_LOCAL_TEST_CONCURRENCY } from "./local-resource-governance.mjs"
 export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 export const DEFAULT_TEST_TIMEOUT_MS = 180_000;
+export const allowedNodeTestV8Flags = Object.freeze([
+  "--no-concurrent-recompilation",
+  "--no-concurrent-sparkplug",
+  "--no-maglev-build-code-on-background"
+]);
+
+export function parseNodeTestV8Flags(value) {
+  if (value === undefined || value.trim() === "") return [];
+
+  let flags;
+  try {
+    flags = JSON.parse(value);
+  } catch {
+    throw new Error("HARNESS_NODE_TEST_V8_FLAGS must be a JSON array");
+  }
+  if (!Array.isArray(flags) || flags.some((flag) => typeof flag !== "string")) {
+    throw new Error("HARNESS_NODE_TEST_V8_FLAGS must be a JSON array of strings");
+  }
+  if (new Set(flags).size !== flags.length) {
+    throw new Error("HARNESS_NODE_TEST_V8_FLAGS must not contain duplicates");
+  }
+  const unsupported = flags.filter((flag) => !allowedNodeTestV8Flags.includes(flag));
+  if (unsupported.length > 0) {
+    throw new Error(`HARNESS_NODE_TEST_V8_FLAGS contains unsupported flag(s): ${unsupported.join(", ")}`);
+  }
+  return flags;
+}
 
 export function parsePosixProcessGroupLine(line, platform = process.platform) {
   const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/u.exec(line);
