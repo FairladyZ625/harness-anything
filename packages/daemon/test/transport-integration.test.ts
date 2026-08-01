@@ -94,7 +94,7 @@ test("unix socket shared-tmp fallback includes uid and rejects an unsafe pre-exi
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-shared-tmp-"));
   const uid = process.getuid?.() ?? 0;
   const directory = unixSocketDirectory({
-    env: {},
+    env: { TMPDIR: path.join(tempDir, "caller-specific-tmp") },
     linuxRuntimeRoot: path.join(tempDir, "missing-run-user"),
     platform: "linux",
     tmpdir: tempDir,
@@ -108,7 +108,7 @@ test("unix socket shared-tmp fallback includes uid and rejects an unsafe pre-exi
     (error: unknown) => {
       assert.match(String(error), /Unsafe daemon socket directory/u);
       assert.match(String(error), new RegExp(`owner uid ${uid}`, "u"));
-      assert.match(String(error), /XDG_RUNTIME_DIR or TMPDIR/u);
+      assert.match(String(error), /XDG_RUNTIME_DIR.*stable fallback directory/u);
       assert.doesNotMatch(String(error), /^Error: EACCES/u);
       return true;
     }
@@ -153,7 +153,7 @@ test("unix socket transport rejects an unsafe parent before touching the socket"
 
   await assert.rejects(
     transport.start(),
-    /Unsafe daemon socket directory.*mode 0777.*XDG_RUNTIME_DIR or TMPDIR/iu
+    /Unsafe daemon socket directory.*mode 0777.*XDG_RUNTIME_DIR.*stable fallback directory/iu
   );
 });
 

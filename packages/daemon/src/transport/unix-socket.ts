@@ -86,7 +86,7 @@ export function unixSocketDirectory(options: UnixSocketPathOptions = {}): string
   const platform = options.platform ?? process.platform;
   const pathApi = platform === "win32" ? path.win32 : path.posix;
   const uid = options.uid ?? process.getuid?.() ?? 0;
-  const tmpdir = readNonEmptyPath(env.TMPDIR, pathApi) ?? options.tmpdir ?? os.tmpdir();
+  const tmpdir = options.tmpdir ?? (platform === "win32" ? os.tmpdir() : "/tmp");
 
   if (platform === "linux") {
     const xdgRuntimeDir = readNonEmptyPath(env.XDG_RUNTIME_DIR, pathApi);
@@ -96,9 +96,9 @@ export function unixSocketDirectory(options: UnixSocketPathOptions = {}): string
     if (existsSync(userRuntimeDir)) return pathApi.join(userRuntimeDir, "harness-anything");
   }
 
-  // macOS os.tmpdir() normally resolves to Darwin's per-user temporary
-  // directory. The uid suffix also keeps the fallback safe if it resolves to
-  // a shared directory such as /tmp on any POSIX platform.
+  // The default endpoint is a user-level authority and must not move with a
+  // caller-specific TMPDIR. The uid suffix and directory validation keep the
+  // shared POSIX fallback private to the current OS user.
   return pathApi.join(tmpdir, `harness-anything-${uid}`);
 }
 
@@ -418,7 +418,7 @@ function privateDirectoryError(
     ?? `owner uid ${ownerUid ?? "unknown"}, mode ${mode === undefined ? "unknown" : `0${mode.toString(8)}`}`;
   const message = [
     `Unsafe daemon socket directory ${JSON.stringify(directory)} (${observed}); expected a real directory owned by uid ${expectedUid} with mode 0700.`,
-    "Set XDG_RUNTIME_DIR or TMPDIR to a private per-user runtime directory."
+    "Set XDG_RUNTIME_DIR to a private per-user runtime directory or repair the stable fallback directory."
   ].join(" ");
   return new UnsafeUnixSocketDirectoryError(message, cause);
 }
