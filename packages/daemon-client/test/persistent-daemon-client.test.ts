@@ -44,6 +44,24 @@ test("stale connection reconnects and restores repo subscriptions", async () => 
   await client.dispose();
 });
 
+test("projection subscriptions retain the forced-command canonical root across reconnect and release", async () => {
+  const transport = subscribingTransport();
+  const client = fixtureClient(transport, { reconnectBaseMs: 1 });
+  const subscription = await client.subscribe("repo-a", "/srv/canonical");
+  transport.connections[0]!.disconnect();
+  await waitFor(() => transport.connections.length === 2 && subscribeCount(transport) === 2);
+  await subscription.dispose();
+
+  const requests = transport.connections.flatMap((connection) => connection.writes)
+    .filter((frame) => (frame as { method?: string }).method?.startsWith("repo.notifications."));
+  assert.deepEqual(requests.map((frame) => (frame as { params?: unknown }).params), [
+    { repo: { repoId: "repo-a", canonicalRoot: "/srv/canonical" } },
+    { repo: { repoId: "repo-a", canonicalRoot: "/srv/canonical" } },
+    { repo: { repoId: "repo-a", canonicalRoot: "/srv/canonical" } }
+  ]);
+  await client.dispose();
+});
+
 test("unknown and malformed notification frames leave diagnostic evidence", async () => {
   const diagnostics: DaemonClientDiagnostic[] = [];
   const transport = subscribingTransport();

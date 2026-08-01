@@ -17,8 +17,8 @@
 | 源码 CLI 写路径           | Shipped      | 已初始化仓库默认进入本地 daemon 单写队列。本地单人身份可由 `settings.identity` 与 OS 所有的本地 transport 推导；团队/远程身份仍要求 roster credential。显式 direct 只用于 bootstrap/测试恢复。已登记的人读 task prose 用 `ha doc sync --submit --path ...`；typed state 使用专用 RPC。顶层 ADR/standard/template prose 在 write-road 完成治理前仍不属于 doc-sync。证据：`packages/cli/src/daemon/client.ts`、`packages/cli/src/commands/daemon/productization.ts`、`packages/daemon/src/service/doc-sync-service.ts`。 |
 | 任务层级与关系语义        | Shipped      | `ha task create --parent <id>`、`ha task show <id> --view tree [--json]`、`ha task relate <src> depends-on <tgt> --rationale <t>` 已存在，并且 depends-on 有环检测。父任务完成不要求子任务完成；只会发出 `open_child_tasks` 软告警。`parent` 字段创建后不可变。证据：canon 1.4。                                                                                                    |
 | 本地 daemon，包括单机多仓 | Shipped      | `ha daemon start`、自动启动、`ha daemon repo register`、热注册 reconcile、按 repo 路由的 CLI 都使用 daemon 持有的 per-repo global lock。已初始化本地仓库默认走此路径；`HARNESS_DAEMON_MODE=direct` 只用于显式 bootstrap/测试恢复。证据：canon 1.3 与 daemon 单写入口收口。                                                                                                                     |
-| 桌面 GUI 源码界面         | Foundation   | GUI 可以从源码构建和运行，并且若干视图能读取真实 ledger 数据，但状态变更、review、追加进度、archive、决策裁决、terminal、presets、adapters，以及部分 relations，仍是仅 state、只读、deferred 或 mock-backed。仓库自我声明状态为 `source-checkout-and-package-smoke-only`。证据：canon 1.2。                                                                                        |
-| Remote SSH daemon 模式    | Experimental | remote 模式会打开 `ssh <host> ha daemon connect --stdio`，连接到已有 daemon。团队 principal 需要逐 key 配置 `authorized_keys` forced command 与 roster credential；relay 会验证 sshd 进程上下文、精确 original command 与固定 root。它不是“GUI 连接远端 daemon”、tunnel 产品、TCP、HTTP 或 WebSocket。证据：`packages/cli/src/commands/daemon/connect.ts`。                        |
+| 桌面 GUI 源码界面         | Foundation   | GUI 可以从源码构建和运行，受支持的视图读取真实 ledger 数据，decision mutation 也会经 daemon 持久化。带归因的 task status/progress 写入、archive、terminal、presets、adapters 与部分 relations 仍是只读、deferred 或 mock-backed。仓库自我声明状态为 `source-checkout-and-package-smoke-only`。证据：canon 1.2 与 GUI service bridge。                                                       |
+| Remote SSH daemon 模式    | Experimental | remote 模式会打开 `ssh <host> ha daemon connect --stdio`，连接到已有 daemon。CLI 与源码 GUI 复用该 relay 和 daemon method registry。团队 principal 需要逐 key 配置 `authorized_keys` forced command 与 roster credential；relay 会验证 sshd 进程上下文、精确 original command 与固定 root。它不是 tunnel 产品、TCP、HTTP 或 WebSocket。证据：`packages/cli/src/commands/daemon/connect.ts` 与 `packages/gui/src/main/local-composition-root.ts`。 |
 | 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 CI、package smoke、GUI build 都有可执行 gate。发布产物仍未 ship。证据：`packages/gui/src/distribution/runtime-release-readiness.ts:50-60` 与 canon 1.2。                                                                                                                                                                                                     |
 | 供应链与许可证 gate       | Foundation   | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                                         |
 | M3-M7 backlog             | Planned      | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                                 |
@@ -46,16 +46,15 @@ GUI/daemon 方向有真实的 foundation 切片：
 - 本地 daemon 通过 method registry 读写；
 - 本地 daemon 仓库注册与多仓路由；
 - GUI 源码 checkout 中，受支持的读取路径会读取真实 ledger 数据；
+- 配置后的 GUI 可通过持久 daemon SSH relay 进行远程读取、decision mutation 与投影通知；
 - 面向 graph 的视图使用真实关系投影；
 - 源码 checkout 与 package smoke 有构建、运行时、分发策略检查。
 
 同一方向也有明确的非能力：
 
 - 没有签名 installer、notarization、已发布产物或 auto-update；
-- 没有 GUI task 管理写路径；
-- 没有 GUI 决策裁决；
-- 没有 GUI 连接另一台机器上的 daemon；
-- 没有可工作的 remote tunnel、attach-token transport、TCP listener、HTTP API、WebSocket server、实时通知订阅，也没有在缺少 `harness/people.yaml` roster 时强制 RBAC。
+- 没有带归因的 GUI task status 或 progress 写路径；
+- 没有可工作的 attach-token transport、TCP listener、HTTP API、WebSocket server，也没有在缺少 `harness/people.yaml` roster 时强制 RBAC。
 
 这些边界就是 GUI 仍是 foundation 状态，而不是完整桌面产品的原因。
 
@@ -65,7 +64,7 @@ GUI/daemon 方向有真实的 foundation 切片：
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | 已 ship 与 mechanism-complete 的 CLI 界面 | 工作流证明与完整公开文档。                                                                         | 把已 ship 的层级能力继续写成 planned 的旧文档，或隐藏写命令归属与 `--actor human:<id>` 要求的文档。       |
 | Adapter 集成                              | 真实 GitHub Issues 或 Linear 实现与证明。                                                          | 把占位 package 当成已 ship 集成。                                                                         |
-| 完整 GUI 产品                             | 持久化 GUI 写入、决策动作、全局真实 relations、非 mock terminal/adapters/presets，以及受支持分发。 | 把页面级 GUI 假设、重复 CLI/daemon 业务逻辑，或仅 state 的拖拽行为当成生命周期真相。                      |
+| 完整 GUI 产品                             | 带归因的 task 写入、全局真实 relations、非 mock terminal/adapters/presets，以及受支持分发。        | 把页面级 GUI 假设、重复 CLI/daemon 业务逻辑，或仅 state 的拖拽行为当成生命周期真相。                      |
 | 发布硬化                                  | 签名产物、notarization、update feeds、发布产物 SBOM、发布证据。                                    | 未签名生产产物、未经审查的 license/SBOM 缺口，或没有签名、update-feed、rollback、安全测试的 auto-update。 |
 
 ## 运行时与发布就绪

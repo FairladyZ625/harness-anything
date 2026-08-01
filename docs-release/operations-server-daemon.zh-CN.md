@@ -137,21 +137,34 @@ Markdown fail closed，不会因为扩展名像 prose 就擅自放行。
 Remote 模式连接持久远程 daemon。先在 repo config 声明 `settings.identity.mode: remote`，
 再提供连接坐标。客户端会打开 SSH stdio 会话，服务器的 forced command 把它 relay 到 daemon：
 
-```bash
-HARNESS_DAEMON_SSH_HOST=team-host \
-HARNESS_DAEMON_REMOTE_ROOT=/srv/harness/team \
-HARNESS_DAEMON_REMOTE_HA=ha \
-ha task list
+```yaml
+schema: harness-anything/v1
+settings:
+  identity:
+    mode: remote
+  daemon:
+    remote:
+      host: team-host
+      root: /srv/harness/team
+      repoId: canonical
+      haPath: ha
 ```
 
-repo 的 `settings.identity.mode: remote`、`HARNESS_DAEMON_SSH_HOST` 和
-`HARNESS_DAEMON_REMOTE_ROOT` 是必需项。`HARNESS_DAEMON_REMOTE_HA` 默认是
-`ha`；远端二进制路径不是 `ha` 时再设置。远端需要服务非 `canonical` 的已注册仓库
-id 时，设置 `HARNESS_DAEMON_REPO_ID`。
+CLI 与源码 GUI 复用这份配置和同一传输。从包含该文件的客户端目录运行
+`ha task list` 或 `ha gui`，都会读取远端 canonical；本地目录不需要保存 task、decision
+或 fact 数据副本。需要覆盖文件配置时，可使用 `HARNESS_DAEMON_MODE`、
+`HARNESS_DAEMON_SSH_HOST`、`HARNESS_DAEMON_REMOTE_ROOT`、
+`HARNESS_DAEMON_REPO_ID` 与 `HARNESS_DAEMON_REMOTE_HA`。远端二进制默认是
+`ha`，repo id 默认是 `canonical`。
 
 客户端实际执行的是 `ssh <host> <remote-ha> daemon connect --stdio`。服务器必须已经为
 canonical root 启动 `ha daemon start --service`。每个请求都会携带 remote root，并且它必须
 匹配成员 forced command 固定的 root。
+
+持久 daemon 缺失或 forced-command root 不匹配时，GUI 会显示远端错误，不会启动或回退到
+本地 daemon。task 与 decision 读取始终实时请求 daemon；renderer cache 只用于显示。decision
+mutation 使用远端已认证 principal。task status 与 progress mutation 在其 GUI route 接入带归因的
+daemon write coordinator 前仍不可用。
 
 ## 使用 SSH forced command 接入团队
 

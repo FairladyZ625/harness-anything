@@ -156,23 +156,39 @@ Remote mode is a client of a persistent remote daemon. Declare the repository
 mode in `harness/harness.yaml`, then provide the connection coordinates. It
 opens an SSH stdio session, which the server's forced command relays to the daemon:
 
-```bash
-HARNESS_DAEMON_SSH_HOST=team-host \
-HARNESS_DAEMON_REMOTE_ROOT=/srv/harness/team \
-HARNESS_DAEMON_REMOTE_HA=ha \
-ha task list
+```yaml
+schema: harness-anything/v1
+settings:
+  identity:
+    mode: remote
+  daemon:
+    remote:
+      host: team-host
+      root: /srv/harness/team
+      repoId: canonical
+      haPath: ha
 ```
 
-`settings.identity.mode: remote`, `HARNESS_DAEMON_SSH_HOST`, and
-`HARNESS_DAEMON_REMOTE_ROOT` are required. `HARNESS_DAEMON_REMOTE_HA` defaults
-to `ha`; set it when the remote binary path is different. Set
-`HARNESS_DAEMON_REPO_ID` when the remote side should serve a registered repo id
-other than `canonical`.
+CLI and source GUI use this same configuration and transport. From the client
+directory containing that file, `ha task list` and `ha gui` both read the
+remote canonical; the directory does not need a local copy of its task,
+decision, or fact data. Environment variables override the file when needed:
+`HARNESS_DAEMON_MODE`, `HARNESS_DAEMON_SSH_HOST`,
+`HARNESS_DAEMON_REMOTE_ROOT`, `HARNESS_DAEMON_REPO_ID`, and
+`HARNESS_DAEMON_REMOTE_HA`. The remote binary defaults to `ha`, and the repo id
+defaults to `canonical`.
 
 The client invokes `ssh <host> <remote-ha> daemon connect --stdio`. The server
 must already be running `ha daemon start --service` for the canonical root. The
 remote root is sent with each request and must match the root pinned by the
 member's forced command.
+
+If the persistent daemon is absent or the forced-command root does not match,
+the GUI reports the remote error and does not start or fall back to a local
+daemon. Task and decision reads remain live daemon requests; renderer caches
+are display-only. Decision mutations use the authenticated remote principal.
+Task status and progress mutations remain unavailable until their GUI routes
+use the attributed daemon write coordinator.
 
 ## Team onboarding with SSH forced commands
 

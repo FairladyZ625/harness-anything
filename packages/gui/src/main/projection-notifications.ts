@@ -52,6 +52,7 @@ function createProjectionNotifications(
   let clientState: Disposable | undefined;
   let subscription: Subscription | undefined;
   let watchedRepoId: string | undefined;
+  let remoteCanonicalRoot: string | undefined;
   let sink: ((notification: RendererProjectionNotification) => void) | undefined;
 
   const source: HarnessProjectionNotificationSource = {
@@ -67,7 +68,7 @@ function createProjectionNotifications(
         if (!hello.repos.some((repo) => repo.repoId === repoId)) {
           throw new Error(`repo_not_advertised: daemon hello did not advertise ${repoId}`);
         }
-        subscription = await activeClient.subscribe(repoId);
+        subscription = await activeClient.subscribe(repoId, remoteCanonicalRoot);
         return { mode: "push" };
       } catch (error) {
         const diagnostic = `Projection notifications unavailable for ${repoId}: ${error instanceof Error ? error.message : String(error)}`;
@@ -92,6 +93,7 @@ function createProjectionNotifications(
   async function ensureClient(): Promise<PersistentDaemonClient> {
     if (client) return client;
     const selected = forceLocal ? undefined : await resolveGuiDaemonTransport(rootDir, layoutOverrides, options.env);
+    remoteCanonicalRoot = selected?.kind === "ssh-stdio" ? selected.remoteRoot : undefined;
     const target = selected?.kind === "ssh-stdio"
       ? {
           endpoint: `ssh-stdio:${selected.host}`,

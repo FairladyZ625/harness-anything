@@ -146,7 +146,7 @@ export function createGuiServiceBridge(
       });
       return await remoteClient.request(
         jsonRpcMethodForGuiRoute(route) as never,
-        jsonRpcParamsForGuiRoute(route, transport.repoId, payload) as never
+        jsonRpcParamsForGuiRoute(route, transport.repoId, payload, transport.remoteRoot) as never
       ) as JsonObject;
     } catch (error) {
       return {
@@ -451,7 +451,8 @@ export function jsonRpcMethodForGuiRoute(route: ApiRouteContract): string {
 export function jsonRpcParamsForGuiRoute(
   route: ApiRouteContract,
   fallbackRepoId: string,
-  payload: unknown
+  payload: unknown,
+  canonicalRoot?: string
 ): JsonObject {
   if (route.commandClass === "admin") {
     // admin.daemon.restart takes { payload: DaemonControlRequestV1 } without repo.
@@ -460,7 +461,8 @@ export function jsonRpcParamsForGuiRoute(
   }
   const { repoId, servicePayload } = extractRepoScopedPayload(payload, fallbackRepoId);
   return {
-    repo: { repoId },
+    // The remote forced-command boundary authenticates and pins this root.
+    repo: { repoId, ...(canonicalRoot ? { canonicalRoot } : {}) },
     ...(servicePayload ? { payload: servicePayload } : {})
   };
 }
