@@ -68,7 +68,10 @@ function runNetworkCommand(command, phase, networkStartedAt) {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: attemptTimeoutMs,
       killSignal: "SIGKILL",
-      detached: process.platform !== "win32"
+      detached: process.platform !== "win32",
+      // npm sbom output grows with the dependency tree; the 1MiB spawnSync
+      // default turns tree growth into a hard ENOBUFS failure of the gate.
+      maxBuffer: 256 * 1024 * 1024
     });
     const receipt = `phase=${phase} attempt=${attempt}/${networkAttempts} timeoutMs=${attemptTimeoutMs}`;
 

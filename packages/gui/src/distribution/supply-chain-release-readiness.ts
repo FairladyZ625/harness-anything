@@ -208,6 +208,13 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"],
     reviewedDependencyLicenseChoices: [
       {
+        packageName: "@csstools/color-helpers",
+        declaredLicenseExpression: "MIT-0",
+        electedLicense: "MIT-0",
+        reviewedAt: "2026-08-01",
+        rationale: "Transitive devDependency introduced via jsdom (test-only, pulled in for the GUI decision-write-consume component tests; never shipped in any release artifact). MIT-0 is the MIT No Attribution license: identical permissions to the already-allowed MIT with the attribution requirement removed, i.e. strictly fewer obligations than MIT. No copyleft, no patent clause, no distribution constraint. Reviewed and accepted by CEO-principal."
+      },
+      {
         packageName: "elkjs",
         declaredLicenseExpression: "EPL-2.0 OR GPL-3.0-or-later",
         electedLicense: "EPL-2.0",

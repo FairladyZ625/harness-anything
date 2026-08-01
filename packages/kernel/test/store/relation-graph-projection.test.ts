@@ -53,7 +53,7 @@ function assertLoadBearingCoverageProjection(): void {
     assert.deepEqual(coverage.rows, [{
       decisionRef: "decision/dec_COVER",
       claimRef: "decision/dec_COVER/C1",
-      status: "covered",
+      status: "covered", fulfillment: "evidenced",
       coveringFactRef: "fact/task-coverage/F-DEADBEEF",
       relationPath: [relation.relation_id]
     }]);
@@ -86,7 +86,7 @@ test("legacy facts without memory fields stay visible to post-merge checks and c
     assert.deepEqual(coverage.rows, [{
       decisionRef: "decision/dec_LEGACY_FACT",
       claimRef: "decision/dec_LEGACY_FACT/C1",
-      status: "covered",
+      status: "covered", fulfillment: "evidenced",
       coveringFactRef: "fact/task-legacy-facts/F-DEADBEEF",
       relationPath: [relation.relation_id]
     }]);
@@ -141,7 +141,7 @@ test("relation graph projection resolves facts by task_id when task directory ha
     assert.deepEqual(coverage.rows, [{
       decisionRef: "decision/dec_SLUGGED",
       claimRef: "decision/dec_SLUGGED/C1",
-      status: "covered",
+      status: "covered", fulfillment: "evidenced",
       coveringFactRef: `fact/${taskId}/F-DEADBEEF`,
       relationPath: [relation.relation_id]
     }]);
@@ -185,7 +185,7 @@ test("relation graph coverage treats invalidated facts as not live", () => {
     assert.deepEqual(coverage.rows, [{
       decisionRef: "decision/dec_INVALIDATED",
       claimRef: "decision/dec_INVALIDATED/C1",
-      status: "uncovered",
+      status: "uncovered", fulfillment: "evidenced",
       relationPath: []
     }]);
   });

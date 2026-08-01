@@ -126,7 +126,7 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     // 派生 stray 与 assoc 两组,否则 assoc decision 会越过 lane 底边。
     const assocTotal = assocTasks.length + assocDecisions.length;
     claimRows.push({
-      info: { claimId: "·", status: "unknown", evidenceFacts: [] },
+      info: { claimId: "·", status: "unknown", fulfillment: "unknown", evidenceFacts: [] },
       rows: Math.max(1, strayDerives.length, assocTotal),
       derives: strayDerives,
       evidence: [],
@@ -206,6 +206,7 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
         return {
           claimId: r.info.claimId,
           status: r.info.status,
+          fulfillment: r.info.fulfillment,
           evidenceCount: factRefs.length,
           derivesCount: r.derives.length,
           factRefs,

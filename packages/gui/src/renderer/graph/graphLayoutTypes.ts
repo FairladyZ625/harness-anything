@@ -18,6 +18,13 @@ export interface GraphFilterInput {
 export interface ClaimCoverageInfo {
   claimId: string;
   status: "covered" | "uncovered" | "unknown";
+  /**
+   * Claim fulfillment mode that produced the coverage verdict.
+   * "unknown" when the projection has not yet supplied a fulfillment (loading /
+   * missing coverageRows). Distinct from status="unknown" (coverage not yet
+   * known) — a claim can be covered via standing-policy without any fact.
+   */
+  fulfillment: "evidenced" | "delivered" | "standing-policy" | "unknown";
   /** 佐证该 claim 的 fact ref (fact/<task>/<factId>)。 */
   evidenceFacts: string[];
 }

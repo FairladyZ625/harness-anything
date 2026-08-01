@@ -42,7 +42,7 @@ import {
   quoteIdentifier
 } from "./sqlite-projection-columns.ts";
 
-export const projectionVersion = "entity-projection/d4-v15";
+export const projectionVersion = "entity-projection/d4-v16";
 export { queryableTaskFieldExtensions, quoteIdentifier } from "./sqlite-projection-columns.ts";
 const projectionBusyTimeoutMs = 10_000;
 
