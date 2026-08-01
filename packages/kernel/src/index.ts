@@ -63,6 +63,7 @@ export {
   actorAxesBindingCoreDigestV2,
   actorAxesBindingCoreV2Domain
 } from "./integrity/actor-axes-binding-integrity-v2.ts";
+export { parseAuthorityBatchCommitMessage } from "./integrity/authority-batch-integrity.ts";
 export type { ProtocolSchemaTupleV2Core } from "./integrity/actor-axes-binding-integrity-v2.ts";
 export type { ActorAxesBindingCoreV2 } from "./integrity/actor-axes-binding-integrity-v2.ts";
 export {

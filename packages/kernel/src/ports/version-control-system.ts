@@ -22,6 +22,7 @@ export interface VersionControlSystem {
   readonly originHeadBranch: (repoRoot: string) => string | null;
   readonly refExists: (repoRoot: string, ref: string) => boolean;
   readonly commitExists: (repoRoot: string, sha: string) => boolean;
+  readonly commitMessage: (repoRoot: string, ref: string) => string;
   readonly resolveCommit: (repoRoot: string, ref: string) => VcsCommitResolution;
   readonly pathExistsAtCommit: (repoRoot: string, sha: string, relativePath: string) => boolean;
   /**
