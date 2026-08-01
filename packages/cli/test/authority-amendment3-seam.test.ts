@@ -1,10 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { executionDeclaration, taskEntityId, taskHolderActor, type ExecutionRecord, type WriteOp } from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
-import { makeDaemonAuthorityWriteCoordinator, taskClaimAttemptIntent } from "@harness-anything/daemon";
+import { makeDaemonAuthorityWriteCoordinator, provenanceSessionAttemptIntent, taskClaimAttemptIntent } from "@harness-anything/daemon";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime
@@ -80,6 +83,143 @@ test("cold task create submits provenance session and task as two ordered canoni
     entityId: taskEntityId(taskId),
     kind: "package_create"
   })), /AUTHORITY_COMMAND_REQUIRES_SINGLE_CANONICAL_OPERATION/u);
+});
+
+test("execution submit routes its bound worker Session before the main execution operation", async () => {
+  const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
+  const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
+  const ingresses: string[] = [];
+  const coordinator = makeDaemonAuthorityWriteCoordinator({
+    submit: async (input) => {
+      ingresses.push(input.ingress);
+      return committedReceipt(`fixture-${input.ingress}-${ingresses.length}`, ingresses.length);
+    }
+  }, {
+    command: {
+      rootDir: "/fixture",
+      json: true,
+      action: {
+        kind: "status-set",
+        taskId,
+        status: "in_review",
+        force: false,
+        executionSubmission: {
+          executionId,
+          completionClaim: "Worker delivery is complete.",
+          deliverables: [],
+          outputs: [],
+          verificationNotes: [],
+          knownGaps: [],
+          residualRisks: []
+        }
+      }
+    },
+    attribution: daemonActorAttribution({
+      personId: "person_alice",
+      displayName: "Alice",
+      primaryEmail: "alice@example.test",
+      roles: ["owner"],
+      providerId: "test",
+      resolvedCredential: { kind: "unix-socket-owner-boundary", issuer: "test", subject: "person_alice" }
+    }, { kind: "agent", id: "codex" }),
+    currentSession: {
+      runtime: "codex",
+      sessionId: "ceo-submit-session",
+      source: "runtime",
+      detectedAt: "2026-07-18T00:10:00.000Z"
+    }
+  });
+
+  await runEffect(coordinator.enqueue({
+    opId: "worker-session-export",
+    entityId: "entity/session/worker-primary-session",
+    kind: "doc_write",
+    payload: {}
+  }));
+  await runEffect(coordinator.flush("explicit"));
+  await runEffect(coordinator.enqueue({
+    opId: "execution-submit",
+    entityId: `execution/${executionId}`,
+    kind: "doc_write",
+    payload: {}
+  }));
+  await runEffect(coordinator.flush("explicit"));
+
+  assert.deepEqual(ingresses, ["provenance-session", "generic"]);
+});
+
+test("execution submit provenance accepts only its authored primary Session binding", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-provenance-binding-"));
+  const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
+  const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNH0";
+  try {
+    const executionRoot = path.join(rootDir, "harness", "tasks", taskId, "executions");
+    mkdirSync(executionRoot, { recursive: true });
+    const workerSession = {
+      runtime: "codex" as const,
+      sessionId: "worker-primary-session",
+      source: "runtime" as const,
+      detectedAt: "2026-07-18T00:00:00.000Z"
+    };
+    const execution: ExecutionRecord = {
+      schema: "execution/v2",
+      execution_id: executionId,
+      task_ref: `task/${taskId}`,
+      state: "active",
+      primary_actor: taskHolderActor({ personId: "person_alice" }, { kind: "agent", id: "codex" }),
+      claimed_at: workerSession.detectedAt,
+      submitted_at: null,
+      closed_at: null,
+      session_bindings: [{
+        binding_id: `primary:${workerSession.sessionId}`,
+        session_ref: `session/${workerSession.sessionId}`,
+        role: "primary",
+        archive_status: "pending",
+        attached_at: workerSession.detectedAt,
+        session: workerSession,
+        capture_range: null
+      }],
+      outputs: [],
+      submission: null
+    };
+    writeFileSync(
+      path.join(executionRoot, `${executionId}.md`),
+      executionDeclaration.documentCodec.encode(execution),
+      "utf8"
+    );
+    const command = {
+      rootDir,
+      action: {
+        kind: "status-set" as const,
+        taskId,
+        status: "in_review" as const,
+        force: false,
+        executionSubmission: {
+          executionId,
+          completionClaim: "Worker delivery is complete.",
+          deliverables: [],
+          outputs: [],
+          verificationNotes: [],
+          knownGaps: [],
+          residualRisks: []
+        }
+      }
+    };
+
+    assert.throws(() => provenanceSessionAttemptIntent(command, {
+      runtime: "codex",
+      sessionId: "ceo-submit-session",
+      source: "runtime",
+      detectedAt: "2026-07-18T00:10:00.000Z"
+    }, {
+      opId: "unbound-session-export",
+      entityId: "entity/session/unbound-session",
+      kind: "doc_write",
+      payload: {}
+    }), /AUTHORITY_CREATE_PROVENANCE_OPERATION_INVALID/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("task claim submits the observed execution write through its narrow typed ingress", async () => {

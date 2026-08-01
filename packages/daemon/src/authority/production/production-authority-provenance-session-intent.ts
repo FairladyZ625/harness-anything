@@ -1,11 +1,16 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   encodeSessionExecutionReviewCommandPayloadV2,
   type ProductionAuthorityCommand,
   type SessionExecutionReviewCommandPayloadV2
 } from "@harness-anything/application";
 import {
+  executionDeclaration,
   readContentAddressedTextBlob,
+  taskPackagePath,
   type CurrentSessionRef,
+  type ExecutionRecord,
   type RegistryEntityRefV2,
   type SessionManifest,
   type WriteOp
@@ -18,7 +23,10 @@ export function provenanceSessionAttemptIntent(
   operation: WriteOp
 ): CanonicalAttemptIntent {
   const sessionAction = command.action.kind === "session-export" ? command.action : undefined;
-  const expectedSessionId = sessionAction?.sessionId ?? currentSession.sessionId;
+  const executionSession = command.action.kind === "status-set" && command.action.executionSubmission
+    ? boundExecutionPrimarySession(command)
+    : undefined;
+  const expectedSessionId = sessionAction?.sessionId ?? executionSession?.sessionId ?? currentSession.sessionId;
   const expectedEntityId = `entity/session/${expectedSessionId}`;
   const supportsProvenanceExport = command.action.kind === "new-task"
     || command.action.kind === "session-export"
@@ -54,16 +62,16 @@ export function provenanceSessionAttemptIntent(
   }
   const manifestRecord = plainRecord(decodedManifest);
   const manifestBodyRef = plainRecord(manifestRecord?.bodyRef);
-  const expectedRuntime = sessionAction?.runtime ?? currentSession.runtime;
+  const expectedRuntime = sessionAction?.runtime ?? executionSession?.runtime ?? currentSession.runtime;
   const expectedSource = sessionAction
     ? sessionAction.sessionId ? sessionAction.source ?? "manual" : currentSession.source
-    : currentSession.source;
+    : executionSession?.source ?? currentSession.source;
   const expectedUser = sessionAction
     ? sessionAction.sessionId ? sessionAction.user : currentSession.user
-    : currentSession.user;
+    : executionSession ? executionSession.user : currentSession.user;
   const expectedDetectedAt = sessionAction
     ? sessionAction.sessionId ? sessionAction.detectedAt : currentSession.detectedAt
-    : command.action.kind === "new-task" ? currentSession.detectedAt : undefined;
+    : executionSession?.detectedAt ?? (command.action.kind === "new-task" ? currentSession.detectedAt : undefined);
   const manifestMismatches = [
     !manifestRecord && "manifest",
     !manifestBodyRef && "bodyRef",
@@ -113,6 +121,49 @@ export function provenanceSessionAttemptIntent(
     declaredPathCas: [],
     physicalEntityId: expectedEntityId
   };
+}
+
+function boundExecutionPrimarySession(
+  command: ProductionAuthorityCommand
+): CurrentSessionRef {
+  if (command.action.kind !== "status-set" || !command.action.executionSubmission) {
+    throw new Error("AUTHORITY_SUBMIT_PROVENANCE_EXECUTION_REQUIRED");
+  }
+  const action = command.action;
+  const executionId = action.executionSubmission?.executionId;
+  if (!executionId) {
+    throw new Error("AUTHORITY_SUBMIT_PROVENANCE_EXECUTION_REQUIRED");
+  }
+  const executionPath = path.join(taskPackagePath({
+    rootDir: command.rootDir,
+    ...(command.layoutOverrides ? { layoutOverrides: command.layoutOverrides } : {})
+  }, action.taskId), "executions", `${executionId}.md`);
+  const current = executionDeclaration.documentCodec.decode(readFileSync(executionPath, "utf8")) as ExecutionRecord;
+  if (current.execution_id !== executionId || current.task_ref !== `task/${action.taskId}`) {
+    throw new Error("AUTHORITY_SUBMIT_PROVENANCE_EXECUTION_IDENTITY_MISMATCH");
+  }
+  const primary = current.session_bindings.filter((binding) => binding.role === "primary");
+  const binding = primary.length === 1 ? primary[0] : undefined;
+  if (!isCurrentSessionRef(binding?.session)
+      || binding.session_ref !== `session/${binding.session.sessionId}`) {
+    throw new Error("AUTHORITY_SUBMIT_PROVENANCE_PRIMARY_SESSION_REQUIRED");
+  }
+  return binding.session;
+}
+
+function isCurrentSessionRef(value: unknown): value is CurrentSessionRef {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<Record<keyof CurrentSessionRef, unknown>>;
+  return (session.runtime === "human"
+      || session.runtime === "claude-code"
+      || session.runtime === "codex"
+      || session.runtime === "zcode"
+      || session.runtime === "antigravity")
+    && (session.source === "runtime" || session.source === "manual")
+    && typeof session.sessionId === "string"
+    && session.sessionId.length > 0
+    && typeof session.detectedAt === "string"
+    && (session.user === undefined || typeof session.user === "string");
 }
 
 function sessionRef(sessionId: string): RegistryEntityRefV2 {

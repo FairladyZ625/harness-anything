@@ -47,16 +47,9 @@ export function makeExecutionRetirementService(options: {
       const initial = await readTargetExecution(options.artifactStore, input.taskId, input.executionId);
       assertRetirable(initial, input.executionId);
 
-      const reservation = await options.taskHolderService.reserveExecution({
+      return options.taskHolderService.withExecutionRetirement({
         taskId: input.taskId,
         executionId: input.executionId,
-        principal: input.actor
-      });
-      return options.taskHolderService.withExecutionReservation({
-        taskId: input.taskId,
-        executionId: input.executionId,
-        leaseToken: reservation.leaseToken,
-        reservationVersion: reservation.reservationVersion,
         principal: input.actor
       }, async () => {
         const task = await Effect.runPromise(options.artifactStore.readTaskPackage(input.taskId));

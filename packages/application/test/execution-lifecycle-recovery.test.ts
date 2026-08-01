@@ -305,6 +305,88 @@ test("retirement rejects submitted rounds and active rounds with a live lease", 
   }
 });
 
+test("retirement accepts the exact active Execution lease held by the caller", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-owned-lease-"));
+  try {
+    const taskRoot = createTask(rootDir, "active");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "active"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const lease = await holder.reserveExecution({
+      taskId,
+      executionId: executionIds[0],
+      principal: aliceCodex
+    });
+    await holder.activateExecution({
+      taskId,
+      executionId: executionIds[0],
+      leaseToken: lease.leaseToken,
+      principal: aliceCodex
+    });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: holder
+    });
+
+    await retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[0],
+      reason: "The caller is retiring its own abandoned round.",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceCodex
+    });
+
+    assert.equal(readExecutionState(taskRoot, executionIds[0]), "abandoned");
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retirement is not reclassified as claim publication by reservation reconciliation", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-reconcile-"));
+  try {
+    const taskRoot = createTask(rootDir, "planned");
+    writeExecutionFixture(taskRoot, executionFixture(executionIds[0], "active"));
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const retirement = makeExecutionRetirementService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      taskHolderService: {
+        ...holder,
+        reserveExecution: async (input) => {
+          const reservation = await holder.reserveExecution(input);
+          await holder.reconcileExecution({
+            taskId: input.taskId,
+            executionId: input.executionId,
+            authoredState: "active"
+          });
+          return reservation;
+        }
+      }
+    });
+
+    await retirement.retireStaleExecution({
+      taskId,
+      executionId: executionIds[0],
+      reason: "Retire a pre-CH2 active round without publishing a new claim.",
+      retiredAt: "2026-07-11T00:02:30.000Z",
+      actor: aliceCodex
+    });
+
+    assert.equal(readExecutionState(taskRoot, executionIds[0]), "abandoned");
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("retirement lease generation remains fenced while publish is blocked past expiry", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-retirement-fence-"));
   try {

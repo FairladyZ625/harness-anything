@@ -183,7 +183,7 @@ test("closeout failures retain the true gate cause, partial receipts, and one co
   });
 });
 
-test("task retire-execution rejects live and submitted rounds, then records an audited stale retirement", () => {
+test("task retire-execution retires the caller-owned live round, rejects submitted rounds, and records an audit", () => {
   withTempRoot((liveRoot) => {
     const fixture = prepareActiveTask(liveRoot, "Retirement Live Lease");
     const taskRoot = path.join(liveRoot, fixture.packagePath);
@@ -192,15 +192,6 @@ test("task retire-execution rejects live and submitted rounds, then records an a
       readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace(/^(  status:\s*)active$/mu, "$1in_review"),
       "utf8"
     );
-    const liveRejected = runJson(liveRoot, [
-      "task", "retire-execution", fixture.taskId,
-      "--execution-id", fixture.executionId,
-      "--reason", "abandoned worker claim"
-    ], false, fixture.env);
-    assert.equal(liveRejected.error.code, "write_rejected");
-    assert.match(liveRejected.error.hint, /claim conflicts|live lease/iu);
-
-    runJson(liveRoot, ["task", "release", fixture.taskId], true, fixture.env);
     const retired = runJson(liveRoot, [
       "task", "retire-execution", fixture.taskId,
       "--execution-id", fixture.executionId,

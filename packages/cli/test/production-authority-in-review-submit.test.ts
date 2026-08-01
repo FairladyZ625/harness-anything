@@ -29,17 +29,25 @@ test("production daemon authority submits an active recovery round while the tas
   };
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
   const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7";
-  const sessionId = "service-slugged-lifecycle-session";
+  const fixtureSessionId = "service-slugged-lifecycle-session";
+  const workerSessionId = "service-worker-primary-session";
+  const submitterSessionId = "service-ceo-submit-session";
   const taskRelativeRoot = `tasks/${taskId}-production-route`;
   const taskRoot = path.join(fixture.authoredRoot, taskRelativeRoot);
   const indexPath = path.join(taskRoot, "INDEX.md");
+  const executionPath = path.join(taskRoot, "executions", `${executionId}.md`);
   try {
     writeFileSync(
       indexPath,
       readFileSync(indexPath, "utf8").replace("  status: active", "  status: in_review"),
       "utf8"
     );
-    git(fixture.authoredRoot, "add", `${taskRelativeRoot}/INDEX.md`);
+    writeFileSync(
+      executionPath,
+      readFileSync(executionPath, "utf8").replaceAll(fixtureSessionId, workerSessionId),
+      "utf8"
+    );
+    git(fixture.authoredRoot, "add", `${taskRelativeRoot}/INDEX.md`, `${taskRelativeRoot}/executions/${executionId}.md`);
     git(fixture.authoredRoot, "commit", "-q", "-m", "test: seed in-review active recovery round");
 
     const registered = runDaemonCommand(fixture.repoRoot, [
@@ -61,19 +69,18 @@ test("production daemon authority submits an active recovery round while the tas
       { timeoutMs: 20_000 }
     );
 
-    writeColdCodexSessionLog(fixture.repoRoot, sessionId);
-    const sessionEnv = { ...env, CODEX_THREAD_ID: sessionId };
-    const exported = runRawJsonMaybeFail(fixture.repoRoot, [
-      "session", "export", "--session", sessionId, "--runtime", "codex", "--source", "runtime",
-      "--detected-at", "2026-07-17T00:00:00.000Z", "--transcript-file", fixture.transcriptPath
-    ], sessionEnv);
-    assert.equal(exported.status, 0, JSON.stringify(exported.receipt));
+    writeColdCodexSessionLog(fixture.repoRoot, workerSessionId);
+    const workerEnv = { ...env, CODEX_THREAD_ID: workerSessionId };
 
     const started = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "start", taskId, "--execution-id", executionId
-    ], sessionEnv);
+    ], workerEnv);
     assert.equal(started.status, 0, JSON.stringify(started.receipt));
     assert.equal(started.receipt.ok, true, JSON.stringify(started.receipt));
+    assert.equal(
+      readFileSync(executionPath, "utf8").includes(`session/${workerSessionId}`),
+      true
+    );
 
     const submissionPath = path.join(fixture.root, "in-review-recovery-submission.json");
     writeFileSync(submissionPath, JSON.stringify({
@@ -86,9 +93,13 @@ test("production daemon authority submits an active recovery round while the tas
     }), "utf8");
     const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
-    ], sessionEnv);
+    ], { ...env, CODEX_THREAD_ID: submitterSessionId });
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
     assert.equal(submitted.receipt.ok, true, JSON.stringify(submitted.receipt));
+    assert.equal(
+      readFileSync(path.join(fixture.authoredRoot, "sessions", `${workerSessionId}.md`), "utf8").includes(workerSessionId),
+      true
+    );
     assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
     assert.match(
       readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8"),

@@ -44,6 +44,7 @@ export function childOwnedTaskHolderService(
     assertActiveLeaseReadOnly: rejected,
     reserveExecution: rejected,
     withExecutionReservation: rejected,
+    withExecutionRetirement: rejected,
     renewExecution: rejected,
     activateExecution: rejected,
     releaseExecution: rejected,

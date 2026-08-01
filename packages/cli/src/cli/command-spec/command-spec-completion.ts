@@ -10,7 +10,7 @@ export const completionCommandSpecs = defineCommandSpecs([
     "display": "advanced",
     "usage": "task retire-execution <id> --execution-id <execution-id> --reason <reason> [--json]",
     "options": [{"flag":"--execution-id","description":"Select the stale active Execution round to retire."},{"flag":"--reason","description":"Record why the abandoned active round is being retired."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Explicitly retire an active Execution only when the Task has no live holder lease, preserving an actor/time/reason audit entry.",
+    "summary": "Explicitly retire an active Execution when the Task has no live holder or the caller owns that exact Execution lease, preserving an actor/time/reason audit entry.",
     "examples": ["harness-anything task retire-execution task_01ABC --execution-id exe_01ABC --reason \"superseded abandoned claim\" --json"],
     "parse": parseCoreTaskArgs,
     "run": runTaskRetireExecution,

@@ -131,6 +131,11 @@ export interface TaskHolderService {
     readonly reservationVersion: string;
     readonly principal: TaskHolderPrincipal;
   }, run: () => Promise<Result>) => Promise<Result>;
+  readonly withExecutionRetirement: <Result>(input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly principal: TaskHolderPrincipal;
+  }, run: () => Promise<Result>) => Promise<Result>;
   readonly renewExecution: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseContext | null>;
   readonly activateExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<ExecutionLeaseContext>;
   readonly releaseExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken?: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
@@ -363,6 +368,55 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         });
       } finally {
         await emitExecutionLeaseEvents(options.appendLeaseEvent, releaseEvent ? [releaseEvent] : []);
+      }
+    },
+    withExecutionRetirement: async (input, run) => {
+      let cleanupEvent: ExecutionLeaseRuntimeEvent | null = null;
+      try {
+        return await withTaskHolderMutationLock(options.rootInput, input.taskId, async () => {
+          const at = now();
+          const current = readHolderRecord(options.rootInput, input.taskId);
+          const snapshot = holderSnapshot(input.taskId, current, at);
+          const ownsLegacyHolder = current?.schema === "task-holder/v1"
+            && current.holder
+            && sameTaskHolderPrincipal(current.holder, input.principal);
+          // Trust boundary: ownership is proven by principal equivalence
+          // (personId + executor identity), not by presenting the lease token.
+          // Sessions of the same person/agent are mutually trusted here; a
+          // different principal or executor still collides below.
+          const ownsTargetExecution = current?.schema === "task-holder/v2"
+            && current.phase === "active"
+            && current.executionId === input.executionId
+            && sameExecutionLeaseActor(current.holder, input.principal);
+          if (snapshot.effectiveHolder && !ownsLegacyHolder && !ownsTargetExecution) {
+            throw new ExecutionLeaseCollisionError({
+              taskId: input.taskId,
+              principal: input.principal,
+              executionId: current?.schema === "task-holder/v2" ? current.executionId : "unknown",
+              holder: snapshot.effectiveHolder,
+              leaseExpiresAt: snapshot.leaseExpiresAt ?? ""
+            });
+          }
+
+          const result = await run();
+          if (!current?.holder) return result;
+
+          const cleanedAt = now().toISOString();
+          writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, cleanedAt));
+          if (current.schema === "task-holder/v2") {
+            cleanupEvent = snapshot.effectiveHolder
+              ? executionLeaseRuntimeEvent(current, "released", "released", {
+                  releasedAt: cleanedAt,
+                  previousHolder: current.holder
+                })
+              : executionLeaseRuntimeEvent(current, "expired", "expired", {
+                  previousHolder: current.holder
+                });
+          }
+          return result;
+        });
+      } finally {
+        await emitExecutionLeaseEvents(options.appendLeaseEvent, cleanupEvent ? [cleanupEvent] : []);
       }
     },
     renewExecution: async (input) => {
