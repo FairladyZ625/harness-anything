@@ -1,0 +1,133 @@
+name: experiment-node-stall-task-01KY284MZV4KXJP6RV06E3NTN1
+
+on:
+  schedule:
+    - cron: "17 19 * * 1"
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: Repetitions per CLI fast/integration test combination
+        required: false
+        default: "3"
+
+# This workflow is diagnostic-only. It never runs for pull_request or push, is
+# intentionally absent from branch protection, and cannot become a required
+# source-validation context.
+concurrency:
+  group: experiment-node-stall-task-01KY284MZV4KXJP6RV06E3NTN1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  node-stall-ab:
+    name: experiment / task_01KY284MZV4KXJP6RV06E3NTN1 / ${{ matrix.variant }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: node24.18.0-baseline
+            v8_flags: "[]"
+          - variant: node24.18.0-no-background-compilation
+            v8_flags: '["--no-concurrent-recompilation","--no-concurrent-sparkplug","--no-maglev-build-code-on-background"]'
+    env:
+      HARNESS_NODE_TEST_V8_FLAGS: ${{ matrix.v8_flags }}
+      REPETITIONS: ${{ inputs.repetitions || '3' }}
+      RESULT_ROOT: artifacts/node-stall-experiment/${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - name: Run Node #54918 isolation-process A/B
+        shell: bash
+        run: |
+          set -uo pipefail
+          case "$REPETITIONS" in
+            ''|*[!0-9]*) echo "repetitions must be an integer" >&2; exit 2 ;;
+          esac
+          if (( REPETITIONS < 1 || REPETITIONS > 10 )); then
+            echo "repetitions must be between 1 and 10" >&2
+            exit 2
+          fi
+
+          mkdir -p "$RESULT_ROOT"
+          measurements="$RESULT_ROOT/measurements.jsonl"
+          : > "$measurements"
+          observed_failures=0
+
+          run_suite() {
+            local iteration="$1"
+            local suite="$2"
+            shift 2
+            local log="$RESULT_ROOT/${suite}-${iteration}.log"
+            local diagnostic_dir="$RESULT_ROOT/diagnostics/${suite}-${iteration}"
+            local started_at ended_at exit_code stable_wedges post_completion_reaps
+            started_at=$(date +%s)
+            export HARNESS_NODE_TEST_DIAGNOSTIC_DIR="$diagnostic_dir"
+            node tools/run-node-tests.mjs "$@" 2>&1 | tee "$log"
+            exit_code=${PIPESTATUS[0]}
+            ended_at=$(date +%s)
+            stable_wedges=$(grep -Ec 'isolation child pid=.*remained wedged' "$log" || true)
+            post_completion_reaps=$(grep -Ec 'reaped post-completion child' "$log" || true)
+            printf '{"schema":"node-stall-experiment-measurement/v1","taskId":"task_01KY284MZV4KXJP6RV06E3NTN1","variant":"%s","iteration":%d,"suite":"%s","exitCode":%d,"durationSeconds":%d,"stableWedges":%d,"postCompletionReaps":%d}\n' \
+              "${{ matrix.variant }}" "$iteration" "$suite" "$exit_code" "$((ended_at - started_at))" "$stable_wedges" "$post_completion_reaps" \
+              >> "$measurements"
+            if (( exit_code != 0 )); then observed_failures=1; fi
+          }
+
+          for ((iteration = 1; iteration <= REPETITIONS; iteration += 1)); do
+            run_suite "$iteration" fast-cli --tier fast --prefix packages/cli/test
+            run_suite "$iteration" integration-cli --tier integration --prefix packages/cli/test
+          done
+
+          MEASUREMENTS="$measurements" SUMMARY="$RESULT_ROOT/summary.json" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const rows = readFileSync(process.env.MEASUREMENTS, "utf8")
+            .trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+          const summary = {
+            schema: "node-stall-experiment-summary/v1",
+            taskId: "task_01KY284MZV4KXJP6RV06E3NTN1",
+            variant: rows[0]?.variant ?? "unknown",
+            invocations: rows.length,
+            failures: rows.filter((row) => row.exitCode !== 0).length,
+            stableWedges: rows.reduce((total, row) => total + row.stableWedges, 0),
+            postCompletionReaps: rows.reduce((total, row) => total + row.postCompletionReaps, 0),
+            durationSeconds: rows.reduce((total, row) => total + row.durationSeconds, 0),
+            suites: Object.fromEntries([...new Set(rows.map((row) => row.suite))].map((suite) => {
+              const suiteRows = rows.filter((row) => row.suite === suite);
+              return [suite, {
+                invocations: suiteRows.length,
+                failures: suiteRows.filter((row) => row.exitCode !== 0).length,
+                stableWedges: suiteRows.reduce((total, row) => total + row.stableWedges, 0),
+                postCompletionReaps: suiteRows.reduce((total, row) => total + row.postCompletionReaps, 0)
+              }];
+            }))
+          };
+          writeFileSync(process.env.SUMMARY, `${JSON.stringify(summary, null, 2)}\n`);
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+          if (( observed_failures != 0 )); then exit 1; fi
+      - name: Publish experiment summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -f "$RESULT_ROOT/summary.json" ]]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RESULT_ROOT/summary.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload experiment readings and failure diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-stall-experiment-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RESULT_ROOT }}/
+          if-no-files-found: error
+          retention-days: 7

@@ -14,12 +14,11 @@ import {
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   formatTestTimeoutGuidance,
-  hasIsolationWedgeSignature,
+  parseNodeTestV8Flags,
   parsePosixProcessGroupLine,
   parseRunnerArgs,
   resolveTestConcurrency,
-  selectTestFiles,
-  testFilesFromProcessCommand
+  selectTestFiles
 } from "./node-test-runner-lib.mjs";
 import {
   createNodeTestStallPolicy,
@@ -28,6 +27,7 @@ import {
 } from "./node-test-stall-policy.mjs";
 import {
   capturePreKillDiagnostics,
+  persistNodeTestFailureDiagnostics,
   STALL_REPORT_GRACE_MS,
   STALL_TOTAL_ABORT_GRACE_MS
 } from "./node-test-stall-diagnostics.mjs";
@@ -43,8 +43,11 @@ import {
   shouldUseNodeTestIsolationRegistry
 } from "./node-test-isolation-registry.mjs";
 import {
+  isolationCandidatesFromProcessGroup,
+  mergeIsolationCandidates,
   reapPostCompletionChild,
   signalProcessGroup,
+  stalledTestFilesFromProcessGroup,
   terminateLingeringPosixProcessGroup,
   terminateWindowsProcessTree
 } from "./node-test-process-tree.mjs";
@@ -69,8 +72,10 @@ process.env.HARNESS_GIT_AUTHOR_NAME ||= "Harness Test";
 process.env.HARNESS_GIT_AUTHOR_EMAIL ||= "harness@example.test";
 
 let options;
+let nodeTestV8Flags;
 try {
   options = parseRunnerArgs(process.argv.slice(2), testTierNames);
+  nodeTestV8Flags = parseNodeTestV8Flags(process.env.HARNESS_NODE_TEST_V8_FLAGS);
 } catch (error) {
   console.error(error.message);
   await exitAfterStreamFlush(2);
@@ -154,6 +159,9 @@ const stallAbortWindows = positiveIntegerOrDefault(
 );
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
+  if (nodeTestV8Flags.length > 0) {
+    console.error(`[node-test-experiment] explicit V8 flags: ${nodeTestV8Flags.join(" ")}`);
+  }
   const identityBroker = useIsolationRegistry
     ? await createNodeTestIsolationIdentityBroker().catch((error) => {
         console.warn(`[node-test-stall] isolation identity broker unavailable; using aggregate stall protection: ${error instanceof Error ? error.message : String(error)}`);
@@ -162,6 +170,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
     : null;
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, [
+    ...nodeTestV8Flags,
     ...(identityBroker !== null
       ? [`--import=${pathToFileURL(resolve(repoRoot, "tools/node-test-isolation-register.mjs")).href}`]
       : []),
@@ -252,7 +261,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         .filter((member) => member !== null);
       const processGroupCandidates = isolationCandidatesFromProcessGroup(
         processGroupMembers,
-        child.pid
+        child.pid,
+        repoRoot
       );
       const completionLedger = readCompletionLedger();
       const registeredCompletionCandidates = identityBroker !== null
@@ -297,7 +307,7 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
           return;
         }
       }
-      const snapshotFiles = stalledTestFilesFromProcessGroup(processGroupMembers, child.pid);
+      const snapshotFiles = stalledTestFilesFromProcessGroup(processGroupMembers, child.pid, repoRoot);
       startStallAbort({
         silentMs: decision.abort.silentMs,
         silentWindows: decision.abort.silentWindows,
@@ -350,6 +360,19 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
       console.error(error.message);
       identityBroker?.dispose();
       testEnvironment.cleanup();
+      persistNodeTestFailureDiagnostics({
+        completionOutput,
+        error: error.message,
+        exitCode: null,
+        leakedDescendants: false,
+        nodeTestV8Flags,
+        reapedFiles,
+        repoRoot,
+        selectedFiles: selection.files,
+        signal: null,
+        tier: options.tier,
+        timingRoot
+      });
       rmSync(timingRoot, { recursive: true, force: true });
       resolveExitCode(1);
     });
@@ -366,8 +389,6 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         for (const warning of formatTestWeightDriftWarnings(measured)) console.warn(warning);
       } catch (error) {
         console.warn(`Unable to inspect test weight drift: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        rmSync(timingRoot, { recursive: true, force: true });
       }
       if (signal !== null) {
         console.error(`node --test terminated by signal ${signal}`);
@@ -393,9 +414,26 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
           `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated forced-termination file failure(s)`
         );
       }
-      resolveExitCode(signal === null && !leakedDescendants
+      const finalExitCode = signal === null && !leakedDescendants
         ? (ignoredSyntheticFailures ? 0 : (code ?? 1))
-        : 1);
+        : 1;
+      if (finalExitCode !== 0) {
+        persistNodeTestFailureDiagnostics({
+          completionOutput,
+          error: null,
+          exitCode: code,
+          leakedDescendants,
+          nodeTestV8Flags,
+          reapedFiles,
+          repoRoot,
+          selectedFiles: selection.files,
+          signal,
+          tier: options.tier,
+          timingRoot
+        });
+      }
+      rmSync(timingRoot, { recursive: true, force: true });
+      resolveExitCode(finalExitCode);
     });
   });
 
@@ -521,53 +559,6 @@ async function captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, pr
     })
   ]);
   clearTimeout(diagnosticDeadlineTimer);
-}
-
-/**
- * Converts one process-group snapshot into the scheduler-independent evidence
- * consumed by the stall policy.
- */
-function isolationCandidatesFromProcessGroup(members, processGroupId) {
-  return members
-    .filter((member) => member.pid !== processGroupId && hasIsolationWedgeSignature(member))
-    .map((member) => ({
-      pid: member.pid,
-      files: testFilesFromProcessCommand(member.command, repoRoot)
-    }))
-    .filter((candidate) => candidate.files.length > 0);
-}
-
-function mergeIsolationCandidates(...groups) {
-  const candidates = new Map();
-  for (const candidate of groups.flat()) {
-    const previous = candidates.get(candidate.pid);
-    candidates.set(candidate.pid, {
-      pid: candidate.pid,
-      ppid: previous?.ppid ?? candidate.ppid,
-      files: [...new Set([...(previous?.files ?? []), ...candidate.files])].sort(),
-      identity: previous?.identity ?? candidate.identity
-    });
-  }
-  return [...candidates.values()];
-}
-
-/**
- * Names the test files a group is still holding from the same snapshot that
- * triggered the policy decision. Re-reading after the decision introduces a
- * race with process exit and can lose the only useful file evidence.
- */
-function stalledTestFilesFromProcessGroup(members, processGroupId) {
-  const descendantFiles = new Set();
-  const hostFiles = new Set();
-  for (const member of members) {
-    const target = member.pid === processGroupId ? hostFiles : descendantFiles;
-    for (const file of testFilesFromProcessCommand(member.command, repoRoot)) target.add(file);
-  }
-  if (descendantFiles.size > 0) return [...descendantFiles];
-  // Without process isolation the host itself is the wedged process, and its
-  // command line is the whole selection rather than one file. Naming it is only
-  // useful when the selection happens to be a single file.
-  return hostFiles.size === 1 ? [...hostFiles] : [];
 }
 
 function dumpPosixProcessGroup(lines, processGroupId) {

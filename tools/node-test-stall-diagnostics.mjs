@@ -1,3 +1,4 @@
+import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile, readdir, readlink, stat } from "node:fs/promises";
 import path from "node:path";
 import { hasIsolationWedgeSignature, testFilesFromProcessCommand } from "./node-test-runner-lib.mjs";
@@ -6,6 +7,57 @@ export const STALL_REPORT_GRACE_MS = 2_000;
 export const STALL_TOTAL_ABORT_GRACE_MS = 3_000;
 const PROC_READ_TIMEOUT_MS = 250;
 const MAX_REPORT_BYTES = 1_000_000;
+
+export function persistNodeTestFailureDiagnostics({
+  completionOutput,
+  error,
+  exitCode,
+  leakedDescendants,
+  nodeTestV8Flags,
+  reapedFiles,
+  repoRoot,
+  selectedFiles,
+  signal,
+  tier,
+  timingRoot
+}) {
+  const configuredRoot = process.env.HARNESS_NODE_TEST_DIAGNOSTIC_DIR?.trim();
+  if (!configuredRoot) return;
+
+  try {
+    const diagnosticRoot = path.isAbsolute(configuredRoot)
+      ? configuredRoot
+      : path.resolve(repoRoot, configuredRoot);
+    mkdirSync(diagnosticRoot, { recursive: true });
+    const runRoot = path.join(diagnosticRoot, `node-test-${Date.now()}-${process.pid}`);
+    cpSync(timingRoot, runRoot, { recursive: true, errorOnExist: true });
+    writeFileSync(path.join(runRoot, "completion-ledger.jsonl"), completionOutput, "utf8");
+    writeFileSync(path.join(runRoot, "run.json"), `${JSON.stringify({
+      schema: "node-test-failure-diagnostics/v1",
+      taskId: "task_01KY284MZV4KXJP6RV06E3NTN1",
+      generatedAt: new Date().toISOString(),
+      runtime: {
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        v8Flags: nodeTestV8Flags
+      },
+      selection: { tier, files: selectedFiles },
+      result: {
+        exitCode,
+        signal,
+        error,
+        leakedDescendants,
+        reapedFiles: [...reapedFiles].sort()
+      }
+    }, null, 2)}\n`, "utf8");
+    console.error(`[node-test-stall] preserved failure diagnostics at ${path.relative(repoRoot, runRoot)}`);
+  } catch (diagnosticError) {
+    console.warn(
+      `[node-test-stall] unable to preserve failure diagnostics: ${diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)}`
+    );
+  }
+}
 
 export function selectStallDiagnosticTargets(members, hostPid, repoRoot, preferredPid) {
   const byPid = new Map(members.map((member) => [member.pid, member]));

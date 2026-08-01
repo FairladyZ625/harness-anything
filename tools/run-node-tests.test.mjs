@@ -1,10 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, hasIsolationWedgeSignature, parseCompletedTestLine, parsePosixProcessGroupLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, testFilesFromProcessCommand, validateManifest } from "./node-test-runner-lib.mjs";
+import { allowedNodeTestV8Flags, collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, hasIsolationWedgeSignature, parseCompletedTestLine, parseNodeTestV8Flags, parsePosixProcessGroupLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, testFilesFromProcessCommand, validateManifest } from "./node-test-runner-lib.mjs";
 import { defaultTestTierNames, deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -58,6 +60,20 @@ test("test timeout defaults to three minutes and cannot be disabled", () => {
   assert.equal(parseRunnerArgs(["--test-timeout=360000"], testTierNames).testTimeoutMs, 360_000);
   assert.throws(() => parseRunnerArgs(["--test-timeout", "0"], testTierNames), /positive integer/u);
   assert.throws(() => parseRunnerArgs(["--test-timeout=x"], testTierNames), /--test-timeout/u);
+});
+
+test("experimental V8 mitigation accepts only the #54918 allowlist", () => {
+  assert.deepEqual(parseNodeTestV8Flags(undefined), []);
+  assert.deepEqual(parseNodeTestV8Flags(JSON.stringify(allowedNodeTestV8Flags)), allowedNodeTestV8Flags);
+  assert.throws(() => parseNodeTestV8Flags("--no-concurrent-recompilation"), /JSON array/u);
+  assert.throws(
+    () => parseNodeTestV8Flags('["--max-old-space-size=4096"]'),
+    /unsupported flag/u
+  );
+  assert.throws(
+    () => parseNodeTestV8Flags('["--no-concurrent-recompilation","--no-concurrent-recompilation"]'),
+    /duplicates/u
+  );
 });
 
 test("runner bounds a non-terminating test and prints timeout next steps", () => {
@@ -205,6 +221,48 @@ test("runner preserves a real test failure without classifying it as a wedge", (
   assert.match(output, /✖ runner failing-wedge probe exposes a real failure before shutdown/u);
   assert.match(output, /intentional real failure before shutdown wedge/u);
   assert.doesNotMatch(output, /isolation child pid=\d+ remained wedged/u);
+});
+
+test("failed runs preserve stall reports and the completion ledger for workflow upload", () => {
+  const diagnosticRoot = mkdtempSync(path.join(tmpdir(), "ha-node-test-diagnostics-"));
+  try {
+    const childEnv = {
+      ...process.env,
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: diagnosticRoot,
+      HARNESS_RUNNER_STALL_FIXTURE: "failing-only",
+      HARNESS_TEST_CONCURRENCY: "1"
+    };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, [
+      "tools/run-node-tests.mjs",
+      "--fixture", "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs",
+      "--test-timeout", "1000"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: childEnv,
+      timeout: 10_000
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.error, undefined, output);
+    assert.equal(result.status, 1, output);
+    assert.match(output, /preserved failure diagnostics/u);
+    const runDirectories = readdirSync(diagnosticRoot);
+    assert.equal(runDirectories.length, 1, output);
+    const runRoot = path.join(diagnosticRoot, runDirectories[0]);
+    assert.equal(existsSync(path.join(runRoot, "completion-ledger.jsonl")), true);
+    assert.equal(readdirSync(runRoot).some((entry) => entry.startsWith("stall-reports-")), true);
+    const metadata = JSON.parse(readFileSync(path.join(runRoot, "run.json"), "utf8"));
+    assert.equal(metadata.schema, "node-test-failure-diagnostics/v1");
+    assert.equal(metadata.taskId, "task_01KY284MZV4KXJP6RV06E3NTN1");
+    assert.equal(metadata.result.exitCode, 1);
+    assert.deepEqual(metadata.selection.files, [
+      "tools/test-fixtures/.runner-stall/failing-then-wedge.test.mjs"
+    ]);
+  } finally {
+    rmSync(diagnosticRoot, { recursive: true, force: true });
+  }
 });
 
 test("runner treats a real failure hidden by a shutdown wedge as a named wedge failure", {

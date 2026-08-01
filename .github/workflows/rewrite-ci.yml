@@ -121,6 +121,8 @@ jobs:
     timeout-minutes: 15
     needs: metadata-source-proof
     runs-on: ubuntu-latest
+    env:
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
     steps:
       - name: Reuse same-SHA source validation
         if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
@@ -138,6 +140,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job fast-contract --exclude mergify-queue-metadata-edit-noop
+      - name: Upload node test failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-diagnostics-fast-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
 
   integration-shard:
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
@@ -145,6 +155,8 @@ jobs:
     needs: metadata-source-proof
     name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && format('mergify-queue-metadata-edit-noop / integration-shard ({0})', matrix.shard) || format('integration-shard ({0})', matrix.shard) }}
     runs-on: ubuntu-latest
+    env:
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
     strategy:
       fail-fast: false
       matrix:
@@ -164,6 +176,14 @@ jobs:
         run: npm ci
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
+      - name: Upload node test failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-diagnostics-integration-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
 
   boundaries:
     name: ${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/')) && 'mergify-queue-metadata-edit-noop / boundaries' || 'boundaries' }}
@@ -306,6 +326,8 @@ jobs:
     timeout-minutes: 30
     needs: metadata-source-proof
     runs-on: windows-latest
+    env:
+      HARNESS_NODE_TEST_DIAGNOSTIC_DIR: artifacts/node-test-diagnostics
     steps:
       - name: Reuse same-SHA source validation
         if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
@@ -327,6 +349,14 @@ jobs:
           # Exercise the native developer stop-point instead of letting the
           # runner's ambient CI=true upgrade this smoke into check:ci.
           CI: "false"
+      - name: Upload node test failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-diagnostics-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/node-test-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 3
 
   source-validation-proof:
     if: github.event_name == 'pull_request' && needs.metadata-source-proof.outputs.reuse_source != 'true'
