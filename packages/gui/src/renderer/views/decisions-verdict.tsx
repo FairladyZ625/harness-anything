@@ -207,6 +207,7 @@ export function VerdictCard({
   onInspectFact,
   onNavigateDecision,
   readOnly = false,
+  decidePending = false,
   initialPendingAction = null,
 }: {
   d: DecisionRow;
@@ -220,6 +221,8 @@ export function VerdictCard({
   onInspectFact: (factRef: string) => void;
   onNavigateDecision?: (decisionId: string) => void;
   readOnly?: boolean;
+  /** True while a decide mutation is in flight — disables submit to prevent double fire. */
+  decidePending?: boolean;
   /** Open the accept/reject/defer rationale panel on mount (keyboard hotkey bridge). */
   initialPendingAction?: DecideAction | null;
 }) {
@@ -242,9 +245,10 @@ export function VerdictCard({
   );
   const [rationaleDraft, setRationaleDraft] = useState("");
   const [rationaleError, setRationaleError] = useState<string | null>(null);
+  const decideBusy = readOnly || decidePending;
 
   const handleAccept = () => {
-    if (readOnly) return;
+    if (decideBusy) return;
     if (conflictSignal) {
       setRejection(buildConflictRejection(d));
       return;
@@ -253,14 +257,14 @@ export function VerdictCard({
   };
 
   const openRationale = (action: DecideAction) => {
-    if (readOnly) return;
+    if (decideBusy) return;
     setPendingAction(action);
     setRationaleDraft("");
     setRationaleError(null);
   };
 
   const submitRationale = () => {
-    if (!pendingAction) return;
+    if (!pendingAction || decideBusy) return;
     const trimmed = rationaleDraft.trim();
     if ((pendingAction === "accept" || pendingAction === "reject") && trimmed.length === 0) {
       setRationaleError(t(
@@ -281,6 +285,7 @@ export function VerdictCard({
   };
 
   const submitExistingEvidence = () => {
+    if (decideBusy) return;
     if (conflictSignal) {
       setRejection(buildConflictRejection(d));
       return;
@@ -465,8 +470,10 @@ export function VerdictCard({
 
       <div className="mt-3 flex gap-2 border-t border-border pt-3">
         <button
+          type="button"
           onClick={handleAccept}
-          disabled={readOnly}
+          disabled={decideBusy}
+          data-testid="decision-accept"
           title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.accept")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -475,8 +482,10 @@ export function VerdictCard({
           {!readOnly && <kbd className="ml-1 rounded bg-accent-fg/15 px-1 font-mono text-[10px] font-normal opacity-70">a</kbd>}
         </button>
         <button
+          type="button"
           onClick={() => openRationale("reject")}
-          disabled={readOnly}
+          disabled={decideBusy}
+          data-testid="decision-reject"
           title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.reject")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-danger/50 hover:bg-danger/5 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -485,8 +494,10 @@ export function VerdictCard({
           {!readOnly && <kbd className="ml-1 rounded bg-surface px-1 font-mono text-[10px] font-normal opacity-70">r</kbd>}
         </button>
         <button
+          type="button"
           onClick={() => openRationale("defer")}
-          disabled={readOnly}
+          disabled={decideBusy}
+          data-testid="decision-defer"
           title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.defer")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-stale/50 hover:bg-stale/5 hover:text-stale disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -508,6 +519,7 @@ export function VerdictCard({
           action={pendingAction}
           draft={rationaleDraft}
           error={rationaleError}
+          submitting={decidePending}
           onDraftChange={(value) => {
             setRationaleDraft(value);
             if (rationaleError) setRationaleError(null);

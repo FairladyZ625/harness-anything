@@ -47,6 +47,7 @@ export function DecisionsView({
   onCallAgent,
   onDecide,
   readOnly = false,
+  decidePending = false,
   onNavigateDecision,
   onNavigateTask,
   onFocusGraph,
@@ -61,6 +62,8 @@ export function DecisionsView({
   onCallAgent?: (cmd: string) => void;
   onDecide: (id: string, action: DecideAction, rationale?: string) => void | Promise<void>;
   readOnly?: boolean;
+  /** True while the parent mutation is in flight (e.g. react-query isPending). */
+  decidePending?: boolean;
   onNavigateDecision?: (decisionId: string) => void;
   onNavigateTask?: (taskId: string) => void;
   onFocusGraph?: (ref: string) => void;
@@ -74,6 +77,10 @@ export function DecisionsView({
   const [inspectedFactRef, setInspectedFactRef] = useState<string | null>(null);
   const [processed, setProcessed] = useState<ProcessedEntry[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // Local re-entry latch: covers the click→isPending gap and works when tests
+  // inject a plain Promise for onDecide (no react-query isPending).
+  const [decideInFlight, setDecideInFlight] = useState(false);
+  const decideBusy = readOnly || decidePending || decideInFlight;
 
   /**
    * 队列:proposed 决策,按 riskTier × urgency 两轴正交排序(元组比较,不合并成单分)。
@@ -105,13 +112,18 @@ export function DecisionsView({
 
   const handleDecide = useCallback(
     (id: string, action: DecideAction, rationale?: string) => {
-      if (readOnly) return;
+      // Double-submit guard: readOnly, parent isPending, or local in-flight latch.
+      if (readOnly || decidePending || decideInFlight) return;
       const d = decisions.find((x) => x.decisionId === id);
       // Fire the mutation first. Only record session history when it settles
       // successfully — a rejected mutation must not paint a fake "accepted /
       // rejected / deferred" row (task_01KXARE0RM1RW22G66GMK56H3Y).
-      void Promise.resolve(onDecide(id, action, rationale)).then(
-        () => {
+      // async/await + try/catch/finally so a throw inside the success path
+      // cannot become an unhandled rejection (F3).
+      setDecideInFlight(true);
+      void (async () => {
+        try {
+          await Promise.resolve(onDecide(id, action, rationale));
           if (!d) return;
           const wb = action === "accept" ? d.readinessSignals?.needsWriteback : undefined;
           setProcessed((p) =>
@@ -127,13 +139,15 @@ export function DecisionsView({
               ...p,
             ].slice(0, 12),
           );
-        },
-        // Failure path: ViewSwitch already surfaces the toast. Leave the
-        // queue/history untouched so the card stays actionable.
-        () => undefined,
-      );
+        } catch {
+          // Failure path: ViewSwitch already surfaces the toast. Leave the
+          // queue/history untouched so the card stays actionable.
+        } finally {
+          setDecideInFlight(false);
+        }
+      })();
     },
-    [decisions, onDecide, readOnly],
+    [decisions, onDecide, readOnly, decidePending, decideInFlight],
   );
 
   const handleSkip = useCallback(() => {
@@ -158,7 +172,7 @@ export function DecisionsView({
 
   // P1-1: keyboard flow for the inbox queue (j/k/s/a/r/d/?).
   useEffect(() => {
-    if (readOnly || !current) return;
+    if (decideBusy || !current) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isEditableTarget(event.target)) return;
@@ -198,7 +212,7 @@ export function DecisionsView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, handleNext, handlePrev, handleSkip, readOnly]);
+  }, [current, handleNext, handlePrev, handleSkip, decideBusy]);
 
   const processedTone: Record<DecideAction, string> = {
     accept: "text-success",
@@ -358,6 +372,7 @@ export function DecisionsView({
                   onInspectFact={setInspectedFactRef}
                   onNavigateDecision={onNavigateDecision}
                   readOnly={readOnly}
+                  decidePending={decideBusy}
                 />
               </>
             ) : (

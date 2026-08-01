@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import { GraphLegend } from "../src/renderer/views/GraphLegend.tsx";
+
+afterEach(() => {
+  cleanup();
+});
 
 const emptyAttribution = {
   originator: null,
@@ -24,7 +30,9 @@ function decision(overrides: Partial<DecisionRow> = {}): DecisionRow {
     attribution: emptyAttribution,
     proposedAt: "2026-07-01T10:00:00.000Z",
     question: "Which layout?",
-    chosen: [{ id: "CH1", text: "three-lane", evidence: ["fact/task_root/F-1"] }],
+    // Judgment-only accept requires non-empty rationale; evidence path also works
+    // when no conflict. Leave evidence empty so accept opens the rationale panel.
+    chosen: [{ id: "CH1", text: "three-lane", evidence: [] }],
     rejected: [{ id: "RJ1", text: "flat list", evidence: [], whyNot: "loses hierarchy" }],
     claims: [
       { id: "CH1", text: "three-lane" },
@@ -69,73 +77,131 @@ function fact(overrides: Partial<FactRef> = {}): FactRef {
   };
 }
 
-describe("task_01KXARE0RM · mutation failure must not paint success history", () => {
+const baseProps = () => {
   const d = decision();
-  const tasks = [task()];
-  const facts = [fact()];
-  const relations: RelationEdge[] = [];
+  return {
+    d,
+    decisions: [d],
+    tasks: [task()],
+    facts: [fact()],
+    relations: [] as RelationEdge[],
+  };
+};
 
-  it("records processed history only after onDecide resolves", async () => {
-    let resolveDecide!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      resolveDecide = resolve;
+/**
+ * Drive the production accept → judgment-only path on DecisionsView:
+ *   1. click Accept (opens rationale panel)
+ *   2. type a non-empty judgment rationale
+ *   3. click Confirm judgment-only
+ * Returns after the click handlers have been dispatched (mutation may still
+ * be settling — callers flush with act/waitFor).
+ */
+async function submitJudgmentOnlyAccept() {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("decision-accept"));
+  });
+  const input = await screen.findByTestId("decision-judgment-only-input");
+  await act(async () => {
+    fireEvent.change(input, { target: { value: "ship it based on judgment" } });
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("decision-accept-judgment-only"));
+  });
+}
+
+describe("task_01KXARE0RM · mutation failure must not paint success history", () => {
+  it("does not write processed history when production handleDecide rejects", async () => {
+    const { decisions, tasks, facts, relations } = baseProps();
+    const onDecide = vi.fn(async () => {
+      throw new Error("E_EVIDENCE_FLOOR: insufficient evidence");
     });
-    const htmlBefore = renderToStaticMarkup(
+
+    render(
       createElement(DecisionsView, {
-        decisions: [d],
+        decisions,
         tasks,
         relations,
         facts,
         onTraceSession: () => undefined,
-        onDecide: () => pending,
+        onDecide,
       }),
     );
-    expect(htmlBefore).not.toContain('data-testid="decision-processed-history"');
 
-    // Drive handleDecide via a thin wrapper that mirrors DecisionsView's
-    // settle-then-record contract (SSR cannot click; unit-test the policy).
-    const processed: Array<{ id: string; action: string }> = [];
-    async function decideWithHistory(
-      id: string,
-      action: "accept" | "reject" | "defer",
-      onDecide: (id: string, action: "accept" | "reject" | "defer") => Promise<void>,
-    ) {
-      try {
-        await onDecide(id, action);
-        processed.push({ id, action });
-      } catch {
-        // leave history empty on rejection
-      }
-    }
+    expect(screen.queryByTestId("decision-processed-history")).toBeNull();
 
-    const rejectDecide = Promise.reject(new Error("E_EVIDENCE_FLOOR: insufficient evidence"));
-    // Attach a no-op catcher so the rejection is not an unhandled rejection in the runner.
-    void rejectDecide.catch(() => undefined);
-    await decideWithHistory("dec_a", "accept", async () => {
-      await rejectDecide;
+    await submitJudgmentOnlyAccept();
+
+    // Flush the microtask queue so the async handleDecide catch path settles.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(processed).toEqual([]);
 
-    await decideWithHistory("dec_a", "accept", async () => {
-      /* success */
-    });
-    expect(processed).toEqual([{ id: "dec_a", action: "accept" }]);
-
-    // Keep the pending promise from leaking; resolve it for cleanliness.
-    resolveDecide();
-    await pending;
+    expect(onDecide).toHaveBeenCalledTimes(1);
+    expect(onDecide).toHaveBeenCalledWith("dec_a", "accept", "ship it based on judgment");
+    // Production settle-then-record: rejection leaves history empty.
+    expect(screen.queryByTestId("decision-processed-history")).toBeNull();
   });
 
-  it("surfaces backend failure as thrown Error so toast can show it (no silent success)", async () => {
-    async function decideFail() {
-      const result = {
-        ok: false as const,
-        error: { code: "E_EVIDENCE_FLOOR", hint: "insufficient evidence" },
-      };
-      if (!result.ok) throw new Error(`${result.error.code}: ${result.error.hint}`);
-      return result;
-    }
-    await expect(decideFail()).rejects.toThrow("E_EVIDENCE_FLOOR: insufficient evidence");
+  it("writes processed history only after production handleDecide resolves", async () => {
+    const { decisions, tasks, facts, relations } = baseProps();
+    let resolveDecide!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      resolveDecide = resolve;
+    });
+    const onDecide = vi.fn(() => pending);
+
+    render(
+      createElement(DecisionsView, {
+        decisions,
+        tasks,
+        relations,
+        facts,
+        onTraceSession: () => undefined,
+        onDecide,
+      }),
+    );
+
+    await submitJudgmentOnlyAccept();
+    expect(onDecide).toHaveBeenCalledTimes(1);
+    // Still in flight — history must stay empty.
+    expect(screen.queryByTestId("decision-processed-history")).toBeNull();
+
+    await act(async () => {
+      resolveDecide();
+      await pending;
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("decision-processed-history")).toBeTruthy();
+    });
+    expect(screen.getByTestId("decision-processed-history").textContent).toMatch(/accepted/i);
+  });
+
+  it("disables rationale submit while decidePending is true (double-click guard)", async () => {
+    const { decisions, tasks, facts, relations } = baseProps();
+    const onDecide = vi.fn(async () => undefined);
+
+    render(
+      createElement(DecisionsView, {
+        decisions,
+        tasks,
+        relations,
+        facts,
+        onTraceSession: () => undefined,
+        onDecide,
+        decidePending: true,
+      }),
+    );
+
+    // Accept opens the panel even when parent is pending only if buttons not
+    // disabled — decideBusy includes decidePending, so Accept itself is disabled.
+    const acceptBtn = screen.getByTestId("decision-accept");
+    expect(acceptBtn).toHaveProperty("disabled", true);
+    fireEvent.click(acceptBtn);
+    expect(screen.queryByTestId("decision-rationale-panel")).toBeNull();
+    expect(onDecide).not.toHaveBeenCalled();
   });
 });
 
@@ -156,7 +222,6 @@ describe("task_01KXARS0HW · coverage legend distinguishes fulfillment modes", (
     expect(html).toContain('data-testid="graph-legend-fulfillment-standing-policy"');
     expect(html).toContain('data-testid="graph-legend-fulfillment-unknown"');
     expect(html).toContain('data-testid="graph-legend-fulfillment-uncovered"');
-    // labels (en locale default in vitest)
     expect(html).toMatch(/evidenced|有证据/);
     expect(html).toMatch(/delivered|已交付/);
     expect(html).toMatch(/standing-policy|常设政策/);

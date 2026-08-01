@@ -304,6 +304,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
             // 保留 callback 签名以免 DecisionsView 改型,实际为 noop。
           }}
           onDecide={handleDecide}
+          decidePending={decideMutation.isPending}
           onCallAgent={handleCallAgent}
           onNavigateDecision={onNavigateDecision}
           onNavigateTask={onNavigateTask}

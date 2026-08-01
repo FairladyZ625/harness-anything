@@ -6,6 +6,7 @@ export function DecisionRationalePanel({
   action,
   draft,
   error,
+  submitting = false,
   onDraftChange,
   onCancel,
   onSubmit,
@@ -14,6 +15,8 @@ export function DecisionRationalePanel({
   action: RationaleAction;
   draft: string;
   error: string | null;
+  /** True while the decide mutation is in flight — disable submit to block double fire. */
+  submitting?: boolean;
   onDraftChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
@@ -32,8 +35,9 @@ export function DecisionRationalePanel({
           <button
             type="button"
             onClick={onSubmitExistingEvidence}
+            disabled={submitting}
             data-testid="decision-accept-existing-evidence"
-            className="mt-2 w-full rounded border border-accent/40 bg-accent/5 px-2.5 py-1.5 text-left text-[11px] font-semibold text-accent hover:bg-accent/10"
+            className="mt-2 w-full rounded border border-accent/40 bg-accent/5 px-2.5 py-1.5 text-left text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("views.decisionsVerdict.acceptWithExistingEvidence")}
           </button>
@@ -73,15 +77,17 @@ export function DecisionRationalePanel({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text"
+          disabled={submitting}
+          className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
         >
           {t("views.decisionsVerdict.cancelRationale")}
         </button>
         <button
           type="button"
           onClick={onSubmit}
+          disabled={submitting}
           data-testid={action === "accept" ? "decision-accept-judgment-only" : "decision-rationale-submit"}
-          className={`rounded px-2.5 py-1 text-[11px] font-semibold ${
+          className={`rounded px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
             action === "reject"
               ? "bg-danger/15 text-danger hover:bg-danger/25"
               : action === "accept"
