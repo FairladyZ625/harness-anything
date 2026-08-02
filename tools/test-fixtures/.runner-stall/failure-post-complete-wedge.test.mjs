@@ -7,8 +7,8 @@ if (process.env.HARNESS_FILE_WORKER_FIXTURE === "failure-post-complete-wedge") {
   });
 }
 
-test("prototype preserves the real failure before an exit wedge", () => {
+test("production runner preserves the real failure before an exit wedge", () => {
   if (process.env.HARNESS_FILE_WORKER_FIXTURE === "failure-post-complete-wedge") {
-    assert.fail("intentional prototype failure before exit wedge");
+    assert.fail("intentional production failure before exit wedge");
   }
 });

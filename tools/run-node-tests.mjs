@@ -1,71 +1,35 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { availableParallelism, tmpdir } from "node:os";
 import path, { resolve } from "node:path";
-import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { formatTestWeightDriftWarnings, parseJunitTestFileDurations } from "./test-weight-drift.mjs";
-import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
+import { discoverQosPrefix, withLocalHeavySlot } from "./local-resource-governance.mjs";
+import { runNodeTestFileSchedule } from "./node-test-file-scheduler.mjs";
 import {
   collectSlowTests,
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   formatTestTimeoutGuidance,
   parseNodeTestV8Flags,
-  parsePosixProcessGroupLine,
   parseRunnerArgs,
   resolveTestConcurrency,
   selectTestFiles
 } from "./node-test-runner-lib.mjs";
+import { persistNodeTestFailureDiagnostics } from "./node-test-stall-diagnostics.mjs";
 import {
-  createNodeTestStallPolicy,
   DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS,
   DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
 } from "./node-test-stall-policy.mjs";
-import {
-  capturePreKillDiagnostics,
-  persistNodeTestFailureDiagnostics,
-  STALL_REPORT_GRACE_MS,
-  STALL_TOTAL_ABORT_GRACE_MS
-} from "./node-test-stall-diagnostics.mjs";
-import {
-  canIgnoreReapedFileFailures,
-  completedIsolationFile,
-  parseCompletionLedger
-} from "./node-test-completion-ledger.mjs";
-import {
-  createNodeTestIsolationIdentityBroker,
-  NODE_TEST_ISOLATION_REGISTRY_ENV,
-  readRegisteredTestIsolations,
-  shouldUseNodeTestIsolationRegistry
-} from "./node-test-isolation-registry.mjs";
-import {
-  isolationCandidatesFromProcessGroup,
-  mergeIsolationCandidates,
-  reapPostCompletionChild,
-  signalProcessGroup,
-  stalledTestFilesFromProcessGroup,
-  terminateLingeringPosixProcessGroup,
-  terminateWindowsProcessTree
-} from "./node-test-process-tree.mjs";
 import { defaultTestTierNames, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-// `--test-timeout` bounds any single test, so silence lasting several windows
-// means the wedge is outside a test body — module load, a blocked thread, a
-// child that never exits — where the per-test timeout can never fire. Reporting
-// such a run forever is what let one wedged file burn a whole 15-minute CI job
-// and take the pull request out of the merge queue with no test named.
 
-// Reuse type-strip/compile output across the test host and every CLI
-// subprocess it spawns (integration tests cold-start `node src/index.ts` per
-// assertion). Native Node compile cache — no build step. Children inherit the
-// env, so the cache is shared. Lives under node_modules/.cache (already
-// git-ignored).
+// Native Node compile cache is shared by every directly owned file worker and
+// by the CLI subprocesses spawned from integration tests.
 process.env.NODE_COMPILE_CACHE ||= resolve(repoRoot, "node_modules/.cache/harness-node-compile");
 process.env.HARNESS_ACTOR ||= "agent:harness-test";
 process.env.HARNESS_GIT_AUTHOR_NAME ||= "Harness Test";
@@ -88,9 +52,6 @@ if (options.tier === "all") {
   selection.files = defaultTestTierNames.flatMap((tier) => testTierManifest[tier]).sort();
 }
 
-// Default CLI integration subprocesses preload a test-only fixture composition.
-// Daemon-focused tests opt into HARNESS_DAEMON_MODE=local with isolated roots;
-// no test re-enables the retired direct product writer.
 if (options.tier === "integration" || options.tier === "nightly" || options.tier === "all") {
   const fixturePreload = `--import=${pathToFileURL(resolve(repoRoot, "tools/cli-test-fixture-register.mjs")).href}`;
   process.env.HARNESS_CLI_TEST_FIXTURE_PRELOAD = "1";
@@ -98,9 +59,7 @@ if (options.tier === "integration" || options.tier === "nightly" || options.tier
 }
 
 if (selection.errors.length > 0) {
-  for (const error of selection.errors) {
-    console.error(error);
-  }
+  for (const error of selection.errors) console.error(error);
   await exitAfterStreamFlush(1);
 }
 
@@ -123,32 +82,22 @@ if (selection.files.length === 0) {
 }
 
 if (options.list) {
-  for (const file of selection.files) {
-    console.log(file);
-  }
+  for (const file of selection.files) console.log(file);
   await exitAfterStreamFlush(0);
 }
 
-// Cap process fan-out so full runs don't exhaust memory on developer laptops.
-// --concurrency wins; else HARNESS_TEST_CONCURRENCY; else, off CI, a
-// fixed per-session budget; in CI, node's own default.
-const concurrency = resolveTestConcurrency({
+const requestedConcurrency = resolveTestConcurrency({
   flagConcurrency: options.concurrency,
   envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
   isCi: Boolean(process.env.CI)
 });
-const concurrencyArgs =
-  concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
-const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
+// Node's test runner uses available parallelism minus one when the caller does
+// not provide a cap. Once Harness owns file spawning, that implicit default has
+// to become an explicit scheduler input to preserve CI fan-out.
+const concurrency = requestedConcurrency ?? Math.max(1, availableParallelism() - 1);
 const timingRoot = mkdtempSync(path.join(tmpdir(), "ha-test-timings-"));
-const timingPath = path.join(timingRoot, "results.xml");
+const junitRoot = path.join(timingRoot, "junit");
 const stallReportRoot = mkdtempSync(path.join(timingRoot, "stall-reports-"));
-const isolationRegistryRoot = path.join(timingRoot, "isolation-registry");
-const useIsolationRegistry = shouldUseNodeTestIsolationRegistry({
-  fixtureMode: process.env.HARNESS_RUNNER_STALL_FIXTURE,
-  fixtureFiles: options.fixtures
-});
-if (useIsolationRegistry) mkdirSync(isolationRegistryRoot);
 const stallDiagnosticMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_STALL_DIAGNOSTIC_MS,
   DEFAULT_NODE_TEST_STALL_DIAGNOSTIC_MS
@@ -158,212 +107,76 @@ const stallAbortWindows = positiveIntegerOrDefault(
   DEFAULT_NODE_TEST_STALL_ABORT_WINDOWS
 );
 
-process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
-  if (nodeTestV8Flags.length > 0) {
-    console.error(`[node-test-experiment] explicit V8 flags: ${nodeTestV8Flags.join(" ")}`);
-  }
-  const identityBroker = useIsolationRegistry
-    ? await createNodeTestIsolationIdentityBroker().catch((error) => {
-        console.warn(`[node-test-stall] isolation identity broker unavailable; using aggregate stall protection: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      })
-    : null;
-  const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
-  const invocation = prefixCommand(qosPrefix, process.execPath, [
-    ...nodeTestV8Flags,
-    ...(identityBroker !== null
-      ? [`--import=${pathToFileURL(resolve(repoRoot, "tools/node-test-isolation-register.mjs")).href}`]
-      : []),
-    "--test",
-    `--test-reporter=${pathToFileURL(resolve(repoRoot, "tools/node-test-completion-reporter.mjs")).href}`,
-    "--test-reporter-destination=stdout",
-    "--test-reporter=junit",
-    `--test-reporter-destination=${timingPath}`,
-    "--test-force-exit",
-    "--report-on-signal",
-    "--report-signal=SIGUSR2",
-    "--report-exclude-env",
-    `--report-directory=${stallReportRoot}`,
-    ...concurrencyArgs,
-    ...timeoutArgs,
-    ...selection.files
-  ]);
-  const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
-  if (identityBroker !== null) {
-    testEnvironment.env[NODE_TEST_ISOLATION_REGISTRY_ENV] = isolationRegistryRoot;
-    Object.assign(testEnvironment.env, identityBroker.environment);
-  }
-  const child = spawn(invocation.command, invocation.args, {
-    cwd: repoRoot,
-    stdio: ["inherit", "pipe", "pipe", "pipe"],
-    env: testEnvironment.env,
-    detached: process.platform !== "win32"
-  });
-  const removeParentSignalForwarding = installTestTreeSignalForwarding(child);
-
-  let output = "";
-  let completionOutput = "";
-  let stallAbortStarted = false;
-  let stallTickStarted = false;
-  const reapingPids = new Set();
-  const inFlightReaps = new Set();
-  const reapedFiles = new Set();
-  const stallPolicy = createNodeTestStallPolicy({
-    diagnosticIntervalMs: stallDiagnosticMs,
-    abortWindows: stallAbortWindows,
-    testTimeoutMs: options.testTimeoutMs,
-    startedAt: performance.now()
-  });
-  const noteOutput = (text) => {
-    stallPolicy.noteOutput(text, performance.now());
-  };
-  const startStallAbort = (input) => {
-    if (stallAbortStarted) return;
-    stallAbortStarted = true;
-    void abortStalledRun({ child, ...input });
-  };
-  const startPostCompleteReap = ({ isolationChildPid, file, identity, processGroupMembers }) => {
-    if (reapingPids.has(isolationChildPid)) return;
-    reapingPids.add(isolationChildPid);
-    const reap = reapPostCompletionChild({
-      hostPid: child.pid,
-      isolationChildPid,
-      file,
-      identity,
-      probeIdentity: identityBroker?.matches,
-      captureDiagnostics: () => captureBoundedPreKillDiagnostics(
-        child.pid,
-        processGroupMembers,
-        isolationChildPid
-      )
-    }).then(async (reaped) => {
-      if (process.env.HARNESS_RUNNER_STALL_FIXTURE === "post-complete-close-before-reap") {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
-      }
-      if (reaped) reapedFiles.add(file);
-    }).finally(() => {
-      reapingPids.delete(isolationChildPid);
-      inFlightReaps.delete(reap);
-      stallPolicy.resumeAfterReap(performance.now());
-    });
-    inFlightReaps.add(reap);
-  };
-  const inspectStallState = async () => {
-    if (stallTickStarted || stallAbortStarted || reapingPids.size > 0) return;
-    stallTickStarted = true;
-    try {
-      const processGroupLines = process.platform === "win32" || child.pid === undefined
-        ? []
-        : await readPosixProcessGroup(child.pid);
-      if (child.exitCode !== null || child.signalCode !== null || stallAbortStarted) return;
-      const processGroupMembers = processGroupLines
-        .map((line) => parsePosixProcessGroupLine(line))
-        .filter((member) => member !== null);
-      const processGroupCandidates = isolationCandidatesFromProcessGroup(
-        processGroupMembers,
-        child.pid,
-        repoRoot
-      );
-      const completionLedger = readCompletionLedger();
-      const registeredCompletionCandidates = identityBroker !== null
-        ? (await readRegisteredTestIsolations({
-            registryRoot: isolationRegistryRoot,
-            repoRoot,
-            hostPid: child.pid,
-            selectedFiles: selection.files,
-            probeIdentity: identityBroker.matches
-          })).filter((candidate) => completedIsolationFile(completionLedger, candidate.files) !== null)
-        : [];
-      const isolationCandidates = mergeIsolationCandidates(
-        registeredCompletionCandidates,
-        processGroupCandidates
-      );
-      const decision = stallPolicy.tick({
-        at: performance.now(),
-        isolationCandidates
-      });
-      if (decision.diagnostic !== null) {
-        emitStallDiagnostics({
-          child,
-          silentForMs: decision.diagnostic.silentForMs,
-          processGroupLines
-        });
-      }
-      if (decision.abort === null) return;
-      if (decision.abort.kind === "isolation-wedge") {
-        const candidate = isolationCandidates.find(
-          ({ pid }) => pid === decision.abort.isolationChildPid
-        );
-        const completion = candidate === undefined
-          ? null
-          : completedIsolationFile(completionLedger, candidate.files);
-        if (completion !== null) {
-          startPostCompleteReap({
-            isolationChildPid: decision.abort.isolationChildPid,
-            file: completion.file,
-            identity: candidate.identity,
-            processGroupMembers
-          });
-          return;
-        }
-      }
-      const snapshotFiles = stalledTestFilesFromProcessGroup(processGroupMembers, child.pid, repoRoot);
-      startStallAbort({
-        silentMs: decision.abort.silentMs,
-        silentWindows: decision.abort.silentWindows,
-        timeoutAlreadyReported: /test timed out after \d+ms/u.test(output),
-        isolationChildPid: decision.abort.kind === "isolation-wedge"
-          ? decision.abort.isolationChildPid
-          : undefined,
-        stalledFiles: decision.abort.kind === "isolation-wedge"
-          ? decision.abort.files
-          : snapshotFiles,
-        processGroupMembers
-      });
-    } finally {
-      stallTickStarted = false;
+try {
+  process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
+    if (nodeTestV8Flags.length > 0) {
+      console.error(`[node-test-experiment] explicit V8 flags: ${nodeTestV8Flags.join(" ")}`);
     }
-  };
-  const stallDiagnosticTimer = setInterval(() => {
-    void inspectStallState();
-  }, stallDiagnosticMs);
-  stallDiagnosticTimer.unref();
-  let windowsTreeTerminationStarted = false;
-  const terminateTimedOutWindowsTree = () => {
-    if (process.platform !== "win32" || windowsTreeTerminationStarted || !/test timed out after \d+ms/u.test(output)) return;
-    windowsTreeTerminationStarted = true;
-    console.error("node --test reported a timeout; terminating its process tree");
-    terminateWindowsProcessTree(child);
-  };
-  child.stdout.on("data", (chunk) => {
-    const text = chunk.toString();
-    noteOutput(text);
-    output += text;
-    process.stdout.write(text);
-    terminateTimedOutWindowsTree();
-  });
-  child.stderr.on("data", (chunk) => {
-    const text = chunk.toString();
-    noteOutput(text);
-    output += text;
-    process.stderr.write(text);
-    terminateTimedOutWindowsTree();
-  });
-  child.stdio[3].on("data", (chunk) => {
-    completionOutput += chunk.toString();
-  });
-
-  return new Promise((resolveExitCode) => {
-    child.once("error", (error) => {
-      clearInterval(stallDiagnosticTimer);
-      removeParentSignalForwarding();
-      console.error(error.message);
-      identityBroker?.dispose();
-      testEnvironment.cleanup();
+    const commandPrefix = lease.inherited ? [] : discoverQosPrefix();
+    const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
+    let schedule;
+    try {
+      schedule = await runNodeTestFileSchedule({
+        files: selection.files,
+        concurrency,
+        env: testEnvironment.env,
+        nodeTestV8Flags,
+        commandPrefix,
+        testTimeoutMs: options.testTimeoutMs,
+        diagnosticIntervalMs: stallDiagnosticMs,
+        abortWindows: stallAbortWindows,
+        junitRoot,
+        stallReportRoot,
+        onEvent: process.env.HARNESS_NODE_TEST_EVENT_TRACE === "1"
+          ? (event) => console.error(`[node-test-worker-event] ${JSON.stringify(event)}`)
+          : undefined
+      });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       persistNodeTestFailureDiagnostics({
-        completionOutput,
-        error: error.message,
+        completionOutput: "",
+        error: error instanceof Error ? error.message : String(error),
         exitCode: null,
+        leakedDescendants: false,
+        nodeTestV8Flags,
+        reapedFiles: new Set(),
+        repoRoot,
+        selectedFiles: selection.files,
+        signal: null,
+        tier: options.tier,
+        timingRoot
+      });
+      return 1;
+    } finally {
+      testEnvironment.cleanup();
+    }
+
+    const combinedOutput = schedule.workers
+      .map((worker) => `${worker.output}${worker.errorOutput}`)
+      .join("");
+    printAggregateSummary(schedule.counts, schedule.durationMs);
+    inspectWeightDrift(schedule.workers);
+    const slowTests = collectSlowTests(combinedOutput, options.slowThresholdMs);
+    console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+
+    const reapedFiles = new Set(schedule.workers
+      .filter((worker) => worker.outcome === "passed-after-reap")
+      .map((worker) => worker.file));
+    if (reapedFiles.size > 0) {
+      console.error(
+        `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated forced-termination file failure(s) is no longer part of verdict authority; typed proof accepted the direct worker result`
+      );
+    }
+
+    if (schedule.exitCode !== 0) {
+      const timeoutGuidance = formatTestTimeoutGuidance(combinedOutput, options.testTimeoutMs);
+      if (timeoutGuidance !== null) console.error(`\n${timeoutGuidance}`);
+      const identityGuidance = gitFixtureIdentityGuidance(combinedOutput);
+      if (identityGuidance !== null) console.error(`\n${identityGuidance}`);
+      persistNodeTestFailureDiagnostics({
+        completionOutput: schedule.workers.map((worker) => worker.completionOutput).join(""),
+        error: null,
+        exitCode: schedule.exitCode,
         leakedDescendants: false,
         nodeTestV8Flags,
         reapedFiles,
@@ -373,74 +186,39 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         tier: options.tier,
         timingRoot
       });
-      rmSync(timingRoot, { recursive: true, force: true });
-      resolveExitCode(1);
-    });
-    child.once("close", async (code, signal) => {
-      clearInterval(stallDiagnosticTimer);
-      removeParentSignalForwarding();
-      await Promise.allSettled(inFlightReaps);
-      identityBroker?.dispose();
-      const leakedDescendants = await terminateLingeringPosixProcessGroup(child.pid);
-      testEnvironment.cleanup();
-      const completionLedger = readCompletionLedger();
-      try {
-        const measured = parseJunitTestFileDurations(readFileSync(timingPath, "utf8"), repoRoot);
-        for (const warning of formatTestWeightDriftWarnings(measured)) console.warn(warning);
-      } catch (error) {
-        console.warn(`Unable to inspect test weight drift: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      if (signal !== null) {
-        console.error(`node --test terminated by signal ${signal}`);
-      }
-      if (code !== 0 || signal !== null) {
-        const timeoutGuidance = formatTestTimeoutGuidance(output, options.testTimeoutMs);
-        if (timeoutGuidance !== null) console.error(`\n${timeoutGuidance}`);
-        const guidance = gitFixtureIdentityGuidance(output);
-        if (guidance !== null) console.error(`\n${guidance}`);
-      }
-      const slowTests = collectSlowTests(output, options.slowThresholdMs);
-      console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-      const ignoredSyntheticFailures = code === 1
-        && signal === null
-        && !leakedDescendants
-        && canIgnoreReapedFileFailures({
-          ledger: completionLedger,
-          selectedFiles: selection.files,
-          reapedFiles
-        });
-      if (ignoredSyntheticFailures) {
-        console.error(
-          `[node-test-stall] accepted ${reapedFiles.size} completed file result(s); ignoring only the host-generated forced-termination file failure(s)`
-        );
-      }
-      const finalExitCode = signal === null && !leakedDescendants
-        ? (ignoredSyntheticFailures ? 0 : (code ?? 1))
-        : 1;
-      if (finalExitCode !== 0) {
-        persistNodeTestFailureDiagnostics({
-          completionOutput,
-          error: null,
-          exitCode: code,
-          leakedDescendants,
-          nodeTestV8Flags,
-          reapedFiles,
-          repoRoot,
-          selectedFiles: selection.files,
-          signal,
-          tier: options.tier,
-          timingRoot
-        });
-      }
-      rmSync(timingRoot, { recursive: true, force: true });
-      resolveExitCode(finalExitCode);
-    });
+    }
+    return schedule.exitCode;
   });
+} finally {
+  rmSync(timingRoot, { recursive: true, force: true });
+}
 
-  function readCompletionLedger() {
-    return parseCompletionLedger(completionOutput, repoRoot);
+function inspectWeightDrift(workers) {
+  const measured = new Map();
+  try {
+    for (const worker of workers) {
+      if (!existsSync(worker.junitPath)) continue;
+      const fileDurations = parseJunitTestFileDurations(readFileSync(worker.junitPath, "utf8"), repoRoot);
+      for (const [file, durationMs] of fileDurations) {
+        measured.set(file, (measured.get(file) ?? 0) + durationMs);
+      }
+    }
+    for (const warning of formatTestWeightDriftWarnings(measured)) console.warn(warning);
+  } catch (error) {
+    console.warn(`Unable to inspect test weight drift: ${error instanceof Error ? error.message : String(error)}`);
   }
-});
+}
+
+function printAggregateSummary(counts, durationMs) {
+  console.log(`ℹ tests ${counts.tests}`);
+  console.log("ℹ suites 0");
+  console.log(`ℹ pass ${counts.passed}`);
+  console.log(`ℹ fail ${counts.failed}`);
+  console.log(`ℹ cancelled ${counts.cancelled}`);
+  console.log(`ℹ skipped ${counts.skipped}`);
+  console.log(`ℹ todo ${counts.todo}`);
+  console.log(`ℹ duration_ms ${durationMs.toFixed(6)}`);
+}
 
 function positiveIntegerOrDefault(value, fallback) {
   if (value === undefined || value === "") return fallback;
@@ -455,183 +233,4 @@ async function exitAfterStreamFlush(code) {
 
 function flushStream(stream) {
   return new Promise((resolveFlush) => stream.write("", resolveFlush));
-}
-
-function emitStallDiagnostics({
-  child,
-  silentForMs,
-  processGroupLines
-}) {
-  console.error(`\n[node-test-stall] no test output for ${silentForMs}ms; test host pid=${child.pid ?? "unknown"}`);
-  console.error(`[node-test-stall] runner active resources: ${JSON.stringify(process.getActiveResourcesInfo())}`);
-  if (process.platform !== "win32" && child.pid !== undefined) {
-    // Diagnostics are deliberately observational. Signaling a process merely
-    // because its argv advertises `--report-on-signal` races Node's handler
-    // installation and can turn the probe itself into the cause of failure.
-    dumpPosixProcessGroup(processGroupLines, child.pid);
-  }
-}
-
-/**
- * Ends a run whose output has stopped for several diagnostic windows. Node's own
- * `--test-timeout` cannot rescue this state, so the runner has to name what it
- * caught and fail, rather than stay silent until the CI job's own timeout kills
- * it with no test named.
- */
-async function abortStalledRun({
-  child,
-  silentMs,
-  silentWindows,
-  timeoutAlreadyReported,
-  isolationChildPid,
-  stalledFiles,
-  processGroupMembers = []
-}) {
-  // When `--test-timeout` already fired, the failing test is named and this is
-  // just the timeout path's own cleanup arriving early: the run lingers only
-  // because a leaked descendant holds the process group open.
-  if (timeoutAlreadyReported) {
-    console.error("node --test reported a timeout; terminating its process tree");
-    if (process.platform === "win32") {
-      terminateWindowsProcessTree(child);
-      return;
-    }
-    if (child.pid === undefined) return;
-    await diagnoseThenTerminateStalledTree(child.pid, processGroupMembers, isolationChildPid);
-    return;
-  }
-  if (process.platform === "win32") {
-    console.error(`\n[node-test-stall] no test output for ${silentMs}ms across ${silentWindows} windows; terminating the test process tree`);
-    terminateWindowsProcessTree(child);
-    return;
-  }
-  if (child.pid === undefined) return;
-  const namedFiles = stalledFiles ?? [];
-  const reason = isolationChildPid === undefined
-    ? `no test output for ${silentMs}ms across ${silentWindows} windows`
-    : `isolation child pid=${isolationChildPid} remained wedged for ${silentMs}ms across ${silentWindows} windows`;
-  console.error(`\n[node-test-stall] ${reason}; --test-timeout cannot fire here, so the runner is terminating the test process tree`);
-  console.error(namedFiles.length > 0
-    ? `[node-test-stall] stalled test file(s): ${namedFiles.join(", ")}`
-    : "[node-test-stall] stalled test file could not be identified from the process group");
-  await diagnoseThenTerminateStalledTree(child.pid, processGroupMembers, isolationChildPid);
-}
-
-async function diagnoseThenTerminateStalledTree(hostPid, processGroupMembers, isolationChildPid) {
-  const startedAt = performance.now();
-  await captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, isolationChildPid);
-  signalProcessGroup(hostPid, "SIGTERM");
-  const remainingGraceMs = Math.max(
-    0,
-    STALL_TOTAL_ABORT_GRACE_MS - (performance.now() - startedAt)
-  );
-  if (remainingGraceMs > 0) {
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, remainingGraceMs));
-  }
-  signalProcessGroup(hostPid, "SIGKILL");
-  console.error(
-    `[node-test-stall] diagnostic grace ended; process tree kill completed within ${STALL_TOTAL_ABORT_GRACE_MS}ms budget (report grace ${STALL_REPORT_GRACE_MS}ms)`
-  );
-}
-
-async function captureBoundedPreKillDiagnostics(hostPid, processGroupMembers, preferredPid) {
-  let diagnosticDeadlineTimer;
-  await Promise.race([
-    capturePreKillDiagnostics({
-      members: processGroupMembers,
-      hostPid,
-      repoRoot,
-      reportDirectory: stallReportRoot,
-      preferredPid
-    }).catch((error) => {
-      console.error(
-        `[node-test-stall] pre-kill diagnostics failed; continuing termination: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }),
-    new Promise((resolveDeadline) => {
-      diagnosticDeadlineTimer = setTimeout(() => {
-        console.error(
-          `[node-test-stall] pre-kill diagnostics exceeded ${STALL_TOTAL_ABORT_GRACE_MS}ms total abort budget; continuing termination`
-        );
-        resolveDeadline();
-      }, STALL_TOTAL_ABORT_GRACE_MS);
-      diagnosticDeadlineTimer.unref?.();
-    })
-  ]);
-  clearTimeout(diagnosticDeadlineTimer);
-}
-
-function dumpPosixProcessGroup(lines, processGroupId) {
-  const columnDescription = process.platform === "darwin"
-    ? "pid ppid pgid stat elapsed argv"
-    : "pid ppid pgid stat elapsed wait-channel argv";
-  console.error(`[node-test-stall] process group (${columnDescription}):`);
-  console.error(lines.length > 0 ? lines.join("\n") : `[node-test-stall] no processes found for pgid ${processGroupId}`);
-}
-
-function readPosixProcessGroup(processGroupId) {
-  const psColumns = process.platform === "darwin"
-    ? "pid=,ppid=,pgid=,stat=,etime=,command="
-    : "pid=,ppid=,pgid=,stat=,etime=,wchan:32=,args=";
-  return new Promise((resolveLines) => {
-    const ps = spawn("ps", ["-eo", psColumns], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    ps.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    ps.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    ps.once("error", (error) => {
-      console.error(`[node-test-stall] unable to inspect process group: ${error.message}`);
-      resolveLines([]);
-    });
-    ps.once("close", (code) => {
-      if (code !== 0) {
-        console.error(`[node-test-stall] ps exited ${code}: ${stderr.trim()}`);
-        resolveLines([]);
-        return;
-      }
-      resolveLines(stdout.split(/\r?\n/u).filter((line) => {
-        const match = /^\s*\d+\s+\d+\s+(\d+)\s+/u.exec(line);
-        return match?.[1] === String(processGroupId);
-      }));
-    });
-  });
-}
-
-/**
- * The test host owns a detached process group on POSIX so ordinary cleanup can
- * terminate every descendant. That also means a signal sent only to this
- * wrapper would otherwise orphan the group. Forward parent termination before
- * the local-resource lease handler re-raises the signal with its default
- * disposition.
- */
-function installTestTreeSignalForwarding(child) {
-  const handlers = new Map();
-  const remove = () => {
-    for (const [signal, handler] of handlers) process.off(signal, handler);
-  };
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    const handler = () => {
-      remove();
-      try {
-        if (process.platform === "win32") {
-          terminateWindowsProcessTree(child);
-        } else if (child.pid !== undefined) {
-          signalProcessGroup(child.pid, signal);
-        }
-      } finally {
-        // This listener intentionally runs first. Re-raising preserves the
-        // caller-visible signal exit after the process tree has been cleaned.
-        process.kill(process.pid, signal);
-      }
-    };
-    handlers.set(signal, handler);
-    process.prependOnceListener(signal, handler);
-  }
-  return remove;
 }

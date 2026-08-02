@@ -327,6 +327,37 @@ test("runner reaps a completed isolation child without POSIX process inspection"
   assert.match(output, /accepted 1 completed file result\(s\); ignoring only the host-generated forced-termination file failure/u);
 });
 
+test("runner preserves a failed proof when the direct worker wedges during exit", () => {
+  const childEnv = {
+    ...process.env,
+    HARNESS_FILE_WORKER_FIXTURE: "failure-post-complete-wedge",
+    HARNESS_NODE_TEST_EVENT_TRACE: "1",
+    HARNESS_TEST_CONCURRENCY: "1",
+    HARNESS_TEST_STALL_DIAGNOSTIC_MS: "250",
+    HARNESS_TEST_STALL_ABORT_WINDOWS: "2"
+  };
+  if (process.platform !== "win32") childEnv.PATH = path.dirname(process.execPath);
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--fixture", "tools/test-fixtures/.runner-stall/failure-post-complete-wedge.test.mjs",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 15_000
+  });
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /intentional production failure before exit wedge/u);
+  assert.match(output, /"phase":"proof-flushed"[^\n]+"success":false/u);
+  assert.match(output, /"phase":"settled"[^\n]+"outcome":"failed-after-reap"/u);
+  assert.doesNotMatch(output, /accepted 1 completed file result/u);
+});
+
 test("runner waits for an in-flight reap record before accepting the host result", () => {
   const childEnv = {
     ...process.env,

@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "check": "npm run typecheck && npm run lint && npm test && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface check --exclude typecheck,lint,test-node-all,test-gui",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -b tools/tsconfig.json --pretty false",
     "lint": "eslint .",
     "test": "node tools/run-node-tests.mjs",
     "test:gui": "node tools/run-gui-tests.mjs",
