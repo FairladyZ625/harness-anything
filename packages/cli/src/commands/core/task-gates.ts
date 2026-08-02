@@ -54,13 +54,13 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   }
   const complete = () => context.currentSessionProbe.currentSession.pipe(Effect.flatMap((session) => orchestrator.completeTask({
     taskId: action.taskId,
-    executionId: action.executionId,
+    executionId: action.executionId ?? undefined,
     reviewerId: action.reviewerId,
-    ciGate: action.ciGate,
+    ciGate: action.ciGate ?? undefined,
     actor: context.taskHolderPrincipal(),
     evidenceMode: action.evidenceMode,
-    commitRef: action.commitRef,
-    judgment: action.judgment,
+    commitRef: action.commitRef ?? undefined,
+    judgment: action.judgment ?? undefined,
     sessionRef: `session/${session.sessionId}`,
     preflight: action.dryRun === true
   })),

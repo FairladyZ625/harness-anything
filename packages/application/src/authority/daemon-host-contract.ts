@@ -24,6 +24,48 @@ import type { ProvenanceSessionExporterRejected, ProvenanceSessionExportResult }
 import type { LocalControllerServiceOptions } from "../local-controller-runtime-options.ts";
 import type { DaemonLogService } from "../daemon-log-contract.ts";
 import type { DaemonStatusResultV2 } from "../daemon-status-contract.ts";
+export {
+  decodeTaskCompleteTransitionCommand,
+  TaskCompleteTransitionCommandDecodeError
+} from "./task-complete-transition-command.ts";
+
+export type TaskCompleteConsentSource =
+  | { readonly kind: "recorded-consent"; readonly consentId: string }
+  | { readonly kind: "utterance"; readonly utterance: string }
+  | { readonly kind: "standing-policy"; readonly decisionId: string }
+  | { readonly kind: "asserted-rationale"; readonly rationale: string };
+
+export type TaskCompleteExternalCheckpointRef =
+  | { readonly kind: "document-publication"; readonly ref: string }
+  | { readonly kind: "code-doc-reconciliation"; readonly ref: string };
+
+export interface TaskCompleteApproval {
+  readonly executionId: string | null;
+  readonly findings: string;
+  readonly evidenceChecked: ReadonlyArray<string>;
+  readonly rationale: string;
+  readonly archiveWarningsAcknowledged: boolean;
+  readonly consentSource: TaskCompleteConsentSource;
+  readonly consentActions: ReadonlyArray<ConsentAction> | null;
+  readonly paths: ReadonlyArray<string>;
+  readonly prRef: string | null;
+}
+
+/** Complete caller-owned intent; null and [] express non-applicability without decoder defaults. */
+export interface TaskCompleteTransitionCommand {
+  readonly kind: "task-complete";
+  readonly taskId: string;
+  readonly executionId: string | null;
+  readonly ciGate: "passed" | "failed" | "not-applicable" | null;
+  readonly reviewerId: string;
+  readonly evidenceMode: "execution-review" | "commit-anchor";
+  readonly commitRef: string | null;
+  readonly judgment: string | null;
+  readonly approval: TaskCompleteApproval | null;
+  readonly externalCheckpointRefs: ReadonlyArray<TaskCompleteExternalCheckpointRef>;
+  readonly callerIdempotencyKey: string;
+  readonly dryRun: boolean;
+}
 
 export interface AuthorityHostEvidenceInput {
   readonly type: string;
@@ -121,15 +163,8 @@ export type AuthorityHostCommandAction =
   | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
   | { readonly kind: "task-consent-record"; readonly taskId: string; readonly executionId: string; readonly utterance?: string; readonly standingPolicyDecisionId?: string; readonly assertedRationale?: string; readonly consentActions: ReadonlyArray<ConsentAction> }
   | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId?: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly generatedConsentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
-  | {
-      readonly kind: "task-complete";
-      readonly taskId: string;
-      readonly executionId?: string;
+  | TaskCompleteTransitionCommand & {
       readonly completionContractBodySha256?: string | null;
-      readonly evidenceMode?: "execution-review" | "commit-anchor";
-      readonly commitRef?: string;
-      readonly judgment?: string;
-      readonly ciGate?: "passed" | "failed" | "not-applicable";
       readonly completionApplicableGates?: ReadonlyArray<string>;
     }
   | { readonly kind: "task-relate"; readonly sourceTaskId: string; readonly relationType: "depends-on"; readonly targetTaskId: string; readonly rationale: string }
@@ -244,7 +279,7 @@ export interface DaemonCommandHostServices<
   Result extends DaemonHostCommandResult,
   Actor = unknown
 > {
-  readonly parseCommandPayload: (payload: Readonly<Record<string, unknown>> | undefined) => Command;
+  readonly parseCommandPayload: (payload: unknown) => Command;
   readonly normalizeCommand: (command: Command, currentSession: CurrentSessionRef) => Promise<Command>;
   readonly authorityCommand: (command: Command) => AuthorityHostCommand | undefined;
   readonly authorityIngressFor: (kind: string) => AuthorityIngressAdapter | undefined;

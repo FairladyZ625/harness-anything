@@ -417,7 +417,7 @@ function taskCompletionIntent(
   const status = /^  status:\s*(\S+)$/mu.exec(taskSnapshot.body)?.[1] ?? "unknown";
   const evaluation = evaluateTaskCompletionAuthority({
     taskId,
-    executionId: action.executionId,
+    executionId: action.executionId ?? undefined,
     mode: action.evidenceMode ?? "execution-review",
     status,
     documents,
@@ -425,9 +425,9 @@ function taskCompletionIntent(
     sessionRef: `session/${sessionId}`,
     judgedAt: completedAt,
     applicableGates: completionApplicableGates(action),
-    ciGate: action.ciGate,
-    commitRef: action.commitRef,
-    judgment: action.judgment,
+    ciGate: action.ciGate ?? undefined,
+    commitRef: action.commitRef ?? undefined,
+    judgment: action.judgment ?? undefined,
     rootDir,
     versionControlSystem: makeLocalVersionControlSystem()
   });

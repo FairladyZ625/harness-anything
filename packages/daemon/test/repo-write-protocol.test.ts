@@ -11,6 +11,7 @@ import {
   encodeRepoWriteBytes,
   parseRepoWriteChildMessage,
   parseRepoWriteParentMessage,
+  repoWriteLegacyCommandName,
   repoWriteProtocolType,
   stringifyRepoWriteChildMessage,
   stringifyRepoWriteParentMessage,
@@ -45,6 +46,92 @@ test("submit codec carries command DTOs as JSON-safe values with explicit scalar
   assert.deepEqual(
     [...decodeRepoWriteBytes(decoded.kind === "submit" ? decoded.command.payload.bytes : undefined)],
     [0, 127, 255]
+  );
+});
+
+test("task-complete is a strict typed wire branch instead of a generic command payload", () => {
+  const action = {
+    kind: "task-complete",
+    taskId: "task_TYPED",
+    executionId: "exe_TYPED",
+    ciGate: "passed",
+    reviewerId: "reviewer_TYPED",
+    evidenceMode: "execution-review",
+    commitRef: "HEAD",
+    judgment: null,
+    approval: {
+      executionId: "exe_TYPED",
+      findings: "Reviewed.",
+      evidenceChecked: ["test:typed-wire"],
+      rationale: "The evidence supports completion.",
+      archiveWarningsAcknowledged: true,
+      consentSource: { kind: "recorded-consent", consentId: "cns_TYPED" },
+      consentActions: null,
+      paths: ["packages/daemon/src/runtime/repo-write-protocol.ts"],
+      prRef: "#typed"
+    },
+    externalCheckpointRefs: [
+      { kind: "document-publication", ref: "checkpoint:document" }
+    ],
+    callerIdempotencyKey: "caller-typed-wire",
+    dryRun: false
+  };
+  const frame = {
+    ...base("submit"),
+    requestId: "request-task-complete",
+    command: {
+      commandName: "task-complete",
+      actor: { personId: "person_zeyu" },
+      context: {},
+      payload: {
+        command: { rootDir: "/repo", json: true, action },
+        session: {
+          runtime: "codex",
+          sessionId: "session_TYPED",
+          source: "runtime",
+          detectedAt: "2026-08-03T00:00:00.000Z"
+        }
+      }
+    }
+  };
+  const decoded = decodeRepoWriteParentMessage(frame);
+  assert.equal(decoded.kind, "submit");
+  assert.equal(decoded.kind === "submit" ? decoded.command.commandName : undefined, "task-complete");
+  assert.deepEqual(
+    decoded.kind === "submit" ? decoded.command.payload.command.action : undefined,
+    action
+  );
+
+  assert.throws(() => decodeRepoWriteParentMessage({
+    ...frame,
+    command: {
+      ...frame.command,
+      payload: {
+        ...frame.command.payload,
+        command: {
+          ...frame.command.payload.command,
+          action: { ...action, silentlyDropped: true }
+        }
+      }
+    }
+  }), /TASK_COMPLETE_TRANSITION_COMMAND_INVALID/u);
+  assert.throws(() => decodeRepoWriteParentMessage({
+    ...frame,
+    command: { ...frame.command, payload: { arbitrary: "generic payload" } }
+  }), /unknown keys|TASK_COMPLETE_TRANSITION_COMMAND_INVALID/u);
+  assert.throws(() => decodeRepoWriteParentMessage({
+    ...frame,
+    command: {
+      ...frame.command,
+      payload: {
+        ...frame.command.payload,
+        command: { ...frame.command.payload.command, transportEscape: true }
+      }
+    }
+  }), /exact message fields/u);
+  assert.throws(
+    () => repoWriteLegacyCommandName("task-complete"),
+    /REPO_WRITE_TASK_COMPLETE_TYPED_COMMAND_REQUIRED/u
   );
 });
 

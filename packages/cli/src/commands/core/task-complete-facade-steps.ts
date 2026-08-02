@@ -10,13 +10,10 @@ import {
   type ExecutionRecord
 } from "@harness-anything/kernel";
 import { normalizeReviewExecutionSelection } from "../../cli/review-execution-normalizer.ts";
-import type { ParsedCommand } from "../../cli/types.ts";
+import type { CliTaskCompleteAction, ParsedCommand } from "../../cli/types.ts";
 
 export type TaskCompleteCommand = ParsedCommand & {
-  readonly action: Extract<
-    ParsedCommand["action"],
-    { readonly kind: "task-complete" }
-  >;
+  readonly action: CliTaskCompleteAction;
 };
 
 export async function taskCompleteCodeDocAlreadyCurrent(

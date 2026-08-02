@@ -1,4 +1,7 @@
 // @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
+import { repoWriteCommandDtoFromDecodedFields, type RepoWriteCommandDto } from "./repo-write-command-dto.ts";
+export { repoWriteCommandDtoFromDecodedFields, repoWriteLegacyCommandName } from "./repo-write-command-dto.ts";
+export type { RepoWriteCommandDto, RepoWriteLegacyCommandDto, RepoWriteLegacyCommandName, RepoWriteTaskCompleteCommandDto, RepoWriteTaskCompleteCommandPayload, RepoWriteTaskCompleteWireCommand, RepoWriteTaskCompleteWireSession } from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 import type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
@@ -45,12 +48,6 @@ export const defaultRepoWriteProtocolLimits: RepoWriteProtocolLimits = {
 export type RepoWriteJsonPrimitive = string | number | boolean | null;
 export type RepoWriteJsonValue = RepoWriteJsonPrimitive | RepoWriteJsonObject | ReadonlyArray<RepoWriteJsonValue>;
 export interface RepoWriteJsonObject { readonly [key: string]: RepoWriteJsonValue }
-export interface RepoWriteCommandDto {
-  readonly commandName: string;
-  readonly actor: RepoWriteJsonObject;
-  readonly context: RepoWriteJsonObject;
-  readonly payload: RepoWriteJsonObject;
-}
 interface RepoWriteFrameBase {
   readonly protocol: typeof repoWriteProtocolType;
   readonly repoId: string;
@@ -228,17 +225,18 @@ function decodeCommandFrame<K extends "submit" | "direct">(
     ...baseFields(frame),
     kind,
     requestId: identifier(frame.requestId, "$.requestId", limits),
-    command: {
+    command: repoWriteCommandDtoFromDecodedFields({
       commandName: identifier(command.commandName, "$.command.commandName", limits),
       actor: jsonObject(command.actor, "$.command.actor", limits, budget, 1),
       context: jsonObject(command.context, "$.command.context", limits, budget, 1),
       payload: jsonObject(command.payload, "$.command.payload", limits, budget, 1)
-    }
+    }, "$.command", invalid)
   };
   return decoded as unknown as K extends "submit"
     ? RepoWriteSubmitFrame
     : RepoWriteDirectFrame;
 }
+
 function decodeOperationFrame<K extends "proceed" | "status" | "prepared">(
   frame: FrameRecord, limits: RepoWriteProtocolLimits, kind: K
 ): RepoWriteOperationFrame<K> {
