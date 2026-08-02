@@ -7,9 +7,11 @@ import {
   makeFactRelationSemanticCompilerV2,
   makeSessionExecutionReviewSemanticCompilerV2,
   makeTaskDecisionModuleSemanticCompilerV2,
+  makeTaskLifecycleTransitionSemanticCompilerV2,
   type ProductionAuthorityCompilerHostServices,
   sessionExecutionReviewTypedCommandsV2,
-  taskDecisionModuleTypedCommandsV2
+  taskDecisionModuleTypedCommandsV2,
+  taskLifecycleTransitionTypedCommandsV2
 } from "@harness-anything/application";
 import { createProductionCanonicalSemanticState } from "./production-authority-attempt-compiler.ts";
 import { makeProductionScriptIngestSemanticCompiler } from "./production-authority-script-ingest.ts";
@@ -76,5 +78,8 @@ export function createProductionAuthoritySemanticCompiler(
   }, {
     commandNames: consentTypedCommandsV2,
     compiler: makeConsentSemanticCompilerV2({ state: semanticState, rootInput })
+  }, {
+    commandNames: taskLifecycleTransitionTypedCommandsV2,
+    compiler: makeTaskLifecycleTransitionSemanticCompilerV2({ state: semanticState, rootInput })
   }]);
 }

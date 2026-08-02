@@ -123,6 +123,8 @@ export interface TaskHolderService {
   readonly assertActiveLease: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
   /** Admission-only check that never renews or rewrites a legacy v1 lease. */
   readonly assertActiveLeaseReadOnly: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
+  /** Hold the task-holder mutation fence while a terminal authored transaction proves the task is unheld. */
+  readonly withUnheldTask: <Result>(input: { readonly taskId: string }, run: () => Promise<Result>) => Promise<Result>;
   readonly reserveExecution: (input: { readonly taskId: string; readonly executionId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseReservation>;
   readonly withExecutionReservation: <Result>(input: {
     readonly taskId: string;
@@ -184,6 +186,13 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       } satisfies TaskHolderClaimResult;
     }),
     holder: async (input) => holderSnapshot(input.taskId, readHolderRecord(options.rootInput, input.taskId), now()),
+    withUnheldTask: (input, run) => withTaskHolderMutationLock(options.rootInput, input.taskId, async () => {
+      const snapshot = holderSnapshot(input.taskId, readHolderRecord(options.rootInput, input.taskId), now());
+      if (snapshot.effectiveHolder) {
+        throw new Error(`TASK_LIFECYCLE_HOLDER_RELEASE_REQUIRED:${input.taskId}`);
+      }
+      return run();
+    }),
     release: async (input) => {
       const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
         const at = now();

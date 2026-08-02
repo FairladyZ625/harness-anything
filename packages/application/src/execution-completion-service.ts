@@ -18,6 +18,7 @@ import {
   type WriteCoordinator
 } from "@harness-anything/kernel";
 import { assertExecutionTaskCompletable, executionHasArchiveWarnings } from "./execution-review-helpers.ts";
+import { resolveTaskCurrentRound } from "./task-lifecycle-transition-service.ts";
 
 export interface ExecutionCompletionService {
   readonly completeTaskExecution: (input: {
@@ -155,26 +156,21 @@ function resolveExecutionCompletionReadiness(input: {
       }
       return execution;
     });
-  const submitted = executions.filter((candidate) => candidate.state === "submitted");
-  const accepted = executions.filter((candidate) => candidate.state === "accepted")
-    .sort((left, right) => replayOrder(right, left));
   const staleActive = executions.filter((candidate) => candidate.state === "active");
-  const selected = input.executionId
-    ? executions.find((candidate) => candidate.execution_id === input.executionId)
-    : undefined;
-  const acceptedCandidate = submitted.length === 0 && (input.executionId
-    ? selected?.state === "accepted"
-    : accepted.length > 0);
-  const submittedCandidate = submitted.length === 1 && (!input.executionId
-    || selected?.state === "submitted");
-  const completedReplay = acceptedCandidate && taskStatus(input.documents) === "done";
-  if (!submittedCandidate && !acceptedCandidate) {
+  const currentRound = resolveTaskCurrentRound({
+    taskId: input.taskId,
+    executionId: input.executionId,
+    documents: input.documents
+  });
+  if (currentRound.kind === "manual-disposition" || currentRound.kind === "active") {
     const claimCommand = staleActive.length === 1
       ? `ha task start ${input.taskId} --execution-id ${staleActive[0]!.execution_id}`
       : staleActive.length > 1
         ? `ha task start ${input.taskId} --execution-id <authoritative-active-execution-id>`
         : `ha task start ${input.taskId}`;
-    const nextCommand = submitted.length > 1
+    const multipleOpen = currentRound.kind === "manual-disposition"
+      && currentRound.category === "multiple-open-rounds";
+    const nextCommand = multipleOpen
       ? `ha task review-execution ${input.taskId} --execution-id <one-to-retire> --verdict changes_requested --findings "<why this round is superseded>" --rationale "<why another submitted round remains authoritative>"`
       : `${claimCommand}\nha task submit ${input.taskId} --from-file <submission-packet.json>`;
     return {
@@ -182,13 +178,16 @@ function resolveExecutionCompletionReadiness(input: {
       staleActive,
       issues: [{
         code: "execution_submission_required",
-        message: `Task completion requires exactly one submitted or accepted Execution; found ${submitted.length} submitted and ${accepted.length} accepted${submitted.length > 1 ? ` (${submitted.map((candidate) => candidate.execution_id).join(", ")})` : ""}.`,
+        message: currentRound.kind === "active"
+          ? `Task completion requires a submitted Execution; current round ${currentRound.execution.execution_id} is active.`
+          : `Task completion requires no active Execution rounds and an unambiguous current round; manual disposition is ${currentRound.category} (${currentRound.candidateExecutionIds.join(", ") || "none"}).`,
         nextCommand
       }]
     };
   }
 
-  const execution = selected ?? submitted[0] ?? accepted[0]!;
+  const execution = currentRound.execution;
+  const completedReplay = currentRound.kind === "accepted-replay" && taskStatus(input.documents) === "done";
   const issues: ExecutionCompletionReadinessIssue[] = [];
   if (staleActive.length > 0) {
     issues.push({
@@ -241,11 +240,6 @@ function resolveExecutionCompletionReadiness(input: {
   }
 
   return { ok: issues.length === 0, executionId: execution.execution_id, execution, staleActive, issues };
-}
-
-function replayOrder(left: ExecutionRecord, right: ExecutionRecord): number {
-  return (left.closed_at ?? "").localeCompare(right.closed_at ?? "")
-    || left.execution_id.localeCompare(right.execution_id);
 }
 
 function reviewHasCompletionConsent(

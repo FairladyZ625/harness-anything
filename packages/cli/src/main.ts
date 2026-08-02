@@ -39,7 +39,7 @@ import {
 import { daemonServeAdmissionOptions } from "./daemon/daemon-serve-settings.ts";
 import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 import { runTaskSubmitFacade } from "./commands/core/task-submit-facade.ts";
-import { runTaskCloseoutFacade, runTaskCompleteFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
+import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-lifecycle-facade.ts";
 import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 import { startCliTimingPhase } from "./cli/timing.ts";
 import { readProjectHarnessSettings } from "./commands/settings.ts";
@@ -81,12 +81,7 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     ? await runTaskSubmitFacade(parsed.value, runParsedCommand)
     : parsed.value.action.kind === "task-start"
       ? await runTaskStartFacade(parsed.value, runParsedCommand)
-      : parsed.value.action.kind === "task-complete"
-          && (parsed.value.action.approval !== undefined
-            || parsed.value.action.evidenceMode === "commit-anchor"
-            || parsed.value.action.dryRun === true)
-        ? await runTaskCompleteFacade(parsed.value, runParsedCommand)
-        : parsed.value.action.kind === "task-closeout"
+      : parsed.value.action.kind === "task-closeout"
           ? await runTaskCloseoutFacade(parsed.value, runParsedCommand)
           : await runParsedCommand(parsed.value);
 

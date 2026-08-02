@@ -2,12 +2,10 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_HUMAN_CONSENT_ACTIONS,
-  absentHostedDocumentSnapshotV2,
   encodeConsentCommandPayloadV2,
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
-  evaluateTaskCompletionAuthority,
   finalizeExecutionSessionBindings,
   renderCodeDocReconciliationDraft,
   type ConsentCommandPayloadV2,
@@ -20,26 +18,33 @@ import {
 import {
   executionDeclaration,
   deriveRelationId,
-  makeLocalVersionControlSystem,
-  sha256Text,
   taskEntityId,
-  taskPackagePath,
-  type ExecutionRecord,
-  type RegistryEntityRefV2
+  type ExecutionRecord
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityAttemptCompilerV2 } from "../authority-command-submission.ts";
 import type { CanonicalAttemptIntent } from "./production-authority-attempt-compiler.ts";
-import { acceptedTaskCompletionTransition } from "./production-authority-accepted-completion.ts";
+import {
+  lifecycleIntent,
+  lifecycleMutation,
+  lifecycleRef,
+  optionalLifecycleSnapshot,
+  portableLifecyclePaths,
+  readTaskDocuments,
+  requiredLifecycleSnapshot,
+  resolvedTaskRoot,
+  taskLifecyclePath
+} from "./production-authority-lifecycle-support.ts";
+import { taskCompletionIntent } from "./production-authority-task-completion-intent.ts";
 
 type CompileInput = Parameters<DaemonAuthorityAttemptCompilerV2["compile"]>[0];
 
-export function productionLifecycleAttemptIntent(input: {
+export async function productionLifecycleAttemptIntent(input: {
   readonly command: ProductionAuthorityCommand;
   readonly currentSession: CompileInput["currentSession"];
   readonly canonicalEntityId: string;
   readonly authoredRoot: string;
   readonly actor: ExecutionRecord["primary_actor"];
-}, hostServices: ProductionAuthorityCompilerHostServices): CanonicalAttemptIntent | null {
+}, hostServices: ProductionAuthorityCompilerHostServices): Promise<CanonicalAttemptIntent | null> {
   const { action } = input.command;
   if (action.kind === "status-set") {
     const taskPath = taskLifecyclePath(input.authoredRoot, action.taskId, "INDEX.md");
@@ -119,6 +124,7 @@ export function productionLifecycleAttemptIntent(input: {
     return taskCompletionIntent(
       input.authoredRoot,
       input.command.rootDir,
+      input.command.layoutOverrides,
       input.currentSession.detectedAt,
       input.currentSession.sessionId,
       action,
@@ -398,187 +404,4 @@ function requiredReviewExecutionId(
 ): string {
   if (!action.executionId) throw new Error("AUTHORITY_REVIEW_EXECUTION_SELECTION_REQUIRED: set executionId or provide exactly one submitted Execution");
   return action.executionId;
-}
-
-function taskCompletionIntent(
-  authoredRoot: string,
-  rootDir: string,
-  completedAt: string,
-  sessionId: string,
-  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-complete" }>,
-  canonicalEntityId: string,
-  actor: ExecutionRecord["primary_actor"]
-): CanonicalAttemptIntent {
-  const taskId = action.taskId;
-  const taskRoot = resolvedTaskRoot(authoredRoot, taskId);
-  const documents = readTaskDocuments(taskRoot);
-  const taskPath = taskLifecyclePath(authoredRoot, taskId, "INDEX.md");
-  const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
-  const status = /^  status:\s*(\S+)$/mu.exec(taskSnapshot.body)?.[1] ?? "unknown";
-  const evaluation = evaluateTaskCompletionAuthority({
-    taskId,
-    executionId: action.executionId ?? undefined,
-    mode: action.evidenceMode ?? "execution-review",
-    status,
-    documents,
-    actor,
-    sessionRef: `session/${sessionId}`,
-    judgedAt: completedAt,
-    applicableGates: completionApplicableGates(action),
-    ciGate: action.ciGate ?? undefined,
-    commitRef: action.commitRef ?? undefined,
-    judgment: action.judgment ?? undefined,
-    rootDir,
-    versionControlSystem: makeLocalVersionControlSystem()
-  });
-  if (!evaluation.ok) {
-    throw new Error(`AUTHORITY_TASK_COMPLETE_REJECTED:${evaluation.issues.map((issue) => issue.code).join(",")}`);
-  }
-  const taskBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1done");
-  const contractPath = taskLifecyclePath(authoredRoot, taskId, "task-contract.json");
-  const contractSnapshot = optionalLifecycleSnapshot(authoredRoot, contractPath.logical, contractPath.physical);
-  const absentContract = absentHostedDocumentSnapshotV2(contractPath.logical);
-  const contractCas = contractSnapshot ?? {
-    path: contractPath.logical,
-    expectedEpoch: absentContract.epoch,
-    expectedRevision: absentContract.revision,
-    expectedBlobDigest: absentContract.blobDigest
-  };
-  const currentContractBodySha256 = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
-  const contractBodySha256 = action.completionContractBodySha256 === undefined
-    ? currentContractBodySha256
-    : action.completionContractBodySha256;
-  if (contractBodySha256 !== currentContractBodySha256) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_CONTRACT_CHANGED");
-  }
-  if (evaluation.evidenceMode === "execution-review") {
-    const executionDocument = documents.find((document) => document.path === `executions/${evaluation.executionId}.md`);
-    if (!executionDocument) throw new Error("AUTHORITY_TASK_COMPLETE_EXECUTION_DOCUMENT_REQUIRED");
-    const current = executionDeclaration.documentCodec.decode(executionDocument.body) as ExecutionRecord;
-    if (current.state === "accepted") {
-      const transition = acceptedTaskCompletionTransition(taskId, contractBodySha256);
-      return lifecycleIntent(transition.commandName, transition.payload, transition.mutations, transition.baseRefs,
-        portableLifecyclePaths(taskPath, contractPath), canonicalEntityId, [
-        taskSnapshot,
-        contractCas
-      ]);
-    }
-    const execution: ExecutionRecord = { ...current, state: "accepted", closed_at: completedAt };
-    const payload: SessionExecutionReviewCommandPayloadV2 = {
-      schema: "execution.close/v1", taskId, execution, taskIndexBody: taskBody,
-      completionContractBodySha256: contractBodySha256
-    };
-    const executionPath = taskLifecyclePath(authoredRoot, taskId, `executions/${execution.execution_id}.md`);
-    return lifecycleIntent("execution.close", encodeSessionExecutionReviewCommandPayloadV2(payload), [
-      lifecycleMutation("execution", `execution/${taskId}/${execution.execution_id}`, "close"),
-      lifecycleMutation("task", `task/${taskId}`, "transition")
-    ], [
-      lifecycleRef("execution", `execution/${taskId}/${execution.execution_id}`),
-      lifecycleRef("task", `task/${taskId}`)
-    ], portableLifecyclePaths(executionPath, taskPath, contractPath), canonicalEntityId, [
-      requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical),
-      taskSnapshot,
-      contractCas
-    ]);
-  }
-
-  const evidencePath = taskLifecyclePath(authoredRoot, taskId, "completion-evidence.json");
-  const closeoutPath = taskLifecyclePath(authoredRoot, taskId, "closeout.md");
-  const codeDocPath = taskLifecyclePath(authoredRoot, taskId, "code-doc-anchors.json");
-  const payload: SessionExecutionReviewCommandPayloadV2 = {
-    schema: "completion.commit/v1",
-    taskId,
-    evidence: evaluation.evidence,
-    taskIndexBody: taskBody,
-    completionContractBodySha256: contractBodySha256
-  };
-  return lifecycleIntent("completion.commit", encodeSessionExecutionReviewCommandPayloadV2(payload), [
-    lifecycleMutation("task", `task/${taskId}`, "transition")
-  ], [lifecycleRef("task", `task/${taskId}`)], portableLifecyclePaths(
-    evidencePath, taskPath, contractPath, closeoutPath, codeDocPath
-  ), canonicalEntityId, [
-    taskSnapshot,
-    contractCas,
-    requiredLifecycleSnapshot(authoredRoot, closeoutPath.logical, closeoutPath.physical),
-    requiredLifecycleSnapshot(authoredRoot, codeDocPath.logical, codeDocPath.physical)
-  ]);
-}
-
-function completionApplicableGates(
-  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-complete" }>
-): ReadonlyArray<string> {
-  if ((action.evidenceMode ?? "execution-review") !== "commit-anchor") return [];
-  if (!action.completionApplicableGates) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_APPLICABLE_GATES_REQUIRED");
-  }
-  return action.completionApplicableGates;
-}
-
-function readTaskDocuments(taskRoot: string, relativeRoot = ""): ReadonlyArray<{ readonly path: string; readonly body: string }> {
-  const current = path.join(taskRoot, relativeRoot);
-  if (!existsSync(current)) return [];
-  return readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
-    const relativePath = path.posix.join(relativeRoot.split(path.sep).join("/"), entry.name);
-    if (entry.isDirectory()) return readTaskDocuments(taskRoot, relativePath);
-    if (!entry.isFile()) return [];
-    return [{ path: relativePath, body: readFileSync(path.join(taskRoot, relativePath), "utf8") }];
-  });
-}
-
-function lifecycleIntent(
-  commandName: string,
-  payload: Uint8Array,
-  mutations: CanonicalAttemptIntent["mutations"],
-  baseRefs: ReadonlyArray<RegistryEntityRefV2>,
-  portablePaths: ReadonlyArray<string>,
-  physicalEntityId: string,
-  declaredPathCas: CanonicalAttemptIntent["declaredPathCas"] = []
-): CanonicalAttemptIntent {
-  return { commandName, payload, mutations, baseRefs, portablePaths, physicalEntityId, declaredPathCas };
-}
-
-function lifecycleMutation(entityKind: string, canonicalRef: string, action: string) {
-  return { entity: lifecycleRef(entityKind, canonicalRef), action };
-}
-
-function lifecycleRef(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
-  return { registryVersion: 1, entityKind, canonicalRef };
-}
-
-function requiredLifecycleSnapshot(authoredRoot: string, logicalPath: string, physicalPath = logicalPath) {
-  const snapshot = optionalLifecycleSnapshot(authoredRoot, logicalPath, physicalPath);
-  if (!snapshot) throw new Error(`AUTHORITY_CANONICAL_HOST_DOCUMENT_REQUIRED:${physicalPath}`);
-  return snapshot;
-}
-
-function optionalLifecycleSnapshot(authoredRoot: string, logicalPath: string, physicalPath = logicalPath) {
-  const absolute = path.join(authoredRoot, physicalPath);
-  if (!existsSync(absolute)) return null;
-  const body = readFileSync(absolute, "utf8");
-  const digest = sha256Text(body);
-  return {
-    path: logicalPath,
-    body,
-    expectedEpoch: digest,
-    expectedRevision: 0n,
-    expectedBlobDigest: Buffer.from(digest, "hex")
-  };
-}
-
-function resolvedTaskRoot(authoredRoot: string, taskId: string): string {
-  const rootDir = path.dirname(authoredRoot);
-  return taskPackagePath({
-    rootDir,
-    layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
-  }, taskId);
-}
-
-function taskLifecyclePath(authoredRoot: string, taskId: string, documentPath: string) {
-  const physical = path.relative(authoredRoot, path.join(resolvedTaskRoot(authoredRoot, taskId), documentPath))
-    .split(path.sep).join("/");
-  return { logical: `tasks/${taskId}/${documentPath}`, physical };
-}
-
-function portableLifecyclePaths(...paths: ReadonlyArray<ReturnType<typeof taskLifecyclePath>>): ReadonlyArray<string> {
-  return [...new Set(paths.flatMap((entry) => [entry.logical, entry.physical]))];
 }

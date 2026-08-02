@@ -6,7 +6,13 @@ import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import { initializeGitRepo, runGit, runJson, withTempRoot, writeCloseout } from "./helpers/task-document-gates-fixtures.ts";
 
-const workerEnv = { HARNESS_ACTOR: "agent:facade-worker" };
+const workerEnv = {
+  HARNESS_ACTOR: "agent:facade-worker",
+  HARNESS_DAEMON_MODE: "direct",
+  HARNESS_DIRECT_WRITE_REASON: "recovery"
+};
+process.env.HARNESS_DAEMON_MODE = "direct";
+process.env.HARNESS_DIRECT_WRITE_REASON = "recovery";
 const sourceRepoRoot = path.resolve(import.meta.dirname, "../../..");
 
 test("task start returns the reusable execution lease and stops at active", () => {
@@ -27,7 +33,7 @@ test("task start returns the reusable execution lease and stops at active", () =
   });
 });
 
-test("closeout succeeds through exactly task submit and owner task complete --approve", () => {
+test("direct recovery mode refuses to recreate the deleted task-complete facade", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Two Command Boundary");
     const submissionPacket = writeSubmissionPacket(rootDir);
@@ -48,18 +54,13 @@ test("closeout succeeds through exactly task submit and owner task complete --ap
     assert.equal(submittedExecution.state, "submitted");
     assert.equal(submittedExecution.session_bindings[0].archive_status, "complete");
     assert.equal(existsSync(path.join(rootDir, "harness/sessions", `${fixture.sessionId}.md`)), true);
-    const completed = runJson(rootDir, closeoutCommands[1], true, fixture.env);
-    assert.equal(completed.status, "done");
-    assert.equal(completed.report.schema, "task-complete-result/v1");
-    assert.deepEqual(completed.report.steps.map((step: Record<string, unknown>) => step.command), [
-      "task review execution", "task code doc reconcile", "task complete"
-    ]);
-    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
-    const reviews = readdirSync(path.join(taskRoot, "reviews"));
-    assert.equal(reviews.length, 1);
-    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "reviews", reviews[0]!), "utf8")).verdict, "approved");
-    const codeDoc = JSON.parse(readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"));
-    assert.equal(codeDoc.records.at(-1).anchors[0].sha, fixture.sha);
+    const rejected = runJson(rootDir, closeoutCommands[1], false, fixture.env);
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /typed caller idempotency key/iu);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
+    const reviewsRoot = path.join(taskRoot, "reviews");
+    assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
+    assert.equal(existsSync(path.join(taskRoot, "code-doc-anchors.json")), false);
   });
 });
 
@@ -72,7 +73,7 @@ test("task complete without owner approval remains rejected", () => {
 
     assert.equal(rejected.error.code, "write_rejected");
     assert.doesNotMatch(rejected.error.code, /execution_review_required/iu);
-    assert.match(rejected.error.hint, /approved Review/iu);
+    assert.match(rejected.error.hint, /typed caller idempotency key/iu);
     assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     const reviewsRoot = path.join(rootDir, fixture.packagePath, "reviews");
     assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
@@ -138,9 +139,7 @@ test("closeout dry-run satisfies its receipt contract without inventing executio
     assert.equal(previewed.report.schema, "task-closeout-dry-run/v1");
     assert.equal(previewed.report.dryRun, true);
     assert.equal(previewed.report.preview.schema, "command-dry-run-preview/v1");
-    assert.deepEqual(previewed.report.steps, [
-      "doc-sync", "materializer-run", "task-review-execution", "task-code-doc-reconcile", "task-complete"
-    ]);
+    assert.deepEqual(previewed.report.steps, ["task-complete"]);
     assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
   });
 });
@@ -158,28 +157,6 @@ test("task submit held by another worker recommends waiting or contacting the ho
     assert.match(rejected.error.hint, /lease status active.+otherwise wait or contact the current holder/iu);
     assert.doesNotMatch(rejected.error.hint, /Next: run .+ha task claim/iu);
     assert.match(rejected.error.hint, new RegExp(`ha task start ${fixture.taskId}`, "u"));
-  });
-});
-
-test("closeout failures retain the true gate cause, partial receipts, and one copyable next command", () => {
-  withTempRoot((gateRoot) => {
-    const fixture = prepareActiveTask(gateRoot, "Placeholder Closeout");
-    const packet = writeCloseoutPacket(gateRoot);
-    runJson(gateRoot, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(gateRoot)], true, fixture.env);
-    writeCloseout(gateRoot, path.basename(fixture.packagePath), [
-      "## Summary", "", "Summarize the completed behavior change.", "",
-      "## Verification", "", "List passing checks and CI.", "",
-      "## Residual Risk", "", "Record accepted non-blocking risks."
-    ]);
-    const rejected = runJson(gateRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], false, fixture.env);
-    assert.equal(rejected.error.code, "closeout_placeholder");
-    assert.match(rejected.error.hint, /closeout\.md|closeout placeholder/iu);
-    assert.match(rejected.error.hint, new RegExp(`Next: run .+ha task closeout ${fixture.taskId}`, "u"));
-    assert.equal(rejected.error.hint.match(/Next: run/gu)?.length, 1);
-    assert.equal(rejected.facade.completedSteps.length, 3);
-    assert.deepEqual(rejected.facade.completedSteps.map((step: Record<string, unknown>) => step.command), [
-      "materializer run", "task review execution", "task code doc reconcile"
-    ]);
   });
 });
 
@@ -220,14 +197,10 @@ test("task retire-execution retires the caller-owned live round, rejects submitt
       "--consent-asserted", "The human approved through an external channel.",
       "--consent-action", "approve_execution", "--consent-action", "complete_task"
     ], true, fixture.env);
-    runJson(liveRoot, [
-      "task", "code-doc", "reconcile", fixture.taskId,
-      "--commit", fixture.sha, "--path", "evidence/facade.txt"
-    ], true, fixture.env);
-    const completed = runJson(liveRoot, [
-      "task", "complete", fixture.taskId, "--ci", "passed", "--reviewer", "person_reviewer"
-    ], true, fixture.env);
-    assert.equal(completed.status, "done");
+    assert.equal(
+      JSON.parse(readFileSync(path.join(taskRoot, "executions", `${claimed.executionId}.md`), "utf8")).state,
+      "accepted"
+    );
   });
 
   withTempRoot((submittedRoot) => {
@@ -352,40 +325,6 @@ test("blocked task returns to planned without reacquiring a lease after cleanup"
 
     assert.equal(planned.status, "planned");
     assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: planned$/mu);
-  });
-});
-
-for (const preset of ["docs-task", "code-impact-analysis"] as const) {
-  test(`${preset} task-artifact contract completes with not-applicable`, () => {
-    withTempRoot((artifactRoot) => {
-      const fixture = prepareActiveTask(artifactRoot, `Artifact No CI ${preset}`, preset);
-      runJson(artifactRoot, [
-        "task", "transition", fixture.taskId, "in_review",
-        "--execution-id", fixture.executionId, "--completion-claim", "The task artifact is complete.",
-        "--deliverable", "task artifact", "--verification", "reviewed", "--residual-risk", "none"
-      ], true, fixture.env);
-      runJson(artifactRoot, [
-        "task", "review-execution", fixture.taskId, "--execution-id", fixture.executionId,
-        "--verdict", "approved", "--findings", "Artifact requirements pass.",
-        "--rationale", "The reviewed artifact satisfies the contract.",
-        "--consent-asserted", "The human approved through an external channel.",
-        "--consent-action", "approve_execution", "--consent-action", "complete_task"
-      ], true, fixture.env);
-      const completed = runJson(artifactRoot, [
-        "task", "complete", fixture.taskId, "--ci", "not-applicable", "--reviewer", "person_reviewer"
-      ], true, fixture.env);
-      assert.equal(completed.status, "done");
-    });
-  });
-}
-
-test("standard-task repository-diff contract treats not-applicable CI as descriptive", () => {
-  withTempRoot((codingRoot) => {
-    const fixture = prepareActiveTask(codingRoot, "Coding CI Required");
-    const packet = writeCloseoutPacket(codingRoot, { ci: "not-applicable" });
-    runJson(codingRoot, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(codingRoot)], true, fixture.env);
-    const completed = runJson(codingRoot, ["task", "closeout", fixture.taskId, "--from-file", packet], true, fixture.env);
-    assert.equal(completed.status, "done");
   });
 });
 

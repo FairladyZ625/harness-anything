@@ -1,157 +1,87 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
   canonicalPayloadDigestV2,
-  makeSessionExecutionReviewSemanticCompilerV2,
+  encodeTaskLifecycleTransitionCommandPayloadV2,
+  makeTaskLifecycleTransitionSemanticCompilerV2,
+  semanticMutationEnvelopeV2Schema,
+  TaskLifecycleTransitionService,
+  type CanonicalTaskMutationPlan,
+  type HostedDocumentSnapshotV2,
   type ProductionAuthorityCommand,
-  type SemanticMutationEnvelopeV2
+  type SemanticMutationEnvelopeV2,
+  type TaskCompleteTransitionCommand,
+  type TaskCompletionEvidence,
+  type VerifiedTaskCompleteDocumentPublicationWitness
 } from "@harness-anything/application";
 import { sha256Text } from "@harness-anything/kernel";
 import { makeDaemonAuthorityWriteCoordinator } from "../src/authority/authority-command-submission.ts";
-import { productionLifecycleAttemptIntent } from "../src/authority/production/production-authority-lifecycle-intents.ts";
 
 const taskId = "task_01KXD8H2QFMMA4T203PJZ77AQ5";
 const executionId = "exe_01KXD8H2QFMMA4T203PJZ77AQ6";
+const commitRef = "a".repeat(40);
 const actor = {
   principal: { personId: "person_zeyu" },
   executor: { kind: "agent" as const, id: "codex" },
   responsibleHuman: "person:person_zeyu"
 };
+const witness: VerifiedTaskCompleteDocumentPublicationWitness = {
+  kind: "document-publication",
+  ref: "ha-prepublish-witness-v1.contract-fence",
+  repositoryCommit: "b".repeat(40),
+  publicationOperationIds: ["op_contract_fence"],
+  coveredTaskRelativePaths: ["closeout.md"],
+  coveredPathSetDigest: `sha256:${"c".repeat(64)}`
+};
 
-test("daemon completion intent fences present and absent task-contract snapshots against TOCTOU", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-completion-contract-"));
-  try {
-    const authoredRoot = path.join(rootDir, "harness");
-    const taskRoot = path.join(authoredRoot, "tasks", `${taskId}-contract-fence`);
-    mkdirSync(taskRoot, { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), [
-      "---", `task_id: ${taskId}`, "task:", "  status: in_review", "---", "", "# Contract fence", ""
-    ].join("\n"), "utf8");
-    writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nComplete.\n", "utf8");
-    writeFileSync(path.join(rootDir, "README.md"), "# Public workspace\n", "utf8");
-    execFileSync("git", ["-C", rootDir, "init", "-q"]);
-    execFileSync("git", ["-C", rootDir, "add", "README.md"]);
-    execFileSync("git", ["-C", rootDir, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-q", "-m", "public anchor"]);
-    const publicHead = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    writeFileSync(path.join(taskRoot, "code-doc-anchors.json"), `${JSON.stringify({
-      schema: "code-doc-reconciliation/v1", taskId,
-      records: [{ id: "closeout", ledgerPath: "closeout.md", kind: "closeout", anchors: [{ kind: "commit", sha: publicHead }] }]
-    })}\n`, "utf8");
-    const contractPath = path.join(taskRoot, "task-contract.json");
+test("canonical lifecycle plan fences the daemon-evaluated task-contract snapshot against TOCTOU", async () => {
+  const evaluatedContract = "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n";
+  const changedContract = "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[\"ci\"]}\n";
+  const plan = TaskLifecycleTransitionService.plan({
+    taskId,
+    taskStatus: "in_review",
+    currentRound: { kind: "manual-disposition", category: "no-current-round", candidateExecutionIds: [] },
+    holder: { taskId, holder: null, effectiveHolder: null, leaseExpiresAt: null, orphan: false },
+    sessionBinding: { sessionId: "session-contract-fence", actor },
+    verifiedExternalWitnesses: [witness],
+    completionContractBodySha256: sha256Text(evaluatedContract),
+    commitEvidence: completionEvidence()
+  }, completeCommand());
 
-    const directCompileInput = {
-      command: {
-        rootDir,
-        json: true,
-        action: {
-          kind: "task-complete",
-          taskId,
-          evidenceMode: "commit-anchor",
-          commitRef: publicHead,
-          judgment: "The public commit completes the contract-fence task."
+  assert.equal(plan.kind, "commit-anchor");
+  assert.equal(plan.completionContractBodySha256, sha256Text(evaluatedContract));
+
+  const compiler = makeTaskLifecycleTransitionSemanticCompilerV2({
+    rootInput: "/unused",
+    state: {
+      readEntityBase: async () => null,
+      readHostedDocument: async (logicalPath) => {
+        if (logicalPath === `tasks/${taskId}/INDEX.md`) {
+          return hostedSnapshot("---\ntask:\n  status: in_review\n---\n");
         }
-      } as ProductionAuthorityCommand,
-      currentSession: {
-        runtime: "codex",
-        sessionId: "session-contract-fence",
-        source: "runtime",
-        detectedAt: "2026-07-24T00:00:00.000Z"
-      },
-      canonicalEntityId: `task/${taskId}`,
-      authoredRoot,
-      actor
-    } as const;
-    assert.throws(
-      () => productionLifecycleAttemptIntent(directCompileInput, {} as never),
-      /AUTHORITY_TASK_COMPLETE_APPLICABLE_GATES_REQUIRED/u
-    );
-    assert.throws(
-      () => productionLifecycleAttemptIntent({
-        ...directCompileInput,
-        command: {
-          ...directCompileInput.command,
-          action: { kind: "task-complete", taskId }
-        } as ProductionAuthorityCommand
-      }, {} as never),
-      /AUTHORITY_TASK_COMPLETE_REJECTED:execution_submission_required/u
-    );
-
-    for (const initial of ["{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n", null] as const) {
-      if (initial === null) {
-        if (existsSync(contractPath)) unlinkSync(contractPath);
-      } else {
-        writeFileSync(contractPath, initial, "utf8");
+        if (logicalPath === `tasks/${taskId}/task-contract.json`) {
+          return hostedSnapshot(changedContract);
+        }
+        return null;
       }
-      const evaluatedDigest = initial === null ? null : sha256Text(initial);
-      const compileInput = {
-        command: {
-          rootDir,
-          json: true,
-          action: {
-            kind: "task-complete",
-            taskId,
-            evidenceMode: "commit-anchor",
-            commitRef: publicHead,
-            judgment: "The public commit completes the contract-fence task.",
-            completionApplicableGates: [],
-            completionContractBodySha256: evaluatedDigest
-          }
-        } as ProductionAuthorityCommand,
-        currentSession: {
-          runtime: "codex",
-          sessionId: "session-contract-fence",
-          source: "runtime",
-          detectedAt: "2026-07-24T00:00:00.000Z"
-        },
-        canonicalEntityId: `task/${taskId}`,
-        authoredRoot,
-        actor
-      } as const;
-      const intent = productionLifecycleAttemptIntent(compileInput, {} as never);
-      assert.ok(intent);
-      assert.equal(intent.declaredPathCas.some((entry) =>
-        entry.path === `tasks/${taskId}/task-contract.json`
-      ), true);
-
-      writeFileSync(
-        contractPath,
-        "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[\"ci\"]}\n",
-        "utf8"
-      );
-      assert.throws(
-        () => productionLifecycleAttemptIntent(compileInput, {} as never),
-        /AUTHORITY_TASK_COMPLETE_CONTRACT_CHANGED/u
-      );
-      const compiler = makeSessionExecutionReviewSemanticCompilerV2({
-        state: {
-          readEntityBase: async () => null,
-          readHostedDocument: async (logicalPath) => hostedSnapshot(taskRoot, logicalPath)
-        }
-      });
-      await assert.rejects(
-        compiler.compile(envelope(intent)),
-        /EXECUTION_COMPLETION_CONTRACT_CHANGED|COMMIT_COMPLETION_CONTRACT_CHANGED|PATH_CAS_CONFLICT/u
-      );
     }
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+  });
+  await assert.rejects(
+    compiler.compile(envelope(plan), {
+      actor,
+      sessionId: "session-contract-fence",
+      nowMs: BigInt(Date.parse("2026-08-03T00:00:00.000Z"))
+    }),
+    /TASK_LIFECYCLE_COMPLETION_CONTRACT_CHANGED/u
+  );
 });
 
-test("daemon authority coordinator carries the evaluated contract precondition into canonical completion", async () => {
-  const evaluatedDigest = sha256Text("evaluated contract");
+test("daemon authority coordinator does not derive canonical completion fields from a client write", async () => {
+  const evaluatedDigest = sha256Text("client-side contract precondition");
   let captured: ProductionAuthorityCommand | null = null;
-  const command = {
-    rootDir: "/unused",
-    json: true,
-    action: { kind: "task-complete", taskId, evidenceMode: "execution-review" }
-  } as ProductionAuthorityCommand;
+  const command = { rootDir: "/unused", json: true, action: completeCommand() } satisfies ProductionAuthorityCommand;
   const coordinator = makeDaemonAuthorityWriteCoordinator({
     submit: async (input) => {
       captured = input.command;
@@ -167,23 +97,72 @@ test("daemon authority coordinator carries the evaluated contract precondition i
     entityId: `entity/execution/${executionId}`,
     kind: "doc_write",
     payload: {
-      preconditions: [{
-        taskId,
-        path: "task-contract.json",
-        bodySha256: evaluatedDigest
-      }]
+      preconditions: [{ taskId, path: "task-contract.json", bodySha256: evaluatedDigest }]
     }
   }));
   await assert.rejects(runEffect(coordinator.flush("explicit")), /capture only/u);
-  assert.equal(captured?.action.kind, "task-complete");
-  if (captured?.action.kind === "task-complete") {
-    assert.equal(captured.action.completionContractBodySha256, evaluatedDigest);
+  const capturedAction = captured?.action;
+  assert.equal(capturedAction?.kind, "task-complete");
+  if (capturedAction?.kind === "task-complete") {
+    assert.equal(Object.hasOwn(capturedAction, "completionContractBodySha256"), false);
+    assert.equal(Object.hasOwn(capturedAction, "completionApplicableGates"), false);
+    assert.deepEqual(capturedAction, command.action);
   }
 });
 
-function envelope(intent: NonNullable<ReturnType<typeof productionLifecycleAttemptIntent>>): SemanticMutationEnvelopeV2 {
+function completeCommand(): TaskCompleteTransitionCommand {
   return {
-    schema: "semantic-mutation-envelope/v2",
+    kind: "task-complete",
+    taskId,
+    executionId: null,
+    ciGate: "not-applicable",
+    reviewerId: "person_zeyu",
+    evidenceMode: "commit-anchor",
+    commitRef,
+    judgment: "The immutable commit completes this contract-fence fixture.",
+    approval: null,
+    externalCheckpointRefs: [{ kind: witness.kind, ref: witness.ref }],
+    callerIdempotencyKey: `task-complete-${"d".repeat(64)}`,
+    dryRun: false
+  };
+}
+
+function completionEvidence(): TaskCompletionEvidence {
+  return {
+    schema: "task-completion-evidence/v1",
+    taskId,
+    mode: "commit-anchor",
+    anchor: {
+      sha: commitRef,
+      repository: "workspace",
+      codeDocRecordIds: [],
+      codeDocDocumentSha256: `sha256:${"e".repeat(64)}`
+    },
+    judgment: {
+      actor: {
+        principal: { kind: "person", personId: "person_zeyu" },
+        executor: { kind: "agent", id: "codex" }
+      },
+      sessionRef: "session-contract-fence",
+      rationale: "The immutable commit completes this contract-fence fixture.",
+      judgedAt: "2026-08-03T00:00:00.000Z"
+    },
+    gateReceipt: {
+      applicableGates: [],
+      ci: "not-applicable",
+      closeout: "passed",
+      codeDoc: "passed"
+    }
+  };
+}
+
+function envelope(plan: CanonicalTaskMutationPlan): SemanticMutationEnvelopeV2 {
+  const bytes = encodeTaskLifecycleTransitionCommandPayloadV2({
+    schema: "task.lifecycle-complete/v1",
+    plan
+  });
+  return {
+    schema: semanticMutationEnvelopeV2Schema,
     workspaceId: "workspace-contract-fence",
     operationId: {
       namespace: {
@@ -208,22 +187,18 @@ function envelope(intent: NonNullable<ReturnType<typeof productionLifecycleAttem
       admissionTokenRef: { tokenId: "token-contract-fence", tokenDigest: Buffer.alloc(32) }
     },
     schemaTuple: {
-      registryVersion: 1,
-      envelopeSchemaVersion: 2,
-      mutationSchemaVersion: 2,
-      commandSchemaVersion: 1
-    },
+      schema: "protocol-schema-tuple/v1",
+      entityRegistryVersion: 1,
+      commandRegistryVersion: 1,
+      mutationRegistryVersion: 1
+    } as SemanticMutationEnvelopeV2["schemaTuple"],
     intent: {
       kind: "typed",
-      command: { registryVersion: 1, name: intent.commandName, version: 1 },
-      canonicalPayload: { kind: "inline", size: BigInt(intent.payload.length), bytes: intent.payload },
-      canonicalPayloadDigest: canonicalPayloadDigestV2(intent.payload),
-      baseCas: intent.baseRefs.map((entityRef) => ({
-        entityRef,
-        expectedSemanticVersion: null,
-        expectedStateDigest: null
-      })),
-      declaredPathCas: intent.declaredPathCas
+      command: { registryVersion: 1, name: "task.lifecycle-complete", version: 1 },
+      canonicalPayload: { kind: "inline", size: BigInt(bytes.length), bytes },
+      canonicalPayloadDigest: canonicalPayloadDigestV2(bytes),
+      baseCas: [],
+      declaredPathCas: []
     },
     claimedMutationSet: { registryVersion: 1, mutations: [] },
     claimedSemanticMutationSetDigest: Buffer.alloc(32),
@@ -231,18 +206,9 @@ function envelope(intent: NonNullable<ReturnType<typeof productionLifecycleAttem
   };
 }
 
-function hostedSnapshot(taskRoot: string, logicalPath: string) {
-  const prefix = `tasks/${taskId}/`;
-  if (!logicalPath.startsWith(prefix)) return null;
-  const filePath = path.join(taskRoot, logicalPath.slice(prefix.length));
-  let body: string;
-  try {
-    body = readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
+function hostedSnapshot(body: string): HostedDocumentSnapshotV2 {
   const digest = sha256Text(body);
-  return { body, epoch: digest, revision: 0n, blobDigest: Buffer.from(digest, "hex") };
+  return { body, epoch: digest, revision: 1n, blobDigest: Buffer.from(digest, "hex") };
 }
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

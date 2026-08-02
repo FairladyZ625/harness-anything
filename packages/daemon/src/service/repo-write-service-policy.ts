@@ -37,6 +37,7 @@ export function childOwnedTaskHolderService(
   };
   return {
     holder: service.holder,
+    withUnheldTask: service.withUnheldTask,
     executionLeases: service.executionLeases,
     claim: rejected,
     release: rejected,
