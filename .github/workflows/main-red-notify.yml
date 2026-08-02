@@ -20,21 +20,46 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Every watched workflow owns a separate advisory issue. Sharing one issue across
+      # workflows meant a green rewrite-ci run closed the red opened by nightly-integration,
+      # under a title naming rewrite-ci — so a tier that was red for two weeks was reported
+      # daily under the wrong name and silenced within the hour. See
+      # dec_01KZ20MPDZH490AXKQX3VC1NEG. This script is kept in parity with
+      # tools/main-red-notify.mjs by tools/main-red-notify.test.mjs; the workflow cannot import
+      # that module because it deliberately never checks out the repository.
       - name: Open, update, or resolve the main-red advisory issue
         uses: actions/github-script@v7
         with:
           script: |
             const label = 'main-red';
-            const title = '[CI] rewrite-ci is red on main';
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
             const clean = (value) => String(value).replace(/[\r\n]+/g, ' ').trim();
+            const workflowName = clean(run.name || run.workflow_id || 'unknown workflow');
+            // Identity is the numeric workflow_id, not the display name: a name is editable
+            // (renaming would strand an open issue forever) and lossy to slugify (two names
+            // differing only in punctuation would collide). Sanitised defensively because it
+            // is embedded in an HTML comment marker. The name is display only.
+            const workflowIdentity = clean(run.workflow_id).replace(/[^A-Za-z0-9._-]+/g, '-') || 'unknown-workflow';
+            const title = `[CI] ${workflowName} is red on main`;
+            const workflowMarker = `<!-- main-red-workflow:${workflowIdentity} -->`;
             const shaMarker = `<!-- main-red-sha:${clean(run.head_sha)} -->`;
             const runMarker = `<!-- main-red-run:${clean(run.id)} -->`;
+            // null means the issue declares no owner. Issues opened before per-workflow
+            // identity are the only such issues, and they are deliberately not attributed by
+            // guesswork: the shared issue carried a rewrite-ci title no matter which workflow
+            // had failed, so assuming rewrite-ci owns it would reproduce the wrong-workflow
+            // closure this change exists to remove. They are left for a human.
+            const issueWorkflowIdentity = (issue) => {
+              const match = (issue.body || '').match(/<!-- main-red-workflow:([A-Za-z0-9._-]+) -->/);
+              return match ? match[1] : null;
+            };
             const recordedRunId = (issue) => {
               const match = (issue.body || '').match(/<!-- main-red-run:(\d+) -->/);
               return match ? Number(match[1]) : null;
             };
+            // Strictly greater-than: a re-run keeps the same run id, so treating an equal id as
+            // stale would leave the issue open forever after "run N failed, run N re-run passed".
             const isStale = (issue) => {
               const recorded = recordedRunId(issue);
               return recorded !== null && recorded > Number(run.id);
@@ -46,16 +71,18 @@ jobs:
               labels: label,
               per_page: 100
             });
-            const openIssues = listed.filter((issue) => !issue.pull_request);
+            const openIssues = listed
+              .filter((issue) => !issue.pull_request)
+              .filter((issue) => issueWorkflowIdentity(issue) === workflowIdentity);
 
             if (run.conclusion === 'success') {
-              const comment = `rewrite-ci is green again on main for \`${clean(run.head_sha)}\`: ${clean(run.html_url)}. Closing this advisory issue.`;
+              const comment = `${workflowName} is green again on main for \`${clean(run.head_sha)}\`: ${clean(run.html_url)}. Closing this advisory issue.`;
               const eligibleIssues = openIssues.filter((issue) => !isStale(issue));
               for (const issue of eligibleIssues) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: comment });
                 await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
               }
-              core.info(`Resolved ${eligibleIssues.length} open ${label} issue(s); ignored ${openIssues.length - eligibleIssues.length} newer failure(s).`);
+              core.info(`Resolved ${eligibleIssues.length} open ${label} issue(s) for ${workflowName}; ignored ${openIssues.length - eligibleIssues.length} newer failure(s).`);
               return;
             }
 
@@ -72,16 +99,19 @@ jobs:
               : ['- Unable to identify a failed job from the run API.'];
             const body = [
               '<!-- main-red-notification -->',
+              workflowMarker,
               runMarker,
               shaMarker,
-              '## rewrite-ci is red on main',
+              `## ${workflowName} is red on main`,
               '',
+              `- Workflow: ${workflowName}`,
               `- Run: ${clean(run.html_url)}`,
               `- Head SHA: \`${clean(run.head_sha)}\``,
               '- Failed jobs:',
               ...jobLines,
               '',
-              'This issue is advisory only. It does not change required checks, branch protection, or merge enforcement.'
+              'This issue is advisory only. It does not change required checks, branch protection, or merge enforcement.',
+              `Only a later green ${workflowName} run closes it; other watched workflows keep their own advisory issues.`
             ].join('\n');
             const current = openIssues[0];
 
@@ -90,15 +120,15 @@ jobs:
                 await github.rest.issues.getLabel({ owner, repo, name: label });
               } catch (error) {
                 if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'rewrite-ci is red on main' });
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'A watched workflow is red on main' });
               }
               const created = await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
-              core.info(`Opened ${created.data.html_url}.`);
+              core.info(`Opened ${created.data.html_url} for ${workflowName}.`);
               return;
             }
 
             if (isStale(current)) {
-              core.info(`Issue #${current.number} records a newer workflow run; stale failure ${run.id} ignored.`);
+              core.info(`Issue #${current.number} records a newer ${workflowName} run; stale failure ${run.id} ignored.`);
               return;
             }
 
@@ -112,8 +142,8 @@ jobs:
                 owner,
                 repo,
                 issue_number: current.number,
-                body: `rewrite-ci failed again on main: ${clean(run.html_url)} (\`${clean(run.head_sha)}\`). Updating the advisory issue.`
+                body: `${workflowName} failed again on main: ${clean(run.html_url)} (\`${clean(run.head_sha)}\`). Updating the advisory issue.`
               });
             }
             await github.rest.issues.update({ owner, repo, issue_number: current.number, title, body });
-            core.info(`Updated issue #${current.number}.`);
+            core.info(`Updated issue #${current.number} for ${workflowName}.`);
