@@ -4,7 +4,7 @@ import path from "node:path";
 import { runRawJsonMaybeFail } from "../helpers/daemon-cli.ts";
 import type { ProductionCanonicalIngressFixture } from "./fixture.ts";
 
-const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4";
+const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNM0";
 
 export function verifyDerivedFactSource(
   fixture: ProductionCanonicalIngressFixture,

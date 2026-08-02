@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { sign } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../../../daemon/src/index.ts";
 import { executionDeclaration, type ExecutionRecord } from "../../../kernel/src/index.ts";
 import { authorityNamespaceProofBytes } from "@harness-anything/daemon";
+import { writeSubstantiveTaskPlan } from "../helpers/task-plan-fixture.ts";
 
 export type ProductionCanonicalIngressFixture = ReturnType<typeof createFixture>;
 
@@ -53,6 +54,8 @@ export function createFixture() {
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6"));
+  mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNM0"), { recursive: true });
+  writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNM0/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNM0"));
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope"), { recursive: true });
   writeFileSync(
     path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG9-script-scope/INDEX.md"),
@@ -166,6 +169,10 @@ export function createFixture() {
       }]
     })
   );
+  for (const taskDirectory of readdirSync(path.join(authoredRoot, "tasks"), { withFileTypes: true })) {
+    if (!taskDirectory.isDirectory()) continue;
+    writeSubstantiveTaskPlan(authoredRoot, `tasks/${taskDirectory.name}`);
+  }
   const transcriptPath = path.join(root, "session-transcript.jsonl");
   writeFileSync(transcriptPath, `${JSON.stringify({ timestamp: "2026-07-17T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Production session ingress." } })}\n`);
   writeFileSync(path.join(authoredRoot, "people.yaml"), [

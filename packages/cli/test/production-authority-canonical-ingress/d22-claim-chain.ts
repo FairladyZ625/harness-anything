@@ -4,9 +4,11 @@ import path from "node:path";
 import { sha256Text } from "../../../kernel/src/index.ts";
 import { createGitCanonicalPublicationInspector } from "@harness-anything/daemon";
 import { runRawJsonMaybeFail } from "../helpers/daemon-cli.ts";
+import { writeSubstantiveTaskPlan } from "../helpers/task-plan-fixture.ts";
 import {
   authorityEventBodies,
   authorityOperationRecords,
+  git,
   latestAuthorityOperation,
   writeColdCodexSessionLog,
   type ProductionCanonicalIngressFixture
@@ -19,6 +21,10 @@ export async function verifyD22ClaimChain(input: {
   readonly packagePath: string;
 }): Promise<void> {
   const { fixture, taskId } = input;
+  writeSubstantiveTaskPlan(fixture.repoRoot, input.packagePath);
+  const planPath = path.relative(fixture.authoredRoot, path.join(fixture.repoRoot, input.packagePath, "task_plan.md"));
+  git(fixture.authoredRoot, "add", planPath);
+  git(fixture.authoredRoot, "commit", "-q", "-m", "prepare D22 claim fixture plan");
   const claimSessionId = "service-task-claim-cold-session";
   const claimEnv = { ...input.env, CODEX_THREAD_ID: claimSessionId };
   writeColdCodexSessionLog(fixture.repoRoot, claimSessionId);
@@ -49,6 +55,7 @@ export async function verifyD22ClaimChain(input: {
   assert.equal(publication.parentCommits.length, 2);
   assert.deepEqual(publication.physicalChanges.map((change) => change.path).sort(), [
     `attribution-events/${sha256Text(claimOperation.opId!)}.jsonl`,
+    `${path.relative(fixture.authoredRoot, path.join(fixture.repoRoot, input.packagePath))}/INDEX.md`,
     `${path.relative(fixture.authoredRoot, path.join(fixture.repoRoot, input.packagePath))}/executions/${executionId}.md`
   ].sort());
   assert.equal(publication.pipelineGeneratedPaths.length, 1);

@@ -26,12 +26,12 @@
     },
     "taskClaim": {
       "envelope": {
-        "byteLength": 1912,
-        "sha256": "aaa618d11cd1805e081c0f503c6efe8ff20b2269ca415f9ad0e5180fefa8ea37"
+        "byteLength": 1926,
+        "sha256": "06d7ac27acf63a83d460284c95b22e95e822f506c6bcfeb02af2570d30c81554"
       },
       "receipt": {
-        "byteLength": 1404,
-        "sha256": "802b04ae40daba5b6f7dc10395222861de1ab1eb5b0cb1b93f893fd7255befcd"
+        "byteLength": 1471,
+        "sha256": "40b991e7c98b21506dacb0ffbda91bd7a0b03576721763ae6640dee900b45e56"
       }
     },
     "observedWrite": {

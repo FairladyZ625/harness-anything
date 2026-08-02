@@ -50,7 +50,7 @@ import {
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
 import { verifyDecisionAttributionAfterRestart } from "./decision-attribution-restart.ts";
 import { verifyDerivedFactSource } from "./fact-source-parity.ts";
-import { authorityOperationShape } from "./operation-shape.ts";
+import { authorityOperationProofShape } from "./operation-shape.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
@@ -241,8 +241,7 @@ test("production service route preserves progress dry-run and publishes canonica
       deliverables: ["Canonical slug-aware lifecycle intents."],
       outputs: ["slugged lifecycle passed"],
       verificationNotes: ["Production daemon route passed."],
-      knownGaps: [], residualRisks: [],
-      codeDoc: { commit: fixture.publicHead, paths: ["README.md"] }
+      knownGaps: [], residualRisks: []
     }));
     const beforeFacadeSubmit = authorityOperationRecords(fixture.serviceRoot).length;
     const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -253,21 +252,19 @@ test("production service route preserves progress dry-run and publishes canonica
     const facadeSteps = (transitioned.receipt.details as {
       readonly report?: { readonly steps?: ReadonlyArray<{ readonly details?: { readonly data?: Record<string, unknown> } }> };
     } | undefined)?.report?.steps ?? [];
-    assert.equal(facadeSteps.length, 2, JSON.stringify(transitioned.receipt));
-    const codeDocReport = facadeSteps[0]?.details?.data?.report as Record<string, unknown> | undefined;
-    assert.equal(Object.hasOwn(codeDocReport ?? {}, "prRef"), false, JSON.stringify(transitioned.receipt));
-    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeFacadeSubmit + 2,
-      "task submit must publish one code-doc operation and one execution-submit operation");
+    assert.equal(facadeSteps.length, 1, JSON.stringify(transitioned.receipt));
+    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeFacadeSubmit + 1,
+      "task submit must stop at one execution-submit operation; owner completion owns code-doc reconciliation");
     const facadeSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
     assert.deepEqual(
-      authorityOperationShape(facadeSubmitOperation),
-      authorityOperationShape(manualSubmitOperation),
-      "facade execution-submit registry operation must preserve every stored field and proof category"
+      authorityOperationProofShape(facadeSubmitOperation),
+      authorityOperationProofShape(manualSubmitOperation),
+      "facade execution-submit registry operation must preserve every stored authority proof category"
     );
     assert.equal(existsSync(path.join(
       fixture.authoredRoot,
       `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
-    )), true);
+    )), false, "task submit must not reconcile code-doc anchors before owner completion");
     assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
 
     const submitStepData = facadeSteps.at(-1)?.details?.data ?? {};
@@ -306,7 +303,18 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.match(readFileSync(path.join(
       fixture.authoredRoot,
       `tasks/${sluggedLifecycleTaskId}-production-route/executions/${sluggedExecutionId}.md`
-    ), "utf8"), /^  "state": "submitted",$/mu);
+    ), "utf8"), /^  "state": "accepted",$/mu);
+
+    const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "code-doc", "reconcile", sluggedLifecycleTaskId,
+      "--commit", fixture.publicHead, "--path", "README.md"
+    ], sluggedLifecycleEnv);
+    assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
+    assert.equal(reconciled.receipt.ok, true, JSON.stringify(reconciled.receipt));
+    assert.equal(existsSync(path.join(
+      fixture.authoredRoot,
+      `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
+    )), true, "owner-stage reconciliation must publish code-doc anchors before completion");
 
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", sluggedLifecycleTaskId, "--ci", "passed", "--reviewer", "person_alice"
