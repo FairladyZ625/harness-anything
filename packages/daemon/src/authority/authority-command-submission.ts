@@ -202,7 +202,23 @@ export function makeDaemonAuthorityWriteCoordinator(
       }),
     flush: (reason) => Effect.tryPromise({
       try: async (): Promise<FlushReport> => {
-        if (!pending) return { reason, opCount: 0, committed: false };
+        if (!pending) {
+          const action = input.command.action;
+          if (mainCommitted || action.kind !== "task-complete") {
+            return { reason, opCount: 0, committed: false };
+          }
+          settled ??= submission.submit({
+            ...input,
+            ingress: "generic",
+            canonicalEntityId: taskEntityId(action.taskId)
+          });
+          const receipt = await settled;
+          const report = receiptToFlushReport(receipt, reason);
+          settled = undefined;
+          mainCommitted = true;
+          mainWatermark = receipt.opId;
+          return report;
+        }
         if (coveredByMainSubmission) {
           pending = undefined;
           coveredByMainSubmission = false;
@@ -230,7 +246,7 @@ export function makeDaemonAuthorityWriteCoordinator(
           : {
             ...input,
             ingress: "generic",
-            command: commandWithCompletionContractFence(input.command, pending),
+            command: input.command,
             canonicalEntityId: commandMainEntityId(input.command) ?? pending.entityId
           });
         const receipt = await settled;
@@ -247,53 +263,6 @@ export function makeDaemonAuthorityWriteCoordinator(
       catch: authoritySubmissionWriteError
     }),
     recover: Effect.succeed({ replayedOps: 0 } satisfies RecoveryReport)
-  };
-}
-
-function commandWithCompletionContractFence(
-  command: AuthorityHostCommand,
-  operation: WriteOp
-): AuthorityHostCommand {
-  if (command.action.kind !== "task-complete") return command;
-  const action = command.action;
-  const payload = operation.payload && typeof operation.payload === "object"
-    ? operation.payload as {
-        readonly entityDocument?: { readonly body?: unknown };
-        readonly preconditions?: ReadonlyArray<{
-          readonly taskId?: unknown;
-          readonly path?: unknown;
-          readonly bodySha256?: unknown;
-        }>;
-      }
-    : null;
-  const contract = payload?.preconditions?.find((entry) =>
-    entry.taskId === action.taskId && entry.path === "task-contract.json"
-  );
-  if (!contract || (contract.bodySha256 !== null
-    && (typeof contract.bodySha256 !== "string" || !/^[a-f0-9]{64}$/u.test(contract.bodySha256)))) {
-    throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_CONTRACT_PRECONDITION_REQUIRED");
-  }
-  let completionApplicableGates: ReadonlyArray<string> | undefined;
-  if (action.evidenceMode === "commit-anchor" && typeof payload?.entityDocument?.body === "string") {
-    let evidence: { readonly gateReceipt?: { readonly applicableGates?: unknown } };
-    try {
-      evidence = JSON.parse(payload.entityDocument.body) as typeof evidence;
-    } catch {
-      throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_GATE_RECEIPT_REQUIRED");
-    }
-    if (!Array.isArray(evidence.gateReceipt?.applicableGates)
-      || evidence.gateReceipt.applicableGates.some((gate) => typeof gate !== "string" || gate.length === 0)) {
-      throw authorityWriteRejected("AUTHORITY_TASK_COMPLETE_GATE_RECEIPT_REQUIRED");
-    }
-    completionApplicableGates = evidence.gateReceipt.applicableGates as ReadonlyArray<string>;
-  }
-  return {
-    ...command,
-    action: {
-      ...action,
-      completionContractBodySha256: contract.bodySha256,
-      ...(completionApplicableGates ? { completionApplicableGates } : {})
-    }
   };
 }
 

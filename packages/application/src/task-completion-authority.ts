@@ -1,17 +1,13 @@
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import {
   decodeEntityDeclaration,
   jsonEntityDocumentCodec,
   projectDeclaredEntities,
   readDeclaredProjectionRows,
   sha256Text,
-  stablePayloadHash,
-  writeDeclaredEntityTransaction,
-  type ArtifactStore,
   type HarnessLayoutInput,
   type TaskHolderPrincipal,
-  type VersionControlSystem,
-  type WriteCoordinator
+  type VersionControlSystem
 } from "@harness-anything/kernel";
 import { inspectExecutionCompletionReadiness, type ExecutionCompletionReadinessIssue } from "./execution-completion-service.ts";
 import type { CompletionCiGateStatus } from "./task-lifecycle-gates.ts";
@@ -149,10 +145,6 @@ export interface TaskCompletionAuthorityInput {
   readonly versionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "resolveCommit">;
 }
 
-export interface CommitCompletionService {
-  readonly complete: (input: Omit<TaskCompletionAuthorityInput, "versionControlSystem"> & { readonly mode: "commit-anchor" }) => Promise<TaskCompletionEvidence>;
-}
-
 export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityInput): TaskCompletionAuthorityResult {
   if (input.mode === "execution-review") {
     const readiness = inspectExecutionCompletionReadiness({
@@ -221,40 +213,6 @@ export function evaluateTaskCompletionAuthority(input: TaskCompletionAuthorityIn
   return { ok: true, evidenceMode: "commit-anchor", evidence };
 }
 
-export function makeCommitCompletionService(options: {
-  readonly rootDir: string;
-  readonly coordinator: WriteCoordinator;
-  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
-  readonly versionControlSystem: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "resolveCommit">;
-}): CommitCompletionService {
-  return {
-    complete: async (input) => {
-      const task = await Effect.runPromise(options.artifactStore.readTaskPackage(input.taskId));
-      const currentIndex = requiredCompletionDocument(task.documents, "INDEX.md", input.taskId);
-      const evaluation = evaluateTaskCompletionAuthority({
-        ...input,
-        documents: task.documents,
-        rootDir: options.rootDir,
-        versionControlSystem: options.versionControlSystem
-      });
-      if (!evaluation.ok || evaluation.evidenceMode !== "commit-anchor") {
-        throw new Error(evaluation.ok ? "commit completion mode mismatch" : evaluation.issues[0]?.message ?? "commit completion rejected");
-      }
-      const evidence = evaluation.evidence;
-      await Effect.runPromise(writeDeclaredEntityTransaction(
-        options.coordinator,
-        stablePayloadHash,
-        taskCompletionEvidenceDeclaration,
-        { taskId: input.taskId },
-        evidence,
-        [{ taskId: input.taskId, path: "INDEX.md", body: completedCommitTaskIndex(currentIndex, input.taskId) }],
-        completionEvidencePreconditions(task.documents, input.taskId)
-      ));
-      return evidence;
-    }
-  };
-}
-
 function resolveWorkspaceCommit(
   rootDir: string,
   ref: string,
@@ -294,31 +252,6 @@ function matchingCodeDocRecords(body: string, taskId: string, sha: string): Read
     if (hardMatch) ids.push(rawRecord.id);
   }
   return ids;
-}
-
-function completionEvidencePreconditions(
-  documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
-  taskId: string
-) {
-  const fixedPaths = ["INDEX.md", "task-contract.json", "closeout.md", "code-doc-anchors.json"];
-  return [
-    ...fixedPaths.map((documentPath) => {
-      const document = documents.find((candidate) => candidate.path === documentPath);
-      return { taskId, path: documentPath, bodySha256: document ? sha256Text(document.body) : null };
-    }),
-  ];
-}
-
-function requiredCompletionDocument(documents: ReadonlyArray<{ readonly path: string; readonly body: string }>, documentPath: string, taskId: string): string {
-  const body = documents.find((document) => document.path === documentPath)?.body;
-  if (!body) throw new Error(`task ${documentPath} missing: ${taskId}`);
-  return body;
-}
-
-function completedCommitTaskIndex(body: string, taskId: string): string {
-  if (!/^  engine:\s*local$/mu.test(body)) throw new Error(`task is not local: ${taskId}`);
-  if (!/^  status:\s*(planned|active|blocked|in_review)$/mu.test(body)) throw new Error(`task is not completable: ${taskId}`);
-  return body.replace(/^(  status:\s*).+$/mu, "$1done");
 }
 
 function isCompletionRecord(value: unknown): value is Record<string, unknown> {

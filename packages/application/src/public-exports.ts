@@ -408,7 +408,6 @@ export {
 export {
   evaluateTaskCompletionAuthority,
   decodeTaskCompletionEvidence,
-  makeCommitCompletionService,
   projectTaskCompletionEvidence,
   readTaskCompletionEvidenceProjection,
   TASK_COMPLETION_EVIDENCE_DOCUMENT,
@@ -418,7 +417,6 @@ export type {
   TaskCompletionAuthorityInput,
   TaskCompletionAuthorityIssue,
   TaskCompletionAuthorityResult,
-  CommitCompletionService,
   TaskCompletionEvidence,
   TaskCompletionEvidenceMode,
   TaskCompletionEvidenceProjectionResult,
@@ -449,8 +447,37 @@ export type {
   TaskLifecyclePolicy,
   TaskLifecycleProgressWriteResult,
   TaskLifecycleResult,
+  TaskLifecycleStatusMutationPlan,
   TaskLifecycleStatusWriteResult,
   TaskLifecycleTreeStatusResult,
   TaskLifecycleSuccess,
   TaskLifecycleWriter
 } from "./task-lifecycle-orchestrator.ts";
+export {
+  TaskLifecycleTransitionPlanningError,
+  TaskLifecycleTransitionService,
+  decodeCanonicalTaskMutationPlan,
+  resolveTaskCurrentRound,
+  taskLifecycleTransitionId
+} from "./task-lifecycle-transition-service.ts";
+export {
+  decodeTaskLifecycleTransitionCheckpoint,
+  encodeTaskLifecycleTransitionCommandPayloadV2,
+  makeTaskLifecycleTransitionSemanticCompilerV2,
+  taskLifecycleTransitionCheckpointDeclaration,
+  taskLifecycleTransitionTypedCommandsV2
+} from "./authority/task-lifecycle-transition-semantic-compiler-v2.ts";
+export type {
+  TaskLifecycleTransitionAuthorityStateV2,
+  TaskLifecycleTransitionSemanticCompilerV2Options
+} from "./authority/task-lifecycle-transition-semantic-compiler-v2.ts";
+export type {
+  CanonicalTaskMutationPlan,
+  ExistingTaskLifecycleTransition,
+  TaskCurrentRound,
+  TaskCurrentRoundManualCategory,
+  TaskLifecycleTransitionSnapshot,
+  VerifiedTaskCompleteCodeDocWitness,
+  VerifiedTaskCompleteDocumentPublicationWitness,
+  VerifiedTaskCompleteExternalWitness
+} from "./task-lifecycle-transition-service.ts";

@@ -1,23 +1,17 @@
 import { Effect } from "effect";
-import type { ArtifactStore, DomainStatus, EngineError, TaskHolderPrincipal, TaskId, VersionControlSystem, WriteError } from "@harness-anything/kernel";
-import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout, sha256Text } from "@harness-anything/kernel";
+import type { ArtifactStore, DomainStatus, EngineError, WriteError } from "@harness-anything/kernel";
+import { isDomainStatus, isTerminalStatus } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
-import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
-import { parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 import { evaluateCompletionGate, evaluateTaskReturnToIdeaGate } from "./task-lifecycle-gates.ts";
-import type { CompletionCiGateStatus, TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
-import type { ExecutionCompletionService } from "./execution-completion-service.ts";
-import { evaluateTaskCompletionAuthority, type CommitCompletionService, type TaskCompletionEvidence, type TaskCompletionEvidenceMode } from "./task-completion-authority.ts";
-import { completeTaskWithCommitEvidence } from "./commit-completion-orchestrator.ts";
+import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
+import type { TaskCompletionEvidence, TaskCompletionEvidenceMode } from "./task-completion-authority.ts";
 import {
-  legacyReviewCompatibility,
   readTaskDocument,
   reviewTask,
   taskFailure,
   terminalStatusFailure
 } from "./task-lifecycle-orchestrator-helpers.ts";
-import { collectCompletionRequirementIssues, completionRequirementsFailure, isExecutionCompletionRequirement, validateCompletionDocumentPlaceholders } from "./task-completion-requirements.ts";
 import { validateTaskPlanAdmissionPreflight } from "./task-plan-admission-preflight.ts";
 import type { ReadTaskReturnToIdeaSnapshotV1 } from "./authority/task-return-to-idea-policy.ts";
 
@@ -42,11 +36,22 @@ export interface TaskLifecycleTreeStatusResult {
 }
 
 export interface TaskLifecycleWriter {
-  readonly setStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteError>;
+  readonly setStatus: (plan: TaskLifecycleStatusMutationPlan) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteError>;
   readonly appendProgress: (payload: { readonly taskId: string; readonly text: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
   readonly stageDocument: (payload: { readonly taskId: string; readonly path: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
   readonly stageTaskTree: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
   readonly taskTreeStatus: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleTreeStatusResult, EngineError | WriteError>;
+}
+
+export interface TaskLifecycleStatusMutationPlan {
+  readonly schema: "task-lifecycle-status-mutation-plan/v1";
+  readonly taskId: string;
+  readonly status: "planned" | "active" | "blocked";
+  readonly witness: {
+    readonly kind: "task-lifecycle-orchestrator";
+    readonly from: DomainStatus | null;
+    readonly to: "planned" | "active" | "blocked";
+  };
 }
 
 export interface TaskLifecycleOrchestratorOptions {
@@ -55,15 +60,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly taskWriter: TaskLifecycleWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
-  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit" | "resolveCommit">;
   readonly now?: () => string;
-  readonly executionCompletionService?: ExecutionCompletionService;
-  readonly commitCompletionService?: CommitCompletionService;
-  readonly completionGateResolver?: (input: {
-    readonly vertical?: string;
-    readonly preset?: string;
-    readonly profile?: string;
-  }) => ReadonlyArray<string>;
   readonly readTaskReturnToIdeaSnapshot?: ReadTaskReturnToIdeaSnapshotV1;
 }
 
@@ -112,19 +109,6 @@ export interface TaskLifecycleOrchestrator {
   readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
   readonly startTaskReview: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleResult>;
   readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
-  readonly completeTask: (payload: {
-    readonly taskId: string;
-    readonly executionId?: string;
-    readonly reviewerId: string;
-    readonly ciGate?: CompletionCiGateStatus;
-    readonly actor?: TaskHolderPrincipal;
-    readonly evidenceMode?: TaskCompletionEvidenceMode;
-    readonly commitRef?: string;
-    readonly judgment?: string;
-    readonly sessionRef?: string;
-    /** Read-only evaluation of the same requirements used by completion. */
-    readonly preflight?: boolean;
-  }) => Effect.Effect<TaskLifecycleResult>;
 }
 
 export interface TaskLifecyclePolicy {
@@ -197,7 +181,11 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
           return taskFailure(payload.taskId, planPlaceholder.code, planPlaceholder.hint);
         }
       }
-      return yield* options.taskWriter.setStatus(payload).pipe(
+      const mutationPlan = planTaskLifecycleStatusMutation({
+        taskId: payload.taskId,
+        status: directTaskLifecycleStatus(payload.status)
+      }, policy?.status ?? null);
+      return yield* options.taskWriter.setStatus(mutationPlan).pipe(
         Effect.match({
           onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Status update failed."),
           onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
@@ -222,204 +210,46 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         reviewContract: review.reviewContract,
         ...(review.warnings ? { warnings: review.warnings } : {})
       };
-    }),
-    completeTask: (payload) => Effect.gen(function* () {
-      const evidenceMode = payload.evidenceMode ?? "execution-review";
-      if (!payload.actor
-        || (evidenceMode === "execution-review" && !options.executionCompletionService)
-        || (evidenceMode === "commit-anchor" && !options.commitCompletionService)) {
-        return taskFailure(
-          payload.taskId,
-          "write_rejected",
-          "Task completion requires the Execution completion service and an authorized actor."
-        );
-      }
-      const legacyReview = yield* legacyReviewCompatibility(
-        options.artifactStore,
-        payload.taskId,
-        payload.reviewerId,
-        options.now
-      );
-      if (legacyReview.blocker) return legacyReview.blocker;
-      const legacyReviewWarnings = legacyReview.warnings;
-
-      const projection = readTaskProjection({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides });
-      const row = projection.rows.find((item) => item.taskId === payload.taskId);
-      if (!row) return taskFailure(payload.taskId, "task_not_found", `task not found: ${payload.taskId}`);
-      const taskPackage = yield* options.artifactStore.readTaskPackage(payload.taskId as TaskId).pipe(
-        Effect.catchAll(() => Effect.succeed(null))
-      );
-      if (!taskPackage) return taskFailure(payload.taskId, "task_not_found", `task package not found: ${payload.taskId}`);
-      const contractBody = taskPackage.documents.find((document) => document.path === "task-contract.json")?.body ?? null;
-      let contractSnapshot;
-      try {
-        contractSnapshot = contractBody === null ? undefined : parseTaskContractSnapshot(contractBody);
-      } catch (error) {
-        return taskFailure(
-          payload.taskId,
-          "completion_contract_invalid",
-          `Task contract snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-      const completionGates = resolveTaskCompletionGates({
-        ...(contractSnapshot ? { snapshot: contractSnapshot } : {}),
-        vertical: row.vertical,
-        preset: row.preset,
-        profile: row.profile,
-        legacyResolver: options.completionGateResolver
-      });
-      if (!completionGates.ok) return taskFailure(payload.taskId, "completion_contract_invalid", completionGates.message);
-
-      const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(
-        options.artifactStore,
-        payload.taskId,
-        options.documentPlaceholderPolicy
-      );
-      let codeDocReconciliation: TaskLifecycleFailure | null = null;
-      if (completionGates.gates.includes("code-doc-reconciliation")) {
-        codeDocReconciliation = yield* validateCodeDocReconciliation(
-          options.artifactStore,
-          options.rootDir,
-          resolveHarnessLayout({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides }).authoredRoot,
-          payload.taskId,
-          options.codeDocVersionControlSystem
-        );
-      }
-
-      const closeoutBody = taskPackage.documents.find((document) => document.path === "closeout.md")?.body;
-      const closeoutReadiness = evidenceMode === "commit-anchor"
-        ? closeoutBody && !documentPlaceholder ? "ready" : "missing"
-        : row.closeoutReadiness;
-      const completionGate = evaluateCompletionGate({
-        taskId: payload.taskId,
-        canonicalStatus: row.canonicalStatus,
-        coordinationStatus: row.coordinationStatus,
-        packageDisposition: row.packageDisposition,
-        closeoutReadiness,
-        reviewGate: "passed",
-        ciGate: payload.ciGate,
-        applicableGates: completionGates.gates
-      });
-      let completionAuthority;
-      try {
-        completionAuthority = evaluateTaskCompletionAuthority({
-          taskId: payload.taskId,
-          executionId: payload.executionId,
-          mode: evidenceMode,
-          status: row.coordinationStatus,
-          documents: taskPackage.documents,
-          actor: payload.actor,
-          sessionRef: payload.sessionRef ?? "session/unavailable",
-          judgedAt: options.now ? options.now() : new Date().toISOString(),
-          applicableGates: completionGates.gates,
-          ciGate: payload.ciGate,
-          commitRef: payload.commitRef,
-          judgment: payload.judgment,
-          rootDir: options.rootDir,
-          versionControlSystem: options.codeDocVersionControlSystem
-        });
-      } catch (error) {
-        return taskFailure(payload.taskId, "write_rejected", error instanceof Error ? error.message : String(error));
-      }
-      const requirementIssues = collectCompletionRequirementIssues({
-        taskId: payload.taskId,
-        documentPlaceholder,
-        codeDocReconciliation,
-        completionGate,
-        completionAuthority: completionAuthority.ok
-          ? { executionId: completionAuthority.evidenceMode === "execution-review" ? completionAuthority.executionId : undefined, issues: [] }
-          : { issues: completionAuthority.issues }
-      });
-      if (requirementIssues.length > 0) {
-        if (requirementIssues.every((issue) => isExecutionCompletionRequirement(issue.code))) {
-          const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);
-          if (taskTreeFailure) return taskTreeFailure;
-        }
-        return completionRequirementsFailure(payload.taskId, requirementIssues, completionGate);
-      }
-
-      if (payload.preflight) {
-        return {
-          ok: true,
-          taskId: payload.taskId,
-          status: "done",
-          completionGate: { ...completionGate, evidenceMode }
-        } satisfies TaskLifecycleResult;
-      }
-
-      const taskTreeFailure = yield* prepareCompletionTaskTree(options.taskWriter, payload.taskId, completionGate);
-      if (taskTreeFailure) return taskTreeFailure;
-      if (evidenceMode === "commit-anchor") {
-        const result = yield* completeTaskWithCommitEvidence(options.commitCompletionService!, {
-          taskId: payload.taskId,
-          mode: "commit-anchor",
-          status: row.coordinationStatus,
-          documents: taskPackage.documents,
-          actor: payload.actor!,
-          sessionRef: payload.sessionRef ?? "session/unavailable",
-          judgedAt: options.now ? options.now() : new Date().toISOString(),
-          applicableGates: completionGates.gates,
-          ciGate: payload.ciGate,
-          commitRef: payload.commitRef,
-          judgment: payload.judgment,
-          rootDir: options.rootDir
-        }, completionGate);
-        return result.ok && legacyReviewWarnings.length > 0
-          ? { ...result, warnings: legacyReviewWarnings }
-          : result;
-      }
-
-      const completion = yield* Effect.tryPromise({
-        try: () => options.executionCompletionService!.completeTaskExecution({
-          taskId: payload.taskId,
-          actor: payload.actor!,
-          executionId: payload.executionId,
-          contractPrecondition: { bodySha256: contractBody === null ? null : sha256Text(contractBody) }
-        }),
-        catch: (error) => error
-      }).pipe(Effect.match({
-        onFailure: (error) => ({ ok: false as const, error }),
-        onSuccess: (result) => ({ ok: true as const, result })
-      }));
-      if (!completion.ok) {
-        return taskFailure(payload.taskId, "write_rejected", completion.error instanceof Error ? completion.error.message : String(completion.error));
-      }
-      if (!completion.result) {
-        return taskFailure(
-          payload.taskId,
-          "write_rejected",
-          "Task completion requires a submitted Execution with a matching approved Review."
-        );
-      }
-      return {
-        ok: true,
-        taskId: payload.taskId,
-        executionId: completion.result.executionId,
-        status: "done",
-        completionGate: { ...completionGate, evidenceMode: "execution-review" },
-        ...(legacyReviewWarnings.length > 0 ? { warnings: legacyReviewWarnings } : {})
-      } satisfies TaskLifecycleResult;
     })
   };
 }
 
-function prepareCompletionTaskTree(
-  writer: TaskLifecycleWriter,
-  taskId: string,
-  completionGate: CompletionGateResult
-): Effect.Effect<TaskLifecycleFailure | null> {
-  return Effect.gen(function* () {
-    const staged = yield* stageTaskTree(writer, taskId, "Completion task-tree staging failed.");
-    if (!staged.ok) return staged;
-    return yield* writer.taskTreeStatus({ taskId }).pipe(
-      Effect.match({
-        onFailure: (error): TaskLifecycleFailure => writeFailure(taskId, error, "Completion task-tree dirty check failed."),
-        onSuccess: (result): TaskLifecycleFailure | null => result.dirty
-          ? taskTreeDirtyFailure(taskId, result.entries, completionGate)
-          : null
-      })
-    );
-  });
+function planTaskLifecycleStatusMutation(
+  payload: { readonly taskId: string; readonly status: "planned" | "active" | "blocked" },
+  from: DomainStatus | null
+): TaskLifecycleStatusMutationPlan {
+  switch (payload.status) {
+    case "planned":
+    case "active":
+    case "blocked":
+      return {
+        schema: "task-lifecycle-status-mutation-plan/v1",
+        taskId: payload.taskId,
+        status: payload.status,
+        witness: { kind: "task-lifecycle-orchestrator", from, to: payload.status }
+      };
+    default:
+      return taskLifecycleStatusNever(payload.status);
+  }
+}
+
+function taskLifecycleStatusNever(value: never): never {
+  throw new Error(`TASK_LIFECYCLE_STATUS_EXHAUSTIVENESS_BREACH:${String(value)}`);
+}
+
+function directTaskLifecycleStatus(value: DomainStatus): "planned" | "active" | "blocked" {
+  switch (value) {
+    case "planned":
+    case "active":
+    case "blocked":
+      return value;
+    case "in_review":
+    case "done":
+    case "cancelled":
+      throw new Error(`TASK_LIFECYCLE_DIRECT_STATUS_FORBIDDEN:${value}`);
+    default:
+      return taskLifecycleStatusNever(value);
+  }
 }
 
 function stageTaskTree(
@@ -435,41 +265,6 @@ function stageTaskTree(
   );
 }
 
-function validateCodeDocReconciliation(
-  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
-  rootDir: string,
-  authoredRoot: string,
-  taskId: string,
-  versionControlSystem: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit"> | undefined
-): Effect.Effect<TaskLifecycleFailure | null> {
-  return Effect.gen(function* () {
-    const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(
-      Effect.catchAll(() => Effect.succeed(null))
-    );
-    if (taskPackage === null) {
-      return taskFailure(taskId, "code_doc_reconciliation_failed", "Task completion requires a readable task package for code-doc reconciliation.");
-    }
-    const gate = evaluateCodeDocReconciliationGate({
-      taskId,
-      rootDir,
-      authoredRoot,
-      documents: taskPackage.documents,
-      versionControlSystem
-    });
-    if (gate.ok) return null;
-    return {
-      ok: false,
-      taskId,
-      report: gate,
-      issues: gate.issues,
-      error: {
-        code: "code_doc_reconciliation_failed",
-        hint: "Task completion requires load-bearing code-doc records to anchor to git commits or path@commit evidence."
-      }
-    };
-  });
-}
-
 export function readTaskLifecyclePolicy(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<TaskLifecyclePolicy | null> {
   return Effect.gen(function* () {
     const body = yield* readTaskDocument(artifactStore, taskId, "INDEX.md");
@@ -479,31 +274,6 @@ export function readTaskLifecyclePolicy(artifactStore: Pick<ArtifactStore, "read
     const status = readScalar(frontmatter, "  status");
     return { engine: readScalar(frontmatter, "  engine") || "", status: isDomainStatus(status) ? status : null };
   });
-}
-
-function taskTreeDirtyFailure(
-  taskId: string,
-  entries: ReadonlyArray<string>,
-  completionGate: CompletionGateResult
-): TaskLifecycleFailure {
-  const issue = {
-    code: "task_tree_dirty" as const,
-    message: `Task package has uncommitted changes after sweep: ${entries.slice(0, 5).join(", ")}${entries.length > 5 ? ", ..." : ""}`
-  };
-  return {
-    ok: false,
-    taskId,
-    completionGate: {
-      ...completionGate,
-      ok: false,
-      issues: [...completionGate.issues, issue]
-    },
-    issues: [issue],
-    error: {
-      code: issue.code,
-      hint: "Task completion requires tasks/<id>/ to be clean after the transition sweep. Let the lifecycle transition commit the task package, then rerun task complete."
-    }
-  };
 }
 
 function writeFailure(taskId: string, error: EngineError | WriteError, fallbackHint: string): TaskLifecycleFailure {

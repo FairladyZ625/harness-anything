@@ -1,18 +1,13 @@
-import path from "node:path";
 import { Effect } from "effect";
-import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeCommitCompletionService, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "@harness-anything/kernel";
+import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
+import { makeLocalVersionControlSystem, resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
-import { runDistillCommand } from "./distill.ts";
-import { docSyncDirtyWarnings } from "./doc-sync.ts";
+import { taskCompleteTransitionCommandFromCliAction } from "../../cli/task-complete-transition-command.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
-import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
 import { runExecutionConsent } from "./task-execution-consent.ts";
-import { resolvePreset } from "../extensions/state.ts";
-import { resolvePresetCompletionGates } from "./task-completion-contract.ts";
 import { taskLifecycleResultToCliResult } from "./task-gate-receipt.ts";
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-consent-record" | "task-review-execution" | "task-complete" }>;
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
@@ -20,72 +15,84 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   if (action.kind === "task-code-doc-reconcile") return runTaskCodeDocReconcile(context, action);
   if (action.kind === "task-consent-record") return runExecutionConsent(context, action);
   if (action.kind === "task-review-execution") return runExecutionReview(context, action);
-  const versionControlSystem = makeLocalVersionControlSystem();
+  if (action.kind === "task-complete") {
+    return runTaskLifecycleTransition(
+      context,
+      taskCompleteTransitionCommandFromCliAction(action)
+    );
+  }
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
     taskWriter: context.engine,
     artifactStore: context.artifactStore,
-    documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy(),
-    codeDocVersionControlSystem: versionControlSystem,
-    executionCompletionService: makeExecutionCompletionService({
-      rootInput: context.layoutInput,
-      coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-completion" }),
-      artifactStore: context.artifactStore
-    }),
-    commitCompletionService: makeCommitCompletionService({
-      rootDir: context.rootDir,
-      coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "commit-completion" }),
-      artifactStore: context.artifactStore,
-      versionControlSystem
-    }),
-    completionGateResolver: ({ vertical, preset, profile }) => {
-      if (!vertical || !preset) throw new Error("Task vertical and preset are required for completion gate resolution");
-      const resolved = resolvePreset(context.layoutInput, preset, vertical);
-      if (!resolved) throw new Error(`Task preset is not resolvable in the current registry: ${preset}`);
-      if (resolved.manifest.vertical !== vertical) throw new Error(`Task preset ${preset} does not belong to vertical ${vertical}`);
-      return resolvePresetCompletionGates(resolved.manifest, preset, profile);
-    }
+    documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy()
   });
   if (action.kind === "task-review") {
     return orchestrator.reviewTask({ taskId: action.taskId, reviewerId: action.reviewerId }).pipe(
       Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-review", result))
     );
   }
-  const complete = () => context.currentSessionProbe.currentSession.pipe(Effect.flatMap((session) => orchestrator.completeTask({
-    taskId: action.taskId,
-    executionId: action.executionId ?? undefined,
-    reviewerId: action.reviewerId,
-    ciGate: action.ciGate ?? undefined,
-    actor: context.taskHolderPrincipal(),
-    evidenceMode: action.evidenceMode,
-    commitRef: action.commitRef ?? undefined,
-    judgment: action.judgment ?? undefined,
-    sessionRef: `session/${session.sessionId}`,
-    preflight: action.dryRun === true
-  })),
-    Effect.map((result): CliResult => {
-      const evidencePath = path.relative(
-        context.rootDir,
-        taskDocumentPath(context.layoutInput, action.taskId, "completion-evidence.json")
-      ).split(path.sep).join("/");
-      const output = taskLifecycleResultToCliResult("task-complete", result, evidencePath);
-      if (!output.ok) return output;
-      return {
-        ...output,
-        warnings: [
-          ...(output.warnings ?? []),
-          ...(taskTreeSoftGateWarnings(context, action.taskId) ?? []),
-          ...(docSyncDirtyWarnings(context.layoutInput) ?? [])
-        ]
-      };
-    }),
-    Effect.flatMap((output) => output.ok && action.dryRun !== true
-      ? queueCloseoutDistillCandidate(context, command, action, output)
-      : Effect.succeed(output))
-  );
-  return complete();
+  throw new Error(`unsupported task gate action: ${(action as { readonly kind: string }).kind}`);
 };
+
+function runTaskLifecycleTransition(
+  context: Parameters<CommandRunner>[0],
+  action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>
+): ReturnType<CommandRunner> {
+  if (action.dryRun === true) {
+    return Effect.succeed({
+      ok: true,
+      command: "task-complete",
+      taskId: action.taskId,
+      status: "done",
+      completionGate: { ok: true, evidenceMode: action.evidenceMode, dryRun: true },
+      report: {
+        schema: "task-lifecycle-transition-preview/v1",
+        dryRun: true,
+        disposition: "server-planner-validation-required"
+      }
+    } satisfies CliResult);
+  }
+  if (!context.authorityCommandSubmission) {
+    return Effect.succeed({
+      ok: false,
+      command: "task-complete",
+      taskId: action.taskId,
+      error: cliError(
+        CliErrorCode.WriteRejected,
+        "Task completion requires the daemon-planned canonical transition submission; direct recovery cannot recreate that authority."
+      )
+    } satisfies CliResult);
+  }
+  const transitionId = taskLifecycleTransitionId(action.callerIdempotencyKey);
+  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition" });
+  return Effect.gen(function* () {
+    const flush = yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
+      { taskId: action.taskId },
+      () => Effect.runPromise(coordinator.flush("explicit"))
+    ));
+    if (!flush.committed && !flush.watermark) throw new Error("TASK_LIFECYCLE_TRANSITION_NOT_COMMITTED");
+    return {
+      ok: true,
+      command: "task-complete",
+      taskId: action.taskId,
+      executionId: action.executionId ?? undefined,
+      status: "done",
+      completionGate: {
+        ok: true,
+        evidenceMode: action.evidenceMode,
+        transitionId,
+        checkpointSet: true
+      },
+      report: {
+        schema: "task-lifecycle-transition-result/v1",
+        transitionId,
+        checkpointSet: action.externalCheckpointRefs ?? []
+      }
+    } satisfies CliResult;
+  });
+}
 
 function runTaskCodeDocReconcile(
   context: Parameters<CommandRunner>[0],
@@ -159,70 +166,4 @@ function runTaskCodeDocReconcile(
       }
     } satisfies CliResult;
   });
-}
-
-function queueCloseoutDistillCandidate(
-  context: Parameters<CommandRunner>[0],
-  command: Parameters<CommandRunner>[1],
-  action: Extract<TaskGateAction, { readonly kind: "task-complete" }>,
-  output: CliResult
-): ReturnType<CommandRunner> {
-  const inputPath = taskCloseoutInputPath(context, action.taskId);
-  return runDistillCommand(context, {
-    ...command,
-    action: {
-      kind: "distill-candidate",
-      taskId: action.taskId,
-      inputPath
-    }
-  }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => withDistillCandidateWarning(output, `distill candidate write failed: ${JSON.stringify(error)}`),
-      onSuccess: (candidate): CliResult => candidate.ok
-        ? withDistillCandidateReport(output, candidate)
-        : withDistillCandidateWarning(output, candidate.error?.hint ?? "distill candidate was not queued")
-    })
-  );
-}
-
-function taskCloseoutInputPath(context: Parameters<CommandRunner>[0], taskId: string): string {
-  return path.relative(context.rootDir, taskDocumentPath(context.layoutInput, taskId, "closeout.md")).split(path.sep).join("/");
-}
-
-function withDistillCandidateReport(output: CliResult, candidate: CliResult): CliResult {
-  return {
-    ...output,
-    report: {
-      ...(isCliReportRecord(output.report) ? output.report : { schema: "task-complete-report/v1" }),
-      distillCandidate: {
-        queued: true,
-        path: candidate.path,
-        report: candidate.report
-      }
-    }
-  };
-}
-
-function withDistillCandidateWarning(output: CliResult, reason: string): CliResult {
-  return {
-    ...output,
-    report: {
-      ...(isCliReportRecord(output.report) ? output.report : { schema: "task-complete-report/v1" }),
-      distillCandidate: {
-        queued: false,
-        reason
-      }
-    },
-    warnings: [
-      ...(output.warnings ?? []),
-      {
-        code: "distill_candidate_not_queued",
-        message: reason
-      }
-    ]
-  };
-}
-
-function isCliReportRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

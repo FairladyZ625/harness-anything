@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,7 +13,7 @@ import { cliTestEnv } from "./helpers/cli-test-env.ts";
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
-test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
+test("direct completion does not recreate the deleted task-tree sweep", () => {
   withGitTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Sweep Closeout"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -35,17 +35,18 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
     approveExecution(rootDir, taskId, executionId);
     assert.match(gitStatus(rootDir, taskPath), /closeout\.md/u);
 
-    const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, actorEnv("commander"));
+    const rejected = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, actorEnv("commander"));
 
-    assert.equal(completed.ok, true);
-    assert.equal(completed.status, "done");
-    assert.equal(gitStatus(rootDir, taskPath), "");
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.match(gitStatus(rootDir, taskPath), /closeout\.md/u);
     assert.match(readFileSync(closeoutPath, "utf8"), /Updated before completion/u);
+    assert.match(readFileSync(path.join(rootDir, taskPath, "INDEX.md"), "utf8"), /status: in_review/u);
   });
 });
 
 for (const preset of ["milestone-closeout"] as const) {
-  test(`CLI task complete queues a distill candidate for ${preset}`, () => {
+  test(`direct task complete does not queue a ${preset} distill candidate`, () => {
     withGitTempRoot((rootDir) => {
       const created = runJson(rootDir, [
         "new-task",
@@ -71,21 +72,13 @@ for (const preset of ["milestone-closeout"] as const) {
       approveExecution(rootDir, taskId, executionId);
       const factsBefore = readFileSync(factsPath, "utf8");
 
-      const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, actorEnv("commander"));
+      const rejected = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, actorEnv("commander"));
 
-      assert.equal(completed.ok, true);
-      assert.equal(completed.status, "done");
-      assert.equal(completed.report.distillCandidate.queued, true);
-      assert.equal(completed.report.distillCandidate.report.factWrite, false);
-      const candidatePath = String(completed.report.distillCandidate.path);
-      assert.match(candidatePath, new RegExp(`^\\.harness/generated/distill/${taskId}/distill_[^/]+\\.json$`, "u"));
-      const artifact = JSON.parse(readFileSync(path.join(rootDir, candidatePath), "utf8")) as Record<string, unknown>;
-      assert.equal(artifact.schema, "distill-candidate/v1");
-      assert.equal(artifact.taskId, taskId);
-      assert.equal(artifact.command, "ha distill candidate");
-      assert.equal(artifact.factState, "candidate");
-      assert.equal(artifact.inputPath, `${taskPath}/closeout.md`);
+      assert.equal(rejected.error.code, "write_rejected");
+      assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+      assert.equal(existsSync(path.join(rootDir, `.harness/generated/distill/${taskId}`)), false);
       assert.equal(readFileSync(factsPath, "utf8"), factsBefore);
+      assert.match(readFileSync(path.join(rootDir, taskPath, "INDEX.md"), "utf8"), /status: in_review/u);
     });
   });
 }
@@ -111,7 +104,7 @@ test("CLI transition sweep commits orchestration markdown but never commits logs
   });
 });
 
-test("CLI task complete blocks when the task tree is dirty after the sweep", () => {
+test("direct task complete stops before the former sweep and post-commit hook", () => {
   withGitTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Dirty Complete"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -129,8 +122,9 @@ test("CLI task complete blocks when the task tree is dirty after the sweep", () 
     const failure = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, actorEnv("commander"));
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "task_tree_dirty");
-    assert.match(gitStatus(rootDir, taskPath), /post-commit-dirty\.md/u);
+    assert.equal(failure.error?.code, "write_rejected");
+    assert.match(failure.error?.hint ?? "", /daemon-planned canonical transition/iu);
+    assert.doesNotMatch(gitStatus(rootDir, taskPath), /post-commit-dirty\.md/u);
     assert.match(readFileSync(path.join(rootDir, taskPath, "INDEX.md"), "utf8"), /status: in_review/);
   });
 });

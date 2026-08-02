@@ -24,6 +24,7 @@ import {
 } from "../../daemon/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { productionAuthorityHostServices } from "../src/composition/production-authority-host-services.ts";
+import { taskCompleteTransitionCommandFromCliAction } from "../src/cli/task-complete-transition-command.ts";
 import {
   productionAuthorityActor,
   productionAuthorityConnection
@@ -539,12 +540,13 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     }), false);
     assert.equal(productionAuthorityCommandHasPurePlan({
       rootDir: fixture.repoRoot,
-      action: {
+      action: taskCompleteTransitionCommandFromCliAction({
         kind: "task-complete",
         taskId: "task_A",
+        reviewerId: "person_zeyu",
         evidenceMode: "execution-review"
-      }
-    }), false);
+      })
+    }), true);
     assert.equal(productionAuthorityCommandHasPurePlan({
       rootDir: fixture.repoRoot,
       action: {

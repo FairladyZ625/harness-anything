@@ -14,34 +14,10 @@ import type { CliResult, ParsedCommand } from "../src/cli/types.ts";
 import { canonicalTaskStartResult } from "../src/commands/core/task-holder-support.ts";
 import { runTaskLifecycleWithDemotions } from "../src/commands/core/task-lifecycle-demotions.ts";
 import {
-  isCodeDocReconciliationCurrent,
   runTaskStartFacade,
   taskCloseoutFacadeSteps,
-  taskCompleteFacadeSteps,
   taskStartFacadeSteps
 } from "../src/commands/core/task-lifecycle-facade.ts";
-import { dispatchLifecycleFacadeSteps } from "../src/commands/core/task-lifecycle-facade-guidance.ts";
-import { taskCompletePreflightReviewAlreadyReady } from "../src/commands/core/task-complete-preflight.ts";
-
-test("stale execution retirement keeps the completion approval review pending", () => {
-  const receipt = {
-    details: {
-      data: {
-        completionGate: {
-          axes: {
-            canonicalStatus: "in_review",
-            coordinationStatus: "in_review",
-            packageDisposition: "active",
-            closeoutReadiness: "ready"
-          }
-        },
-        issues: [{ code: "stale_execution_retirement_required" }]
-      }
-    }
-  } as Parameters<typeof taskCompletePreflightReviewAlreadyReady>[0];
-
-  assert.equal(taskCompletePreflightReviewAlreadyReady(receipt), false);
-});
 
 test("non-local terminal status success preserves the owner-visible demotion warning", () => {
   const taskId = "task-external";
@@ -159,9 +135,7 @@ test("task closeout compatibility entry no longer submits and delegates the owne
       parsed.value as ParsedCommand & { action: Extract<ParsedCommand["action"], { kind: "task-closeout" }> },
       "a".repeat(40)
     );
-    assert.deepEqual(steps.map((step) => step.action.kind), [
-      "task-review-execution", "task-code-doc-reconcile", "task-complete"
-    ]);
+    assert.deepEqual(steps.map((step) => step.action.kind), ["task-complete"]);
     assert.equal(steps.some((step) => step.action.kind === "status-set"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -212,7 +186,7 @@ test("task complete owner approval requires consent to grant complete_task", () 
   }
 });
 
-test("task complete owner approval materializes accepted prose before Review, reconcile, and complete", () => {
+test("task complete owner approval remains one complete intent for daemon planning", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-approval-parser-"));
   const packet = path.join(root, "approval.json");
   writeFileSync(packet, JSON.stringify({
@@ -233,182 +207,11 @@ test("task complete owner approval materializes accepted prose before Review, re
     const parsed = parseArgs(["task", "complete", "task_BOUNDARY", "--approve", "--from-file", packet]);
     assert.equal(parsed.ok, true);
     if (!parsed.ok || parsed.value.action.kind !== "task-complete") return;
-    const steps = taskCompleteFacadeSteps(
-      parsed.value as ParsedCommand & { action: Extract<ParsedCommand["action"], { kind: "task-complete" }> },
-      "a".repeat(40),
-      ["tasks/task_BOUNDARY/closeout.md"]
-    );
-    assert.deepEqual(steps.map((step) => step.action.kind), [
-      "doc-sync", "materializer-run", "task-review-execution", "task-code-doc-reconcile", "task-complete"
-    ]);
-    const materializer = steps[1];
-    assert.deepEqual(materializer?.action, { kind: "materializer-run", dryRun: false, currentSessionOnly: true });
-    assert.equal(steps.some((step) => step.action.kind === "status-set"), false);
-    const reconcile = steps.find((step) => step.action.kind === "task-code-doc-reconcile");
-    assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.sha, "a".repeat(40));
-    assert.equal(reconcile?.action.kind === "task-code-doc-reconcile" && reconcile.action.force, true);
-    const complete = steps.at(-1);
-    assert.equal(complete?.action.kind, "task-complete");
-    if (complete?.action.kind === "task-complete") {
-      assert.equal(complete.action.approval, undefined);
-      assert.equal("executionId" in complete.action && complete.action.executionId,
-        "exe_01KXTE6GJPW73Y1EWCA0Q0798V");
-    }
+    assert.equal(parsed.value.action.kind, "task-complete");
+    assert.equal(parsed.value.action.approval?.executionId, "exe_01KXTE6GJPW73Y1EWCA0Q0798V");
+    assert.equal(parsed.value.action.approval?.consentAssertedRationale, "The human approved through an external channel.");
   } finally {
     rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("task complete explicitly deduplicates an already-current code-doc reconciliation", () => {
-  const sha = "a".repeat(40);
-  const documents = [
-    { path: "closeout.md", body: "# Closeout\n" },
-    {
-      path: "code-doc-anchors.json",
-      body: `${JSON.stringify({
-        schema: "code-doc-reconciliation/v1",
-        taskId: "task_BOUNDARY",
-        records: [{
-          id: "closeout",
-          ledgerPath: "closeout.md",
-          kind: "closeout",
-          anchors: [
-            { kind: "commit", sha },
-            { kind: "path", sha, path: "packages/kernel/src/index.ts" }
-          ]
-        }]
-      }, null, 2)}\n`
-    }
-  ];
-
-  assert.equal(isCodeDocReconciliationCurrent({
-    taskId: "task_BOUNDARY",
-    documents,
-    sha,
-    paths: ["packages/kernel/src/index.ts"]
-  }), true);
-  const command = {
-    rootDir: "/fixture",
-    json: true,
-    action: {
-      kind: "task-complete",
-      taskId: "task_BOUNDARY",
-      reviewerId: "person_reviewer",
-      evidenceMode: "execution-review"
-    }
-  } as ParsedCommand & {
-    readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>;
-  };
-  assert.deepEqual(
-    taskCompleteFacadeSteps(command, sha, [], { codeDocAlreadyCurrent: true })
-      .map((step) => step.action.kind),
-    ["task-complete"]
-  );
-});
-
-test("task complete reconciles after doc sync can add a new ledger document", () => {
-  const sha = "a".repeat(40);
-  const command = {
-    rootDir: "/fixture",
-    json: true,
-    action: {
-      kind: "task-complete",
-      taskId: "task_BOUNDARY",
-      reviewerId: "person_reviewer",
-      evidenceMode: "execution-review"
-    }
-  } as ParsedCommand & {
-    readonly action: Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>;
-  };
-
-  assert.deepEqual(
-    taskCompleteFacadeSteps(
-      command,
-      sha,
-      ["tasks/task_BOUNDARY/closeout.md"],
-      { codeDocAlreadyCurrent: true }
-    ).map((step) => step.action.kind),
-    [
-      "doc-sync",
-      "materializer-run",
-      "task-code-doc-reconcile",
-      "task-complete"
-    ]
-  );
-});
-
-test("direct-mode doc sync unavailability becomes a completion warning", async () => {
-  const steps: ReadonlyArray<ParsedCommand> = [
-    { rootDir: "/tmp", json: true, action: { kind: "doc-sync", mode: "submit", paths: ["tasks/task_BOUNDARY/closeout.md"] } },
-    {
-      rootDir: "/tmp",
-      json: true,
-      action: {
-        kind: "task-complete",
-        taskId: "task_BOUNDARY",
-        reviewerId: "person_reviewer",
-        evidenceMode: "execution-review"
-      }
-    }
-  ];
-  const docFailure = toCommandReceipt({
-    ok: false,
-    command: "doc-sync-submit",
-    error: cliError(CliErrorCode.JournalUnavailable, "Doc sync submit requires the daemon-backed CLI path.")
-  });
-  const completed = toCommandReceipt({
-    ok: true,
-    command: "task-complete",
-    taskId: "task_BOUNDARY",
-    status: "done",
-    completionGate: { ok: true }
-  });
-  const dispatched = await dispatchLifecycleFacadeSteps(steps, async (step) =>
-    step.action.kind === "doc-sync" ? docFailure : completed
-  );
-
-  assert.equal(dispatched.ok, true);
-  if (dispatched.ok) {
-    assert.equal(dispatched.receipts.length, 1);
-    assert.equal(dispatched.warnings.length, 1);
-    assert.deepEqual(dispatched.warnings[0], {
-      severity: "warning",
-      code: "doc_sync_dirty",
-      message: "Task prose remains dirty because daemon-backed doc sync is unavailable; completion continued under the existing soft-warning policy.",
-      paths: ["tasks/task_BOUNDARY/closeout.md"],
-      nextCommand: "ha doc sync --submit"
-    });
-  }
-});
-
-test("owner completion lease failures never direct the owner into task start", async () => {
-  const step: ParsedCommand = {
-    rootDir: "/tmp",
-    json: true,
-    action: {
-      kind: "task-code-doc-reconcile",
-      taskId: "task_BOUNDARY",
-      sha: "a".repeat(40),
-      paths: [],
-      force: true
-    }
-  };
-  const leaseFailure = toCommandReceipt({
-    ok: false,
-    command: "task-code-doc-reconcile",
-    taskId: "task_BOUNDARY",
-    error: cliError(
-      CliErrorCode.WriteRejected,
-      "Task requires an active lease; run 'ha task start task_BOUNDARY' before retrying."
-    )
-  });
-  const dispatched = await dispatchLifecycleFacadeSteps([step], async () => leaseFailure, "task-complete");
-
-  assert.equal(dispatched.ok, false);
-  if (!dispatched.ok) {
-    assert.match(dispatched.receipt.error?.hint ?? "", /Owner approval is lease-independent/iu);
-    assert.match(dispatched.receipt.error?.hint ?? "", /ha task complete task_BOUNDARY --approve --from-file/iu);
-    assert.doesNotMatch(dispatched.receipt.error?.hint ?? "", /ha task start/iu);
   }
 });
 

@@ -6,64 +6,20 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
-  computeExecutionConsentPin,
-  consentDeclaration,
-  executionDeclaration,
-  makeMarkdownArtifactStore,
-  reviewDeclaration,
   type ArtifactStore,
-  type ConsentRecord,
-  type ExecutionRecord,
-  type ReviewRecord,
-  type TaskPackageRead,
-  type VersionControlSystem
+  type TaskPackageRead
 } from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
-const codeDocSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const completionTaskId = "task_01KX7H00000000000000000000";
+test("task lifecycle orchestrator exposes no completion mutation authority", () => {
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: successfulWriter(),
+    artifactStore: inMemoryTaskPackageStore("task-1", {})
+  });
 
-test("completeTask surfaces an Execution transaction failure without falling back to generic status write", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
-  try {
-    let statusWriteCount = 0;
-    writeTaskPackage(rootDir, completionTaskId, "Complete Task");
-    writeFact(rootDir, completionTaskId);
-    writeApprovedExecutionReview(rootDir, completionTaskId);
-    const orchestrator = makeTaskLifecycleOrchestrator({
-      rootDir,
-      taskWriter: {
-        ...successfulWriter(),
-        setStatus: (input) => {
-          statusWriteCount += 1;
-          return Effect.succeed({ taskId: input.taskId, status: input.status });
-        }
-      },
-      artifactStore: makeMarkdownArtifactStore({ rootDir }),
-      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
-      codeDocVersionControlSystem: codeDocVersionControlSystem(),
-      executionCompletionService: {
-        completeTaskExecution: async () => { throw new Error("atomic Execution completion write rejected"); }
-      }
-    });
-
-    const result = await runEffect(orchestrator.completeTask({
-      taskId: completionTaskId,
-      reviewerId: "reviewer-a",
-      ciGate: "passed",
-      actor: completionActor()
-    }));
-
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-      assert.equal(result.error.code, "write_rejected");
-      assert.match(result.error.hint, /atomic Execution completion write rejected/u);
-    }
-    assert.equal(statusWriteCount, 0);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+  assert.equal("completeTask" in orchestrator, false);
 });
 
 test("setTaskStatus rejects a scaffold task plan before writing active status", async () => {
@@ -229,157 +185,6 @@ test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4
   }
 });
 
-test("a valid legacy review cannot complete a task without a submitted Execution", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-generic-completion-"));
-  try {
-    let statusWriteCount = 0;
-    writeIndexOnly(rootDir, "task-1", "Writing Task", "in_review", "writing/generic", "writing-task");
-    writeCloseout(rootDir, "task-1", ["## Summary", "", "The requested text is complete."]);
-    const orchestrator = makeTaskLifecycleOrchestrator({
-      rootDir,
-      taskWriter: {
-        ...successfulWriter(),
-        setStatus: (input) => {
-          statusWriteCount += 1;
-          return Effect.succeed({ taskId: input.taskId, status: input.status });
-        }
-      },
-      artifactStore: inMemoryTaskPackageStore("task-1", {
-        "review.md": validReview(),
-        "closeout.md": "# Closeout\n\n## Summary\n\nThe requested text is complete.\n"
-      }),
-      completionGateResolver: () => [],
-      executionCompletionService: { completeTaskExecution: async () => null }
-    });
-    const result = await runEffect(orchestrator.completeTask({
-      taskId: "task-1",
-      reviewerId: "reviewer-a",
-      actor: {
-        principal: { personId: "reviewer-a" },
-        executor: { kind: "agent", id: "reviewer-agent" },
-        responsibleHuman: "person:reviewer-a"
-      }
-    }));
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "execution_submission_required");
-    assert.equal(statusWriteCount, 0);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("software preset contract treats missing CI as descriptive readiness", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-software-completion-"));
-  try {
-    writeTaskPackage(rootDir, completionTaskId, "Coding Task");
-    writeFact(rootDir, completionTaskId);
-    writeApprovedExecutionReview(rootDir, completionTaskId);
-    const orchestrator = makeTaskLifecycleOrchestrator({
-      rootDir,
-      taskWriter: successfulWriter(),
-      artifactStore: makeMarkdownArtifactStore({ rootDir }),
-      codeDocVersionControlSystem: codeDocVersionControlSystem(),
-      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
-      executionCompletionService: successfulExecutionCompletionService()
-    });
-    const result = await runEffect(orchestrator.completeTask({ taskId: completionTaskId, reviewerId: "reviewer-a", actor: completionActor() }));
-    assert.equal(result.ok, true, JSON.stringify(result));
-    if (result.ok) assert.equal(result.status, "done");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("completeTask evaluates closeout and review placeholders through ArtifactStore", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
-  try {
-    writeIndexOnly(rootDir, completionTaskId, "Complete Task", "in_review");
-    writeCloseout(rootDir, completionTaskId, [
-      "## Summary",
-      "",
-      "Summarize the completed behavior change."
-    ]);
-    const writer = successfulWriter();
-    const orchestrator = makeTaskLifecycleOrchestrator({
-      rootDir,
-      taskWriter: writer,
-      artifactStore: inMemoryTaskPackageStore(completionTaskId, {
-        "INDEX.md": taskIndexBody(completionTaskId, "Complete Task", "in_review"),
-        "review.md": validReview(),
-        "facts.md": validFact(),
-        "code-doc-anchors.json": validCodeDocAnchors(completionTaskId),
-        ...approvedExecutionReviewDocuments(completionTaskId),
-        "closeout.md": [
-          "# Closeout",
-          "",
-          "## Summary",
-          "",
-          "Implemented the task lifecycle ArtifactStore contract.",
-          ""
-        ].join("\n")
-      }),
-      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
-      documentPlaceholderPolicy: {
-        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."],
-        taskPlanPlaceholderFingerprintSets: [],
-        visualMapPlaceholderFingerprintSets: [],
-        lessonCandidatesPlaceholderFingerprintSets: []
-      },
-      codeDocVersionControlSystem: codeDocVersionControlSystem(),
-      executionCompletionService: successfulExecutionCompletionService(),
-      now: () => "2026-06-13T00:00:00.000Z"
-    });
-
-    const result = await runEffect(orchestrator.completeTask({ taskId: completionTaskId, reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
-
-    assert.equal(result.ok, true);
-    if (!result.ok) return;
-    assert.equal(result.status, "done");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("completeTask rejects ArtifactStore closeout placeholders", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
-  try {
-    writeIndexOnly(rootDir, "task-1", "Complete Task", "in_review");
-    const orchestrator = makeTaskLifecycleOrchestrator({
-      rootDir,
-      taskWriter: successfulWriter(),
-      artifactStore: inMemoryTaskPackageStore("task-1", {
-        "review.md": validReview(),
-        "facts.md": validFact(),
-        "closeout.md": [
-          "# Closeout",
-          "",
-          "## Summary",
-          "",
-          "Summarize the completed behavior change.",
-          ""
-        ].join("\n")
-      }),
-      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
-      documentPlaceholderPolicy: {
-        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."],
-        taskPlanPlaceholderFingerprintSets: [],
-        visualMapPlaceholderFingerprintSets: [],
-        lessonCandidatesPlaceholderFingerprintSets: []
-      },
-      executionCompletionService: successfulExecutionCompletionService(),
-      now: () => "2026-06-13T00:00:00.000Z"
-    });
-
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
-
-    assert.equal(result.ok, false);
-    if (result.ok) return;
-    assert.equal(result.error.code, "closeout_placeholder");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 function successfulWriter(): TaskLifecycleWriter {
   return {
     setStatus: (input) => Effect.succeed({ taskId: input.taskId, status: input.status }),
@@ -387,18 +192,6 @@ function successfulWriter(): TaskLifecycleWriter {
     stageDocument: (input) => Effect.succeed({ taskId: input.taskId, path: input.path }),
     stageTaskTree: (input) => Effect.succeed({ taskId: input.taskId, path: "." }),
     taskTreeStatus: (taskId) => Effect.succeed({ taskId, dirty: false, entries: [] })
-  };
-}
-
-function successfulExecutionCompletionService() {
-  return { completeTaskExecution: async () => ({ executionId: "exe_01KX7H00000000000000000001" }) };
-}
-
-function completionActor() {
-  return {
-    principal: { personId: "reviewer-a" },
-    executor: { kind: "agent" as const, id: "reviewer-agent" },
-    responsibleHuman: "person:reviewer-a"
   };
 }
 
@@ -436,37 +229,6 @@ function validReview(): string {
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n");
-}
-
-function validFact(): string {
-  return [
-    "# Facts",
-    "",
-    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
-    ""
-  ].join("\n");
-}
-
-function validCodeDocAnchors(taskId = "task-1"): string {
-  return `${JSON.stringify({
-    schema: "code-doc-reconciliation/v1",
-    taskId,
-    records: [{
-      id: "A4-001",
-      ledgerPath: "closeout.md",
-      kind: "closeout",
-      anchors: [{ kind: "commit", sha: codeDocSha }]
-    }]
-  }, null, 2)}\n`;
-}
-
-function codeDocVersionControlSystem(): Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit"> {
-  return {
-    normalizePath: (inputPath) => inputPath,
-    topLevel: (inputPath) => inputPath,
-    commitExists: (_repoRoot, sha) => sha === codeDocSha,
-    pathExistsAtCommit: () => true
-  };
 }
 
 function writeIndexOnly(
@@ -516,160 +278,4 @@ function taskIndexBody(
     `# ${title}`,
     ""
   ].join("\n");
-}
-
-function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyArray<string>): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), ["# Closeout", "", ...lines, ""].join("\n"), "utf8");
-}
-
-function writeTaskPackage(rootDir: string, directoryName: string, title: string): void {
-  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${directoryName}`,
-    `title: ${title}`,
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    "  status: in_review",
-    "  ref: ",
-    `  titleSnapshot: ${title}`,
-    "  url: ",
-    "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
-    "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
-    "packageDisposition: active",
-    "vertical: default",
-    "preset: default",
-    "provenance:",
-    "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}",
-    "---",
-    "",
-    `# ${title}`,
-    ""
-  ].join("\n"), "utf8");
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "review.md"), [
-    "# Review",
-    "",
-    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ""
-  ].join("\n"), "utf8");
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), [
-    "# Closeout",
-    "",
-    "## Summary",
-    "",
-    "Implemented the task lifecycle write-failure passthrough.",
-    "",
-    "## Verification",
-    "",
-    "npm run check passed.",
-    "",
-    "## Residual Risk",
-    "",
-    "No residual risk accepted.",
-    ""
-  ].join("\n"), "utf8");
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), validCodeDocAnchors(directoryName), "utf8");
-}
-
-function writeFact(rootDir: string, directoryName: string): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
-    "# Facts",
-    "",
-    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeApprovedExecutionReview(rootDir: string, taskId: string): void {
-  const documents = approvedExecutionReviewDocuments(taskId);
-  for (const [documentPath, body] of Object.entries(documents)) {
-    const target = path.join(rootDir, "harness/tasks", taskId, documentPath);
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, body, "utf8");
-  }
-}
-
-function approvedExecutionReviewDocuments(taskId: string): Record<string, string> {
-  const executionId = "exe_01KX7H00000000000000000001";
-  const reviewId = "rev_01KX7H00000000000000000002";
-  const consentId = "cns_01KX7H00000000000000000003";
-  const actor = completionActor();
-  const execution: ExecutionRecord = {
-    schema: "execution/v2",
-    execution_id: executionId,
-    task_ref: `task/${taskId}`,
-    state: "submitted",
-    primary_actor: actor,
-    claimed_at: "2026-06-13T00:00:00.000Z",
-    submitted_at: "2026-06-13T00:01:00.000Z",
-    closed_at: null,
-    session_bindings: [],
-    outputs: [],
-    submission: {
-      completion_claim: "The task lifecycle fixture is complete.",
-      deliverables: [],
-      evidence_refs: [],
-      verification_notes: ["Contract fixture"],
-      known_gaps: [],
-      residual_risks: []
-    }
-  };
-  const consentSnapshot = {
-    principal: { personId: "reviewer-a" },
-    scope: {
-      actions: ["approve_execution", "complete_task"] as const,
-      content_pin: {
-        algorithm: "execution-consent-pin/v1" as const,
-        digest: computeExecutionConsentPin(execution)
-      }
-    },
-    disclosure: {
-      completion_claim: execution.submission!.completion_claim,
-      known_gaps: [],
-      residual_risks: []
-    },
-    channel: { kind: "agent-relayed" as const, assurance: "relayed-assertion" as const },
-    response: { kind: "authorization-declaration" as const, source: "asserted" as const },
-    source: { strength: "asserted" as const, rationale: "Approved fixture completion." },
-    recorded_by: actor,
-    granted_at: "2026-06-13T00:02:00.000Z",
-    expires_at: "2026-06-14T00:02:00.000Z"
-  };
-  const consent: ConsentRecord = {
-    schema: "consent/v2",
-    consent_id: consentId,
-    task_ref: `task/${taskId}`,
-    execution_ref: `execution/${taskId}/${executionId}`,
-    ...consentSnapshot,
-    state: "consumed",
-    consumed_by: `review/${taskId}/${reviewId}`,
-    consumed_at: "2026-06-13T00:03:00.000Z"
-  };
-  const review: ReviewRecord = {
-    schema: "review/v3",
-    review_id: reviewId,
-    task_ref: `task/${taskId}`,
-    execution_ref: `execution/${taskId}/${executionId}`,
-    reviewer_actor: actor,
-    reviewer_session_ref: "session/reviewer",
-    findings: "The submitted execution satisfies the fixture.",
-    evidence_checked: [],
-    rationale: "The completion transaction may now be exercised.",
-    verdict: "approved",
-    archive_warnings_acknowledged: false,
-    approval_basis: {
-      kind: "human-consent",
-      consent_ref: `consent/${taskId}/${consentId}`,
-      consent_snapshot: consentSnapshot
-    },
-    reviewed_at: "2026-06-13T00:03:00.000Z"
-  };
-  return {
-    [`executions/${executionId}.md`]: executionDeclaration.documentCodec.encode(execution),
-    [`consents/${consentId}.md`]: consentDeclaration.documentCodec.encode(consent),
-    [`reviews/${reviewId}.md`]: reviewDeclaration.documentCodec.encode(review)
-  };
 }

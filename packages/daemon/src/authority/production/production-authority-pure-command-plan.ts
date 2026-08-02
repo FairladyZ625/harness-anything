@@ -24,6 +24,7 @@ export function directTypedCommandEntityId(
         : taskEntityId(action.taskId);
     case "progress-append":
     case "task-code-doc-reconcile":
+    case "task-complete":
     case "fact-invalidate":
     case "record-fact":
       return taskEntityId(action.taskId);
