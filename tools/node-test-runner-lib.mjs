@@ -202,7 +202,7 @@ function normalizeTestPrefix(value) {
 
 function normalizeRunnerFixture(value) {
   if (
-    !/^tools\/test-fixtures\/\.runner-(?:stall|timeout)\//u.test(value)
+    !/^tools\/test-fixtures\/\.runner-(?:signal|stall|timeout)\//u.test(value)
     || value.startsWith("/")
     || value.split("/").includes("..")
     || value.includes("\\")
@@ -309,14 +309,15 @@ export function validateManifest(testFiles, manifest) {
  * Precedence: explicit `--concurrency` flag wins; then `HARNESS_TEST_CONCURRENCY`
  * env; then, only in a non-CI environment, the fixed per-session budget. In CI
  * (`env.CI` set) with no explicit signal, we return
- * `undefined` so node --test keeps its own default (cores-1) — CI runners are
- * sized for it and we must not change CI test semantics.
+ * `undefined` so the caller can preserve Node's default (cores-1). The
+ * Harness-owned file scheduler turns that implicit CI default into its
+ * equivalent explicit lane count.
  *
  * @param {object} params
  * @param {number|undefined} params.flagConcurrency parsed `--concurrency` value
  * @param {string|undefined} params.envConcurrency raw `HARNESS_TEST_CONCURRENCY`
  * @param {boolean} params.isCi whether this is a CI environment
- * @returns {number|undefined} concurrency to pass, or undefined for node default
+ * @returns {number|undefined} explicit concurrency, or undefined for the caller's CI default
  */
 export function resolveTestConcurrency({ flagConcurrency, envConcurrency, isCi }) {
   if (flagConcurrency !== undefined && Number.isInteger(flagConcurrency) && flagConcurrency > 0) {

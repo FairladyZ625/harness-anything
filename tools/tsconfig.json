@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2024",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "rootDir": ".",
+    "outDir": "../node_modules/.cache/harness-tools-types",
+    "tsBuildInfoFile": "../node_modules/.cache/harness-tools-types/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "node-test-supervisor.ts",
+    "node-test-supervisor.type-test.ts"
+  ]
+}

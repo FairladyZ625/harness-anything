@@ -1,10 +1,19 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ownedTreeTerminationAdapter } from "./node-test-file-scheduler.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+
+test("owned-tree termination uses one POSIX adapter for macOS and Linux", () => {
+  assert.equal(ownedTreeTerminationAdapter("darwin"), "posix-owned-process-group");
+  assert.equal(ownedTreeTerminationAdapter("linux"), "posix-owned-process-group");
+  assert.equal(ownedTreeTerminationAdapter("win32"), "windows-taskkill-tree");
+});
 
 test("terminating the runner also terminates its detached test process group", {
   skip: process.platform === "win32"
@@ -58,6 +67,54 @@ test("terminating the runner also terminates its detached test process group", {
   );
 });
 
+test("terminating the production scheduler reaps every direct worker tree", {
+  skip: process.platform === "win32"
+    ? "POSIX process groups provide the direct multi-worker identity check"
+    : false
+}, async (context) => {
+  const pidRoot = mkdtempSync(path.join(tmpdir(), "ha-production-file-workers-"));
+  const childEnv = {
+    ...process.env,
+    HARNESS_LOCAL_SLOTS: "64",
+    HARNESS_FILE_WORKER_FIXTURE: "parent-signal",
+    HARNESS_FILE_WORKER_PID_ROOT: pidRoot,
+    HARNESS_TEST_CONCURRENCY: "2"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  let output = "";
+  const runner = spawn(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--fixture", "tools/test-fixtures/.runner-signal/parent-signal-a.test.mjs",
+    "--fixture", "tools/test-fixtures/.runner-signal/parent-signal-b.test.mjs",
+    "--test-timeout", "60000"
+  ], {
+    cwd: repoRoot,
+    env: childEnv,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  runner.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  runner.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  context.after(() => {
+    if (runner.exitCode === null && runner.signalCode === null) runner.kill("SIGKILL");
+    rmSync(pidRoot, { recursive: true, force: true });
+  });
+
+  const records = await waitForValue(() => {
+    const files = readdirSync(pidRoot).filter((file) => file.endsWith(".json"));
+    if (files.length !== 2) return null;
+    return files.map((file) => JSON.parse(readFileSync(path.join(pidRoot, file), "utf8")));
+  }, 10_000, () => output);
+  const close = waitForClose(runner, 5_000, () => output);
+  assert.equal(runner.kill("SIGTERM"), true, output);
+  assert.deepEqual(await close, { code: null, signal: "SIGTERM" }, output);
+  await waitForValue(
+    () => records.every(({ workerPid, descendantPid }) =>
+      !processExists(workerPid) && !processExists(descendantPid)) ? true : null,
+    5_000,
+    () => `${output}\n${JSON.stringify(records)}`
+  );
+});
+
 function waitForClose(child, timeoutMs, diagnostic) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -97,6 +154,17 @@ async function waitForValue(read, timeoutMs, diagnostic) {
 function processGroupExists(processGroupId) {
   try {
     process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    if (error?.code === "EPERM") return true;
+    throw error;
+  }
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
     return true;
   } catch (error) {
     if (error?.code === "ESRCH") return false;

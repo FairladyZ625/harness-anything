@@ -13,7 +13,17 @@ export default async function* completionReporter(source) {
   const completionStream = createWriteStream(null, { fd: 3, autoClose: false });
   const formatted = Readable.from(recordCompletionEvents(source, completionStream)).pipe(new spec());
   try {
-    for await (const chunk of formatted) yield chunk;
+    for await (const chunk of formatted) {
+      if (process.env.HARNESS_FILE_WORKER_SUPPRESS_RUN_SUMMARY !== "1") {
+        yield chunk;
+        continue;
+      }
+      const visible = chunk.toString()
+        .split("\n")
+        .filter((line) => !/^ℹ (?:tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)\b/u.test(line))
+        .join("\n");
+      if (visible !== "" && visible !== "\n") yield visible;
+    }
   } finally {
     completionStream.end();
     await finished(completionStream, { cleanup: true });
@@ -43,6 +53,7 @@ async function* recordCompletionEvents(source, completionStream) {
         success: event.data.success,
         counts: event.data.counts
       });
+      if (process.env.HARNESS_FILE_WORKER_SUPPRESS_RUN_SUMMARY === "1") continue;
     }
     yield event;
   }
