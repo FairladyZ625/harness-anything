@@ -68,21 +68,21 @@ export async function reconcileDaemonRepoRegistry(
         }
       }
 
-      try {
-        await adapter.bindRepo(repo);
-      } catch (error) {
-        failures.push(recordRepoFailure(state, at, repo.repoId, "bind", error));
-        continue;
-      }
-
-      if (current.state !== "attached") {
+      if (current?.state !== "attached") {
         failures.push(recordRepoFailure(
           state,
           at,
           repo.repoId,
           attachPhase,
-          current.lastError ?? `repo remains ${current.state}`
+          current?.lastError ?? `repo remains ${current?.state ?? "unknown"}`
         ));
+        continue;
+      }
+
+      try {
+        await adapter.bindRepo(repo);
+      } catch (error) {
+        failures.push(recordRepoFailure(state, at, repo.repoId, "bind", error));
         continue;
       }
       state.repoErrors.delete(repo.repoId);

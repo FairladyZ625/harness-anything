@@ -209,7 +209,7 @@ export async function createDaemonServiceHost<
     const repoRuntime = runtime.getRepoRuntime(repo.repoId);
     if (!repoRuntime) throw new Error(`daemon runtime missing repo context: ${repo.repoId}`);
     const runtimeRepoStatus = runtime.status().repos.find((candidate) => candidate.repoId === repo.repoId);
-    if (authorityLifecycle && runtimeRepoStatus?.state !== "attached") continue;
+    if (runtimeRepoStatus?.state !== "attached") continue;
     let authorityComponent: AuthorityRepoComponent | undefined;
     if (authorityLifecycle) {
       const startedAuthority = await authorityLifecycle.startRepo(repo, repoRuntime);

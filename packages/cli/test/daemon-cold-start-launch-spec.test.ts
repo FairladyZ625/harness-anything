@@ -257,6 +257,33 @@ test("a daemon started under one TMPDIR remains the single authority for clients
   }
 });
 
+test("service cold start isolates enabled repositories whose roots no longer exist", { timeout: 30_000 }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const healthyRoot = path.join(fixture.root, "healthy-repo");
+  const missingRoot = path.join(healthyRoot, ".worktrees", "deleted-worktree");
+  const env = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot };
+  try {
+    mkdirSync(healthyRoot);
+    mkdirSync(missingRoot, { recursive: true });
+    initializeHarness({ rootDir: healthyRoot }, false, "Healthy");
+    execFileSync("git", ["-C", missingRoot, "init", "--initial-branch=main"], { stdio: "ignore" });
+    initializeHarness({ rootDir: missingRoot }, false, "Deleted worktree");
+    registerDaemonRepo({ userRoot, repoId: "healthy", canonicalRoot: healthyRoot, createConvenienceLinks: false });
+    registerDaemonRepo({ userRoot, repoId: "missing", canonicalRoot: missingRoot, createConvenienceLinks: false });
+    rmSync(missingRoot, { recursive: true, force: true });
+
+    const started = runDaemonCommand(healthyRoot, ["daemon", "start", "--service", "--json"], env);
+    assert.equal(started.started, true, JSON.stringify(started));
+    const repos = started.repos as ReadonlyArray<Record<string, unknown>>;
+    assert.equal(repos.find((repo) => repo.repoId === "missing")?.state, "unavailable", JSON.stringify(started));
+    assert.equal(runRawJson(healthyRoot, ["task", "list"], env).ok, true);
+  } finally {
+    await stopDaemon(healthyRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("cold start on a replacement endpoint advances beyond the registry projection generation", {
   skip: process.platform === "win32",
   timeout: 45_000
