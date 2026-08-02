@@ -33,6 +33,7 @@ import {
   type RepoWriteHistoricalRecoveryRejectionV1,
   type RepoWriteHistoricalRecoveryRejectInputV1
 } from "./repo-write-historical-recovery-rejection.ts";
+import { repoWriteLegacyCommandName } from "./repo-write-protocol.ts";
 import {
   RepoWriteOutcomeConflictError,
   RepoWriteOutcomeCorruptionError,
@@ -113,7 +114,7 @@ export class DurableRepoWriteOutcomeStoreV1 {
         outerOpId: "store-axis-check",
         innerOpId: "store-axis-check",
         authoritySemanticDigest: "0".repeat(64),
-        canonicalCommand: { commandName: "store.axis.check", actor: {}, context: {}, payload: {} },
+        canonicalCommand: { commandName: repoWriteLegacyCommandName("store.axis.check"), actor: {}, context: {}, payload: {} },
         authenticatedContext: { actor: {} },
         receiptSeed: repoWriteOutcomePlaceholderReceiptSeed(),
         recoveryContext: {}
@@ -449,7 +450,7 @@ function repoWriteOutcomePaths(directory: string, outerOpId: string): {
     outerOpId,
     innerOpId: "path-check",
     authoritySemanticDigest: "0".repeat(64),
-    canonicalCommand: { commandName: "path.check", actor: {}, context: {}, payload: {} },
+    canonicalCommand: { commandName: repoWriteLegacyCommandName("path.check"), actor: {}, context: {}, payload: {} },
     authenticatedContext: { actor: {} },
     receiptSeed: repoWriteOutcomePlaceholderReceiptSeed(),
     recoveryContext: {}

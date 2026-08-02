@@ -15,6 +15,7 @@ import { productionAuthorityIngressFor } from "../cli/command-spec/index.ts";
 import { displayCommand, toCommandReceipt } from "../cli/receipt.ts";
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import { taskCompleteTransitionCommandFromCliAction } from "../cli/task-complete-transition-command.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
 import {
@@ -35,12 +36,17 @@ const cliProductionCommandsSatisfyAuthorityHostContract = true satisfies
 void cliProductionCommandsSatisfyAuthorityHostContract;
 
 export const cliDaemonCommandHostServices = {
-  parseCommandPayload: (payload) => {
-    const command = payload?.command;
+  parseCommandPayload: (payload: unknown) => {
+    const command = isPlainRecord(payload) ? payload.command : undefined;
     if (!isPlainRecord(command) || typeof command.rootDir !== "string" || !isPlainRecord(command.action) || typeof command.action.kind !== "string") {
       throw new Error("command.run requires payload.command parsed by the CLI parser.");
     }
-    return command as unknown as ParsedCommand;
+    return {
+      ...command,
+      action: command.action.kind === "task-complete"
+        ? taskCompleteTransitionCommandFromCliAction(command.action)
+        : command.action
+    } as unknown as ParsedCommand;
   },
   normalizeCommand: (command, currentSession) => normalizeCommandSemantics(
     command,

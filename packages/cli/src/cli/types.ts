@@ -16,6 +16,7 @@ import type {
 import type { DecisionAmendField, DecisionAmendOperation } from "@harness-anything/kernel";
 import type { DecisionClaimFulfillment } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
+import type { TaskCompleteTransitionCommand } from "@harness-anything/application";
 import type { CliError } from "./error-codes.ts";
 import type { CommandDisplayTier } from "./command-spec/types.ts";
 
@@ -242,7 +243,8 @@ export interface ParsedCommand {
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-consent-record"; readonly taskId: string; readonly executionId: string; readonly utterance?: string; readonly standingPolicyDecisionId?: string; readonly assertedRationale?: string; readonly consentActions: ReadonlyArray<ConsentAction> }
     | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId?: string; readonly executionSelectionError?: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly generatedConsentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }
-    | { readonly kind: "task-complete"; readonly taskId: string; readonly executionId?: string; readonly ciGate?: "passed" | "failed" | "not-applicable"; readonly reviewerId: string; readonly evidenceMode: "execution-review" | "commit-anchor"; readonly commitRef?: string; readonly judgment?: string; readonly approval?: { readonly executionId?: string; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction>; readonly paths: ReadonlyArray<string>; readonly prRef?: string }; readonly dryRun?: boolean }
+    | { readonly kind: "task-complete"; readonly taskId: string; readonly executionId?: string; readonly ciGate?: "passed" | "failed" | "not-applicable"; readonly reviewerId: string; readonly evidenceMode: "execution-review" | "commit-anchor"; readonly commitRef?: string; readonly judgment?: string; readonly approval?: { readonly executionId?: string; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction>; readonly paths: ReadonlyArray<string>; readonly prRef?: string }; readonly externalCheckpointRefs?: ReadonlyArray<import("@harness-anything/application").TaskCompleteExternalCheckpointRef>; readonly dryRun?: boolean }
+    | TaskCompleteTransitionCommand
     | { readonly kind: "task-show"; readonly taskId: string; readonly view: "summary" | "trace" | "tree" }
     | { readonly kind: "session-show"; readonly sessionId: string; readonly view: "summary" | "trace" }
     | { readonly kind: "execution-show"; readonly executionId: string }
@@ -340,3 +342,8 @@ export interface ParsedCommand {
     | { readonly kind: "module-step"; readonly moduleKey: string; readonly stepId: string; readonly state: "planned" | "in-progress" | "blocked" | "done" }
     | { readonly kind: "vertical-validate"; readonly definitionPath?: string };
 }
+
+export type CliTaskCompleteAction = Exclude<
+  Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>,
+  TaskCompleteTransitionCommand
+>;

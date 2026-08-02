@@ -1,9 +1,14 @@
 import type { CommandReceiptEnvelope } from "@harness-anything/application";
 import { stablePayloadHash, stableStringify } from "@harness-anything/kernel";
-import type {
-  RepoWriteCommandDto,
-  RepoWriteJsonObject
+import {
+  repoWriteCommandDtoFromDecodedFields,
+  type RepoWriteCommandDto,
+  type RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
+/*
+ * Canonical outcomes retain the same command decoder as the live IPC frame;
+ * recovery must not reopen a payload shape rejected on ingress.
+ */
 import { decodeRepoWriteCommandReceiptV2 } from "./repo-write-command-receipt.ts";
 import { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
 import {
@@ -344,12 +349,20 @@ function repoWriteOutcomeCommandAt(
 ): RepoWriteCommandDto {
   const record = repoWriteOutcomeRecordAt(value, path);
   repoWriteOutcomeExactKeys(record, ["commandName", "actor", "context", "payload"], [], path);
-  return {
+  const fields = {
     commandName: repoWriteOutcomeIdentifierAt(record.commandName, `${path}.commandName`),
     actor: jsonObjectAt(record.actor, `${path}.actor`, budget, 1),
     context: jsonObjectAt(record.context, `${path}.context`, budget, 1),
     payload: jsonObjectAt(record.payload, `${path}.payload`, budget, 1)
   };
+  try {
+    return repoWriteCommandDtoFromDecodedFields(fields, path);
+  } catch (error) {
+    repoWriteOutcomeInvalid(
+      `${path}.payload`,
+      error instanceof Error ? error.message : "strict task-complete command payload"
+    );
+  }
 }
 
 function repoWriteOutcomeRecordAt(value: unknown, path: string): Record<string, unknown> {

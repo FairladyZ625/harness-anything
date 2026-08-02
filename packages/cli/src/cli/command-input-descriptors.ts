@@ -167,6 +167,14 @@ const explicitInputDescriptors = {
       commit: { type: "string", description: "Workspace Git ref; defaults to HEAD." },
       paths: { type: "array", description: "Optional repository-relative code-doc anchors.", items: { type: "string" } },
       prRef: { type: "string", description: "Optional pull request reference." },
+      externalCheckpointRefs: {
+        type: "array",
+        description: "Optional immutable document-publication or code-doc checkpoint references.",
+        items: { type: "object", properties: {
+          kind: { type: "string" },
+          ref: { type: "string" }
+        } }
+      },
       reviewerId: { type: "string", description: "Completion reviewer id." }
     },
     shortcuts: [

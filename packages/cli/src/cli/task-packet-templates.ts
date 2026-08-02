@@ -26,6 +26,7 @@ const taskPacketTemplates: Readonly<Record<string, TaskPacketTemplate>> = {
       consentActions: ["approve_execution", "complete_task"],
       ci: "passed",
       paths: [],
+      externalCheckpointRefs: [],
       reviewerId: "local-reviewer"
     }
   }

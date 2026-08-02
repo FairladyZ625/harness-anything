@@ -154,7 +154,7 @@ function renderLifecycleStep(command: ParsedCommand): string {
   if (action.kind === "task-code-doc-reconcile") {
     return joinLifecycleCommand("ha", "task", "code-doc", "reconcile", action.taskId, "--commit", action.sha, ...repeatLifecycleFlag("--path", action.paths), action.prRef && "--pr", action.prRef, action.force && "--force");
   }
-  if (action.kind === "task-complete") return joinLifecycleCommand("ha", "task", "complete", action.taskId, "--ci", action.ciGate, "--reviewer", action.reviewerId);
+  if (action.kind === "task-complete") return joinLifecycleCommand("ha", "task", "complete", action.taskId, "--ci", action.ciGate ?? undefined, "--reviewer", action.reviewerId);
   return `ha ${action.kind}`;
 }
 

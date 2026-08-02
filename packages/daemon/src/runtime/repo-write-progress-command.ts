@@ -12,6 +12,7 @@ import type { AuthorityConnectionContext } from "../protocol/connection-context.
 import {
   decodeRepoWriteBytes,
   encodeRepoWriteBytes,
+  repoWriteCommandDtoFromDecodedFields,
   type RepoWriteCommandDto,
   type RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
@@ -48,7 +49,7 @@ export function encodeRepoWriteCommand(input: {
   if (authority.actor.personId !== input.context.actor.personId) {
     throw new Error("REPO_WRITE_PROGRESS_ACTOR_CONTEXT_MISMATCH");
   }
-  return {
+  return repoWriteCommandDtoFromDecodedFields({
     commandName,
     actor: actorStampJson(input.context.actor),
     context: progressJsonObject({
@@ -77,7 +78,7 @@ export function encodeRepoWriteCommand(input: {
       command: input.command,
       session: input.context.currentSession
     })
-  };
+  });
 }
 
 export function encodeRepoWriteProgressCommand(input: {
