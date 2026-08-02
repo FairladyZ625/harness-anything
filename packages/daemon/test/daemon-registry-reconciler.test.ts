@@ -8,7 +8,7 @@ import {
 } from "../src/runtime/registry-reconciler.ts";
 
 test("registry reconciler isolates attach, bind, detach, and retry failures by repo", async () => {
-  const desiredRepos = ["attach-bad", "retry-bad", "bind-bad", "healthy"].map((repoId) => ({
+  const desiredRepos = ["attach-bad", "retry-bad", "still-unavailable", "bind-bad", "healthy"].map((repoId) => ({
     repoId,
     canonicalRoot: `/repos/${repoId}`,
     displayName: repoId,
@@ -35,6 +35,7 @@ test("registry reconciler isolates attach, bind, detach, and retry failures by r
       if (injectFailures && (repo.repoId === "attach-bad" || repo.repoId === "retry-bad")) {
         throw new Error(`${repo.repoId} attach failure`);
       }
+      if (injectFailures && repo.repoId === "still-unavailable") return { state: "unavailable", lastError: "root missing" };
       const status = { state: "attached" };
       statuses.set(repo.repoId, status);
       return status;
@@ -57,7 +58,8 @@ test("registry reconciler isolates attach, bind, detach, and retry failures by r
 
   await reconcileDaemonRepoRegistry(adapter, state);
 
-  assert.deepEqual([...state.repoErrors.keys()].sort(), ["attach-bad", "bind-bad", "detach-bad", "retry-bad"]);
+  assert.deepEqual([...state.repoErrors.keys()].sort(), ["attach-bad", "bind-bad", "detach-bad", "retry-bad", "still-unavailable"]);
+  assert.equal(bound.includes("still-unavailable"), false);
   assert.deepEqual(bound, ["healthy"]);
   assert.deepEqual(removed, ["detach-good"]);
   assert.equal(known.has("detach-bad"), true);
