@@ -202,7 +202,23 @@ export function makeDaemonAuthorityWriteCoordinator(
       }),
     flush: (reason) => Effect.tryPromise({
       try: async (): Promise<FlushReport> => {
-        if (!pending) return { reason, opCount: 0, committed: false };
+        if (!pending) {
+          const action = input.command.action;
+          if (mainCommitted || action.kind !== "task-complete") {
+            return { reason, opCount: 0, committed: false };
+          }
+          settled ??= submission.submit({
+            ...input,
+            ingress: "generic",
+            canonicalEntityId: taskEntityId(action.taskId)
+          });
+          const receipt = await settled;
+          const report = receiptToFlushReport(receipt, reason);
+          settled = undefined;
+          mainCommitted = true;
+          mainWatermark = receipt.opId;
+          return report;
+        }
         if (coveredByMainSubmission) {
           pending = undefined;
           coveredByMainSubmission = false;

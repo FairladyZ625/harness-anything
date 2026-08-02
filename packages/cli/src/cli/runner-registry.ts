@@ -40,6 +40,8 @@ export interface CommandRunnerContext {
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
   readonly taskHolderService: TaskHolderService;
+  /** True only while the daemon executes a canonical command through its authority submission. */
+  readonly authorityCommandSubmission: boolean;
   readonly outerProceedingRecovery: boolean;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
@@ -127,7 +129,10 @@ export function runRegisteredCommand(
   makeTaskHolderService: () => TaskHolderService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
   runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport,
-  execution: { readonly outerProceedingRecovery: boolean } = { outerProceedingRecovery: false }
+  execution: {
+    readonly authorityCommandSubmission: boolean;
+    readonly outerProceedingRecovery: boolean;
+  } = { authorityCommandSubmission: false, outerProceedingRecovery: false }
 ): CommandRunnerEffect {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
@@ -191,6 +196,7 @@ export function runRegisteredCommand(
       taskHolderService ??= makeTaskHolderService();
       return taskHolderService;
     },
+    authorityCommandSubmission: execution.authorityCommandSubmission,
     outerProceedingRecovery: execution.outerProceedingRecovery,
     get runtimeEventLedgerService() {
       runtimeEventLedgerService ??= makeRuntimeEventLedgerService();

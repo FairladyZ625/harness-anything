@@ -73,14 +73,13 @@ test("coldstart lifecycle submits and completes with visible unavailable provena
       consentActions: ["approve_execution", "complete_task"],
       ci: "passed", paths: ["evidence/facade.txt"], reviewerId: "person_reviewer"
     }), "utf8");
-    const completed = runJson(rootDir, [
+    const rejected = runJson(rootDir, [
       "--actor", "human:person_test", "task", "complete", created.taskId, "--approve", "--from-file", reviewPacketPath
-    ], true, env);
-    assert.equal(completed.status, "done");
-    assert.equal(existsSync(path.join(rootDir, created.packagePath, "code-doc-anchors.json")), true);
-    const codeDoc = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "code-doc-anchors.json"), "utf8"));
-    assert.equal(codeDoc.records.at(-1).anchors[0].sha, evidenceSha);
-    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: done$/mu);
+    ], false, env);
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "code-doc-anchors.json")), false);
+    assert.equal(evidenceSha.length, 40);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });
 });
 
@@ -92,17 +91,17 @@ test("owner coldstart approves after the submitted execution lease is released",
 
     const ownerHome = path.join(rootDir, "owner-home");
     mkdirSync(ownerHome, { recursive: true });
-    const completed = runJson(rootDir, [
+    const rejected = runJson(rootDir, [
       "--actor", "human:person_test", "task", "complete", chain.taskId,
       "--approve", "--from-file", writeRetryApprovalPacket(rootDir)
-    ], true, { HOME: ownerHome, HARNESS_TASK_LEASE_ENFORCEMENT: "1" });
+    ], false, { HOME: ownerHome, HARNESS_TASK_LEASE_ENFORCEMENT: "1" });
 
-    assert.equal(completed.status, "done");
-    assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: done$/mu);
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });
 });
 
-test("task complete dry-run reports Review evidence that is outside the selected Execution", () => {
+test("task complete dry-run previews one terminal intent without evaluating Review rules in the client", () => {
   withTempRoot((rootDir) => {
     const chain = prepareSubmitted(rootDir, "Review Evidence Preflight", "facade");
     const packetPath = path.join(rootDir, "invalid-review-evidence-approval.json");
@@ -123,17 +122,15 @@ test("task complete dry-run reports Review evidence that is outside the selected
       "--approve", "--from-file", packetPath, "--dry-run"
     ], true, chain.env);
 
-    assert.equal(preview.status, "in_review");
-    assert.equal(preview.report.preflight.status, "blocked");
-    assert.match(
-      preview.report.preflight.issues.find((issue: { readonly code: string }) => issue.code === "write_rejected")?.message ?? "",
-      /review evidence does not belong to execution/iu
-    );
+    assert.equal(preview.status, "done");
+    assert.equal(preview.report.schema, "task-lifecycle-transition-preview/v1");
+    assert.equal(preview.report.disposition, "server-planner-validation-required");
     assert.equal(existsSync(path.join(rootDir, chain.packagePath, "reviews")), false);
+    assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });
 });
 
-test("task complete converges when a different valid approval already accepted the Execution", () => {
+test("direct recovery does not consume an accepted Review outside the daemon planner", () => {
   withTempRoot((rootDir) => {
     const chain = prepareSubmitted(rootDir, "Accepted Review Convergence", "facade");
     runJson(rootDir, [
@@ -146,20 +143,17 @@ test("task complete converges when a different valid approval already accepted t
       "--consent-action", "approve_execution", "--consent-action", "complete_task"
     ], true, chain.env);
 
-    const completed = runJson(rootDir, [
+    const rejected = runJson(rootDir, [
       "--actor", "human:person_test", "task", "complete", chain.taskId,
       "--approve", "--from-file", writeRetryApprovalPacket(rootDir)
-    ], true, chain.env);
+    ], false, chain.env);
 
-    assert.equal(completed.status, "done");
-    assert.equal(
-      completed.report.steps.some((step: { readonly command: string }) => step.command === "task review execution"),
-      false
-    );
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });
 });
 
-test("owner approval retries converge after every committed facade boundary", () => {
+test("direct recovery cannot resume completion from former facade boundaries", () => {
   for (const breakpoint of ["review", "reconcile", "complete"] as const) {
     withTempRoot((rootDir) => {
       const chain = prepareSubmitted(rootDir, `Retry After ${breakpoint}`, "facade");
@@ -178,21 +172,16 @@ test("owner approval retries converge after every committed facade boundary", ()
           "--commit", chain.sha, "--path", "evidence/equivalence.txt", "--force"
         ], true, chain.env);
       }
-      if (breakpoint === "complete") runJson(rootDir, approvalCommand, true, chain.env);
+      if (breakpoint === "complete") {
+        const first = runJson(rootDir, approvalCommand, false, chain.env);
+        assert.match(first.error.hint, /daemon-planned canonical transition/iu);
+      }
 
-      const retried = runJson(rootDir, approvalCommand, true, chain.env);
+      const retried = runJson(rootDir, approvalCommand, false, chain.env);
       const taskRoot = path.join(rootDir, chain.packagePath);
-      assert.equal(retried.status, "done", breakpoint);
-      assert.equal(readdirSync(path.join(taskRoot, "reviews")).length, 1, breakpoint);
-      assert.equal(readdirSync(path.join(taskRoot, "consents")).length, 1, breakpoint);
+      assert.match(retried.error.hint, /daemon-planned canonical transition/iu);
       assert.equal(readdirSync(path.join(taskRoot, "executions")).length, 1, breakpoint);
-      assert.equal(JSON.parse(readFileSync(
-        path.join(taskRoot, "executions", `${chain.executionId}.md`),
-        "utf8"
-      )).state, "accepted", breakpoint);
-      const anchors = JSON.parse(readFileSync(path.join(taskRoot, "code-doc-anchors.json"), "utf8"));
-      assert.equal(new Set(anchors.records.map((record: { readonly id: string }) => record.id)).size, anchors.records.length, breakpoint);
-      assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu, breakpoint);
+      assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu, breakpoint);
     });
   }
 });
@@ -260,14 +249,19 @@ test("task submit dry-run lists its single internal submit transaction", () => {
   });
 });
 
-test("structured facade and legacy flags produce field-equivalent completion documents and receipts", () => {
+test("structured and legacy direct completion inputs share the daemon-only boundary", () => {
   withTempRoot((manualRoot) => withTempRoot((facadeRoot) => {
-    const manual = runCompletionChain(manualRoot, "flags");
-    const facade = runCompletionChain(facadeRoot, "facade");
-    assert.deepEqual(
-      normalizeCompletionSnapshot({ taskId: manual.taskId, documents: manual.documents }),
-      normalizeCompletionSnapshot({ taskId: facade.taskId, documents: facade.documents })
-    );
+    const manual = prepareSubmitted(manualRoot, "Direct Boundary Manual", "flags");
+    const facade = prepareSubmitted(facadeRoot, "Direct Boundary Structured", "facade");
+    const manualRejected = runJson(manualRoot, [
+      "task", "complete", manual.taskId, "--reviewer", "person_reviewer"
+    ], false, manual.env);
+    const facadeRejected = runJson(facadeRoot, [
+      "task", "complete", facade.taskId, "--approve", "--from-file", writeRetryApprovalPacket(facadeRoot)
+    ], false, facade.env);
+    assert.equal(manualRejected.error.code, facadeRejected.error.code);
+    assert.match(manualRejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.match(facadeRejected.error.hint, /daemon-planned canonical transition/iu);
   }));
 });
 
@@ -290,7 +284,7 @@ test("review facade preserves the approved-consent rejection code and logical st
     assert.equal(facadeNotReviewed.error.code, manualNotReviewed.error.code);
     assert.notEqual(facadeNotReviewed.error.code, "execution_review_required");
     assert.notEqual(manualNotReviewed.error.code, "execution_review_required");
-    assert.match(facadeNotReviewed.error.hint, /approved Review/u);
+    assert.match(facadeNotReviewed.error.hint, /daemon-planned canonical transition/iu);
     const manualRejected = runJson(manualRoot, [
       "task", "review-execution", manual.taskId, "--execution-id", manual.executionId,
       "--verdict", "approved", "--findings", "Evidence is valid.",
@@ -439,87 +433,6 @@ function runEquivalentApprovalReview(
     "--consent-asserted", "Approval was received through an external channel.",
     "--consent-action", "approve_execution", "--consent-action", "complete_task"
   ], true, chain.env);
-}
-
-function runCompletionChain(rootDir: string, mode: ChainMode): Record<string, unknown> {
-  const chain = prepareSubmitted(rootDir, "Completion Equivalence", mode);
-  const reviewInput = {
-    verdict: "approved", findings: "All acceptance checks passed.", evidenceChecked: ["ev_cli_1"],
-    rationale: "The submitted evidence satisfies the Task intent.", archiveWarningsAcknowledged: false,
-    consentAssertedRationale: "Approval was received through an external channel.",
-    consentActions: ["approve_execution", "complete_task"]
-  };
-  let lifecycleReceipts: ReadonlyArray<Record<string, any>>;
-  if (mode === "flags") {
-    const reviewReceipt = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "review-execution", chain.taskId, "--execution-id", chain.executionId,
-      "--verdict", reviewInput.verdict, "--findings", reviewInput.findings,
-      "--evidence-checked", reviewInput.evidenceChecked[0], "--rationale", reviewInput.rationale,
-      "--consent-asserted", reviewInput.consentAssertedRationale,
-      "--consent-action", "approve_execution", "--consent-action", "complete_task"
-    ], true, chain.env);
-    const completeReceipt = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "complete", chain.taskId, "--reviewer", "person_reviewer"
-    ], true, chain.env);
-    assert.equal(completeReceipt.status, "done");
-    lifecycleReceipts = [reviewReceipt, completeReceipt];
-  } else {
-    const packetPath = path.join(rootDir, "equivalent-approval.json");
-    writeFileSync(packetPath, JSON.stringify({
-      findings: reviewInput.findings,
-      evidenceChecked: reviewInput.evidenceChecked,
-      rationale: reviewInput.rationale,
-      archiveWarningsAcknowledged: reviewInput.archiveWarningsAcknowledged,
-      consentAssertedRationale: reviewInput.consentAssertedRationale,
-      consentActions: reviewInput.consentActions,
-      ci: "passed", paths: ["evidence/equivalence.txt"], reviewerId: "person_reviewer"
-    }), "utf8");
-    const completeReceipt = runJson(rootDir, [
-      "--actor", "human:person_test", "task", "complete", chain.taskId, "--approve", "--from-file", packetPath
-    ], true, chain.env);
-    lifecycleReceipts = [completeReceipt];
-  }
-  const taskRoot = path.join(rootDir, chain.packagePath);
-  const documents: Record<string, string> = {};
-  for (const relative of ["INDEX.md", `executions/${chain.executionId}.md`, "code-doc-anchors.json", "facts.md"] as const) {
-    const file = path.join(taskRoot, relative);
-    if (existsSync(file)) documents[relative] = readFileSync(file, "utf8");
-  }
-  for (const directory of ["reviews", "consents"] as const) {
-    for (const name of readdirSync(path.join(taskRoot, directory))) {
-      documents[`${directory}/${name}`] = readFileSync(path.join(taskRoot, directory, name), "utf8");
-    }
-  }
-  return {
-    taskId: chain.taskId,
-    documents,
-    receipts: [...chain.submitSteps.map(receiptStepProjection), ...lifecycleReceipts],
-    registryOperations: runGit(path.join(rootDir, "harness"), "log", "--format=%s").split("\n")
-      .filter((subject) => /code-doc|review|complete/u.test(subject))
-  };
-}
-
-function normalizeCompletionSnapshot(snapshot: Record<string, unknown>): unknown {
-  const taskId = String(snapshot.taskId);
-  return JSON.parse(normalizeDynamicText(JSON.stringify(snapshot)
-    .replaceAll(taskId, "<TASK_ID>")
-  ));
-}
-
-function receiptStepProjection(receipt: Record<string, any>): Record<string, unknown> {
-  const data = receipt.details?.data ?? receipt;
-  const paths = receipt.details?.pathsByRole ?? receipt.paths ?? {};
-  return {
-    ok: receipt.ok,
-    taskId: data.taskId,
-    executionId: data.executionId,
-    status: data.status,
-    report: data.report,
-    paths: Array.isArray(paths)
-      ? Object.fromEntries(paths.map((entry: { readonly role: string; readonly path: string }) => [entry.role, entry.path]))
-      : paths,
-    warnings: receipt.warnings ?? []
-  };
 }
 
 function normalizeDynamicText(value: string): string {

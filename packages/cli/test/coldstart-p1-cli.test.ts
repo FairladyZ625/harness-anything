@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -84,12 +84,17 @@ test("task packet help templates pass submission and approval dry-runs", () => {
     const approval = packetTemplate(rootDir, ["task", "complete", "--help"]);
     const approvalPath = path.join(rootDir, "approval.json");
     writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`, "utf8");
+    const indexPath = path.join(rootDir, created.packagePath, "INDEX.md");
+    const indexBeforeDryRun = readFileSync(indexPath, "utf8");
     const approvalDryRun = runJson(rootDir, [
       "task", "complete", created.taskId,
       "--approve", "--from-file", approvalPath, "--dry-run"
     ], sessionEnv);
     assert.equal(approvalDryRun.ok, true);
-    assert.equal(approvalDryRun.status, "in_review");
+    assert.equal(approvalDryRun.status, "done");
+    assert.equal(approvalDryRun.report.schema, "task-lifecycle-transition-preview/v1");
+    assert.equal(approvalDryRun.report.disposition, "server-planner-validation-required");
+    assert.equal(readFileSync(indexPath, "utf8"), indexBeforeDryRun);
   });
 });
 

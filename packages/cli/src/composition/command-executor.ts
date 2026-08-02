@@ -242,6 +242,7 @@ export async function runRegisteredCommandWithCliComposition(
       syncExportedSession
     })
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer, {
+    authorityCommandSubmission: options.inlineCreateProvenanceOnly === true,
     outerProceedingRecovery: options.outerProceedingRecovery === true
   }).pipe(
     Effect.match({

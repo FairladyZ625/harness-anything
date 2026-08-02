@@ -1,9 +1,10 @@
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, stablePayloadHash, taskEntityId } from "@harness-anything/kernel";
+import { makeLocalVersionControlSystem, resolveHarnessLayout } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { taskCompleteTransitionCommandFromCliAction } from "../../cli/task-complete-transition-command.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
 import { runExecutionConsent } from "./task-execution-consent.ts";
@@ -14,7 +15,12 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   if (action.kind === "task-code-doc-reconcile") return runTaskCodeDocReconcile(context, action);
   if (action.kind === "task-consent-record") return runExecutionConsent(context, action);
   if (action.kind === "task-review-execution") return runExecutionReview(context, action);
-  if (action.kind === "task-complete") return runTaskLifecycleTransition(context, action);
+  if (action.kind === "task-complete") {
+    return runTaskLifecycleTransition(
+      context,
+      taskCompleteTransitionCommandFromCliAction(action)
+    );
+  }
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
@@ -32,7 +38,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
 
 function runTaskLifecycleTransition(
   context: Parameters<CommandRunner>[0],
-  action: Extract<TaskGateAction, { readonly kind: "task-complete" }> & { readonly callerIdempotencyKey?: string }
+  action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>
 ): ReturnType<CommandRunner> {
   if (action.dryRun === true) {
     return Effect.succeed({
@@ -48,25 +54,20 @@ function runTaskLifecycleTransition(
       }
     } satisfies CliResult);
   }
-  if (!action.callerIdempotencyKey) {
+  if (!context.authorityCommandSubmission) {
     return Effect.succeed({
       ok: false,
       command: "task-complete",
       taskId: action.taskId,
-      error: cliError(CliErrorCode.WriteRejected, "Task completion requires the typed caller idempotency key.")
+      error: cliError(
+        CliErrorCode.WriteRejected,
+        "Task completion requires the daemon-planned canonical transition submission; direct recovery cannot recreate that authority."
+      )
     } satisfies CliResult);
   }
   const transitionId = taskLifecycleTransitionId(action.callerIdempotencyKey);
   const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition" });
   return Effect.gen(function* () {
-    yield* coordinator.enqueue({
-      opId: stablePayloadHash({ transitionId, taskId: action.taskId }),
-      entityId: taskEntityId(action.taskId),
-      kind: "doc_write",
-      // The daemon-owned planned submission consumes the canonical command;
-      // this deliberately invalid local payload makes a bypass fail closed.
-      payload: { authorityPlannedTaskLifecycleTransition: transitionId }
-    });
     const flush = yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
       { taskId: action.taskId },
       () => Effect.runPromise(coordinator.flush("explicit"))

@@ -63,7 +63,7 @@ test("CLI strict checker accepts a new-contract task without root review.md", ()
   });
 });
 
-test("CLI task-complete without Execution fails closed and leaves INDEX byte-exact", () => {
+test("direct task-complete fails closed before evaluating package gates and leaves INDEX byte-exact", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
@@ -84,8 +84,8 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
 
     const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "closeout_placeholder");
-    assert.match(blocked.error?.hint ?? "", new RegExp(path.join(rootDir, "harness/tasks/task-1").replaceAll("\\", "\\\\"), "u"));
+    assert.equal(blocked.error?.code, "write_rejected");
+    assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
 
     writeRealCloseout(rootDir, "task-1");
     const indexPath = path.join(rootDir, "harness/tasks/task-1/INDEX.md");
@@ -93,15 +93,14 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
 
     const blockedWithoutExecution = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blockedWithoutExecution.ok, false);
-    assert.equal(blockedWithoutExecution.error?.code, "invalid_transition");
+    assert.equal(blockedWithoutExecution.error?.code, "write_rejected");
     assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
-    assert.match(blockedWithoutExecution.error?.hint ?? "", /ha task start task-1[\s\S]+ha task submit task-1 --from-file/u);
-    assert.doesNotMatch(blockedWithoutExecution.error?.hint ?? "", /--lease-token/u);
+    assert.match(blockedWithoutExecution.error?.hint ?? "", /daemon-planned canonical transition/iu);
     assert.equal(readFileSync(indexPath, "utf8"), before);
   });
 });
 
-test("CLI task-complete reports every currently unmet completion requirement", () => {
+test("direct task-complete does not rederive unmet completion requirements", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Aggregate Completion Gates", "in_review");
     writeCloseout(rootDir, executionTaskId, [
@@ -114,23 +113,14 @@ test("CLI task-complete reports every currently unmet completion requirement", (
     const blocked = runJson(rootDir, [
       "task", "complete", executionTaskId, "--reviewer", "reviewer-a"
     ], false, testActorEnv);
-    const issueCodes = blocked.issues.map((issue: Record<string, unknown>) => issue.code);
-
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "closeout_placeholder");
-    assert.deepEqual(issueCodes, [
-      "closeout_placeholder",
-      "code_doc_anchors_missing",
-      "execution_review_required"
-    ]);
-    assert.match(blocked.error?.hint ?? "", /3 unmet requirements/u);
-    assert.match(blocked.error?.hint ?? "", /ha task code-doc reconcile/u);
-    assert.match(blocked.error?.hint ?? "", /ha task review-execution/u);
-    assert.match(blocked.error?.hint ?? "", /--consent-utterance/u);
+    assert.equal(blocked.error?.code, "write_rejected");
+    assert.equal(blocked.issues, undefined);
+    assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
   });
 });
 
-test("CLI typed completion does not require filling the legacy review placeholder", () => {
+test("direct typed completion does not inspect the legacy review placeholder", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
     writeFact(rootDir, executionTaskId);
@@ -153,17 +143,14 @@ test("CLI typed completion does not require filling the legacy review placeholde
     writeRealCloseout(rootDir, executionTaskId);
     seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
-    assert.equal(completed.ok, true);
-    assert.equal(completed.executionId, executionId);
-    assert.equal(completed.status, "done");
-
-    const checked = runJson(rootDir, ["check", "--post-merge"]);
-    assert.equal(checked.ok, true);
+    const rejected = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.equal(rejected.error?.code, "write_rejected");
+    assert.match(rejected.error?.hint ?? "", /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: in_review$/mu);
   });
 });
 
-test("CLI typed completion warns on a substantive open legacy release finding", () => {
+test("direct typed completion does not evaluate legacy release findings", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
     writeFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/review.md`), [
@@ -177,17 +164,16 @@ test("CLI typed completion warns on a substantive open legacy release finding", 
     writeRealCloseout(rootDir, executionTaskId);
     seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
+    const rejected = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
-    assert.equal(completed.ok, true);
-    assert.equal(completed.warnings[0].code, "release_blocking_findings");
-    assert.match(completed.warnings[0].revivalCondition, /third independent user/u);
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: done$/mu);
+    assert.equal(rejected.error?.code, "write_rejected");
+    assert.match(rejected.error?.hint ?? "", /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: in_review$/mu);
     assert.equal(JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/executions/${executionId}.md`), "utf8")).state, "accepted");
   });
 });
 
-test("CLI task-complete rejects missing code-doc anchors", () => {
+test("direct task-complete stops before checking missing code-doc anchors", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
@@ -218,11 +204,12 @@ test("CLI task-complete rejects missing code-doc anchors", () => {
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "write_rejected");
-    assert.equal(blocked.issues?.[0]?.code, "code_doc_anchors_missing");
+    assert.equal(blocked.issues, undefined);
+    assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
   });
 });
 
-test("CLI task-complete rejects fabricated code-doc shas", () => {
+test("direct task-complete stops before checking fabricated code-doc shas", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
@@ -236,11 +223,12 @@ test("CLI task-complete rejects fabricated code-doc shas", () => {
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "write_rejected");
-    assert.equal(blocked.issues?.[0]?.code, "code_doc_git_ref_missing");
+    assert.equal(blocked.issues, undefined);
+    assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
   });
 });
 
-test("CLI task-complete reports the underlying completion write failure", () => {
+test("direct task-complete stops before any completion write", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
@@ -253,9 +241,8 @@ test("CLI task-complete reports the underlying completion write failure", () => 
     const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "malformed_snapshot");
-    assert.match(blocked.error?.hint, /Completion task-tree staging failed\./);
-    assert.match(blocked.error?.hint, /minItems\(1\)|Expected a refinement/);
+    assert.equal(blocked.error?.code, "write_rejected");
+    assert.match(blocked.error?.hint, /daemon-planned canonical transition/iu);
   });
 });
 
@@ -308,7 +295,7 @@ test("CLI task-review accepts a task with a real fact", () => {
   });
 });
 
-test("CLI task-review stages legacy artifacts while task-complete without Execution fails closed", () => {
+test("CLI task-review stages legacy artifacts while direct task-complete leaves later edits untouched", () => {
   withTempRoot((rootDir) => {
     const harnessRepo = path.join(rootDir, "harness");
     initializeGitRepo(rootDir);
@@ -333,9 +320,10 @@ test("CLI task-review stages legacy artifacts while task-complete without Execut
 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "invalid_transition");
+    assert.equal(completed.error?.code, "write_rejected");
+    assert.match(completed.error?.hint ?? "", /daemon-planned canonical transition/iu);
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /^  status: in_review$/mu);
-    assert.equal(runGit(harnessRepo, "status", "--short"), "");
+    assert.match(runGit(harnessRepo, "status", "--short"), /closeout\.md/u);
     assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
   });
 });
@@ -354,7 +342,7 @@ test("CLI task-review ignores facts.md quantity under dec_mrg3z1we/CH4", () => {
   });
 });
 
-test("CLI task-complete without Execution fails even when no Fact quantity gate applies", () => {
+test("direct task-complete does not evaluate Fact quantity or Execution gates", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
@@ -365,7 +353,8 @@ test("CLI task-complete without Execution fails even when no Fact quantity gate 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(completed.ok, false);
-    assert.equal(completed.error?.code, "invalid_transition");
+    assert.equal(completed.error?.code, "write_rejected");
+    assert.match(completed.error?.hint ?? "", /daemon-planned canonical transition/iu);
   });
 });
 
@@ -384,7 +373,7 @@ test("CLI Review verdict rejects unknown values before writing", () => {
   });
 });
 
-test("CLI complete accepts an approved Execution Review without facts under dec_mrg3z1we/CH4", () => {
+test("direct completion does not consume an approved Execution Review", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Execution Complete", "in_review");
     writeRealCloseout(rootDir, executionTaskId);
@@ -392,7 +381,7 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
 
     const missingReview = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, testActorEnv);
     assert.equal(missingReview.ok, false);
-    assert.match(missingReview.error?.hint ?? "", /approved Review/u);
+    assert.match(missingReview.error?.hint ?? "", /daemon-planned canonical transition/iu);
 
     const reviewed = runJson(rootDir, [
       "task", "review-execution", executionTaskId,
@@ -406,23 +395,16 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
     assert.equal(reviewed.executionId, executionId);
     assert.match(String(reviewed.reviewId), /^rev_/u);
 
-    writeExecution(rootDir, executionTaskId, executionId, "test");
-    const selfComplete = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, testActorEnv);
-    assert.match(selfComplete.error?.hint ?? "", /content pin/u);
-    writeExecution(rootDir, executionTaskId, executionId, "worker-agent");
-
-    // dec_mrg3z1we/CH4: approved Review and completion gates do not imply a Fact quantity gate.
-    const completed = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, testActorEnv);
-    assert.equal(completed.ok, true);
-    assert.equal(completed.executionId, executionId);
-    assert.equal(completed.status, "done");
+    const completed = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, testActorEnv);
+    assert.equal(completed.error?.code, "write_rejected");
+    assert.match(completed.error?.hint ?? "", /daemon-planned canonical transition/iu);
     const taskRoot = path.join(rootDir, "harness/tasks", executionTaskId);
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "accepted");
-    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });
 });
 
-test("CLI default claim carries one person's task through submit, review, and complete", () => {
+test("CLI default claim and review still require daemon-planned completion", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Single Person Closeout", "--vertical", "software/coding", "--preset", "standard-task"]);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "progress.md")), false);
@@ -473,14 +455,15 @@ test("CLI default claim carries one person's task through submit, review, and co
     ], true, { HARNESS_ACTOR: "agent:reviewer" });
     const completed = runJson(rootDir, [
       "task", "complete", created.taskId, "--reviewer", "reviewer", "--ci", "passed"
-    ], true, { HARNESS_ACTOR: "agent:commander" });
-    assert.equal(completed.status, "done");
-    assert.equal(completed.executionId, claimed.executionId);
+    ], false, { HARNESS_ACTOR: "agent:commander" });
+    assert.equal(completed.error?.code, "write_rejected");
+    assert.match(completed.error?.hint ?? "", /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "review.md")), false);
   });
 });
 
-test("CLI milestone completion no longer requires decision derives lineage", () => {
+test("direct milestone and child completion do not derive lineage or terminal state", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, milestoneTaskId, "Milestone", "in_review", { preset: "create-milestone", taskClass: "milestone" });
     writeReview(rootDir, milestoneTaskId);
@@ -488,17 +471,19 @@ test("CLI milestone completion no longer requires decision derives lineage", () 
     const anchorSha = runGit(rootDir, "rev-parse", "HEAD");
 
     const blocked = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
-    assert.equal(blocked.error?.code, "invalid_transition");
+    assert.equal(blocked.error?.code, "write_rejected");
+    assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
     assert.doesNotMatch(blocked.error?.hint ?? "", /decision.*derives|lineage/u);
     writeIndex(rootDir, milestoneChildTaskId, "Long Running Child", "in_review", { preset: "long-running-task", parent: milestoneTaskId });
     writeReview(rootDir, milestoneChildTaskId);
     writeRealCloseout(rootDir, milestoneChildTaskId, { sha: anchorSha });
     seedApprovedExecution(rootDir, milestoneChildTaskId, milestoneChildExecutionId);
-    const childCompleted = runJson(rootDir, ["task", "complete", milestoneChildTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
-    assert.equal(childCompleted.status, "done");
+    const childCompleted = runJson(rootDir, ["task", "complete", milestoneChildTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.match(childCompleted.error?.hint ?? "", /daemon-planned canonical transition/iu);
     seedApprovedExecution(rootDir, milestoneTaskId, milestoneExecutionId);
-    const completed = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
-    assert.equal(completed.status, "done");
+    const completed = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.match(completed.error?.hint ?? "", /daemon-planned canonical transition/iu);
+    assert.doesNotMatch(completed.error?.hint ?? "", /decision.*derives|lineage/u);
   });
 });
 

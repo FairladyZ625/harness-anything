@@ -93,6 +93,11 @@ test("commit-anchor completion crosses production authority with daemon judgment
     CODEX_THREAD_ID: sessionId
   };
   try {
+    mkdirSync(path.join(fixture.repoRoot, "tools"), { recursive: true });
+    copyFileSync(
+      path.resolve("tools/write-road-registry.json"),
+      path.join(fixture.repoRoot, "tools/write-road-registry.json")
+    );
     mkdirSync(taskRoot, { recursive: true });
     const sourceIndex = readFileSync(path.join(
       fixture.authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/INDEX.md"
@@ -137,6 +142,42 @@ test("commit-anchor completion crosses production authority with daemon judgment
       { timeoutMs: 20_000 }
     );
 
+    const exported = runRawJsonMaybeFail(fixture.repoRoot, [
+      "session", "export", "--session", sessionId, "--runtime", "codex", "--source", "runtime",
+      "--detected-at", "2026-07-31T00:00:00.000Z", "--transcript-file", fixture.transcriptPath
+    ], env);
+    assert.equal(exported.status, 0, JSON.stringify(exported.receipt));
+
+    // Establish the immutable prepublish witness independently of the completion
+    // receipt. The completion client does not inspect this receipt or derive a
+    // follow-up step; the daemon verifier later finds this first-parent materialization.
+    writeFileSync(
+      path.join(taskRoot, "task_plan.md"),
+      readFileSync(path.join(taskRoot, "task_plan.md"), "utf8").replace(
+        "Complete from a public workspace commit.",
+        "Canonical prepublish snapshot established for completion."
+      )
+    );
+    const prepublished = runRawJsonMaybeFail(fixture.repoRoot, [
+      "doc", "sync", "--submit", "--path", `tasks/${taskId}/task_plan.md`
+    ], env);
+    assert.equal(prepublished.status, 0, JSON.stringify(prepublished.receipt));
+    assert.equal(prepublished.receipt.ok, true, JSON.stringify(prepublished.receipt));
+    const materialized = runRawJsonMaybeFail(fixture.repoRoot, [
+      "materializer", "run", "--current-session-only"
+    ], env);
+    assert.equal(materialized.status, 0, JSON.stringify(materialized.receipt));
+    assert.equal(materialized.receipt.ok, true, JSON.stringify(materialized.receipt));
+    const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "code-doc", "reconcile", taskId,
+      "--commit", fixture.publicHead, "--force"
+    ], env);
+    assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
+    const witnessMaterialized = runRawJsonMaybeFail(fixture.repoRoot, [
+      "materializer", "run", "--current-session-only"
+    ], env);
+    assert.equal(witnessMaterialized.status, 0, JSON.stringify(witnessMaterialized.receipt));
+
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", taskId,
       "--commit-anchor", fixture.publicHead,
@@ -162,7 +203,7 @@ test("commit-anchor completion crosses production authority with daemon judgment
     assert.equal(operation.state, "COMMITTED", JSON.stringify(operation));
     assert.deepEqual(
       operation.authorityIntegrity?.canonicalMutationSet.mutations.map((mutation) => [mutation.entity.entityKind, mutation.action.action]),
-      [["task", "transition"]]
+      [["task", "document"], ["task", "transition"]]
     );
     const publication = await createGitCanonicalPublicationInspector(fixture.authoredRoot)
       .findPublicationForOperation(operation.opId!);

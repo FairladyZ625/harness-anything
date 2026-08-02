@@ -32,7 +32,7 @@ test("CLI long-running creation writes and preserves the epic task class", () =>
   });
 });
 
-test("epic and milestone packages no longer acquire a lineage completion gate", () => {
+test("direct recovery does not derive epic or milestone completion gates", () => {
   for (const fixture of [
     { taskId: legacyLongRunningTaskId, preset: "long-running-task" },
     { taskId: classifiedLongRunningTaskId, preset: "standard-task", taskClass: "epic" as const },
@@ -46,7 +46,8 @@ test("epic and milestone packages no longer acquire a lineage completion gate", 
         "task", "complete", fixture.taskId, "--reviewer", "reviewer-a", "--ci", "passed"
       ], false);
 
-      assert.equal(blocked.error?.code, "invalid_transition");
+      assert.equal(blocked.error?.code, "write_rejected");
+      assert.match(blocked.error?.hint ?? "", /daemon-planned canonical transition/iu);
       assert.doesNotMatch(blocked.error?.hint ?? "", /decision.*derives|lineage/u);
     });
   }

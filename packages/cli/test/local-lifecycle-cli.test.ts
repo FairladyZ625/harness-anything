@@ -610,7 +610,7 @@ test("CLI task-review warns on open release-blocking findings and emits pass con
   });
 });
 
-test("CLI task-complete treats failed or missing CI as descriptive readiness", () => {
+test("direct recovery does not evaluate completion readiness outside the daemon planner", () => {
   withTempRoot((rootDir) => {
     initializeNestedHarnessRepo(rootDir);
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
@@ -620,22 +620,14 @@ test("CLI task-complete treats failed or missing CI as descriptive readiness", (
     writeCodeDocAnchors(rootDir, executionTaskId);
     seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "failed"], true, executionActorEnv);
-    assert.equal(completed.ok, true);
-    assert.deepEqual(completed.completionGate.axes, {
-      canonicalStatus: "in_review",
-      coordinationStatus: "in_review",
-      packageDisposition: "active",
-      closeoutReadiness: "ready"
-    });
-    assert.equal(completed.executionId, executionId);
-    assert.equal(completed.status, "done");
-    assert.equal(completed.completionGate.evidenceMode, "execution-review");
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /status: done/);
+    const rejected = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "failed"], false, executionActorEnv);
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /status: in_review/);
   });
 });
 
-test("CLI task-complete accepts a judged workspace commit anchor without Execution history", () => {
+test("direct recovery does not judge a workspace commit outside the daemon planner", () => {
   withTempRoot((rootDir) => {
     const taskId = "task-commit-anchor";
     initializeNestedHarnessRepo(rootDir);
@@ -660,21 +652,16 @@ test("CLI task-complete accepts a judged workspace commit anchor without Executi
     writeCodeDocAnchors(rootDir, taskId);
     const sha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
-    const completed = runJson(rootDir, [
+    const rejected = runJson(rootDir, [
       "task", "complete", taskId,
       "--commit-anchor", sha,
       "--judgment", "This workspace commit implements and verifies the task contract.",
       "--ci", "passed"
-    ], true, executionActorEnv);
+    ], false, executionActorEnv);
 
-    assert.equal(completed.ok, true);
-    assert.equal(completed.status, "done");
-    assert.equal(completed.completionGate.evidenceMode, "commit-anchor");
-    assert.equal(completed.completionEvidence.schema, "task-completion-evidence-receipt/v1");
-    assert.equal(completed.completionEvidence.mode, "commit-anchor");
-    assert.equal(completed.completionEvidence.path, `harness/tasks/${taskId}/completion-evidence.json`);
-    assert.equal(completed.completionEvidence.sha, sha);
-    assert.equal(completed.completionEvidence.verifiedObjectType, "commit");
-    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/completion-evidence.json`)), true);
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /daemon-planned canonical transition/iu);
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}/completion-evidence.json`)), false);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`), "utf8"), /status: in_review/);
   });
 });
