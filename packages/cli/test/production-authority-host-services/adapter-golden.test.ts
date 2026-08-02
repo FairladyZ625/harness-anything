@@ -27,6 +27,20 @@ const createCliCommandService = (
   options: Parameters<typeof createDaemonCommandService>[2] = {}
 ) => createDaemonCommandService(runtime, cliDaemonCommandHostServices, options);
 
+test("adapter golden normalization retains credential kind but ignores host-bound values", () => {
+  const shape = (issuer: string, subject: string) => adapterGoldenShape({
+    credential: { kind: "unix-socket-owner-boundary", issuer, subject }
+  });
+  assert.deepEqual(shape("host:mac-fixture", "501"), shape("host:ci-fixture", "1001"));
+  assert.deepEqual(shape("host:mac-fixture", "501"), {
+    credential: {
+      kind: "unix-socket-owner-boundary",
+      issuer: "<CREDENTIAL_ISSUER>",
+      subject: "<CREDENTIAL_SUBJECT>"
+    }
+  });
+});
+
 test("all four production ingress adapters retain canonical envelope and receipt bytes", { timeout: 120_000 }, async () => {
   const fixture = createFixture();
   const daemon = defaultCliAdapterProvider().createMultiRepoDaemonRuntime({
@@ -181,6 +195,17 @@ function adapterGoldenShape(value: unknown, key = ""): unknown {
   if (key === "expectedEpoch") return "<EPOCH>";
   if (Array.isArray(value)) return value.map((entry) => adapterGoldenShape(entry));
   if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (key === "credential" && record.kind === "unix-socket-owner-boundary") {
+      return Object.fromEntries(Object.entries(record).map(([entryKey, entry]) => [
+        entryKey,
+        entryKey === "issuer"
+          ? "<CREDENTIAL_ISSUER>"
+          : entryKey === "subject"
+            ? "<CREDENTIAL_SUBJECT>"
+            : adapterGoldenShape(entry, entryKey)
+      ]));
+    }
     return Object.fromEntries(Object.entries(value as Record<string, unknown>)
       .map(([entryKey, entry]) => [entryKey, adapterGoldenShape(entry, entryKey)]));
   }
