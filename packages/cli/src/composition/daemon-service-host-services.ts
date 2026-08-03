@@ -19,7 +19,7 @@ export const cliDaemonServiceHostServices = {
   errors: {
     present: (error) => error.code === "daemon_refresh_build_failed"
       ? {
-        ...cliError(CliErrorCode.DaemonRefreshBuildFailed, `Daemon refresh replacement preflight failed before the running daemon was changed: ${error.context.cause}`),
+        ...cliError(CliErrorCode.DaemonRefreshBuildFailed, `Daemon replacement preflight failed before the running daemon was changed: ${error.context.cause}`),
         code: "daemon_refresh_build_failed" as const
       }
       : {

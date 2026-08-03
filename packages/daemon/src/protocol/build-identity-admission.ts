@@ -29,20 +29,20 @@ export function buildIdentityAdmissionFailure(
     return failureReceipt(
       contract.method,
       "daemon_build_identity_unavailable",
-      `Daemon cannot verify that its running code matches the current dist build (${cause}); mixed-version writes are disabled. Run \`ha daemon start --service\`.`,
-      { data: { nextCommand: "ha daemon start --service" } }
+      `Daemon cannot verify that its running code matches the current dist build (${cause}); mixed-version writes are disabled. Run \`ha daemon restart\`.`,
+      { data: { nextCommand: "ha daemon restart" } }
     );
   }
   if (build.loadedIdentity === build.installedIdentity) return undefined;
   return failureReceipt(
     contract.method,
     "daemon_build_stale",
-    `Daemon code version ${build.loadedIdentity} does not match current dist version ${build.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`,
+    `Daemon code version ${build.loadedIdentity} does not match current dist version ${build.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon restart\`.`,
     {
       data: {
         loadedIdentity: build.loadedIdentity,
         installedIdentity: build.installedIdentity,
-        nextCommand: "ha daemon start --service"
+        nextCommand: "ha daemon restart"
       }
     }
   );

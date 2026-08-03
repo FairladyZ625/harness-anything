@@ -67,14 +67,14 @@ test("artifact drift rejects writes before mixed-version service dispatch and ke
   assert.equal(write.error?.code, "daemon_build_stale");
   assert.match(write.error?.hint ?? "", new RegExp(loadedIdentity, "u"));
   assert.match(write.error?.hint ?? "", new RegExp(installedIdentity, "u"));
-  assert.match(write.error?.hint ?? "", /ha daemon start --service/u);
+  assert.match(write.error?.hint ?? "", /ha daemon restart/u);
   assert.deepEqual(write.details.data, {
     loadedIdentity,
     installedIdentity,
-    nextCommand: "ha daemon start --service"
+    nextCommand: "ha daemon restart"
   });
   assert.deepEqual(write.next, [{
-    command: "ha daemon start --service",
+    command: "ha daemon restart",
     description: "Restart the daemon on the current dist build, then retry the original write."
   }]);
   assert.deepEqual(dispatched, []);
@@ -162,7 +162,7 @@ test("temporarily unavailable artifact identity fails closed and automatically r
   const unavailable = driftReceipt(await server.handle(commandRunRequest("task-complete", "write-unavailable")));
   assert.equal(unavailable.ok, false);
   assert.equal(unavailable.error?.code, "daemon_build_identity_unavailable");
-  assert.match(unavailable.error?.hint ?? "", /ha daemon start --service/u);
+  assert.match(unavailable.error?.hint ?? "", /ha daemon restart/u);
   assert.deepEqual(dispatched, []);
 
   const read = driftReceipt(await server.handle(commandRunRequest("task-show", "read-unavailable")));

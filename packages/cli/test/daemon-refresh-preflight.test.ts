@@ -99,6 +99,30 @@ test("refresh derives and preflight failure scenarios share one isolated service
       }
     });
 
+    await t.test("restart preflight reports the real manifest failure and leaves the running daemon unchanged", async () => {
+      const before = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
+      assert.equal(before.reachable, true, JSON.stringify(before));
+      assert.equal(typeof before.pid, "number");
+      try {
+        writeFileSync(fixture.manifestPath, "{}\n", "utf8");
+        const restart = runRawJsonMaybeFail(fixture.repoRoot, [
+          "daemon", "restart",
+          "--timeout-ms", String(DAEMON_REFRESH_CONTROL_TIMEOUT_MS),
+          "--user-root", userRoot
+        ], env);
+        assert.notEqual(restart.status, 0, JSON.stringify(restart.receipt));
+        assert.match(JSON.stringify(restart.receipt), /AUTHORITY_PRODUCTION_MANIFEST_SCHEMA_INVALID/u);
+        assert.doesNotMatch(JSON.stringify(restart.receipt), /FAILED_AFTER_HANDOFF/u);
+
+        const after = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
+        assert.equal(after.reachable, true, JSON.stringify(after));
+        assert.equal(after.pid, before.pid);
+        process.kill(before.pid as number, 0);
+      } finally {
+        writeFileSync(fixture.manifestPath, validManifest, "utf8");
+      }
+    });
+
     await t.test("refresh derives the explicit manifest across a mixed registry and converges on a ready replacement", async () => {
       const timing = new RefreshTestTiming("derived-manifest-refresh");
       const before = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
@@ -152,6 +176,55 @@ test("refresh derives and preflight failure scenarios share one isolated service
     await fixtureTiming.measureAsync("daemon-stop", () => stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined));
     rmSync(fixture.root, { recursive: true, force: true });
     fixtureTiming.report();
+  }
+});
+
+test("restart replacement launch failure restores a reachable daemon", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const failureMarker = path.join(fixture.root, "fail-first-replacement.marker");
+  const preloadPath = path.resolve("packages/cli/test/fixtures/daemon-fail-first-replacement-preload.mjs");
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS),
+    HARNESS_TEST_DAEMON_REPLACEMENT_FAILURE_MARKER: failureMarker,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
+  };
+  try {
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical",
+      "--canonical-root", fixture.repoRoot, "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    const beforePid = started.pid as number;
+    assert.equal(typeof beforePid, "number", JSON.stringify(started));
+
+    writeFileSync(failureMarker, "fail the first non-check replacement\n", "utf8");
+    const restart = runRawJsonMaybeFail(fixture.repoRoot, [
+      "daemon", "restart", "--timeout-ms", "3000",
+      "--replacement-timeout-ms", String(DAEMON_REFRESH_AUTOSTART_TIMEOUT_MS),
+      "--user-root", userRoot
+    ], env);
+    assert.notEqual(restart.status, 0, JSON.stringify(restart.receipt));
+    assert.match(JSON.stringify(restart.receipt), /DAEMON_RESTART_REPLACEMENT_FAILED_AFTER_HANDOFF/u);
+    assert.match(JSON.stringify(restart.receipt), /service restored and reachable/u);
+
+    const after = runRawJsonMaybeFail(fixture.repoRoot, [
+      "daemon", "status", "--user-root", userRoot
+    ], env);
+    assert.equal(after.status, 0, JSON.stringify({ restart: restart.receipt, after: after.receipt }));
+    assert.equal(after.receipt.reachable, true, JSON.stringify(after.receipt));
+    assert.equal(typeof after.receipt.pid, "number", JSON.stringify(after.receipt));
+    assert.notEqual(after.receipt.pid, beforePid, JSON.stringify({ beforePid, after: after.receipt }));
+    process.kill(after.receipt.pid as number, 0);
+  } finally {
+    rmSync(failureMarker, { force: true });
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 

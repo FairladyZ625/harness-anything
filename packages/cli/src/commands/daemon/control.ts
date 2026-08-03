@@ -1,5 +1,6 @@
 import {
   calculateDaemonArtifactIdentity,
+  defaultDaemonAutostartTimeoutMs,
   defaultDaemonJsonRpcRequestTimeoutMs,
   requestLocalDaemonJsonRpcForTarget,
   type JsonObject,
@@ -65,6 +66,7 @@ export async function runDaemonControl(
 ): Promise<Record<string, unknown>> {
   if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
+  const replacementTimeoutMs = daemonReplacementTimeoutMs(input.args);
   const trigger = kind === "restart" ? undefined : daemonRefreshTrigger(input.args);
   const method: DaemonControlRequest["method"] = kind === "restart"
     ? "admin.daemon.restart"
@@ -117,8 +119,9 @@ export async function runDaemonControl(
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
   const expectedGeneration = acceptedGenerationExpectation(receipt, before, probedGeneration);
+  const runningLaunchConfiguration = daemonReplacementLaunchConfiguration(before.launchConfiguration);
   const launchConfiguration = preparedLaunchConfiguration
-    ?? daemonReplacementLaunchConfiguration(before.launchConfiguration);
+    ?? runningLaunchConfiguration;
   const expectedIdentity = kind !== "restart"
     ? preparedExpectedIdentity ?? calculateInstalledIdentity(input, launchConfiguration.entrypoint)
     : undefined;
@@ -127,17 +130,17 @@ export async function runDaemonControl(
     beforePid: before.pid,
     beforeLoadedIdentity: before.loadedIdentity,
     operationId: receipt.operationId,
-    timeoutMs: drainTimeoutMs,
+    handoffTimeoutMs: drainTimeoutMs,
+    replacementTimeoutMs,
     kind,
     method,
     launchConfiguration,
     expectedIdentity,
     expectedGeneration,
-    ...(input.replacementEntrypoint && preparedRunningLaunchConfiguration
-      ? {
-          rollbackLaunchConfiguration: preparedRunningLaunchConfiguration,
-          upgradeRecovery: daemonControlRecoveryGuidance(input.args, lifecycle.target.userRoot)
-        }
+    rollbackLaunchConfiguration: preparedRunningLaunchConfiguration ?? runningLaunchConfiguration,
+    rollbackExpectedIdentity: input.replacementEntrypoint ? before.loadedIdentity : expectedIdentity,
+    ...(input.replacementEntrypoint
+      ? { upgradeRecovery: daemonControlRecoveryGuidance(input.args, lifecycle.target.userRoot) }
       : {})
   });
   const { schema: controlSchema, ...controlResult } = receipt;
@@ -358,10 +361,26 @@ function statusFromReceipt(receipt: Record<string, unknown>): Record<string, unk
 }
 
 function daemonControlTimeoutMs(args: ReadonlyArray<string>): number {
-  const raw = readOption(args, "--timeout-ms") ?? "5000";
+  return daemonTimeoutOption(args, "--timeout-ms", 5_000);
+}
+
+function daemonReplacementTimeoutMs(args: ReadonlyArray<string>): number {
+  const fallback = parsePositiveIntegerOr(
+    process.env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS,
+    defaultDaemonAutostartTimeoutMs
+  );
+  return daemonTimeoutOption(args, "--replacement-timeout-ms", fallback);
+}
+
+function daemonTimeoutOption(
+  args: ReadonlyArray<string>,
+  option: "--timeout-ms" | "--replacement-timeout-ms",
+  fallback: number
+): number {
+  const raw = readOption(args, option) ?? String(fallback);
   const timeoutMs = Number(raw);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 120_000) {
-    throw new Error("Use --timeout-ms with an integer from 100 through 120000.");
+    throw new Error(`Use ${option} with an integer from 100 through 120000.`);
   }
   return timeoutMs;
 }

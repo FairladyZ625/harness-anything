@@ -16,7 +16,7 @@ test("task lease recovery uses only the structured task id", () => {
 test("daemon build drift points to a service restart", () => {
   for (const code of ["daemon_build_stale", "daemon_build_identity_unavailable"]) {
     assert.deepEqual(failureReceiptNextActions(code), [{
-      command: "ha daemon start --service",
+      command: "ha daemon restart",
       description: "Restart the daemon on the current dist build, then retry the original write."
     }]);
   }

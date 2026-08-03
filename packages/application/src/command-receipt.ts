@@ -63,7 +63,7 @@ export function failureReceiptNextActions(
   }
   if (code === "daemon_build_stale" || code === "daemon_build_identity_unavailable") {
     return [{
-      command: "ha daemon start --service",
+      command: "ha daemon restart",
       description: "Restart the daemon on the current dist build, then retry the original write."
     }];
   }

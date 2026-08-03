@@ -50,13 +50,15 @@ interface CompleteDaemonReplacementInput {
   readonly beforePid: unknown;
   readonly beforeLoadedIdentity: unknown;
   readonly operationId: unknown;
-  readonly timeoutMs: number;
+  readonly handoffTimeoutMs: number;
+  readonly replacementTimeoutMs: number;
   readonly kind: "restart" | "refresh" | "upgrade";
   readonly method: "admin.daemon.restart" | "admin.daemon.refresh";
   readonly launchConfiguration: DaemonLaunchConfiguration;
   readonly expectedIdentity: string | undefined;
   readonly expectedGeneration: DaemonGenerationConvergenceExpectation | undefined;
   readonly rollbackLaunchConfiguration?: DaemonLaunchConfiguration;
+  readonly rollbackExpectedIdentity?: unknown;
   readonly upgradeRecovery?: DaemonControlRecoveryGuidance;
 }
 
@@ -65,6 +67,8 @@ interface StartedReplacementResult {
   readonly status: Record<string, unknown>;
   readonly lifecycle: DaemonLifecycleStatus;
 }
+
+class DaemonReplacementEndpointUnownedError extends Error {}
 
 const upgradeHandoffMaxAttempts = 3;
 
@@ -80,7 +84,7 @@ export async function completeDaemonReplacement(
   const attempts: HandoffRecoveryAttempt[] = [];
   const maxAttempts = input.upgradeRecovery ? upgradeHandoffMaxAttempts : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const result = await attemptDaemonReplacement(input, input.beforePid, input.beforeLoadedIdentity, input.operationId);
+    const result = await attemptDaemonReplacement(input, input.beforePid, input.operationId);
     if (result.kind === "complete") {
       return withHandoffRecovery(result.status, input.upgradeRecovery, attempt, attempts);
     }
@@ -92,12 +96,16 @@ export async function completeDaemonReplacement(
 async function attemptDaemonReplacement(
   input: CompleteDaemonReplacementInput,
   beforePid: number,
-  beforeLoadedIdentity: string,
   operationId: string
 ): Promise<StartedReplacementResult> {
-  const handoff = await waitForDaemonControlHandoff(
-    input.lifecycle, beforePid, operationId, input.timeoutMs, input.expectedIdentity, input.expectedGeneration
-  );
+  let handoff: Awaited<ReturnType<typeof waitForDaemonControlHandoff>>;
+  try {
+    handoff = await waitForDaemonControlHandoff(
+      input.lifecycle, beforePid, operationId, input.handoffTimeoutMs, input.expectedIdentity, input.expectedGeneration
+    );
+  } catch (error) {
+    return await failOrRollback(input, error, beforePid, operationId, "handoff");
+  }
   if (handoff.kind === "adopt") {
     const lifecycle = normalizeDaemonLifecycleStatus(handoff.status);
     if (!lifecycle) throw new Error(`daemon ${input.kind} adopted replacement returned an invalid status`);
@@ -113,12 +121,12 @@ async function attemptDaemonReplacement(
   try {
     replacement = await input.lifecycle.startReplacement(
       input.lifecycle.target,
-      input.timeoutMs,
+      input.replacementTimeoutMs,
       input.launchConfiguration,
       input.expectedGeneration ? { includeGenerationAxes: true } : undefined
     );
   } catch (error) {
-    return await failOrRollback(input, error, beforePid, beforeLoadedIdentity, operationId, true);
+    return await failOrRollback(input, error, beforePid, operationId, "replacement-start");
   }
   try {
     const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
@@ -130,7 +138,7 @@ async function attemptDaemonReplacement(
     }
     return await waitForStartedReplacement(input, replacement, replacementLifecycle, beforePid, operationId);
   } catch (error) {
-    return await failOrRollback(input, error, beforePid, beforeLoadedIdentity, operationId, false);
+    return await failOrRollback(input, error, beforePid, operationId, "replacement-validation");
   }
 }
 
@@ -144,7 +152,7 @@ async function waitForStartedReplacement(
   let status = initialStatus;
   let replacement = initialLifecycle;
   const pollIntervalMs = 100;
-  const attempts = Math.ceil(input.timeoutMs / pollIntervalMs) + 1;
+  const attempts = Math.ceil(input.replacementTimeoutMs / pollIntervalMs) + 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (replacement.pid === beforePid) {
       throw new Error(`daemon ${input.kind} replacement PID did not change: ${String(replacement.pid)}; replacement was not signaled`);
@@ -202,7 +210,7 @@ async function stopWrongSnapshotOccupant(
     );
   }
   try {
-    await input.lifecycle.stopReplacement(input.lifecycle.target, occupant.pid, input.timeoutMs);
+    await input.lifecycle.stopReplacement(input.lifecycle.target, occupant.pid, input.replacementTimeoutMs);
   } catch (error) {
     const failure = daemonReplacementErrorMessage(error);
     const successor = await probeWrongSnapshotSuccessor(input, occupant, operationId);
@@ -257,37 +265,43 @@ async function rejectIncompleteReplacement(
     throw new Error(`daemon ${input.kind} replacement ${failure}; cleanup unavailable; replacement may still be serving`);
   }
   try {
-    await input.lifecycle.stopReplacement(input.lifecycle.target, replacement.pid, input.timeoutMs);
+    await input.lifecycle.stopReplacement(input.lifecycle.target, replacement.pid, input.replacementTimeoutMs);
   } catch (error) {
     throw new Error(
       `daemon ${input.kind} replacement ${failure}; cleanup failed and replacement may still be serving: ${daemonReplacementErrorMessage(error)}`
     );
   }
-  throw new Error(`daemon ${input.kind} replacement ${failure}; rejected replacement was stopped and endpoint remained unowned`);
+  throw new DaemonReplacementEndpointUnownedError(
+    `daemon ${input.kind} replacement ${failure}; rejected replacement was stopped and endpoint remained unowned`
+  );
 }
 
 async function failOrRollback(
   input: CompleteDaemonReplacementInput,
   error: unknown,
   beforePid: number,
-  beforeLoadedIdentity: string,
   operationId: string,
-  wrapReplacementStartFailure: boolean
+  phase: "handoff" | "replacement-start" | "replacement-validation"
 ): Promise<never> {
-  const failure = wrapReplacementStartFailure
+  const failure = phase === "replacement-start"
     ? new Error(
         `DAEMON_${input.kind.toUpperCase()}_REPLACEMENT_FAILED_AFTER_HANDOFF: ${daemonReplacementErrorMessage(error)}. `
         + `Restore the daemon with: ${daemonRecoveryCommand(input.rollbackLaunchConfiguration ?? input.launchConfiguration)}`
       )
     : error;
+  if (phase === "replacement-validation" && !(failure instanceof DaemonReplacementEndpointUnownedError)) {
+    throw failure;
+  }
   if (!input.rollbackLaunchConfiguration) throw failure;
   return await rollbackDaemonReplacement({
     lifecycle: input.lifecycle,
     replacementFailure: failure,
     beforePid,
-    beforeLoadedIdentity,
+    expectedIdentity: typeof input.rollbackExpectedIdentity === "string"
+      ? input.rollbackExpectedIdentity
+      : undefined,
     operationId,
-    timeoutMs: input.timeoutMs,
+    timeoutMs: input.replacementTimeoutMs,
     kind: input.kind,
     launchConfiguration: input.rollbackLaunchConfiguration,
     expectedGeneration: input.expectedGeneration

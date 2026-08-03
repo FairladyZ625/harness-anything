@@ -53,13 +53,13 @@ export function createDaemonBuildIdentityWitness(
       } catch (error) {
         return block(new DaemonBuildIdentityError(
           "DAEMON_BUILD_IDENTITY_UNAVAILABLE",
-          `DAEMON_BUILD_IDENTITY_UNAVAILABLE: Daemon cannot verify that its running code matches the current dist build (${error instanceof Error ? error.message : String(error)}); mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+          `DAEMON_BUILD_IDENTITY_UNAVAILABLE: Daemon cannot verify that its running code matches the current dist build (${error instanceof Error ? error.message : String(error)}); mixed-version writes are disabled. Run \`ha daemon restart\`.`
         ));
       }
       if (identity.loadedIdentity !== identity.installedIdentity) {
         return block(new DaemonBuildIdentityError(
           "DAEMON_BUILD_STALE",
-          `DAEMON_BUILD_STALE: Daemon code version ${identity.loadedIdentity} does not match current dist version ${identity.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+          `DAEMON_BUILD_STALE: Daemon code version ${identity.loadedIdentity} does not match current dist version ${identity.installedIdentity}; mixed-version writes are disabled. Run \`ha daemon restart\`.`
         ));
       }
       blocked = false;

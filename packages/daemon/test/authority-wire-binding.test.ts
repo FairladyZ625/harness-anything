@@ -22,14 +22,14 @@ test("authority-wire ingress rejects artifact drift before binding a mixed-versi
     },
     assertBuildCurrent: () => {
       throw new Error(
-        `DAEMON_BUILD_STALE: Daemon code version sha256:${"a".repeat(64)} does not match current dist version sha256:${"b".repeat(64)}; mixed-version writes are disabled. Run \`ha daemon start --service\`.`
+        `DAEMON_BUILD_STALE: Daemon code version sha256:${"a".repeat(64)} does not match current dist version sha256:${"b".repeat(64)}; mixed-version writes are disabled. Run \`ha daemon restart\`.`
       );
     }
   });
 
   await assert.rejects(
     handler({} as never),
-    /DAEMON_BUILD_STALE:[\s\S]*sha256:a{64}[\s\S]*sha256:b{64}[\s\S]*ha daemon start --service/u
+    /DAEMON_BUILD_STALE:[\s\S]*sha256:a{64}[\s\S]*sha256:b{64}[\s\S]*ha daemon restart/u
   );
   assert.equal(repoBindingReads, 0);
 });
