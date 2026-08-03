@@ -28,6 +28,7 @@ export {
   daemonServerHostEnvironment,
   daemonUserRoot,
   daemonUserRootForRepo,
+  DaemonAutostartTimeoutError,
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,

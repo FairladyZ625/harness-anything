@@ -51,6 +51,22 @@ export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
+export class DaemonAutostartTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly spawnedPid?: number;
+
+  constructor(timeoutMs: number, lastError: unknown, spawnedPid?: number) {
+    const cause = lastError instanceof Error ? lastError.message : String(lastError ?? "no ready probe completed");
+    super(
+      `DAEMON_AUTOSTART_TIMEOUT: readiness was not confirmed within the normal ${timeoutMs}ms startup budget; `
+      + `the launched process${spawnedPid === undefined ? "" : ` pid ${spawnedPid}`} may still be starting. Last probe: ${cause}`
+    );
+    this.name = "DaemonAutostartTimeoutError";
+    this.timeoutMs = timeoutMs;
+    this.spawnedPid = spawnedPid;
+  }
+}
+
 export {
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
@@ -104,12 +120,13 @@ export interface LocalDaemonJsonRpcOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-type SpawnLocalDaemon = (target: LocalDaemonTarget, options: LocalDaemonAutostartOptions) => void;
+type SpawnLocalDaemon = (target: LocalDaemonTarget, options: LocalDaemonAutostartOptions) => number | void;
 
 interface DaemonStartupFlight {
   readonly startedAt: number;
   deadline: number;
   lastError: unknown;
+  spawnedPid?: number;
   promise: Promise<void>;
 }
 
@@ -283,8 +300,9 @@ export async function requestLocalDaemonJsonRpcForTarget(
   return requestLocalDaemonJsonRpcWithAutostart(target, method, params, timeoutMs, autostart);
 }
 
-export function spawnLocalDaemon(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): void {
-  spawnLocalDaemonImplementation(target, options);
+export function spawnLocalDaemon(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): number | undefined {
+  const pid = spawnLocalDaemonImplementation(target, options);
+  return typeof pid === "number" ? pid : undefined;
 }
 
 export function daemonServerHostEnvironment(
@@ -310,7 +328,7 @@ export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): (
   };
 }
 
-function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): void {
+function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): number | undefined {
   const launchConfiguration = options.launchConfiguration ?? createDaemonLaunchConfiguration({
     target,
     entrypoint: options.entryPath,
@@ -330,6 +348,7 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
     env: daemonServerHostEnvironment(options.env ?? process.env, target)
   });
   child.unref();
+  return child.pid;
 }
 
 async function requestLocalDaemonJsonRpcWithAutostart(
@@ -410,7 +429,7 @@ async function spawnAndWaitForLocalDaemon(
   flight: DaemonStartupFlight
 ): Promise<void> {
   autostart.onPhase?.("launch-start");
-  spawnLocalDaemon(target, autostart);
+  flight.spawnedPid = spawnLocalDaemon(target, autostart);
   while (Date.now() <= flight.deadline) {
     try {
       await probeLocalDaemonReady(
@@ -426,7 +445,7 @@ async function spawnAndWaitForLocalDaemon(
       if (retryDelayMs > 0) await delay(retryDelayMs);
     }
   }
-  throw daemonAutostartTimeoutError(flight.deadline - flight.startedAt, flight.lastError);
+  throw daemonAutostartTimeoutError(flight.deadline - flight.startedAt, flight.lastError, flight.spawnedPid);
 }
 
 async function waitForDaemonStartupFlight(
@@ -438,12 +457,12 @@ async function waitForDaemonStartupFlight(
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) {
     if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-    throw daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError);
+    throw daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError, flight.spawnedPid);
   }
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-      reject(daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError));
+      reject(daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError, flight.spawnedPid));
     }, remainingMs);
     flight.promise.then(
       () => {
@@ -572,7 +591,6 @@ function readyProbeResponseTimeout(deadline: number): number {
   );
 }
 
-function daemonAutostartTimeoutError(timeoutMs: number, lastError: unknown): Error {
-  const cause = lastError instanceof Error ? lastError.message : String(lastError ?? "no ready probe completed");
-  return new Error(`DAEMON_AUTOSTART_TIMEOUT: autostart exhausted its ${timeoutMs}ms total budget. Last probe: ${cause}`);
+function daemonAutostartTimeoutError(timeoutMs: number, lastError: unknown, spawnedPid?: number): Error {
+  return new DaemonAutostartTimeoutError(timeoutMs, lastError, spawnedPid);
 }

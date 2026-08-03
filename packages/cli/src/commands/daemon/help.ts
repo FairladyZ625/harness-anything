@@ -84,6 +84,8 @@ export function renderDaemonHelp(): string {
     "    --timeout-ms <ms>          Set the aggregate queue drain timeout (100-120000).",
     "    --replacement-timeout-ms <ms>",
     "                               Set replacement startup timeout (default: daemon autostart timeout).",
+    "    --replacement-settle-timeout-ms <ms>",
+    "                               Keep observing a live starting replacement after the normal startup timeout (default: 35000).",
     "    --reason <text>            Record the operator or automation reason.",
     "  upgrade [options]            Install a snapshot, drain, switch, start, and verify authority convergence.",
     "  snapshot install [options]   Install an immutable daemon artifact snapshot without switching.",

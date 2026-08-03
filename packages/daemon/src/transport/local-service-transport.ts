@@ -26,6 +26,11 @@ interface DaemonSocketOwnerRecord {
   readonly ownerToken: string;
 }
 
+export interface DaemonSocketOwnerSnapshot {
+  readonly pid: number;
+  readonly alive: boolean;
+}
+
 export interface DaemonSocketOwnership {
   readonly release: () => void;
 }
@@ -97,6 +102,14 @@ function daemonSocketOwnerLockPath(endpoint: string, platform: NodeJS.Platform):
   if (platform !== "win32") return `${endpoint}.owner`;
   const endpointDigest = createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
   return path.join(os.tmpdir(), `harness-anything-daemon-${endpointDigest}.owner`);
+}
+
+export function readDaemonSocketOwner(
+  endpoint: string,
+  platform: NodeJS.Platform = process.platform
+): DaemonSocketOwnerSnapshot | undefined {
+  const owner = readOwnerLock(daemonSocketOwnerLockPath(endpoint, platform));
+  return owner ? { pid: owner.pid, alive: processIsAlive(owner.pid) } : undefined;
 }
 
 export async function withDaemonSocketOwnership<Result>(

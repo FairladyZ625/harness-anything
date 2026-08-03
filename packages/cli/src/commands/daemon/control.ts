@@ -1,7 +1,9 @@
 import {
   calculateDaemonArtifactIdentity,
+  DaemonAutostartTimeoutError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonJsonRpcRequestTimeoutMs,
+  readDaemonSocketOwner,
   requestLocalDaemonJsonRpcForTarget,
   type JsonObject,
   type LocalDaemonTarget
@@ -67,6 +69,7 @@ export async function runDaemonControl(
   if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
   const replacementTimeoutMs = daemonReplacementTimeoutMs(input.args);
+  const replacementSettlingTimeoutMs = daemonReplacementSettlingTimeoutMs(input.args);
   const trigger = kind === "restart" ? undefined : daemonRefreshTrigger(input.args);
   const method: DaemonControlRequest["method"] = kind === "restart"
     ? "admin.daemon.restart"
@@ -132,6 +135,7 @@ export async function runDaemonControl(
     operationId: receipt.operationId,
     handoffTimeoutMs: drainTimeoutMs,
     replacementTimeoutMs,
+    replacementSettlingTimeoutMs,
     kind,
     method,
     launchConfiguration,
@@ -213,7 +217,11 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
     target,
     probeGenerationStatus: (candidate) => probeExactDaemonStatus(candidate, { includeGenerationAxes: true }),
     probeStatus: probeExactDaemonStatus,
+    probeEndpointOwner: (candidate) => readDaemonSocketOwner(candidate.socketPath, input.platform ?? process.platform),
     ownerIsAlive: daemonProcessIsAlive,
+    isReadinessTimeout: (error) => error instanceof DaemonAutostartTimeoutError,
+    readinessTimeoutPid: (error) => error instanceof DaemonAutostartTimeoutError ? error.spawnedPid : undefined,
+    reportProgress: (message) => console.error(`[ha] ${message}`),
     prepareReplacement: async (candidate) => {
       let receipt: Record<string, unknown>;
       try {
@@ -263,7 +271,8 @@ function daemonLaunchSpecUpgradeError(target: LocalDaemonTarget): Error {
 
 async function probeExactDaemonStatus(
   target: LocalDaemonTarget,
-  capability?: { readonly includeGenerationAxes: true }
+  capability?: { readonly includeGenerationAxes: true },
+  requestTimeoutMs = defaultDaemonJsonRpcRequestTimeoutMs
 ): Promise<Record<string, unknown> | undefined> {
   try {
     const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
@@ -273,7 +282,8 @@ async function probeExactDaemonStatus(
       userRoot: target.userRoot,
       daemonId: target.daemonId,
       socketPath: target.socketPath,
-      allowLegacySocket: false
+      allowLegacySocket: false,
+      requestTimeoutMs
     });
     return statusFromReceipt(receipt) ?? { rpcError: receipt };
   } catch {
@@ -327,8 +337,9 @@ function daemonControlRecoveryGuidance(
 
 function defaultDaemonReplacementStopRuntime(): DaemonReplacementStopRuntime {
   return {
-    probeStatus: probeExactDaemonStatus,
+    probeStatus: (target) => probeExactDaemonStatus(target, undefined, 500),
     statusPid: (status) => normalizeDaemonLifecycleStatus(status)?.pid,
+    endpointOwnerPid: (target) => readDaemonSocketOwner(target.socketPath)?.pid,
     processIsAlive: daemonProcessIsAlive,
     signal: (pid, signal) => process.kill(pid, signal),
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -372,9 +383,17 @@ function daemonReplacementTimeoutMs(args: ReadonlyArray<string>): number {
   return daemonTimeoutOption(args, "--replacement-timeout-ms", fallback);
 }
 
+function daemonReplacementSettlingTimeoutMs(args: ReadonlyArray<string>): number {
+  return daemonTimeoutOption(
+    args,
+    "--replacement-settle-timeout-ms",
+    defaultDaemonJsonRpcRequestTimeoutMs
+  );
+}
+
 function daemonTimeoutOption(
   args: ReadonlyArray<string>,
-  option: "--timeout-ms" | "--replacement-timeout-ms",
+  option: "--timeout-ms" | "--replacement-timeout-ms" | "--replacement-settle-timeout-ms",
   fallback: number
 ): number {
   const raw = readOption(args, option) ?? String(fallback);

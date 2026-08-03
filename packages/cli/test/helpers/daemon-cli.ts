@@ -45,7 +45,7 @@ export function runRawJsonMaybeFail(
   rootDir: string,
   args: ReadonlyArray<string>,
   env: Readonly<Record<string, string>> = {}
-): { readonly status: number | null; readonly receipt: Record<string, unknown> } {
+): { readonly status: number | null; readonly receipt: Record<string, unknown>; readonly stderr: string } {
   const result = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
     env: daemonTestEnv(rootDir, env)
@@ -53,7 +53,8 @@ export function runRawJsonMaybeFail(
   assert.equal(stderrWithoutDeprecationWarnings(result.stderr), "");
   return {
     status: result.status,
-    receipt: JSON.parse(result.stdout) as Record<string, unknown>
+    receipt: JSON.parse(result.stdout) as Record<string, unknown>,
+    stderr: result.stderr
   };
 }
 

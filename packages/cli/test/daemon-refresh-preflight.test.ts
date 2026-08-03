@@ -228,6 +228,81 @@ test("restart replacement launch failure restores a reachable daemon", { timeout
   }
 });
 
+test("restart waits for a live endpoint owner that becomes ready after the normal startup budget", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async (t) => {
+  if (process.platform === "win32") return t.skip("controlled SIGSTOP/SIGCONT startup delay requires POSIX signals");
+  const fixture = createFixture();
+  const userRoot = defaultDaemonUserRoot(fixture.root);
+  const delayMarker = path.join(fixture.root, "slow-owned-replacement.marker");
+  const delayEvidence = path.join(fixture.root, "slow-owned-replacement.json");
+  const preloadPath = path.resolve("packages/cli/test/fixtures/daemon-slow-owned-replacement-preload.mjs");
+  const replacementTimeoutMs = 4_000;
+  const ownedDelayMs = 4_500;
+  const env = {
+    HARNESS_DAEMON_MODE: "local",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_IDLE_MS: "60000",
+    HARNESS_DAEMON_REQUEST_TIMEOUT_MS: String(DAEMON_REFRESH_REQUEST_TIMEOUT_MS),
+    HARNESS_TEST_DAEMON_SLOW_REPLACEMENT_MARKER: delayMarker,
+    HARNESS_TEST_DAEMON_SLOW_REPLACEMENT_EVIDENCE: delayEvidence,
+    HARNESS_TEST_DAEMON_SLOW_REPLACEMENT_MS: String(ownedDelayMs),
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preloadPath).href}`.trim()
+  };
+  let delayedPid: number | undefined;
+  try {
+    runDaemonCommand(fixture.repoRoot, [
+      "daemon", "repo", "register", "--repo-id", "canonical",
+      "--canonical-root", fixture.repoRoot, "--user-root", userRoot, "--no-link", "--json"
+    ], env);
+    const started = runDaemonCommand(fixture.repoRoot, [
+      "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
+    ], env);
+    const beforePid = started.pid as number;
+    assert.equal(typeof beforePid, "number", JSON.stringify(started));
+
+    writeFileSync(delayMarker, "pause replacement after endpoint ownership\n", "utf8");
+    const restartStartedAt = performance.now();
+    const restart = runRawJsonMaybeFail(fixture.repoRoot, [
+      "daemon", "restart", "--timeout-ms", "3000",
+      "--replacement-timeout-ms", String(replacementTimeoutMs),
+      "--user-root", userRoot
+    ], env);
+    const restartElapsedMs = performance.now() - restartStartedAt;
+    const evidence = JSON.parse(readFileSync(delayEvidence, "utf8")) as {
+      readonly pid: number;
+      readonly ownerPath: string;
+      readonly pausedAt: string;
+      readonly delayMs: number;
+    };
+    delayedPid = evidence.pid;
+
+    assert.equal(restart.status, 0, JSON.stringify({ restart, evidence, restartElapsedMs }));
+    assert.equal(restart.receipt.ok, true, JSON.stringify(restart.receipt));
+    assert.match(restart.stderr, /replacement readiness deadline elapsed.*still starting/iu);
+    assert.ok(restartElapsedMs > replacementTimeoutMs, JSON.stringify({ restartElapsedMs, replacementTimeoutMs }));
+    const replacement = restart.receipt.replacement as Record<string, unknown>;
+    assert.equal(replacement.pid, delayedPid, JSON.stringify(restart.receipt));
+
+    const after = runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env);
+    assert.equal(after.reachable, true, JSON.stringify(after));
+    assert.equal(after.pid, delayedPid, JSON.stringify({ restart: restart.receipt, after }));
+    assert.notEqual(after.pid, beforePid);
+    console.log(JSON.stringify({
+      scenario: "slow-owned-replacement",
+      replacementTimeoutMs,
+      ownedDelayMs,
+      restartElapsedMs,
+      beforePid,
+      replacementPid: delayedPid,
+      reachable: after.reachable
+    }));
+  } finally {
+    rmSync(delayMarker, { force: true });
+    if (delayedPid !== undefined && processIsAlive(delayedPid)) process.kill(delayedPid, "SIGCONT");
+    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("refresh explicitly exits the old owner after safe shutdown even with an active resource", { timeout: DAEMON_REFRESH_TEST_TIMEOUT_MS }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
