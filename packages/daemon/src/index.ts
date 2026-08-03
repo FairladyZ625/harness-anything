@@ -9,6 +9,7 @@ export * from "./authority/production/service-state.ts";
 export * from "./authority/production/authority-attribution-event-v2-production-recovery.ts";
 export * from "./authority/production/authority-manifest-registry.ts";
 export * from "./authority/production/authority-production-state.ts";
+export * from "./authority/production/authority-repo-enrollment.ts";
 export * from "./authority/production/production-authority-attempt-compiler.ts";
 export * from "./authority/production/production-authority-lifecycle-intents.ts";
 export * from "./authority/production/production-authority-lifecycle.ts";

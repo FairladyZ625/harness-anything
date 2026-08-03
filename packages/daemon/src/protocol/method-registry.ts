@@ -328,7 +328,9 @@ const adminCliActionKinds = new Set<string>([
   "authority-cutover-freeze",
   "authority-cutover-re-enable",
   "authority-cutover-scan",
-  "authority-cutover-status"
+  "authority-cutover-status",
+  "authority-repo-enroll",
+  "authority-repo-resign"
 ]);
 
 export const repoCommandRunClassifiedActionKinds = [

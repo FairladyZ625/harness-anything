@@ -14,6 +14,10 @@ export function receiptCommandKind(action: ParsedCommand["action"]): string {
       return `snapshot-${action.provider}`;
     case "external-list":
       return `list-${action.provider}`;
+    case "authority-repo-enroll":
+      return "authority repo enroll";
+    case "authority-repo-resign":
+      return "authority repo resign";
     case "preset-entrypoint":
       return `preset-${action.entrypointType}`;
     default:

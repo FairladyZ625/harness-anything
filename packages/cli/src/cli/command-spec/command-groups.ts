@@ -21,6 +21,8 @@ export const commandGroups = [
     "ha audit provenance --task <task-id> --json"
   ]),
   group("authority", "Manage authority cutover controls.", [
+    "ha authority repo enroll --repo-id <id> --repo-root <path> --manifest <path> --service-state-root <path> --json",
+    "ha authority repo resign --repo-id <id> --manifest <path> --json",
     "ha authority cutover status --json",
     "ha authority cutover drain --json",
     "ha authority cutover scan --json",
