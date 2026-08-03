@@ -37,10 +37,9 @@ import {
 import { serveAuthorityForcedCommand } from "../forced-command-session.ts";
 import { createAuthorityReadDownService } from "../read-down-service.ts";
 import {
-  createAuthorityReplicationContentStore,
-  createContentEnrichedReplicaChangeLog,
   type AuthorityReplicationContentStore
 } from "../replication-content-store.ts";
+import { createPrewarmedAuthorityReplication } from "../replication-content-prewarm.ts";
 import { gateCutoverAdmission } from "./cutover-admission.ts";
 import {
   assertPublicationMatchesMutationSet,
@@ -86,7 +85,7 @@ interface RepoProductionMaterial {
   readonly authoredRoot: string;
   readonly configurationDigest: string;
   readonly serviceStateRoot: string;
-  readonly replicationState: Parameters<typeof createAuthorityReplicationContentStore>[0]["state"];
+  readonly replicationState: Parameters<typeof createPrewarmedAuthorityReplication>[0]["state"];
   readonly replicationContent: AuthorityReplicationContentStore;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly recovery: ProductionRecoveryState;
@@ -155,16 +154,15 @@ export function createProductionAuthorityLifecycle(input: {
         rootDir: repo.canonicalRoot,
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       }).authoredRoot;
-      const replicationContent = createAuthorityReplicationContentStore({
+      const replication = await createPrewarmedAuthorityReplication({
         gitRoot: authoredRoot,
         state: state.replicationState,
         workspaceId: config.workspaceId,
-        epoch: String(config.authorityGeneration)
+        epoch: String(config.authorityGeneration),
+        changeLog: state.replicaChangeLog
       });
-      const replicaChangeLog = createContentEnrichedReplicaChangeLog(
-        state.replicaChangeLog,
-        replicationContent
-      );
+      const replicationContent = replication.content;
+      const replicaChangeLog = replication.changeLog;
       const publicationInspector = createGitCanonicalPublicationInspector(authoredRoot);
       const recoveryGenerationFence = createRuntimeDaemonGenerationWitnessFence({
         runtime,

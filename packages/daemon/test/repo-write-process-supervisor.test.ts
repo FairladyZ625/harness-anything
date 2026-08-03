@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -22,6 +23,10 @@ import {
 } from "../src/protocol/daemon-artifact-identity.ts";
 import type { RepoWriteRequestTimeoutDiagnostic } from "../src/runtime/repo-write-client-contract.ts";
 import { formatRepoWriteTimeoutDiagnostic } from "../src/runtime/repo-write-stall-diagnostic.ts";
+import {
+  createDaemonRequestPerformanceTrace,
+  runWithDaemonRequestPerformanceTrace
+} from "../src/observability/request-performance.ts";
 
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
@@ -194,11 +199,18 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
     rmSync(root, { recursive: true, force: true });
   });
 
-  await assert.rejects(
-    supervisor.direct(command("", "task-claim")),
-    (error) => error instanceof RepoWriteDirectOutcomeUnknownError
-  );
+  const trace = createDaemonRequestPerformanceTrace({
+    method: "repo.command.run",
+    requestId: "direct-timeout-recovery",
+    receivedAtMs: performance.now()
+  });
+  await runWithDaemonRequestPerformanceTrace(trace, () => assert.rejects(
+      supervisor.direct(command("", "task-claim")),
+      (error) => error instanceof RepoWriteDirectOutcomeUnknownError
+    ));
+  const performanceSummary = trace.finish("response-written");
   assert.equal(forks, 2);
+  assert.ok((performanceSummary.phasesMs["repo-write-recovery"] ?? 0) > 0);
   assert.ok(timeoutDiagnostic);
   assert.match(
     formatRepoWriteTimeoutDiagnostic(timeoutDiagnostic),

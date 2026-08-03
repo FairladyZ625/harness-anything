@@ -13,6 +13,7 @@ import type {
 import type {
   RepoWriteParentProcessTransport
 } from "./repo-write-child-process-transport.ts";
+import { measureCurrentDaemonRequestPerformancePhase } from "../observability/request-performance.ts";
 
 export interface RepoWriteProcessSupervisorOptions {
   readonly repoId: string;
@@ -60,7 +61,7 @@ export class RepoWriteProcessSupervisor {
       }
       if (error instanceof RepoWriteNotStartedError
         && error.code === "REPO_WRITE_REQUEST_TIMEOUT") {
-        await this.replace(writer);
+        await this.replaceForRecovery(writer);
         throw error;
       }
       if (!(error instanceof RepoWriteNotStartedError)
@@ -68,7 +69,7 @@ export class RepoWriteProcessSupervisor {
         || this.writerConnected(writer)) {
         throw error;
       }
-      writer = await this.replace(writer);
+      writer = await this.replaceForRecovery(writer);
       try {
         return decodeReceipt(await writer.client.submit(command));
       } catch (retryError) {
@@ -92,7 +93,7 @@ export class RepoWriteProcessSupervisor {
     } catch (error) {
       if (error instanceof RepoWriteDirectOutcomeUnknownError
         || !this.writerConnected(writer)) {
-        await this.replace(writer).catch(() => undefined);
+        await this.replaceForRecovery(writer).catch(() => undefined);
       }
       throw error;
     }
@@ -106,10 +107,10 @@ export class RepoWriteProcessSupervisor {
       if (error instanceof Error
         && "code" in error
         && error.code === "REPO_WRITE_LOOKUP_TIMEOUT") {
-        return (await this.replace(writer)).client.lookup(opId);
+        return (await this.replaceForRecovery(writer)).client.lookup(opId);
       }
       if (this.writerConnected(writer)) throw error;
-      return (await this.replace(writer)).client.lookup(opId);
+      return (await this.replaceForRecovery(writer)).client.lookup(opId);
     }
   }
 
@@ -174,7 +175,7 @@ export class RepoWriteProcessSupervisor {
   ): Promise<CommandReceiptEnvelope> {
     if (error.code === "REPO_WRITE_STALL_TIMEOUT") {
       try {
-        await this.replace(writer);
+        await this.replaceForRecovery(writer);
       } catch (replacementError) {
         throw new RepoWriteOutcomeUnknownError(
           "REPO_WRITE_LOOKUP_FAILED",
@@ -205,6 +206,13 @@ export class RepoWriteProcessSupervisor {
       this.active = undefined;
     }
     return this.spawn();
+  }
+
+  private replaceForRecovery(expected: ActiveWriter): Promise<ActiveWriter> {
+    return measureCurrentDaemonRequestPerformancePhase(
+      "repo-write-recovery",
+      () => this.replace(expected)
+    );
   }
 
   private spawn(): Promise<ActiveWriter> {

@@ -4,6 +4,10 @@ import type {
   RepoWriteOperationLookupResult,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
+import {
+  beginRepoWriteParentPerformanceTiming,
+  type RepoWriteParentPerformanceTiming
+} from "./repo-write-parent-performance.ts";
 
 export interface PendingSubmit {
   readonly requestId: string;
@@ -14,6 +18,7 @@ export interface PendingSubmit {
   phase: "queued" | "submitted" | "prepared" | "proceeded";
   opId?: string;
   lastTelemetry?: RepoWriteTelemetryFrame;
+  readonly performanceTiming?: RepoWriteParentPerformanceTiming;
 }
 
 export interface PendingLookup {
@@ -24,6 +29,7 @@ export interface PendingLookup {
   readonly timer: NodeJS.Timeout;
   phase: "queued" | "sent";
   lastTelemetry?: RepoWriteTelemetryFrame;
+  readonly performanceTiming?: RepoWriteParentPerformanceTiming;
 }
 
 export interface PendingShutdown {
@@ -40,4 +46,27 @@ export interface PendingReady {
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
+}
+
+export function createPendingRepoWriteSubmit(input: Pick<
+  PendingSubmit,
+  "requestId" | "command" | "resolve" | "reject"
+>): PendingSubmit {
+  return {
+    ...input,
+    timer: undefined,
+    phase: "queued",
+    performanceTiming: beginRepoWriteParentPerformanceTiming()
+  };
+}
+
+export function createPendingRepoWriteLookup(input: Pick<
+  PendingLookup,
+  "requestId" | "opId" | "resolve" | "reject" | "timer"
+>): PendingLookup {
+  return {
+    ...input,
+    phase: "queued",
+    performanceTiming: beginRepoWriteParentPerformanceTiming()
+  };
 }

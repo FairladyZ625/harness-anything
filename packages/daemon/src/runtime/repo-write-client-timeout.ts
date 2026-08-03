@@ -15,6 +15,7 @@ import type {
   RepoWriteFailureFrame,
   RepoWriteTelemetryFrame
 } from "./repo-write-protocol.ts";
+import { finishRepoWriteParentPerformanceTiming } from "./repo-write-parent-performance.ts";
 
 type TimeoutObserver = (
   diagnostic: RepoWriteRequestTimeoutDiagnostic
@@ -60,6 +61,7 @@ export function escalateRepoWriteSubmitStall(
   timeoutMs: number,
   observer: TimeoutObserver | undefined
 ): void {
+  finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
   const diagnostic =
     `Repo writer proceeded operation exceeded its bounded ${timeoutMs}ms stall deadline.`
     + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
@@ -84,6 +86,7 @@ export function expireRepoWriteLookup(
   timeoutMs: number,
   observer: TimeoutObserver | undefined
 ): void {
+  finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
   observeRepoWriteRequestTimeout(observer, {
     requestId: pending.requestId,
     commandName: "repo-write.lookup",
@@ -105,6 +108,7 @@ export function failRepoWriteLookup(
   message: RepoWriteFailureFrame,
   observer: FailureObserver | undefined
 ): void {
+  finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
   observeRepoWriteRequestFailure(observer, {
     requestId: message.requestId,
     commandName: "repo-write.lookup",
@@ -126,6 +130,7 @@ export function failRepoWriteSubmit(
   message: RepoWriteFailureFrame,
   observer: FailureObserver | undefined
 ): void {
+  finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
   observeRepoWriteRequestFailure(observer, {
     requestId: message.requestId,
     commandName: pending.command.commandName,

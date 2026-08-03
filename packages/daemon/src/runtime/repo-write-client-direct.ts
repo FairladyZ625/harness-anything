@@ -24,6 +24,12 @@ import {
   RepoWriteNotStartedError,
   RepoWriteSendDeliveryError
 } from "./repo-write-client-errors.ts";
+import {
+  beginRepoWriteParentPerformanceTiming,
+  finishRepoWriteParentPerformanceTiming,
+  markRepoWriteChildStarted,
+  type RepoWriteParentPerformanceTiming
+} from "./repo-write-parent-performance.ts";
 
 interface PendingDirect {
   readonly requestId: string;
@@ -33,6 +39,7 @@ interface PendingDirect {
   readonly timer: NodeJS.Timeout;
   phase: "queued" | "sent";
   lastTelemetry?: RepoWriteTelemetryFrame;
+  readonly performanceTiming?: RepoWriteParentPerformanceTiming;
 }
 
 export interface RepoWriteDirectClientLaneOptions {
@@ -76,7 +83,8 @@ export class RepoWriteDirectClientLane {
         resolve,
         reject,
         timer,
-        phase: "queued"
+        phase: "queued",
+        performanceTiming: beginRepoWriteParentPerformanceTiming()
       });
     });
     if (ready) this.dispatch(requestId);
@@ -100,6 +108,7 @@ export class RepoWriteDirectClientLane {
     }
     clearTimeout(pending.timer);
     this.pending.delete(message.requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     pending.resolve(message.receipt);
   }
 
@@ -111,6 +120,7 @@ export class RepoWriteDirectClientLane {
     }
     clearTimeout(pending.timer);
     this.pending.delete(message.requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     observeRepoWriteRequestFailure(this.options.onRequestFailure, {
       requestId: message.requestId,
       commandName: pending.command.commandName,
@@ -132,6 +142,7 @@ export class RepoWriteDirectClientLane {
     }
     clearTimeout(pending.timer);
     this.pending.delete(message.requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     observeRepoWriteRequestFailure(this.options.onRequestFailure, {
       requestId: message.requestId,
       commandName: pending.command.commandName,
@@ -148,6 +159,7 @@ export class RepoWriteDirectClientLane {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.reject(pending.phase === "sent"
         ? new RepoWriteDirectOutcomeUnknownError(
             "CAPSULE_DISCONNECTED",
@@ -164,6 +176,7 @@ export class RepoWriteDirectClientLane {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.reject(pending.phase === "sent"
         ? new RepoWriteDirectOutcomeUnknownError(error.code, error.message)
         : new RepoWriteNotStartedError(error.code, error.message));
@@ -175,6 +188,7 @@ export class RepoWriteDirectClientLane {
       if (pending.phase !== "queued") continue;
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.reject(new RepoWriteNotStartedError(error.code, error.message));
     }
   }
@@ -186,7 +200,10 @@ export class RepoWriteDirectClientLane {
 
   recordTelemetry(message: RepoWriteTelemetryFrame): void {
     const pending = this.pending.get(message.requestId);
-    if (pending?.phase === "sent") pending.lastTelemetry = message;
+    if (pending?.phase === "sent") {
+      markRepoWriteChildStarted(pending.performanceTiming);
+      pending.lastTelemetry = message;
+    }
   }
 
   private dispatch(requestId: string): void {
@@ -214,6 +231,7 @@ export class RepoWriteDirectClientLane {
     const pending = this.pending.get(requestId);
     if (!pending) return;
     this.pending.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     const diagnostic =
       `Repo writer direct request exceeded its ${this.options.requestTimeoutMs}ms deadline.`
       + repoWriteTelemetryTimeoutSuffix(pending.lastTelemetry);
@@ -235,6 +253,7 @@ export class RepoWriteDirectClientLane {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     if (error instanceof RepoWriteIpcPayloadTooLargeError) {
       pending.reject(error);
       return;

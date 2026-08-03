@@ -123,9 +123,12 @@ export function createDaemonCommandService<
                   executor: context?.executor ?? null
                 }
               });
-            return await (hostServices.repoWriteChildExecutionMode(parsedCommand) === "durable"
-              ? options.repoWriteDispatch.submit(childCommand)
-              : options.repoWriteDispatch.direct(childCommand));
+            return await measureCurrentDaemonRequestPerformancePhase(
+              "command-execute",
+              () => hostServices.repoWriteChildExecutionMode(parsedCommand) === "durable"
+                ? options.repoWriteDispatch!.submit(childCommand)
+                : options.repoWriteDispatch!.direct(childCommand)
+            );
           } catch (error) {
             const outerOpId = error instanceof RepoWriteOutcomeUnknownError
               ? error.opId

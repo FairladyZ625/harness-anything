@@ -10,6 +10,7 @@ import type {
 } from "./repo-write-client-pending.ts";
 import { expireRepoWriteSubmit } from "./repo-write-client-timeout.ts";
 import { armRepoWriteSubmitEscalation } from "./repo-write-client-watchdog.ts";
+import { finishRepoWriteParentPerformanceTiming } from "./repo-write-parent-performance.ts";
 
 export function rejectRepoWriteQueuedRequests(
   submits: Map<string, PendingSubmit>,
@@ -21,6 +22,7 @@ export function rejectRepoWriteQueuedRequests(
     if (pending.phase !== "queued") continue;
     clearTimeout(pending.timer);
     submits.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     pending.reject(error);
   }
   direct.rejectQueued(error);
@@ -28,6 +30,7 @@ export function rejectRepoWriteQueuedRequests(
     if (pending.phase !== "queued") continue;
     clearTimeout(pending.timer);
     lookups.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     pending.reject(new RepoWriteLookupError(error.code, error.message, pending.opId));
   }
 }
@@ -47,12 +50,16 @@ export function expireRepoWritePendingSubmit(
   if (outcome === "queued") {
     clearTimeout(pending.timer);
     pendingRequests.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     pending.reject(new RepoWriteProtocolViolationError(
       "Repo writer request deadline fired before dispatch."
     ));
     return;
   }
-  if (outcome === "expired") pendingRequests.delete(requestId);
+  if (outcome === "expired") {
+    pendingRequests.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
+  }
   if (outcome === "observed") {
     armRepoWriteSubmitEscalation({
       pending,

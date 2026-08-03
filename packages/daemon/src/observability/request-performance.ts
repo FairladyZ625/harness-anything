@@ -11,6 +11,9 @@ export const daemonRequestPerformancePhases = [
   "command-parse",
   "command-normalize",
   "command-execute",
+  "repo-write-dispatch",
+  "repo-write-child",
+  "repo-write-recovery",
   "queue-wait",
   "durable-flush",
   "authority",
@@ -72,6 +75,7 @@ export function createDaemonRequestPerformanceTrace(
   const phaseOrder: DaemonRequestPerformancePhase[] = [];
   const phases = new Map<DaemonRequestPerformancePhase, number>();
   const phaseDepths = new Map<DaemonRequestPerformancePhase, number>();
+  const phaseStartedAt = new Map<DaemonRequestPerformancePhase, number>();
   const receivedAtMs = finiteNonNegative(options.receivedAtMs);
   let sink: DaemonRequestPerformanceTerminalSink | undefined;
   let terminal: DaemonRequestPerformanceSummary | undefined;
@@ -90,16 +94,21 @@ export function createDaemonRequestPerformanceTrace(
 
   return {
     begin: (phase) => {
+      if (terminal) return () => undefined;
       enterPhase(phase);
       const depth = phaseDepths.get(phase) ?? 0;
       phaseDepths.set(phase, depth + 1);
       const startedAt = now();
+      if (depth === 0) phaseStartedAt.set(phase, startedAt);
       let ended = false;
       return () => {
         if (ended) return;
         ended = true;
         phaseDepths.set(phase, Math.max(0, (phaseDepths.get(phase) ?? 1) - 1));
-        if (depth === 0) record(phase, now() - startedAt);
+        if (depth === 0) {
+          phaseStartedAt.delete(phase);
+          record(phase, now() - startedAt);
+        }
       };
     },
     record,
@@ -108,10 +117,16 @@ export function createDaemonRequestPerformanceTrace(
     },
     finish: (outcome, eventLoopActiveMs = 0, eventLoopUtilization = 0) => {
       if (terminal) return terminal;
+      const finishedAt = now();
       const phasesMs = Object.fromEntries(
         daemonRequestPerformancePhases.map((phase) => [
           phase,
-          phases.has(phase) ? roundMilliseconds(phases.get(phase)!) : null
+          phases.has(phase)
+            ? roundMilliseconds(
+                (phases.get(phase) ?? 0) +
+                (phaseStartedAt.has(phase) ? finishedAt - phaseStartedAt.get(phase)! : 0)
+              )
+            : null
         ])
       ) as unknown as Record<DaemonRequestPerformancePhase, number | null>;
       terminal = Object.freeze({
@@ -119,7 +134,7 @@ export function createDaemonRequestPerformanceTrace(
         method: safeMethod(options.method),
         requestId: safeRequestId(options.requestId),
         outcome,
-        totalMs: roundMilliseconds(now() - receivedAtMs),
+        totalMs: roundMilliseconds(finishedAt - receivedAtMs),
         eventLoopActiveMs: roundMilliseconds(eventLoopActiveMs),
         eventLoopUtilization: roundRatio(eventLoopUtilization),
         phaseOrder: Object.freeze([...phaseOrder]),

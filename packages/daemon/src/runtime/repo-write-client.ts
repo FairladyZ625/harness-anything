@@ -7,14 +7,17 @@ import {
 } from "./repo-write-protocol.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 import { RepoWriteDirectClientLane } from "./repo-write-client-direct.ts";
-import type {
-  PendingLookup,
-  PendingReady,
-  PendingShutdown,
-  PendingSubmit
+import {
+  createPendingRepoWriteLookup,
+  createPendingRepoWriteSubmit,
+  type PendingLookup,
+  type PendingReady,
+  type PendingShutdown,
+  type PendingSubmit
 } from "./repo-write-client-pending.ts";
 import type { RepoWriteClientLimits, RepoWriteClientOptions } from "./repo-write-client-contract.ts";
 import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
+import { disconnectRepoWritePendingRequests } from "./repo-write-client-disconnect.ts";
 import {
   expireRepoWritePendingSubmit,
   rejectRepoWriteQueuedRequests
@@ -33,6 +36,10 @@ import {
   observeRepoWriteTelemetry,
   repoWriteClientFrameBase
 } from "./repo-write-client-observers.ts";
+import {
+  finishRepoWriteParentPerformanceTiming,
+  markRepoWriteChildStarted
+} from "./repo-write-parent-performance.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
@@ -140,14 +147,12 @@ export class RepoWriteClient {
     }
     const requestId = this.nextRequestId();
     const result = new Promise<RepoWriteJsonObject>((resolve, reject) => {
-      this.pending.set(requestId, {
+      this.pending.set(requestId, createPendingRepoWriteSubmit({
         requestId,
         command,
         resolve,
-        reject,
-        timer: undefined,
-        phase: "queued"
-      });
+        reject
+      }));
     });
     if (this.ready) this.dispatchSubmit(requestId);
     return result;
@@ -177,14 +182,13 @@ export class RepoWriteClient {
         this.limits.requestTimeoutMs
       );
       timer.unref();
-      this.pendingLookups.set(requestId, {
+      this.pendingLookups.set(requestId, createPendingRepoWriteLookup({
         requestId,
         opId,
         resolve,
         reject,
-        timer,
-        phase: "queued"
-      });
+        timer
+      }));
     });
     if (this.ready) this.dispatchLookup(requestId);
     return result;
@@ -280,6 +284,7 @@ export class RepoWriteClient {
       }
       pending.phase = "prepared";
       pending.opId = message.opId;
+      markRepoWriteChildStarted(pending.performanceTiming);
       this.dispatchProceed(pending);
       return;
     }
@@ -296,6 +301,7 @@ export class RepoWriteClient {
       }
       clearTimeout(pending.timer);
       this.pending.delete(message.requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.resolve(message.receipt);
       return;
     }
@@ -320,6 +326,7 @@ export class RepoWriteClient {
       }
       clearTimeout(pending.timer);
       this.pendingLookups.delete(message.requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       if (message.state === "committed") {
         pending.resolve({ state: "committed", outcome: "committed", receipt: message.receipt });
       } else if (message.state === "rejected") {
@@ -419,30 +426,12 @@ export class RepoWriteClient {
     if (this.readyPending) clearTimeout(this.readyPending.timer);
     this.readyPending?.reject(notStarted);
     this.readyPending = undefined;
-    for (const [requestId, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      this.pending.delete(requestId);
-      pending.reject(pending.opId
-        ? new RepoWriteOutcomeUnknownError(
-            "CAPSULE_DISCONNECTED",
-            `Repo writer disconnected after preparation: ${error.message}`,
-            pending.opId
-          )
-        : new RepoWriteNotStartedError(
-            "CAPSULE_DISCONNECTED",
-            `Repo writer disconnected before the request started: ${error.message}`
-          ));
-    }
-    this.directLane.disconnect(error);
-    for (const [requestId, pending] of this.pendingLookups) {
-      clearTimeout(pending.timer);
-      this.pendingLookups.delete(requestId);
-      pending.reject(new RepoWriteLookupError(
-        "CAPSULE_DISCONNECTED",
-        `Repo writer disconnected during outcome lookup: ${error.message}`,
-        pending.opId
-      ));
-    }
+    disconnectRepoWritePendingRequests(
+      this.pending,
+      this.directLane,
+      this.pendingLookups,
+      error
+    );
     const shutdown = this.shutdownPending;
     if (shutdown) {
       clearTimeout(shutdown.timer);
@@ -467,6 +456,7 @@ export class RepoWriteClient {
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
       this.pending.delete(requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.reject(pending.opId
         ? new RepoWriteOutcomeUnknownError(violation.code, violation.message, pending.opId)
         : new RepoWriteNotStartedError(violation.code, violation.message));
@@ -475,6 +465,7 @@ export class RepoWriteClient {
     for (const [requestId, pending] of this.pendingLookups) {
       clearTimeout(pending.timer);
       this.pendingLookups.delete(requestId);
+      finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
       pending.reject(new RepoWriteLookupError(violation.code, violation.message, pending.opId));
     }
     const shutdown = this.shutdownPending;
@@ -542,6 +533,7 @@ export class RepoWriteClient {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     if (error instanceof RepoWriteIpcPayloadTooLargeError) {
       pending.reject(error);
       return;
@@ -567,6 +559,7 @@ export class RepoWriteClient {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pendingLookups.delete(requestId);
+    finishRepoWriteParentPerformanceTiming(pending.performanceTiming);
     const message = error instanceof Error ? error.message : String(error);
     pending.reject(new RepoWriteLookupError("CAPSULE_SEND_FAILED", message, pending.opId));
   }

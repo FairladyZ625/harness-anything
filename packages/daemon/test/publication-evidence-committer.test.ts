@@ -18,6 +18,7 @@ import {
   type SemanticMutationSetV2
 } from "@harness-anything/kernel";
 import { createGitAuthorityAttributionEvidenceCommitterV2 } from "../src/authority/production/publication-evidence.ts";
+import { runWithRepoWriteTelemetry } from "../src/runtime/repo-write-telemetry-context.ts";
 
 const digestA = "11".repeat(32);
 const digestB = "22".repeat(32);
@@ -53,6 +54,66 @@ test("evidence commit rejects corruption in a shard anchored by the verified HEA
     /AUTHORITY_EVENT_V2_EVIDENCE_VERIFIED_HISTORY_CHANGED/u
   );
   assert.equal(git(root, "diff", "--cached", "--name-only"), "");
+});
+
+test("canonical HEAD advancement outside the evidence tree preserves the verified baseline", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-baseline-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+
+  const log = makeLocalAuthorityAttributionEventV2Log(root);
+  const committer = createGitAuthorityAttributionEvidenceCommitterV2(root);
+  log.ensure(v2Event("op-history"));
+  await committer.commitPending(git(root, "rev-parse", "HEAD"));
+
+  writeFileSync(path.join(root, "seed.txt"), "canonical advancement\n");
+  git(root, "add", "seed.txt");
+  git(root, "commit", "-q", "-m", "canonical advancement outside evidence");
+  log.ensure(v2Event("op-pending"));
+  const phases: string[] = [];
+  await runWithRepoWriteTelemetry(
+    (phase) => phases.push(phase),
+    () => committer.commitPending(git(root, "rev-parse", "HEAD"))
+  );
+
+  assert.ok(phases.includes("authority-evidence-pending-verify"), phases.join(","));
+  assert.equal(phases.includes("authority-evidence-history-verify"), false, phases.join(","));
+});
+
+test("canonical HEAD advancement that changes evidence history forces full verification", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "publication-evidence-history-change-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  writeFileSync(path.join(root, "seed.txt"), "seed\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "seed");
+
+  const log = makeLocalAuthorityAttributionEventV2Log(root);
+  const committer = createGitAuthorityAttributionEvidenceCommitterV2(root);
+  log.ensure(v2Event("op-history"));
+  await committer.commitPending(git(root, "rev-parse", "HEAD"));
+  const layout = resolveHarnessLayout(root);
+  const historicalPath = path.join(
+    layout.authorityAttributionEventsV2Root,
+    readdirSync(layout.authorityAttributionEventsV2Root)[0]!
+  );
+  writeFileSync(historicalPath, "{}\n");
+  git(root, "add", historicalPath);
+  git(root, "commit", "-q", "-m", "corrupt committed evidence history");
+  const phases: string[] = [];
+
+  await assert.rejects(runWithRepoWriteTelemetry(
+    (phase) => phases.push(phase),
+    () => committer.commitPending(git(root, "rev-parse", "HEAD"))
+  ));
+  assert.ok(phases.includes("authority-evidence-history-verify"), phases.join(","));
 });
 
 function v2Event(opId: string): AttributionEventV2 {

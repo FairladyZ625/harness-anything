@@ -55,8 +55,14 @@ export function createAuthorityReplicationContentStore(input: {
       return bytes;
     },
     describeChange: (draft) => {
-      const current = buildReplicaSnapshot(draft.commitSha, draft.revision);
       const previous = draft.previousCommit ? loadReplicaEntries(draft.previousCommit) : undefined;
+      const current = buildReplicaSnapshot(
+        draft.commitSha,
+        draft.revision,
+        draft.previousCommit && previous
+          ? { commitSha: draft.previousCommit, entries: previous }
+          : undefined
+      );
       return {
         ...draft,
         schema: "replica-change/v2",
@@ -71,8 +77,15 @@ export function createAuthorityReplicationContentStore(input: {
     }
   };
 
-  function buildReplicaSnapshot(commitSha: string, revision: number): AuthorityReplicaSnapshot {
-    const entries = loadReplicaEntries(commitSha);
+  function buildReplicaSnapshot(
+    commitSha: string,
+    revision: number,
+    previous?: {
+      readonly commitSha: string;
+      readonly entries: ReadonlyArray<AuthoritySnapshotManifestEntry>;
+    }
+  ): AuthorityReplicaSnapshot {
+    const entries = loadReplicaEntries(commitSha, previous);
     const value: AuthorityReplicaSnapshot = {
       commitSha,
       manifestDigest: manifestDigest({
@@ -87,10 +100,24 @@ export function createAuthorityReplicationContentStore(input: {
     return structuredClone(value);
   }
 
-  function loadReplicaEntries(commitSha: string): ReadonlyArray<AuthoritySnapshotManifestEntry> {
+  function loadReplicaEntries(
+    commitSha: string,
+    previous?: {
+      readonly commitSha: string;
+      readonly entries: ReadonlyArray<AuthoritySnapshotManifestEntry>;
+    }
+  ): ReadonlyArray<AuthoritySnapshotManifestEntry> {
     const cached = cache.get(commitSha);
     if (cached) return structuredClone(cached);
-    const entries = readGitEntries(input.gitRoot, commitSha, storeBlob);
+    const entries = previous
+      ? readGitEntriesIncrementally(
+          input.gitRoot,
+          previous.commitSha,
+          commitSha,
+          previous.entries,
+          storeBlob
+        )
+      : readGitEntries(input.gitRoot, commitSha, storeBlob);
     cache.set(commitSha, entries);
     return structuredClone(entries);
   }
@@ -200,6 +227,80 @@ function readGitEntries(
       tombstone: false as const
     };
   }).sort(compareEntries);
+  assertPortableEntryPaths(entries);
+  return entries;
+}
+
+function readGitEntriesIncrementally(
+  root: string,
+  previousCommit: string,
+  commitSha: string,
+  previousEntries: ReadonlyArray<AuthoritySnapshotManifestEntry>,
+  persistBlob: (bytes: Uint8Array) => Sha256Digest
+): ReadonlyArray<AuthoritySnapshotManifestEntry> {
+  const output = readAuthorityGitBytes(
+    root,
+    "diff",
+    "--raw",
+    "-z",
+    "--no-renames",
+    "--no-abbrev",
+    previousCommit,
+    commitSha,
+    "--"
+  );
+  const rows = splitNul(output);
+  if (rows.length % 2 !== 0) throw new Error("RESYNC_REQUIRED:GIT_DIFF_RAW_SHAPE");
+  const changed: Array<{
+    readonly path: string;
+    readonly objectId?: string;
+    readonly mode?: ReplicaFileMode;
+  }> = [];
+  for (let index = 0; index < rows.length; index += 2) {
+    const metadata = rows[index]!.toString("ascii");
+    const match = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([ADMT])$/u.exec(metadata);
+    if (!match) throw new Error(`RESYNC_REQUIRED:GIT_DIFF_RAW_ENTRY:${metadata.slice(0, 80)}`);
+    const pathName = decodePortableGitPath(rows[index + 1]!);
+    if (match[5] === "D") {
+      changed.push({ path: pathName });
+      continue;
+    }
+    if (match[2] !== "100644" && match[2] !== "100755" && match[2] !== "120000") {
+      throw new Error(`RESYNC_REQUIRED:UNSUPPORTED_GIT_TREE_ENTRY:${match[2]} blob ${match[4]}`);
+    }
+    changed.push({
+      path: pathName,
+      objectId: match[4]!,
+      mode: match[2] as ReplicaFileMode
+    });
+  }
+  const blobs = readGitBlobBatch(
+    root,
+    changed.flatMap((entry) => entry.objectId ? [entry.objectId] : [])
+  );
+  const entries = new Map(previousEntries.map((entry) => [entry.path, entry]));
+  for (const entry of changed) {
+    if (!entry.objectId || !entry.mode) {
+      entries.delete(entry.path);
+      continue;
+    }
+    const bytes = blobs.get(entry.objectId);
+    if (!bytes) throw new Error(`RESYNC_REQUIRED:GIT_BLOB_MISSING:${entry.objectId}`);
+    entries.set(entry.path, {
+      path: entry.path,
+      blobDigest: persistBlob(bytes),
+      mode: entry.mode,
+      tombstone: false
+    });
+  }
+  const ordered = [...entries.values()].sort(compareEntries);
+  assertPortableEntryPaths(ordered);
+  return ordered;
+}
+
+function assertPortableEntryPaths(
+  entries: ReadonlyArray<AuthoritySnapshotManifestEntry>
+): void {
   const portablePaths = new FoldedComponentTrie();
   for (const entry of entries) {
     try {
@@ -209,7 +310,6 @@ function readGitEntries(
       throw new Error(`RESYNC_REQUIRED:PORTABLE_PATH_COLLISION:${entry.path}`, { cause: error });
     }
   }
-  return entries;
 }
 
 function readGitBlobBatch(
