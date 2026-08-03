@@ -5,6 +5,7 @@ import type {
   PendingSubmit
 } from "./repo-write-client-pending.ts";
 import type { RepoWriteTelemetryFrame } from "./repo-write-protocol.ts";
+import { markRepoWriteChildStarted } from "./repo-write-parent-performance.ts";
 
 export function repoWriteTelemetryMatchesPendingRequest(
   message: RepoWriteTelemetryFrame,
@@ -34,11 +35,13 @@ export function recordRepoWriteClientTelemetry(
 ): void {
   const submit = submits.get(message.requestId);
   if (submit) {
+    markRepoWriteChildStarted(submit.performanceTiming);
     submit.lastTelemetry = message;
     return;
   }
   const lookup = lookups.get(message.requestId);
   if (lookup) {
+    markRepoWriteChildStarted(lookup.performanceTiming);
     lookup.lastTelemetry = message;
     return;
   }

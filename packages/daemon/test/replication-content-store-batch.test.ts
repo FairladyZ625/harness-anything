@@ -98,6 +98,69 @@ test("replication snapshot retains empty blobs without rewriting them", (context
   assert.equal(putCalls, 1, "the shared empty blob should be retained exactly once");
 });
 
+test("a warm one-file replication change reads only changed blob state", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "replication-content-incremental-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  mkdirSync(path.join(root, "files"));
+  for (let index = 0; index < 256; index += 1) {
+    writeFileSync(path.join(root, "files", `${index}.txt`), `unique-${index}\n`);
+  }
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "baseline");
+  const previousCommit = git(root, "rev-parse", "HEAD");
+
+  const values = new Map<string, unknown>();
+  let getCalls = 0;
+  const content = createAuthorityReplicationContentStore({
+    gitRoot: root,
+    workspaceId: "workspace-incremental",
+    epoch: "1",
+    state: {
+      get: <Value>(key: string) => {
+        getCalls += 1;
+        return values.get(key) as Value | undefined;
+      },
+      put: (key, value) => { values.set(key, structuredClone(value)); },
+      entries: <Value>() => [...values.entries()] as ReadonlyArray<readonly [string, Value]>
+    }
+  });
+  content.snapshot(previousCommit, 1);
+  writeFileSync(path.join(root, "files", "0.txt"), "changed\n");
+  git(root, "add", "files/0.txt");
+  git(root, "commit", "-q", "-m", "one file");
+  const commitSha = git(root, "rev-parse", "HEAD");
+  getCalls = 0;
+
+  const change = content.describeChange({
+    schema: "replica-change/v1",
+    workspaceId: "workspace-incremental",
+    revision: 2,
+    opId: "op-one-file",
+    semanticDigest: "semantic-one-file",
+    commitSha,
+    previousCommit,
+    changedAt: "2026-08-03T00:00:00.000Z"
+  });
+
+  assert.deepEqual(change.paths.map((entry) => entry.path), ["files/0.txt"]);
+  assert.ok(getCalls <= 2, `expected changed-blob state reads, observed ${getCalls}`);
+  const incremental = content.snapshot(commitSha, 2);
+  const full = createAuthorityReplicationContentStore({
+    gitRoot: root,
+    workspaceId: "workspace-incremental",
+    epoch: "1",
+    state: {
+      get: <Value>(key: string) => values.get(key) as Value | undefined,
+      put: (key, value) => { values.set(key, structuredClone(value)); },
+      entries: <Value>() => [...values.entries()] as ReadonlyArray<readonly [string, Value]>
+    }
+  }).snapshot(commitSha, 2);
+  assert.deepEqual(incremental, full);
+});
+
 function git(root: string, ...args: ReadonlyArray<string>): string {
   return execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8",

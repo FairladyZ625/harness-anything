@@ -6,6 +6,17 @@ export interface AuthorityEvidenceWorktreeState {
   readonly historicalShardChanged: boolean;
 }
 
+export function authorityEvidenceHistoryUnchanged(
+  changedPaths: ReadonlyArray<string>,
+  relativeRoot: string
+): boolean {
+  const root = relativeRoot.replaceAll("\\", "/").replace(/\/$/u, "");
+  return root.length > 0 && !changedPaths.some((candidate) => {
+    const normalized = candidate.replaceAll("\\", "/");
+    return normalized === root || normalized.startsWith(`${root}/`);
+  });
+}
+
 interface AuthorityEvidenceCommitReader {
   readonly normalizePath: (inputPath: string) => string;
   readonly filesExistingAtCommit: (

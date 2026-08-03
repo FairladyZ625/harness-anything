@@ -22,6 +22,7 @@ import {
   publicationTopologyError
 } from "./publication-message-shape.ts";
 import {
+  authorityEvidenceHistoryUnchanged,
   readAuthorityEvidencePendingPathsAtCommit,
   readAuthorityEvidenceWorktreeState
 } from "./authority-evidence-tree.ts";
@@ -131,7 +132,9 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         relativeRoot,
         (args) => readAuthorityGitBytes(repoRoot, ...args)
       );
-      if (verifiedHead !== head) {
+      const canReuseVerifiedHistory = verifiedHead === head || verifiedHead !== undefined &&
+        authorityEvidenceHistoryUnchanged(vcs.changedFilesBetween(repoRoot, verifiedHead, head), relativeRoot);
+      if (!canReuseVerifiedHistory) {
         // Establish a trustworthy baseline after startup or any unexpected HEAD change.
         reportCurrentRepoWriteTelemetry("authority-evidence-history-verify");
         log.verifyIntegrity();
@@ -146,6 +149,7 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         }
         reportCurrentRepoWriteTelemetry("authority-evidence-pending-verify");
         log.verifyShards(pendingPaths.map((relativePath) => path.basename(relativePath)));
+        verifiedHead = head;
       }
       if (pendingPaths.length === 0) return;
 

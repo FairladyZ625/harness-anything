@@ -91,6 +91,27 @@ test("nested phase timing records outer wall time without double counting", () =
   assert.equal(trace.finish("response-written").phasesMs.materializer, 8);
 });
 
+test("terminal telemetry snapshots phases that remain open when the connection closes", () => {
+  let now = 0;
+  const trace = createDaemonRequestPerformanceTrace({
+    method: "repo.command.run",
+    requestId: "open-child-dispatch",
+    receivedAtMs: 0,
+    now: () => now
+  });
+  const endHandler = trace.begin("handler");
+  const endService = trace.begin("service");
+  now = 35;
+
+  const summary = trace.finish("connection-closed");
+  endService();
+  endHandler();
+
+  assert.equal(summary.phasesMs.handler, 35);
+  assert.equal(summary.phasesMs.service, 35);
+  assert.equal(trace.finish("handler-error"), summary);
+});
+
 test("JSON-RPC stream emits terminal telemetry after success and handler failure", async () => {
   const clientToServer = new PassThrough();
   const serverToClient = new PassThrough();
