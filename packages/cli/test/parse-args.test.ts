@@ -39,6 +39,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
+  { name: "authority repo enroll", argv: ["authority", "repo", "enroll", "--repo-id", "billing", "--repo-root", "repo", "--manifest", "manifest.json", "--service-state-root", "state"], kind: "authority-repo-enroll", fields: { repoId: "billing", repoRoot: "repo", manifestPath: "manifest.json", serviceStateRoot: "state", allowedExecutorAgentIds: ["codex"] } },
+  { name: "authority repo resign", argv: ["authority", "repo", "resign", "--repo-id", "billing", "--manifest", "manifest.json"], kind: "authority-repo-resign", fields: { repoId: "billing", manifestPath: "manifest.json" } },
   { name: "authority cutover status", argv: ["authority", "cutover", "status"], kind: "authority-cutover-status" },
   { name: "authority cutover drain classify", argv: ["authority", "cutover", "drain", "--classify", `op-1|retryable-not-committed|${"a".repeat(64)}|rehearsal/op-1`], kind: "authority-cutover-drain", fields: { classifications: [{ opId: "op-1", disposition: "retryable-not-committed", recordedTupleDigest: "a".repeat(64), evidenceRef: "rehearsal/op-1" }] } },
   { name: "authority cutover scan", argv: ["authority", "cutover", "scan"], kind: "authority-cutover-scan", fields: { profileId: "production-final-scan/v1" } },

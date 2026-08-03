@@ -314,6 +314,8 @@ export interface ParsedCommand {
     | { readonly kind: "authority-cutover-boundary"; readonly boundaryId: string; readonly equalityReceiptId: string; readonly expectedSelectedSchemaTupleDigest: string }
     | { readonly kind: "authority-cutover-freeze"; readonly reason: string; readonly expectedBoundaryReceiptDigest: string }
     | { readonly kind: "authority-cutover-re-enable"; readonly boundaryId: string; readonly expectedFreezeReceiptDigest: string; readonly equalityReceiptId: string; readonly forwardFixRef: string }
+    | { readonly kind: "authority-repo-enroll"; readonly repoId: string; readonly repoRoot: string; readonly manifestPath: string; readonly serviceStateRoot: string; readonly keyRegistryPath?: string; readonly namespaceTtlMs?: number; readonly allowedExecutorAgentIds: ReadonlyArray<string> }
+    | { readonly kind: "authority-repo-resign"; readonly repoId: string; readonly manifestPath: string; readonly keyRegistryPath?: string; readonly switchRecordPath?: string; readonly namespaceTtlMs?: number }
     | { readonly kind: "worktree-create"; readonly taskId: string; readonly agent?: string; readonly branchPrefix?: string; readonly baseRef?: string; readonly worktreePath?: string }
     | { readonly kind: "worktree-status"; readonly taskId: string }
     | { readonly kind: "graph"; readonly outputPath?: string; readonly focus?: string; readonly projectionPath?: string; readonly includeArchived: boolean }

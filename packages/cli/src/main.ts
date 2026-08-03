@@ -141,7 +141,9 @@ function isDaemonIndependentCommand(command: { readonly action: { readonly kind:
     || command.action.kind === "capabilities"
     || command.action.kind === "completion"
     || command.action.kind === "gui"
-    || command.action.kind === "git-diff";
+    || command.action.kind === "git-diff"
+    || command.action.kind === "authority-repo-enroll"
+    || command.action.kind === "authority-repo-resign";
 }
 
 async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {
