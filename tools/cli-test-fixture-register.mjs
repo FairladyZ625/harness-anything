@@ -8,7 +8,14 @@ export function createCliTestFixtureRunner(loadFixture = loadCliTestFixture) {
     fixturePromise ??= loadFixture();
     const { runRegisteredCommandWithCliComposition, toCommandReceipt } = await fixturePromise;
     return toCommandReceipt(await runRegisteredCommandWithCliComposition(command, {
-      localCoordinatorScope: "test-fixture"
+      localCoordinatorScope: "test-fixture",
+      // task-submit no longer has a client facade. Integration fixtures that
+      // need an authored submitted round still exercise the declared command
+      // and the application planner, while production-ingress tests cover the
+      // daemon compiler and canonical publication path.
+      ...(command?.action?.kind === "task-submit"
+        ? { inlineCreateProvenanceOnly: true }
+        : {})
     }));
   };
 }

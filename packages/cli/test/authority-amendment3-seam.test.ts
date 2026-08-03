@@ -99,19 +99,20 @@ test("execution submit routes its bound worker Session before the main execution
       rootDir: "/fixture",
       json: true,
       action: {
-        kind: "status-set",
+        kind: "task-submit",
         taskId,
-        status: "in_review",
-        force: false,
-        executionSubmission: {
-          executionId,
+        executionId,
+        leaseToken: null,
+        submission: {
           completionClaim: "Worker delivery is complete.",
           deliverables: [],
           outputs: [],
           verificationNotes: [],
           knownGaps: [],
           residualRisks: []
-        }
+        },
+        callerIdempotencyKey: "task-submit-coordinator-test",
+        dryRun: false
       }
     },
     attribution: daemonActorAttribution({
@@ -190,19 +191,20 @@ test("execution submit provenance accepts only its authored primary Session bind
     const command = {
       rootDir,
       action: {
-        kind: "status-set" as const,
+        kind: "task-submit" as const,
         taskId,
-        status: "in_review" as const,
-        force: false,
-        executionSubmission: {
-          executionId,
+        executionId,
+        leaseToken: null,
+        submission: {
           completionClaim: "Worker delivery is complete.",
           deliverables: [],
           outputs: [],
           verificationNotes: [],
           knownGaps: [],
           residualRisks: []
-        }
+        },
+        callerIdempotencyKey: "task-submit-provenance-test",
+        dryRun: false
       }
     };
 

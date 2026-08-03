@@ -135,6 +135,67 @@ test("task-complete is a strict typed wire branch instead of a generic command p
   );
 });
 
+test("task-submit is a strict typed wire branch instead of a generic command payload", () => {
+  const action = {
+    kind: "task-submit",
+    taskId: "task_TYPED",
+    executionId: "exe_TYPED",
+    leaseToken: null,
+    submission: {
+      completionClaim: "Ready for review.",
+      deliverables: ["typed task-submit"],
+      outputs: ["integration passed"],
+      verificationNotes: ["test:typed-wire"],
+      knownGaps: [],
+      residualRisks: []
+    },
+    callerIdempotencyKey: "caller-submit-typed-wire",
+    dryRun: false
+  };
+  const frame = {
+    ...base("submit"),
+    requestId: "request-task-submit",
+    command: {
+      commandName: "task-submit",
+      actor: { personId: "person_zeyu" },
+      context: {},
+      payload: {
+        command: { rootDir: "/repo", json: true, action },
+        session: {
+          runtime: "codex",
+          sessionId: "session_TYPED",
+          source: "runtime",
+          detectedAt: "2026-08-03T00:00:00.000Z"
+        }
+      }
+    }
+  };
+  const decoded = decodeRepoWriteParentMessage(frame);
+  assert.equal(decoded.kind, "submit");
+  assert.equal(decoded.kind === "submit" ? decoded.command.commandName : undefined, "task-submit");
+  assert.deepEqual(
+    decoded.kind === "submit" ? decoded.command.payload.command.action : undefined,
+    action
+  );
+  assert.throws(() => decodeRepoWriteParentMessage({
+    ...frame,
+    command: {
+      ...frame.command,
+      payload: {
+        ...frame.command.payload,
+        command: {
+          ...frame.command.payload.command,
+          action: { ...action, silentlyDropped: true }
+        }
+      }
+    }
+  }), /TASK_SUBMIT_TRANSITION_COMMAND_INVALID/u);
+  assert.throws(
+    () => repoWriteLegacyCommandName("task-submit"),
+    /REPO_WRITE_TASK_SUBMIT_TYPED_COMMAND_REQUIRED/u
+  );
+});
+
 test("prepared and proceed form an exact opId handshake before canonical mutation", () => {
   const prepared: RepoWriteChildMessage = {
     ...base("prepared"),

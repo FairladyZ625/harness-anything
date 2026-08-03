@@ -170,11 +170,11 @@
           "compilers": [
             {
               "entry": "direct-authored-store",
-              "ref": "packages/application/src/coordinated-execution-authored-store.ts#finalizeExecutionSessionBindings"
+              "ref": "packages/application/src/task-lifecycle-transition-service.ts#TaskLifecycleTransitionService"
             },
             {
               "entry": "production-authority",
-              "ref": "packages/application/src/coordinated-execution-authored-store.ts#finalizeExecutionSessionBindings"
+              "ref": "packages/application/src/task-lifecycle-transition-service.ts#TaskLifecycleTransitionService"
             }
           ]
         },
@@ -280,14 +280,17 @@
               "task-submit"
             ]
           },
-          "parity": "single-entry",
+          "parity": "unified",
           "compilers": [
             {
-              "entry": "current-authored-ingress",
-              "ref": "packages/cli/src/commands/core/task-submit-facade.ts#taskSubmitFacadeSteps"
+              "entry": "direct-authored-store",
+              "ref": "packages/application/src/task-submit-transition-service.ts#TaskSubmitTransitionService"
+            },
+            {
+              "entry": "production-authority",
+              "ref": "packages/application/src/task-submit-transition-service.ts#TaskSubmitTransitionService"
             }
-          ],
-          "reviewWhen": "Return this item to unknown when any second authored ingress surface is registered for this intent."
+          ]
         },
         {
           "selector": "task-supersede",
@@ -360,7 +363,7 @@
         "packages/adapters/local/src/index.ts:182",
         "packages/adapters/local/src/index.ts:310",
         "packages/application/src/local-controller-service.ts:95",
-        "packages/cli/src/commands/core/task-submit-facade.ts:15",
+        "packages/application/src/task-submit-transition-service.ts:27",
         "packages/daemon/src/authority/production/production-authority-observed-write-intents.ts:19"
       ],
       "freshness": "coordinator-conditional-task-state"

@@ -165,7 +165,7 @@ test("daemon-backed deprecated claim enters the atomic Execution path and preser
   });
 });
 
-test("daemon-backed Execution submit materializes a newly exported Session before canonical validation", async () => {
+test("typed Execution submit materializes its Session prerequisite before planner validation", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "fixture" });
     const harnessRoot = path.join(rootDir, "harness");
@@ -193,17 +193,22 @@ test("daemon-backed Execution submit materializes a newly exported Session befor
       JSON.stringify({ timestamp: "2026-07-15T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "submit on the first attempt" } }),
       JSON.stringify({ timestamp: "2026-07-15T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ready" }] } })
     ].join("\n"), "utf8");
-    const daemonSessionEnv = { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000", CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
+    const daemonSessionEnv = { HARNESS_DAEMON_MODE: "fixture", CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
     const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], daemonSessionEnv);
     const claimReport = (((claimed.details as Record<string, unknown>).data as Record<string, unknown>).report as {
       readonly leaseToken?: unknown;
     });
 
     const submitted = runRawJson(rootDir, [
-      "task", "transition", taskId, "in_review",
-      "--lease-token", String(claimReport.leaseToken),
-      "--summary", "ready on the first submit",
-      "--verification", "daemon session materialization verified"
+      "task", "submit", taskId, "--json-input", JSON.stringify({
+        completionClaim: "ready on the first submit",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: ["daemon session materialization verified"],
+        knownGaps: [],
+        residualRisks: [],
+        leaseToken: String(claimReport.leaseToken)
+      })
     ], daemonSessionEnv);
 
     assert.equal(receiptDataString(submitted, "status"), "in_review", JSON.stringify(submitted));

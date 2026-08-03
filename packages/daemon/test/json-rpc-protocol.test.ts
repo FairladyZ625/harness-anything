@@ -112,6 +112,7 @@ test("production authority ingress covers or explicitly excludes every write-cla
     "task-reopen",
     "task-retire-execution",
     "task-review-execution",
+    "task-submit",
     "task-supersede"
   ]);
   const exclusions = productionAuthorityCommandSpecs.filter((spec) => spec.productionAuthorityIngress?.status === "excluded");

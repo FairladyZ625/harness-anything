@@ -1,14 +1,11 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy, type TaskHolderPrincipal } from "@harness-anything/application";
-import type { WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
-import { toCliError } from "../../cli/error-mapper.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { preflightActiveStatusSet } from "./task-active-transition.ts";
 import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
 import { canonicalTaskStartResult, resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal, terminalTaskStartFailure } from "./task-holder-support.ts";
-import { executionSubmitSuccessResult } from "./task-holder-submit-result.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
@@ -66,92 +63,6 @@ function runExecutionClaim(
     }));
   });
 }
-export function runExecutionSubmit(
-  context: CommandRunnerContext,
-  action: Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "status-set" }>
-): Effect.Effect<CliResult> {
-  const principal = taskHolderPrincipal(context);
-  if (!principal.ok) return Effect.succeed(principal.result);
-  const { authoredStore, saga } = commandExecutionSaga(context);
-  const submission = action.executionSubmission!;
-  return Effect.gen(function* () {
-    const snapshot = submission.executionId
-      ? undefined
-      : yield* Effect.promise(() => context.taskHolderService.holder({ taskId: action.taskId }));
-    const executionId = submission.executionId ?? (snapshot?.holder?.schema === "task-holder/v2"
-      ? snapshot.holder.executionId
-      : undefined);
-    if (!executionId) {
-      return {
-        ok: false,
-        command: "status-set",
-        taskId: action.taskId,
-        error: cliError(CliErrorCode.WriteRejected, `Execution submit requires an active Holder V2 execution. Next: run \`ha task start ${action.taskId}\`, then retry the same submit packet; use an explicit executionId only to select an existing active round.`)
-      } satisfies CliResult;
-    }
-    const submitted = yield* Effect.tryPromise({
-      try: () => saga.submitForReview({
-        taskId: action.taskId,
-        executionId,
-        leaseToken: submission.leaseToken,
-        principal: principal.value,
-        submission: {
-          completionClaim: submission.completionClaim,
-          deliverables: submission.deliverables,
-          verificationNotes: submission.verificationNotes,
-          knownGaps: submission.knownGaps,
-          residualRisks: submission.residualRisks,
-          evidence: submission.outputs.map((text, index) => ({
-            evidence_id: `ev_cli_${index + 1}`,
-            execution_ref: `execution/${action.taskId}/${executionId}`,
-            locator: { substrate: "inline" as const, text }
-          }))
-        }
-      }),
-      catch: (error) => error
-    }).pipe(Effect.match({
-      onFailure: (error) => ({ ok: false as const, error }),
-      onSuccess: (result) => ({ ok: true as const, result })
-    }));
-    if (!submitted.ok) {
-      return {
-        ok: false,
-        command: "status-set",
-        taskId: action.taskId,
-        executionId,
-        status: "in_review",
-        error: isTaskHolderWriteError(submitted.error)
-          ? toCliError(submitted.error)
-          : cliError(CliErrorCode.WriteRejected, submitted.error instanceof Error ? submitted.error.message : String(submitted.error))
-      } satisfies CliResult;
-    }
-    const submittedExecution = yield* Effect.promise(() => authoredStore.readExecution({
-      taskId: action.taskId,
-      executionId
-    }));
-    const unavailableBindings = submittedExecution?.session_bindings
-      .filter((binding) => binding.archive_status === "unavailable")
-      .map((binding) => ({
-        bindingId: binding.binding_id,
-        sessionRef: binding.session_ref,
-        archiveStatus: binding.archive_status
-      })) ?? [];
-    return executionSubmitSuccessResult({
-      taskId: action.taskId,
-      executionId,
-      leaseReleased: submitted.result.leaseReleased,
-      cleanup: submitted.result.cleanup,
-      unavailableBindings
-    });
-  });
-}
-
-function isTaskHolderWriteError(error: unknown): error is WriteError {
-  return typeof error === "object" && error !== null && "_tag" in error && [
-    "WriteRejected", "WriteConflict", "GlobalWriteConflict", "JournalUnavailable"
-  ].includes(String(error._tag));
-}
-
 export function runTaskClaim(
   context: CommandRunnerContext,
   action: Extract<TaskHolderAction, { readonly kind: "task-claim" }>

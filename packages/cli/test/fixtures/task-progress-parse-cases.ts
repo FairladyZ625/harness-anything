@@ -1,23 +1,5 @@
 export const taskProgressParseCases = [
   {
-    name: "execution submit infers the active lease without token replay",
-    argv: ["task", "transition", "task_1", "in_review", "--completion-claim", "ready"],
-    kind: "status-set",
-    fields: {
-      taskId: "task_1",
-      status: "in_review",
-      force: false,
-      executionSubmission: {
-        completionClaim: "ready",
-        deliverables: [],
-        verificationNotes: [],
-        knownGaps: [],
-        residualRisks: [],
-        outputs: []
-      }
-    }
-  },
-  {
     name: "progress append repeated evidence",
     argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed", "--evidence", "test:artifacts/unit.log:green"],
     kind: "progress-append",

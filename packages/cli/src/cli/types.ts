@@ -16,7 +16,7 @@ import type {
 import type { DecisionAmendField, DecisionAmendOperation } from "@harness-anything/kernel";
 import type { DecisionClaimFulfillment } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
-import type { TaskCompleteTransitionCommand } from "@harness-anything/application";
+import type { TaskCompleteTransitionCommand, TaskSubmitTransitionCommand } from "@harness-anything/application";
 import type { CliError } from "./error-codes.ts";
 import type { CommandDisplayTier } from "./command-spec/types.ts";
 
@@ -229,8 +229,9 @@ export interface ParsedCommand {
     | { readonly kind: "task-holder"; readonly taskId: string }
     | { readonly kind: "task-release"; readonly taskId: string }
     | { readonly kind: "task-retire-execution"; readonly taskId: string; readonly executionId: string; readonly reason: string; readonly retiredAt: string }
-    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken?: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
+    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "task-submit"; readonly taskId: string; readonly submission: { readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> }; readonly executionId?: string; readonly leaseToken?: string; readonly dryRun: boolean }
+    | TaskSubmitTransitionCommand
     | { readonly kind: "task-closeout"; readonly taskId: string; readonly submission: { readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> }; readonly review: { readonly executionId?: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean; readonly consentId?: string; readonly consentUtterance?: string; readonly consentStandingPolicyDecisionId?: string; readonly consentAssertedRationale?: string; readonly consentActions?: ReadonlyArray<ConsentAction> }; readonly executionId?: string; readonly leaseToken?: string; readonly commitRef: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly forceCodeDoc: boolean; readonly ciGate: "passed" | "failed" | "not-applicable"; readonly reviewerId: string; readonly dryRun: boolean }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<EvidenceAppendInput>; readonly dryRun: boolean }
     | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
@@ -346,4 +347,9 @@ export interface ParsedCommand {
 export type CliTaskCompleteAction = Exclude<
   Extract<ParsedCommand["action"], { readonly kind: "task-complete" }>,
   TaskCompleteTransitionCommand
+>;
+
+export type CliTaskSubmitAction = Exclude<
+  Extract<ParsedCommand["action"], { readonly kind: "task-submit" }>,
+  TaskSubmitTransitionCommand
 >;

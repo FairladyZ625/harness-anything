@@ -16,7 +16,6 @@ import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
 import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
-import { rejectDaemonTaskSubmitFacade } from "../../commands/core/task-submit-facade.ts";
 import { rejectDaemonTaskLifecycleFacade } from "../../commands/core/task-lifecycle-facade.ts";
 
 export const coreCommandSpecs = defineCommandSpecs([
@@ -215,29 +214,6 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "task-submit",
-    "usage": "task submit <id> --from-file <submission.json> [--dry-run]",
-    "options": [{"flag":"--from-file","description":"Read JSON fields completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks."},{"flag":"--dry-run","description":"Preview the internal submission transaction without writing."}],
-    "summary": "Finalize/export the bound Session and atomically submit the active Execution into in_review.",
-    "examples": ["harness-anything task submit task_01ABC --from-file submission.json"],
-    "parse": parseCoreTaskArgs,
-    "run": rejectDaemonTaskSubmitFacade,
-    "receiptContract": {
-      "data": ["taskId", "report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    },
-    "admission": {
-      "nounOwnership": "Task lifecycle facade; it does not introduce a new top-level noun.",
-      "lifecycle": "permanent",
-      "decisionRef": "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
-      "chain": { "stepCount": 1, "submissionFieldCount": 6, "structuredInput": true }
-    }
-  },
-  {
     "kind": "task-closeout",
     "display": "advanced",
     "usage": "task closeout <id> --from-file <closeout.json> [--execution-id <execution-id>] [--lease-token <token>] [--commit <git-ref>] [--reviewer <id>] [--dry-run] [--json]",
@@ -268,7 +244,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "status-set",
     "usage": "task transition <id> <planned|active|blocked|in_review|done|cancelled> [--force --reason <reason>]",
-    "options": [{"flag":"--force","description":"Force audited cancellation recovery; this never certifies done."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Explicitly authenticate the Holder V2 lease; optional for its active local actor."},{"flag":"--completion-claim","description":"Record the required textual completion claim."},{"flag":"--deliverable","description":"Record a deliverable description; repeat as needed."},{"flag":"--output","description":"Record inline OutputEvidence text; repeat as needed."},{"flag":"--verification","description":"Record a verification note; repeat as needed."},{"flag":"--known-gap","description":"Record a known gap; repeat as needed."},{"flag":"--residual-risk","description":"Record a residual risk; repeat as needed."}],
+    "options": [{"flag":"--force","description":"Force audited cancellation recovery; this never certifies done."},{"flag":"--reason","description":"Record the reason for the lifecycle change."}],
     "aliases": ["task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)":"hidden"},
     "summary": "Move a local task to a new lifecycle status.",
@@ -279,9 +255,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "data": ["taskId", "status"],
       "optionalData": {
         "forced": "Only emitted for audited cancellation recovery invoked with --force.",
-        "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence.",
-        "executionId": "Only emitted for Holder V2 execution submission.",
-        "report": "Only emitted for Holder V2 execution submission."
+        "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence."
       },
       "paths": [],
       "optionalPaths": {

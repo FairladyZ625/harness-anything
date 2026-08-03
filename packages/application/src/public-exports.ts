@@ -186,7 +186,17 @@ export { bindCreateProvenance } from "./provenance-binding.ts";
 export { generateFactIdV1 } from "./fact-write-service.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeExecutionReservationReconciler, makeExecutionSagaService } from "./execution-saga-service.ts";
-export { finalizeExecutionSessionBindings, makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
+export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
+export {
+  finalizeExecutionSessionBindings,
+  taskSubmitPlanInput,
+  TaskSubmitTransitionService
+} from "./task-submit-transition-service.ts";
+export type {
+  TaskSubmitTransitionPlan,
+  TaskSubmitTransitionPlanInput,
+  TaskSubmitTransitionSnapshot
+} from "./task-submit-transition-service.ts";
 export { assertReviewEvidenceBelongsToExecution, makeReviewExecutionService } from "./review-execution-service.ts";
 export type { ReviewExecutionService } from "./review-execution-service.ts";
 export { makeRecordExecutionConsentService } from "./record-execution-consent-service.ts";

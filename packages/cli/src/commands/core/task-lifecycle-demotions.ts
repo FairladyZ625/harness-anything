@@ -20,7 +20,6 @@ export const runTaskLifecycleWithDemotions: CommandRunner = (context, command) =
   const action = command.action;
   if (
     action.kind !== "status-set"
-    || action.executionSubmission
     || action.status === "in_review"
     || !isTerminalStatus(action.status)
   ) {

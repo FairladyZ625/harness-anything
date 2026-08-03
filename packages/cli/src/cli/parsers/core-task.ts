@@ -6,7 +6,7 @@ import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseArtifactAdd } from "./core-task-artifact.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
 import { parseTaskContractMigrate } from "./core-task-contract.ts";
-import { parseExecutionSubmissionOptions, parseTaskClaim } from "./core-task-execution.ts";
+import { parseTaskClaim } from "./core-task-execution.ts";
 import { parseTaskList } from "./core-task-list.ts";
 import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 import { parseTaskConsentRecord } from "./core-task-consent.ts";
@@ -72,15 +72,12 @@ function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: bool
   if (force && !reason) {
     return { ok: false, error: cliError(CliErrorCode.MissingForceReason, "Forced terminal status changes require --reason for audit evidence.") };
   }
-  const executionSubmission = parseExecutionSubmissionOptions(args, args[4]);
-  if (!executionSubmission.ok) return executionSubmission;
   return ok(rootDir, json, {
     kind: "status-set",
     taskId: args[3],
     status: args[4],
     force,
-    reason,
-    ...(executionSubmission.value ? { executionSubmission: executionSubmission.value } : {})
+    reason
   });
 }
 

@@ -1,12 +1,14 @@
 import {
   decodeTaskCompleteTransitionCommand,
-  type TaskCompleteTransitionCommand
+  decodeTaskSubmitTransitionCommand,
+  type TaskCompleteTransitionCommand,
+  type TaskSubmitTransitionCommand
 } from "@harness-anything/application";
 import type { RepoWriteJsonObject } from "./repo-write-protocol.ts";
 
 declare const repoWriteLegacyCommandNameBrand: unique symbol;
 export type RepoWriteLegacyCommandName = string & {
-  readonly [repoWriteLegacyCommandNameBrand]: "not-task-complete";
+  readonly [repoWriteLegacyCommandNameBrand]: "not-typed-lifecycle-command";
 };
 
 export interface RepoWriteLegacyCommandDto {
@@ -16,7 +18,7 @@ export interface RepoWriteLegacyCommandDto {
   readonly payload: RepoWriteJsonObject;
 }
 
-export interface RepoWriteTaskCompleteWireCommand {
+interface RepoWriteTypedWireCommand<Action> {
   readonly rootDir: string;
   readonly rootResolutionSource?: "explicit-override" | "local-cwd";
   readonly layoutOverrides?: RepoWriteJsonObject;
@@ -26,16 +28,26 @@ export interface RepoWriteTaskCompleteWireCommand {
   readonly daemonProfileOverride?: "default" | "isolated";
   readonly json: boolean;
   readonly deprecatedInvocation?: RepoWriteJsonObject;
-  readonly action: TaskCompleteTransitionCommand;
+  readonly action: Action;
 }
 
-export interface RepoWriteTaskCompleteWireSession {
+interface RepoWriteTypedWireSession {
   readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity";
   readonly sessionId: string;
   readonly source: "runtime" | "manual";
   readonly detectedAt: string;
   readonly user?: string;
 }
+
+export type RepoWriteTaskCompleteWireCommand =
+  RepoWriteTypedWireCommand<TaskCompleteTransitionCommand>;
+
+export type RepoWriteTaskCompleteWireSession = RepoWriteTypedWireSession;
+
+export type RepoWriteTaskSubmitWireCommand =
+  RepoWriteTypedWireCommand<TaskSubmitTransitionCommand>;
+
+export type RepoWriteTaskSubmitWireSession = RepoWriteTypedWireSession;
 
 export interface RepoWriteTaskCompleteCommandPayload {
   readonly command: RepoWriteTaskCompleteWireCommand;
@@ -49,15 +61,31 @@ export interface RepoWriteTaskCompleteCommandDto {
   readonly payload: RepoWriteTaskCompleteCommandPayload;
 }
 
+export interface RepoWriteTaskSubmitCommandPayload {
+  readonly command: RepoWriteTaskSubmitWireCommand;
+  readonly session: RepoWriteTaskSubmitWireSession;
+}
+
+export interface RepoWriteTaskSubmitCommandDto {
+  readonly commandName: "task-submit";
+  readonly actor: RepoWriteJsonObject;
+  readonly context: RepoWriteJsonObject;
+  readonly payload: RepoWriteTaskSubmitCommandPayload;
+}
+
 export type RepoWriteCommandDto =
   | RepoWriteLegacyCommandDto
-  | RepoWriteTaskCompleteCommandDto;
+  | RepoWriteTaskCompleteCommandDto
+  | RepoWriteTaskSubmitCommandDto;
 
 type Invalid = (path: string, expected: string) => never;
 
 export function repoWriteLegacyCommandName(value: string): RepoWriteLegacyCommandName {
   if (value === "task-complete") {
     throw new Error("REPO_WRITE_TASK_COMPLETE_TYPED_COMMAND_REQUIRED");
+  }
+  if (value === "task-submit") {
+    throw new Error("REPO_WRITE_TASK_SUBMIT_TYPED_COMMAND_REQUIRED");
   }
   return value as RepoWriteLegacyCommandName;
 }
@@ -68,14 +96,21 @@ export function repoWriteCommandDtoFromDecodedFields(input: {
   readonly context: RepoWriteJsonObject;
   readonly payload: RepoWriteJsonObject;
 }, path = "$.command", invalid: Invalid = commandInvalid): RepoWriteCommandDto {
-  if (input.commandName !== "task-complete") {
-    return { ...input, commandName: repoWriteLegacyCommandName(input.commandName) };
+  if (input.commandName === "task-complete") {
+    return {
+      ...input,
+      commandName: "task-complete",
+      payload: decodeTaskCompleteCommandPayload(input.payload, `${path}.payload`, invalid)
+    };
   }
-  return {
-    ...input,
-    commandName: "task-complete",
-    payload: decodeTaskCompleteCommandPayload(input.payload, `${path}.payload`, invalid)
-  };
+  if (input.commandName === "task-submit") {
+    return {
+      ...input,
+      commandName: "task-submit",
+      payload: decodeTaskSubmitCommandPayload(input.payload, `${path}.payload`, invalid)
+    };
+  }
+  return { ...input, commandName: repoWriteLegacyCommandName(input.commandName) };
 }
 
 function decodeTaskCompleteCommandPayload(
@@ -83,16 +118,49 @@ function decodeTaskCompleteCommandPayload(
   path: string,
   invalid: Invalid
 ): RepoWriteTaskCompleteCommandPayload {
+  return decodeTypedCommandPayload(
+    payload,
+    path,
+    invalid,
+    "task-complete",
+    decodeTaskCompleteTransitionCommand
+  );
+}
+
+function decodeTaskSubmitCommandPayload(
+  payload: RepoWriteJsonObject,
+  path: string,
+  invalid: Invalid
+): RepoWriteTaskSubmitCommandPayload {
+  return decodeTypedCommandPayload(
+    payload,
+    path,
+    invalid,
+    "task-submit",
+    decodeTaskSubmitTransitionCommand
+  );
+}
+
+function decodeTypedCommandPayload<Action>(
+  payload: RepoWriteJsonObject,
+  path: string,
+  invalid: Invalid,
+  commandName: "task-complete" | "task-submit",
+  decodeAction: (value: unknown, path: string) => Action
+): {
+  readonly command: RepoWriteTypedWireCommand<Action>;
+  readonly session: RepoWriteTypedWireSession;
+} {
   const payloadKeys = Object.keys(payload);
   if (payloadKeys.length !== 2 || !payloadKeys.includes("command") || !payloadKeys.includes("session")) {
-    invalid(path, "typed task-complete payload with required command/session and no unknown keys");
+    invalid(path, `typed ${commandName} payload with required command/session and no unknown keys`);
   }
   const command = taskCompleteWireRecord(payload.command, `${path}.command`, invalid);
   taskCompleteWireExactKeys(command, ["rootDir", "json", "action"], [
     "rootResolutionSource", "layoutOverrides", "daemonRepoId", "actor",
     "daemonModeOverride", "daemonProfileOverride", "deprecatedInvocation"
   ], `${path}.command`, invalid);
-  const action = decodeTaskCompleteTransitionCommand(
+  const action = decodeAction(
     command.action,
     `${path}.command.action`
   );

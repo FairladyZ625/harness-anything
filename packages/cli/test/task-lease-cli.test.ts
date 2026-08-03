@@ -350,9 +350,16 @@ test("execution claim activates once and the Holder V2 actor can submit without 
     assert.doesNotMatch(renewedLeaseLedgerBody, /token|hash|credential/iu);
 
     const staleToken = runJson(rootDir, [
-      "task", "transition", created.taskId, "in_review",
-      "--lease-token", claimed.report.leaseToken,
-      "--summary", "stale credential must be rejected"
+      "task", "submit", created.taskId, "--json-input", JSON.stringify({
+        completionClaim: "stale credential must be rejected",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+        executionId: claimed.executionId,
+        leaseToken: claimed.report.leaseToken
+      })
     ], false, { HARNESS_ACTOR: "agent:test", CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
     assert.equal(staleToken.ok, false);
     assert.match(staleToken.error.hint, /requires an active lease/u);
@@ -374,10 +381,14 @@ test("execution claim activates once and the Holder V2 actor can submit without 
     ].join("\n"), "utf8");
 
     const submitted = runJson(rootDir, [
-      "task", "transition", created.taskId, "in_review",
-      "--summary", "ready for review",
-      "--verification", "node:test",
-      "--output", "commit:abc123"
+      "task", "submit", created.taskId, "--json-input", JSON.stringify({
+        completionClaim: "ready for review",
+        deliverables: [],
+        outputs: ["commit:abc123"],
+        verificationNotes: ["node:test"],
+        knownGaps: [],
+        residualRisks: []
+      })
     ], true, { HARNESS_ACTOR: "agent:test", HOME: homeDir, CODEX_THREAD_ID: "codex-primary-session", CODEX_SESSION_ID: "codex-primary-session" });
 
     assert.equal(submitted.status, "in_review");
@@ -406,10 +417,14 @@ test("submit reports an unavailable binding when default runtime capture is abse
     runJson(rootDir, ["task", "transition", created.taskId, "active"], true, sessionEnv);
 
     const submitted = runJson(rootDir, [
-      "task", "transition", created.taskId, "in_review",
-      "--summary", "ready with unavailable transcript",
-      "--verification", "node:test",
-      "--output", "commit:def456"
+      "task", "submit", created.taskId, "--json-input", JSON.stringify({
+        completionClaim: "ready with unavailable transcript",
+        deliverables: [],
+        outputs: ["commit:def456"],
+        verificationNotes: ["node:test"],
+        knownGaps: [],
+        residualRisks: []
+      })
     ], true, sessionEnv);
 
     assert.equal(submitted.status, "in_review");

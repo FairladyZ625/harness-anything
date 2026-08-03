@@ -39,12 +39,10 @@ test("coldstart lifecycle submits and completes with visible unavailable provena
 
     const submitted = runJson(rootDir, ["task", "submit", created.taskId, "--from-file", packetPath], true, env);
     assert.equal(submitted.command, "task-submit");
-    assert.equal(submitted.report.schema, "task-submit-result/v1");
-    assert.equal(submitted.report.steps.length, 1);
-    assert.equal(submitted.report.steps[0].command, "task transition");
-    assert.equal(submitted.report.steps[0].details.data.executionId, claimed.executionId);
-    assert.equal(submitted.report.steps[0].details.data.status, "in_review");
-    assert.deepEqual(submitted.report.steps[0].details.data.report.unavailableBindings, [{
+    assert.equal(submitted.executionId, claimed.executionId);
+    assert.equal(submitted.status, "in_review");
+    assert.equal(submitted.report.schema, "execution-submit-result/v1");
+    assert.deepEqual(submitted.report.unavailableBindings, [{
       bindingId: `primary:${sessionId}`,
       sessionRef: `session/${sessionId}`,
       archiveStatus: "unavailable"
@@ -237,12 +235,16 @@ test("task submit dry-run lists its single internal submit transaction", () => {
 
     const dryRun = runJson(rootDir, ["task", "submit", created.taskId, "--from-file", packetPath, "--dry-run"], true, env);
     assert.equal(dryRun.command, "task-submit");
-    assert.deepEqual(dryRun.report.steps, ["status-set"]);
+    assert.equal(dryRun.status, "in_review");
+    assert.equal(dryRun.report.schema, "task-submit-transition-preview/v1");
+    assert.equal(dryRun.report.disposition, "server-planner-validation-required");
     assert.equal(dryRun.report.preview.schema, "command-dry-run-preview/v1");
     assert.equal(dryRun.report.preview.operation, "task-submit");
 
     const submitted = runJson(rootDir, ["task", "submit", created.taskId, "--from-file", packetPath], true, env);
-    assert.equal(submitted.report.steps.length, 1);
+    assert.equal(submitted.executionId, claimed.executionId);
+    assert.equal(submitted.status, "in_review");
+    assert.equal(submitted.report.schema, "execution-submit-result/v1");
     const execution = JSON.parse(readFileSync(path.join(rootDir, created.packagePath, "executions", `${claimed.executionId}.md`), "utf8"));
     assert.equal(execution.state, "submitted");
     assert.equal(execution.submission.completion_claim, "Ready for review.");
@@ -307,27 +309,21 @@ test("review facade preserves the approved-consent rejection code and logical st
   }));
 });
 
-test("task submit facade preserves the missing-holder rejection code and next action", () => {
-  withTempRoot((manualRoot) => withTempRoot((facadeRoot) => {
-    const manual = prepareActiveWithoutClaim(manualRoot);
-    const facade = prepareActiveWithoutClaim(facadeRoot);
-    const manualRejected = runJson(manualRoot, [
-      "task", "transition", manual.taskId, "in_review", "--completion-claim", "ready"
-    ], false, { HARNESS_ACTOR: "agent:worker" });
-    const packetPath = path.join(facadeRoot, "submit-no-holder.json");
+test("typed task submit preserves the missing-holder rejection and next action", () => {
+  withTempRoot((rootDir) => {
+    const task = prepareActiveWithoutClaim(rootDir);
+    const packetPath = path.join(rootDir, "submit-no-holder.json");
     writeFileSync(packetPath, JSON.stringify({
       completionClaim: "ready", deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], residualRisks: []
     }), "utf8");
-    const facadeRejected = runJson(facadeRoot, [
-      "task", "submit", facade.taskId, "--from-file", packetPath
+    const rejected = runJson(rootDir, [
+      "task", "submit", task.taskId, "--from-file", packetPath
     ], false, { HARNESS_ACTOR: "agent:worker" });
-    assert.equal(facadeRejected.command, manualRejected.command);
-    assert.equal(facadeRejected.error.code, manualRejected.error.code);
-    assert.equal(normalizeDynamicText(facadeRejected.error.hint), normalizeDynamicText(manualRejected.error.hint));
-    assert.match(facadeRejected.error.hint, /task start/u);
-    assert.equal(facadeRejected.facade, undefined);
-    assert.equal(existsSync(path.join(facadeRoot, facade.packagePath, "code-doc-anchors.json")), false);
-  }));
+    assert.equal(rejected.command, "task-submit");
+    assert.equal(rejected.error.code, "write_rejected");
+    assert.match(rejected.error.hint, /task start/u);
+    assert.equal(existsSync(path.join(rootDir, task.packagePath, "code-doc-anchors.json")), false);
+  });
 });
 
 type ChainMode = "flags" | "facade";
@@ -390,19 +386,23 @@ function prepareSubmitted(rootDir: string, title: string, mode: ChainMode): {
       "task", "code-doc", "reconcile", created.taskId, "--commit", sha, "--path", "evidence/equivalence.txt"
     ], true, env);
     const submitReceipt = runJson(rootDir, [
-      "task", "transition", created.taskId, "in_review", "--execution-id", executionId,
-      "--completion-claim", submission.completionClaim, "--deliverable", submission.deliverables[0],
-      "--output", submission.outputs[0], "--verification", submission.verificationNotes[0],
-      "--known-gap", submission.knownGaps[0], "--residual-risk", submission.residualRisks[0]
+      "task", "submit", created.taskId, "--from-file", writeSubmissionPacket(rootDir, submission),
+      "--execution-id", executionId
     ], true, env);
     submitSteps = [codeDocReceipt, submitReceipt];
   } else {
     const packetPath = path.join(rootDir, "equivalent-submission.json");
     writeFileSync(packetPath, JSON.stringify(submission), "utf8");
     const submitReceipt = runJson(rootDir, ["task", "submit", created.taskId, "--from-file", packetPath], true, env);
-    submitSteps = submitReceipt.report.steps;
+    submitSteps = [submitReceipt];
   }
   return { taskId: created.taskId, packagePath: created.packagePath, executionId, env, submitSteps, sha };
+}
+
+function writeSubmissionPacket(rootDir: string, submission: Record<string, unknown>): string {
+  const packetPath = path.join(rootDir, "equivalent-flags-submission.json");
+  writeFileSync(packetPath, JSON.stringify(submission), "utf8");
+  return packetPath;
 }
 
 function writeRetryApprovalPacket(rootDir: string): string {

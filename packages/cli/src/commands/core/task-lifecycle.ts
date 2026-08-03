@@ -8,7 +8,7 @@ import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-regis
 import { runTaskArchive } from "./task-archive.ts";
 import { runActiveStatusSet } from "./task-active-transition.ts";
 import { runTaskAmend } from "./task-amend.ts";
-import { runExecutionSubmit, runTaskClaim, runTaskHolder, runTaskRelease } from "./task-holder.ts";
+import { runTaskClaim, runTaskHolder, runTaskRelease } from "./task-holder.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
 import { runTaskRelate } from "./task-relations.ts";
 import { runTaskSupersede } from "./task-supersede.ts";
@@ -30,7 +30,6 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
     case "task-release":
       return runTaskRelease(context, action);
     case "status-set":
-      if (action.executionSubmission) return runExecutionSubmit(context, action);
       if (action.status === "in_review") return runExecutionAwareInReview(context, action);
       return runStatusSet(context, action.taskId, action.status, action.force, action.reason);
     case "progress-append":
@@ -67,7 +66,7 @@ function runExecutionAwareInReview(
     status: "in_review",
     error: cliError(
       CliErrorCode.ExecutionSubmissionRequired,
-      "Task review state is created only by an Execution submit-for-review transaction; provide --completion-claim."
+      `Task review state is created only by the typed Execution submit-for-review transaction. Next: run \`ha task submit ${action.taskId} --from-file submission.json\`.`
     )
   } satisfies CliResult);
 }

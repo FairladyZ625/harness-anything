@@ -17,7 +17,7 @@ export function executionSubmitSuccessResult(input: {
 }): CliResult {
   return {
     ok: true,
-    command: "status-set",
+    command: "task-submit",
     taskId: input.taskId,
     executionId: input.executionId,
     status: "in_review",

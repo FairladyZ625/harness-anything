@@ -16,6 +16,7 @@ import { displayCommand, toCommandReceipt } from "../cli/receipt.ts";
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { taskCompleteTransitionCommandFromCliAction } from "../cli/task-complete-transition-command.ts";
+import { taskSubmitTransitionCommandFromCliAction } from "../cli/task-submit-transition-command.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { materializerCommandResult } from "../commands/core/materializer.ts";
 import {
@@ -45,7 +46,9 @@ export const cliDaemonCommandHostServices = {
       ...command,
       action: command.action.kind === "task-complete"
         ? taskCompleteTransitionCommandFromCliAction(command.action)
-        : command.action
+        : command.action.kind === "task-submit"
+          ? taskSubmitTransitionCommandFromCliAction(command.action)
+          : command.action
     } as unknown as ParsedCommand;
   },
   normalizeCommand: (command, currentSession) => normalizeCommandSemantics(

@@ -183,10 +183,16 @@ function submitExecutionForReview(rootDir: string, taskId: string): string {
   const claimed = runJson(rootDir, ["task", "claim", taskId, "--execution"], true, env);
   const executionId = String(claimed.executionId);
   const submitted = runJson(rootDir, [
-    "task", "transition", taskId, "in_review",
-    "--lease-token", String(claimed.report.leaseToken),
-    "--summary", "sweep task ready for review",
-    "--verification", "transition sweep fixture passed"
+    "task", "submit", taskId, "--json-input", JSON.stringify({
+      completionClaim: "sweep task ready for review",
+      deliverables: [],
+      outputs: [],
+      verificationNotes: ["transition sweep fixture passed"],
+      knownGaps: [],
+      residualRisks: [],
+      executionId,
+      leaseToken: String(claimed.report.leaseToken)
+    })
   ], true, env);
   assert.equal(submitted.executionId, executionId);
   return executionId;

@@ -341,19 +341,20 @@ test("multi-operation execution submit stays on the direct child lane", () => {
   assert.equal(productionAuthorityCommandHasPurePlan({
     rootDir: "/repo",
     action: {
-      kind: "status-set",
+      kind: "task-submit",
       taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG6",
-      status: "in_review",
-      force: false,
-      executionSubmission: {
-        executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+      executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+      leaseToken: null,
+      submission: {
         completionClaim: "ready",
         deliverables: [],
         verificationNotes: [],
         knownGaps: [],
         residualRisks: [],
         outputs: []
-      }
+      },
+      callerIdempotencyKey: "task-submit-direct-child-test",
+      dryRun: false
     }
   }), false);
 });

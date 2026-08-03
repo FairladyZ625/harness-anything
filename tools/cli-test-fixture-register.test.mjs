@@ -10,7 +10,8 @@ test("CLI fixture preload defers its composition imports until the fixture is us
     return {
       runRegisteredCommandWithCliComposition: async (command, options) => ({
         command,
-        scope: options.localCoordinatorScope
+        scope: options.localCoordinatorScope,
+        authorityCommandSubmission: options.inlineCreateProvenanceOnly === true
       }),
       toCommandReceipt: (result) => result
     };
@@ -19,11 +20,19 @@ test("CLI fixture preload defers its composition imports until the fixture is us
   assert.equal(loads, 0);
   assert.deepEqual(await runner("first"), {
     command: "first",
-    scope: "test-fixture"
+    scope: "test-fixture",
+    authorityCommandSubmission: false
   });
   assert.deepEqual(await runner("second"), {
     command: "second",
-    scope: "test-fixture"
+    scope: "test-fixture",
+    authorityCommandSubmission: false
+  });
+  const taskSubmit = { action: { kind: "task-submit" } };
+  assert.deepEqual(await runner(taskSubmit), {
+    command: taskSubmit,
+    scope: "test-fixture",
+    authorityCommandSubmission: true
   });
   assert.equal(loads, 1);
 });

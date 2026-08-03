@@ -6,7 +6,8 @@ import {
   encodeFactRelationCommandPayloadV2,
   encodeSessionExecutionReviewCommandPayloadV2,
   encodeTaskDecisionModuleCommandPayloadV2,
-  finalizeExecutionSessionBindings,
+  taskSubmitPlanInput,
+  TaskSubmitTransitionService,
   renderCodeDocReconciliationDraft,
   type ConsentCommandPayloadV2,
   type FactRelationCommandPayloadV2,
@@ -46,17 +47,16 @@ export async function productionLifecycleAttemptIntent(input: {
   readonly actor: ExecutionRecord["primary_actor"];
 }, hostServices: ProductionAuthorityCompilerHostServices): Promise<CanonicalAttemptIntent | null> {
   const { action } = input.command;
+  if (action.kind === "task-submit") {
+    return executionSubmitIntent(
+      input.authoredRoot,
+      { rootDir: input.command.rootDir, layoutOverrides: input.command.layoutOverrides },
+      input.currentSession.detectedAt,
+      action
+    );
+  }
   if (action.kind === "status-set") {
     const taskPath = taskLifecyclePath(input.authoredRoot, action.taskId, "INDEX.md");
-    if (action.executionSubmission?.executionId) {
-      return executionSubmitIntent(
-        input.authoredRoot,
-        { rootDir: input.command.rootDir, layoutOverrides: input.command.layoutOverrides },
-        input.currentSession.detectedAt,
-        action,
-        taskPath
-      );
-    }
     const auditText = action.force
       ? hostServices.renderForceStatusAudit(action.status, action.reason ?? "unspecified", input.currentSession.detectedAt)
       : undefined;
@@ -176,48 +176,27 @@ function executionSubmitIntent(
   authoredRoot: string,
   rootInput: { readonly rootDir: string; readonly layoutOverrides?: { readonly authoredRoot?: string } },
   submittedAt: string,
-  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "status-set" }>,
-  taskPath: ReturnType<typeof taskLifecyclePath>
+  action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-submit" }>
 ): CanonicalAttemptIntent {
-  const submission = action.executionSubmission!;
-  const executionId = submission.executionId!;
+  const command = taskSubmitPlanInput(action);
+  const executionId = command.executionId;
   const executionPath = taskLifecyclePath(authoredRoot, action.taskId, `executions/${executionId}.md`);
+  const taskPath = taskLifecyclePath(authoredRoot, action.taskId, "INDEX.md");
   const executionSnapshot = requiredLifecycleSnapshot(authoredRoot, executionPath.logical, executionPath.physical);
   const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
   const current = executionDeclaration.documentCodec.decode(executionSnapshot.body) as ExecutionRecord;
-  const sessionBindings = finalizeExecutionSessionBindings(
+  const plan = TaskSubmitTransitionService.plan({
     rootInput,
-    current.session_bindings,
+    taskId: action.taskId,
+    taskIndexBody: taskSnapshot.body,
+    execution: current,
     submittedAt
-  );
-  const next: ExecutionRecord = {
-    ...current,
-    state: "submitted",
-    submitted_at: submittedAt,
-    session_bindings: sessionBindings,
-    outputs: [
-      ...current.outputs,
-      ...submission.outputs.map((text, index) => ({
-        evidence_id: `ev_cli_${index + 1}`,
-        execution_ref: `execution/${action.taskId}/${executionId}`,
-        locator: { substrate: "inline" as const, text }
-      }))
-    ],
-    submission: {
-      completion_claim: submission.completionClaim,
-      deliverables: submission.deliverables,
-      evidence_refs: submission.outputs.map((_, index) => `ev_cli_${index + 1}`),
-      verification_notes: submission.verificationNotes,
-      known_gaps: submission.knownGaps,
-      residual_risks: submission.residualRisks
-    }
-  };
-  const taskIndexBody = taskSnapshot.body.replace(/^(  status:\s*).+$/mu, "$1in_review");
+  }, command);
   const payload: SessionExecutionReviewCommandPayloadV2 = {
     schema: "execution.submit/v1",
     taskId: action.taskId,
-    execution: next,
-    taskIndexBody
+    execution: plan.execution,
+    taskIndexBody: plan.taskIndexBody
   };
   return lifecycleIntent(
     "execution.submit",
