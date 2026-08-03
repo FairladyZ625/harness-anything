@@ -2,8 +2,8 @@
   "schema": "extension-contract-lock/v1",
   "catalog": {
     "id": "software-coding-core",
-    "version": "1.5.0",
-    "digest": "sha256:d962ccc4b5dd47b5a321e76049fdc8fac7fc261aff4c35204d139a05071c2ea2"
+    "version": "1.5.1",
+    "digest": "sha256:35b94d7b78e189f912792e33309e50a6d2d00351bf4815dbe3eaa37d96d654b4"
   },
   "presets": [
     {

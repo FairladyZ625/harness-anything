@@ -98,9 +98,16 @@ function lifecycleFacadeNextCommand(
     return joinLifecycleCommand("ha", "task", "closeout", step.action.taskId, "--from-file", "<closeout.json>");
   }
   const failureHint = failure.error?.hint ?? "";
-  if (step.action.kind === "status-set" && step.action.executionSubmission && isLeaseRequiredFailure(failure, failureHint)) {
+  if (step.action.kind === "task-submit" && isLeaseRequiredFailure(failure, failureHint)) {
     if (/current holder none; lease status none|lease status orphaned/iu.test(failureHint)) {
-      return joinLifecycleCommand("ha", "task", "start", step.action.taskId, step.action.executionSubmission.executionId && "--execution-id", step.action.executionSubmission.executionId);
+      return joinLifecycleCommand(
+        "ha",
+        "task",
+        "start",
+        step.action.taskId,
+        step.action.executionId ? "--execution-id" : undefined,
+        step.action.executionId ?? undefined
+      );
     }
     return joinLifecycleCommand("ha", "task", "holder", step.action.taskId);
   }
@@ -123,20 +130,6 @@ function renderLifecycleStep(command: ParsedCommand): string {
     return joinLifecycleCommand("ha", "task", "start", action.taskId, action.executionId && "--execution-id", action.executionId, action.ttlMs && "--ttl-ms", action.ttlMs);
   }
   if (action.kind === "status-set" && action.status === "active") return joinLifecycleCommand("ha", "task", "transition", action.taskId, "active");
-  if (action.kind === "status-set" && action.executionSubmission) {
-    const submission = action.executionSubmission;
-    return joinLifecycleCommand(
-      "ha", "task", "transition", action.taskId, "in_review",
-      submission.executionId && "--execution-id", submission.executionId,
-      submission.leaseToken && "--lease-token", submission.leaseToken,
-      "--completion-claim", submission.completionClaim,
-      ...repeatLifecycleFlag("--deliverable", submission.deliverables),
-      ...repeatLifecycleFlag("--output", submission.outputs),
-      ...repeatLifecycleFlag("--verification", submission.verificationNotes),
-      ...repeatLifecycleFlag("--known-gap", submission.knownGaps),
-      ...repeatLifecycleFlag("--residual-risk", submission.residualRisks)
-    );
-  }
   if (action.kind === "task-review-execution") {
     return joinLifecycleCommand(
       "ha", "task", "review-execution", action.taskId,

@@ -43,13 +43,17 @@ test("direct recovery mode refuses to recreate the deleted task-complete facade"
       ["--actor", "human:person_test", "task", "complete", fixture.taskId, "--approve", "--from-file", approvalPacket]
     ] as const;
 
-    const submitted = runJson(rootDir, closeoutCommands[0], true, fixture.env);
+    const submitted = runJson(rootDir, closeoutCommands[0], true, {
+      ...fixture.env,
+      HARNESS_DAEMON_MODE: "fixture"
+    });
     const taskRoot = path.join(rootDir, fixture.packagePath);
     const submittedExecution = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${fixture.executionId}.md`), "utf8"));
     assert.equal(closeoutCommands.length, 2);
     assert.equal(submitted.command, "task-submit");
-    assert.equal(submitted.report.steps.length, 1);
-    assert.equal(submitted.report.steps[0].command, "task transition");
+    assert.equal(submitted.executionId, fixture.executionId);
+    assert.equal(submitted.status, "in_review");
+    assert.equal(submitted.report.schema, "execution-submit-result/v1");
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     assert.equal(submittedExecution.state, "submitted");
     assert.equal(submittedExecution.session_bindings[0].archive_status, "complete");
@@ -67,7 +71,10 @@ test("direct recovery mode refuses to recreate the deleted task-complete facade"
 test("direct recovery never derives owner approval outside the daemon planner", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Owner Boundary Negative");
-    runJson(rootDir, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(rootDir)], true, fixture.env);
+    runJson(rootDir, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(rootDir)], true, {
+      ...fixture.env,
+      HARNESS_DAEMON_MODE: "fixture"
+    });
 
     const rejected = runJson(rootDir, ["task", "complete", fixture.taskId, "--ci", "passed"], false, fixture.env);
 
@@ -106,7 +113,10 @@ test("approved closeout without consent is rejected before any lifecycle write",
 test("changes_requested closeout packet cannot complete the submitted task", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Changes Requested Is Not Approval");
-    runJson(rootDir, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(rootDir)], true, fixture.env);
+    runJson(rootDir, ["task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(rootDir)], true, {
+      ...fixture.env,
+      HARNESS_DAEMON_MODE: "fixture"
+    });
     const packet = writeCloseoutPacket(rootDir, { verdict: "changes_requested" });
     const taskRoot = path.join(rootDir, fixture.packagePath);
     const indexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
@@ -151,7 +161,7 @@ test("task submit held by another worker recommends waiting or contacting the ho
     const rejected = runJson(leaseRoot, [
       "task", "submit", fixture.taskId, "--from-file", packet,
       "--execution-id", fixture.executionId, "--lease-token", fixture.leaseToken
-    ], false, { HARNESS_ACTOR: "agent:different-worker" });
+    ], false, { HARNESS_ACTOR: "agent:different-worker", HARNESS_DAEMON_MODE: "fixture" });
     assert.equal(rejected.error.code, "write_rejected");
     assert.match(rejected.error.hint, /not held by the caller|requires an active lease/iu);
     assert.match(rejected.error.hint, /lease status active.+otherwise wait or contact the current holder/iu);
@@ -186,10 +196,8 @@ test("task retire-execution retires the caller-owned live round, rejects submitt
     const claimed = runJson(liveRoot, ["task", "claim", fixture.taskId, "--execution"], true, fixture.env);
     assert.notEqual(claimed.executionId, fixture.executionId);
     runJson(liveRoot, [
-      "task", "transition", fixture.taskId, "in_review",
-      "--execution-id", claimed.executionId, "--completion-claim", "Replacement round is complete.",
-      "--deliverable", "replacement", "--verification", "verified", "--residual-risk", "none"
-    ], true, fixture.env);
+      "task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(liveRoot)
+    ], true, { ...fixture.env, HARNESS_DAEMON_MODE: "fixture" });
     runJson(liveRoot, [
       "task", "review-execution", fixture.taskId, "--execution-id", claimed.executionId,
       "--verdict", "approved", "--findings", "Replacement round passes.",
@@ -206,10 +214,8 @@ test("task retire-execution retires the caller-owned live round, rejects submitt
   withTempRoot((submittedRoot) => {
     const fixture = prepareActiveTask(submittedRoot, "Retirement Submitted");
     runJson(submittedRoot, [
-      "task", "transition", fixture.taskId, "in_review",
-      "--execution-id", fixture.executionId,
-      "--completion-claim", "submitted round", "--residual-risk", "none"
-    ], true, fixture.env);
+      "task", "submit", fixture.taskId, "--from-file", writeSubmissionPacket(submittedRoot)
+    ], true, { ...fixture.env, HARNESS_DAEMON_MODE: "fixture" });
     const rejected = runJson(submittedRoot, [
       "task", "retire-execution", fixture.taskId,
       "--execution-id", fixture.executionId,

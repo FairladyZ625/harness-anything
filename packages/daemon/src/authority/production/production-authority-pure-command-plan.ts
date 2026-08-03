@@ -16,12 +16,9 @@ export function directTypedCommandEntityId(
     case "task-retire-execution":
       return `entity/execution/${action.executionId}`;
     case "status-set":
-      if (action.executionSubmission && !action.executionSubmission.executionId) {
-        return undefined;
-      }
-      return action.executionSubmission?.executionId
-        ? `execution/${action.executionSubmission.executionId}`
-        : taskEntityId(action.taskId);
+      return taskEntityId(action.taskId);
+    case "task-submit":
+      return action.executionId ? `execution/${action.executionId}` : undefined;
     case "progress-append":
     case "task-code-doc-reconcile":
     case "task-complete":
@@ -56,5 +53,5 @@ export function productionAuthorityCommandHasPurePlan(
     // operation. A single fixed durable plan cannot represent both canonical
     // operations, so keep the whole command on the direct child lane.
     && command.action.kind !== "new-task"
-    && !(command.action.kind === "status-set" && Boolean(command.action.executionSubmission));
+    && command.action.kind !== "task-submit";
 }

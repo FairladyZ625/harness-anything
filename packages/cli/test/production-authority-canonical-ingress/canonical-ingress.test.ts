@@ -50,7 +50,6 @@ import {
 import { verifyD22ClaimChain } from "./d22-claim-chain.ts";
 import { verifyDecisionAttributionAfterRestart } from "./decision-attribution-restart.ts";
 import { verifyDerivedFactSource } from "./fact-source-parity.ts";
-import { authorityOperationProofShape } from "./operation-shape.ts";
 import { verifyProductionCommandParity } from "./production-parity.ts";
 import { verifyTypedMinimalParameterMatrix } from "./minimal-parameter-matrix.ts";
 import { verifyProductionPresetIngress } from "./preset-ingress.ts";
@@ -58,6 +57,10 @@ import { verifyOmittedIngressRegressions } from "./omitted-ingress-regressions.t
 import { verifyGenericIngressRejections } from "./generic-ingress-rejections.ts";
 import { verifySluggedTaskRelatePathCas } from "./slugged-path-cas.ts";
 import { assertProductionConsentIngress, productionConsentIngressCase } from "./consent-ingress.ts";
+import {
+  verifyExplicitTaskSubmitIngress,
+  verifyInferredTaskSubmitIngress
+} from "./task-submit-ingress.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -188,104 +191,22 @@ test("production service route preserves progress dry-run and publishes canonica
     assert.equal(publication.pipelineGeneratedPaths[0], publication.physicalChanges.find((change) => change.path.startsWith("attribution-events/"))?.path);
     git(fixture.authoredRoot, "diff", "--quiet", publication.commitSha, publication.parentCommits[1]!);
     assert.equal(dryRunHeadAfter, dryRunHead, "typed service dry-run must not create a commit");
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/executions/${explicitExecutionId}.md`
-    ), "utf8"), /^  "state": "active",$/mu);
-
-    const explicitExecutionSubmit = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "transition", explicitSubmitTaskId, "in_review",
-      "--execution-id", explicitExecutionId, "--lease-token", explicitLeaseToken,
-      "--completion-claim", "Explicit execution submit is atomic.",
-      "--verification", "Production daemon explicit route passed."
-    ], initialLeaseEnv);
-    assert.equal(explicitExecutionSubmit.status, 0, JSON.stringify(explicitExecutionSubmit.receipt));
-    assert.equal(explicitExecutionSubmit.receipt.ok, true, JSON.stringify(explicitExecutionSubmit.receipt));
-    const manualSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/executions/${explicitExecutionId}.md`
-    ), "utf8"), /^  "state": "submitted",$/mu);
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `tasks/${explicitSubmitTaskId}/INDEX.md`
-    ), "utf8"), /^  status: in_review$/mu);
-    const explicitExecutionProjection = runRawJsonMaybeFail(fixture.repoRoot, [
-      "execution", "show", explicitExecutionId
-    ], initialLeaseEnv);
-    assert.equal(explicitExecutionProjection.status, 0, JSON.stringify(explicitExecutionProjection.receipt));
-    assert.match(JSON.stringify(explicitExecutionProjection.receipt), /"state":"submitted"/u);
-    const explicitTaskProjection = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "show", explicitSubmitTaskId
-    ], initialLeaseEnv);
-    assert.equal(explicitTaskProjection.status, 0, JSON.stringify(explicitTaskProjection.receipt));
-    assert.match(JSON.stringify(explicitTaskProjection.receipt), /in_review/u);
-
-    const sluggedLifecycleTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
-    const sluggedExecutionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7";
-    const sluggedSessionId = "service-slugged-lifecycle-session";
-    writeColdCodexSessionLog(fixture.repoRoot, sluggedSessionId);
-    const sluggedLifecycleEnv = { ...env, CODEX_THREAD_ID: sluggedSessionId };
-    const exportedLifecycleSession = runRawJsonMaybeFail(fixture.repoRoot, [
-      "session", "export", "--session", sluggedSessionId, "--runtime", "codex", "--source", "runtime",
-      "--detected-at", "2026-07-17T00:00:00.000Z", "--transcript-file", fixture.transcriptPath
-    ], sluggedLifecycleEnv);
-    assert.equal(exportedLifecycleSession.status, 0, JSON.stringify(exportedLifecycleSession.receipt));
-    assert.equal(exportedLifecycleSession.receipt.ok, true, JSON.stringify(exportedLifecycleSession.receipt));
-    const claimed = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "claim", sluggedLifecycleTaskId, "--execution-id", sluggedExecutionId
-    ], sluggedLifecycleEnv);
-    assert.equal(claimed.status, 0, JSON.stringify(claimed.receipt));
-    assert.equal(claimed.receipt.ok, true, JSON.stringify(claimed.receipt));
-
-    const submitPacketPath = path.join(fixture.root, "slugged-submission.json");
-    writeFileSync(submitPacketPath, JSON.stringify({
-      completionClaim: "Slugged production lifecycle is complete.",
-      deliverables: ["Canonical slug-aware lifecycle intents."],
-      outputs: ["slugged lifecycle passed"],
-      verificationNotes: ["Production daemon route passed."],
-      knownGaps: [], residualRisks: []
-    }));
-    const beforeFacadeSubmit = authorityOperationRecords(fixture.serviceRoot).length;
-    const transitioned = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", sluggedLifecycleTaskId, "--from-file", submitPacketPath
-    ], sluggedLifecycleEnv);
-    assert.equal(transitioned.status, 0, JSON.stringify(transitioned.receipt));
-    assert.equal(transitioned.receipt.ok, true, JSON.stringify(transitioned.receipt));
-    const facadeSteps = (transitioned.receipt.details as {
-      readonly report?: { readonly steps?: ReadonlyArray<{ readonly details?: { readonly data?: Record<string, unknown> } }> };
-    } | undefined)?.report?.steps ?? [];
-    assert.equal(facadeSteps.length, 1, JSON.stringify(transitioned.receipt));
-    assert.equal(authorityOperationRecords(fixture.serviceRoot).length, beforeFacadeSubmit + 1,
-      "task submit must stop at one execution-submit operation; owner completion owns code-doc reconciliation");
-    const facadeSubmitOperation = latestAuthorityOperation(fixture.serviceRoot);
-    assert.deepEqual(
-      authorityOperationProofShape(facadeSubmitOperation),
-      authorityOperationProofShape(manualSubmitOperation),
-      "facade execution-submit registry operation must preserve every stored authority proof category"
-    );
-    assert.equal(existsSync(path.join(
-      fixture.authoredRoot,
-      `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
-    )), false, "task submit must not reconcile code-doc anchors before owner completion");
-    assert.equal(existsSync(path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}`)), false);
-
-    const submitStepData = facadeSteps.at(-1)?.details?.data ?? {};
-    assert.equal(submitStepData.executionId, sluggedExecutionId, JSON.stringify(transitioned.receipt));
-    assert.equal((submitStepData.report as { readonly leaseReleased?: boolean } | undefined)?.leaseReleased, true, JSON.stringify(transitioned.receipt));
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route/executions/${sluggedExecutionId}.md`
-    ), "utf8"), /^  "state": "submitted",$/mu);
-    assert.match(readFileSync(path.join(
-      fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route/INDEX.md`
-    ), "utf8"), /^  status: in_review$/mu);
-    const inferredExecutionProjection = runRawJsonMaybeFail(fixture.repoRoot, [
-      "execution", "show", sluggedExecutionId
-    ], sluggedLifecycleEnv);
-    assert.equal(inferredExecutionProjection.status, 0, JSON.stringify(inferredExecutionProjection.receipt));
-    assert.match(JSON.stringify(inferredExecutionProjection.receipt), /"state":"submitted"/u);
-    const inferredTaskProjection = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "show", sluggedLifecycleTaskId
-    ], sluggedLifecycleEnv);
-    assert.equal(inferredTaskProjection.status, 0, JSON.stringify(inferredTaskProjection.receipt));
-    assert.match(JSON.stringify(inferredTaskProjection.receipt), /in_review/u);
+    const manualSubmitOperation = verifyExplicitTaskSubmitIngress({
+      fixture,
+      env: initialLeaseEnv,
+      taskId: explicitSubmitTaskId,
+      executionId: explicitExecutionId,
+      leaseToken: explicitLeaseToken
+    });
+    const {
+      env: sluggedLifecycleEnv,
+      taskId: sluggedLifecycleTaskId,
+      executionId: sluggedExecutionId
+    } = verifyInferredTaskSubmitIngress({
+      fixture,
+      baseEnv: env,
+      comparisonOperation: manualSubmitOperation
+    });
 
     const reviewPacketPath = path.join(fixture.root, "slugged-review.json");
     writeFileSync(reviewPacketPath, JSON.stringify({

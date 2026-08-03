@@ -25,6 +25,7 @@ import {
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { productionAuthorityHostServices } from "../src/composition/production-authority-host-services.ts";
 import { taskCompleteTransitionCommandFromCliAction } from "../src/cli/task-complete-transition-command.ts";
+import { taskSubmitTransitionCommandFromCliAction } from "../src/cli/task-submit-transition-command.ts";
 import {
   productionAuthorityActor,
   productionAuthorityConnection
@@ -549,20 +550,19 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     }), true);
     assert.equal(productionAuthorityCommandHasPurePlan({
       rootDir: fixture.repoRoot,
-      action: {
-        kind: "status-set",
+      action: taskSubmitTransitionCommandFromCliAction({
+        kind: "task-submit",
         taskId: "task_A",
-        status: "in_review",
-        force: false,
-        executionSubmission: {
+        submission: {
           completionClaim: "complete",
           deliverables: [],
           verificationNotes: [],
           knownGaps: [],
           residualRisks: [],
           outputs: []
-        }
-      }
+        },
+        dryRun: false
+      })
     }), false);
     const decisionPlan = await compiler.planCommand(decisionInput);
 

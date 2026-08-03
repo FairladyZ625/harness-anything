@@ -302,14 +302,6 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     reason: "Only emitted for audited cancellation recovery that appends force audit evidence."
   }, {
     command: "status-set",
-    field: "data.executionId",
-    reason: "Only emitted for Holder V2 execution submission."
-  }, {
-    command: "status-set",
-    field: "data.report",
-    reason: "Only emitted for Holder V2 execution submission."
-  }, {
-    command: "status-set",
     field: "paths.primary",
     reason: "Only emitted for audited cancellation recovery where the audit progress path is returned as the primary path."
   }, {

@@ -441,9 +441,16 @@ test("CLI default claim and review still require daemon-planned completion", () 
     writeCodeDocAnchors(rootDir, created.taskId);
 
     const submitted = runJson(rootDir, [
-      "task", "transition", created.taskId, "in_review",
-      "--lease-token", String(claimed.report.leaseToken),
-      "--summary", "implementation complete", "--verification", "node --test"
+      "task", "submit", created.taskId, "--json-input", JSON.stringify({
+        completionClaim: "implementation complete",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: ["node --test"],
+        knownGaps: [],
+        residualRisks: [],
+        executionId: claimed.executionId,
+        leaseToken: String(claimed.report.leaseToken)
+      })
     ], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
     assert.equal(submitted.executionId, claimed.executionId);
 

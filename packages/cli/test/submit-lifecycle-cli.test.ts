@@ -64,9 +64,16 @@ test("Execution claim without a detectable runtime session records a pending pri
     writeFileSync(handEditPath, "must remain unstaged\n", "utf8");
 
     const submitted = runRawJsonMaybeFail(rootDir, [
-      "task", "transition", taskId, "in_review",
-      "--lease-token", String(claimed.report.leaseToken),
-      "--summary", "ready"
+      "task", "submit", taskId, "--json-input", JSON.stringify({
+        completionClaim: "ready",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+        executionId,
+        leaseToken: String(claimed.report.leaseToken)
+      })
     ], noRuntimeSession);
     assert.equal(submitted.status, 1);
     assert.match(String((submitted.receipt.error as { readonly hint?: string }).hint), /primary Session binding is required.*ExecutionSagaService\.attachSession/u);

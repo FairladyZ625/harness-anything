@@ -28,6 +28,30 @@ export {
   decodeTaskCompleteTransitionCommand,
   TaskCompleteTransitionCommandDecodeError
 } from "./task-complete-transition-command.ts";
+export {
+  decodeTaskSubmitTransitionCommand,
+  TaskSubmitTransitionCommandDecodeError
+} from "./task-submit-transition-command.ts";
+
+export interface TaskSubmitSubmission {
+  readonly completionClaim: string;
+  readonly deliverables: ReadonlyArray<string>;
+  readonly verificationNotes: ReadonlyArray<string>;
+  readonly knownGaps: ReadonlyArray<string>;
+  readonly residualRisks: ReadonlyArray<string>;
+  readonly outputs: ReadonlyArray<string>;
+}
+
+/** Complete caller-owned intent; null and [] express non-applicability without decoder defaults. */
+export interface TaskSubmitTransitionCommand {
+  readonly kind: "task-submit";
+  readonly taskId: string;
+  readonly executionId: string | null;
+  readonly leaseToken: string | null;
+  readonly submission: TaskSubmitSubmission;
+  readonly callerIdempotencyKey: string;
+  readonly dryRun: boolean;
+}
 
 export type TaskCompleteConsentSource =
   | { readonly kind: "recorded-consent"; readonly consentId: string }
@@ -153,7 +177,8 @@ export type AuthorityHostCommandAction =
   | AuthorityHostNewTaskAction
   | { readonly kind: "task-claim"; readonly taskId: string; readonly executionId?: string }
   | { readonly kind: "task-retire-execution"; readonly taskId: string; readonly executionId: string; readonly reason: string; readonly retiredAt: string }
-  | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken?: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
+  | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
+  | TaskSubmitTransitionCommand
   | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<AuthorityHostEvidenceInput> }
   | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
   | { readonly kind: "task-archive"; readonly taskId?: string; readonly ids?: ReadonlyArray<string>; readonly reason: string }

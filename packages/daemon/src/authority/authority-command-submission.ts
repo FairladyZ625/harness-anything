@@ -267,12 +267,14 @@ export function makeDaemonAuthorityWriteCoordinator(
 }
 
 function isAuthorityCoveredTaskTreeStage(command: AuthorityHostCommand, operation: WriteOp): boolean {
-  return command.action.kind === "task-complete" && operation.kind === "task_tree_stage";
+  return (command.action.kind === "task-complete" || command.action.kind === "task-submit")
+    && operation.kind === "task_tree_stage";
 }
 
 function authorityCommandCoversLocalWritePhases(command: AuthorityHostCommand): boolean {
   const action = command.action;
   return action.kind === "status-set"
+    || action.kind === "task-submit"
     || action.kind === "task-complete"
     || (action.kind === "task-review-execution" && action.verdict === "approved");
 }
@@ -282,7 +284,7 @@ function isProvenanceSessionOperation(
   operation: WriteOp
 ): boolean {
   const action = input.command.action;
-  if (action.kind === "status-set" && action.executionSubmission) {
+  if (action.kind === "task-submit") {
     return operation.kind === "doc_write"
       && /^entity\/session\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(operation.entityId);
   }
@@ -298,9 +300,7 @@ function isProvenanceSessionOperation(
 function commandMainEntityId(command: AuthorityHostCommand): WriteOp["entityId"] | undefined {
   const action = command.action;
   if (action.kind === "new-task" && action.taskId) return taskEntityId(action.taskId);
-  if (action.kind === "status-set" && action.executionSubmission?.executionId) {
-    return `execution/${action.executionSubmission.executionId}`;
-  }
+  if (action.kind === "task-submit" && action.executionId) return `execution/${action.executionId}`;
   return undefined;
 }
 

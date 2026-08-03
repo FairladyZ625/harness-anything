@@ -144,8 +144,16 @@ function submitWithFinalizedBinding(fixture: ProductionCanonicalIngressFixture, 
   const leaseToken = String((claimed.receipt.details as { readonly report?: { readonly leaseToken?: string } } | undefined)?.report?.leaseToken ?? "");
   assert.notEqual(leaseToken, "", JSON.stringify(claimed.receipt));
   const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-    "task", "transition", taskId, "in_review", "--execution-id", executionId, "--lease-token", leaseToken,
-    "--completion-claim", "Wave2 binding finalization", "--verification", "A/B parity"
+    "task", "submit", taskId, "--json-input", JSON.stringify({
+      completionClaim: "Wave2 binding finalization",
+      deliverables: [],
+      outputs: [],
+      verificationNotes: ["A/B parity"],
+      knownGaps: [],
+      residualRisks: [],
+      executionId,
+      leaseToken
+    })
   ], sessionEnv);
   assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
 }

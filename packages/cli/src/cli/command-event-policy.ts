@@ -14,6 +14,7 @@ const taskPrincipalRequiredKinds = new Set<string>([
   "task-claim",
   "task-code-doc-reconcile",
   "task-complete",
+  "task-submit",
   "task-delete",
   "task-release",
   "task-retire-execution",

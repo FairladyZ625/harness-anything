@@ -6,7 +6,7 @@ export async function normalizeExecutionSubmissionCommand(
   taskHolderService: Pick<TaskHolderService, "holder">
 ): Promise<ParsedCommand> {
   const action = command.action;
-  if (action.kind !== "status-set" || !action.executionSubmission || action.executionSubmission.executionId) {
+  if (action.kind !== "task-submit" || action.executionId) {
     return command;
   }
   const snapshot = await taskHolderService.holder({ taskId: action.taskId });
@@ -18,7 +18,7 @@ export async function normalizeExecutionSubmissionCommand(
     ...command,
     action: {
       ...action,
-      executionSubmission: { ...action.executionSubmission, executionId }
+      executionId
     }
   };
 }

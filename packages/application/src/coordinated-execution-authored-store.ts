@@ -3,8 +3,6 @@ import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
   taskEntityId,
-  validateOutputEvidence,
-  readSessionEntityDocument,
   sha256Text,
   stablePayloadHash,
   writeCoordinatedPayload,
@@ -16,7 +14,7 @@ import {
 } from "@harness-anything/kernel";
 import type { ExecutionRecord } from "@harness-anything/kernel";
 import type { ExecutionAuthoredStore, ExecutionSubmission } from "./execution-saga-service.ts";
-import { isRuntimeTranscriptConfirmedUnavailable } from "./runtime-transcript-confirmation.ts";
+import { TaskSubmitTransitionService } from "./task-submit-transition-service.ts";
 
 export function makeCoordinatedExecutionAuthoredStore(input: {
   readonly rootInput: HarnessLayoutInput;
@@ -140,34 +138,27 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       const current = Schema.decodeUnknownSync(executionDeclaration.schema)(
         executionDeclaration.documentCodec.decode(document.body)
       ) as ExecutionRecord;
-      assertExecutionHost(current, request.taskId, request.executionId);
-      if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
-      const finalizedBindings = finalizeExecutionSessionBindings(input.rootInput, current.session_bindings, request.submittedAt);
-      assertPrimarySession(finalizedBindings);
-      assertBindingsFinal(finalizedBindings);
-      const allEvidence = [...current.outputs, ...request.submission.evidence];
-      validateOutputEvidence({
-        rootInput: input.rootInput,
-        taskId: request.taskId,
-        executionId: request.executionId,
-        evidence: allEvidence
-      });
-      const submitted = submittedExecution(current, finalizedBindings, request.submittedAt, request.submission);
       const currentIndex = task.documents.find((candidate) => candidate.path === "INDEX.md")?.body;
       if (!currentIndex) throw new Error(`task INDEX.md missing: ${request.taskId}`);
-      const submittedIndex = taskIndex(task.documents, request.taskId, ["active", "in_review"], "in_review");
+      const plan = TaskSubmitTransitionService.plan({
+        rootInput: input.rootInput,
+        taskId: request.taskId,
+        taskIndexBody: currentIndex,
+        execution: current,
+        submittedAt: request.submittedAt
+      }, request);
       const attemptKey = submissionAttemptKey(request);
       submissionAttempts.set(attemptKey, {
         beforeExecutionBody: document.body,
         beforeIndexBody: currentIndex,
-        afterExecutionBody: executionDeclaration.documentCodec.encode(submitted),
-        afterIndexBody: submittedIndex
+        afterExecutionBody: executionDeclaration.documentCodec.encode(plan.execution),
+        afterIndexBody: plan.taskIndexBody
       });
       await writeExecutionTransaction(
         input,
         request.taskId,
-        submitted,
-        submittedIndex,
+        plan.execution,
+        plan.taskIndexBody,
         {
           stageTaskTree: true,
           preconditions: [
@@ -327,101 +318,12 @@ function taskIndex(
   return body.replace(/^(  status:\s*).+$/mu, `$1${next}`);
 }
 
-function submittedExecution(
-  current: ExecutionRecord,
-  sessionBindings: ExecutionRecord["session_bindings"],
-  submittedAt: string,
-  submission: ExecutionSubmission
-): ExecutionRecord {
-  return {
-    ...current,
-    state: "submitted",
-    submitted_at: submittedAt,
-    session_bindings: sessionBindings,
-    outputs: [...current.outputs, ...submission.evidence],
-    submission: {
-      completion_claim: submission.completionClaim,
-      deliverables: submission.deliverables,
-      evidence_refs: submission.evidence.map((evidence) => evidence.evidence_id),
-      verification_notes: submission.verificationNotes,
-      known_gaps: submission.knownGaps,
-      residual_risks: submission.residualRisks
-    }
-  };
-}
-
-export function finalizeExecutionSessionBindings(
-  rootInput: HarnessLayoutInput,
-  bindings: ExecutionRecord["session_bindings"],
-  endedAt: string
-): ExecutionRecord["session_bindings"] {
-  return bindings.map((binding) => {
-    if (typeof binding.session_ref !== "string" || !binding.session_ref.startsWith("session/")) return binding;
-    const sessionId = binding.session_ref.slice("session/".length);
-    if (binding.archive_status === "unavailable") {
-      return finalizeUnavailableBinding(binding, endedAt);
-    }
-    try {
-      const session = readSessionEntityDocument(rootInput, sessionId);
-      return {
-        ...binding,
-        archive_status: session.manifest.archiveStatus,
-        capture_range: binding.capture_range ? { ...binding.capture_range, end_at: endedAt } : null
-      };
-    } catch (error) {
-      if (isMissingSessionSnapshotError(error)
-          && binding.session?.source === "runtime"
-          && binding.session.sessionId === sessionId
-          && isRuntimeTranscriptConfirmedUnavailable(binding.session)) {
-        return finalizeUnavailableBinding(binding, endedAt);
-      }
-      const prefix = binding.role === "primary" ? "primary Session" : "Session";
-      throw new Error(`${prefix} ${sessionId} snapshot is not finalized: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
-}
-
-function finalizeUnavailableBinding(
-  binding: ExecutionRecord["session_bindings"][number],
-  endedAt: string
-): ExecutionRecord["session_bindings"][number] {
-  return {
-    ...binding,
-    archive_status: "unavailable",
-    capture_range: binding.capture_range ? { ...binding.capture_range, end_at: endedAt } : null
-  };
-}
-
 function assertExecutionHost(current: ExecutionRecord, taskId: string, executionId: string): void {
   if (current.execution_id !== executionId || current.task_ref !== `task/${taskId}`) {
     throw new Error(`execution identity does not match its host path: ${executionId}`);
   }
 }
 
-function assertPrimarySession(bindings: ReadonlyArray<unknown>): void {
-  const primary = bindings.find((binding) => binding && typeof binding === "object" &&
-    (binding as { readonly role?: unknown }).role === "primary" &&
-    typeof (binding as { readonly session_ref?: unknown }).session_ref === "string");
-  if (!primary) {
-    throw new Error("primary Session binding is required; attach the current session through ExecutionSagaService.attachSession");
-  }
-}
-
-function assertBindingsFinal(bindings: ReadonlyArray<unknown>): void {
-  for (const binding of bindings) {
-    const status = binding && typeof binding === "object"
-      ? (binding as { readonly archive_status?: unknown }).archive_status
-      : undefined;
-    if (status !== "complete" && status !== "partial" && status !== "unavailable") {
-      throw new Error("all execution session bindings require a final archive_status");
-    }
-  }
-}
-
 function executionPath(executionId: string): string {
   return `executions/${executionId}.md`;
-}
-
-function isMissingSessionSnapshotError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }

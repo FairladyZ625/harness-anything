@@ -32,6 +32,11 @@ const cases = {
   "task-consent-record": ["task", "consent-record", missingTask, "--execution-id", missingExecution, "--utterance", "Approved"],
   "task-review-execution": ["task", "review-execution", missingTask, "--execution-id", missingExecution, "--verdict", "dismissed", "--findings", "none", "--rationale", "parity"],
   "task-complete": ["task", "complete", missingTask],
+  "task-submit": ["task", "submit", missingTask, "--json-input", JSON.stringify({
+    completionClaim: "Parity submission",
+    deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], residualRisks: [],
+    executionId: missingExecution
+  })],
   "decision-propose": ["decision", "propose", "--id", "dec_01KXT3E1MN1VBS64DCNZ4VX81E", "--title", "Parity decision", "--question", "Equivalent?", "--chosen", "Yes", "--rejected", "No", "--why-not", "Not selected", "--dry-run"],
   "decision-transition": ["decision", "transition", "rejected", missingDecision],
   "decision-relate": ["decision", "relate", missingDecision, "--anchor", "CH1", "--type", "derives", "--target", `task/${missingTask}`, "--rationale", "parity"],

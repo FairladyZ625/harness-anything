@@ -9,10 +9,10 @@ import { executionDeclaration, type ExecutionRecord } from "../../kernel/src/ind
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { normalizeReviewConsentIdentity, normalizeReviewExecutionSelection } from "../src/cli/review-execution-normalizer.ts";
+import { taskSubmitTransitionCommandFromCliAction } from "../src/cli/task-submit-transition-command.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
-import { taskSubmitFacadeSteps } from "../src/commands/core/task-submit-facade.ts";
 
-test("task submit parses the six-field Submission packet without inventing consent or review", () => {
+test("task submit parses the six-field packet into one typed intent without status-set authority", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-submit-facade-"));
   const packetPath = path.join(root, "submission.json");
   writeFileSync(packetPath, JSON.stringify({
@@ -43,20 +43,11 @@ test("task submit parses the six-field Submission packet without inventing conse
     });
     assert.equal("consentUtterance" in parsed.value.action, false);
     assert.equal("verdict" in parsed.value.action, false);
-    const manualSubmit = parseArgs([
-      "task", "transition", "task_01KXTE6GJPW73Y1EWCA0Q0798T", "in_review",
-      "--completion-claim", "The completion facade preserves the frozen gates.",
-      "--deliverable", "Structured submission parser", "--output", "Fast parser test passed",
-      "--verification", "node --test completion-facade.test.ts",
-      "--residual-risk", "Canonical integration remains to run"
-    ]);
-    assert.equal(manualSubmit.ok, true);
-    if (!manualSubmit.ok) return;
-    assert.deepEqual(
-      taskSubmitFacadeSteps(parsed.value as Parameters<typeof taskSubmitFacadeSteps>[0]).map((step) => step.action),
-      [manualSubmit.value.action],
-      "submit must send one canonical submission action into admission"
-    );
+    const typed = taskSubmitTransitionCommandFromCliAction(parsed.value.action);
+    assert.equal(typed.kind, "task-submit");
+    assert.equal(typed.executionId, null);
+    assert.equal("status" in typed, false);
+    assert.match(typed.callerIdempotencyKey, /^task-submit-[a-f0-9]{64}$/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -67,7 +58,7 @@ test("task submit declares the accepted new-command admission budget", () => {
   assert.ok(spec);
   assert.equal(spec.options.length <= 8, true);
   assert.deepEqual(spec.admission, {
-    nounOwnership: "Task lifecycle facade; it does not introduce a new top-level noun.",
+    nounOwnership: "Typed Task lifecycle submission command; it does not introduce a new top-level noun.",
     lifecycle: "permanent",
     decisionRef: "decision/dec_01KXQM6Y74WG8XERXKQS6QKPHH",
     chain: { stepCount: 1, submissionFieldCount: 6, structuredInput: true }

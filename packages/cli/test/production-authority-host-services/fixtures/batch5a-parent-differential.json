@@ -2,12 +2,11 @@
   "baselineCommit": "b4db87f72675b78e2dc1f25b803d183610942fa9",
   "baselineImplementationBlobs": {
     "packages/cli/src/cli/command-semantic-normalizer.ts": "714a6822fa65957f83c5136bcc19e32252b07e46",
-    "packages/cli/src/cli/command-spec/index.ts": "36a906cadb9af3b5d6cc2849607644fa077904fd",
+    "packages/cli/src/cli/command-spec/index.ts": "202dea76b5114628fb98767a0da57f333aad1a42",
     "packages/cli/src/cli/decision-propose-normalizer.ts": "9855cbd743297bf74506b8964f1e84f9e015ff16",
     "packages/cli/src/commands/core/decision-propose.ts": "8b97336df933154a9b6bc7c85b92728ec33459ae",
     "packages/cli/src/commands/core/decision-relate.ts": "22b3eff78b8115c6c97e870d0218b6f779064dca",
     "packages/cli/src/commands/core/decision-relation-record.ts": "b802dcbb858030d86d40e2b928750afd7150d239",
-    "packages/cli/src/commands/core/task-lifecycle.ts": "47dfd367e72a0e3e935649202118db0cf9d2e58c",
     "packages/cli/src/commands/daemon/productization.ts": "565a8eb9ebc5ddf5de9c631154088d30c0bc9476",
     "packages/cli/src/commands/preset-task.ts": "cd7bb2b01ddad1c4ee2d8f3b49bf067e1bf597a8",
     "packages/cli/src/commands/settings.ts": "dcc83b0f0775494d4f6d7326aaa7285d5f67b619",
@@ -333,7 +332,7 @@
       },
       "settingsPreset": {
         "byteLength": 7278,
-        "sha256": "014e6359d08d083d5fd489edd1027273799c7b673e7306fa8a92ce676dabff09"
+        "sha256": "31d909ddc705133536cd21b92bd7f05c853d0b4c22f206e985dfc80338d0da82"
       },
       "settingsFailure": {
         "byteLength": 79,

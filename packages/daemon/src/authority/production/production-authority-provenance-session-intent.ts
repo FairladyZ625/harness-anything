@@ -23,14 +23,14 @@ export function provenanceSessionAttemptIntent(
   operation: WriteOp
 ): CanonicalAttemptIntent {
   const sessionAction = command.action.kind === "session-export" ? command.action : undefined;
-  const executionSession = command.action.kind === "status-set" && command.action.executionSubmission
+  const executionSession = command.action.kind === "task-submit"
     ? boundExecutionPrimarySession(command)
     : undefined;
   const expectedSessionId = sessionAction?.sessionId ?? executionSession?.sessionId ?? currentSession.sessionId;
   const expectedEntityId = `entity/session/${expectedSessionId}`;
   const supportsProvenanceExport = command.action.kind === "new-task"
     || command.action.kind === "session-export"
-    || (command.action.kind === "status-set" && Boolean(command.action.executionSubmission));
+    || command.action.kind === "task-submit";
   if (!supportsProvenanceExport || operation.entityId !== expectedEntityId || operation.kind !== "doc_write") {
     throw new Error("AUTHORITY_CREATE_PROVENANCE_OPERATION_INVALID");
   }
@@ -126,11 +126,11 @@ export function provenanceSessionAttemptIntent(
 function boundExecutionPrimarySession(
   command: ProductionAuthorityCommand
 ): CurrentSessionRef {
-  if (command.action.kind !== "status-set" || !command.action.executionSubmission) {
+  if (command.action.kind !== "task-submit") {
     throw new Error("AUTHORITY_SUBMIT_PROVENANCE_EXECUTION_REQUIRED");
   }
   const action = command.action;
-  const executionId = action.executionSubmission?.executionId;
+  const executionId = action.executionId;
   if (!executionId) {
     throw new Error("AUTHORITY_SUBMIT_PROVENANCE_EXECUTION_REQUIRED");
   }

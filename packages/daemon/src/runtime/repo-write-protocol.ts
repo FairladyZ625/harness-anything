@@ -1,7 +1,6 @@
 // @slice-activation P5-W2 repo-writer foundation; public recovery routing remains activation work owned by task_01KY6QFFC306JRW8JW4Y2ND2TM.
 import { repoWriteCommandDtoFromDecodedFields, type RepoWriteCommandDto } from "./repo-write-command-dto.ts";
-export { repoWriteCommandDtoFromDecodedFields, repoWriteLegacyCommandName } from "./repo-write-command-dto.ts";
-export type { RepoWriteCommandDto, RepoWriteLegacyCommandDto, RepoWriteLegacyCommandName, RepoWriteTaskCompleteCommandDto, RepoWriteTaskCompleteCommandPayload, RepoWriteTaskCompleteWireCommand, RepoWriteTaskCompleteWireSession } from "./repo-write-command-dto.ts";
+export * from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
 import type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";

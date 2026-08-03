@@ -1,7 +1,8 @@
 import type {
   ProductionAuthorityCommandAction,
   ProductionAuthorityHostServices,
-  TaskCompleteTransitionCommand
+  TaskCompleteTransitionCommand,
+  TaskSubmitTransitionCommand
 } from "@harness-anything/application";
 import { normalizeDecisionProposeAction } from "../cli/decision-propose-normalizer.ts";
 import { normalizedFactSource } from "../cli/command-semantic-normalizer.ts";
@@ -35,17 +36,20 @@ type CliProductionAuthorityAction = Extract<
   { readonly kind: ProductionAuthorityCommandAction["kind"] }
 >;
 
-type CliProductionAuthorityActionWithoutComplete = Exclude<
+type CliProductionAuthorityActionWithoutProjectedLifecycle = Exclude<
   CliProductionAuthorityAction,
-  { readonly kind: "task-complete" }
+  { readonly kind: "task-complete" | "task-submit" }
 >;
 
 const cliProductionActionsSatisfyHostContract = true satisfies
-  CliProductionAuthorityActionWithoutComplete extends ProductionAuthorityCommandAction ? true : never;
+  CliProductionAuthorityActionWithoutProjectedLifecycle extends ProductionAuthorityCommandAction ? true : never;
 void cliProductionActionsSatisfyHostContract;
 const projectedCompleteActionSatisfiesHostContract = true satisfies
   TaskCompleteTransitionCommand extends ProductionAuthorityCommandAction ? true : never;
 void projectedCompleteActionSatisfiesHostContract;
+const projectedSubmitActionSatisfiesHostContract = true satisfies
+  TaskSubmitTransitionCommand extends ProductionAuthorityCommandAction ? true : never;
+void projectedSubmitActionSatisfiesHostContract;
 
 export const productionAuthorityHostServices = {
   productionAuthorityIngressFor,
