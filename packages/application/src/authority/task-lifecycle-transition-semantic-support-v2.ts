@@ -9,7 +9,10 @@ import type {
   CanonicalTaskMutationPlan,
   ExistingTaskLifecycleTransition
 } from "../task-lifecycle-transition-service.ts";
-import type { TaskCompleteExternalCheckpointRef } from "./daemon-host-contract.ts";
+import {
+  taskCompleteExternalCheckpointKinds,
+  type TaskCompleteExternalCheckpointRef
+} from "./daemon-host-contract.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import type { RegistryEntityRefV2 } from "./semantic-mutation-envelope-v2.ts";
 import { semanticAdmissionV2 as admission } from "./semantic-authority-helpers-v2.ts";
@@ -46,7 +49,9 @@ export function decodeTaskLifecycleTransitionCheckpoint(body: string): {
   }
   const checkpoint = Schema.decodeUnknownSync(TransitionCheckpointSchema)(value);
   const externalCheckpointRefs = checkpoint.externalCheckpointRefs.map((entry) => {
-    if (entry.kind !== "document-publication" && entry.kind !== "code-doc-reconciliation") {
+    if (!taskCompleteExternalCheckpointKinds.includes(
+      entry.kind as typeof taskCompleteExternalCheckpointKinds[number]
+    )) {
       throw new Error("TASK_LIFECYCLE_TRANSITION_CHECKPOINT_WITNESS_KIND_INVALID");
     }
     return entry as TaskCompleteExternalCheckpointRef;

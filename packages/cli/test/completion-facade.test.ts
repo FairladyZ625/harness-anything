@@ -6,11 +6,65 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { executionDeclaration, type ExecutionRecord } from "../../kernel/src/index.ts";
+import { commandDescriptors } from "../src/cli/command-registry.ts";
+import { commandInputDescriptorFor } from "../src/cli/command-input-descriptors.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { normalizeReviewConsentIdentity, normalizeReviewExecutionSelection } from "../src/cli/review-execution-normalizer.ts";
+import { renderTaskPacketHelp } from "../src/cli/task-packet-help.ts";
+import {
+  decodeTaskCompleteApprovalPacket,
+  decodeTaskSubmitPacket,
+  taskPacketInputDefinitionFor,
+  taskPacketTemplateFor
+} from "../src/cli/task-packet-contracts.ts";
 import { taskSubmitTransitionCommandFromCliAction } from "../src/cli/task-submit-transition-command.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
+
+test("task packet templates, parser decoders, and command input schemas share one contract", () => {
+  for (const commandKind of ["task-submit", "task-complete"] as const) {
+    const template = taskPacketTemplateFor(commandKind);
+    assert.ok(template);
+    const helpTemplate = packetTemplateFromHelp(renderTaskPacketHelp(commandKind));
+    assert.deepEqual(helpTemplate, template.value);
+    const decoded = commandKind === "task-submit"
+      ? decodeTaskSubmitPacket(helpTemplate)
+      : decodeTaskCompleteApprovalPacket(helpTemplate);
+    assert.equal(decoded.ok, true, decoded.ok ? commandKind : decoded.issue);
+
+    const command = commandDescriptors.find((entry) => entry.kind === commandKind);
+    assert.ok(command);
+    const projected = taskPacketInputDefinitionFor(commandKind);
+    assert.ok(projected);
+    const input = commandInputDescriptorFor(command).input;
+    assert.deepEqual(input.required, projected.required);
+    assert.deepEqual(input.properties, projected.properties);
+  }
+});
+
+test("task packet contract rejects the known ambiguous packet shapes", () => {
+  const approval = taskPacketTemplateFor("task-complete")!.value;
+  const freeTextEvidence = decodeTaskCompleteApprovalPacket({
+    ...approval,
+    evidenceChecked: [""]
+  });
+  assert.equal(freeTextEvidence.ok, false);
+  if (!freeTextEvidence.ok) assert.match(freeTextEvidence.issue, /evidenceChecked\[0\].+non-empty/u);
+
+  const stringCheckpoint = decodeTaskCompleteApprovalPacket({
+    ...approval,
+    externalCheckpointRefs: ["sha256:not-an-object"]
+  });
+  assert.equal(stringCheckpoint.ok, false);
+  if (!stringCheckpoint.ok) assert.match(stringCheckpoint.issue, /externalCheckpointRefs\[0\].+object/u);
+
+  const duplicateConsent = decodeTaskCompleteApprovalPacket({
+    ...approval,
+    consentUtterance: "Approved"
+  });
+  assert.equal(duplicateConsent.ok, false);
+  if (!duplicateConsent.ok) assert.match(duplicateConsent.issue, /exactly one consent source/u);
+});
 
 test("task submit parses the six-field packet into one typed intent without status-set authority", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-submit-facade-"));
@@ -52,6 +106,13 @@ test("task submit parses the six-field packet into one typed intent without stat
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function packetTemplateFromHelp(lines: ReadonlyArray<string>): Readonly<Record<string, unknown>> {
+  const text = lines.join("\n");
+  const match = text.match(/Packet template \(copy as [^)]+\):\n([\s\S]+?)(?:\n\n|$)/u);
+  assert.ok(match, text);
+  return JSON.parse(match[1]!.split("\n").map((line) => line.replace(/^  /u, "")).join("\n")) as Record<string, unknown>;
+}
 
 test("task submit declares the accepted new-command admission budget", () => {
   const spec = commandSpecs.find((candidate) => candidate.kind === "task-submit");

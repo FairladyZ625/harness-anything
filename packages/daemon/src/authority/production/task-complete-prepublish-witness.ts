@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
   renderCodeDocReconciliationDraft,
+  taskCompleteExternalCheckpointKinds,
   type TaskCompleteExternalCheckpointRef,
   type TaskCompleteTransitionCommand,
   type VerifiedTaskCompleteCodeDocWitness,
@@ -32,7 +33,10 @@ export function resolveVerifiedTaskCompleteWitnesses(input: {
     }
     suppliedByKind.set(witness.kind, witness);
   }
-  const expectedKinds = new Set(["document-publication", ...(input.requireCodeDoc ? ["code-doc-reconciliation"] : [])]);
+  const expectedKinds = new Set<string>([
+    taskCompleteExternalCheckpointKinds[0],
+    ...(input.requireCodeDoc ? [taskCompleteExternalCheckpointKinds[1]] : [])
+  ]);
   const unknown = [...suppliedByKind.keys()].find((kind) => !expectedKinds.has(kind));
   if (unknown) throw new Error(`AUTHORITY_TASK_COMPLETE_WITNESS_NOT_APPLICABLE:${unknown}`);
   const refs = [
@@ -77,7 +81,9 @@ export function verifyTaskCompleteWitnessRefs(input: {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_NOT_APPLICABLE:code-doc-reconciliation");
   }
   if (decodedByKind.size !== (input.requireCodeDoc ? 2 : 1)) {
-    const unknown = [...decodedByKind.keys()].find((kind) => kind !== "document-publication" && kind !== "code-doc-reconciliation");
+    const unknown = [...decodedByKind.keys()].find((kind) => !taskCompleteExternalCheckpointKinds.includes(
+      kind as typeof taskCompleteExternalCheckpointKinds[number]
+    ));
     throw new Error(`AUTHORITY_TASK_COMPLETE_WITNESS_NOT_APPLICABLE:${unknown ?? "unknown"}`);
   }
   return [document, ...(codeDoc ? [codeDoc] : [])];

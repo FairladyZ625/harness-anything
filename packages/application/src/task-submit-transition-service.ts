@@ -77,6 +77,13 @@ export class TaskSubmitTransitionService {
   }
 }
 
+export function taskSubmissionOutputEvidenceId(index: number): string {
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error(`task submission output index must be a non-negative safe integer: ${index}`);
+  }
+  return `ev_cli_${index + 1}`;
+}
+
 export function taskSubmitPlanInput(
   command: TaskSubmitTransitionCommand
 ): TaskSubmitTransitionPlanInput {
@@ -93,7 +100,7 @@ export function taskSubmitPlanInput(
       knownGaps: command.submission.knownGaps,
       residualRisks: command.submission.residualRisks,
       evidence: command.submission.outputs.map((text, index) => ({
-        evidence_id: `ev_cli_${index + 1}`,
+        evidence_id: taskSubmissionOutputEvidenceId(index),
         execution_ref: `execution/${command.taskId}/${command.executionId}`,
         locator: { substrate: "inline" as const, text }
       }))

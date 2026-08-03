@@ -93,6 +93,17 @@ test("commit-anchor completion crosses production authority with daemon judgment
     CODEX_THREAD_ID: sessionId
   };
   try {
+    const completeHelp = execFileSync(process.execPath, [
+      path.resolve("packages/cli/src/index.ts"), "--root", fixture.repoRoot,
+      "task", "complete", "--help"
+    ], { encoding: "utf8" });
+    assertHelpOrder(completeHelp, [
+      "Required sequence for --commit-anchor:",
+      "1. git rev-parse HEAD",
+      "2. ha task code-doc reconcile <task-id> --commit <anchor-commit>",
+      "do not add --path or --pr",
+      "3. ha task complete <task-id> --commit-anchor <anchor-commit> --judgment <reason> --ci passed"
+    ]);
     mkdirSync(path.join(fixture.repoRoot, "tools"), { recursive: true });
     copyFileSync(
       path.resolve("tools/write-road-registry.json"),
@@ -338,4 +349,13 @@ function productionPlan(goal: string): string {
     "## Verification", "Verify.",
     ""
   ].join("\n");
+}
+
+function assertHelpOrder(help: string, fragments: ReadonlyArray<string>): void {
+  let previous = -1;
+  for (const fragment of fragments) {
+    const index = help.indexOf(fragment, previous + 1);
+    assert.ok(index > previous, `Expected help fragment after offset ${previous}: ${fragment}\n${help}`);
+    previous = index;
+  }
 }

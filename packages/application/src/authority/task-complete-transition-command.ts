@@ -2,11 +2,12 @@ import {
   consentActions as supportedConsentActions,
   type ConsentAction
 } from "@harness-anything/kernel";
-import type {
-  TaskCompleteApproval,
-  TaskCompleteConsentSource,
-  TaskCompleteExternalCheckpointRef,
-  TaskCompleteTransitionCommand
+import {
+  taskCompleteExternalCheckpointKinds,
+  type TaskCompleteApproval,
+  type TaskCompleteConsentSource,
+  type TaskCompleteExternalCheckpointRef,
+  type TaskCompleteTransitionCommand
 } from "./daemon-host-contract.ts";
 
 export class TaskCompleteTransitionCommandDecodeError extends Error {
@@ -129,12 +130,13 @@ function checkpointRefs(value: unknown, path: string): ReadonlyArray<TaskComplet
     const entryPath = `${path}[${index}]`;
     const checkpoint = taskCompleteRecord(entry, entryPath);
     taskCompleteExactKeys(checkpoint, ["kind", "ref"], entryPath);
-    if (checkpoint.kind !== "document-publication"
-      && checkpoint.kind !== "code-doc-reconciliation") {
+    if (!taskCompleteExternalCheckpointKinds.includes(
+      checkpoint.kind as typeof taskCompleteExternalCheckpointKinds[number]
+    )) {
       taskCompleteInvalid(`${entryPath}.kind`, "known external checkpoint kind");
     }
     return {
-      kind: checkpoint.kind,
+      kind: checkpoint.kind as typeof taskCompleteExternalCheckpointKinds[number],
       ref: taskCompleteText(checkpoint.ref, `${entryPath}.ref`)
     };
   });

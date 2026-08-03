@@ -404,9 +404,12 @@ test("CLI task complete help explains the resolved completion contract", () => {
   withTempRoot((rootDir) => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
-    assert.match(output, /Usage: harness-anything task complete <id> \(--approve --from-file <approval\.json> \| --commit-anchor <sha-or-ref> --judgment <reason>\)/u);
-    assert.match(output, /Before any facade writes, completion reports the same existing closeout, consent\/Review, commit, and code-doc requirements together\./u);
-    assert.match(output, /One owner approval then writes the approved typed Review, syncs task prose, reconciles the current workspace commit, and completes through the unchanged lifecycle evaluator\./u);
+    assert.match(output, /Usage: harness-anything task complete <id> \(--approve --from-file <approval\.json> \| --commit-anchor <anchor-commit> --judgment <reason>\)/u);
+    assert.match(output, /Packet schema: harness:\/\/schema\/cli\/task-complete-input\/v1/u);
+    assert.match(output, /evidenceChecked.+execution\.outputs\[\]\.evidence_id/u);
+    assert.match(output, /externalCheckpointRefs.+kind: document-publication\|code-doc-reconciliation/u);
+    assert.match(output, /Required sequence for --approve --from-file[\s\S]+git rev-parse HEAD[\s\S]+task code-doc reconcile[\s\S]+task complete/u);
+    assert.match(output, /Required sequence for --commit-anchor:[\s\S]+do not add --path or --pr/iu);
   });
 });
 

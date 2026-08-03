@@ -194,7 +194,7 @@ test("CLI noun help exposes a bounded primary workflow and common/advanced tiers
   });
 });
 
-test("CLI primary task leaf help links the workflow and explains structured packets", () => {
+test("CLI primary task leaf help links the workflow and explains schema-derived packets", () => {
   withTempRoot((rootDir) => {
     const create = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "create", "--help"], { encoding: "utf8" });
     const start = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "start", "--help"], { encoding: "utf8" });
@@ -205,11 +205,14 @@ test("CLI primary task leaf help links the workflow and explains structured pack
     assert.match(create, /Next:\s+ha task start <task-id>/u);
     assert.match(start, /Next:\s+ha task progress append <task-id>/u);
     assert.match(progress, /Next:\s+ha fact record --task <task-id> --statement "<verified fact>"/u);
-    assert.match(submit, /completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks/u);
+    assert.match(submit, /Packet schema: harness:\/\/schema\/cli\/task-submit-input\/v1/u);
     assert.match(submit, /Packet template \(copy as submission\.json\):[\s\S]+"completionClaim"[\s\S]+"residualRisks"/u);
-    assert.match(submit, /Next:\s+ha task complete <task-id> --approve --from-file approval\.json/u);
-    assert.match(complete, /findings, rationale, and exactly one consent source/u);
+    assert.match(submit, /Required Holder order:[\s\S]+task start[\s\S]+task submit[\s\S]+releases it[\s\S]+task complete --help/u);
+    assert.match(complete, /Packet schema: harness:\/\/schema\/cli\/task-complete-input\/v1/u);
+    assert.match(complete, /Provide exactly one consent source: consentId, consentUtterance, consentStandingPolicyDecisionId, consentAssertedRationale/u);
     assert.match(complete, /Packet template \(copy as approval\.json\):[\s\S]+"findings"[\s\S]+"consentActions"/u);
+    assert.match(complete, /Required sequence for --approve --from-file[\s\S]+task code-doc reconcile[\s\S]+task complete/u);
+    assert.match(complete, /Required sequence for --commit-anchor:[\s\S]+do not add --path or --pr/iu);
     assert.match(complete, /Next:\s+ha task show <task-id> --view trace/u);
   });
 });
