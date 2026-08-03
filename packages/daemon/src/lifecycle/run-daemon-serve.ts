@@ -274,6 +274,22 @@ export async function runDaemonServe<
                 HARNESS_DAEMON_SERVER_HOST: "1"
               }
             }),
+            onTelemetry: (frame) => {
+              void daemonLogService.append({
+                level: "debug",
+                source: "daemon",
+                component: "repo-write-child",
+                event: "repo-write.request.telemetry",
+                message: JSON.stringify({
+                  schema: "repo-write-request-telemetry/v1",
+                  requestId: frame.requestId,
+                  ...(frame.opId ? { opId: frame.opId } : {}),
+                  phase: frame.phase,
+                  elapsedMs: frame.elapsedMs
+                }),
+                requestId: frame.requestId
+              }, { repo }).catch(() => undefined);
+            },
             onDiagnostic: (frame) => {
               const rejected = frame.kind === "recovery-rejected";
               void daemonLogService.append({

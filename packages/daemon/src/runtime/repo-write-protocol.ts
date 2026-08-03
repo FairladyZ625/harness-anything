@@ -2,7 +2,7 @@
 import { repoWriteCommandDtoFromDecodedFields, type RepoWriteCommandDto } from "./repo-write-command-dto.ts";
 export * from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
-import type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
+import { repoWriteTelemetryPhases, type RepoWriteRecoveryDeferredFrame, type RepoWriteRecoveryDiagnosticFrame, type RepoWriteRecoveryRejectedFrame, type RepoWriteTelemetryFrame, type RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
@@ -413,13 +413,7 @@ function assertTerminalReceipt(
 }
 function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
   assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");
-  const phases: ReadonlyArray<RepoWriteTelemetryPhase> = [
-    "queue", "compile", "compile-command-normalize", "compile-authority-plan",
-    "compile-task-load", "compile-task-holder", "compile-task-witness",
-    "compile-task-plan", "compile-outcome", "journal", "git", "fsync",
-    "materializer", "projection", "total"
-  ];
-  if (!phases.includes(frame.phase as RepoWriteTelemetryPhase)) invalid("$.phase", "telemetry phase");
+  if (!repoWriteTelemetryPhases.includes(frame.phase as RepoWriteTelemetryPhase)) invalid("$.phase", "telemetry phase");
   if (typeof frame.elapsedMs !== "number" || !Number.isFinite(frame.elapsedMs) || frame.elapsedMs < 0) {
     invalid("$.elapsedMs", "non-negative finite duration");
   }

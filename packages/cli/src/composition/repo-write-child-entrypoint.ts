@@ -26,6 +26,7 @@ import { defaultCliAdapterProvider } from "./adapter-registry.ts";
 import { cliDaemonCommandHostServices } from "./daemon-command-host-services.ts";
 import { cliDaemonServiceHostServices } from "./daemon-service-host-services.ts";
 import { daemonActorAttribution } from "./actor-attribution.ts";
+import { makeIncrementalConflictMarkerPreflight } from "./incremental-conflict-marker-preflight.ts";
 import {
   createCliProductionAuthorityLifecycle
 } from "./production-authority-lifecycle.ts";
@@ -52,6 +53,13 @@ export async function runRepoWriteChildEntrypoint(
   const layoutOverrides = config.authoredRoot
     ? { authoredRoot: config.authoredRoot }
     : undefined;
+  const conflictMarkerPreflight = makeIncrementalConflictMarkerPreflight({
+    rootDir: config.canonicalRoot,
+    ...(layoutOverrides ? { layoutOverrides } : {})
+  });
+  // Establish the generation baseline before the child advertises readiness so
+  // no request pays for a full authored-tree conflict-marker scan.
+  conflictMarkerPreflight.read();
   const witness = createDaemonGenerationWitness({
     userRoot: config.userRoot,
     endpointIdentity: config.endpointIdentity,
@@ -197,6 +205,7 @@ export async function runRepoWriteChildEntrypoint(
     outcomeStore: outcomes,
     resolveHistoricalPublication,
     recoverHistoricalCommittedReceipt: historicalRecovery.recover,
+    conflictMarkerPreflight: conflictMarkerPreflight.read,
     executeDocSyncSubmit: async ({ command, decoded }) => {
       const wireCommand = command.payload.command as {
         readonly request?: DocSyncSubmitRequestV1;

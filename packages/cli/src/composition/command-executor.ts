@@ -11,6 +11,7 @@ import {
   makeRuntimeEventAppendPromise,
   makeTaskHolderService,
   taskStatusLeaseRequired,
+  type DaemonHostCommandExecutionOptions,
   type ProvenanceSessionExporterRejected,
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
@@ -52,6 +53,8 @@ export interface ParsedCommandExecutionOptions {
   readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   /** Explicit local composition scopes outside the daemon-owned product route. */
   readonly localCoordinatorScope?: LocalCoordinatorScope;
+  readonly onTelemetry?: DaemonHostCommandExecutionOptions["onTelemetry"];
+  readonly conflictMarkerPreflight?: DaemonHostCommandExecutionOptions["conflictMarkerPreflight"];
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -144,7 +147,12 @@ export async function runRegisteredCommandWithCliComposition(
       sessionId: getSessionBranchId()
     }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeWriteCoordinator = requiresConflictMarkerPreflight(command.action)
-    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeWriteCoordinator(actor), layoutInput)
+    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(
+        rawMakeWriteCoordinator(actor),
+        layoutInput,
+        options.onTelemetry,
+        options.conflictMarkerPreflight
+      )
     : rawMakeWriteCoordinator;
   const rawMakeMigrationWriteCoordinator = options.makeMigrationWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor, evidenceRef: string) =>
     makeAttributedWriteCoordinator(() => {
@@ -160,7 +168,9 @@ export async function runRegisteredCommandWithCliComposition(
   const makeMigrationWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: OperationalActor, evidenceRef: string) => withConflictMarkerFlushRecheck(
       rawMakeMigrationWriteCoordinator(actor, evidenceRef),
-      layoutInput
+      layoutInput,
+      options.onTelemetry,
+      options.conflictMarkerPreflight
     )
     : rawMakeMigrationWriteCoordinator;
   const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? (allowLocalCoordinator ? ((actor: OperationalActor) =>
@@ -171,7 +181,12 @@ export async function runRegisteredCommandWithCliComposition(
       commitAuthor: getActorAttribution().commitAuthor
     }), getActorAttribution, options.missingActorAttributionMessage, actor)) : missingInjectedWriteCoordinator);
   const makeSessionWriteCoordinator = requiresConflictMarkerPreflight(command.action)
-    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeSessionWriteCoordinator(actor), layoutInput)
+    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(
+        rawMakeSessionWriteCoordinator(actor),
+        layoutInput,
+        options.onTelemetry,
+        options.conflictMarkerPreflight
+      )
     : rawMakeSessionWriteCoordinator;
 
   const makeArtifactStore = () => provider.createArtifactStore({
@@ -243,7 +258,9 @@ export async function runRegisteredCommandWithCliComposition(
     })
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer, {
     authorityCommandSubmission: options.inlineCreateProvenanceOnly === true,
-    outerProceedingRecovery: options.outerProceedingRecovery === true
+    outerProceedingRecovery: options.outerProceedingRecovery === true,
+    onTelemetry: options.onTelemetry,
+    conflictMarkerPreflight: options.conflictMarkerPreflight
   }).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
@@ -402,13 +419,21 @@ function taskLeaseWriteError(error: unknown): WriteError {
 
 function withConflictMarkerFlushRecheck(
   coordinator: WriteCoordinator,
-  rootInput: ReturnType<typeof createHarnessRuntimeContext>
+  rootInput: ReturnType<typeof createHarnessRuntimeContext>,
+  onTelemetry: DaemonHostCommandExecutionOptions["onTelemetry"],
+  conflictMarkerPreflight: DaemonHostCommandExecutionOptions["conflictMarkerPreflight"]
 ): WriteCoordinator {
   return {
     enqueue: coordinator.enqueue,
     recover: coordinator.recover,
     flush: (reason) => Effect.try({
-      try: () => findConflictMarkerWarnings(rootInput)[0],
+      try: () => {
+        const warning = conflictMarkerPreflight
+          ? conflictMarkerPreflight()
+          : findConflictMarkerWarnings(rootInput)[0];
+        onTelemetry?.("command-conflict-recheck");
+        return warning;
+      },
       catch: (cause) => ({ _tag: "JournalUnavailable" as const, cause })
     }).pipe(
       Effect.flatMap((warning) => warning

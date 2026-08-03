@@ -1,9 +1,44 @@
 import type { HarnessLayoutInput, ProjectionWarning } from "@harness-anything/kernel";
 import { findConflictMarkerWarnings } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "./error-codes.ts";
-import type { CliResult } from "./types.ts";
+import { requiresConflictMarkerPreflight } from "./command-event-policy.ts";
+import { receiptCommandKind } from "./receipt-command-kind.ts";
+import type { CliResult, ParsedCommand } from "./types.ts";
 
-export function readConflictMarkerPreflight(command: string, layoutInput: HarnessLayoutInput): {
+export interface ConflictMarkerExecutionBoundary {
+  readonly authorityCommandSubmission: boolean;
+  readonly outerProceedingRecovery: boolean;
+  readonly onTelemetry?: (phase: "command-conflict-preflight" | "command-conflict-recheck") => void;
+  readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
+}
+
+export function readCommandConflictMarkerFailure(
+  command: ParsedCommand,
+  layoutInput: HarnessLayoutInput,
+  execution: ConflictMarkerExecutionBoundary
+): CliResult | undefined {
+  if (!requiresConflictMarkerPreflight(command.action)) return undefined;
+  const result = readConflictMarkerPreflight(
+    receiptCommandKind(command.action),
+    layoutInput,
+    execution.conflictMarkerPreflight
+  );
+  execution.onTelemetry?.("command-conflict-preflight");
+  if (!result.ok) return result.result;
+  if (!result.warning) return undefined;
+  return {
+    ok: false,
+    command: receiptCommandKind(command.action),
+    warnings: [result.warning],
+    error: cliError(CliErrorCode.ConflictMarkerPresent, result.warning.message)
+  } satisfies CliResult;
+}
+
+export function readConflictMarkerPreflight(
+  command: string,
+  layoutInput: HarnessLayoutInput,
+  readWarning: (() => ProjectionWarning | undefined) | undefined = undefined
+): {
   readonly ok: true;
   readonly warning?: ProjectionWarning;
 } | {
@@ -11,7 +46,10 @@ export function readConflictMarkerPreflight(command: string, layoutInput: Harnes
   readonly result: CliResult;
 } {
   try {
-    return { ok: true, warning: findConflictMarkerWarnings(layoutInput)[0] };
+    return {
+      ok: true,
+      warning: readWarning ? readWarning() : findConflictMarkerWarnings(layoutInput)[0]
+    };
   } catch (error) {
     return {
       ok: false,

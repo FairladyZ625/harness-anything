@@ -38,7 +38,19 @@ export interface AuthoritySubmissionServiceOptions {
   readonly now?: () => string;
   readonly v2?: AuthoritySubmissionV2Options;
   readonly admissionBudget?: DaemonAdmissionBudget;
+  readonly onTelemetry?: (phase: AuthoritySubmissionTelemetryPhase) => void;
 }
+
+export type AuthoritySubmissionTelemetryPhase =
+  | "authority-admission"
+  | "authority-binding-verified"
+  | "authority-batch-start"
+  | "authority-generation-acquire"
+  | "authority-generation-held"
+  | "authority-coordinator-enqueue"
+  | "authority-coordinator-enqueued"
+  | "authority-prepared-persisted"
+  | "authority-flush-start";
 
 export interface AuthoritySubmissionV2Options {
   readonly schemaTuple: ProtocolSchemaTupleV2;

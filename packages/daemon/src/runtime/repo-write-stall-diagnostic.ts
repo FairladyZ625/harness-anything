@@ -30,8 +30,41 @@ export function repoWriteWaitingStage(
       return "durable-outcome-preparation";
     case "journal":
       return "durable-operation-journal";
+    case "command-conflict-preflight":
+    case "command-conflict-recheck":
+      return phase;
     case "git":
       return "canonical-git-publication";
+    case "authority-replica-change-read":
+      return "authority-replica-change-read";
+    case "authority-publication-proof":
+      return "authority-publication-proof";
+    case "authority-operation-integrity":
+      return "authority-operation-integrity";
+    case "authority-admission":
+    case "authority-binding-verified":
+    case "authority-batch-start":
+    case "authority-generation-acquire":
+    case "authority-generation-held":
+    case "authority-coordinator-enqueue":
+    case "authority-coordinator-enqueued":
+    case "authority-prepared-persisted":
+    case "authority-flush-start":
+      return phase;
+    case "authority-replication-snapshot":
+      return "authority-replication-snapshot";
+    case "authority-replica-change-append":
+      return "authority-replica-change-append";
+    case "authority-evidence-commit":
+      return "authority-evidence-commit";
+    case "authority-evidence-worktree":
+      return "authority-evidence-worktree";
+    case "authority-evidence-history-verify":
+      return "authority-evidence-history-verify";
+    case "authority-evidence-pending-verify":
+      return "authority-evidence-pending-verify";
+    case "authority-evidence-git-commit":
+      return "authority-evidence-git-commit";
     case "fsync":
       return "durable-attribution-evidence";
     case "materializer":
