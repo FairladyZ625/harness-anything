@@ -15,7 +15,8 @@ import {
   canonicalAttributionEventDigestV2,
   makeLocalAuthorityAttributionEventV2Log,
   physicalChangeSetDigestV2,
-  semanticMutationSetDigestV2
+  semanticMutationSetDigestV2,
+  runLedgerMaterializer
 } from "@harness-anything/kernel";
 import {
   captureAuthoredProjectionFingerprint,
@@ -25,6 +26,10 @@ import { makeLocalVersionControlSystem } from "../../packages/kernel/src/persist
 import { rebuildTaskProjection } from "../../packages/kernel/src/projection/sqlite-task-projection.ts";
 import { createAuthorityReplicationContentStore } from "../../packages/daemon/src/authority/replication-content-store.ts";
 import { createGitAuthorityAttributionEvidenceCommitterV2 } from "../../packages/daemon/src/authority/production/publication-evidence.ts";
+import {
+  reportCurrentRepoWriteTelemetry,
+  runWithRepoWriteTelemetry
+} from "../../packages/daemon/src/runtime/repo-write-telemetry-context.ts";
 
 const authoredFileCount = 26_612;
 const authoredFileBytes = 5_933;
@@ -62,48 +67,95 @@ try {
   const trustedFingerprintColdMs = measure(() => captureTrustedAuthoredProjectionFingerprint(root, trustedVcs));
   const trustedFingerprintWrites = [];
   for (let writeIndex = 1; writeIndex <= 2; writeIndex += 1) {
-    const taskIndexPath = path.join(authoredRoot, authoredPaths[0]);
-    writeFileSync(
-      taskIndexPath,
-      readFileSync(taskIndexPath, "utf8").replace(/^title:.*$/mu, `title: Synthetic governance write ${writeIndex}`),
-      "utf8"
-    );
-    git("add", authoredPaths[0]);
-    const canonicalCommitStartedAt = performance.now();
-    git("commit", "-q", "-m", `synthetic governance write ${writeIndex}`);
-    const canonicalCommitMs = performance.now() - canonicalCommitStartedAt;
-    const canonicalCommit = git("rev-parse", "HEAD");
-    const canonicalTrustedStartedAt = performance.now();
-    const canonicalTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
-    const canonicalTrustedMs = performance.now() - canonicalTrustedStartedAt;
-    const canonicalFullStartedAt = performance.now();
-    const canonicalFullFingerprint = captureAuthoredProjectionFingerprint(root);
-    const canonicalFullMs = performance.now() - canonicalFullStartedAt;
-    if (canonicalTrustedFingerprint !== canonicalFullFingerprint) {
-      throw new Error(`trusted fingerprint mismatch after canonical write ${writeIndex}`);
-    }
+    const writeStartedAt = performance.now();
+    const telemetryFrames = [];
+    await runWithRepoWriteTelemetry((phase, elapsedMs) => {
+      telemetryFrames.push({ phase, elapsedMs });
+    }, async () => {
+      const report = (phase) => reportCurrentRepoWriteTelemetry(phase);
+      report("queue");
+      report("compile");
+      report("journal");
+      const sessionId = `round6-write-${writeIndex}`;
+      const sessionBranch = `sessions/${sessionId}`;
+      const taskIndexPath = path.join(authoredRoot, authoredPaths[0]);
+      git("branch", sessionBranch);
+      git("checkout", sessionBranch);
+      writeFileSync(
+        taskIndexPath,
+        readFileSync(taskIndexPath, "utf8").replace(/^title:.*$/mu, `title: Synthetic governance write ${writeIndex}`),
+        "utf8"
+      );
+      git("add", authoredPaths[0]);
+      const sessionCommitStartedAt = performance.now();
+      git("commit", "-q", "-m", `synthetic governance write ${writeIndex}`);
+      const sessionCommitMs = performance.now() - sessionCommitStartedAt;
+      const sessionCommit = git("rev-parse", "HEAD");
+      git("checkout", "master");
 
-    evidenceLog.ensure(v2Event(`op-round5-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + writeIndex));
-    const evidenceCommitStartedAt = performance.now();
-    await evidenceCommitter.commitPending(canonicalCommit);
-    const evidenceCommitMs = performance.now() - evidenceCommitStartedAt;
-    const evidenceTrustedStartedAt = performance.now();
-    const evidenceTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
-    const evidenceTrustedMs = performance.now() - evidenceTrustedStartedAt;
-    const evidenceFullStartedAt = performance.now();
-    const evidenceFullFingerprint = captureAuthoredProjectionFingerprint(root);
-    const evidenceFullMs = performance.now() - evidenceFullStartedAt;
-    if (evidenceTrustedFingerprint !== evidenceFullFingerprint) {
-      throw new Error(`trusted fingerprint mismatch after evidence write ${writeIndex}`);
-    }
-    trustedFingerprintWrites.push({
-      writeIndex,
-      canonicalCommitMs,
-      canonicalTrustedMs,
-      canonicalFullMs,
-      evidenceCommitMs,
-      evidenceTrustedMs,
-      evidenceFullMs
+      report("authority-flush-start");
+      report("git");
+      report("fsync");
+      report("authority-materializer-start");
+      const materializerStartedAt = performance.now();
+      const materializer = runLedgerMaterializer(root, {
+        sessionId,
+        versionControlSystem: trustedVcs,
+        onProgress: (step) => report(materializerTelemetryPhase(step))
+      });
+      const materializerMs = performance.now() - materializerStartedAt;
+      report("authority-materializer-end");
+      report("total");
+      if (materializer.merged !== 1 || materializer.warnings.length > 0) {
+        throw new Error(`fixture materializer did not merge ${sessionBranch}: ${JSON.stringify(materializer)}`);
+      }
+      const canonicalCommit = git("rev-parse", "HEAD");
+
+      const canonicalTrustedStartedAt = performance.now();
+      const canonicalTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
+      const canonicalTrustedMs = performance.now() - canonicalTrustedStartedAt;
+      const canonicalFullStartedAt = performance.now();
+      const canonicalFullFingerprint = captureAuthoredProjectionFingerprint(root);
+      const canonicalFullMs = performance.now() - canonicalFullStartedAt;
+      if (canonicalTrustedFingerprint !== canonicalFullFingerprint) {
+        throw new Error(`trusted fingerprint mismatch after canonical write ${writeIndex}`);
+      }
+
+      report("authority-evidence-commit");
+      report("fsync");
+      evidenceLog.ensure(v2Event(`op-round6-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + writeIndex));
+      const evidenceCommitStartedAt = performance.now();
+      await evidenceCommitter.commitPending(canonicalCommit);
+      const evidenceCommitMs = performance.now() - evidenceCommitStartedAt;
+      report("authority-evidence-publish-returned");
+      report("authority-event-published");
+      const evidenceTrustedStartedAt = performance.now();
+      const evidenceTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
+      const evidenceTrustedMs = performance.now() - evidenceTrustedStartedAt;
+      const evidenceFullStartedAt = performance.now();
+      const evidenceFullFingerprint = captureAuthoredProjectionFingerprint(root);
+      const evidenceFullMs = performance.now() - evidenceFullStartedAt;
+      if (evidenceTrustedFingerprint !== evidenceFullFingerprint) {
+        throw new Error(`trusted fingerprint mismatch after evidence write ${writeIndex}`);
+      }
+      report("authority-terminal-record-start");
+      report("authority-terminal-record-persisted");
+      report("child-execution-returned");
+      report("child-telemetry-flushed");
+      report("child-terminal-response");
+      trustedFingerprintWrites.push({
+        writeIndex,
+        sessionCommit,
+        sessionCommitMs,
+        canonicalCommit,
+        materializerMs,
+        canonicalTrustedMs,
+        canonicalFullMs,
+        evidenceCommitMs,
+        evidenceTrustedMs,
+        evidenceFullMs,
+        telemetry: summarizeTelemetry(telemetryFrames, performance.now() - writeStartedAt)
+      });
     });
   }
   const values = new Map();
@@ -246,6 +298,77 @@ function measure(operation) {
   const startedAt = performance.now();
   operation();
   return performance.now() - startedAt;
+}
+
+function materializerTelemetryPhase(step) {
+  const phases = {
+    "baseline-start": "authority-materializer-baseline-start",
+    "baseline-done": "authority-materializer-baseline-done",
+    "merge-start": "authority-materializer-merge-start",
+    "merge-done": "authority-materializer-merge-done",
+    "projection-start": "authority-materializer-projection-start",
+    "projection-done": "authority-materializer-projection-done",
+    "attribution-start": "authority-materializer-attribution-start",
+    "attribution-done": "authority-materializer-attribution-done"
+  };
+  const phase = phases[step];
+  if (!phase) throw new Error(`unknown materializer telemetry step: ${step}`);
+  return phase;
+}
+
+function summarizeTelemetry(frames, wallMs) {
+  const ordered = frames.map((frame, index) => ({ ...frame, index }));
+  const firstTotalIndex = ordered.findIndex((frame) => frame.phase === "total");
+  const firstFsyncBeforeTotalIndex = ordered.findLastIndex(
+    (frame, index) => index < firstTotalIndex && frame.phase === "fsync"
+  );
+  const evidenceDoneIndex = ordered.findLastIndex((frame) => frame.phase === "authority-evidence-git-commit-done");
+  const childTerminalIndex = ordered.findLastIndex((frame) => frame.phase === "child-terminal-response");
+  const materializerWindow = summarizeWindow(ordered, firstFsyncBeforeTotalIndex, firstTotalIndex);
+  const evidenceTail = summarizeWindow(ordered, evidenceDoneIndex, childTerminalIndex);
+  const firstElapsedMs = ordered[0]?.elapsedMs ?? 0;
+  const lastElapsedMs = ordered.at(-1)?.elapsedMs ?? 0;
+  const beforeFirstFrameMs = Math.max(0, firstElapsedMs);
+  const framedSpanMs = Math.max(0, lastElapsedMs - firstElapsedMs);
+  const afterLastFrameMs = Math.max(0, wallMs - lastElapsedMs);
+  return {
+    frameCount: frames.length,
+    frames,
+    wallMs,
+    materializerWindow,
+    evidenceToChildTail: evidenceTail,
+    accounting: {
+      beforeFirstFrameMs,
+      framedSpanMs,
+      afterLastFrameMs,
+      accountedWallMs: beforeFirstFrameMs + framedSpanMs + afterLastFrameMs,
+      wallResidualMs: wallMs - (beforeFirstFrameMs + framedSpanMs + afterLastFrameMs)
+    }
+  };
+}
+
+function summarizeWindow(frames, startIndex, endIndex) {
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    return { found: false, durationMs: 0, subspansMs: [] };
+  }
+  const start = frames[startIndex];
+  const end = frames[endIndex];
+  const subspansMs = [];
+  for (let index = startIndex + 1; index <= endIndex; index += 1) {
+    subspansMs.push({
+      from: frames[index - 1].phase,
+      to: frames[index].phase,
+      milliseconds: frames[index].elapsedMs - frames[index - 1].elapsedMs
+    });
+  }
+  return {
+    found: true,
+    from: start.phase,
+    to: end.phase,
+    durationMs: end.elapsedMs - start.elapsedMs,
+    subspansMs,
+    subspansTotalMs: subspansMs.reduce((total, span) => total + span.milliseconds, 0)
+  };
 }
 
 function git(...args) {

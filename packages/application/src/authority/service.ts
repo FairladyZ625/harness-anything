@@ -466,8 +466,10 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
               actorAxesBinding: entry.actorAxesBinding!,
               occurredAt: change.changedAt
             });
+            options.onTelemetry?.("authority-event-published");
           }
           await options.generationFenceWitness?.assertHeld("before-terminal-visibility", entry);
+          options.onTelemetry?.("authority-terminal-record-start");
           await put(
             entry,
             entry.semanticDigest,
@@ -480,6 +482,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry.recoveryPublicationPolicy,
             entry.fixedOperationBinding
           );
+          options.onTelemetry?.("authority-terminal-record-persisted");
           return receipt;
         };
         receipt = options.generationFenceWitness

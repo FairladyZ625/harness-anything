@@ -65,6 +65,42 @@ export function repoWriteWaitingStage(
       return "authority-evidence-pending-verify";
     case "authority-evidence-git-commit":
       return "authority-evidence-git-commit";
+    case "authority-evidence-git-commit-done":
+      return "authority-evidence-git-commit-done";
+    case "authority-evidence-publish-returned":
+      return "authority-evidence-publish-returned";
+    case "authority-event-published":
+      return "authority-event-published";
+    case "authority-terminal-record-start":
+      return "authority-terminal-record-start";
+    case "authority-terminal-record-persisted":
+      return "authority-terminal-record-persisted";
+    case "authority-materializer-start":
+      return "authority-materializer-start";
+    case "authority-materializer-baseline-start":
+      return "authority-materializer-baseline";
+    case "authority-materializer-baseline-done":
+      return "authority-materializer-baseline-done";
+    case "authority-materializer-merge-start":
+      return "authority-materializer-merge";
+    case "authority-materializer-merge-done":
+      return "authority-materializer-merge-done";
+    case "authority-materializer-projection-start":
+      return "authority-materializer-projection";
+    case "authority-materializer-projection-done":
+      return "authority-materializer-projection-done";
+    case "authority-materializer-attribution-start":
+      return "authority-materializer-attribution";
+    case "authority-materializer-attribution-done":
+      return "authority-materializer-attribution-done";
+    case "authority-materializer-end":
+      return "authority-materializer-end";
+    case "child-execution-returned":
+      return "child-execution-returned";
+    case "child-telemetry-flushed":
+      return "child-telemetry-flushed";
+    case "child-terminal-response":
+      return "child-terminal-response";
     case "fsync":
       return "durable-attribution-evidence";
     case "materializer":

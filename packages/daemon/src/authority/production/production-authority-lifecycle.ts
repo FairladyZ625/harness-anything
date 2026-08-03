@@ -174,13 +174,15 @@ export function createProductionAuthorityLifecycle(input: {
         rootDir: repo.canonicalRoot,
         ...(input.layoutOverrides ? { layoutOverrides: input.layoutOverrides } : {})
       });
+      const commitEvidence = async (canonicalCommitSha: string): Promise<void> => {
+        reportCurrentRepoWriteTelemetry("authority-evidence-commit");
+        reportCurrentRepoWriteTelemetry("fsync");
+        await evidenceCommitter.commitPending(canonicalCommitSha);
+        reportCurrentRepoWriteTelemetry("authority-evidence-publish-returned");
+      };
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
         eventLog,
-        commitEvidence: async (canonicalCommitSha) => {
-          reportCurrentRepoWriteTelemetry("authority-evidence-commit");
-          reportCurrentRepoWriteTelemetry("fsync");
-          await evidenceCommitter.commitPending(canonicalCommitSha);
-        },
+        commitEvidence,
         observation: {
           observe: async (request) => {
             reportCurrentRepoWriteTelemetry("git");
@@ -223,7 +225,7 @@ export function createProductionAuthorityLifecycle(input: {
         bindingRuntime,
         eventLog,
         publicationInspector,
-        commitEvidence: evidenceCommitter.commitPending
+        commitEvidence
       });
       const recovery = {} as ProductionRecoveryState;
       const material: RepoProductionMaterial = {

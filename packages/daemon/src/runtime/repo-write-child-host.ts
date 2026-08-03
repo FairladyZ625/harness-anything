@@ -28,6 +28,7 @@ import {
 } from "./repo-write-not-started-classification.ts";
 import {
   createRepoWriteTelemetryDelivery,
+  executeRepoWriteChildWithTelemetry,
   reportCurrentRepoWriteTelemetry,
   runWithRepoWriteTelemetry,
   type RepoWriteTelemetryDelivery
@@ -235,10 +236,7 @@ export class RepoWriteChildHost {
         );
         return;
       }
-      operation.execute = () => runWithRepoWriteTelemetry(telemetry.report, () => {
-        reportCurrentRepoWriteTelemetry("journal");
-        return prepared.execute();
-      });
+      operation.execute = () => executeRepoWriteChildWithTelemetry(telemetry, prepared.execute);
       operation.phase = "prepared";
       await this.responses.prepared(message.requestId, prepared.opId);
     } catch (error) {
@@ -309,6 +307,8 @@ export class RepoWriteChildHost {
           await this.executionSequencer.run(operation.execute!)
         );
         await operation.telemetry?.flush();
+        operation.telemetry?.reportCurrent("child-telemetry-flushed");
+        await operation.telemetry?.flush();
         if (durableOutcome.phase !== "TERMINAL" || durableOutcome.outerOpId !== operation.opId) {
           throw new Error("execution did not return the matching durable TERMINAL outer outcome");
         }
@@ -328,6 +328,7 @@ export class RepoWriteChildHost {
         return;
       }
       operation.receipt = receipt;
+      operation.telemetry?.reportCurrent("child-terminal-response");
       await this.closeTelemetry(operation);
       this.release(operation);
       await this.responses.terminal(
