@@ -32,6 +32,7 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
       return {
         ok: true,
         command: "task-list",
+        rows: result.rows.length,
         tasks: result.rows,
         warnings: result.warnings
       } satisfies CliResult;

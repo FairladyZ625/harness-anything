@@ -185,7 +185,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "parse": parseTemplateArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["templates", "issues"],
+      "data": ["templates", "issues", "rows"],
       "paths": []
     },
     "eventPolicy": {
@@ -219,7 +219,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "parse": parseCoreTaskArgs,
     "run": runTaskQueryCommand,
     "receiptContract": {
-      "data": ["tasks"],
+      "data": ["tasks", "rows"],
       "paths": []
     },
     "eventPolicy": {

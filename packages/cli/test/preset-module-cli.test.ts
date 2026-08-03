@@ -466,6 +466,7 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
 
     const listed = runJson(rootDir, ["module", "list"]);
     assert.equal(listed.ok, true);
+    assert.equal(listed.rows, 1);
     assert.equal(listed.modules.length, 1);
     assert.equal(listed.modules[0].key, "billing");
 

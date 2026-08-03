@@ -18,6 +18,7 @@ test("CLI template list emits stable JSON over the template catalog", () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.command, "template-list");
+  assert.equal(result.rows, result.templates.length);
   assert.deepEqual(result.templates, [{
     templateRef: "template://planning/task-flow@1",
     documentKind: "task-flow",

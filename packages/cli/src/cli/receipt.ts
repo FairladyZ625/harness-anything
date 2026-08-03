@@ -90,6 +90,10 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (receipt.command === "completion") return renderCompletionText(receipt);
   if (receipt.command === "capabilities") return renderCapabilitiesText(receipt);
   if (receipt.command === "preset list") return renderPresetListText(receipt);
+  return renderSuccessReceiptText(receipt);
+}
+
+function renderSuccessReceiptText(receipt: CommandReceipt): string {
   const data = receiptDetailsData(receipt);
   const parts = [`ok`, `command=${formatToken(receipt.command)}`];
   const rootResolution = receiptRootResolution(receipt.details?.rootResolution);
@@ -150,7 +154,7 @@ function renderPresetListText(receipt: CommandReceipt): string {
     const description = typeof preset.description === "string" ? preset.description : title;
     return [`${preset.id} — ${title} — ${description}`];
   });
-  return rows.length > 0 ? rows.join("\n") : "No presets installed.";
+  return [rows.length > 0 ? rows.join("\n") : "No presets installed.", renderSuccessReceiptText(receipt)].join("\n");
 }
 
 function receiptWarningCode(value: unknown): string | undefined {
