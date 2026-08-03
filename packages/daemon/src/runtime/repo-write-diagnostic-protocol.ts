@@ -5,7 +5,21 @@ interface RepoWriteDiagnosticFrameBase {
 }
 
 export type RepoWriteTelemetryPhase =
-  "queue" | "compile" | "journal" | "git" | "fsync" | "materializer" | "projection" | "total";
+  | "queue"
+  | "compile"
+  | "compile-command-normalize"
+  | "compile-authority-plan"
+  | "compile-task-load"
+  | "compile-task-holder"
+  | "compile-task-witness"
+  | "compile-task-plan"
+  | "compile-outcome"
+  | "journal"
+  | "git"
+  | "fsync"
+  | "materializer"
+  | "projection"
+  | "total";
 
 export interface RepoWriteTelemetryFrame extends RepoWriteDiagnosticFrameBase {
   readonly kind: "telemetry";

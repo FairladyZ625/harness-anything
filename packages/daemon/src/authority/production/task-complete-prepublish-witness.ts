@@ -281,12 +281,15 @@ function findMaterializedPublication(
   bodies: ReadonlyArray<string>
 ): { readonly commit: string; readonly operationIds: ReadonlyArray<string> } {
   const expectedBlobs = bodies.map((body) => witnessGitText(rootDir, ["hash-object", "--stdin"], body));
-  for (const entry of firstParentHistory(rootDir)) {
+  const currentBlobs = witnessGitBlobIds(rootDir, "HEAD", repositoryPaths);
+  if (currentBlobs.some((actual, index) => actual !== expectedBlobs[index])) {
+    throw new Error(`AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${repositoryPaths.join(",")}`);
+  }
+  for (const entry of firstParentHistory(rootDir, repositoryPaths)) {
     if (entry.parents.length !== 2) continue;
     const operationIds = canonicalPublicationOperationIds(rootDir, entry);
     if (operationIds.length === 0) continue;
-    const actualBlobs = repositoryPaths.map((repositoryPath) =>
-      gitTextOrNull(rootDir, ["rev-parse", `${entry.commit}:${repositoryPath}`]));
+    const actualBlobs = witnessGitBlobIds(rootDir, entry.commit, repositoryPaths);
     const matches = actualBlobs.every((actual, index) => actual === expectedBlobs[index]);
     if (matches) return { commit: entry.commit, operationIds };
   }
@@ -300,7 +303,8 @@ function assertMaterializedPublication(
   bodies: ReadonlyArray<string>,
   expectedOperationIds: ReadonlyArray<string>
 ): void {
-  const entry = firstParentHistory(rootDir).find((candidate) => candidate.commit === repositoryCommit);
+  const entry = firstParentHistory(rootDir, repositoryPaths)
+    .find((candidate) => candidate.commit === repositoryCommit);
   if (!entry || entry.parents.length !== 2) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_COMMIT_NOT_MATERIALIZED_FIRST_PARENT");
   }
@@ -309,9 +313,8 @@ function assertMaterializedPublication(
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_OPERATION_MISMATCH");
   }
   const expectedBlobs = bodies.map((body) => witnessGitText(rootDir, ["hash-object", "--stdin"], body));
-  const matches = repositoryPaths.every((repositoryPath, index) =>
-    gitTextOrNull(rootDir, ["rev-parse", `${repositoryCommit}:${repositoryPath}`]) === expectedBlobs[index]
-  );
+  const actualBlobs = witnessGitBlobIds(rootDir, repositoryCommit, repositoryPaths);
+  const matches = actualBlobs.every((actual, index) => actual === expectedBlobs[index]);
   if (!matches) throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_BLOB_MISMATCH");
 }
 
@@ -325,12 +328,20 @@ function canonicalPublicationOperationIds(
     : publicationOperationIds(witnessGitText(rootDir, ["show", "-s", "--format=%s", entry.parents[1]!]));
 }
 
-function firstParentHistory(rootDir: string): ReadonlyArray<{
+function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>): ReadonlyArray<{
   readonly commit: string;
   readonly parents: ReadonlyArray<string>;
   readonly subject: string;
 }> {
-  const fields = witnessGitText(rootDir, ["log", "--first-parent", "--format=%H%x00%P%x00%s%x00", "HEAD"]).split("\0");
+  const fields = witnessGitText(rootDir, [
+    "log",
+    "--first-parent",
+    "--full-history",
+    "--format=%H%x00%P%x00%s%x00",
+    "HEAD",
+    "--",
+    ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
+  ]).split("\0");
   const rows: Array<{ commit: string; parents: ReadonlyArray<string>; subject: string }> = [];
   for (let index = 0; index + 2 < fields.length; index += 3) {
     const commit = fields[index]!.trim();
@@ -414,6 +425,37 @@ function witnessGitBlobText(rootDir: string, commitRef: string, repositoryPath: 
   } catch {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_BLOB_MISSING");
   }
+}
+
+function witnessGitBlobIds(
+  rootDir: string,
+  commitRef: string,
+  repositoryPaths: ReadonlyArray<string>
+): ReadonlyArray<string | null> {
+  const output = execFileSync("git", [
+    "-C",
+    rootDir,
+    "ls-tree",
+    "-z",
+    "--full-tree",
+    commitRef,
+    "--",
+    ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
+  ], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true
+  });
+  const byPath = new Map<string, string>();
+  for (const row of output.split("\0")) {
+    if (!row) continue;
+    const separator = row.indexOf("\t");
+    if (separator < 0) continue;
+    const [mode, type, objectId] = row.slice(0, separator).split(" ");
+    if (mode && type === "blob" && objectId) byPath.set(row.slice(separator + 1), objectId);
+  }
+  return repositoryPaths.map((repositoryPath) => byPath.get(repositoryPath) ?? null);
 }
 
 function gitTextOrNull(rootDir: string, args: ReadonlyArray<string>): string | null {

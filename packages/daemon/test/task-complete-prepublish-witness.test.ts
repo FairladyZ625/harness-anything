@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
@@ -61,6 +62,21 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
         { kind: "code-doc-reconciliation", ref: codeDoc.ref }
       ]
     }), /WITNESS_SNAPSHOT_MISMATCH:document-publication/u);
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("unpublished document rejection stays bounded with 1011 unrelated first-parent materializations", () => {
+  const fixture = unpublishedScaleWitnessRepository(1_011, 11);
+  try {
+    const startedAt = performance.now();
+    assert.throws(
+      () => produceDocumentPublicationWitness(fixture),
+      /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED/u
+    );
+    const elapsedMs = performance.now() - startedAt;
+    assert.ok(elapsedMs < 5_000, `unpublished witness rejection took ${elapsedMs.toFixed(1)}ms`);
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
   }
@@ -129,6 +145,77 @@ function witnessRepository() {
     publicCommit,
     authoredInitialCommit
   };
+}
+
+function unpublishedScaleWitnessRepository(mergeCount: number, documentCount: number) {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-prepublish-witness-scale-"));
+  const rootDir = path.join(fixtureRoot, "workspace");
+  const authoredRoot = path.join(rootDir, "harness");
+  const taskRoot = path.join(authoredRoot, "tasks", `${taskId}-scale`);
+  mkdirSync(taskRoot, { recursive: true });
+  gitInit(authoredRoot);
+
+  const documents = Array.from({ length: documentCount }, (_, index) => ({
+    path: index === 0 ? "task_plan.md" : `artifacts/evidence-${String(index).padStart(2, "0")}.md`,
+    body: `# Scale fixture document ${index}\n\nPublished body ${index}.\n`
+  }));
+  for (const document of documents) {
+    const absolutePath = path.join(taskRoot, document.path);
+    mkdirSync(path.dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, document.body);
+  }
+  git(authoredRoot, "add", ".");
+  git(authoredRoot, "commit", "-q", "-m", "test: seed scale witness");
+  appendNoopFirstParentMerges(authoredRoot, git(authoredRoot, "rev-parse", "HEAD"), mergeCount);
+
+  const mutatedDocuments = documents.map((document, index) => index === 0
+    ? { ...document, body: `${document.body}\nUnpublished mutation.\n` }
+    : document);
+  writeFileSync(path.join(taskRoot, mutatedDocuments[0]!.path), mutatedDocuments[0]!.body);
+  return { fixtureRoot, rootDir, authoredRoot, taskId, documents: mutatedDocuments };
+}
+
+function appendNoopFirstParentMerges(rootDir: string, initialCommit: string, mergeCount: number): void {
+  const commands = ["feature done\n"];
+  let firstParent = initialCommit;
+  for (let index = 0; index < mergeCount; index += 1) {
+    const sideMark = index * 2 + 1;
+    const mergeMark = sideMark + 1;
+    commands.push(fastImportCommit("refs/heads/fixture-side", sideMark, `fixture side ${index}`, firstParent));
+    commands.push(fastImportCommit(
+      "refs/heads/main",
+      mergeMark,
+      `fixture materialization ${index} [op_fixture_${index}]`,
+      firstParent,
+      `:${sideMark}`
+    ));
+    firstParent = `:${mergeMark}`;
+  }
+  commands.push("done\n");
+  execFileSync("git", ["-C", rootDir, "fast-import", "--quiet"], {
+    input: commands.join(""),
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+}
+
+function fastImportCommit(
+  ref: string,
+  mark: number,
+  message: string,
+  from: string,
+  merge?: string
+): string {
+  return [
+    `commit ${ref}\n`,
+    `mark :${mark}\n`,
+    "committer Harness Test <harness@example.test> 1750000000 +0000\n",
+    `data ${Buffer.byteLength(message)}\n`,
+    `${message}\n`,
+    `from ${from}\n`,
+    ...(merge ? [`merge ${merge}\n`] : []),
+    "\n"
+  ].join("");
 }
 
 function completeCommand(commitRef: string): TaskCompleteTransitionCommand {

@@ -414,7 +414,10 @@ function assertTerminalReceipt(
 function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
   assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");
   const phases: ReadonlyArray<RepoWriteTelemetryPhase> = [
-    "queue", "compile", "journal", "git", "fsync", "materializer", "projection", "total"
+    "queue", "compile", "compile-command-normalize", "compile-authority-plan",
+    "compile-task-load", "compile-task-holder", "compile-task-witness",
+    "compile-task-plan", "compile-outcome", "journal", "git", "fsync",
+    "materializer", "projection", "total"
   ];
   if (!phases.includes(frame.phase as RepoWriteTelemetryPhase)) invalid("$.phase", "telemetry phase");
   if (typeof frame.elapsedMs !== "number" || !Number.isFinite(frame.elapsedMs) || frame.elapsedMs < 0) {
