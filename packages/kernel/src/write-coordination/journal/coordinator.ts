@@ -20,7 +20,7 @@ import {
   resolveHarnessLayout,
 } from "../../layout/index.ts";
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
-import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
+import { captureTrustedAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably } from "./durable.ts";
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
@@ -354,7 +354,7 @@ function flushRecords(
 
   assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
   const previousProjectionSourceFingerprint = records.length > 0
-    ? captureAuthoredProjectionFingerprint(rootInput)
+    ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs)
     : undefined;
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
@@ -417,7 +417,7 @@ function flushRecords(
     throw new Error("attribution event durability confirmation failed");
   }
   const projectionUpdate = committedOpIds.length > 0
-    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceFingerprint, plannedRecords.map(({ record }) => record.entityId))
+    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceFingerprint, plannedRecords.map(({ record }) => record.entityId), publicationVcs)
     : undefined;
   const projectionHash = projectionUpdate?.hash ?? previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];

@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
 import { VcsCommandError } from "../../ports/version-control-system.ts";
 import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
+import { commitWithScopedIndex, nullDelimitedGitPaths } from "./scoped-index-commit.ts";
 
 const gitMaxBuffer = resolveGitMaxBufferBytes();
 
@@ -26,9 +28,20 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     },
     workingTreeFiles: (repoRoot, paths) => runGit(repoRoot, "status", "--porcelain", "-uall", "--", ...paths),
     stagedFiles: (repoRoot, paths) => runGit(repoRoot, "diff", "--cached", "--name-only", "--", ...paths),
-    commit: (repoRoot, message, author) => {
-      runGitAs(repoRoot, author, "commit", "-m", message);
-    },
+    commit: (repoRoot, message, author) => commitWithScopedIndex(repoRoot, message, author, {
+      runGitBytes,
+      runGitWithInput,
+      runGitWithEnvironment,
+      runGitWithInputEnvironment,
+      fileSystem: {
+        exists: existsSync,
+        lstat: lstatSync,
+        readFile: readFileSync,
+        readLink: readlinkSync,
+        makeTemporaryDirectory: (prefix) => mkdtempSync(path.join(tmpdir(), prefix)),
+        removeTemporaryDirectory: (inputPath) => rmSync(inputPath, { recursive: true, force: true })
+      }
+    }),
     currentHead: (repoRoot) => {
       try {
         return runGit(repoRoot, "rev-parse", "HEAD").trim();
@@ -265,20 +278,6 @@ function runGitBytes(repoRoot: string, ...args: ReadonlyArray<string>): Uint8Arr
   }
 }
 
-function nullDelimitedGitPaths(input: Uint8Array): ReadonlyArray<Uint8Array> {
-  const paths: Uint8Array[] = [];
-  let start = 0;
-  for (let index = 0; index < input.length; index += 1) {
-    if (input[index] !== 0) continue;
-    paths.push(input.subarray(start, index));
-    start = index + 1;
-  }
-  if (start !== input.length) {
-    throw new Error("GIT_PATH_LIST_NUL_TERMINATOR_MISSING");
-  }
-  return paths;
-}
-
 function gitPathBytesKey(input: Uint8Array): string {
   return Buffer.from(input).toString("base64");
 }
@@ -324,9 +323,44 @@ function runGitWithInput(repoRoot: string, input: string | Uint8Array, ...args: 
   }
 }
 
-function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
+function runGitWithInputEnvironment(
+  repoRoot: string,
+  author: VcsCommitAuthor | undefined,
+  environment: Readonly<Record<string, string>>,
+  input: string | Uint8Array,
+  ...args: ReadonlyArray<string>
+): string {
   try {
-    return execFileSync("git", ["-C", repoRoot, ...args], localGitProcessOptions(author));
+    const options = localGitProcessOptions(author);
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      ...options,
+      input,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: { ...(options.env ?? {}), ...environment }
+    });
+  } catch (error) {
+    throw vcsCommandError(repoRoot, args, error);
+  }
+}
+
+function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
+  return runGitWithEnvironment(repoRoot, author, {}, ...args);
+}
+
+function runGitWithEnvironment(
+  repoRoot: string,
+  author: VcsCommitAuthor | undefined,
+  environment: Readonly<Record<string, string>>,
+  ...args: ReadonlyArray<string>
+): string {
+  try {
+    const options = localGitProcessOptions(author);
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      ...options,
+      env: { ...(options.env ?? {}), ...environment },
+      windowsHide: true
+    });
   } catch (error) {
     throw vcsCommandError(repoRoot, args, error);
   }

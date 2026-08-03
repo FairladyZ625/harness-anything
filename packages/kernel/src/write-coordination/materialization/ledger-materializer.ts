@@ -6,7 +6,11 @@ import type { VersionControlSystem } from "../../ports/version-control-system.ts
 import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
 import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../../projection/sqlite-task-projection.ts";
-import { captureAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
+import {
+  captureTrustedAuthoredProjectionFingerprint,
+  invalidateTrustedAuthoredProjectionFingerprint,
+  rememberTrustedAuthoredProjectionFingerprint
+} from "../../projection/projection-source-baseline.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import {
   materializerCommitter,
@@ -121,7 +125,7 @@ function materializeBranches(
       continue;
     }
 
-    projectionSourceFingerprintBeforeMerge ??= captureAuthoredProjectionFingerprint(rootInput);
+    projectionSourceFingerprintBeforeMerge ??= captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
 
     const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
       ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
@@ -186,12 +190,17 @@ function materializeBranches(
 
   if (merged > 0) {
     const layout = resolveHarnessLayout(rootInput);
-    updateTaskProjectionIncrementally({
+    const projectionUpdate = updateTaskProjectionIncrementally({
       rootDir: layout.rootDir,
       ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
       touchedPaths: [...touchedPaths],
       ...(projectionSourceFingerprintBeforeMerge ? { previousSourceFingerprint: projectionSourceFingerprintBeforeMerge } : {})
     });
+    if (projectionUpdate.sourceHash) {
+      rememberTrustedAuthoredProjectionFingerprint(rootInput, projectionUpdate.sourceHash, vcs, repoRoot);
+    } else {
+      invalidateTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
+    }
   }
 
   const layout = resolveHarnessLayout(rootInput);

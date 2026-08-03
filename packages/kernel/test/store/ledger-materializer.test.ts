@@ -3,12 +3,19 @@ import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../src/index.ts";
 import { authorityBatchTrailerName, buildAuthorityBatchIntegrity } from "../../src/integrity/authority-batch-integrity.ts";
+import { localProjectionSourceFileSystem } from "../../src/local/local-layout-file-system.ts";
+import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
+import {
+  captureTrustedAuthoredProjectionFingerprint,
+  invalidateTrustedAuthoredProjectionFingerprint,
+  rememberTrustedAuthoredProjectionFingerprint
+} from "../../src/projection/projection-source-baseline.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -62,6 +69,79 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
       git(rootDir, "show", "-s", "--format=%an <%ae>", "HEAD"),
       "Harness Anything Materializer <materializer@harness-anything.local>"
     );
+  });
+});
+
+test("trusted generation fingerprint reuses clean state and fails closed on dirty authored state", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const taskRoot = path.join(rootDir, "harness/tasks/task-baseline");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-baseline",
+      "title: Baseline",
+      "lifecycle:",
+      "  bindingSchema: lifecycle-binding/v1",
+      "  engine: local",
+      "  status: active",
+      "  ref: ",
+      "  titleSnapshot: Baseline",
+      "  url: ",
+      "  bindingCreatedAt: 2026-07-07T00:00:00.000Z",
+      "  bindingFingerprint: sha256:fixture",
+      "packageDisposition: active",
+      "---",
+      ""
+    ].join("\n"), "utf8");
+    git(rootDir, "add", "--", "tasks/task-baseline/INDEX.md");
+    git(rootDir, "commit", "-m", "seed fingerprint baseline");
+
+    const vcs = makeLocalVersionControlSystem();
+    const first = captureTrustedAuthoredProjectionFingerprint(rootDir, vcs);
+    assert.equal(git(rootDir, "status", "--porcelain"), "");
+    assert.equal(vcs.workingTreeFiles(vcs.topLevel(path.join(rootDir, "harness"))!, []), "");
+    const originalStatSignature = localProjectionSourceFileSystem.statSignature;
+    let cleanReuseStats = 0;
+    localProjectionSourceFileSystem.statSignature = (inputPath) => {
+      cleanReuseStats += 1;
+      return originalStatSignature(inputPath);
+    };
+    try {
+      assert.equal(captureTrustedAuthoredProjectionFingerprint(rootDir, vcs), first);
+    } finally {
+      localProjectionSourceFileSystem.statSignature = originalStatSignature;
+    }
+    assert.equal(cleanReuseStats, 0);
+
+    let generationStatusCalls = 0;
+    const generationVcs = {
+      ...vcs,
+      workingTreeFiles: (repo: string, paths: ReadonlyArray<string>) => {
+        generationStatusCalls += 1;
+        return vcs.workingTreeFiles(repo, paths);
+      }
+    };
+    rememberTrustedAuthoredProjectionFingerprint(rootDir, first, generationVcs);
+    assert.equal(captureTrustedAuthoredProjectionFingerprint(rootDir, generationVcs), first);
+    assert.equal(generationStatusCalls, 0);
+    invalidateTrustedAuthoredProjectionFingerprint(rootDir, vcs);
+
+    writeFileSync(path.join(taskRoot, "INDEX.md"), readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace("title: Baseline", "title: Dirty baseline"), "utf8");
+    let dirtyFallbackStats = 0;
+    localProjectionSourceFileSystem.statSignature = (inputPath) => {
+      dirtyFallbackStats += 1;
+      return originalStatSignature(inputPath);
+    };
+    let dirty: string;
+    try {
+      dirty = captureTrustedAuthoredProjectionFingerprint(rootDir, vcs);
+    } finally {
+      localProjectionSourceFileSystem.statSignature = originalStatSignature;
+    }
+    assert.notEqual(dirty, first);
+    assert.ok(dirtyFallbackStats > 0);
   });
 });
 
