@@ -27,6 +27,7 @@ import {
 } from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
 import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
+import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",
@@ -119,6 +120,7 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         throw new Error(`AUTHORITY_EVENT_V2_EVIDENCE_CANONICAL_COMMIT_MISSING:${canonicalCommitSha}`);
       }
       const head = vcs.currentHead(repoRoot);
+      reportCurrentRepoWriteTelemetry("authority-evidence-worktree");
       const { relativeRoot, pendingPaths } = readAuthorityEvidencePendingPathsAtCommit(
         layout.authorityAttributionEventsV2Root,
         repoRoot,
@@ -131,6 +133,7 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
       );
       if (verifiedHead !== head) {
         // Establish a trustworthy baseline after startup or any unexpected HEAD change.
+        reportCurrentRepoWriteTelemetry("authority-evidence-history-verify");
         log.verifyIntegrity();
         // A dirty historical tree may still be in crash recovery. Do not cache
         // that transient worktree as the verified baseline.
@@ -141,10 +144,12 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         if (worktree.historicalShardChanged) {
           throw new Error("AUTHORITY_EVENT_V2_EVIDENCE_VERIFIED_HISTORY_CHANGED");
         }
+        reportCurrentRepoWriteTelemetry("authority-evidence-pending-verify");
         log.verifyShards(pendingPaths.map((relativePath) => path.basename(relativePath)));
       }
       if (pendingPaths.length === 0) return;
 
+      reportCurrentRepoWriteTelemetry("authority-evidence-git-commit");
       const pending = new Set(pendingPaths);
       assertEvidenceOnlyStaged(vcs.stagedFiles(repoRoot, ["."]), pending);
       vcs.add(repoRoot, { paths: pendingPaths });

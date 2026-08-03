@@ -12,6 +12,7 @@ import type {
   ReviewVerdict,
   SemanticDiffDocumentPolicy,
   OperationalActor,
+  ProjectionWarning,
   TaskWorkKind,
   TaskHolderExecutor,
   TaskHolderPersonPrincipal,
@@ -298,7 +299,13 @@ export interface DaemonHostCommandExecutionOptions {
   readonly makeOperationalWriteCoordinator: (
     actor: OperationalActor
   ) => WriteCoordinator;
+  readonly onTelemetry?: (phase: DaemonHostCommandExecutionTelemetryPhase) => void;
+  readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
 }
+
+export type DaemonHostCommandExecutionTelemetryPhase =
+  | "command-conflict-preflight"
+  | "command-conflict-recheck";
 
 export type DaemonCommandHostError =
   | { readonly code: "invalid_session"; readonly context: { readonly cause: string } }

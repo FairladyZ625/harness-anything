@@ -69,6 +69,7 @@ export class ProductionRepoWriteOperationHost<
       readonly command: RepoWriteCommandDto;
       readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
     }) => Promise<CommandReceiptEnvelope | undefined>;
+    readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
     readonly now: () => Date;
     readonly newOuterOpId: () => string;
   };
@@ -89,6 +90,7 @@ export class ProductionRepoWriteOperationHost<
       readonly command: RepoWriteCommandDto;
       readonly decoded: ReturnType<typeof decodeRepoWriteCommand>;
     }) => Promise<CommandReceiptEnvelope | undefined>;
+    readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
     readonly now?: () => Date;
     readonly newOuterOpId?: () => string;
   }) {
@@ -180,7 +182,12 @@ export class ProductionRepoWriteOperationHost<
     const commandService = createDaemonCommandService(
       this.options.runtime,
       this.options.hostServices,
-      { resolveAuthoritySubmissionV2: () => binding }
+      {
+        resolveAuthoritySubmissionV2: () => binding,
+        ...(this.options.conflictMarkerPreflight ? {
+          conflictMarkerPreflight: this.options.conflictMarkerPreflight
+        } : {})
+      }
     );
     return commandReceiptJsonObject(await commandService.runCommand(
       input.command.payload as unknown as JsonObject,
@@ -347,7 +354,10 @@ export class ProductionRepoWriteOperationHost<
       {
         taskLeaseGuardMode: "read-only",
         ...(recovery ? { outerProceedingRecovery: true as const } : {}),
-        resolveAuthoritySubmissionV2: () => capturingSubmission
+        resolveAuthoritySubmissionV2: () => capturingSubmission,
+        ...(this.options.conflictMarkerPreflight ? {
+          conflictMarkerPreflight: this.options.conflictMarkerPreflight
+        } : {})
       }
     );
     const receipt = exactReceipt(await commandService.runCommand(

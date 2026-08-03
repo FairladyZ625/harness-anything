@@ -40,6 +40,7 @@ import {
   RepoWriteNotStartedError,
   RepoWriteOutcomeUnknownError
 } from "../runtime/repo-write-client.ts";
+import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
 
 export interface DaemonCommandService {
   readonly runCommand: (payload?: JsonObject, context?: {
@@ -54,6 +55,7 @@ export interface DaemonCommandServiceOptions {
   readonly onCommandSettled?: () => void;
   readonly taskLeaseGuardMode?: "read-only";
   readonly outerProceedingRecovery?: true;
+  readonly conflictMarkerPreflight?: () => import("@harness-anything/kernel").ProjectionWarning | undefined;
   readonly repoWriteDispatch?: {
     readonly repoId: string;
     readonly submit: (
@@ -227,7 +229,11 @@ export function createDaemonCommandService<
                 runtime,
                 `${parsedCommand.action.kind}:${actor.kind}:${actor.id}:operational`,
                 actor
-              )
+              ),
+            onTelemetry: reportCurrentRepoWriteTelemetry,
+            ...(options.conflictMarkerPreflight ? {
+              conflictMarkerPreflight: options.conflictMarkerPreflight
+            } : {})
           })
         );
         return hostServices.toReceipt(

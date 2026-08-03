@@ -11,7 +11,10 @@ import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/i
 import type { CommandSpecDefinition } from "./command-spec/types.ts";
 import { commandDescriptors, commandRegistry } from "./command-registry.ts";
 import type { CommandDescriptor } from "./command-registry.ts";
-import { readConflictMarkerPreflight } from "./conflict-preflight.ts";
+import {
+  readCommandConflictMarkerFailure,
+  type ConflictMarkerExecutionBoundary
+} from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { toCliError } from "./error-mapper.ts";
 import { actionTaskId } from "./parse-args.ts";
@@ -129,24 +132,15 @@ export function runRegisteredCommand(
   makeTaskHolderService: () => TaskHolderService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
   runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport,
-  execution: {
-    readonly authorityCommandSubmission: boolean;
-    readonly outerProceedingRecovery: boolean;
-  } = { authorityCommandSubmission: false, outerProceedingRecovery: false }
+  execution: ConflictMarkerExecutionBoundary = {
+    authorityCommandSubmission: false,
+    outerProceedingRecovery: false
+  }
 ): CommandRunnerEffect {
   const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
-  const conflictMarkerResult = requiresConflictMarkerPreflight(command.action) ? readConflictMarkerPreflight(receiptCommandKind(command.action), layoutInput) : undefined;
-  if (conflictMarkerResult?.ok === false) return Effect.succeed(conflictMarkerResult.result);
-  const conflictMarkerWarning = conflictMarkerResult?.warning;
-  if (conflictMarkerWarning) {
-    return Effect.succeed({
-      ok: false,
-      command: receiptCommandKind(command.action),
-      warnings: [conflictMarkerWarning],
-      error: cliError(CliErrorCode.ConflictMarkerPresent, conflictMarkerWarning.message)
-    } satisfies CliResult);
-  }
+  const conflictMarkerFailure = readCommandConflictMarkerFailure(command, layoutInput, execution);
+  if (conflictMarkerFailure) return Effect.succeed(conflictMarkerFailure);
   let engine: CommandRunnerEngine | undefined;
   let artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument"> | undefined;
   let currentSessionProbe: CurrentSessionProbePort | undefined;

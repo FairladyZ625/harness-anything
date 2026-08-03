@@ -9,7 +9,7 @@ import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords } from "./relation-graph-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
-import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+import { lstatPathIfPresent, readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -134,11 +134,35 @@ function findTamperedBindings(entries: ReadonlyArray<TaskSourceEntry>): Readonly
   return warnings;
 }
 
-export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+export function findConflictMarkerWarnings(
+  rootInput: HarnessLayoutInput,
+  candidates?: ReadonlyArray<string>
+): ReadonlyArray<ProjectionWarning> {
   const layout = resolveHarnessLayout(rootInput);
-  const rootDir = layout.rootDir;
-  const roots = [layout.authoredRoot, path.join(layout.rootDir, "AGENTS.md"), path.join(layout.rootDir, "CLAUDE.md")];
-  for (const candidate of roots.flatMap((entry) => listTextFiles(entry))) {
+  return findConflictMarkersInFiles(
+    layout.rootDir,
+    candidates
+      ? candidates.filter((candidate) => {
+          const stat = lstatPathIfPresent(candidate);
+          return stat?.isFile() === true && !stat.isSymbolicLink();
+        })
+      : conflictMarkerRoots(layout).flatMap((entry) => listTextFiles(entry))
+  );
+}
+
+function conflictMarkerRoots(layout: ReturnType<typeof resolveHarnessLayout>): ReadonlyArray<string> {
+  return [
+    layout.authoredRoot,
+    path.join(layout.rootDir, "AGENTS.md"),
+    path.join(layout.rootDir, "CLAUDE.md")
+  ];
+}
+
+function findConflictMarkersInFiles(
+  rootDir: string,
+  candidates: ReadonlyArray<string>
+): ReadonlyArray<ProjectionWarning> {
+  for (const candidate of candidates) {
     const body = readTextFileIfPresent(candidate);
     if (body === null) continue;
     if (/^<<<<<<<[^\n]*\n[\s\S]*?^=======$[\s\S]*?^>>>>>>>[^\n]*$/mu.test(body)) {
@@ -152,7 +176,6 @@ export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): Reado
   }
   return [];
 }
-
 function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const layout = resolveHarnessLayout(rootInput);
   const seen = new Map<string, string>();

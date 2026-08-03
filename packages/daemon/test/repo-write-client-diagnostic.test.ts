@@ -31,6 +31,13 @@ test("compile diagnostics distinguish task completion witness work", () => {
   );
 });
 
+test("authority diagnostics distinguish the cumulative replica-change read", () => {
+  assert.equal(
+    repoWriteWaitingStage("authority-replica-change-read"),
+    "authority-replica-change-read"
+  );
+});
+
 test("timeout diagnostics name the child wait for every authority submission ingress", async () => {
   const cases = [
     { ingress: "generic", commandName: "task-create" },

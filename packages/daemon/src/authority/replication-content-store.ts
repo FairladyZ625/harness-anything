@@ -14,6 +14,7 @@ import {
   readAuthorityGitBytes
 } from "./production/publication-evidence.ts";
 import { validateReadDownManagedPath } from "./read-down-managed-path.ts";
+import { reportCurrentRepoWriteTelemetry } from "../runtime/repo-write-telemetry-context.ts";
 
 type ReplicaChangeDraft = Parameters<ReplicaChangeLog["append"]>[0];
 type ReplicaFileMode = NonNullable<ReplicaChangeRecord["paths"][number]["mode"]>;
@@ -118,7 +119,12 @@ export function createContentEnrichedReplicaChangeLog(
     ? undefined
     : hydrateRecord(record, content);
   return {
-    append: (draft) => base.append(content.describeChange(draft)),
+    append: (draft) => {
+      reportCurrentRepoWriteTelemetry("authority-replication-snapshot");
+      const change = content.describeChange(draft);
+      reportCurrentRepoWriteTelemetry("authority-replica-change-append");
+      return base.append(change);
+    },
     latest: async (workspaceId) => hydrate(await base.latest(workspaceId)),
     getByOperation: async (workspaceId, opId) => hydrate(await base.getByOperation(workspaceId, opId)),
     changesAfter: async (workspaceId, revision) =>

@@ -178,6 +178,7 @@ export function createProductionAuthorityLifecycle(input: {
       const basePublisher = createDurableAuthorityCommittedEventPublisherV2({
         eventLog,
         commitEvidence: async (canonicalCommitSha) => {
+          reportCurrentRepoWriteTelemetry("authority-evidence-commit");
           reportCurrentRepoWriteTelemetry("fsync");
           await evidenceCommitter.commitPending(canonicalCommitSha);
         },
@@ -186,6 +187,7 @@ export function createProductionAuthorityLifecycle(input: {
             reportCurrentRepoWriteTelemetry("git");
             const inspect = publicationObservers.get(repo.repoId);
             if (!inspect) throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVER_UNAVAILABLE");
+            reportCurrentRepoWriteTelemetry("authority-replica-change-read");
             const changes = await replicaChangeLog.changesAfter(request.workspaceId, 0);
             const expectedOpIds = changes
               .filter((change) => change.commitSha === request.commitSha)
@@ -194,10 +196,12 @@ export function createProductionAuthorityLifecycle(input: {
             if (!expectedOpIds.includes(request.opId)) {
               throw new Error(`AUTHORITY_PRODUCTION_PUBLICATION_OPERATION_MISSING:opId=${request.opId};commitSha=${request.commitSha}`);
             }
+            reportCurrentRepoWriteTelemetry("authority-publication-proof");
             const evidence = await inspect(request.previousCommit, expectedOpIds, request.commitSha);
             if (evidence.commitSha !== request.commitSha || evidence.previousCommit !== request.previousCommit) {
               throw new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVATION_MISMATCH");
             }
+            reportCurrentRepoWriteTelemetry("authority-operation-integrity");
             const mutationSets = await Promise.all(expectedOpIds.map(async (opId) => {
               const record = await state.operationRegistry.get(request.workspaceId, opId);
               if (!record?.authorityIntegrity) {
@@ -521,6 +525,7 @@ function createConnectionAuthorityService(
     fenceWitness: input.fenceWitness,
     ...(generationFence ? { generationFenceWitness: generationFence } : {}),
     admissionBudget: input.admissionBudget,
+    onTelemetry: reportCurrentRepoWriteTelemetry,
     v2: {
       schemaTuple: material.config.schemaTuple,
       channelNonceDigest: context.channelBinding.digest,

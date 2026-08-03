@@ -121,11 +121,13 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     // The presentation token is authenticated before the semantic payload is
     // decoded. A reconnect may present a newer token for the same protected
     // binding; the envelope's original admissionTokenRef is checked separately.
+    options.onTelemetry?.("authority-admission");
     const verified = await validateActorAxesBindingPresentationV2(attempt.presentationToken, v2.bindingRuntime, {
       workspaceId: options.workspaceId,
       channelNonceDigest: v2.channelNonceDigest,
       schemaTuple: v2.schemaTuple
     });
+    options.onTelemetry?.("authority-binding-verified");
     const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
     const opId = operationIdDiagnosticV2(envelope.operationId);
     return runWithAuthorityAdmission({
@@ -208,6 +210,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
   }
 
   async function publishBatch(admissions: ReadonlyArray<AuthorityAdmission>): Promise<ReadonlyArray<AuthorityOperationReceipt>> {
+    options.onTelemetry?.("authority-batch-start");
     const receipts = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
     const prepared = admissions.filter((admission): admission is PreparedAuthoritySubmission => admission.kind === "prepared");
     if (prepared.length === 0) return admissions.map((admission) => (admission as TerminalAuthoritySubmission).receipt);
@@ -249,7 +252,9 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         try {
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await entry.publicationRevalidation?.();
+          options.onTelemetry?.("authority-coordinator-enqueue");
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+          options.onTelemetry?.("authority-coordinator-enqueued");
           if (acknowledgement.journalWitness) {
             journalWitnesses.set(entry, acknowledgement.journalWitness);
           }
@@ -286,6 +291,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             entry.recoveryPublicationPolicy,
             entry.fixedOperationBinding
           );
+          options.onTelemetry?.("authority-prepared-persisted");
           candidates.push(entry);
         } catch (error) {
           if (isDaemonGenerationFenced(error)) throw error;
@@ -316,6 +322,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         && candidates.every((candidate) => candidate.coordinator === batchCoordinator)
         && exactBatchWitnesses.length === candidates.length
         && batchCoordinator.flushExactJournalRecords;
+      options.onTelemetry?.("authority-flush-start");
       const flush = recoveryCandidate
         ? await Effect.runPromise(recoveryCandidate.coordinator.flushExactJournalRecord!(
           "recovery",
@@ -488,13 +495,20 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     return batchReceipts(admissions, receipts);
     };
     try {
+      options.onTelemetry?.("authority-generation-acquire");
       return options.generationFenceWitness
         ? await options.generationFenceWitness.runExclusive(
           "before-canonical-publish",
           prepared[0],
-          publishWhileGenerationCurrent
+          () => {
+            options.onTelemetry?.("authority-generation-held");
+            return publishWhileGenerationCurrent();
+          }
         )
-        : await publishWhileGenerationCurrent();
+        : await (() => {
+          options.onTelemetry?.("authority-generation-held");
+          return publishWhileGenerationCurrent();
+        })();
     } catch (error) {
       if (!isDaemonGenerationFenced(error)) throw error;
       for (const entry of prepared) {

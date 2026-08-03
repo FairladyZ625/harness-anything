@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
 import path from "node:path";
 
@@ -14,6 +14,15 @@ export function readTextFileIfPresent(filePath: string): string | null {
 export function statPathIfPresent(inputPath: string): Stats | null {
   try {
     return statSync(inputPath);
+  } catch (error) {
+    if (isVanishedPathError(error)) return null;
+    throw error;
+  }
+}
+
+export function lstatPathIfPresent(inputPath: string): Stats | null {
+  try {
+    return lstatSync(inputPath);
   } catch (error) {
     if (isVanishedPathError(error)) return null;
     throw error;
