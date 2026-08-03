@@ -68,6 +68,7 @@ export function runPresetList(rootInput: HarnessLayoutInput, activeVerticalId: s
   return {
     ok: true,
     command: "preset-list",
+    rows: validations.length,
     presets: validations.map((entry) => entry.summary),
     issues,
     warnings

@@ -25,10 +25,12 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   if (action.kind === "module-list") {
+    const modules = readModules(rootInput).modules.filter((module) => module.status !== "unregistered");
     return {
       ok: true,
       command: "module-list",
-      modules: readModules(rootInput).modules.filter((module) => module.status !== "unregistered")
+      rows: modules.length,
+      modules
     };
   }
 

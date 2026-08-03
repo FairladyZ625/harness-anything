@@ -1,8 +1,33 @@
-import { commandSpecMap, type CommandKind } from "./command-spec/index.ts";
-import type { CommandReceiptContract } from "./command-spec/types.ts";
+import { actionForCommand } from "./command-input-descriptors.ts";
+import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";
+import type { CommandDescriptorIdentity, CommandReceiptContract } from "./command-spec/types.ts";
 
 export type { CommandReceiptContract } from "./command-spec/types.ts";
 export type { CommandKind } from "./command-spec/index.ts";
+
+type ReceiptAnchorDescriptor = CommandDescriptorIdentity & {
+  readonly receiptContract: CommandReceiptContract;
+};
+
+const pathAnchoredActions = new Set(["create", "propose", "record", "scaffold"]);
+
+export function assertCommandReceiptAnchorContracts(
+  descriptors: ReadonlyArray<ReceiptAnchorDescriptor> = commandSpecs
+): void {
+  const violations = descriptors.flatMap((descriptor) => {
+    const action = actionForCommand(descriptor);
+    if (action === "list" && !descriptor.receiptContract.data.includes("rows")) {
+      return [`${descriptor.kind} (${descriptor.usage}) must declare data.rows`];
+    }
+    if (pathAnchoredActions.has(action) && descriptor.receiptContract.paths.length === 0) {
+      return [`${descriptor.kind} (${descriptor.usage}) must declare a required path`];
+    }
+    return [];
+  });
+  if (violations.length > 0) {
+    throw new Error(`Command receipt anchor contract violations:\n${violations.join("\n")}`);
+  }
+}
 
 const canonicalContracts = commandSpecMap((entry) => entry.receiptContract);
 const decisionTransitionContract = { data: ["decisionId", "decisionState", "report"], paths: ["primary"] } satisfies CommandReceiptContract;

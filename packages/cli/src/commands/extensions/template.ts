@@ -26,16 +26,18 @@ export function runTemplateCommand(rootInput: HarnessLayoutInput, action: Templa
     }
     const catalog = decoded.value;
     const validation = validateTemplateCatalog(catalog, { resolveBody: resolveTemplateCatalogBody(catalog) });
+    const templates = catalog.documents.map((document) => ({
+      templateRef: `template://${document.id}@${document.version}`,
+      documentKind: document.documentKind,
+      slot: document.slot,
+      materializeAs: document.materializeAs,
+      locales: document.locales.map((variant) => variant.locale)
+    }));
     return {
       ok: validation.ok,
       command: "template-list",
-      templates: catalog.documents.map((document) => ({
-        templateRef: `template://${document.id}@${document.version}`,
-        documentKind: document.documentKind,
-        slot: document.slot,
-        materializeAs: document.materializeAs,
-        locales: document.locales.map((variant) => variant.locale)
-      })),
+      rows: templates.length,
+      templates,
       issues: validation.issues,
       error: validation.ok ? undefined : cliError(CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.")
     };

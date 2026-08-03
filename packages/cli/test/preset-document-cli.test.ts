@@ -32,6 +32,7 @@ test("CLI preset summaries load PRESET.md frontmatter", () => {
     ].join("\n"));
 
     const listed = runJson(rootDir, ["preset", "list"]);
+    assert.equal(listed.rows, listed.presets.length);
     const custom = listed.presets.find((preset: Record<string, unknown>) => preset.id === "custom-task");
     assert.equal(custom.description, "Prepare a custom implementation task.");
     assert.equal(custom.whenToUse, "Use when the standard task shape needs project-specific guidance.");
@@ -48,9 +49,10 @@ test("CLI preset list text prints one semantic row per bundled preset", () => {
     });
     const rows = stdout.trim().split("\n");
     const bundledPresetIndex = JSON.parse(readFileSync(bundledPresetIndexPath, "utf8")) as { readonly presets: ReadonlyArray<string> };
-    assert.equal(rows.length, bundledPresetIndex.presets.length);
-    assert.equal(rows.every((row) => row.split(" — ").length === 3), true);
+    assert.equal(rows.length, bundledPresetIndex.presets.length + 1);
+    assert.equal(rows.slice(0, -1).every((row) => row.split(" — ").length === 3), true);
     assert.equal(rows.some((row) => row.startsWith("standard-task — Standard Task — Create the standard planning")), true);
+    assert.match(rows.at(-1) ?? "", new RegExp(`^ok command="preset list" rows=${bundledPresetIndex.presets.length} summary=`, "u"));
   });
 });
 

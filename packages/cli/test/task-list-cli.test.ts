@@ -62,6 +62,11 @@ test("CLI task list filters projection rows without treating generated cache as 
 
     const defaultList = runJson(rootDir, ["task", "list"]);
     assert.deepEqual(defaultList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing", "task-missing", "task-review"]);
+    assert.equal(defaultList.rows, 3);
+    assert.match(
+      runText(rootDir, ["task", "list"]).trim().split(/\r?\n/u).at(-1) ?? "",
+      /^ok command="task list" rows=3 summary="completed task list with 3 rows"$/u
+    );
 
     const openList = runJson(rootDir, ["task", "list", "--state", "open"]);
     assert.deepEqual(openList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
@@ -206,6 +211,12 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     encoding: "utf8"
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function runText(rootDir: string, args: ReadonlyArray<string>): string {
+  return execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
+    encoding: "utf8"
+  });
 }
 
 function runJsonFailure(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {

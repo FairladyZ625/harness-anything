@@ -2,8 +2,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toCliError } from "../src/cli/error-mapper.ts";
-import { commandReceiptContractsByKind } from "../src/cli/receipt-contracts.ts";
+import { commandDescriptors } from "../src/cli/command-registry.ts";
+import {
+  assertCommandReceiptAnchorContracts,
+  commandReceiptContractsByKind
+} from "../src/cli/receipt-contracts.ts";
 import { renderReceiptText, toCommandReceipt } from "../src/cli/receipt.ts";
+
+test("list and creation command families declare ground-truth receipt anchors", () => {
+  assert.doesNotThrow(() => assertCommandReceiptAnchorContracts(commandDescriptors));
+});
+
+test("receipt anchor regression gate rejects a new list command without rows", () => {
+  assert.throws(
+    () => assertCommandReceiptAnchorContracts([{
+      kind: "fixture-list",
+      usage: "fixture list [--json]",
+      receiptContract: { data: ["items"], paths: [] }
+    }]),
+    /fixture-list .* must declare data\.rows/u
+  );
+});
 
 test("command receipts fail closed on undeclared path fields", () => {
   const receipt = toCommandReceipt({
@@ -480,6 +499,7 @@ test("preset list text renders id, title, and description rows", () => {
       title: "Standard Task",
       description: "Handle general implementation and maintenance work."
     }],
+    rows: 1,
     issues: []
   });
 
@@ -487,7 +507,10 @@ test("preset list text renders id, title, and description rows", () => {
   if (!receipt.ok) return;
   assert.equal(
     renderReceiptText(receipt),
-    "standard-task — Standard Task — Handle general implementation and maintenance work."
+    [
+      "standard-task — Standard Task — Handle general implementation and maintenance work.",
+      "ok command=\"preset list\" rows=1 summary=\"completed preset list with 1 row\""
+    ].join("\n")
   );
 });
 

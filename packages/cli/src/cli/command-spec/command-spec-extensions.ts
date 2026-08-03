@@ -34,7 +34,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["presets", "issues"],
+      "data": ["presets", "issues", "rows"],
       "paths": []
     },
     "eventPolicy": {
@@ -238,7 +238,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parseModuleArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["modules"],
+      "data": ["modules", "rows"],
       "paths": []
     },
     "eventPolicy": {
