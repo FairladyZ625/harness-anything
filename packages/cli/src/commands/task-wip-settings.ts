@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { isCloseoutPlaceholderMarkdown } from "@harness-anything/application";
 import {
   isDomainStatus,
   isPackageDisposition,
@@ -10,6 +11,7 @@ import {
 } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
+import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
 import { parseSettingsDocument } from "./settings-document.ts";
 
 export const DEFAULT_TASK_WIP_LIMIT = 30;
@@ -71,13 +73,34 @@ export function readTaskWipSnapshot(rootInput: HarnessLayoutInput) {
       if (!isDomainStatus(status) || !isPackageDisposition(packageDisposition)) {
         throw new Error(`Invalid task WIP axes: ${indexPath}`);
       }
-      return [{ taskId, title, parent, status, packageDisposition }];
+      const hasCloseoutEvidence = taskHasCloseoutEvidence(path.dirname(indexPath));
+      return [{
+        taskId,
+        title,
+        parent,
+        status,
+        packageDisposition,
+        ...(hasCloseoutEvidence ? { hasCloseoutEvidence: true } : {})
+      }];
     });
   const parentTaskIds = new Set(taskRows.map((task) => task.parent).filter((parent) => parent.length > 0));
   const tasks = taskRows
     .map(({ parent: _parent, ...task }) => ({ ...task, isContainer: parentTaskIds.has(task.taskId) }))
     .sort((left, right) => left.taskId.localeCompare(right.taskId));
   return { limit: resolved.limit, tasks };
+}
+
+function taskHasCloseoutEvidence(taskRoot: string): boolean {
+  const closeoutPath = path.join(taskRoot, "closeout.md");
+  if (existsSync(closeoutPath)) {
+    const closeout = readFileSync(closeoutPath, "utf8");
+    const policy = bundledTaskDocumentPlaceholderPolicy();
+    if (closeout.trim() && !isCloseoutPlaceholderMarkdown(closeout, policy.closeoutPlaceholderFingerprints)) return true;
+  }
+  return ["review.md", "code-doc-anchors.json"].some((document) => {
+    const documentPath = path.join(taskRoot, document);
+    return existsSync(documentPath) && readFileSync(documentPath, "utf8").trim().length > 0;
+  });
 }
 
 function invalidWipLimit(command: string): Extract<TaskWipLimitResult, { readonly ok: false }> {

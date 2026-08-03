@@ -30,6 +30,7 @@ import {
   type RemoteDaemonConfig
 } from "../src/daemon/client.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
+import { withTestHarnessRoot } from "./helpers/git-fixtures.ts";
 
 test("daemon client resolves its CLI entrypoint across native path separators", () => {
   const clientPath = fileURLToPath(new URL("../src/daemon/client.ts", import.meta.url));
@@ -161,6 +162,18 @@ test("remote command payloads do not attach the caller's local runtime session",
     sessionId: "local-codex-session",
     source: "runtime",
     detectedAt: "2026-07-14T00:00:00.000Z"
+  });
+});
+
+test("malformed daemon command actor hints use the configured principal", () => {
+  withTestHarnessRoot((rootDir) => {
+    const parsed = parseArgs(["--root", rootDir, "--actor", "person_zeyu", "task", "claim", "task_remote", "--execution"]);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.throws(
+      () => commandRunPayload(parsed.value),
+      /--actor must use kind:id form, for example human:person_test/u
+    );
   });
 });
 

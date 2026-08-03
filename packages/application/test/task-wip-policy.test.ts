@@ -71,6 +71,30 @@ test("container tasks with children do not occupy execution workstations", async
   await assert.doesNotReject(revalidate);
 });
 
+test("closeout backfill with delivery evidence does not consume a WIP slot", async () => {
+  const revalidate = taskWipPublicationRevalidation(async () => ({
+    limit: 1,
+    tasks: [
+      task("task_ACTIVE", "Active task", "active", "active"),
+      { ...task("task_BACKFILL", "Delivered backfill", "planned", "active"), hasCloseoutEvidence: true }
+    ]
+  }), "task_BACKFILL");
+
+  await assert.doesNotReject(revalidate);
+});
+
+test("planned work without delivery evidence still consumes a WIP slot", async () => {
+  const revalidate = taskWipPublicationRevalidation(async () => ({
+    limit: 1,
+    tasks: [
+      task("task_ACTIVE", "Active task", "active", "active"),
+      task("task_NEW", "New work", "planned", "active")
+    ]
+  }), "task_NEW");
+
+  await assert.rejects(revalidate, /TASK_WIP_LIMIT_REACHED/u);
+});
+
 test("activating a container is admitted even when every leaf workstation is occupied", async () => {
   const revalidate = taskWipPublicationRevalidation(async () => ({
     limit: 1,

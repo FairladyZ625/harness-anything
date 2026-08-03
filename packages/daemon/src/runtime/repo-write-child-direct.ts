@@ -86,9 +86,10 @@ export async function executeRepoWriteChildDirect(
 
   options.requestIds.add(message.requestId);
   options.admit();
+  let telemetry: ReturnType<typeof createRepoWriteTelemetryDelivery> | undefined;
   try {
     await options.responses.telemetry(message.requestId, "queue", 0);
-    const telemetry = createRepoWriteTelemetryDelivery(
+    telemetry = createRepoWriteTelemetryDelivery(
       (phase, elapsedMs) =>
         options.responses.telemetry(message.requestId, phase, elapsedMs)
     );
@@ -106,8 +107,11 @@ export async function executeRepoWriteChildDirect(
       })
     );
     await telemetry.flush();
+    telemetry.close();
     await options.responses.directResult(message.requestId, receipt);
   } catch (error) {
+    await telemetry?.flush();
+    telemetry?.close();
     await options.responses.directUnknown(
       message.requestId,
       "DIRECT_EXECUTION_OUTCOME_UNKNOWN",

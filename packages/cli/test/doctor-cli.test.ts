@@ -160,7 +160,7 @@ test("CLI task help lists every task leaf and declares --json only as a global o
       .map((entry) => `  ${entry.primary.replace(/ \[--json\]/gu, "").replace(/ --json$/u, "")} - ${entry.summary}`);
 
     assert.deepEqual(renderedTaskLeaves, [...expectedDefaultTaskLeaves, ...expectedAdvancedTaskLeaves]);
-    assert.match(stdout, /Primary workflow:[\s\S]+1\. ha task create[\s\S]+2\. ha task start[\s\S]+3\. ha task progress append[\s\S]+4\. ha fact record[\s\S]+5\. ha task submit[\s\S]+6\. ha task complete/u);
+    assert.match(stdout, /Primary workflow:[\s\S]+1\. ha task create[\s\S]+2\. ha task start[\s\S]+3\. ha task progress append[\s\S]+4\. ha fact record[\s\S]+5\. ha task submit[\s\S]+6\. ha task code-doc reconcile[\s\S]+7\. ha task complete/u);
     assert.match(stdout, /Advanced commands:[\s\S]+task claim[\s\S]+Deprecated compatibility spelling/u);
     assert.equal(stdout.match(/--json(?!-input)/gu)?.length, 1);
   });
@@ -176,7 +176,7 @@ test("CLI noun help exposes a bounded primary workflow and common/advanced tiers
       const group = commandGroups.find((candidate) => candidate.name === noun);
       assert.notEqual(group, undefined, noun);
       assert.equal((group?.primaryWorkflow?.length ?? 0) >= 1, true, noun);
-      assert.equal((group?.primaryWorkflow?.length ?? 0) <= 6, true, noun);
+      assert.equal((group?.primaryWorkflow?.length ?? 0) <= 7, true, noun);
 
       const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, noun, "--help"], {
         encoding: "utf8"

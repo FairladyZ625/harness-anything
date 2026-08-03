@@ -153,9 +153,7 @@ export class RepoWriteProcessSupervisor {
     } catch (error) {
       throw new RepoWriteOutcomeUnknownError(
         "REPO_WRITE_LOOKUP_FAILED",
-        `Exact repo-write outcome lookup failed for ${opId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `${mostActionableRepoWriteErrorMessage(error)}. Exact repo-write outcome lookup failed for ${opId}; query the stable outer opId ${opId}.`,
         opId
       );
     }
@@ -261,4 +259,56 @@ function decodeReceipt(
   value: Parameters<typeof decodeRepoWriteCommandReceiptV2>[0]
 ): CommandReceiptEnvelope {
   return decodeRepoWriteCommandReceiptV2(value, "$.repoWriteReceipt");
+}
+
+export function mostActionableRepoWriteErrorMessage(error: unknown): string {
+  const candidates: string[] = [];
+  collectErrorMessages(error, candidates, new Set<unknown>());
+  return candidates[0] ?? (error instanceof Error ? error.message : String(error));
+}
+
+function collectErrorMessages(value: unknown, candidates: string[], seen: Set<unknown>): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return;
+    const embedded = parseEmbeddedJson(text);
+    if (embedded !== undefined) collectErrorMessages(embedded, candidates, seen);
+    else candidates.push(text.replace(/^Error:\s*/u, ""));
+    return;
+  }
+  if (typeof value !== "object") {
+    candidates.push(String(value));
+    return;
+  }
+  if (seen.has(value)) return;
+  seen.add(value);
+  if (value instanceof Error) {
+    collectErrorMessages(value.cause, candidates, seen);
+    collectErrorMessages(value.message, candidates, seen);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["cause", "reason", "message", "hint", "error"]) {
+    if (key in record) collectErrorMessages(record[key], candidates, seen);
+  }
+}
+
+function parseEmbeddedJson(value: string): unknown | undefined {
+  const whole = tryParseJson(value);
+  if (whole !== undefined) return whole;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "{" && value[index] !== "[") continue;
+    const embedded = tryParseJson(value.slice(index));
+    if (embedded !== undefined) return embedded;
+  }
+  return undefined;
+}
+
+function tryParseJson(value: string): unknown | undefined {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
 }

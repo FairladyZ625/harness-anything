@@ -41,16 +41,27 @@ function runTaskLifecycleTransition(
   action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>
 ): ReturnType<CommandRunner> {
   if (action.dryRun === true) {
+    const uncheckedGates = [
+      "canonical-authority-planner",
+      "task-completion-evidence",
+      "durable-transition-write"
+    ] as const;
     return Effect.succeed({
       ok: true,
       command: "task-complete",
       taskId: action.taskId,
-      status: "done",
-      completionGate: { ok: true, evidenceMode: action.evidenceMode, dryRun: true },
+      status: "in_review",
+      completionGate: {
+        ok: false,
+        evidenceMode: action.evidenceMode,
+        dryRun: true,
+        uncheckedGates
+      },
       report: {
         schema: "task-lifecycle-transition-preview/v1",
         dryRun: true,
-        disposition: "server-planner-validation-required"
+        disposition: "server-planner-validation-required",
+        uncheckedGates
       }
     } satisfies CliResult);
   }

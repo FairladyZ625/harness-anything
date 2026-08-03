@@ -11,7 +11,11 @@ import type { HarnessDaemonRuntime } from "../src/runtime/repo-runtime.ts";
 import {
   decodeRepoWriteCommand
 } from "../src/runtime/repo-write-progress-command.ts";
-import { RepoWriteNotStartedError } from "../src/runtime/repo-write-client.ts";
+import {
+  RepoWriteDirectOutcomeUnknownError,
+  RepoWriteNotStartedError,
+  RepoWriteOutcomeUnknownError
+} from "../src/runtime/repo-write-client.ts";
 import { createDaemonCommandService } from "../src/service/command-service.ts";
 import {
   productionAuthorityActor,
@@ -190,6 +194,57 @@ test("parent command service preserves a structured child rejection before proce
   assert.equal(receipt.ok, false);
   assert.equal(receipt.error?.code, "authority_ingress_rejected", JSON.stringify(receipt));
   assert.match(receipt.error?.hint ?? "", /AUTHORITY_MANUAL_ENTITY_ID_FORBIDDEN/u);
+});
+
+test("unknown child receipts expose a machine-readable final-state query", async () => {
+  const actor = productionAuthorityActor();
+  for (const [kind, failure] of [
+    ["durable", new RepoWriteOutcomeUnknownError("EXECUTION_OUTCOME_UNKNOWN", "write may have committed", "outer-op")],
+    ["direct", new RepoWriteDirectOutcomeUnknownError("DIRECT_EXECUTION_OUTCOME_UNKNOWN", "write may have committed")]
+  ] as const) {
+    const service = createDaemonCommandService(
+      unusedRuntime(),
+      hostServices(() => undefined),
+      {
+        repoWriteDispatch: {
+          repoId: "canonical",
+          submit: async () => {
+            if (kind !== "durable") throw new Error("unexpected durable route");
+            throw failure;
+          },
+          direct: async () => {
+            if (kind !== "direct") throw new Error("unexpected direct route");
+            throw failure;
+          }
+        }
+      }
+    );
+    const receipt = await service.runCommand({
+      command: {
+        rootDir: "/repo",
+        action: kind === "durable"
+          ? { kind: "progress-append", taskId: "task-queryable", text: "unknown", dryRun: false }
+          : { kind: "task-claim", taskId: "task-queryable", dryRun: false }
+      },
+      session: session()
+    }, {
+      actor,
+      executor: { kind: "agent", id: "codex" },
+      authorityConnection: {
+        available: true,
+        context: productionAuthorityConnection(actor),
+        assertActive: () => undefined
+      }
+    });
+
+    assert.equal(receipt.ok, false, JSON.stringify(receipt));
+    assert.equal(receipt.error?.code, "repo_write_outcome_unknown");
+    const data = receipt.details?.data as Record<string, unknown>;
+    const query = data.query as Record<string, unknown>;
+    assert.equal(data.outcome, "unknown");
+    assert.equal(query.schema, "command-outcome-query/v1");
+    assert.equal(query.method, kind === "durable" ? "repo-write.lookup" : "task.show");
+  }
 });
 
 function hostServices(onExecute: () => void): DaemonCommandHostServices<

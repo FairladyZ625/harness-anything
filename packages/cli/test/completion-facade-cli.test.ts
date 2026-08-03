@@ -120,9 +120,15 @@ test("task complete dry-run previews one terminal intent without evaluating Revi
       "--approve", "--from-file", packetPath, "--dry-run"
     ], true, chain.env);
 
-    assert.equal(preview.status, "done");
+    assert.notEqual(preview.status, "done");
     assert.equal(preview.report.schema, "task-lifecycle-transition-preview/v1");
     assert.equal(preview.report.disposition, "server-planner-validation-required");
+    assert.equal(preview.completionGate.ok, false);
+    assert.deepEqual(preview.report.uncheckedGates, [
+      "canonical-authority-planner",
+      "task-completion-evidence",
+      "durable-transition-write"
+    ]);
     assert.equal(existsSync(path.join(rootDir, chain.packagePath, "reviews")), false);
     assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });

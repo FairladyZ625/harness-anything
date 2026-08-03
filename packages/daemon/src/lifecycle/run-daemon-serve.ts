@@ -126,6 +126,7 @@ export async function runDaemonServe<
           manifestPath: authorityManifest,
           daemonLogService,
           backgroundRecovery: true,
+          userRoot,
           ...(layoutOverrides ? { layoutOverrides } : {})
         })
         : undefined);

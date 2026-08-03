@@ -122,7 +122,11 @@ export function produceCodeDocWitness(input: {
   readonly command: TaskCompleteTransitionCommand;
 }): VerifiedTaskCompleteCodeDocWitness {
   const codeDoc = input.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
-  if (!codeDoc) throw new Error("AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED");
+  if (!codeDoc) {
+    throw new Error(
+      "AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED: run `ha task submit <task-id> --from-file submission.json`, then `ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-relative-path>]...`, before `ha task complete`."
+    );
+  }
   const reconciled = resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD");
   const normalizedPaths = normalizeCommandPaths(input.rootDir, input.command.approval?.paths ?? []);
   const prRef = input.command.approval?.prRef ?? null;
@@ -134,7 +138,9 @@ export function produceCodeDocWitness(input: {
     ...(prRef ? { prRef } : {})
   });
   if (expected.recordIds.length === 0 || expected.body !== codeDoc.body) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_CODE_DOC_NOT_RECONCILED_TO_INTENT");
+    throw new Error(
+      "AUTHORITY_TASK_COMPLETE_CODE_DOC_NOT_RECONCILED_TO_INTENT: run `ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-relative-path>]...` after task submit and before task complete."
+    );
   }
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
   const publication = findMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);

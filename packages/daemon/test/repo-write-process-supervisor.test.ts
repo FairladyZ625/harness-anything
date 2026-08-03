@@ -10,7 +10,8 @@ import {
   forkRepoWriteProcess
 } from "../src/runtime/repo-write-child-process-transport.ts";
 import {
-  RepoWriteProcessSupervisor
+  RepoWriteProcessSupervisor,
+  mostActionableRepoWriteErrorMessage
 } from "../src/runtime/repo-write-process-supervisor.ts";
 import {
   RepoWriteDirectOutcomeUnknownError,
@@ -31,6 +32,28 @@ import {
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
 );
+
+test("nested authority failures lead with the innermost actionable reason", () => {
+  const nested = new Error([
+    "Error: AUTHORITY_INDETERMINATE:PUBLICATION_OUTCOME_UNKNOWN:",
+    JSON.stringify({
+      _tag: "JournalUnavailable",
+      cause: {
+        name: "(FiberFailure) Error",
+        message: JSON.stringify({
+          _tag: "WriteRejected",
+          taskId: "task_nested",
+          reason: "invalid document path segment: ops/qa/"
+        })
+      }
+    })
+  ].join(" "));
+
+  assert.equal(
+    mostActionableRepoWriteErrorMessage(nested),
+    "invalid document path segment: ops/qa/"
+  );
+});
 
 test("supervisor submits through one child and drains it without inline fallback", async (context) => {
   let forks = 0;

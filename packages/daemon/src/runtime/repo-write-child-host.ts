@@ -212,6 +212,7 @@ export class RepoWriteChildHost {
       operation.opId = prepared.opId;
       if (this.operationsById.has(prepared.opId)) {
         operation.phase = "failed";
+        await this.closeTelemetry(operation);
         this.release(operation);
         await this.responses.notStarted(
           message.requestId,
@@ -224,6 +225,7 @@ export class RepoWriteChildHost {
       this.operationsById.set(prepared.opId, operation);
       if (!this.admissionOpen) {
         operation.phase = "failed";
+        await this.closeTelemetry(operation);
         this.release(operation);
         await this.responses.notStarted(
           message.requestId,
@@ -242,6 +244,7 @@ export class RepoWriteChildHost {
     } catch (error) {
       if (operation.phase === "preparing") {
         operation.phase = "failed";
+        await this.closeTelemetry(operation);
         this.release(operation);
         const rejection = classifyRepoWriteNotStartedFailure(error);
         await this.responses.notStarted(
@@ -252,6 +255,7 @@ export class RepoWriteChildHost {
         );
       } else if (operation.phase === "prepared") {
         operation.phase = "failed";
+        await this.closeTelemetry(operation);
         this.release(operation);
         throw error;
       } else {
@@ -281,6 +285,7 @@ export class RepoWriteChildHost {
       if (operation.phase === "prepared") {
         operation.phase = "failed";
         operation.cancelledBeforeProceed = true;
+        await this.closeTelemetry(operation);
         this.release(operation);
       }
       await this.responses.notStarted(
@@ -311,7 +316,7 @@ export class RepoWriteChildHost {
         receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
         operation.phase = durableOutcome.terminalKind;
       } catch (error) {
-        await operation.telemetry?.flush();
+        await this.closeTelemetry(operation);
         operation.phase = "unknown";
         this.release(operation);
         await this.responses.unknown(
@@ -323,6 +328,7 @@ export class RepoWriteChildHost {
         return;
       }
       operation.receipt = receipt;
+      await this.closeTelemetry(operation);
       this.release(operation);
       await this.responses.terminal(
         operation.requestId,
@@ -431,6 +437,7 @@ export class RepoWriteChildHost {
       if (operation.phase !== "prepared") continue;
       operation.phase = "failed";
       operation.cancelledBeforeProceed = true;
+      await this.closeTelemetry(operation);
       this.release(operation);
       cancelled.push(operation);
     }
@@ -443,6 +450,11 @@ export class RepoWriteChildHost {
       );
     }
     await this.maybeCompleteShutdown();
+  }
+
+  private async closeTelemetry(operation: HostedOperation): Promise<void> {
+    await operation.telemetry?.flush();
+    operation.telemetry?.close();
   }
 
   private async sendDuplicateSubmit(operation: HostedOperation): Promise<void> {
