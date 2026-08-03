@@ -5,7 +5,6 @@ import {
   createHarnessRuntimeContext,
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
-  runLedgerMaterializer,
   type DaemonAdmissionBudget,
   type LedgerMaterializerReport,
   type OperationalActor,
@@ -78,6 +77,7 @@ import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts"
 import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-options-merge.ts";
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
+import { runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 
@@ -529,7 +529,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   private runMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions): LedgerMaterializerReport {
     const started = this.requireWriterAttached();
-    const report = runLedgerMaterializer(this.runtimeContext, {
+    const report = runMaterializerWithRepoWriteTelemetry(this.runtimeContext, {
       heldGlobalLock: started.lock,
       ...(batchOptions.dryRun ? { dryRun: true } : {}),
       ...(batchOptions.sessionId

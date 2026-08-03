@@ -59,7 +59,10 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
     assert.equal(dryRun.branches.find((branch) => branch.branch === "sessions/codex-session-2")?.status, "would_merge");
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-2/note.md")), false);
 
-    const merged = runLedgerMaterializer(rootDir);
+    const progress: string[] = [];
+    const merged = runLedgerMaterializer(rootDir, {
+      onProgress: (step) => progress.push(step)
+    });
     assert.equal(merged.merged, 1);
     assert.equal(merged.projectionRebuilt, true);
     assert.equal(git(rootDir, "branch", "--list", "sessions/codex-session-2"), "");
@@ -67,6 +70,16 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
     assert.equal(readGitFile(rootDir, "tasks/task-2/note.md"), "materialized write\n");
     assert.equal(merged.attributionEventsProjected, 1);
     assert.equal(readAttributionProjection(rootDir)[0]?.opId, "op-materialize");
+    assert.deepEqual(progress, [
+      "baseline-start",
+      "baseline-done",
+      "merge-start",
+      "merge-done",
+      "projection-start",
+      "projection-done",
+      "attribution-start",
+      "attribution-done"
+    ]);
     assert.equal(
       git(rootDir, "show", "-s", "--format=%an <%ae>", "HEAD"),
       "Harness Anything Materializer <materializer@harness-anything.local>"

@@ -12,6 +12,7 @@ import {
   type ProjectionSourceFenceFactory
 } from "@harness-anything/kernel";
 import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
+import { runWithRepoWriteTelemetry } from "../../src/runtime/repo-write-telemetry-context.ts";
 import { docWrite, withTempStoreAsync } from "./helpers/store.ts";
 import {
   commitAuthoredFixture,
@@ -69,26 +70,33 @@ test("authority publication materializes its session before a queued timer batch
     });
     let competingMaterializer: ReturnType<typeof runtime.enqueueMaterializerBatch> | undefined;
 
-    const publication = await runtime.enqueueAuthorityPublication({
-      sessionId: "authority-atomic-materialization",
-      publish: async () => {
-        Effect.runSync(coordinator.enqueue(docWrite(
-          "op-authority-atomic",
-          "task-authority-atomic",
-          "note.md",
-          "authority\n"
-        )));
-        const flush = Effect.runSync(coordinator.flush("explicit"));
-        competingMaterializer = runtime.enqueueMaterializerBatch();
-        return flush;
-      }
-    });
+    const phases: string[] = [];
+    const publication = await runWithRepoWriteTelemetry(
+      (phase) => phases.push(phase),
+      () => runtime.enqueueAuthorityPublication({
+        sessionId: "authority-atomic-materialization",
+        publish: async () => {
+          Effect.runSync(coordinator.enqueue(docWrite(
+            "op-authority-atomic",
+            "task-authority-atomic",
+            "note.md",
+            "authority\n"
+          )));
+          const flush = Effect.runSync(coordinator.flush("explicit"));
+          competingMaterializer = runtime.enqueueMaterializerBatch();
+          return flush;
+        }
+      })
+    );
     const competing = await competingMaterializer!;
 
     assert.equal(publication.materialization?.branches[0]?.status, "merged");
     assert.equal(publication.materialization?.branches[0]?.commitCount, 1);
     assert.equal(competing.merged, 0);
     assert.equal(readGitFile(rootDir, "tasks/task-authority-atomic/note.md"), "authority\n");
+    assert.ok(phases.includes("authority-materializer-baseline-start"), phases.join(","));
+    assert.ok(phases.includes("authority-materializer-projection-done"), phases.join(","));
+    assert.ok(phases.includes("authority-materializer-end"), phases.join(","));
     await runtime.stop();
   });
 });

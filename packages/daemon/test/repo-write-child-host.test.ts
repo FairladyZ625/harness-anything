@@ -46,6 +46,12 @@ test("host announces ready and executes only after the exact prepared handshake"
 
   await host.receive(proceed("request-1", "op-request-1"));
   assert.equal(executions, 1);
+  assert.deepEqual(
+    fixture.messages
+      .filter((message) => message.kind === "telemetry")
+      .map((message) => message.phase),
+    ["queue", "compile", "journal", "child-execution-returned", "child-telemetry-flushed", "child-terminal-response"]
+  );
   assert.deepEqual(fixture.messages.at(-1), {
     ...childBase("terminal"),
     requestId: "request-1",

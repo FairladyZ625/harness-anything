@@ -166,6 +166,7 @@ export function createGitAuthorityAttributionEvidenceCommitterV2(
         materializerCommitter
       );
       verifiedHead = vcs.currentHead(repoRoot);
+      reportCurrentRepoWriteTelemetry("authority-evidence-git-commit-done");
     }
   };
 }

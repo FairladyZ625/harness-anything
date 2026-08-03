@@ -49,7 +49,18 @@ export interface LedgerMaterializerOptions {
   readonly sessionId?: string;
   readonly heldGlobalLock?: OwnedLock;
   readonly versionControlSystem?: VersionControlSystem;
+  readonly onProgress?: (step: LedgerMaterializerProgressStep) => void;
 }
+
+export type LedgerMaterializerProgressStep =
+  | "baseline-start"
+  | "baseline-done"
+  | "merge-start"
+  | "merge-done"
+  | "projection-start"
+  | "projection-done"
+  | "attribution-start"
+  | "attribution-done";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
 
@@ -70,7 +81,15 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
   }
 
   return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { scope: "operational", kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
-    return materializeBranches(repoRoot, rootInput, options.dryRun === true, options.maxBranches, options.sessionId, versionControlSystem);
+    return materializeBranches(
+      repoRoot,
+      rootInput,
+      options.dryRun === true,
+      options.maxBranches,
+      options.sessionId,
+      versionControlSystem,
+      options.onProgress
+    );
   }, { heldGlobalLock: options.heldGlobalLock });
 }
 
@@ -80,7 +99,8 @@ function materializeBranches(
   dryRun: boolean,
   maxBranches: number | undefined,
   sessionId: string | undefined,
-  vcs: VersionControlSystem
+  vcs: VersionControlSystem,
+  onProgress: ((step: LedgerMaterializerProgressStep) => void) | undefined
 ): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
@@ -125,7 +145,11 @@ function materializeBranches(
       continue;
     }
 
-    projectionSourceFingerprintBeforeMerge ??= captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
+    if (projectionSourceFingerprintBeforeMerge === undefined) {
+      onProgress?.("baseline-start");
+      projectionSourceFingerprintBeforeMerge = captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
+      onProgress?.("baseline-done");
+    }
 
     const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
       ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
@@ -133,7 +157,9 @@ function materializeBranches(
     const beforeMergeHead = vcs.currentHead(repoRoot);
     let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
     try {
+      onProgress?.("merge-start");
       vcs.mergeNoFf(repoRoot, branch, mergeMessage, materializerCommitter);
+      onProgress?.("merge-done");
     } catch (error) {
       let conflictPaths: ReadonlyArray<string>;
       let recoveryError: unknown;
@@ -190,6 +216,7 @@ function materializeBranches(
 
   if (merged > 0) {
     const layout = resolveHarnessLayout(rootInput);
+    onProgress?.("projection-start");
     const projectionUpdate = updateTaskProjectionIncrementally({
       rootDir: layout.rootDir,
       ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
@@ -201,6 +228,7 @@ function materializeBranches(
     } else {
       invalidateTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
     }
+    onProgress?.("projection-done");
   }
 
   const layout = resolveHarnessLayout(rootInput);
@@ -208,13 +236,17 @@ function materializeBranches(
   let projectionRebuilt = merged > 0;
   if (!dryRun) {
     if (!durableFileExists(layout.projectionPath)) {
+      onProgress?.("projection-start");
       rebuildTaskProjection({
         rootDir: layout.rootDir,
         ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {})
       });
       projectionRebuilt = true;
+      onProgress?.("projection-done");
     }
+    onProgress?.("attribution-start");
     attributionEventsProjected = countAttributionProjectionRows(layout.projectionPath);
+    onProgress?.("attribution-done");
   }
 
   return {

@@ -9,6 +9,7 @@ type RepoWriteTelemetryReporter = (
 
 export interface RepoWriteTelemetryDelivery {
   readonly report: RepoWriteTelemetryReporter;
+  readonly reportCurrent: (phase: RepoWriteTelemetryPhase) => void;
   readonly flush: () => Promise<void>;
   readonly close: () => void;
 }
@@ -33,6 +34,18 @@ export function reportCurrentRepoWriteTelemetry(
   current.report(phase, Math.max(0, performance.now() - current.startedAt));
 }
 
+export async function executeRepoWriteChildWithTelemetry<Result>(
+  delivery: RepoWriteTelemetryDelivery,
+  execute: () => Result | Promise<Result>
+): Promise<Result> {
+  return runWithRepoWriteTelemetry(delivery.report, async () => {
+    reportCurrentRepoWriteTelemetry("journal");
+    const outcome = await execute();
+    reportCurrentRepoWriteTelemetry("child-execution-returned");
+    return outcome;
+  });
+}
+
 export function bindCurrentRepoWriteTelemetry<Result>(
   operation: () => Result
 ): () => Result {
@@ -50,11 +63,18 @@ export function createRepoWriteTelemetryDelivery(
 ): RepoWriteTelemetryDelivery {
   let pending = Promise.resolve();
   let closed = false;
+  const startedAt = performance.now();
   return {
     report: (phase, elapsedMs) => {
       if (closed) return;
       pending = pending
         .then(() => deliver(phase, elapsedMs))
+        .catch(() => undefined);
+    },
+    reportCurrent: (phase) => {
+      if (closed) return;
+      pending = pending
+        .then(() => deliver(phase, Math.max(0, performance.now() - startedAt)))
         .catch(() => undefined);
     },
     flush: () => pending,

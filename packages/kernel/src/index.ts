@@ -183,6 +183,7 @@ export { daemonAdmissionBytes } from "./daemon/admission-budget.ts";
 export type { DaemonAdmissionBudget } from "./daemon/admission-budget.ts";
 export {
   runLedgerMaterializer,
+  type LedgerMaterializerProgressStep,
   type LedgerMaterializerReport
 } from "./write-coordination/materialization/ledger-materializer.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/submit.ts";

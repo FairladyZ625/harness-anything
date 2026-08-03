@@ -82,6 +82,7 @@ test("canonical HEAD advancement outside the evidence tree preserves the verifie
   );
 
   assert.ok(phases.includes("authority-evidence-pending-verify"), phases.join(","));
+  assert.ok(phases.includes("authority-evidence-git-commit-done"), phases.join(","));
   assert.equal(phases.includes("authority-evidence-history-verify"), false, phases.join(","));
 });
 

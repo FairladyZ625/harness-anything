@@ -50,7 +50,10 @@ export type AuthoritySubmissionTelemetryPhase =
   | "authority-coordinator-enqueue"
   | "authority-coordinator-enqueued"
   | "authority-prepared-persisted"
-  | "authority-flush-start";
+  | "authority-flush-start"
+  | "authority-event-published"
+  | "authority-terminal-record-start"
+  | "authority-terminal-record-persisted";
 
 export interface AuthoritySubmissionV2Options {
   readonly schemaTuple: ProtocolSchemaTupleV2;
