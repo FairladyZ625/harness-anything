@@ -99,7 +99,7 @@ test("artifact drift blocks registry attach recovery and logs the diagnosis only
     assert.equal(recoveryRuns, 0);
     assert.match(host.status().service.lastReconcileError?.message ?? "", /DAEMON_BUILD_STALE/u);
     assert.equal(logMessages.length, 1);
-    assert.match(logMessages[0] ?? "", /ha daemon start --service/u);
+    assert.match(logMessages[0] ?? "", /ha daemon restart/u);
     await host.stop();
   } finally {
     rmSync(root, { recursive: true, force: true });

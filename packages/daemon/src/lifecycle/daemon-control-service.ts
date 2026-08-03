@@ -48,21 +48,19 @@ export function createDaemonControlService<
           }
         };
       }
-      if (kind !== "restart") {
-        try {
-          await input.preflightReplacement(input.launchConfiguration);
-        } catch (error) {
-          return {
-            ok: false,
-            error: {
-              ...hostServices.present({
-                code: "daemon_refresh_build_failed",
-                context: { cause: error instanceof Error ? error.message : String(error) }
-              }),
-              operationId: null
-            } as unknown as DaemonControlErrorV1
-          };
-        }
+      try {
+        await input.preflightReplacement(input.launchConfiguration);
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            ...hostServices.present({
+              code: "daemon_refresh_build_failed",
+              context: { cause: error instanceof Error ? error.message : String(error) }
+            }),
+            operationId: null
+          } as unknown as DaemonControlErrorV1
+        };
       }
       const before = input.status();
       const operationId = `control_${randomUUID()}`;

@@ -11,20 +11,23 @@ export async function rollbackDaemonReplacement(input: {
   readonly lifecycle: DaemonControlLifecycle;
   readonly replacementFailure: unknown;
   readonly beforePid: number;
-  readonly beforeLoadedIdentity: string;
+  readonly expectedIdentity: string | undefined;
   readonly operationId: string;
   readonly timeoutMs: number;
   readonly kind: DaemonControlKind;
   readonly launchConfiguration: DaemonLaunchConfiguration;
   readonly expectedGeneration: DaemonGenerationConvergenceExpectation | undefined;
 }): Promise<never> {
+  const restoration = input.kind === "upgrade" ? "previous snapshot rollback" : "service restoration";
   const occupied = await input.lifecycle.probeStatus(
     input.lifecycle.target,
     input.expectedGeneration ? { includeGenerationAxes: true } : undefined
   );
   if (occupied) {
+    const occupiedLifecycle = normalizeDaemonLifecycleStatus(occupied);
+    if (occupiedLifecycle?.pid === input.beforePid) throw input.replacementFailure;
     throw new Error(
-      `${rollbackErrorMessage(input.replacementFailure)}; previous snapshot rollback was not started because the endpoint is still owned`
+      `${rollbackErrorMessage(input.replacementFailure)}; ${restoration} was not started because the endpoint is still owned`
     );
   }
   try {
@@ -40,18 +43,21 @@ export async function rollbackDaemonReplacement(input: {
         restoredLifecycle,
         input.beforePid,
         input.operationId,
-        input.beforeLoadedIdentity,
+        input.expectedIdentity,
         input.expectedGeneration
       )) {
-      throw new Error("restored daemon did not converge on the previous snapshot and authority generation");
+      throw new Error("restored daemon did not become reachable with the expected build and authority generation");
     }
   } catch (rollbackError) {
     throw new Error(
-      `${rollbackErrorMessage(input.replacementFailure)}; previous snapshot rollback failed: ${rollbackErrorMessage(rollbackError)}. `
+      `${rollbackErrorMessage(input.replacementFailure)}; ${restoration} failed: ${rollbackErrorMessage(rollbackError)}. `
       + `Restore the daemon with: ${daemonRecoveryCommand(input.launchConfiguration)}`
     );
   }
-  throw new Error(`${rollbackErrorMessage(input.replacementFailure)}; previous snapshot restored and authority converged`);
+  const outcome = input.kind === "upgrade"
+    ? "previous snapshot restored and authority converged"
+    : "service restored and reachable";
+  throw new Error(`${rollbackErrorMessage(input.replacementFailure)}; ${outcome}`);
 }
 
 export function daemonRecoveryCommand(configuration: DaemonLaunchConfiguration): string {

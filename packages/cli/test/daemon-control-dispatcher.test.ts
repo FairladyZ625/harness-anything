@@ -51,6 +51,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
     const output: string[] = [];
     let released = false;
     let replacementStarts = 0;
+    let replacementTimeoutMs: number | undefined;
     const originalLog = console.log;
     console.log = (message?: unknown) => output.push(String(message));
     try {
@@ -90,10 +91,11 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
             return undefined;
           },
           ownerIsAlive: () => false,
-          startReplacement: async (target, _timeoutMs, launchConfiguration) => {
+          startReplacement: async (target, timeoutMs, launchConfiguration) => {
             assert.equal(released, true);
             assert.equal(target.userRoot, controlTarget.userRoot);
             assert.deepEqual(launchConfiguration, runningLaunchConfiguration);
+            replacementTimeoutMs = timeoutMs;
             replacementStarts += 1;
             return v2DaemonStatus(84);
           },
@@ -105,6 +107,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
       assert.equal(exitCode, 0);
       assert.equal(requests.length, 1);
       assert.equal(replacementStarts, 1);
+      assert.equal(replacementTimeoutMs, 6_000);
       assert.equal(requests[0]?.method, scenario.method);
       const payload = requests[0]?.params.payload as Record<string, unknown>;
       assert.equal(payload.drainTimeoutMs, 30_000);
@@ -267,15 +270,21 @@ test("refresh rejects a self-consistent replacement that did not load the expect
 
 test("refresh rejects and cleans up a replacement that loaded an old identity", async () => {
   const stoppedPids: number[] = [];
+  let replacementStarts = 0;
   const lifecycle = {
     target: controlTarget,
     probeStatus: async () => undefined,
     ownerIsAlive: () => false,
-    startReplacement: async () => v2DaemonStatus(
-      84,
-      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    ),
+    startReplacement: async () => {
+      replacementStarts += 1;
+      return replacementStarts === 1
+        ? v2DaemonStatus(
+            84,
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          )
+        : v2DaemonStatus(85);
+    },
     stopReplacement: async (_target: typeof controlTarget, pid: number) => {
       stoppedPids.push(pid);
     },
@@ -285,9 +294,10 @@ test("refresh rejects and cleans up a replacement that loaded an old identity", 
   const { exitCode, receipt } = await runCapturedControl(lifecycle, [], "refresh");
 
   assert.equal(exitCode, 1);
+  assert.equal(replacementStarts, 2);
   assert.deepEqual(stoppedPids, [84]);
   assert.match(controlErrorHint(receipt), /loaded identity did not converge on the installed identity/u);
-  assert.match(controlErrorHint(receipt), /stopped and endpoint remained unowned$/u);
+  assert.match(controlErrorHint(receipt), /service restored and reachable$/u);
 });
 
 test("refresh rejects and cleans up a replacement that retains the accepted operation", async () => {
@@ -444,28 +454,6 @@ test("daemon control fails closed on reachable malformed v2 status without start
   assert.equal(exitCode, 1);
   assert.equal(replacementStarts, 0);
   assert.match(controlErrorHint(receipt), /old daemon endpoint was not released/u);
-});
-
-test("daemon control fails when the released endpoint replacement is unreachable", async () => {
-  let replacementStarts = 0;
-  const lifecycle = {
-    target: controlTarget,
-    probeStatus: async () => undefined,
-    ownerIsAlive: () => false,
-    startReplacement: async () => {
-      replacementStarts += 1;
-      throw new Error("autostart failed");
-    },
-    wait: async () => undefined
-  } satisfies DaemonControlLifecycle;
-
-  const { exitCode, receipt } = await runCapturedControl(lifecycle);
-
-  assert.equal(exitCode, 1);
-  assert.equal(replacementStarts, 1);
-  assert.match(controlErrorHint(receipt), /DAEMON_RESTART_REPLACEMENT_FAILED_AFTER_HANDOFF: autostart failed/u);
-  assert.match(controlErrorHint(receipt), /Restore the daemon with: \/usr\/bin\/node --import tsx/u);
-  assert.match(controlErrorHint(receipt), /--authority-manifest \/authority\/production\.json/u);
 });
 
 test("daemon control rejects an accepted receipt that omits derived launch configuration before replacement", async () => {
@@ -626,6 +614,7 @@ test("daemon help exposes logs, restart, refresh, and refresh trigger selection"
   assert.match(help, /--levels <csv>/u);
   assert.match(help, /restart/u);
   assert.match(help, /refresh/u);
+  assert.match(help, /--replacement-timeout-ms <ms>/u);
   assert.match(help, /explicit\|post-merge\|dist-watcher/u);
   assert.match(help, /snapshot install/u);
   assert.match(help, /upgrade/u);

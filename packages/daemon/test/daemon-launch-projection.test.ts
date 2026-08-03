@@ -86,6 +86,40 @@ test("upgrade marker crosses the refresh transport and remains upgrade in the ac
   if (accepted.ok) assert.equal(accepted.accepted.kind, "upgrade");
 });
 
+test("restart rejects a failed replacement preflight before accepting control", async () => {
+  let active: DaemonActiveControlStatus | null = null;
+  let stopRequests = 0;
+  let preflights = 0;
+  const service = createDaemonControlService({
+    launchConfiguration,
+    preflightReplacement: async (configuration) => {
+      preflights += 1;
+      assert.equal(configuration, launchConfiguration);
+      throw new Error("replacement entrypoint cannot be loaded");
+    },
+    status: statusFixture,
+    activeControl: () => active,
+    setActiveControl: (value) => { active = value; },
+    setDrainTimeout: () => undefined,
+    requestStop: () => { stopRequests += 1; }
+  }, {
+    present: (error) => ({ code: error.code, hint: String(error.context.cause) })
+  });
+
+  const result = await service.requestControl("restart", {
+    reason: "validate replacement before handoff",
+    drainTimeoutMs: 5_000
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) assert.fail("restart must reject a replacement that cannot load");
+  assert.equal(result.error.code, "daemon_refresh_build_failed");
+  assert.match(result.error.hint, /entrypoint cannot be loaded/u);
+  assert.equal(preflights, 1);
+  assert.equal(active, null);
+  assert.equal(stopRequests, 0);
+});
+
 function control(configuration: DaemonLaunchConfiguration = launchConfiguration) {
   let active: DaemonActiveControlStatus | null = null;
   return createDaemonControlService({

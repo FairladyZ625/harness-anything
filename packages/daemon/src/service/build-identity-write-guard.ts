@@ -26,7 +26,7 @@ export function installDaemonBuildWriteGuard(input: {
         event: "mixed-version-writes-blocked",
         message: diagnostic.message,
         errorCode: diagnostic.code,
-        hint: "Run `ha daemon start --service`."
+        hint: "Run `ha daemon restart`."
       }, { repo }).catch(() => undefined);
     }
   });
