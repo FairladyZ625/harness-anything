@@ -6,7 +6,7 @@ import { runTaskSubmitCommand } from "../../commands/core/task-submit.ts";
 export const taskSubmitCommandSpecs = defineCommandSpecs([{
   "kind": "task-submit",
   "usage": "task submit <id> --from-file <submission.json> [--dry-run]",
-  "options": [{"flag":"--from-file","description":"Read JSON fields completionClaim, deliverables, outputs, verificationNotes, knownGaps, and residualRisks."},{"flag":"--dry-run","description":"Preview the daemon-planned submission transaction without writing."}],
+  "options": [{"flag":"--from-file","description":"Read the schema-derived submission packet described below."},{"flag":"--dry-run","description":"Preview the daemon-planned submission transaction without writing."}],
   "summary": "Finalize/export the bound Session and atomically submit the active Execution into in_review.",
   "examples": ["harness-anything task submit task_01ABC --from-file submission.json"],
   "parse": parseCoreTaskArgs,

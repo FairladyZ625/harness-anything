@@ -189,6 +189,7 @@ export { makeExecutionReservationReconciler, makeExecutionSagaService } from "./
 export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
 export {
   finalizeExecutionSessionBindings,
+  taskSubmissionOutputEvidenceId,
   taskSubmitPlanInput,
   TaskSubmitTransitionService
 } from "./task-submit-transition-service.ts";

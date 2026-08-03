@@ -23,6 +23,7 @@ import {
   DEFAULT_HUMAN_CONSENT_TTL_MS
 } from "../execution-consent-helpers.ts";
 import { executionHasArchiveWarnings } from "../execution-review-helpers.ts";
+import { assertReviewEvidenceBelongsToExecution } from "../review-execution-service.ts";
 import { decodeTaskCompletionEvidence } from "../task-completion-authority.ts";
 import type { CanonicalTaskMutationPlan } from "../task-lifecycle-transition-service.ts";
 import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
@@ -145,8 +146,7 @@ async function compileExecutionReview(
   if (executionHasArchiveWarnings(execution) && !approval.archiveWarningsAcknowledged) {
     throw admission("REVIEW_ARCHIVE_WARNING_ACK_REQUIRED");
   }
-  const outputIds = new Set(execution.outputs.map((entry) => entry.evidence_id));
-  if (approval.evidenceChecked.some((id: string) => !outputIds.has(id))) throw admission("REVIEW_EVIDENCE_NOT_IN_EXECUTION");
+  assertCompletionReviewEvidence(execution, approval.evidenceChecked);
   const storedConsent = await options.state.readHostedDocument(consentPath);
   const now = contextNow(context);
   const open = storedConsent
@@ -222,6 +222,17 @@ async function compileExecutionReview(
       lifecycleRefV2("task", `task/${plan.taskId}`)
     ]
   });
+}
+
+function assertCompletionReviewEvidence(
+  execution: Pick<ExecutionRecord, "execution_id" | "outputs">,
+  evidenceChecked: ReadonlyArray<string>
+): void {
+  try {
+    assertReviewEvidenceBelongsToExecution(execution, evidenceChecked);
+  } catch {
+    throw admission("REVIEW_EVIDENCE_NOT_IN_EXECUTION");
+  }
 }
 
 async function compileAcceptedReplay(

@@ -22,6 +22,7 @@ import {
 } from "../execution-consent-helpers.ts";
 import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
+import { assertReviewEvidenceBelongsToExecution } from "../review-execution-service.ts";
 import {
   assertExecutionTaskReviewable,
   executionHasArchiveWarnings
@@ -270,8 +271,16 @@ function assertConsentReviewContextV2(
   if (executionHasArchiveWarnings(execution) && !payload.review.archiveWarningsAcknowledged) {
     throw admission("REVIEW_ARCHIVE_WARNING_ACK_REQUIRED");
   }
-  const executionEvidence = new Set(execution.outputs.map((entry) => entry.evidence_id));
-  if (payload.review.evidenceChecked.some((evidenceId) => !executionEvidence.has(evidenceId))) {
+  assertConsentReviewEvidence(execution, payload.review.evidenceChecked);
+}
+
+function assertConsentReviewEvidence(
+  execution: Pick<ExecutionRecord, "execution_id" | "outputs">,
+  evidenceChecked: ReadonlyArray<string>
+): void {
+  try {
+    assertReviewEvidenceBelongsToExecution(execution, evidenceChecked);
+  } catch {
     throw admission("REVIEW_EVIDENCE_NOT_IN_EXECUTION");
   }
 }

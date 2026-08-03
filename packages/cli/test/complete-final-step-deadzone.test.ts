@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -33,6 +34,20 @@ test("one task complete intent publishes approval and completion through the pro
     CODEX_THREAD_ID: sessionId
   };
   try {
+    const submitHelp = cliHelp(fixture.repoRoot, ["task", "submit", "--help"]);
+    assertHelpOrder(submitHelp, [
+      "1. ha task start <task-id>",
+      "2. ha task submit <task-id> --from-file submission.json",
+      "releases it after the submitted round is published",
+      "completion requires the task to remain unheld"
+    ]);
+    const completeHelp = cliHelp(fixture.repoRoot, ["task", "complete", "--help"]);
+    assertHelpOrder(completeHelp, [
+      "Required sequence for --approve --from-file (after task submit released the Holder):",
+      "1. git rev-parse HEAD",
+      "2. ha task code-doc reconcile <task-id> --commit <approval.commit> --path <each-approval.paths-entry>",
+      "3. ha task complete <task-id> --approve --from-file approval.json"
+    ]);
     mkdirSync(path.join(fixture.repoRoot, "tools"), { recursive: true });
     copyFileSync(
       path.resolve("tools/write-road-registry.json"),
@@ -74,6 +89,7 @@ test("one task complete intent publishes approval and completion through the pro
 
     const submissionPath = path.join(fixture.root, "deadzone-submission.json");
     writeFileSync(submissionPath, JSON.stringify({
+      ...packetTemplate(submitHelp),
       completionClaim: "The production facade deadzone regression is ready for approval.",
       deliverables: ["Facade completion regression"],
       outputs: ["Full-chain production daemon evidence"],
@@ -85,6 +101,12 @@ test("one task complete intent publishes approval and completion through the pro
       "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
     ], env);
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
+    const holder = runRawJsonMaybeFail(fixture.repoRoot, ["task", "holder", taskId], env);
+    assert.equal(holder.status, 0, JSON.stringify(holder.receipt));
+    const holderData = (holder.receipt.details as {
+      readonly data?: { readonly effectiveHolder?: unknown };
+    } | undefined)?.data;
+    assert.equal(holderData?.effectiveHolder, null, JSON.stringify(holder.receipt));
 
     writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Updated by the final facade chain."));
 
@@ -108,6 +130,7 @@ test("one task complete intent publishes approval and completion through the pro
 
     const approvalPath = path.join(fixture.root, "deadzone-approval.json");
     writeFileSync(approvalPath, JSON.stringify({
+      ...packetTemplate(completeHelp),
       executionId,
       findings: "The submitted evidence and public code anchor satisfy the task.",
       evidenceChecked: ["ev_cli_1"],
@@ -507,4 +530,25 @@ function productionPlan(goal: string): string {
     "## Verification", "Verify.",
     ""
   ].join("\n");
+}
+
+function cliHelp(rootDir: string, args: ReadonlyArray<string>): string {
+  return execFileSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", rootDir, ...args], {
+    encoding: "utf8"
+  });
+}
+
+function packetTemplate(help: string): Readonly<Record<string, unknown>> {
+  const match = help.match(/Packet template \(copy as [^)]+\):\n([\s\S]+?)(?:\n\n|$)/u);
+  assert.ok(match, help);
+  return JSON.parse(match[1]!.split("\n").map((line) => line.replace(/^  /u, "")).join("\n")) as Record<string, unknown>;
+}
+
+function assertHelpOrder(help: string, fragments: ReadonlyArray<string>): void {
+  let previous = -1;
+  for (const fragment of fragments) {
+    const index = help.indexOf(fragment, previous + 1);
+    assert.ok(index > previous, `Expected help fragment after offset ${previous}: ${fragment}\n${help}`);
+    previous = index;
+  }
 }

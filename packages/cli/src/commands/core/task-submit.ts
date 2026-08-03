@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { taskSubmissionOutputEvidenceId } from "@harness-anything/application";
 import type { WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { toCliError } from "../../cli/error-mapper.ts";
@@ -70,7 +71,7 @@ function runExecutionSubmit(
           knownGaps: submission.knownGaps,
           residualRisks: submission.residualRisks,
           evidence: submission.outputs.map((text, index) => ({
-            evidence_id: `ev_cli_${index + 1}`,
+            evidence_id: taskSubmissionOutputEvidenceId(index),
             execution_ref: `execution/${action.taskId}/${executionId}`,
             locator: { substrate: "inline" as const, text }
           }))

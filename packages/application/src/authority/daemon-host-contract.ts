@@ -59,9 +59,17 @@ export type TaskCompleteConsentSource =
   | { readonly kind: "standing-policy"; readonly decisionId: string }
   | { readonly kind: "asserted-rationale"; readonly rationale: string };
 
-export type TaskCompleteExternalCheckpointRef =
-  | { readonly kind: "document-publication"; readonly ref: string }
-  | { readonly kind: "code-doc-reconciliation"; readonly ref: string };
+export const taskCompleteExternalCheckpointKinds = [
+  "document-publication",
+  "code-doc-reconciliation"
+] as const;
+
+export type TaskCompleteExternalCheckpointKind = typeof taskCompleteExternalCheckpointKinds[number];
+
+export interface TaskCompleteExternalCheckpointRef {
+  readonly kind: TaskCompleteExternalCheckpointKind;
+  readonly ref: string;
+}
 
 export interface TaskCompleteApproval {
   readonly executionId: string | null;
