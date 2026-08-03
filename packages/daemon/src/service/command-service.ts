@@ -133,16 +133,18 @@ export function createDaemonCommandService<
             const outerOpId = error instanceof RepoWriteOutcomeUnknownError
               ? error.opId
               : undefined;
+            const outcomeUnknown = error instanceof RepoWriteOutcomeUnknownError
+              || error instanceof RepoWriteDirectOutcomeUnknownError;
             return childRouteFailure(
               parsedCommand.action.kind,
-              error instanceof RepoWriteOutcomeUnknownError
-                || error instanceof RepoWriteDirectOutcomeUnknownError
+              outcomeUnknown
                 ? "repo_write_outcome_unknown"
                 : error instanceof RepoWriteNotStartedError
                   ? error.code
                 : "repo_write_child_unavailable",
               error instanceof Error ? error.message : String(error),
-              outerOpId
+              outerOpId,
+              outcomeUnknown ? repoWriteOutcomeQuery(parsedCommand.action, outerOpId) : undefined
             );
           }
         }
@@ -270,7 +272,8 @@ function childRouteFailure(
   command: string,
   code: string,
   hint: string,
-  outerOpId?: string
+  outerOpId?: string,
+  query?: JsonObject
 ): CommandReceiptEnvelope {
   return {
     ok: false,
@@ -288,8 +291,33 @@ function childRouteFailure(
       ...(outerOpId ? { context: { outerOpId } } : {})
     },
     ...(outerOpId ? {
-      details: { data: { outerOpId, recovery: "lookup-only" } }
+      details: { data: { outcome: "unknown", outerOpId, recovery: "lookup-only", ...(query ? { query } : {}) } }
+    } : query ? {
+      details: { data: { outcome: "unknown", query } }
     } : {})
+  };
+}
+
+function repoWriteOutcomeQuery(
+  action: { readonly kind?: unknown; readonly taskId?: unknown },
+  outerOpId?: string
+): JsonObject {
+  if (outerOpId) {
+    return {
+      schema: "command-outcome-query/v1",
+      method: "repo-write.lookup",
+      parameters: { opId: outerOpId },
+      retry: "forbidden-until-queried"
+    };
+  }
+  const taskId = typeof action.taskId === "string" && action.taskId.trim().length > 0
+    ? action.taskId
+    : undefined;
+  return {
+    schema: "command-outcome-query/v1",
+    method: taskId ? "task.show" : "task.list",
+    parameters: taskId ? { taskId } : {},
+    retry: "forbidden-until-queried"
   };
 }
 

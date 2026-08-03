@@ -35,7 +35,11 @@ test("a timed-out write reports an unknown outcome after the daemon accepted the
       assert.match(result.error.hint, /outcome is unknown/iu);
       assert.match(result.error.hint, /write may already have taken effect/iu);
       assert.match(result.error.hint, /Do not rerun this write blindly/iu);
-      assert.match(result.error.hint, /ha task list/iu);
+      assert.match(result.error.hint, /details\.data\.query/iu);
+      const data = (result as { readonly details?: { readonly data?: Record<string, unknown> } }).details?.data;
+      assert.equal(data?.outcome, "unknown");
+      assert.equal((data?.query as { readonly schema?: string } | undefined)?.schema, "command-outcome-query/v1");
+      assert.equal((data?.query as { readonly method?: string } | undefined)?.method, "task.show");
       assert.doesNotMatch(result.error.hint, /Daemon unavailable/iu);
       assert.doesNotMatch(result.error.hint, /HARNESS_DAEMON_MODE=direct/iu);
     } finally {

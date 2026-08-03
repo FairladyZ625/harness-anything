@@ -52,7 +52,10 @@ export function resolveLocalCliActorAttribution(
   actorFlag?: string,
   personRegistry?: PersonRegistry
 ): CliActorAttribution {
-  const flagActor = actorFlag ? readCliJournalActorFromFlag(actorFlag) : undefined;
+  const configuredPersonId = actorFlag
+    ? configuredLocalPrincipalIdForActorHint(rootInput, env, personRegistry)
+    : undefined;
+  const flagActor = actorFlag ? readCliJournalActorFromFlag(actorFlag, configuredPersonId) : undefined;
   const assertedActor = flagActor ?? readCliJournalActorFromEnv(env);
   const name = readNonBlankEnv(env, "HARNESS_GIT_AUTHOR_NAME") ?? readNonBlankEnv(env, "GIT_AUTHOR_NAME");
   const email = readNonBlankEnv(env, "HARNESS_GIT_AUTHOR_EMAIL") ?? readNonBlankEnv(env, "GIT_AUTHOR_EMAIL");
@@ -91,6 +94,20 @@ export function resolveLocalCliActorAttribution(
     taskHolderPrincipal: configured.principal,
     executor
   };
+}
+
+export function configuredLocalPrincipalIdForActorHint(
+  rootInput: HarnessLayoutInput,
+  env: NodeJS.ProcessEnv = process.env,
+  personRegistry?: PersonRegistry
+): string | undefined {
+  const settings = readProjectHarnessSettings(rootInput, "identity");
+  if (settings.ok && settings.settings.identity?.personId) return settings.settings.identity.personId;
+  try {
+    return readConfiguredLocalPrincipalWithSource(rootInput, personRegistry, env).principal.personId;
+  } catch {
+    return undefined;
+  }
 }
 
 export function readConfiguredLocalPrincipal(rootInput: HarnessLayoutInput, env: NodeJS.ProcessEnv = process.env): TaskHolderPersonPrincipal {

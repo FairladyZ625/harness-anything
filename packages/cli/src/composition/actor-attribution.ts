@@ -120,16 +120,19 @@ export function readCliJournalActorFromEnv(env: NodeJS.ProcessEnv): CliJournalAc
   return actor;
 }
 
-export function readCliJournalActorFromFlag(raw: string): CliJournalActor {
-  const actor = parseActorToken(raw, "--actor");
+export function readCliJournalActorFromFlag(raw: string, configuredPersonId?: string): CliJournalActor {
+  const actor = parseActorToken(raw, "--actor", configuredPersonId);
   assertEntityActor(actor, "--actor");
   return actor;
 }
 
-function parseActorToken(raw: string, channel: "HARNESS_ACTOR" | "--actor"): CliJournalActor {
+function parseActorToken(raw: string, channel: "HARNESS_ACTOR" | "--actor", configuredPersonId?: string): CliJournalActor {
   const separator = raw.indexOf(":");
   if (separator <= 0 || separator === raw.length - 1) {
-    throw new CliActorAttributionError(`${channel} must use kind:id form, for example ${channel === "HARNESS_ACTOR" ? "agent:codex" : "human:lizeyu"}.`);
+    const example = channel === "HARNESS_ACTOR"
+      ? "agent:codex"
+      : `human:${configuredPersonId?.trim() || "lizeyu"}`;
+    throw new CliActorAttributionError(`${channel} must use kind:id form, for example ${example}.`);
   }
   const kind = raw.slice(0, separator);
   const id = raw.slice(separator + 1);

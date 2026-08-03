@@ -406,6 +406,7 @@ export interface DaemonServeHostServices<LaunchConfiguration, AuthorityLifecycle
     readonly manifestPath: string;
     readonly daemonLogService: DaemonLogService;
     readonly backgroundRecovery: true;
+    readonly userRoot: string;
     readonly layoutOverrides?: HarnessLayoutOverrides;
   }) => AuthorityLifecycle;
   readonly projectStartedStatus: (status: DaemonStatusResultV2) => Record<string, unknown>;

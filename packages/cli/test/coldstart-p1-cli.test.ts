@@ -91,9 +91,14 @@ test("task packet help templates pass submission and approval dry-runs", () => {
       "--approve", "--from-file", approvalPath, "--dry-run"
     ], sessionEnv);
     assert.equal(approvalDryRun.ok, true);
-    assert.equal(approvalDryRun.status, "done");
+    assert.notEqual(approvalDryRun.status, "done");
     assert.equal(approvalDryRun.report.schema, "task-lifecycle-transition-preview/v1");
     assert.equal(approvalDryRun.report.disposition, "server-planner-validation-required");
+    assert.deepEqual(approvalDryRun.report.uncheckedGates, [
+      "canonical-authority-planner",
+      "task-completion-evidence",
+      "durable-transition-write"
+    ]);
     assert.equal(readFileSync(indexPath, "utf8"), indexBeforeDryRun);
   });
 });

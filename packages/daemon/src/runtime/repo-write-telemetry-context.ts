@@ -10,6 +10,7 @@ type RepoWriteTelemetryReporter = (
 export interface RepoWriteTelemetryDelivery {
   readonly report: RepoWriteTelemetryReporter;
   readonly flush: () => Promise<void>;
+  readonly close: () => void;
 }
 
 const storage = new AsyncLocalStorage<{
@@ -48,12 +49,17 @@ export function createRepoWriteTelemetryDelivery(
   ) => Promise<void>
 ): RepoWriteTelemetryDelivery {
   let pending = Promise.resolve();
+  let closed = false;
   return {
     report: (phase, elapsedMs) => {
+      if (closed) return;
       pending = pending
         .then(() => deliver(phase, elapsedMs))
         .catch(() => undefined);
     },
-    flush: () => pending
+    flush: () => pending,
+    close: () => {
+      closed = true;
+    }
   };
 }

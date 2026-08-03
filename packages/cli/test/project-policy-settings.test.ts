@@ -63,6 +63,11 @@ test("task WIP snapshot reads the configured limit and authored task axes", () =
     writeTaskIndex(rootDir, "task_ACTIVE", "Active", "active", "active");
     writeTaskIndex(rootDir, "task_CHILD", "Child", "planned", "active", "task_ACTIVE");
     writeTaskIndex(rootDir, "task_ARCHIVED", "Archived", "blocked", "archived");
+    writeFileSync(
+      path.join(rootDir, "harness/tasks/task_IDEA-fixture/closeout.md"),
+      "# Summary\n\nDelivered before the lifecycle backfill.\n\n# Verification\n\nVerified.\n\n# Residual Risk\n\nNone known.\n",
+      "utf8"
+    );
 
     assert.deepEqual(readTaskWipSnapshot(rootDir), {
       limit: 4,
@@ -70,7 +75,7 @@ test("task WIP snapshot reads the configured limit and authored task axes", () =
         { taskId: "task_ACTIVE", title: "Active", status: "active", packageDisposition: "active", isContainer: true },
         { taskId: "task_ARCHIVED", title: "Archived", status: "blocked", packageDisposition: "archived", isContainer: false },
         { taskId: "task_CHILD", title: "Child", status: "planned", packageDisposition: "active", isContainer: false },
-        { taskId: "task_IDEA", title: "Idea", status: "planned", packageDisposition: "active", isContainer: false }
+        { taskId: "task_IDEA", title: "Idea", status: "planned", packageDisposition: "active", isContainer: false, hasCloseoutEvidence: true }
       ]
     });
   });

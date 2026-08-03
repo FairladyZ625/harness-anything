@@ -38,6 +38,7 @@ import { toCommandReceipt } from "../cli/receipt.ts";
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
+import { configuredLocalPrincipalIdForActorHint } from "../composition/local-principal.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "@harness-anything/daemon";
 import {
@@ -546,7 +547,10 @@ function taskHolderExecutorPayload(command: ParsedCommand): JsonObject | null | 
 
 function commandExecutor(command: ParsedCommand): TaskHolderExecutor | null | undefined {
   const actor = command.actor
-    ? readCliJournalActorFromFlag(command.actor)
+    ? readCliJournalActorFromFlag(command.actor, configuredLocalPrincipalIdForActorHint({
+      rootDir: command.rootDir,
+      layoutOverrides: command.layoutOverrides
+    }, process.env))
     : readCliJournalActorFromEnv(process.env);
   if (!actor) return undefined;
   return taskHolderExecutorFromJournalActor(actor);

@@ -21,7 +21,7 @@ test("every primary-workflow line names a registered command path", () => {
   }
 });
 
-test("task primary workflow exposes the complete six-step lifecycle", () => {
+test("task primary workflow exposes the complete seven-step lifecycle", () => {
   const taskWorkflow = commandGroups.find((group) => group.name === "task")?.primaryWorkflow;
 
   assert.deepEqual(taskWorkflow, [
@@ -30,6 +30,7 @@ test("task primary workflow exposes the complete six-step lifecycle", () => {
     "ha task progress append <task-id> --text \"<update>\"",
     "ha fact record --task <task-id> --statement \"<verified fact>\"",
     "ha task submit <task-id> --from-file submission.json",
+    "ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-path>]...",
     "ha task complete <task-id> --approve --from-file approval.json"
   ]);
 });

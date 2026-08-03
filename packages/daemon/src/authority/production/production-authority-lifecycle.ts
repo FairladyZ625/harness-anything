@@ -107,6 +107,7 @@ interface ProductionAuthorityIdentity {
 
 export function createProductionAuthorityLifecycle(input: {
   readonly manifestPath: string;
+  readonly userRoot?: string;
   readonly layoutOverrides?: { readonly authoredRoot?: string };
   readonly daemonLogService?: DaemonLogService;
   readonly backgroundRecovery?: true;
@@ -128,7 +129,7 @@ export function createProductionAuthorityLifecycle(input: {
         repo.canonicalRoot,
         input.layoutOverrides,
         undefined,
-        manifest.serviceStateRoot
+        input.userRoot
       );
       if (!identity.personRegistry) throw new Error("AUTHORITY_PRODUCTION_PERSON_REGISTRY_REQUIRED");
       const keyMaterial = openAuthorityProductionKeyMaterial({ config, serviceStateRoot: manifest.serviceStateRoot });
