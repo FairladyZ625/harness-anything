@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -88,6 +88,52 @@ test("local Git execution preserves captured output and typed command errors", (
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
     rmSync(nonRepoRoot, { recursive: true, force: true });
+  }
+});
+
+test("scoped commits preserve staged blobs, unstaged work, deletions, and hooks", (t) => {
+  if (process.platform === "win32") {
+    t.skip("shell hook fixture is POSIX-only");
+    return;
+  }
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "ha-scoped-git-commit-"));
+  try {
+    fixtureGit(repoRoot, "init", "-b", "scoped-commit-test");
+    fixtureGit(repoRoot, "config", "user.name", "Harness Test");
+    fixtureGit(repoRoot, "config", "user.email", "harness@example.test");
+    const bodyPath = "body.md";
+    writeFileSync(path.join(repoRoot, bodyPath), "base\n");
+    fixtureGit(repoRoot, "add", "--", bodyPath);
+    fixtureGit(repoRoot, "commit", "-m", "seed");
+
+    const hookMarker = path.join(repoRoot, ".git", "scoped-commit-hook-marker");
+    const hookPath = path.join(repoRoot, ".git", "hooks", "pre-commit");
+    mkdirSync(path.dirname(hookPath), { recursive: true });
+    writeFileSync(hookPath, `#!/bin/sh\nprintf 'hook-ran\\n' >> '${hookMarker}'\n`);
+    chmodSync(hookPath, 0o755);
+
+    writeFileSync(path.join(repoRoot, bodyPath), "staged\n");
+    const vcs = makeLocalVersionControlSystem();
+    vcs.add(repoRoot, { paths: [bodyPath] });
+    writeFileSync(path.join(repoRoot, bodyPath), "unstaged\n");
+    vcs.commit(repoRoot, "commit staged body", { name: "Harness Test", email: "harness@example.test" });
+
+    assert.equal(fixtureGit(repoRoot, "show", `HEAD:${bodyPath}`), "staged\n");
+    assert.equal(readFileSync(path.join(repoRoot, bodyPath), "utf8"), "unstaged\n");
+    assert.equal(fixtureGit(repoRoot, "status", "--porcelain", "--", bodyPath).trim(), "M body.md");
+    assert.equal(readFileSync(hookMarker, "utf8"), "hook-ran\n");
+
+    const deletedPath = "deleted.md";
+    writeFileSync(path.join(repoRoot, deletedPath), "delete me\n");
+    fixtureGit(repoRoot, "add", "--", deletedPath);
+    fixtureGit(repoRoot, "commit", "-m", "add deletion fixture");
+    rmSync(path.join(repoRoot, deletedPath));
+    vcs.add(repoRoot, { paths: [deletedPath] });
+    vcs.commit(repoRoot, "commit deletion", { name: "Harness Test", email: "harness@example.test" });
+    assert.throws(() => fixtureGit(repoRoot, "show", `HEAD:${deletedPath}`));
+    assert.equal(fixtureGit(repoRoot, "status", "--porcelain", "--", deletedPath), "");
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
   }
 });
 
