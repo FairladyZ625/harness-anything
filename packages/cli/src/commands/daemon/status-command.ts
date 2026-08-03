@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { makeDaemonLogService } from "@harness-anything/application";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "@harness-anything/kernel";
 import {
   currentDaemonProtocolVersion,
+  DaemonRepoRootResolutionError,
   makeDaemonLogFileStore,
   observeDaemonLifecycle
 } from "@harness-anything/daemon";
@@ -17,6 +17,10 @@ import {
 import type { DaemonCommandInput } from "./command-types.ts";
 import { evaluateDaemonDeploymentCheck } from "./deployment-check.ts";
 import { readDaemonStatusWithGenerationFallback } from "./status-compatibility.ts";
+import {
+  projectDaemonRepositoryService,
+  readDaemonRepositoryLock
+} from "./repository-service-status.ts";
 
 export interface DaemonStatusCommandResult {
   readonly exitCode: number;
@@ -24,15 +28,11 @@ export interface DaemonStatusCommandResult {
 }
 
 export async function runDaemonDeploymentStatusCommand(input: DaemonCommandInput): Promise<DaemonStatusCommandResult> {
-  const target = resolveLocalDaemonTarget({
-    rootDir: input.rootDir,
-    repoIdOverride: deploymentDaemonRepoIdOverride(input.args),
-    userRoot: readDeploymentDaemonUserRootOption(input.args),
-    layoutOverrides: input.layoutOverrides,
-    autoRegisterSingleRepo: false
-  });
+  const repoIdOverride = deploymentDaemonRepoIdOverride(input.args);
+  const userRoot = readDeploymentDaemonUserRootOption(input.args);
+  const target = resolveDaemonStatusTarget(input, repoIdOverride, userRoot);
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
-  const lockStatus = readDaemonDeploymentLock(path.join(layout.locksRoot, "global.lock"));
+  const lockStatus = readDaemonRepositoryLock(path.join(layout.locksRoot, "global.lock"));
   const rpcStatus = await readReachableDaemonDeploymentStatus(target, true, true);
   const cliRpcStatus = rpcStatus ? deploymentStatusForCli(rpcStatus) : undefined;
   const lifecycle = await observeDaemonLifecycle({
@@ -51,8 +51,16 @@ export async function runDaemonDeploymentStatusCommand(input: DaemonCommandInput
       queue: { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false },
       connections: { active: 0, total: 0 }
     }),
-    started: cliRpcStatus?.started === true,
+    started: Boolean(rpcStatus),
     reachable: Boolean(rpcStatus),
+    repositoryService: projectDaemonRepositoryService({
+      requestedRepoId: target.repoId,
+      canonicalRoot: target.canonicalRoot,
+      connectedUserRoot: target.userRoot,
+      connectedEndpoint: target.socketPath,
+      ...(rpcStatus ? { reachableStatus: rpcStatus } : {}),
+      lockStatus
+    }),
     lifecycle,
     ...(deploymentCheck ? { deploymentCheck } : {})
   };
@@ -62,24 +70,29 @@ export async function runDaemonDeploymentStatusCommand(input: DaemonCommandInput
   };
 }
 
-function readDaemonDeploymentLock(lockPath: string): Record<string, unknown> {
-  if (!existsSync(lockPath)) return { started: false, lockPath };
-  const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
-    readonly pid?: unknown;
-    readonly hostname?: unknown;
-    readonly heartbeatAt?: unknown;
-    readonly ownerKind?: unknown;
-    readonly ownerToken?: unknown;
-  };
-  return {
-    started: lock.ownerKind === "daemon",
-    lockPath,
-    pid: lock.pid,
-    hostname: lock.hostname,
-    heartbeatAt: lock.heartbeatAt,
-    ownerKind: lock.ownerKind,
-    ownerToken: lock.ownerToken
-  };
+function resolveDaemonStatusTarget(
+  input: DaemonCommandInput,
+  repoIdOverride: string | undefined,
+  userRoot: string | undefined
+): LocalDaemonTarget {
+  try {
+    return resolveLocalDaemonTarget({
+      rootDir: input.rootDir,
+      repoIdOverride,
+      userRoot,
+      layoutOverrides: input.layoutOverrides,
+      autoRegisterSingleRepo: false
+    });
+  } catch (error) {
+    if (!(error instanceof DaemonRepoRootResolutionError)) throw error;
+    return resolveLocalDaemonTarget({
+      rootDir: input.rootDir,
+      repoIdOverride: repoIdOverride ?? "canonical",
+      userRoot,
+      layoutOverrides: input.layoutOverrides,
+      autoRegisterSingleRepo: false
+    });
+  }
 }
 
 async function readReachableDaemonDeploymentStatus(

@@ -16,7 +16,6 @@ import {
   resolveHarnessLayout
 } from "@harness-anything/kernel";
 import {
-  acquireDaemonGlobalLock,
   assertDaemonGlobalLockHeld,
   createProjectionChangePublisher,
   createRuntimeAdmissionBudget,
@@ -76,8 +75,9 @@ import {
 import { toDaemonRuntimeStatus } from "./repo-runtime-status.ts";
 import { defaultDaemonRuntimePolicy } from "./runtime-policy.ts";
 import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts";
-import { mergeRepoRuntimeDefaults } from "./repo-runtime-options-merge.ts";
+import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-options-merge.ts";
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
+import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 
@@ -279,7 +279,15 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         return this.status();
       }
       this.assertBuildCurrent();
-      this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.operationalActor, this.lockTtlMs);
+      this.lock = acquireRepoRuntimeGlobalLock({
+        rootDir: this.rootDir,
+        runtimeContext: this.runtimeContext,
+        journalPath: this.layout.journalPath,
+        operationalActor: this.operationalActor,
+        lockTtlMs: this.lockTtlMs,
+        repoId: this.repoId,
+        lockProvenance: this.options.lockProvenance
+      });
       this.assertBuildCurrent();
       this.lastRecovery = Effect.runSync(recoverJournaledWrites({
         rootDir: this.rootDir,
@@ -576,10 +584,6 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     if (!this.projectionGenerationClosed) this.projectionGenerationClosed = true;
     return this.projectionGeneration.close();
   }
-}
-
-function sortedRepoOptions(repos: ReadonlyArray<DaemonRepoRuntimeOptions>): ReadonlyArray<DaemonRepoRuntimeOptions> {
-  return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || path.resolve(left.rootDir).localeCompare(path.resolve(right.rootDir)));
 }
 
 function sortedContexts(contexts: Map<string, DaemonRepoRuntimeContext>): ReadonlyArray<DaemonRepoRuntimeContext> {

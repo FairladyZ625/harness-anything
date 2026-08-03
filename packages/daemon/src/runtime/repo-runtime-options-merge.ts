@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   DaemonRepoRuntimeOptions,
   MultiRepoDaemonRuntimeOptions
@@ -11,6 +12,7 @@ export function mergeRepoRuntimeDefaults(
     ...repo,
     ...(repo.writeOwnership ? {} : options.writeOwnership ? { writeOwnership: options.writeOwnership } : {}),
     ...(repo.operationalActor ? {} : options.operationalActor ? { operationalActor: options.operationalActor } : {}),
+    ...(repo.lockProvenance ? {} : options.lockProvenance ? { lockProvenance: options.lockProvenance } : {}),
     ...(repo.lockTtlMs !== undefined ? {} : options.lockTtlMs !== undefined ? { lockTtlMs: options.lockTtlMs } : {}),
     ...(repo.interactiveMicroBatchMs !== undefined ? {} : options.interactiveMicroBatchMs !== undefined ? { interactiveMicroBatchMs: options.interactiveMicroBatchMs } : {}),
     ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),
@@ -26,4 +28,12 @@ export function mergeRepoRuntimeDefaults(
     ...(repo.generationWitness ? {} : options.generationWitness ? { generationWitness: options.generationWitness } : {}),
     ...(repo.generationCapability ? {} : options.generationCapability ? { generationCapability: options.generationCapability } : {})
   };
+}
+
+export function sortedRepoOptions(
+  repos: ReadonlyArray<DaemonRepoRuntimeOptions>
+): ReadonlyArray<DaemonRepoRuntimeOptions> {
+  return [...repos].sort((left, right) =>
+    left.repoId.localeCompare(right.repoId)
+      || path.resolve(left.rootDir).localeCompare(path.resolve(right.rootDir)));
 }

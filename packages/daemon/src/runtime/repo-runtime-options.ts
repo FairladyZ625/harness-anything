@@ -44,6 +44,13 @@ export interface DaemonRuntimeOptions {
   readonly writeOwnership?: "writer" | "reader";
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly operationalActor?: OperationalActor;
+  /** Provenance written only to daemon-owned global lock records. */
+  readonly lockProvenance?: {
+    readonly repoId?: string;
+    readonly canonicalRoot?: string;
+    readonly userRoot?: string;
+    readonly endpoint?: string;
+  };
   readonly lockTtlMs?: number;
   readonly interactiveMicroBatchMs?: number;
   readonly maxInteractiveOpsPerCommit?: number;

@@ -115,6 +115,11 @@ export interface LockRecord {
   readonly heartbeatAt: string;
   readonly ownerToken: string;
   readonly ownerKind?: "daemon";
+  /** Optional daemon topology provenance; absent on legacy and non-daemon locks. */
+  readonly repoId?: string;
+  readonly canonicalRoot?: string;
+  readonly userRoot?: string;
+  readonly endpoint?: string;
 }
 
 export interface OwnedLock {

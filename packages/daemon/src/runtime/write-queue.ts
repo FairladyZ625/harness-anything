@@ -60,7 +60,7 @@ export interface DaemonQueueSnapshot {
   readonly admission: DaemonAdmissionBudgetSnapshot;
 }
 
-export type { DaemonQueueDrainTarget } from "@harness-anything/kernel/daemon-runtime-support";
+export type { DaemonQueueDrainTarget };
 
 type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly kind: "interactive";

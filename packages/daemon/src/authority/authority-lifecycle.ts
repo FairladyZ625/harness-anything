@@ -1,3 +1,5 @@
+import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
 import type {
   ActorAxesBindingRuntimeV2,
   AttributedCoordinatorFactory,
@@ -280,7 +282,7 @@ export function createAuthorityRepoLifecycleController(input: {
 
   function startRepo(repo: DaemonRepoNamespace, runtime: AuthorityLifecycleRuntime): Promise<AuthorityRepoStartResult> {
     const existing = started.get(repo.repoId);
-    if (existing) return Promise.resolve(existing.repo.canonicalRoot === repo.canonicalRoot
+    if (existing) return Promise.resolve(authorityRootsEqual(existing.repo.canonicalRoot, repo.canonicalRoot)
       ? { ok: true, component: existing.component }
       : { ok: false, error: "AUTHORITY_REPO_ATTACHMENT_MISMATCH" });
     const pending = starting.get(repo.repoId);
@@ -436,7 +438,7 @@ function validateServerData(
   data: AuthorityRepoCompositionData,
   allowInMemoryFixture: boolean
 ): void {
-  if (data.repoId !== repo.repoId || data.canonicalRoot !== repo.canonicalRoot) {
+  if (data.repoId !== repo.repoId || !authorityRootsEqual(data.canonicalRoot, repo.canonicalRoot)) {
     throw new Error("AUTHORITY_SERVER_REPO_BINDING_MISMATCH");
   }
   for (const [name, value] of Object.entries({
@@ -460,6 +462,14 @@ function validateServerData(
       }
     }
   }
+}
+
+function authorityRootsEqual(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  const canonicalLeft = existsSync(resolvedLeft) ? realpathSync.native(resolvedLeft) : resolvedLeft;
+  const canonicalRight = existsSync(resolvedRight) ? realpathSync.native(resolvedRight) : resolvedRight;
+  return canonicalLeft === canonicalRight;
 }
 
 function authorityLifecycleErrorMessage(error: unknown): string {
