@@ -8,6 +8,8 @@ import {
 } from "@harness-anything/kernel/daemon-runtime-support";
 import type { DaemonRuntimeOptions } from "./repo-runtime-options.ts";
 
+export { acquireDaemonGlobalLock, type DaemonGlobalLock };
+
 export function acquireRepoRuntimeGlobalLock(input: {
   readonly rootDir: string;
   readonly runtimeContext: ReturnType<typeof createHarnessRuntimeContext>;

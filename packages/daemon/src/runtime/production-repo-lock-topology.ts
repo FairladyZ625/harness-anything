@@ -5,7 +5,7 @@ import {
   resolveHarnessLayout,
   type HarnessLayoutOverrides
 } from "@harness-anything/kernel";
-import { acquireDaemonGlobalLock } from "@harness-anything/kernel/daemon-runtime-support";
+import { acquireDaemonGlobalLock } from "./repo-runtime-lock.ts";
 import type { RepoWriteProcessSupervisor } from "./repo-write-process-supervisor.ts";
 
 export interface ProductionRepoLockTarget {
