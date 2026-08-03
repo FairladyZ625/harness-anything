@@ -3,6 +3,7 @@ import type { LocalDaemonTarget } from "@harness-anything/daemon";
 export interface DaemonReplacementStopRuntime {
   readonly probeStatus: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
   readonly statusPid: (status: Record<string, unknown>) => number | undefined;
+  readonly endpointOwnerPid?: (target: LocalDaemonTarget) => number | undefined;
   readonly processIsAlive: (pid: number) => boolean;
   readonly signal: (pid: number, signal: NodeJS.Signals) => void;
   readonly wait: (ms: number) => Promise<void>;
@@ -60,9 +61,14 @@ async function targetEndpointIsOwnedBy(
   const status = await runtime.probeStatus(target);
   const observedPid = status ? runtime.statusPid(status) : undefined;
   if (observedPid === pid) return true;
+  const endpointOwnerPid = runtime.endpointOwnerPid?.(target);
+  if (endpointOwnerPid === pid) return true;
   if (!runtime.processIsAlive(pid)) return false;
   if (observedPid !== undefined) {
     throw new Error(`target endpoint reports pid ${observedPid}; refusing to signal pid ${pid}`);
+  }
+  if (endpointOwnerPid !== undefined) {
+    throw new Error(`target endpoint owner record reports pid ${endpointOwnerPid}; refusing to signal pid ${pid}`);
   }
   throw new Error(`target endpoint does not prove ownership by pid ${pid}; refusing to signal it`);
 }
@@ -96,6 +102,10 @@ async function verifyEndpointRemainsUnowned(
           ? "target endpoint remained reachable with an unrecognized daemon status"
           : `target endpoint became reachable again with pid ${observedPid}`
       );
+    }
+    const endpointOwnerPid = runtime.endpointOwnerPid?.(target);
+    if (endpointOwnerPid !== undefined && runtime.processIsAlive(endpointOwnerPid)) {
+      throw new Error(`target endpoint remained owned by live pid ${endpointOwnerPid}`);
     }
     if (attempt + 1 < attempts) await runtime.wait(pollIntervalMs);
   }

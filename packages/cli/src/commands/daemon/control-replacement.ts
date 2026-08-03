@@ -16,9 +16,16 @@ export interface DaemonControlLifecycle {
   readonly probeGenerationStatus?: (target: LocalDaemonTarget) => Promise<Record<string, unknown> | undefined>;
   readonly probeStatus: (
     target: LocalDaemonTarget,
-    capability?: { readonly includeGenerationAxes: true }
+    capability?: { readonly includeGenerationAxes: true },
+    requestTimeoutMs?: number
   ) => Promise<Record<string, unknown> | undefined>;
+  readonly probeEndpointOwner?: (
+    target: LocalDaemonTarget
+  ) => { readonly pid: number; readonly alive: boolean } | undefined;
   readonly ownerIsAlive: (pid: number) => boolean;
+  readonly isReadinessTimeout?: (error: unknown) => boolean;
+  readonly readinessTimeoutPid?: (error: unknown) => number | undefined;
+  readonly reportProgress?: (message: string) => void;
   readonly prepareReplacement?: (target: LocalDaemonTarget) => Promise<DaemonLaunchConfiguration>;
   readonly startReplacement: (
     target: LocalDaemonTarget,
@@ -52,6 +59,7 @@ interface CompleteDaemonReplacementInput {
   readonly operationId: unknown;
   readonly handoffTimeoutMs: number;
   readonly replacementTimeoutMs: number;
+  readonly replacementSettlingTimeoutMs: number;
   readonly kind: "restart" | "refresh" | "upgrade";
   readonly method: "admin.daemon.restart" | "admin.daemon.refresh";
   readonly launchConfiguration: DaemonLaunchConfiguration;
@@ -126,7 +134,14 @@ async function attemptDaemonReplacement(
       input.expectedGeneration ? { includeGenerationAxes: true } : undefined
     );
   } catch (error) {
-    return await failOrRollback(input, error, beforePid, operationId, "replacement-start");
+    if (!input.lifecycle.isReadinessTimeout?.(error)) {
+      return await failOrRollback(input, error, beforePid, operationId, "replacement-start");
+    }
+    try {
+      replacement = await waitForTimedOutReplacement(input, error, beforePid);
+    } catch (settlingError) {
+      return await failOrRollback(input, settlingError, beforePid, operationId, "replacement-start");
+    }
   }
   try {
     const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
@@ -140,6 +155,84 @@ async function attemptDaemonReplacement(
   } catch (error) {
     return await failOrRollback(input, error, beforePid, operationId, "replacement-validation");
   }
+}
+
+async function waitForTimedOutReplacement(
+  input: CompleteDaemonReplacementInput,
+  readinessTimeout: unknown,
+  beforePid: number
+): Promise<Record<string, unknown>> {
+  const initialOwner = input.lifecycle.probeEndpointOwner?.(input.lifecycle.target);
+  const spawnedPid = input.lifecycle.readinessTimeoutPid?.(readinessTimeout);
+  const replacementPid = spawnedPid
+    ?? (initialOwner?.alive === true && initialOwner.pid !== beforePid ? initialOwner.pid : undefined);
+  if (replacementPid === undefined || !input.lifecycle.ownerIsAlive(replacementPid)) {
+    throw readinessTimeout;
+  }
+  if (initialOwner && initialOwner.pid !== replacementPid) {
+    throw new Error(
+      `replacement readiness deadline elapsed, but endpoint owner pid ${initialOwner.pid} did not match launched pid ${replacementPid}`
+    );
+  }
+
+  input.lifecycle.reportProgress?.(
+    `Replacement readiness deadline elapsed after ${input.replacementTimeoutMs}ms; pid ${replacementPid} is alive`
+    + `${initialOwner?.pid === replacementPid ? " and owns the endpoint" : ""}, and is still starting. `
+    + `Continuing bounded observation for up to ${input.replacementSettlingTimeoutMs}ms.`
+  );
+
+  const deadline = Date.now() + input.replacementSettlingTimeoutMs;
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const status = await input.lifecycle.probeStatus(
+      input.lifecycle.target,
+      input.expectedGeneration ? { includeGenerationAxes: true } : undefined,
+      Math.min(1_000, remainingMs)
+    );
+    const observedLifecycle = status ? normalizeDaemonLifecycleStatus(status) : undefined;
+    if (status && observedLifecycle) {
+      if (observedLifecycle.pid !== replacementPid) {
+        throw new Error(
+          `replacement readiness observation reached pid ${observedLifecycle.pid}, expected launched pid ${replacementPid}`
+        );
+      }
+      return status;
+    }
+    if (!input.lifecycle.ownerIsAlive(replacementPid)) throw readinessTimeout;
+    const owner = input.lifecycle.probeEndpointOwner?.(input.lifecycle.target);
+    if (owner && owner.pid !== replacementPid) {
+      throw new Error(
+        `replacement readiness observation found endpoint owner pid ${owner.pid}, expected launched pid ${replacementPid}`
+      );
+    }
+    const waitMs = Math.min(100, Math.max(0, deadline - Date.now()));
+    if (waitMs > 0) await input.lifecycle.wait(waitMs);
+  }
+
+  if (!input.lifecycle.ownerIsAlive(replacementPid)) throw readinessTimeout;
+  if (!input.lifecycle.stopReplacement) {
+    throw new Error(
+      `replacement pid ${replacementPid} remained alive but unreachable after the additional `
+      + `${input.replacementSettlingTimeoutMs}ms settling limit; cleanup unavailable, so it may still be starting`
+    );
+  }
+  try {
+    await input.lifecycle.stopReplacement(
+      input.lifecycle.target,
+      replacementPid,
+      input.replacementTimeoutMs
+    );
+  } catch (error) {
+    throw new Error(
+      `replacement pid ${replacementPid} remained alive but unreachable after the additional `
+      + `${input.replacementSettlingTimeoutMs}ms settling limit; cleanup failed and it may still be starting: `
+      + daemonReplacementErrorMessage(error)
+    );
+  }
+  throw new DaemonReplacementEndpointUnownedError(
+    `replacement pid ${replacementPid} exceeded the additional ${input.replacementSettlingTimeoutMs}ms settling limit; `
+    + "the timed-out replacement was stopped and the endpoint remained unowned"
+  );
 }
 
 async function waitForStartedReplacement(

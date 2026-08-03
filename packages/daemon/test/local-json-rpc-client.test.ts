@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   createDaemonLaunchConfiguration,
   daemonLaunchOptionsResolvedFlag,
+  DaemonAutostartTimeoutError,
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
   JsonRpcLineClient,
@@ -432,6 +433,7 @@ test("autostart bounds a never-responding ready probe by the total startup budge
   const target = makeTarget(socketPath);
   let helloCalls = 0;
   let server: net.Server | undefined;
+  const spawnedPid = 24_680;
   const restoreSpawn = replaceSpawnLocalDaemonForTest(() => {
     setTimeout(() => {
       void startJsonRpcServer(socketPath, {
@@ -443,6 +445,7 @@ test("autostart bounds a never-responding ready probe by the total startup budge
         server = started;
       });
     }, 10);
+    return spawnedPid;
   });
   t.after(async () => {
     restoreSpawn();
@@ -458,8 +461,10 @@ test("autostart bounds a never-responding ready probe by the total startup budge
       200,
       { entryPath: "/unused", timeoutMs: 1_200 }
     ),
-    (error: unknown) => !(error instanceof DaemonJsonRpcRequestTimeoutError)
-      && /autostart.*1200ms/u.test(error instanceof Error ? error.message : "")
+    (error: unknown) => error instanceof DaemonAutostartTimeoutError
+      && error.timeoutMs === 1_200
+      && error.spawnedPid === spawnedPid
+      && /readiness.*1200ms.*may still be starting/u.test(error.message)
   );
   assert.ok(helloCalls >= 2, `expected multiple bounded ready probes; saw ${helloCalls}`);
 });

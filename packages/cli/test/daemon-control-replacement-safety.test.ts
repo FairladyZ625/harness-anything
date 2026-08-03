@@ -152,6 +152,24 @@ test("replacement cleanup validates target ownership, escalates to SIGKILL, and 
   assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
 });
 
+test("replacement cleanup accepts the live owner record while startup RPC is not ready", async () => {
+  const signals: NodeJS.Signals[] = [];
+  let alive = true;
+  const runtime = stopRuntime({
+    probeStatus: async () => undefined,
+    endpointOwnerPid: () => alive ? 84 : undefined,
+    processIsAlive: () => alive,
+    signal: (_pid, signal) => {
+      signals.push(signal);
+      alive = false;
+    }
+  });
+
+  await stopDaemonReplacement(controlTarget, 84, 100, runtime);
+
+  assert.deepEqual(signals, ["SIGTERM"]);
+});
+
 test("replacement cleanup refuses to signal a PID not owned by the target endpoint", async () => {
   const signals: NodeJS.Signals[] = [];
   const runtime = stopRuntime({
@@ -212,7 +230,7 @@ test("replacement cleanup detects supervisor resurrection during the endpoint st
 
 function stopRuntime(
   overrides: Pick<DaemonReplacementStopRuntime, "probeStatus" | "processIsAlive" | "signal">
-    & Partial<Pick<DaemonReplacementStopRuntime, "endpointStabilityMs">>
+    & Partial<Pick<DaemonReplacementStopRuntime, "endpointOwnerPid" | "endpointStabilityMs">>
 ): DaemonReplacementStopRuntime {
   return {
     ...overrides,

@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { DaemonAutostartTimeoutError } from "@harness-anything/daemon";
 import {
   runDaemonControl,
   type DaemonControlLifecycle
@@ -64,6 +65,80 @@ test("restart restores service when the released endpoint replacement fails to s
     assert.match(error.message, /service restored and reachable/u);
     return true;
   });
+  assert.equal(replacementStarts, 2);
+});
+
+test("restart adopts a live replacement that becomes ready after the normal startup budget", async () => {
+  const progress: string[] = [];
+  let probes = 0;
+  let replacementStarts = 0;
+  const lifecycle: DaemonControlLifecycle = {
+    target,
+    probeStatus: async () => {
+      probes += 1;
+      return probes === 1 ? undefined : daemonStatus(84);
+    },
+    probeEndpointOwner: () => ({ pid: 84, alive: true }),
+    ownerIsAlive: (pid) => pid === 84,
+    isReadinessTimeout: (error) => error instanceof DaemonAutostartTimeoutError,
+    readinessTimeoutPid: (error) => error instanceof DaemonAutostartTimeoutError ? error.spawnedPid : undefined,
+    reportProgress: (message) => progress.push(message),
+    startReplacement: async () => {
+      replacementStarts += 1;
+      throw new DaemonAutostartTimeoutError(100, new Error("not ready"), 84);
+    },
+    wait: async () => undefined
+  };
+
+  const result = await runRestart(lifecycle, [
+    "--replacement-timeout-ms", "100",
+    "--replacement-settle-timeout-ms", "100"
+  ]);
+
+  const replacement = result.replacement as { readonly service?: { readonly pid?: unknown } };
+  assert.equal(replacement.service?.pid, 84);
+  assert.equal(replacementStarts, 1);
+  assert.equal(progress.length, 1);
+  assert.match(progress[0]!, /pid 84.*owns the endpoint.*still starting/iu);
+});
+
+test("restart stops a live unreachable replacement at the settling cap before restoring service", async () => {
+  let replacementAlive = true;
+  let replacementStarts = 0;
+  const stoppedPids: number[] = [];
+  const lifecycle: DaemonControlLifecycle = {
+    target,
+    probeStatus: async () => undefined,
+    probeEndpointOwner: () => replacementAlive ? { pid: 84, alive: true } : undefined,
+    ownerIsAlive: (pid) => pid === 84 && replacementAlive,
+    isReadinessTimeout: (error) => error instanceof DaemonAutostartTimeoutError,
+    readinessTimeoutPid: (error) => error instanceof DaemonAutostartTimeoutError ? error.spawnedPid : undefined,
+    startReplacement: async () => {
+      replacementStarts += 1;
+      if (replacementStarts === 1) {
+        throw new DaemonAutostartTimeoutError(100, new Error("not ready"), 84);
+      }
+      return daemonStatus(85);
+    },
+    stopReplacement: async (_target, pid) => {
+      stoppedPids.push(pid);
+      replacementAlive = false;
+    },
+    wait: async () => undefined
+  };
+
+  await assert.rejects(
+    runRestart(lifecycle, [
+      "--replacement-timeout-ms", "100",
+      "--replacement-settle-timeout-ms", "100"
+    ]),
+    (error: Error) => {
+      assert.match(error.message, /exceeded the additional 100ms settling limit/u);
+      assert.match(error.message, /service restored and reachable/u);
+      return true;
+    }
+  );
+  assert.deepEqual(stoppedPids, [84]);
   assert.equal(replacementStarts, 2);
 });
 
