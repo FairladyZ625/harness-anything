@@ -128,6 +128,34 @@ ha --repo A task list
 The running daemon reconciles the registry every second. A newly registered
 repository can attach without restarting the daemon.
 
+## Daemon Repository Ownership Invariants
+
+Treat repository ownership as a set-level invariant, not as a property of the
+socket selected by one command:
+
+- One canonical repository root can belong to only one live daemon at a time.
+- An explicit authority manifest is the complete repository set for that
+  daemon. Every repository in that manifest is projected as enabled; it is not
+  intersected with an existing registry selection.
+- Repository sets served by different live daemons must be disjoint. Starting
+  the same manifest under two user roots is a topology conflict, not an
+  isolation mechanism.
+- `--user-root` isolates the registry, socket, and daemon generation records.
+  It does not isolate the repository-local `.harness/locks/global.lock`.
+- `--repo <id>` selects the default/request routing repository. It does not
+  limit which manifest repositories receive persistent writer children.
+
+Lock conflicts from current daemons include the owning PID, host, repository,
+user root, and endpoint when the lock was written by a provenance-aware
+version. Legacy lock records remain readable but may identify only PID and
+host. `ha daemon status --json` reports `repositoryService.state` directly as
+`served-by-connected-daemon`, `served-by-other-daemon`,
+`served-by-unknown-daemon`, `not-served`, or `lock-record-unavailable`.
+
+When a topology conflict is reported, change the manifest or stop/drain the
+other owner through its own user root. Do not delete a live lock and do not use
+direct mode as a lock-conflict workaround.
+
 ## Submitting hand-edited task prose
 
 Machine-read fields and typed records continue to use their dedicated CLI/RPC

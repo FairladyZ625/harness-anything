@@ -59,6 +59,30 @@ test("daemon client routes writes for two registered repos through one user-leve
       assert.equal(betaStatus.started, true);
       assert.equal(alphaStatus.pid, betaStatus.pid);
       assert.deepEqual((alphaStatus.repos as Array<{ repoId: string }>).map((repo) => repo.repoId), ["alpha", "beta"]);
+      assert.equal((alphaStatus.repositoryService as Record<string, unknown>).state, "served-by-connected-daemon");
+      assert.equal((betaStatus.repositoryService as Record<string, unknown>).state, "served-by-connected-daemon");
+      assert.equal((alphaStatus.repositoryService as { daemon: { userRoot: string } }).daemon.userRoot, userRoot);
+
+      const otherUserRoot = path.join(workspaceRoot, "other-user-daemon");
+      const servedElsewhere = runDaemonCommand(alphaRoot, ["daemon", "status", "--user-root", otherUserRoot, "--json"], {
+        HARNESS_DAEMON_USER_ROOT: otherUserRoot
+      });
+      assert.equal(servedElsewhere.started, false);
+      assert.equal(servedElsewhere.reachable, false);
+      assert.equal((servedElsewhere.repositoryService as Record<string, unknown>).state, "served-by-other-daemon");
+      assert.equal((servedElsewhere.repositoryService as { daemon: { pid: number } }).daemon.pid, alphaStatus.pid);
+      assert.equal((servedElsewhere.repositoryService as { daemon: { userRoot: string } }).daemon.userRoot, userRoot);
+
+      const unservedRoot = path.join(workspaceRoot, "unserved");
+      mkdirSync(unservedRoot, { recursive: true });
+      ensureTestHarnessIdentity(unservedRoot);
+      runRawJson(unservedRoot, ["init"], { HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: userRoot });
+      const unserved = runDaemonCommand(unservedRoot, ["daemon", "status", "--user-root", userRoot, "--json"], {
+        HARNESS_DAEMON_USER_ROOT: userRoot
+      });
+      assert.equal(unserved.started, true);
+      assert.equal(unserved.reachable, true);
+      assert.equal((unserved.repositoryService as Record<string, unknown>).state, "not-served");
     } finally {
       await stopDaemon(betaRoot, userRoot);
     }

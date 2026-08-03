@@ -39,6 +39,10 @@ import {
   RepoWriteProcessSupervisor
 } from "../runtime/repo-write-process-supervisor.ts";
 import {
+  prepareProductionRepoLocks,
+  startProductionRepoWriteSupervisors
+} from "../runtime/production-repo-lock-topology.ts";
+import {
   encodeRepoWriteChildLaunchConfig,
   repoWriteChildLaunchConfigSchema
 } from "../runtime/repo-write-child-launch-config.ts";
@@ -190,6 +194,15 @@ export async function runDaemonServe<
           daemonGeneration: generation.daemonGeneration
         } : {})
       });
+      if (productionChildCutover) {
+        prepareProductionRepoLocks({
+          repos: activeServeRepos,
+          userRoot,
+          endpoint,
+          lockTtlMs: runtimePolicy.write.lockTtlMs,
+          ...(layoutOverrides ? { layoutOverrides } : {})
+        });
+      }
       runtime = createMultiRepoDaemonRuntime({
         ...(productionChildCutover ? { writeOwnership: "reader" as const } : {}),
         projectionSourceFenceFactory: makeLocalProjectionSourceFenceReader,
@@ -220,6 +233,12 @@ export async function runDaemonServe<
           repoId: repo.repoId,
           rootDir: repo.canonicalRoot,
           displayName: repo.displayName,
+          lockProvenance: {
+            repoId: repo.repoId,
+            canonicalRoot: repo.canonicalRoot,
+            userRoot,
+            endpoint
+          },
           ...(layoutOverrides ? { layoutOverrides } : {})
         }))
       });
@@ -331,10 +350,13 @@ export async function runDaemonServe<
           });
           repoWriteSupervisors.set(repo.repoId, supervisor);
         }
-        await Promise.all(
-          [...repoWriteSupervisors.values()].map((supervisor) =>
-            supervisor.start())
-        );
+        await startProductionRepoWriteSupervisors({
+          supervisors: repoWriteSupervisors,
+          repos: activeServeRepos,
+          userRoot,
+          endpoint,
+          ...(layoutOverrides ? { layoutOverrides } : {})
+        });
       }
       serviceHost = await createDaemonServiceHost(
         runtime,

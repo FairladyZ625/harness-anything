@@ -64,8 +64,12 @@ export function renderDaemonHelp(): string {
     "Common commands:",
     "  start --service              Start a detached local daemon service (default).",
     "  start --foreground           Run the daemon service in the foreground.",
+    "    --user-root PATH           Isolate registry/socket/generation only; repository locks remain shared.",
     "    --authority-manifest PATH Enable fail-closed V2 authority composition from an explicit manifest.",
+    "                               The manifest is this daemon's complete enabled repo set.",
+    "    --repo ID                  Select the default route; does not limit manifest writer children.",
     "  status [--check]             Show status; --check fails on deployment or supervisor drift.",
+    "                               Reports whether this repository is served and by which daemon.",
     "  logs [options]               Read bounded operational daemon logs.",
     "    --limit <1-200>            Set page size (default: 100).",
     "    --since <timestamp>        Include entries at or after an ISO-8601 timestamp.",
@@ -92,7 +96,12 @@ export function renderDaemonHelp(): string {
     "    --ref <git-ref>            Build a specific Git ref (default: current checkout).",
     "    --version <version>        Override the snapshot directory version.",
     "  bootstrap-server             Initialize a canonical team server repository.",
-    "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates."
+    "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates.",
+    "",
+    "Repository ownership invariant:",
+    "  One canonicalRoot belongs to at most one live daemon. Explicit manifest repo sets",
+    "  are complete and must be disjoint across daemons, even when --user-root differs.",
+    "  See docs-release/operations-server-daemon.md#daemon-repository-ownership-invariants."
   ].join("\n");
 }
 

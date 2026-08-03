@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import {
   createDaemonGenerationWitness,
@@ -46,7 +47,7 @@ export async function runRepoWriteChildEntrypoint(
   const manifest = loadAuthorityProductionManifest(config.authorityManifest);
   const authorityRepo = manifest.repos.find((repo) =>
     repo.repoId === config.repoId
-      && path.resolve(repo.canonicalRoot) === path.resolve(config.canonicalRoot)
+      && canonicalExistingRoot(repo.canonicalRoot) === canonicalExistingRoot(config.canonicalRoot)
   );
   if (!authorityRepo) throw new Error("REPO_WRITE_CHILD_REPO_NOT_CONFIGURED");
 
@@ -71,6 +72,12 @@ export async function runRepoWriteChildEntrypoint(
     rootDir: config.canonicalRoot,
     ...(layoutOverrides ? { layoutOverrides } : {}),
     writeOwnership: "writer",
+    lockProvenance: {
+      repoId: config.repoId,
+      canonicalRoot: config.canonicalRoot,
+      userRoot: config.userRoot,
+      endpoint: config.endpointIdentity
+    },
     lockTtlMs: config.runtimePolicy.write.lockTtlMs,
     interactiveMicroBatchMs:
       config.runtimePolicy.write.interactiveMicroBatchMs,
@@ -303,6 +310,10 @@ export async function runRepoWriteChildEntrypoint(
       reject(error);
     });
   });
+}
+
+function canonicalExistingRoot(rootDir: string): string {
+  return realpathSync.native(path.resolve(rootDir));
 }
 
 function recoveryErrorMessage(error: unknown): string {

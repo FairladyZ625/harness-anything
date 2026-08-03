@@ -356,7 +356,7 @@ test("entity takeover claim conflicts preserve the scoped task id", () => {
 
     assert.equal(failure._tag, "WriteConflict");
     assert.equal(failure.taskId, "task-1");
-    assert.equal(failure.owner, taskLockName);
+    assert.match(failure.owner ?? "", new RegExp(`^${taskLockName} \\(held by pid ${process.pid} on `, "u"));
   });
 });
 
@@ -422,7 +422,7 @@ test("takeover claim prevents silent acquire while stale lock is quarantined", (
     const failure = runWriteFailure(coordinator.flush("explicit"));
 
     assert.equal(failure._tag, "GlobalWriteConflict");
-    assert.equal(failure.owner, "global.lock");
+    assert.match(failure.owner ?? "", new RegExp(`^global\\.lock \\(held by pid ${process.pid} on `, "u"));
     assert.throws(
       () => readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8"),
       /ENOENT/

@@ -36,7 +36,19 @@ function emitDaemonStatusResult(result: Record<string, unknown>, json: boolean):
     if (result[key] !== undefined) parts.push(`${key}=${JSON.stringify(result[key])}`);
   }
   if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);
+  if (isDaemonCommandRecord(result.repositoryService)) {
+    parts.push(`repoService=${JSON.stringify(result.repositoryService.state)}`);
+    const owner = isDaemonCommandRecord(result.repositoryService.daemon) ? result.repositoryService.daemon : undefined;
+    if (owner?.pid !== undefined && owner.pid !== null) parts.push(`servingPid=${JSON.stringify(owner.pid)}`);
+    if (owner?.hostname !== undefined && owner.hostname !== null) parts.push(`servingHost=${JSON.stringify(owner.hostname)}`);
+    if (owner?.userRoot !== undefined && owner.userRoot !== null) parts.push(`servingUserRoot=${JSON.stringify(owner.userRoot)}`);
+    if (owner?.endpoint !== undefined && owner.endpoint !== null) parts.push(`servingEndpoint=${JSON.stringify(owner.endpoint)}`);
+  }
   console.log(parts.join(" "));
+}
+
+function isDaemonCommandRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function emitDaemonStatusError(message: string, json: boolean): void {

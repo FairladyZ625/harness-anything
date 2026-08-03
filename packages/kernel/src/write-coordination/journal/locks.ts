@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import type { EntityId, TaskId } from "../../domain/index.ts";
@@ -19,12 +19,23 @@ export interface RepoLockOptions {
   readonly heldGlobalLock?: OwnedLock;
 }
 
+export interface DaemonLockProvenance {
+  readonly repoId?: string;
+  readonly canonicalRoot?: string;
+  readonly userRoot?: string;
+  readonly endpoint?: string;
+}
+
+const lockRecordPublishReadBudgetMs = 20;
+const lockRecordPublishReadDelayMs = 2;
+const lockRecordPublishFreshnessMs = 100;
+
 export class WriteLockHeldError extends Error {
   readonly _tag = "WriteLockHeldError";
   readonly owner: string;
   readonly entityId?: EntityId;
   readonly taskId?: TaskId;
-  readonly reason: "held" | "changed-during-takeover" | "takeover-in-progress";
+  readonly reason: "held" | "lock-record-publishing" | "lock-record-invalid" | "changed-during-takeover" | "takeover-in-progress";
 
   constructor(input: {
     readonly owner: string;
@@ -34,7 +45,11 @@ export class WriteLockHeldError extends Error {
     const reason = input.reason ?? "held";
     const message = reason === "held"
       ? `lock already held: ${input.owner}`
-      : `lock already held: ${input.owner} ${reason.replaceAll("-", " ")}`;
+      : reason === "lock-record-publishing"
+        ? `lock record is still publishing: ${input.owner}`
+        : reason === "lock-record-invalid"
+          ? `lock record is invalid: ${input.owner}`
+          : `lock already held: ${input.owner} ${reason.replaceAll("-", " ")}`;
     super(message);
     this.name = "WriteLockHeldError";
     this.owner = input.owner;
@@ -79,10 +94,14 @@ export function acquireDaemonGlobalLock(
   layoutInput: HarnessLayoutInput,
   journalPath: string,
   actor: OperationalActor,
-  lockTtlMs: number
+  lockTtlMs: number,
+  provenance: DaemonLockProvenance = {}
 ): DaemonGlobalLock {
   const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
-  const lock = acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs, undefined, "daemon");
+  const lock = acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs, undefined, "daemon", {
+    ...provenance,
+    canonicalRoot: provenance.canonicalRoot ?? path.resolve(rootDir)
+  });
   const refreshHeartbeat = () => refreshLockHeartbeat(lock);
   const interval = setInterval(refreshHeartbeat, Math.max(1_000, Math.floor(lockTtlMs / 3)));
   interval.unref();
@@ -127,7 +146,8 @@ function acquireLock(
   relativeLockPath: string,
   lockTtlMs: number,
   entityId?: EntityId,
-  ownerKind?: LockRecord["ownerKind"]
+  ownerKind?: LockRecord["ownerKind"],
+  provenance: DaemonLockProvenance = {}
 ): OwnedLock {
   const lockPath = path.join(rootDir, relativeLockPath);
   const claimPath = `${lockPath}.takeover`;
@@ -147,7 +167,7 @@ function acquireLock(
         throw lockHeld(lockOwnerMessage(relativeLockPath, existing), entityId);
       }
 
-      acquireTakeoverClaim(claimPath, ownerToken, entityId);
+      acquireTakeoverClaim(claimPath, ownerToken, entityId, provenance);
       ownsTakeoverClaim = true;
       const current = readLockRecordOrConflict(lockPath, relativeLockPath, entityId);
       if (current.ownerToken !== existing.ownerToken) {
@@ -184,7 +204,8 @@ function acquireLock(
         acquiredAt: new Date().toISOString(),
         heartbeatAt: new Date().toISOString(),
         ownerToken,
-        ...(ownerKind ? { ownerKind } : {})
+        ...(ownerKind ? { ownerKind } : {}),
+        ...definedLockProvenance(provenance)
       } satisfies LockRecord));
       fsyncSync(fd);
     } finally {
@@ -244,13 +265,23 @@ function refreshLockHeartbeat(lock: OwnedLock): void {
   fsyncDirectory(path.dirname(lock.path));
 }
 
-function acquireTakeoverClaim(claimPath: string, ownerToken: string, entityId?: EntityId): void {
+function acquireTakeoverClaim(
+  claimPath: string,
+  ownerToken: string,
+  entityId?: EntityId,
+  provenance: DaemonLockProvenance = {}
+): void {
   let fd: number;
   try {
     fd = openSync(claimPath, "wx");
   } catch (error) {
     if (isAlreadyExistsError(error)) {
-      throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
+      const existing = readClaimRecord(claimPath);
+      throw lockHeld(
+        existing ? lockOwnerMessage(path.basename(claimPath, ".takeover"), existing) : path.basename(claimPath, ".takeover"),
+        entityId,
+        "takeover-in-progress"
+      );
     }
     throw error;
   }
@@ -260,8 +291,9 @@ function acquireTakeoverClaim(claimPath: string, ownerToken: string, entityId?: 
       hostname: hostname(),
       ownerToken,
       acquiredAt: new Date().toISOString(),
-      heartbeatAt: new Date().toISOString()
-    }));
+      heartbeatAt: new Date().toISOString(),
+      ...definedLockProvenance(provenance)
+    } satisfies LockRecord));
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -283,7 +315,7 @@ function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number, entityId?
     throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
   }
   if (!isStaleLock(record, lockTtlMs)) {
-    throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
+    throw lockHeld(lockOwnerMessage(path.basename(claimPath, ".takeover"), record), entityId, "takeover-in-progress");
   }
   rmSync(claimPath, { force: true });
 }
@@ -322,6 +354,25 @@ function isAlreadyExistsError(error: unknown): boolean {
 }
 
 function readLockRecordOrConflict(lockPath: string, relativeLockPath: string, entityId?: EntityId): LockRecord {
+  const deadline = Date.now() + lockRecordPublishReadBudgetMs;
+  do {
+    const record = readValidLockRecord(lockPath);
+    if (record) return record;
+    if (Date.now() >= deadline) break;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, lockRecordPublishReadDelayMs);
+  } while (existsSync(lockPath));
+
+  // open("wx") publishes the directory entry before the owner can write and
+  // fsync the JSON body. A fresh incomplete record is a publication window,
+  // never evidence of a takeover claim. Persistently malformed records fail
+  // closed under their own classification instead of retrying forever.
+  const reason = lockRecordIsFresh(lockPath)
+    ? "lock-record-publishing"
+    : "lock-record-invalid";
+  throw lockHeld(relativeLockPath, entityId, reason);
+}
+
+function readValidLockRecord(lockPath: string): LockRecord | null {
   try {
     const record = JSON.parse(readFileSync(lockPath, "utf8")) as Partial<LockRecord>;
     if (
@@ -330,16 +381,36 @@ function readLockRecordOrConflict(lockPath: string, relativeLockPath: string, en
       || typeof record.acquiredAt !== "string"
       || typeof record.heartbeatAt !== "string"
       || typeof record.ownerToken !== "string"
-    ) {
-      throw new Error("incomplete lock record");
-    }
+      || !validOptionalLockString(record.repoId)
+      || !validOptionalLockString(record.canonicalRoot)
+      || !validOptionalLockString(record.userRoot)
+      || !validOptionalLockString(record.endpoint)
+    ) return null;
     return record as LockRecord;
   } catch {
-    // open("wx") publishes the directory entry before the owner can write and
-    // fsync the JSON body. Treat that short visibility window as contention so
-    // bounded lock retry absorbs it instead of leaking JournalUnavailable.
-    throw lockHeld(relativeLockPath, entityId, "takeover-in-progress");
+    return null;
   }
+}
+
+function lockRecordIsFresh(lockPath: string): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs <= lockRecordPublishFreshnessMs;
+  } catch {
+    return true;
+  }
+}
+
+function validOptionalLockString(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && value.length > 0);
+}
+
+function definedLockProvenance(provenance: DaemonLockProvenance): Partial<LockRecord> {
+  return {
+    ...(provenance.repoId ? { repoId: provenance.repoId } : {}),
+    ...(provenance.canonicalRoot ? { canonicalRoot: path.resolve(provenance.canonicalRoot) } : {}),
+    ...(provenance.userRoot ? { userRoot: path.resolve(provenance.userRoot) } : {}),
+    ...(provenance.endpoint ? { endpoint: provenance.endpoint } : {})
+  };
 }
 
 function lockHeld(
@@ -353,5 +424,11 @@ function lockHeld(
 function lockOwnerMessage(relativeLockPath: string, record: LockRecord): string {
   const holder = `pid ${record.pid} on ${record.hostname}`;
   if (record.ownerKind !== "daemon") return `${relativeLockPath} (held by ${holder})`;
-  return `${relativeLockPath} (held by daemon ${holder}; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)`;
+  const repo = record.repoId
+    ? `repo ${record.repoId}${record.canonicalRoot ? ` at ${record.canonicalRoot}` : ""}`
+    : record.canonicalRoot ? `repo at ${record.canonicalRoot}` : undefined;
+  const topology = [record.userRoot ? `userRoot ${record.userRoot}` : undefined, record.endpoint ? `endpoint ${record.endpoint}` : undefined]
+    .filter((part): part is string => part !== undefined)
+    .join("; ");
+  return `${relativeLockPath} (${repo ? `${repo}; ` : ""}held by daemon ${holder}${topology ? `; ${topology}` : ""}; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes; one canonicalRoot may belong to only one live daemon and daemon manifest repo sets must not overlap: docs-release/operations-server-daemon.md#daemon-repository-ownership-invariants)`;
 }
