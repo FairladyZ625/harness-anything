@@ -14,6 +14,20 @@ export function repoWriteWaitingStage(
       return "child-command-admission";
     case "compile":
       return "command-or-authority-attempt-compilation";
+    case "compile-command-normalize":
+      return "child-command-normalization";
+    case "compile-authority-plan":
+      return "authority-attempt-planning";
+    case "compile-task-load":
+      return "task-completion-document-loading";
+    case "compile-task-holder":
+      return "task-completion-holder-resolution";
+    case "compile-task-witness":
+      return "task-completion-prepublish-witness";
+    case "compile-task-plan":
+      return "task-completion-transition-planning";
+    case "compile-outcome":
+      return "durable-outcome-preparation";
     case "journal":
       return "durable-operation-journal";
     case "git":

@@ -47,6 +47,9 @@ import type {
 import {
   guardProgressAppendRecoveryEffect
 } from "./repo-write-progress-recovery-guard.ts";
+import {
+  reportCurrentRepoWriteTelemetry
+} from "./repo-write-telemetry-context.ts";
 
 export class ProductionRepoWriteOperationHost<
   Command extends DaemonHostCommand,
@@ -145,6 +148,7 @@ export class ProductionRepoWriteOperationHost<
       },
       recoveryContext: prepared.plan as unknown as import("./repo-write-protocol.ts").RepoWriteJsonObject
     };
+    reportCurrentRepoWriteTelemetry("compile-outcome");
     return this.operations.prepare({
       proceeding,
       executeFresh: (durable) => this.executePrepared(
@@ -165,6 +169,7 @@ export class ProductionRepoWriteOperationHost<
       ? await this.options.executeDocSyncSubmit?.({ command: input.command, decoded })
       : undefined;
     if (directReceipt) return commandReceiptJsonObject(directReceipt);
+    reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(input.command.payload),
       decoded.currentSession
@@ -212,6 +217,7 @@ export class ProductionRepoWriteOperationHost<
     if (!binding.planCommand || !binding.plannedCommandSubmission) {
       throw new Error("AUTHORITY_COMMAND_PLANNING_UNAVAILABLE");
     }
+    reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(dto.payload),
       decoded.currentSession
@@ -237,11 +243,13 @@ export class ProductionRepoWriteOperationHost<
         authorityCommand.action.kind
       )
     };
+    reportCurrentRepoWriteTelemetry("compile-authority-plan");
+    const plan = await binding.planCommand(expected);
     return {
       binding,
       expected,
       receiptSeed: this.options.hostServices.receiptSeed(command),
-      plan: await binding.planCommand(expected)
+      plan
     };
   }
 
@@ -268,6 +276,7 @@ export class ProductionRepoWriteOperationHost<
     if (!binding.plannedCommandSubmission) {
       throw new Error("AUTHORITY_COMMAND_PLANNING_UNAVAILABLE");
     }
+    reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
       this.options.hostServices.parseCommandPayload(dto.payload),
       decoded.currentSession

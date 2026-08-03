@@ -40,6 +40,9 @@ import {
   resolveVerifiedTaskCompleteWitnesses,
   verifyTaskCompleteWitnessRefs
 } from "./task-complete-prepublish-witness.ts";
+import {
+  reportCurrentRepoWriteTelemetry
+} from "../../runtime/repo-write-telemetry-context.ts";
 
 export async function taskCompletionIntent(
   authoredRoot: string,
@@ -53,6 +56,7 @@ export async function taskCompletionIntent(
 ): Promise<CanonicalAttemptIntent> {
   const taskId = action.taskId;
   const taskRoot = resolvedTaskRoot(authoredRoot, taskId);
+  reportCurrentRepoWriteTelemetry("compile-task-load");
   const documents = readTaskDocuments(taskRoot);
   const taskPath = taskLifecyclePath(authoredRoot, taskId, "INDEX.md");
   const taskSnapshot = requiredLifecycleSnapshot(authoredRoot, taskPath.logical, taskPath.physical);
@@ -62,6 +66,7 @@ export async function taskCompletionIntent(
   const contractBodySha256 = contractSnapshot ? sha256Text(contractSnapshot.body) : null;
   const completionGates = resolveLifecycleCompletionGates(contractSnapshot?.body);
   const command = action as TaskCompleteTransitionCommand;
+  reportCurrentRepoWriteTelemetry("compile-task-holder");
   const holder = await makeTaskHolderService({ rootInput: { rootDir, layoutOverrides } }).holder({ taskId });
   const currentRound = resolveTaskCurrentRound({ taskId, executionId: command.executionId, documents });
   const transitionId = taskLifecycleTransitionId(command.callerIdempotencyKey);
@@ -70,6 +75,7 @@ export async function taskCompletionIntent(
     rootDir, authoredRoot, taskId, documents, command,
     requireCodeDoc: completionGates.includes("code-doc-reconciliation")
   };
+  reportCurrentRepoWriteTelemetry("compile-task-witness");
   const witnesses = existing
     ? verifyTaskCompleteWitnessRefs({ ...witnessInput, refs: existing.externalCheckpointRefs, snapshotMode: "committed" })
     : resolveVerifiedTaskCompleteWitnesses(witnessInput);
@@ -91,6 +97,7 @@ export async function taskCompletionIntent(
         resolvedCommit: resolveLifecycleCommit(rootDir, command.commitRef ?? "HEAD")
       })
     : undefined;
+  reportCurrentRepoWriteTelemetry("compile-task-plan");
   const plan = TaskLifecycleTransitionService.plan({
     taskId,
     taskStatus: status,

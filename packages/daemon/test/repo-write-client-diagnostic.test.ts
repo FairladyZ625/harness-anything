@@ -12,7 +12,8 @@ import type {
 } from "../src/runtime/repo-write-client-contract.ts";
 import {
   formatRepoWriteFailureDiagnostic,
-  formatRepoWriteTimeoutDiagnostic
+  formatRepoWriteTimeoutDiagnostic,
+  repoWriteWaitingStage
 } from "../src/runtime/repo-write-stall-diagnostic.ts";
 import {
   FakeRepoWriteTransport,
@@ -22,6 +23,13 @@ import {
   requestId
 } from "./support/repo-write-client-fixture.ts";
 import { committedCommandReceipt } from "./support/repo-write-terminal-fixture.ts";
+
+test("compile diagnostics distinguish task completion witness work", () => {
+  assert.equal(
+    repoWriteWaitingStage("compile-task-witness"),
+    "task-completion-prepublish-witness"
+  );
+});
 
 test("timeout diagnostics name the child wait for every authority submission ingress", async () => {
   const cases = [

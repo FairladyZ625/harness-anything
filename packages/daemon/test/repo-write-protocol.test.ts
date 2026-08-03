@@ -363,7 +363,7 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     ...base("telemetry"),
     requestId: "request-terminal",
     opId: "op-terminal",
-    phase: "fsync",
+    phase: "compile-task-witness",
     elapsedMs: 12.5
   });
   const shutdown = decodeRepoWriteParentMessage({
@@ -384,6 +384,7 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     committedReceipt
   );
   assert.equal(telemetry.kind === "telemetry" ? telemetry.elapsedMs : undefined, 12.5);
+  assert.equal(telemetry.kind === "telemetry" ? telemetry.phase : undefined, "compile-task-witness");
   assert.equal(shutdown.kind, "shutdown");
   assert.equal(drained.kind, "drained");
   assert.throws(() => decodeRepoWriteChildMessage({ ...ready, requestId: "not-allowed" }), protocolInvalid);
