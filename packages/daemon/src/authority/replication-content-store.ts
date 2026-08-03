@@ -109,17 +109,45 @@ export function createAuthorityReplicationContentStore(input: {
   ): ReadonlyArray<AuthoritySnapshotManifestEntry> {
     const cached = cache.get(commitSha);
     if (cached) return structuredClone(cached);
-    const entries = previous
+    const cachedAncestor = previous ? undefined : findCachedAncestor(commitSha);
+    const base = previous ?? cachedAncestor;
+    const entries = base
       ? readGitEntriesIncrementally(
           input.gitRoot,
-          previous.commitSha,
+          base.commitSha,
           commitSha,
-          previous.entries,
+          base.entries,
           storeBlob
         )
       : readGitEntries(input.gitRoot, commitSha, storeBlob);
     cache.set(commitSha, entries);
     return structuredClone(entries);
+  }
+
+  function findCachedAncestor(commitSha: string): {
+    readonly commitSha: string;
+    readonly entries: ReadonlyArray<AuthoritySnapshotManifestEntry>;
+  } | undefined {
+    // The latest prewarmed snapshot is normally the nearest useful base. Walk
+    // newest-to-oldest so a restart that prewarmed only the last published
+    // canonical commit does not turn the following evidence descendant into a
+    // full tree read. A non-ancestor is never used: branch forks must retain
+    // the existing fail-closed full snapshot path.
+    for (const [cachedCommit, entries] of [...cache.entries()].reverse()) {
+      if (cachedCommit === commitSha || isCommitAncestor(cachedCommit, commitSha)) {
+        return { commitSha: cachedCommit, entries };
+      }
+    }
+    return undefined;
+  }
+
+  function isCommitAncestor(before: string, after: string): boolean {
+    try {
+      readAuthorityGitBytes(input.gitRoot, "merge-base", "--is-ancestor", before, after);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function storeBlob(bytes: Uint8Array): Sha256Digest {

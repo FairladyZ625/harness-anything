@@ -96,6 +96,46 @@ test("historical operation lookup hydrates an incomplete replica change containi
   }
 });
 
+test("replica content walks a cached ancestor across an evidence descendant", () => {
+  const fixture = createFixture();
+  try {
+    writeFileSync(path.join(fixture.gitRoot, "seed.md"), "seed\n");
+    git(fixture.gitRoot, "add", ".");
+    git(fixture.gitRoot, "commit", "-m", "seed");
+    const cachedCommit = git(fixture.gitRoot, "rev-parse", "HEAD");
+    fixture.content.snapshot(cachedCommit, 0);
+
+    writeFileSync(path.join(fixture.gitRoot, "evidence.json"), "{\"op\":1}\n");
+    git(fixture.gitRoot, "add", ".");
+    git(fixture.gitRoot, "commit", "-m", "evidence descendant");
+    const previousCommit = git(fixture.gitRoot, "rev-parse", "HEAD");
+
+    writeFileSync(path.join(fixture.gitRoot, "current.md"), "current\n");
+    git(fixture.gitRoot, "add", ".");
+    git(fixture.gitRoot, "commit", "-m", "current publication");
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+
+    const change = fixture.content.describeChange({
+      schema: "replica-change/v1",
+      workspaceId: "workspace-read-down",
+      revision: 1,
+      opId: "op-ancestor-chain",
+      semanticDigest: "aa".repeat(32),
+      commitSha,
+      previousCommit,
+      changedAt: "2026-08-04T00:00:00.000Z"
+    });
+    assert.deepEqual(change.paths.map((entry) => entry.path), ["current.md"]);
+    assert.deepEqual(fixture.content.snapshot(commitSha, 1).entries.map((entry) => entry.path), [
+      "current.md",
+      "evidence.json",
+      "seed.md"
+    ]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read-down retains ASCII component-collision detection", () => {
   assertPathCollision(["A/x.md", "a/y.md"]);
 });

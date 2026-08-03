@@ -12,11 +12,13 @@ import { authorityBatchTrailerName, buildAuthorityBatchIntegrity } from "../../s
 import { localProjectionSourceFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { makeLocalVersionControlSystem } from "../../src/persistence/git/local-version-control-system.ts";
 import {
+  captureAuthoredProjectionFingerprint,
   captureTrustedAuthoredProjectionFingerprint,
   invalidateTrustedAuthoredProjectionFingerprint,
   rememberTrustedAuthoredProjectionFingerprint
 } from "../../src/projection/projection-source-baseline.ts";
 import { readAttributionProjection } from "../../src/projection/sqlite-attribution-projection.ts";
+import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator commits session-routed writes to a session branch", () => {
@@ -142,6 +144,50 @@ test("trusted generation fingerprint reuses clean state and fails closed on dirt
     }
     assert.notEqual(dirty, first);
     assert.ok(dirtyFallbackStats > 0);
+  });
+});
+
+test("trusted generation fingerprint advances across a clean descendant HEAD with touched-path parity", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const taskRoot = path.join(rootDir, "harness/tasks/task-baseline");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-baseline",
+      "title: Baseline",
+      "status: active",
+      "packageDisposition: active",
+      "---",
+      ""
+    ].join("\n"), "utf8");
+    git(rootDir, "add", "--", "tasks/task-baseline/INDEX.md");
+    git(rootDir, "commit", "-m", "seed descendant fingerprint baseline");
+    rebuildTaskProjection({ rootDir });
+
+    const vcs = makeLocalVersionControlSystem();
+    const first = captureTrustedAuthoredProjectionFingerprint(rootDir, vcs);
+    writeFileSync(
+      path.join(taskRoot, "INDEX.md"),
+      readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace("title: Baseline", "title: Descendant"),
+      "utf8"
+    );
+    git(rootDir, "add", "--", "tasks/task-baseline/INDEX.md");
+    git(rootDir, "commit", "-m", "authority evidence descendant");
+    const expected = captureAuthoredProjectionFingerprint(rootDir);
+
+    let changedBetweenCalls = 0;
+    const descendantVcs = {
+      ...vcs,
+      changedFilesBetween: (repo: string, before: string, after: string) => {
+        changedBetweenCalls += 1;
+        return vcs.changedFilesBetween(repo, before, after);
+      }
+    };
+    assert.equal(captureTrustedAuthoredProjectionFingerprint(rootDir, descendantVcs), expected);
+    assert.equal(changedBetweenCalls, 1);
+    assert.notEqual(expected, first);
   });
 });
 

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   utimesSync,
   writeFileSync
@@ -16,7 +17,12 @@ import {
   physicalChangeSetDigestV2,
   semanticMutationSetDigestV2
 } from "@harness-anything/kernel";
-import { captureAuthoredProjectionFingerprint } from "../../packages/kernel/src/projection/projection-source-baseline.ts";
+import {
+  captureAuthoredProjectionFingerprint,
+  captureTrustedAuthoredProjectionFingerprint
+} from "../../packages/kernel/src/projection/projection-source-baseline.ts";
+import { makeLocalVersionControlSystem } from "../../packages/kernel/src/persistence/git/local-version-control-system.ts";
+import { rebuildTaskProjection } from "../../packages/kernel/src/projection/sqlite-task-projection.ts";
 import { createAuthorityReplicationContentStore } from "../../packages/daemon/src/authority/replication-content-store.ts";
 import { createGitAuthorityAttributionEvidenceCommitterV2 } from "../../packages/daemon/src/authority/production/publication-evidence.ts";
 
@@ -51,6 +57,55 @@ try {
   await evidenceCommitter.commitPending(previousCommit);
 
   const fingerprintMs = measure(() => captureAuthoredProjectionFingerprint(root));
+  const projectionRebuildMs = measure(() => rebuildTaskProjection({ rootDir: root }));
+  const trustedVcs = makeLocalVersionControlSystem();
+  const trustedFingerprintColdMs = measure(() => captureTrustedAuthoredProjectionFingerprint(root, trustedVcs));
+  const trustedFingerprintWrites = [];
+  for (let writeIndex = 1; writeIndex <= 2; writeIndex += 1) {
+    const taskIndexPath = path.join(authoredRoot, authoredPaths[0]);
+    writeFileSync(
+      taskIndexPath,
+      readFileSync(taskIndexPath, "utf8").replace(/^title:.*$/mu, `title: Synthetic governance write ${writeIndex}`),
+      "utf8"
+    );
+    git("add", authoredPaths[0]);
+    const canonicalCommitStartedAt = performance.now();
+    git("commit", "-q", "-m", `synthetic governance write ${writeIndex}`);
+    const canonicalCommitMs = performance.now() - canonicalCommitStartedAt;
+    const canonicalCommit = git("rev-parse", "HEAD");
+    const canonicalTrustedStartedAt = performance.now();
+    const canonicalTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
+    const canonicalTrustedMs = performance.now() - canonicalTrustedStartedAt;
+    const canonicalFullStartedAt = performance.now();
+    const canonicalFullFingerprint = captureAuthoredProjectionFingerprint(root);
+    const canonicalFullMs = performance.now() - canonicalFullStartedAt;
+    if (canonicalTrustedFingerprint !== canonicalFullFingerprint) {
+      throw new Error(`trusted fingerprint mismatch after canonical write ${writeIndex}`);
+    }
+
+    evidenceLog.ensure(v2Event(`op-round5-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + writeIndex));
+    const evidenceCommitStartedAt = performance.now();
+    await evidenceCommitter.commitPending(canonicalCommit);
+    const evidenceCommitMs = performance.now() - evidenceCommitStartedAt;
+    const evidenceTrustedStartedAt = performance.now();
+    const evidenceTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
+    const evidenceTrustedMs = performance.now() - evidenceTrustedStartedAt;
+    const evidenceFullStartedAt = performance.now();
+    const evidenceFullFingerprint = captureAuthoredProjectionFingerprint(root);
+    const evidenceFullMs = performance.now() - evidenceFullStartedAt;
+    if (evidenceTrustedFingerprint !== evidenceFullFingerprint) {
+      throw new Error(`trusted fingerprint mismatch after evidence write ${writeIndex}`);
+    }
+    trustedFingerprintWrites.push({
+      writeIndex,
+      canonicalCommitMs,
+      canonicalTrustedMs,
+      canonicalFullMs,
+      evidenceCommitMs,
+      evidenceTrustedMs,
+      evidenceFullMs
+    });
+  }
   const values = new Map();
   const state = {
     get: (key) => values.get(key),
@@ -66,6 +121,7 @@ try {
   replication.snapshot(previousCommit, 1);
 
   const changedRelativePath = authoredPaths.at(-1);
+  const replicationPreviousCommit = git("rev-parse", "HEAD");
   writeAuthoredFile(changedRelativePath, authoredFileCount + 1, "# Changed synthetic payload\n");
   git("add", changedRelativePath);
   git("commit", "-q", "-m", "synthetic one-file change");
@@ -77,7 +133,7 @@ try {
     opId: "op-current",
     semanticDigest: "55".repeat(32),
     commitSha: canonicalCommit,
-    previousCommit,
+    previousCommit: replicationPreviousCommit,
     changedAt: "2026-08-03T00:00:00.000Z"
   }));
   const evidenceVerifyMs = measure(() => evidenceLog.verifyIntegrity());
@@ -101,10 +157,13 @@ try {
     },
     phasesMs: {
       projectionFingerprint: fingerprintMs,
+      projectionRebuild: projectionRebuildMs,
+      trustedFingerprintCold: trustedFingerprintColdMs,
       replicationDescribeOneFileChange: replicationMs,
       evidenceHistoryVerify: evidenceVerifyMs,
       evidencePendingShardVerify: pendingVerifyMs,
-      evidenceCommitAfterHeadAdvanceAndInvalidatedIndex: evidenceCommitMs
+      evidenceCommitAfterHeadAdvanceAndInvalidatedIndex: evidenceCommitMs,
+      trustedFingerprintWrites
     }
   }, null, 2));
 } finally {

@@ -3,6 +3,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import { readDeclaredSourceManifestRows } from "./sqlite-declared-source-manifest.ts";
+import { updateTaskProjectionIncrementally } from "./sqlite-task-incremental-projection.ts";
 import { captureProjectionSourceFingerprint } from "./projection-source-snapshot.ts";
 
 interface TrustedProjectionFingerprint {
@@ -30,7 +31,9 @@ export function captureAuthoredProjectionFingerprint(rootInput: HarnessLayoutInp
  * pays for a full source capture once and later publications advance it from
  * their touched paths. A cold cache gets a Git HEAD plus scoped worktree fence;
  * a successful projection update promotes the same generation to a verified
- * cache entry, so later calls do not refresh the whole index. The incremental
+ * cache entry, so later calls do not refresh the whole index. If HEAD has
+ * advanced through a known ancestor chain, the persisted projection is
+ * advanced from the changed paths before the cache is reused. The incremental
  * updater still verifies the touched generation and falls back to a full
  * rebuild on any mismatch.
  */
@@ -50,6 +53,17 @@ export function captureTrustedAuthoredProjectionFingerprint(
     if (cached.worktreeVerified || authoredWorktreeIsClean(vcs, resolvedRepoRoot, layout.authoredRoot)) {
       return cached.fingerprint;
     }
+  }
+  if (cached && authoredWorktreeIsClean(vcs, resolvedRepoRoot, layout.authoredRoot)) {
+    const advanced = advanceTrustedProjectionFingerprint(
+      rootInput,
+      layout,
+      vcs,
+      resolvedRepoRoot,
+      cached,
+      head
+    );
+    if (advanced) return advanced;
   }
 
   const fingerprint = captureAuthoredProjectionFingerprint(rootInput);
@@ -103,4 +117,42 @@ function authoredWorktreeIsClean(vcs: VersionControlSystem, repoRoot: string, au
   } catch {
     return false;
   }
+}
+
+function advanceTrustedProjectionFingerprint(
+  rootInput: HarnessLayoutInput,
+  layout: ReturnType<typeof resolveHarnessLayout>,
+  vcs: VersionControlSystem,
+  repoRoot: string,
+  cached: TrustedProjectionFingerprint,
+  head: string
+): string | undefined {
+  if (cached.head === head) return cached.fingerprint;
+  if (!vcs.resolveCommit(repoRoot, cached.head).ok) return undefined;
+
+  let changedPaths: ReadonlyArray<string>;
+  try {
+    changedPaths = vcs.changedFilesBetween(repoRoot, cached.head, head);
+  } catch {
+    return undefined;
+  }
+
+  const result = updateTaskProjectionIncrementally({
+    rootDir: layout.rootDir,
+    ...(typeof rootInput === "object" && rootInput.layoutOverrides
+      ? { layoutOverrides: rootInput.layoutOverrides }
+      : {}),
+    projectionPath: layout.projectionPath,
+    touchedPaths: changedPaths.map((relativePath) => path.resolve(repoRoot, relativePath)),
+    previousSourceFingerprint: cached.fingerprint
+  });
+  if (!result.sourceHash || vcs.currentHead(repoRoot) !== head) return undefined;
+
+  const key = trustedProjectionFingerprintKey(repoRoot, layout.authoredRoot, layout.projectionPath);
+  trustedProjectionFingerprints.set(key, {
+    head,
+    fingerprint: result.sourceHash,
+    worktreeVerified: true
+  });
+  return result.sourceHash;
 }
