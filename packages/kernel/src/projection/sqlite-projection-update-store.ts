@@ -27,6 +27,19 @@ import {
 } from "./sqlite-projection-store.ts";
 import { hashAttributionProjectionState } from "./sqlite-attribution-state-hash.ts";
 
+export type ProjectionDatabasePhase =
+  | "start"
+  | "task-rows-done"
+  | "decision-rows-done"
+  | "graph-rows-done"
+  | "declared-rows-done"
+  | "source-cache-done"
+  | "attribution-done"
+  | "meta-done"
+  | "commit-start"
+  | "commit-done"
+  | "done";
+
 export function updateProjectionDatabase(
   projectionPath: string,
   change: {
@@ -41,8 +54,17 @@ export function updateProjectionDatabase(
     readonly attributionDelta?: AttributionProjectionDelta;
     readonly sourceCache?: ProjectionSourceCacheChange;
     readonly taskFieldExtensions?: ReadonlyArray<TaskFieldExtensionProjection>;
+    readonly onPhase?: (phase: ProjectionDatabasePhase) => void;
   }
 ): void {
+  const report = (phase: ProjectionDatabasePhase): void => {
+    try {
+      change.onPhase?.(phase);
+    } catch {
+      // Projection telemetry is non-authoritative.
+    }
+  };
+  report("start");
   runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const projectedTaskFieldExtensions = queryableTaskFieldExtensions(change.taskFieldExtensions ?? []);
@@ -57,6 +79,7 @@ export function updateProjectionDatabase(
       for (const row of change.upsertTaskRows) {
         yield* insertTaskRow(sql, row, projectedTaskFieldExtensions);
       }
+      report("task-rows-done");
       const upsertDecisionIds = new Set(change.upsertDecisionRows.map((row) => row.decisionId));
       for (const decisionId of uniqueProjectionIds(change.deleteDecisionIds)) {
         if (upsertDecisionIds.has(decisionId)) continue;
@@ -65,6 +88,7 @@ export function updateProjectionDatabase(
       for (const row of change.upsertDecisionRows) {
         yield* insertDecisionRow(sql, row);
       }
+      report("decision-rows-done");
       if (change.graphRows) {
         yield* sql`DELETE FROM relation_edges`;
         yield* sql`DELETE FROM relation_coverage`;
@@ -79,6 +103,7 @@ export function updateProjectionDatabase(
           for (const [index, row] of change.graphRows.warnings.entries()) yield* insertRelationProjectionWarning(sql, index, row);
         }
       }
+      report("graph-rows-done");
       for (const table of change.declaredDelta.tables) {
         const primaryKey = table.declaration.projection.columns.find((column) => column.primaryKey)!;
         const upsertIds = new Set(table.upsertRows.map((row) => String(row[primaryKey.name])));
@@ -89,8 +114,10 @@ export function updateProjectionDatabase(
         );
         yield* upsertDeclaredProjectionRows(sql, table.declaration, table.upsertRows);
       }
+      report("declared-rows-done");
       yield* applyDeclaredSourceManifestDelta(sql, change.declaredDelta.manifest);
       if (change.sourceCache) yield* applyProjectionSourceCacheChange(sql, change.sourceCache);
+      report("source-cache-done");
       if (change.attributionDelta) {
         const affectedSubjects = yield* applyAttributionProjectionDelta(sql, change.attributionDelta);
         yield* materializeEntityAttributionSubjects(sql, affectedSubjects);
@@ -98,6 +125,7 @@ export function updateProjectionDatabase(
       } else if (!reuseAttributionRowsHash) {
         yield* materializeEntityAttributionTargets(sql, changedAttributionTargets(change));
       }
+      report("attribution-done");
       yield* upsertMeta(sql, "sourceHash", change.meta.sourceHash);
       yield* upsertMeta(sql, "rowsHash", change.meta.rowsHash);
       yield* upsertMeta(sql, "decisionRowsHash", change.meta.decisionRowsHash ?? "");
@@ -111,12 +139,16 @@ export function updateProjectionDatabase(
       yield* upsertMeta(sql, "taskSourceHash", change.meta.taskSourceHash ?? "");
       if (change.sourceCache) yield* upsertMeta(sql, "sourceCacheHash", change.sourceCache.current.hash);
       yield* upsertMeta(sql, "legacyPersonIdsHash", change.meta.legacyPersonIdsHash ?? "");
+      report("meta-done");
+      report("commit-start");
       yield* sql`COMMIT`;
+      report("commit-done");
     } catch (error) {
       yield* sql`ROLLBACK`;
       throw error;
     }
   }));
+  report("done");
 }
 
 function canReuseAttributionRowsHash(

@@ -73,6 +73,7 @@ type InteractiveQueueItem = InteractiveWriteAttribution & {
   started: boolean;
   timeout?: ReturnType<typeof setTimeout>;
   readonly performanceTrace?: DaemonRequestPerformanceTrace;
+  readonly runWithRepoWriteTelemetry?: <Result>(operation: () => Result) => Result;
   readonly endQueueWait?: () => void;
   endDurableFlush?: () => void;
   readonly resolve: (receipt: InteractiveWriteReceipt) => void;
@@ -125,7 +126,8 @@ export class DaemonWriteQueue {
 
   enqueueInteractive(
     request: InteractiveWriteRequest,
-    coordinatorFor: (batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator
+    coordinatorFor: (batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator,
+    runWithRepoWriteTelemetry?: <Result>(operation: () => Result) => Result
   ): Promise<InteractiveWriteReceipt> {
     if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
     const integrityDomain = singleWriteIntegrityDomain(request.ops);
@@ -158,6 +160,7 @@ export class DaemonWriteQueue {
           performanceTrace,
           endQueueWait: performanceTrace.begin("queue-wait")
         } : {}),
+        ...(runWithRepoWriteTelemetry ? { runWithRepoWriteTelemetry } : {}),
         resolve,
         reject,
         admission: admission.reservation
@@ -317,7 +320,10 @@ export class DaemonWriteQueue {
       opIds: accepted.flatMap((item) => item.ops.map((op) => op.opId))
     };
     try {
-      const report = Effect.runSync(coordinator.flush("explicit"));
+      const flush = () => Effect.runSync(coordinator.flush("explicit"));
+      const report = accepted[0]?.runWithRepoWriteTelemetry
+        ? accepted[0].runWithRepoWriteTelemetry(flush)
+        : flush();
       for (const item of accepted) {
         item.resolve({
           commandId: item.commandId,

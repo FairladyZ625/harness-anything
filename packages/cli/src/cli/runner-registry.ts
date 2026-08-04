@@ -43,6 +43,7 @@ export interface CommandRunnerContext {
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
   readonly taskHolderService: TaskHolderService;
+  readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
   /** True only while the daemon executes a canonical command through its authority submission. */
   readonly authorityCommandSubmission: boolean;
   readonly outerProceedingRecovery: boolean;
@@ -190,6 +191,7 @@ export function runRegisteredCommand(
       taskHolderService ??= makeTaskHolderService();
       return taskHolderService;
     },
+    onCommandTelemetry: execution.onCommandTelemetry,
     authorityCommandSubmission: execution.authorityCommandSubmission,
     outerProceedingRecovery: execution.outerProceedingRecovery,
     get runtimeEventLedgerService() {

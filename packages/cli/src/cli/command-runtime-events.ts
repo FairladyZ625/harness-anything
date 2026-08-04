@@ -11,6 +11,7 @@ export function appendCommandRuntimeEvent(
   result: CliResult
 ): CommandRunnerEffect {
   if (runtimeEventPolicyForAction(command.action) !== "auto") return Effect.succeed(result);
+  context.onCommandTelemetry?.("runtime-event-append-start");
   const entityRefs = eventEntityRefs(command.action, result);
   const errorCode = result.ok ? undefined : result.error?.code;
   return context.currentSessionProbe.currentSession.pipe(
@@ -55,7 +56,8 @@ export function appendCommandRuntimeEvent(
         ]
       }),
       onSuccess: (): CliResult => result
-    })
+    }),
+    Effect.tap(() => Effect.sync(() => context.onCommandTelemetry?.("runtime-event-append-done")))
   );
 }
 

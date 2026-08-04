@@ -28,7 +28,25 @@ export interface JournaledWriteCoordinatorOptions {
   readonly attributionEventStore?: AttributionEventStore;
   readonly onProjectionChange?: (event: ProjectionChangeEvent) => void;
   readonly onCommitPhase?: (phase: VcsCommitPhase) => void;
+  readonly onProjectionFingerprintPhase?: (phase: JournalProjectionFingerprintPhase) => void;
+  readonly onPostCommitPhase?: (phase: JournalPostCommitPhase) => void;
 }
+
+/** Boundaries around the trusted source fingerprint captured before publication. */
+export type JournalProjectionFingerprintPhase = "capture-start" | "capture-done";
+
+/** Optional non-authoritative boundaries after the canonical Git commit returns. */
+export type JournalPostCommitPhase =
+  | "attribution-confirm-start"
+  | "attribution-confirm-done"
+  | "projection-hash-start"
+  | "projection-hash-done"
+  | "watermark-start"
+  | "watermark-done"
+  | "compaction-start"
+  | "compaction-done"
+  | "projection-notify-start"
+  | "projection-notify-done";
 
 export type JournalRecoveryOptions = Omit<JournaledWriteCoordinatorOptions, "attribution">;
 export type OperationalJournaledWriteCoordinatorOptions = JournalRecoveryOptions & {

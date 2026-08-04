@@ -77,10 +77,10 @@ import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts"
 import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-options-merge.ts";
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
-import { reportFlushGitCommitPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
+import { bindCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
+import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
-
 export type {
   BackgroundBatchRequest,
   DaemonQueueSnapshot,
@@ -107,7 +107,6 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     subscribeProjectionChanges: (listener) => context.subscribeProjectionChanges(listener)
   };
 }
-
 export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOptions): MultiRepoHarnessDaemonRuntime {
   const contexts = new Map<string, DaemonRepoRuntimeContext>();
   let started = false;
@@ -378,7 +377,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       return Promise.reject(error);
     }
     const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
-    return this.queue.enqueueInteractive(request, (batch) => this.makeStartedCoordinator(started, batch))
+    return this.queue.enqueueInteractive(request, (batch) => this.makeStartedCoordinator(started, batch), <Result>(operation: () => Result): Result => bindCurrentRepoWriteTelemetry(operation)())
       .catch((error: unknown) => {
         this.lastError = describeRepoRuntimeError(error);
         throw error;
@@ -499,6 +498,8 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       autoMaterialize: false,
       onProjectionChange: this.projectionChanges.publish,
       onCommitPhase: reportFlushGitCommitPhase,
+      onProjectionFingerprintPhase: reportFlushProjectionFingerprintPhase,
+      onPostCommitPhase: reportFlushPostCommitPhase,
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
     };

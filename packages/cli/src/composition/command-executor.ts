@@ -54,6 +54,7 @@ export interface ParsedCommandExecutionOptions {
   /** Explicit local composition scopes outside the daemon-owned product route. */
   readonly localCoordinatorScope?: LocalCoordinatorScope;
   readonly onTelemetry?: DaemonHostCommandExecutionOptions["onTelemetry"];
+  readonly onCommandTelemetry?: DaemonHostCommandExecutionOptions["onCommandTelemetry"];
   readonly conflictMarkerPreflight?: DaemonHostCommandExecutionOptions["conflictMarkerPreflight"];
 }
 
@@ -259,6 +260,7 @@ export async function runRegisteredCommandWithCliComposition(
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer, {
     authorityCommandSubmission: options.inlineCreateProvenanceOnly === true,
     outerProceedingRecovery: options.outerProceedingRecovery === true,
+    onCommandTelemetry: options.onCommandTelemetry,
     onTelemetry: options.onTelemetry,
     conflictMarkerPreflight: options.conflictMarkerPreflight
   }).pipe(

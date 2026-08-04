@@ -13,6 +13,7 @@ import { performance } from "node:perf_hooks";
 import {
   actorAxesBindingCoreDigestV2,
   canonicalAttributionEventDigestV2,
+  moduleEntityId,
   makeLocalAuthorityAttributionEventV2Log,
   physicalChangeSetDigestV2,
   semanticMutationSetDigestV2,
@@ -92,6 +93,8 @@ try {
       const taskIndexPath = path.join(authoredRoot, authoredPaths[0]);
       git("branch", sessionBranch);
       git("checkout", sessionBranch);
+      evidenceLog.ensure(v2Event(`op-round7-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + 1_000 + writeIndex));
+      const sessionAttributionPath = authorityEventPath(`op-round7-${String(writeIndex).padStart(2, "0")}`);
       writeFileSync(
         taskIndexPath,
         readFileSync(taskIndexPath, "utf8").replace(/^title:.*$/mu, `title: Synthetic governance write ${writeIndex}`),
@@ -107,7 +110,7 @@ try {
           const sessionCommitStartedAt = performance.now();
           sessionCommit = commitTouchedPaths(
             root,
-            [taskIndexPath],
+            [taskIndexPath, sessionAttributionPath],
             [`op-round7-${String(writeIndex).padStart(2, "0")}`],
             root,
             `synthetic governance write ${writeIndex}`,
@@ -169,6 +172,20 @@ try {
       }
       report("authority-terminal-record-start");
       report("authority-terminal-record-persisted");
+      report("runtime-event-append-start");
+      const runtimeEventReceipt = await pollingRuntime.enqueueInteractiveWrite({
+        commandId: `runtime-event-round8-${String(writeIndex).padStart(2, "0")}`,
+        operationalActor: { scope: "operational", kind: "system", id: "runtime-event-cli" },
+        ops: [runtimeEventOp(
+          `runtime-event-round8-${String(writeIndex).padStart(2, "0")}`,
+          `${sessionId}.jsonl`,
+          `evt-round8-${String(writeIndex).padStart(2, "0")}`
+        )]
+      });
+      if (!runtimeEventReceipt.flush.committed || runtimeEventReceipt.flush.opCount !== 1) {
+        throw new Error(`fixture runtime event did not commit: ${JSON.stringify(runtimeEventReceipt.flush)}`);
+      }
+      report("runtime-event-append-done");
       report("child-execution-returned");
       report("child-telemetry-flushed");
       report("child-terminal-response");
@@ -472,6 +489,18 @@ function compactTelemetry(telemetry) {
     flushMs: flushWindow.durationMs,
     flushSpansOver10ms: flushWindow.subspansMs.filter((span) => span.milliseconds >= 10),
     evidenceTailMs: telemetry.evidenceToChildTail.durationMs,
+    postTerminal: summarizeNamedWindow(
+      telemetry.frames,
+      "authority-terminal-record-persisted",
+      "child-execution-returned"
+    ),
+    postCommitSpans: telemetry.frames
+      .filter((frame) => frame.phase.startsWith("authority-flush-post-commit-"))
+      .map((frame, index, frames) => ({
+        phase: frame.phase,
+        elapsedMs: frame.elapsedMs,
+        deltaFromPreviousPostCommitMs: index === 0 ? undefined : frame.elapsedMs - frames[index - 1].elapsedMs
+      })),
     projectionMode: telemetry.frames
       .filter((frame) => frame.phase.startsWith("authority-materializer-projection-mode-"))
       .map((frame) => frame.phase),
@@ -565,6 +594,19 @@ function v2Event(opId, revision) {
   return {
     ...withoutEventDigest,
     canonicalEventDigest: hex(canonicalAttributionEventDigestV2(withoutEventDigest))
+  };
+}
+
+function runtimeEventOp(opId, fileName, eventId) {
+  return {
+    opId,
+    entityId: moduleEntityId("runtime-event-ledger"),
+    kind: "machine_artifact_append_jsonl",
+    payload: {
+      boundary: "runtime-event-ledger",
+      path: `.harness/generated/runtime-events/${fileName}`,
+      value: { schema: "runtime-event/v1", eventId }
+    }
   };
 }
 

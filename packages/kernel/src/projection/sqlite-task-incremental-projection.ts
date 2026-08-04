@@ -20,7 +20,7 @@ import {
   projectionVersion,
   tryReadProjectionDatabase
 } from "./sqlite-projection-store.ts";
-import { updateProjectionDatabase } from "./sqlite-projection-update-store.ts";
+import { updateProjectionDatabase, type ProjectionDatabasePhase } from "./sqlite-projection-update-store.ts";
 import { buildAttributionProjectionDelta } from "./sqlite-attribution-projection.ts";
 import {
   buildProjectionSourceCacheChange,
@@ -53,7 +53,10 @@ import { isDeclaredEntityFile, isPathWithin } from "./projection-path.ts";
 import { realPathIfExists } from "./toctou-safe-fs.ts";
 
 export interface IncrementalProjectionPhase {
-  readonly phase: "load-current" | "capture-source" | "derive-affected" | "declared-delta" | "hash-next" | "verify-source" | "source-delta" | "publish";
+  readonly phase:
+    | "load-current" | "capture-source" | "derive-affected" | "declared-delta" | "hash-next" | "verify-source" | "source-delta" | "publish"
+    | "source-cache-refresh" | "source-cache-change" | "attribution-delta"
+    | `database-${ProjectionDatabasePhase}`;
   readonly milliseconds: number;
 }
 
@@ -259,6 +262,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     taskChanged: taskSourceCacheChanged,
     attributionChanged: attributionSourceCacheChanged
   }) : null;
+  recordPhase("source-cache-refresh");
   if (sourceCacheNeedsRefresh && !sourceCache) {
     return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
   }
@@ -272,14 +276,16 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       ]
     )
     : undefined;
+  recordPhase("source-cache-change");
   const attributionChanged = existing.meta.attributionSourceHash !== snapshot.attributionSource.hash;
   let attributionDelta: ReturnType<typeof buildAttributionProjectionDelta> | undefined;
   if (attributionChanged) {
     if (!sourceCacheChange) {
       return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
     }
-    attributionDelta = buildAttributionProjectionDelta(sourceCacheChange);
+    attributionDelta = buildAttributionProjectionDelta(sourceCacheChange, projectionPath);
   }
+  recordPhase("attribution-delta");
   recordPhase("source-delta");
 
   const recovery = updateProjectionWithRecovery(
@@ -310,7 +316,8 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       declaredDelta,
       ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
       ...(attributionDelta ? { attributionDelta } : {}),
-      taskFieldExtensions: options.taskFieldExtensions
+      taskFieldExtensions: options.taskFieldExtensions,
+      onPhase: (phase) => recordPhase(`database-${phase}`)
     }),
     () => rebuildTaskProjection({
       rootDir,
