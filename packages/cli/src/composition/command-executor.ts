@@ -84,7 +84,8 @@ export async function runRegisteredCommandWithCliComposition(
   const taskLeaseTtl = command.action.kind === "version" || command.action.kind === "gui"
     ? undefined
     : resolveTaskLeaseTtlMs(layoutInput, process.env, command.action.kind);
-  if (taskLeaseTtl && !taskLeaseTtl.ok) return taskLeaseTtl.result;
+  if (taskLeaseTtl && !taskLeaseTtl.ok && command.action.kind !== "doctor") return taskLeaseTtl.result;
+  const resolvedTaskLeaseTtlMs = taskLeaseTtl?.ok ? taskLeaseTtl.ttlMs : undefined;
   let enforceTaskLeaseResolved = false;
   let enforceTaskLeaseValue = false;
   const enforceTaskLease = () => {
@@ -216,7 +217,7 @@ export async function runRegisteredCommandWithCliComposition(
   const makeTaskHolder = () => makeTaskHolderService({
     rootInput: layoutInput,
     appendLeaseEvent,
-    ...(taskLeaseTtl ? { defaultTtlMs: taskLeaseTtl.ttlMs } : {})
+    ...(resolvedTaskLeaseTtlMs !== undefined ? { defaultTtlMs: resolvedTaskLeaseTtlMs } : {})
   });
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,

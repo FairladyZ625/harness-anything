@@ -39,6 +39,8 @@ export interface DeclaredEntityDiscoveryResult {
 
 export interface DeclaredEntityDocumentProjection {
   readonly relativePath: string;
+  /** The path produced by the declaration/layout resolver for this identity. */
+  readonly canonicalRelativePath: string;
   readonly sourceHash: string;
   readonly statSignature: string;
   readonly primaryKey: string;
@@ -349,6 +351,10 @@ export function projectDeclaredEntitySource(
     }
     documents.push({
       relativePath: input.relativePath,
+      canonicalRelativePath: path.relative(
+        resolveHarnessLayout(rootInput).authoredRoot,
+        resolveEntityDocumentPath(rootInput, declaration, identity)
+      ).split(path.sep).join("/"),
       sourceHash: input.contentSha256,
       statSignature: input.statSignature,
       primaryKey: actualPrimaryKey,

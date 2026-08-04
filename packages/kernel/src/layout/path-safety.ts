@@ -67,3 +67,49 @@ function isMissingPath(error: unknown): boolean {
     && "code" in error
     && (error as { readonly code?: unknown }).code === "ENOENT";
 }
+
+export interface NoFollowPathStat {
+  readonly isSymbolicLink: () => boolean;
+}
+
+export interface NoFollowPathFileSystem {
+  readonly lstat: (inputPath: string) => NoFollowPathStat;
+}
+
+/**
+ * Validate every existing component of a repair path without following a
+ * symlink. Missing suffixes are allowed because the caller may create them.
+ */
+export function assertNoSymlinkPath(
+  rootPath: string,
+  targetPath: string,
+  fileSystem: NoFollowPathFileSystem
+): void {
+  const root = path.resolve(rootPath);
+  const target = path.resolve(targetPath);
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`repair path escapes authored root: ${targetPath}`);
+  }
+
+  let current = root;
+  for (const segment of path.relative(root, target).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    let stat: NoFollowPathStat;
+    try {
+      stat = fileSystem.lstat(current);
+    } catch (error) {
+      if (isMissingPathError(error)) break;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`repair path contains a symbolic link and was refused: ${current}`);
+    }
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? (error as { readonly code?: unknown }).code
+    : undefined;
+  return code === "ENOENT" || code === "ENOTDIR";
+}

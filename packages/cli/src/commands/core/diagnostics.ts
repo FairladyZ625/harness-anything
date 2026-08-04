@@ -14,7 +14,7 @@ export const runDiagnosticsCommand: CommandRunner = (context, command) => {
   if (action.kind === "git-diff") return Effect.sync(() => runGitDiffEvidence(command.rootDir, action.baseRef));
   if (action.kind === "graph") return Effect.sync(() => runGraphCommand(command.rootDir, action));
   if (action.kind === "diagnostics-command-usage") return Effect.sync(() => runCommandUsageDiagnostics(command.rootDir, context.commandSpecs));
-  return Effect.sync(() => runDoctor(context.layoutInput));
+  return Effect.sync(() => runDoctor(context.layoutInput, { repair: action.kind === "doctor" && action.repair === true }));
 };
 
 interface CommandUsageRow {

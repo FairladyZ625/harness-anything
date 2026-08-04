@@ -6,7 +6,6 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { replaceDeclaredProjectionRows } from "./entity-declaration-projection.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
-import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
 import {
   projectionVersion,
   queryDecisionProjectionRows,
@@ -23,6 +22,7 @@ import {
   buildDeclaredProjectionDeltaFromSources,
   declaredProjectionRowsMatchManifest,
   declaredSourceManifestRows,
+  declaredSourceManifestRowsWithIdentityConflicts,
   hashDeclaredProjectionIntegrityRows,
   hashDeclaredSourceManifestRows,
   readDeclaredSourceManifestRows,
@@ -49,11 +49,17 @@ import {
   deriveTaskProjectionRowsWithActiveLeases
 } from "./task-read-derivations.ts";
 import {
+  dedupeProjectionWarnings,
+  filterConflictedDeclaredTables,
+  identityConflictCountWarning,
+  identityConflictWarning
+} from "./sqlite-task-projection-conflicts.ts";
+import {
   captureProjectionSourceFingerprint,
-  captureProjectionSourceSnapshot,
   hashProjectionLegacyPersonIds,
   readDeclaredProjectionSnapshots
 } from "./projection-source-snapshot.ts";
+import { captureStableProjectionBuild } from "./sqlite-task-projection-build.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
 export type {
   CoordinationStatus,
@@ -99,7 +105,9 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const decisionRows = snapshot.decisionRows;
   const rowsHash = hashExactRows(rows);
   const decisionRowsHash = hashDecisionProjectionRows(decisionRows);
-  const declaredManifestRows = declaredSourceManifestRows(snapshot.declaredTables, snapshot.declaredSources);
+  const declaredManifestCandidate = declaredSourceManifestRowsWithIdentityConflicts(snapshot.declaredTables, snapshot.declaredSources);
+  const declaredTables = filterConflictedDeclaredTables(snapshot.declaredTables, declaredManifestCandidate.conflicts);
+  const declaredManifestRows = declaredSourceManifestRows(declaredTables, snapshot.declaredSources);
   const declaredRowsHash = hashDeclaredProjectionIntegrityRows(declaredManifestRows);
   const declaredManifestHash = hashDeclaredSourceManifestRows(declaredManifestRows);
   const relationGraph = stableBuild.relationGraph;
@@ -113,7 +121,8 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     attributionSourceHash: snapshot.attributionSource.hash,
     taskSourceHash: snapshot.taskSource.hash,
     sourceCacheHash: sourceCache.hash,
-    legacyPersonIdsHash: hashProjectionLegacyPersonIds(snapshot.legacyPersonIds)
+    legacyPersonIdsHash: hashProjectionLegacyPersonIds(snapshot.legacyPersonIds),
+    declaredIdentityConflictCount: declaredManifestCandidate.conflicts.length
   }, {
     relationEdges: relationGraph.edges,
     coverageRows: relationGraph.coverageRows,
@@ -121,7 +130,7 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     factRows: relationGraph.factRows,
     warnings: relationGraph.warnings
   }, options.taskFieldExtensions, (sql) => Effect.gen(function* () {
-    for (const table of snapshot.declaredTables) {
+    for (const table of declaredTables) {
       yield* replaceDeclaredProjectionRows(sql, table.declaration, table.rows);
     }
     yield* replaceDeclaredSourceManifestRows(sql, declaredManifestRows);
@@ -133,29 +142,11 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   rememberProjectionValidation(projectionPath, declaredManifestRows, undefined, sourceCache);
   return {
     rows: deriveTaskProjectionRowsFromSourceCache(runtimeContext, persisted.ok ? persisted.rows : rows, sourceCache),
-    warnings: source.warnings
+    warnings: [
+      ...source.warnings,
+      ...declaredManifestCandidate.conflicts.map(identityConflictWarning)
+    ]
   };
-}
-
-function captureStableProjectionBuild(runtimeContext: ReturnType<typeof createHarnessRuntimeContext>): {
-  readonly snapshot: ReturnType<typeof captureProjectionSourceSnapshot>;
-  readonly relationGraph: ReturnType<typeof buildRelationGraphProjection>;
-  readonly sourceCache: ProjectionSourceCacheSnapshot;
-} {
-  let lastFailure: unknown = new Error("projection authored sources did not stabilize during rebuild");
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const snapshot = captureProjectionSourceSnapshot(runtimeContext);
-      const relationGraph = buildRelationGraphProjection(runtimeContext, snapshot.taskSource.sourceInputs);
-      const verified = captureProjectionSourceFingerprint(runtimeContext, [], "verify");
-      const sourceCache = captureProjectionSourceCacheSnapshot(runtimeContext, true);
-      if (verified.fingerprint === snapshot.fingerprint && sourceCache) return { snapshot, relationGraph, sourceCache };
-      lastFailure = new Error("projection authored sources did not stabilize during rebuild");
-    } catch (error) {
-      lastFailure = error;
-    }
-  }
-  throw lastFailure;
 }
 
 export function readTaskProjection(options: TaskProjectionOptions): ProjectionReadResult {
@@ -185,6 +176,11 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return derivedReadResult(runtimeContext, rebuilt.rows, [...warnings, ...rebuilt.warnings]);
+  }
+
+  const declaredIdentityConflictCount = existing.meta.declaredIdentityConflictCount ?? 0;
+  if (declaredIdentityConflictCount > 0) {
+    warnings.push(identityConflictCountWarning(declaredIdentityConflictCount));
   }
 
   if (existing.meta.version !== projectionVersion) {
@@ -586,7 +582,9 @@ export function checkTaskProjection(options: TaskProjectionOptions): ProjectionC
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext) : [];
-  const warnings = [...result.warnings, ...postMergeWarnings];
+  const warnings = dedupeProjectionWarnings([...result.warnings, ...postMergeWarnings].map((item) => item.code === "declared_identity_conflict"
+    ? { ...item, severity: "hard-fail" as const }
+    : item));
   const ok = warnings.every((item) => item.severity !== "hard-fail");
   return {
     ok,

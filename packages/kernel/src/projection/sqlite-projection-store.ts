@@ -136,6 +136,7 @@ export function writeProjectionDatabase(
     yield* insertMeta(sql, "taskSourceHash", meta.taskSourceHash ?? "");
     yield* insertMeta(sql, "sourceCacheHash", meta.sourceCacheHash ?? "");
     yield* insertMeta(sql, "legacyPersonIdsHash", meta.legacyPersonIdsHash ?? "");
+    yield* insertMeta(sql, "declaredIdentityConflictCount", String(meta.declaredIdentityConflictCount ?? 0));
     for (const batch of chunks(rows, 500)) yield* insertTaskRows(sql, batch, projectedTaskFieldExtensions);
     for (const row of decisionRows) yield* insertDecisionRow(sql, row);
     yield* insertRelationEdges(sql, graphRows.relationEdges);
@@ -310,12 +311,18 @@ function readProjectionDatabase(
         attributionSourceHash: meta.get("attributionSourceHash") ?? "",
         taskSourceHash: meta.get("taskSourceHash") ?? "",
         sourceCacheHash: meta.get("sourceCacheHash") ?? "",
-        legacyPersonIdsHash: meta.get("legacyPersonIdsHash") ?? ""
+        legacyPersonIdsHash: meta.get("legacyPersonIdsHash") ?? "",
+        declaredIdentityConflictCount: parseNonNegativeInteger(meta.get("declaredIdentityConflictCount"))
       },
       rows: taskRecords.map((record) => recordToTaskRow(record, taskFieldExtensions)),
       decisionRows: decisionRecords.map(recordToDecisionRow)
     };
   }));
+}
+
+function parseNonNegativeInteger(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "0", 10);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 export function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {

@@ -5,7 +5,7 @@ import {
   type FactWriteService,
   readDecisionDocument
 } from "@harness-anything/application";
-import { queryConsentsBySourceStrength, readDecisionFactCoverage, type WriteError } from "@harness-anything/kernel";
+import { queryConsentsBySourceStrength, queryConsentsBySourceStrengthWithWarnings, readDecisionFactCoverage, type ProjectionWarning, type WriteError } from "@harness-anything/kernel";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { demotedGateWarning } from "../../cli/demoted-gate-warning.ts";
@@ -19,6 +19,7 @@ type ReckonReport = ReturnType<typeof evaluateDecisionReckonGate> & {
     readonly assertedCount: number;
     readonly status: "verified-only" | "contains-asserted";
   };
+  readonly projectionWarnings: ReadonlyArray<ProjectionWarning>;
 };
 
 export function runReckon(
@@ -41,11 +42,17 @@ export function runReckon(
         coverageRows: coverage.rows,
         reckonedAt
       });
-      const assertedCount = queryConsentsBySourceStrength({
+      const consentOptions = {
         rootDir: harnessRuntimeRoot(rootInput),
         layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
         sourceStrength: "asserted"
-      }).filter((consent) => consent.taskId === action.taskId).length;
+      } as const;
+      // Keep the legacy row API on the established read path; the sibling call is the
+      // warning-bearing read required to keep this fact write fail-closed.
+      const consentRows = queryConsentsBySourceStrength(consentOptions);
+      const consentProjection = queryConsentsBySourceStrengthWithWarnings(consentOptions);
+      const assertedCount = consentRows.filter((consent) => consent.taskId === action.taskId).length;
+      const projectionWarnings = dedupeProjectionWarnings([...coverage.warnings, ...consentProjection.warnings]);
       const claimCoverageStatement = gate.ok
         ? `Decision ${decision.decision_id} reckon passed: load-bearing claims all covered @${reckonedAt}.`
         : `Decision ${decision.decision_id} reckon failed: uncovered load-bearing claims ${gate.uncoveredClaimRefs.join(", ")} @${reckonedAt}.`;
@@ -57,8 +64,11 @@ export function runReckon(
         consentSourceHealth: {
           assertedCount,
           status: assertedCount === 0 ? "verified-only" as const : "contains-asserted" as const
-        }
+        },
+        projectionWarnings
       };
+      const withheldIdentityWarnings = projectionWarnings.filter((warning) => warning.code === "declared_identity_conflict");
+      if (withheldIdentityWarnings.length > 0) return Effect.succeed(reckonProjectionBlocked(action, report, withheldIdentityWarnings));
       if (action.dryRun) return Effect.succeed(reckonResult(action, report, undefined, undefined, undefined));
       return factService.record({
         ownerTaskId: action.taskId,
@@ -111,6 +121,31 @@ function reckonResult(
       )]
     } : {})
   };
+}
+
+function reckonProjectionBlocked(action: ReckonAction, report: ReckonReport, warnings: ReadonlyArray<ProjectionWarning>): CliResult {
+  return {
+    ok: false,
+    command: "decision-reckon",
+    decisionId: action.decisionId,
+    taskId: action.taskId,
+    report,
+    warnings,
+    error: cliError(
+      CliErrorCode.ProjectionCheckFailed,
+      `Decision reckon refused to write a fact because declared entity rows were withheld by ${warnings.length} projection conflict warning${warnings.length === 1 ? "" : "s"}. Run ha doctor --repair --json, then retry.`
+    )
+  };
+}
+
+function dedupeProjectionWarnings(warnings: ReadonlyArray<ProjectionWarning>): ReadonlyArray<ProjectionWarning> {
+  const seen = new Set<string>();
+  return warnings.filter((warning) => {
+    const key = `${warning.code}\0${warning.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function reckonFactFailure(action: ReckonAction, report: ReckonReport, error: FactWriteRejected | WriteError): CliResult {

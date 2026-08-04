@@ -308,7 +308,7 @@ export interface ParsedCommand {
     | { readonly kind: "legacy-index"; readonly sourcePath: string; readonly apply: boolean }
     | { readonly kind: "legacy-verify" }
     | { readonly kind: "git-diff"; readonly baseRef?: string }
-    | { readonly kind: "doctor" }
+    | { readonly kind: "doctor"; readonly repair?: boolean }
     | { readonly kind: "diagnostics-command-usage" }
     | { readonly kind: "authority-cutover-status" }
     | { readonly kind: "authority-cutover-drain"; readonly classifications: ReadonlyArray<{ readonly opId: string; readonly disposition: "retryable-not-committed" | "indeterminate"; readonly recordedTupleDigest: string; readonly evidenceRef: string }> }

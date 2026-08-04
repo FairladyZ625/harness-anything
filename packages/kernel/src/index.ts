@@ -102,6 +102,7 @@ export { extractMarkdownSection, markdownHeadingSections } from "./markdown/sect
 export * from "./ports/artifact-store-writer.ts";
 export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
+export * from "./projection/declared-identity-repair.ts";
 export * from "./projection/relation-flow-frontmatter.ts";
 export * from "./projection/relation-graph-projection.ts";
 export * from "./runtime/operational-limits.ts";
@@ -111,6 +112,7 @@ export {
   queryExecutions,
   queryExecutionsByTask,
   queryConsentsBySourceStrength,
+  queryConsentsBySourceStrengthWithWarnings,
   queryReviewProjection,
   querySessionExecutionTrace,
   querySessionProjection,

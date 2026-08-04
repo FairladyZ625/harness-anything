@@ -307,10 +307,10 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "doctor",
-    "usage": "doctor --json",
-    "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Report read-only local environment and harness diagnostics.",
-    "examples": ["harness-anything doctor --json"],
+    "usage": "doctor [--repair] --json",
+    "options": [{"flag":"--repair","description":"Converge duplicate declared identities and rebuild the local projection cache."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Report local environment and harness diagnostics; use --repair for an explicit authored-state recovery.",
+    "examples": ["harness-anything doctor --json", "harness-anything doctor --repair --json"],
     "parse": parseDoctorArgs,
     "run": runDiagnosticsCommand,
     "receiptContract": {

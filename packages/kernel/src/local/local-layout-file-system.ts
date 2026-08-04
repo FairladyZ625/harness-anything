@@ -1,4 +1,4 @@
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
@@ -90,6 +90,19 @@ export const localRuntimeStateFileSystem = {
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   rename: (fromPath: string, toPath: string) => renameSync(fromPath, toPath),
   remove: (inputPath: string) => rmSync(inputPath, { force: true }),
+  writeText: (inputPath: string, value: string) => writeFileSync(inputPath, value, "utf8")
+};
+
+/** Physical file operations for the explicit authored-state recovery port. */
+export const localDeclaredIdentityRepairFileSystem = {
+  exists: (inputPath: string) => existsSync(inputPath),
+  lstat: (inputPath: string) => lstatSync(inputPath),
+  mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
+  readNames: (inputPath: string): ReadonlyArray<string> => readdirSync(inputPath),
+  readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
+  rename: (fromPath: string, toPath: string) => renameSync(fromPath, toPath),
+  remove: (inputPath: string) => rmSync(inputPath, { force: true }),
+  removeEmptyDirectory: (inputPath: string) => rmdirSync(inputPath),
   writeText: (inputPath: string, value: string) => writeFileSync(inputPath, value, "utf8")
 };
 

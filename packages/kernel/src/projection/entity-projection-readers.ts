@@ -117,7 +117,7 @@ const consentProjectionSelect = attributedEntitySelect("consent_projection", "co
 const reviewProjectionSelect = attributedEntitySelect("review_projection", "review", "review_id", "review_attribution");
 
 export function querySessionProjection(options: ProjectionReaderOptions & { readonly sessionId: string }): SessionProjectionRow | undefined {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const row = db.prepare(`${sessionProjectionSelect} WHERE session_projection.session_id = ?`).get(options.sessionId) as Record<string, unknown> | undefined;
     return row ? toSession(row) : undefined;
@@ -127,7 +127,7 @@ export function querySessionProjection(options: ProjectionReaderOptions & { read
 }
 
 export function queryExecutionProjection(options: ProjectionReaderOptions & { readonly executionId: string }): ExecutionProjectionRow | undefined {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const row = db.prepare(`${executionProjectionSelect} WHERE execution_projection.execution_id = ?`).get(options.executionId) as Record<string, unknown> | undefined;
     return row ? toExecution(row) : undefined;
@@ -137,7 +137,7 @@ export function queryExecutionProjection(options: ProjectionReaderOptions & { re
 }
 
 export function queryExecutionsByTask(options: ProjectionReaderOptions & { readonly taskId: string }): ReadonlyArray<ExecutionProjectionRow> {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     return (db.prepare(`${executionProjectionSelect} WHERE execution_projection.task_ref = ? ORDER BY execution_projection.claimed_at, execution_projection.execution_id`)
       .all(`task/${options.taskId}`) as Record<string, unknown>[]).map(toExecution);
@@ -147,7 +147,7 @@ export function queryExecutionsByTask(options: ProjectionReaderOptions & { reado
 }
 
 export function queryExecutions(options: ProjectionReaderOptions): ReadonlyArray<ExecutionProjectionRow> {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     return (db.prepare(`${executionProjectionSelect} ORDER BY execution_projection.claimed_at, execution_projection.execution_id`)
       .all() as Record<string, unknown>[]).map(toExecution);
@@ -157,7 +157,7 @@ export function queryExecutions(options: ProjectionReaderOptions): ReadonlyArray
 }
 
 export function queryReviewProjection(options: ProjectionReaderOptions & { readonly reviewId: string }): ReviewProjectionRow | undefined {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const row = db.prepare(`${reviewProjectionSelect} WHERE review_projection.review_id = ?`).get(options.reviewId) as Record<string, unknown> | undefined;
     return row ? toReview(row) : undefined;
@@ -167,7 +167,7 @@ export function queryReviewProjection(options: ProjectionReaderOptions & { reado
 }
 
 export function queryConsentProjection(options: ProjectionReaderOptions & { readonly consentId: string }): ConsentProjectionRow | undefined {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const row = db.prepare(`${consentProjectionSelect} WHERE consent_projection.consent_id = ?`).get(options.consentId) as Record<string, unknown> | undefined;
     return row ? toConsent(row) : undefined;
@@ -179,17 +179,29 @@ export function queryConsentProjection(options: ProjectionReaderOptions & { read
 export function queryConsentsBySourceStrength(
   options: ProjectionReaderOptions & { readonly sourceStrength: string }
 ): ReadonlyArray<ConsentProjectionRow> {
-  const db = openFreshProjection(options);
+  return queryConsentsBySourceStrengthWithWarnings(options).rows;
+}
+
+export function queryConsentsBySourceStrengthWithWarnings(
+  options: ProjectionReaderOptions & { readonly sourceStrength: string }
+): {
+  readonly rows: ReadonlyArray<ConsentProjectionRow>;
+  readonly warnings: ReadonlyArray<import("./types.ts").ProjectionWarning>;
+} {
+  const { db, warnings } = openFreshProjection(options);
   try {
-    return (db.prepare(`${consentProjectionSelect} WHERE consent_projection.source_strength = ? ORDER BY consent_projection.granted_at, consent_projection.consent_id`)
-      .all(options.sourceStrength) as Record<string, unknown>[]).map(toConsent);
+    return {
+      rows: (db.prepare(`${consentProjectionSelect} WHERE consent_projection.source_strength = ? ORDER BY consent_projection.granted_at, consent_projection.consent_id`)
+        .all(options.sourceStrength) as Record<string, unknown>[]).map(toConsent),
+      warnings
+    };
   } finally {
     db.close();
   }
 }
 
 export function queryTaskExecutionTrace(options: ProjectionReaderOptions & { readonly taskId: string }): TaskExecutionTrace {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const executions = (db.prepare(`${executionProjectionSelect} WHERE execution_projection.task_ref = ? ORDER BY execution_projection.claimed_at, execution_projection.execution_id`)
       .all(`task/${options.taskId}`) as Record<string, unknown>[]).map(toExecution);
@@ -219,7 +231,7 @@ export function auditTaskProvenance(options: ProjectionReaderOptions & { readonl
   readonly coverage: "complete" | "incomplete";
   readonly findings: ReadonlyArray<ProvenanceAuditFinding>;
 } {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const executions = (db.prepare(`${executionProjectionSelect} WHERE execution_projection.task_ref = ? ORDER BY execution_projection.execution_id`)
       .all(`task/${options.taskId}`) as Record<string, unknown>[]).map(toExecution);
@@ -305,7 +317,7 @@ export function querySessionExecutionTrace(options: ProjectionReaderOptions & { 
   readonly session?: SessionProjectionRow;
   readonly executions: ReadonlyArray<ExecutionTraceRow>;
 } {
-  const db = openFreshProjection(options);
+  const { db } = openFreshProjection(options);
   try {
     const sessionRow = db.prepare(`${sessionProjectionSelect} WHERE session_projection.session_id = ?`).get(options.sessionId) as Record<string, unknown> | undefined;
     const executions = (db.prepare(`${executionProjectionSelect} ORDER BY execution_projection.claimed_at, execution_projection.execution_id`).all() as Record<string, unknown>[])
@@ -327,10 +339,16 @@ export function querySessionExecutionTrace(options: ProjectionReaderOptions & { 
   }
 }
 
-function openFreshProjection(options: ProjectionReaderOptions): DatabaseSync {
+function openFreshProjection(options: ProjectionReaderOptions): {
+  readonly db: DatabaseSync;
+  readonly warnings: ReadonlyArray<import("./types.ts").ProjectionWarning>;
+} {
   const rootDir = path.resolve(options.rootDir);
-  readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
-  return new DatabaseSync(projectionPath(options), { readOnly: true });
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
+  return {
+    db: new DatabaseSync(projectionPath(options), { readOnly: true }),
+    warnings: projection.warnings
+  };
 }
 
 function projectionPath(options: ProjectionReaderOptions): string {

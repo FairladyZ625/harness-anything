@@ -147,7 +147,12 @@ export function resolveEntityDocumentPath(
   if (declaration.storageForm === "hosted-entity") {
     const host = resolver.host!;
     const declaredHostPath = resolveDeclaredPath(layout.authoredRoot, host.pathTemplate, host.identity, identity);
-    const hostPath = !localLayoutFileSystem.exists(declaredHostPath) && host.entityKind === "task"
+    // A child document can create the legacy bare host directory before the
+    // task package INDEX exists.  Host resolution must follow the layout's
+    // canonical package resolver, not the incidental existence of that
+    // directory; otherwise a later declared write can fork the same entity
+    // between tasks/<taskId>/ and tasks/<taskId>-<slug>/.
+    const hostPath = host.entityKind === "task"
       ? taskPackagePath(rootInput, identity[host.identity[0]!] ?? "")
       : declaredHostPath;
     if (!localLayoutFileSystem.exists(hostPath)) {
