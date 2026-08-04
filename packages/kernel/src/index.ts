@@ -112,6 +112,7 @@ export {
   queryExecutions,
   queryExecutionsByTask,
   queryConsentsBySourceStrength,
+  queryConsentsBySourceStrengthWithWarnings,
   queryReviewProjection,
   querySessionExecutionTrace,
   querySessionProjection,

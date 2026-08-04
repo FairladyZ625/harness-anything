@@ -4,10 +4,13 @@ import type { DeclaredProjectionSnapshot } from "./projection-source-snapshot.ts
 import type { ProjectionWarning } from "./types.ts";
 
 export function identityConflictWarning(conflict: DeclaredSourceIdentityConflict): ProjectionWarning {
+  const canonicalDetail = conflict.canonicalSourcePaths && conflict.canonicalSourcePaths.length > 0
+    ? ` Canonical candidates: ${conflict.canonicalSourcePaths.join(" and ")}.`
+    : "";
   return warning(
     "source-package",
     "declared_identity_conflict",
-    `Declared ${conflict.projectionTable}/${conflict.primaryKey} has multiple owners: ${conflict.sourcePaths.join(" and ")}. Task projection remains readable; its conflicting entity rows were withheld.`,
+    `Declared ${conflict.projectionTable}/${conflict.primaryKey} has multiple owners: ${conflict.sourcePaths.join(" and ")}.${canonicalDetail} Task projection remains readable; its conflicting entity rows were withheld.`,
     "Run ha doctor --repair --json to preserve the selected source and quarantine duplicate declarations."
   );
 }
@@ -19,6 +22,16 @@ export function identityConflictCountWarning(count: number): ProjectionWarning {
     `Task projection is readable, but ${count} declared identity conflict${count === 1 ? "" : "s"} were withheld from entity projection.`,
     "Run ha doctor --repair --json to preserve the selected source and quarantine duplicate declarations."
   );
+}
+
+export function dedupeProjectionWarnings(warnings: ReadonlyArray<ProjectionWarning>): ReadonlyArray<ProjectionWarning> {
+  const seen = new Set<string>();
+  return warnings.filter((item) => {
+    const key = `${item.code}\0${item.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function filterConflictedDeclaredTables(

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import test from "node:test";
 import { commandGroups } from "../src/cli/command-spec/command-groups.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { commandRegistry } from "../src/cli/command-registry.ts";
+import { writeIndex } from "./helpers/local-lifecycle-fixtures.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -29,11 +30,50 @@ test("doctor reports read-only environment and harness diagnostics without writi
     assert.equal(result.report.harness.isolation.ok, true);
     assert.equal(result.report.harness.localRootExists, false);
     assert.equal(result.report.recommendedCommands.includes("harness-anything check --post-merge --json"), true);
+    assert.equal(result.report.recommendedCommands.includes("harness-anything doctor --repair --json"), false);
     assert.equal(result.report.settings.rows.length, 23);
     assert.equal(result.report.settings.rows.every((row: Record<string, unknown>) => row.source === "default"), true);
     assert.equal(result.report.settings.rows.find((row: Record<string, unknown>) => row.key === "gui.rendererUrl")?.value, null);
     assert.equal(JSON.stringify(result).includes(rootDir), false);
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
+  });
+});
+
+test("doctor rejects unknown local flags instead of silently ignoring them", () => {
+  withTempRoot((rootDir) => {
+    const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "doctor", "--bogus"], {
+      encoding: "utf8",
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:doctor-test" })
+    });
+
+    assert.equal(child.status, 2, child.stdout);
+    const receipt = JSON.parse(child.stdout) as Record<string, any>;
+    assert.equal(receipt.ok, false, child.stdout);
+    assert.equal(receipt.error.code, "unknown_command");
+    assert.match(receipt.error.hint, /Unknown doctor option: --bogus/u);
+  });
+});
+
+test("doctor retains a ledger report when settings resolution fails", () => {
+  withTempRoot((rootDir) => {
+    const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "doctor"], {
+      encoding: "utf8",
+      env: cliTestEnv({
+        HARNESS_ACTOR: "agent:doctor-test",
+        HARNESS_TASK_LEASE_TTL_MS: "not-an-integer"
+      })
+    });
+
+    assert.equal(child.status, 1, child.stdout);
+    const receipt = JSON.parse(child.stdout) as Record<string, any>;
+    assert.equal(receipt.ok, false, child.stdout);
+    assert.equal(receipt.error.code, "harness_settings_invalid");
+    const report = receipt.details?.data?.report as Record<string, any>;
+    assert.ok(report, child.stdout);
+    assert.equal(report.ledger.checked, false);
+    assert.equal(report.ledger.ok, true);
+    assert.equal(report.settings.rows.length, 0);
+    assert.match(report.settings.error, /HARNESS_TASK_LEASE_TTL_MS/u);
   });
 });
 
@@ -86,6 +126,46 @@ test("doctor sees initialized authored and generated harness roots without repai
     assert.equal(result.report.harness.isolation.ok, true);
     assert.equal(result.report.harness.localRootExists, true);
     assert.equal(result.report.cli.command, "harness-anything doctor");
+  });
+});
+
+test("doctor marks a misplaced declaration unhealthy even without an identity collision", () => {
+  withTempRoot((rootDir) => {
+    const taskId = "task_01KZ6MD2SMMHH91WC3RMRPV4P3";
+    const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5";
+    const slug = `${taskId}-misplaced`;
+    writeIndex(rootDir, slug, "Misplaced declaration", "active", { taskId });
+    const executionPath = path.join(rootDir, "harness/tasks", taskId, "executions", `${executionId}.md`);
+    mkdirSync(path.dirname(executionPath), { recursive: true });
+    writeFileSync(executionPath, `${JSON.stringify({
+      schema: "execution/v2",
+      execution_id: executionId,
+      task_ref: `task/${taskId}`,
+      state: "active",
+      primary_actor: {
+        principal: { personId: "person_fixture" },
+        executor: { kind: "agent", id: "fixture" },
+        responsibleHuman: "person_fixture"
+      },
+      claimed_at: "2026-08-05T00:00:00.000Z",
+      submitted_at: null,
+      closed_at: null,
+      session_bindings: [],
+      outputs: [],
+      submission: null
+    }, null, 2)}\n`, "utf8");
+
+    const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", "doctor"], {
+      encoding: "utf8",
+      env: cliTestEnv({ HARNESS_ACTOR: "agent:doctor-test" })
+    });
+    assert.equal(child.status, 1, child.stdout);
+    const receipt = JSON.parse(child.stdout) as Record<string, any>;
+    const report = receipt.details?.data?.report as Record<string, any>;
+    assert.equal(report.ledger.ok, false);
+    assert.equal(report.ledger.declaredIdentity.conflictCount, 0);
+    assert.equal(report.ledger.declaredIdentity.misplacedCount, 1);
+    assert.equal(report.recommendedCommands.includes("harness-anything doctor --repair --json"), true);
   });
 });
 

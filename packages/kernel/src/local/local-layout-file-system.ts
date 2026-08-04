@@ -96,6 +96,7 @@ export const localRuntimeStateFileSystem = {
 /** Physical file operations for the explicit authored-state recovery port. */
 export const localDeclaredIdentityRepairFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
+  lstat: (inputPath: string) => lstatSync(inputPath),
   mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
   readNames: (inputPath: string): ReadonlyArray<string> => readdirSync(inputPath),
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),

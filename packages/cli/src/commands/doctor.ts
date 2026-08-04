@@ -50,6 +50,7 @@ export interface DoctorReport {
   readonly settings: {
     readonly sourceAuthority: "@harness-anything/kernel:landed-settings-registry";
     readonly rows: ReadonlyArray<ResolvedSettingRow>;
+    readonly error?: string;
   };
   readonly ledger: {
     readonly checked: boolean;
@@ -77,7 +78,8 @@ export interface DoctorReport {
 
 export function runDoctor(rootInput: HarnessLayoutInput, options: { readonly repair?: boolean } = {}): CliResult {
   const settings = resolveSettingsView(rootInput);
-  if (!settings.ok) return settings.result;
+  const settingsRows = settings.ok ? settings.rows : [];
+  const settingsError = settings.ok ? undefined : settings.result.error?.hint ?? "Harness settings could not be resolved.";
   const repairRequested = options.repair === true;
   let repairReport: DeclaredIdentityRepairReport | undefined;
   let repairError: string | undefined;
@@ -93,24 +95,27 @@ export function runDoctor(rootInput: HarnessLayoutInput, options: { readonly rep
       repairError = error instanceof Error ? error.message : String(error);
     }
   }
-  const report = collectDoctorReport(rootInput, settings.rows, {
+  const report = collectDoctorReport(rootInput, settingsRows, {
     repairRequested,
     repairReport,
     projectionRebuilt,
-    repairError
+    repairError,
+    settingsError
   });
-  const healthy = report.ledger.ok && report.ledger.repair.error === undefined && (report.ledger.repair.report?.unresolved.length ?? 0) === 0;
+  const healthy = settings.ok && report.ledger.ok && report.ledger.repair.error === undefined && (report.ledger.repair.report?.unresolved.length ?? 0) === 0;
   return {
     ok: healthy,
     command: "doctor",
     report,
     ...(healthy ? {} : {
-      error: cliError(
-        CliErrorCode.ProjectionCheckFailed,
-        repairRequested
-          ? "Ledger repair did not converge all declared identity conflicts; inspect the doctor report before retrying."
-          : "Ledger contains declared identity conflicts; run ha doctor --repair --json before retrying reads."
-      )
+      error: settings.ok
+        ? cliError(
+          CliErrorCode.ProjectionCheckFailed,
+          repairRequested
+            ? "Ledger repair did not converge all declared identity conflicts; inspect the doctor report before retrying."
+            : "Ledger contains declared identity conflicts; run ha doctor --repair --json before retrying reads."
+        )
+        : settings.result.error
     })
   };
 }
@@ -123,6 +128,7 @@ function collectDoctorReport(
     readonly repairReport?: DeclaredIdentityRepairReport;
     readonly projectionRebuilt: boolean;
     readonly repairError?: string;
+    readonly settingsError?: string;
   } = { repairRequested: false, projectionRebuilt: false }
 ): DoctorReport {
   const layout = resolveHarnessLayout(rootInput);
@@ -156,17 +162,24 @@ function collectDoctorReport(
     },
     settings: {
       sourceAuthority: "@harness-anything/kernel:landed-settings-registry",
-      rows: settingsRows
+      rows: settingsRows,
+      ...(options.settingsError ? { error: options.settingsError } : {})
     },
     ledger,
-    recommendedCommands: [
+    recommendedCommands: recommendedDoctorCommands(ledger),
+  };
+}
+
+function recommendedDoctorCommands(ledger: DoctorReport["ledger"]): readonly string[] {
+  const commands = [
       "harness-anything init",
       "harness-anything status --json",
       "harness-anything check --post-merge --json",
-      "harness-anything git-diff --json",
-      "harness-anything doctor --repair --json"
-    ]
-  };
+      "harness-anything git-diff --json"
+  ];
+  const repairNeeded = !ledger.ok || ledger.repair.error !== undefined || (ledger.repair.report?.unresolved.length ?? 0) > 0;
+  if (repairNeeded) commands.push("harness-anything doctor --repair --json");
+  return commands;
 }
 
 function collectLedgerReport(
@@ -202,7 +215,7 @@ function collectLedgerReport(
     const inspection = inspectDeclaredIdentityState(rootInput);
     return {
       checked: true,
-      ok: inspection.conflicts.length === 0,
+      ok: inspection.conflicts.length === 0 && inspection.misplaced.length === 0,
       scope: "Read-only scan of authored declared entity sources and their layout-derived canonical paths.",
       declaredIdentity: {
         sourceCount: inspection.sourceCount,

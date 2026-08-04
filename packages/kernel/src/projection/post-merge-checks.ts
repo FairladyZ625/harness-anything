@@ -36,7 +36,7 @@ function findDeclaredIdentityConflictWarnings(rootInput: HarnessLayoutInput): Re
     return inspection.conflicts.map((conflict) => hardFail(
       "source-package",
       "declared_identity_conflict",
-      `Declared ${conflict.projectionTable}/${conflict.primaryKey} is owned by ${conflict.sourcePaths.join(" and ")}.`,
+      `Declared ${conflict.projectionTable}/${conflict.primaryKey} is owned by ${conflict.sourcePaths.join(" and ")}; canonical candidates: ${conflict.canonicalSourcePaths.join(" and ") || "none"}.`,
       "Run ha doctor --repair --json to preserve the selected source and quarantine duplicate declarations."
     ));
   } catch (error) {

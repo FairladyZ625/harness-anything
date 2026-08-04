@@ -49,6 +49,7 @@ import {
   deriveTaskProjectionRowsWithActiveLeases
 } from "./task-read-derivations.ts";
 import {
+  dedupeProjectionWarnings,
   filterConflictedDeclaredTables,
   identityConflictCountWarning,
   identityConflictWarning
@@ -581,9 +582,9 @@ export function checkTaskProjection(options: TaskProjectionOptions): ProjectionC
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext) : [];
-  const warnings = [...result.warnings, ...postMergeWarnings].map((item) => item.code === "declared_identity_conflict"
+  const warnings = dedupeProjectionWarnings([...result.warnings, ...postMergeWarnings].map((item) => item.code === "declared_identity_conflict"
     ? { ...item, severity: "hard-fail" as const }
-    : item);
+    : item));
   const ok = warnings.every((item) => item.severity !== "hard-fail");
   return {
     ok,

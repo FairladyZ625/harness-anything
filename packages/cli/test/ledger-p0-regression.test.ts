@@ -51,7 +51,11 @@ test("P0 duplicate declared identity is a negative control before repair", async
     });
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     assert.equal(result.receipt.ok, true, JSON.stringify(result.receipt));
-    assert.equal((result.receipt.warnings as ReadonlyArray<Record<string, unknown>>).some((warning) => warning.code === "declared_identity_conflict"), true);
+    const conflictWarnings = (result.receipt.warnings as ReadonlyArray<Record<string, unknown>>)
+      .filter((warning) => warning.code === "declared_identity_conflict");
+    assert.equal(conflictWarnings.length > 0, true);
+    assert.equal(new Set(conflictWarnings.map((warning) => `${warning.code}\0${warning.message}`)).size, conflictWarnings.length);
+    assert.equal(conflictWarnings.some((warning) => String(warning.message).includes("Canonical candidates:")), true);
 
     const doctor = runRawJsonMaybeFail(rootDir, ["doctor"], {
       HARNESS_DAEMON_MODE: "local",

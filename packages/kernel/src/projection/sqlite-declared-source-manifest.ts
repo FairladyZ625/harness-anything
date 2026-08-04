@@ -25,6 +25,7 @@ export interface DeclaredSourceIdentityConflict {
   readonly projectionTable: string;
   readonly primaryKey: string;
   readonly sourcePaths: ReadonlyArray<string>;
+  readonly canonicalSourcePaths?: ReadonlyArray<string>;
 }
 
 export interface DeclaredTableProjectionDelta {
@@ -69,10 +70,25 @@ export function declaredSourceManifestRowsWithIdentityConflicts(
   readonly conflicts: ReadonlyArray<DeclaredSourceIdentityConflict>;
 } {
   const rows = declaredSourceManifestRowsWithoutIdentityCheck(tables, sources);
+  const conflicts = findDeclaredSourceIdentityConflicts(rows).map((conflict) => ({
+    ...conflict,
+    canonicalSourcePaths: canonicalSourcePathsForConflict(tables, conflict)
+  }));
   return {
     rows: rows.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath)),
-    conflicts: findDeclaredSourceIdentityConflicts(rows)
+    conflicts
   };
+}
+
+function canonicalSourcePathsForConflict(
+  tables: ReadonlyArray<DeclaredProjectionSnapshot>,
+  conflict: DeclaredSourceIdentityConflict
+): ReadonlyArray<string> {
+  return [...new Set(tables.flatMap((table) => table.documents
+    .filter((document) => table.table === conflict.projectionTable
+      && String(document.primaryKey) === conflict.primaryKey
+      && conflict.sourcePaths.includes(document.relativePath))
+    .map((document) => document.canonicalRelativePath)))].sort();
 }
 
 function declaredSourceManifestRowsWithoutIdentityCheck(

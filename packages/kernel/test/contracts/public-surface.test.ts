@@ -206,6 +206,7 @@ const publicRuntimeSurface = [
   "projectDaemonRepoRegistration",
   "projectDeclaredEntities",
   "queryConsentsBySourceStrength",
+  "queryConsentsBySourceStrengthWithWarnings",
   "queryDecisionProjection",
   "queryExecutionEvidencePage",
   "queryExecutionProjection",
