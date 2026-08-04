@@ -427,6 +427,7 @@ test("repo.command.run rejects payload rootDir that does not match the repo name
             command: "version",
             action: "version",
             summary: "version",
+            next: [],
             details: {},
             meta: { generatedAt: "2026-07-07T00:00:00.000Z", compatibility: { legacyReceipt: "CommandReceipt/v1" } }
           };
@@ -662,6 +663,7 @@ test("repo.command.run derives RBAC from the inner CLI command", async () => {
             command: String(kind),
             action: String(kind),
             summary: `completed ${String(kind)}`,
+            next: [],
             details: {},
             meta: {
               generatedAt: "2026-07-07T00:00:00.000Z",

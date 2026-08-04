@@ -64,6 +64,7 @@ function protocolServer(): JsonRpcProtocolServer {
         command: request.method,
         action: request.method,
         summary: "ready",
+        next: [],
         meta: {
           generatedAt: "2026-07-24T00:00:00.000Z",
           compatibility: { legacyReceipt: "CommandReceipt/v1" }

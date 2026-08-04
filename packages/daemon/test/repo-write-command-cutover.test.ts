@@ -435,6 +435,7 @@ function committedReceipt(): CommandReceiptEnvelope {
     command: "progress append",
     action: "append",
     summary: "child committed",
+    next: [],
     meta: {
       generatedAt: "2026-07-24T00:00:00.000Z",
       compatibility: { legacyReceipt: "CommandReceipt/v1" }

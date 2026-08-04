@@ -21,6 +21,9 @@ import type { CliError } from "./error-codes.ts";
 import type { CommandDisplayTier } from "./command-spec/types.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
+export type CheckScope =
+  | { readonly kind: "task-tree"; readonly taskId: string }
+  | { readonly kind: "path"; readonly path: string };
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
 export type AnchorBackfillMode = "dry-run" | "apply";
 export type ProvenanceBackfillMode = "dry-run" | "apply";
@@ -285,7 +288,7 @@ export interface ParsedCommand {
     | { readonly kind: "status" }
     | { readonly kind: "version" }
     | { readonly kind: "completion"; readonly shell: "bash" | "zsh" }
-    | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
+    | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean; readonly scope?: CheckScope }
     | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
     | { readonly kind: "adopt-multica"; readonly taskId: string; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
     | { readonly kind: "external-snapshot"; readonly provider: "github"; readonly ref: string }

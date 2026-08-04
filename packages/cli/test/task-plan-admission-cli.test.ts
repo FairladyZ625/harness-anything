@@ -49,13 +49,13 @@ test("CLI active transition fails closed when task_plan.md is missing", () => {
   });
 });
 
-test("CLI check and active transition agree on scaffold and substantive task plans", () => {
+test("CLI check ignores a planned scaffold while active transition still requires substantive content", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Two-sided Plan Gate", "--vertical", "software/coding", "--preset", "standard-task"]);
-    const scaffoldCheck = runJson(rootDir, ["check", "--profile", "source-package", "--strict"], false);
+    const scaffoldCheck = runJson(rootDir, ["check", "--profile", "source-package", "--strict"]);
     const scaffoldTransition = runJson(rootDir, ["task", "transition", created.taskId, "active"], false);
 
-    assert.equal(scaffoldCheck.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder"), true);
+    assert.equal(scaffoldCheck.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder"), false);
     assert.equal(scaffoldTransition.error?.code, "task_plan_placeholder");
 
     writeSubstantiveTaskPlan(rootDir, created.packagePath);

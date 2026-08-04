@@ -53,6 +53,7 @@ export interface DaemonSuccessReceipt<Data extends Record<string, unknown>> {
   readonly ok: true;
   readonly schema: "command-receipt/v2";
   readonly command: string;
+  readonly next: ReadonlyArray<{ readonly command: string; readonly description?: string }>;
   readonly details: { readonly data: Data };
 }
 

@@ -16,7 +16,8 @@ export const completionCommandSpecs = defineCommandSpecs([
     "run": runTaskRetireExecution,
     "receiptContract": {
       "data": ["taskId", "executionId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -38,7 +39,8 @@ export const completionCommandSpecs = defineCommandSpecs([
     "run": runCompletionCommand,
     "receiptContract": {
       "data": ["shell", "completionScript"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,

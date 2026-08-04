@@ -18,7 +18,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -35,7 +36,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "issues", "rows"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -52,7 +54,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "issues"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -69,7 +72,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "issues", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -87,7 +91,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -105,7 +110,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -123,7 +129,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "issues", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -141,7 +148,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -167,7 +175,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
         "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
         "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -184,7 +193,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["scripts", "rows"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -201,7 +211,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["script"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -222,7 +233,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
         "rows": "Only emitted when a script writes a numeric rows value in its script-result/v1 payload.",
         "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -239,7 +251,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["modules", "rows"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -256,7 +269,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -273,7 +287,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -290,7 +305,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
-      "paths": ["primary", "modulePlan"]
+      "paths": ["primary", "modulePlan"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -308,7 +324,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -328,7 +345,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -345,7 +363,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["issues"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -362,7 +381,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "run": runGuiCommand,
     "receiptContract": {
       "data": ["launchPlan"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,

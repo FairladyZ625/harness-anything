@@ -1,10 +1,9 @@
 import { defineCommandSpecs } from "./types.ts";
-import { readCommandEventPolicy, writeCommandEventPolicy } from "./command-event-policies.ts";
+import { writeCommandEventPolicy } from "./command-event-policies.ts";
 import { parseCapabilitiesArgs } from "../parsers/capabilities.ts";
 import { parseCoreTaskArgs } from "../parsers/core-task.ts";
 import { parseHelpArgs, parseVersionArgs } from "../parsers/meta.ts";
 import { parseNewTaskArgs } from "../parsers/new-task.ts";
-import { parseRelationArgs } from "../parsers/relation.ts";
 import { runCapabilitiesCommand } from "../../commands/core/capabilities.ts";
 import { runHelpCommand } from "../../commands/core/help.ts";
 import { runInitCommand } from "../../commands/core/init.ts";
@@ -12,8 +11,6 @@ import { runNewTaskCommand } from "../../commands/core/new-task.ts";
 import { runTaskGatesCommand } from "../../commands/core/task-gates.ts";
 import { runDocCommand } from "../../commands/core/doc.ts";
 import { runTaskLifecycleWithDemotions as runTaskLifecycleCommand } from "../../commands/core/task-lifecycle-demotions.ts";
-import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
-import { runTaskViewCommand } from "../../commands/core/task-views.ts";
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
 import { rejectDaemonTaskLifecycleFacade } from "../../commands/core/task-lifecycle-facade.ts";
@@ -30,7 +27,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runHelpCommand,
     "receiptContract": {
       "data": ["commands", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -48,7 +46,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runVersionCommand,
     "receiptContract": {
       "data": ["version"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -65,7 +64,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runCapabilitiesCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -82,7 +82,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runCapabilitiesCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -99,7 +100,14 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runInitCommand,
     "receiptContract": {
       "data": ["generated", "report"],
-      "paths": ["primary", "config"]
+      "paths": ["primary", "config"],
+      "successNext": {
+        kind: "actions",
+        "actions": [{
+          "command": "ha task create --title <title>",
+          "description": "The harness layout is ready; create the first task when there is concrete work to track."
+        }]
+      },
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -124,7 +132,25 @@ export const coreCommandSpecs = defineCommandSpecs([
         "generated": "Only emitted when preset or template materialization produces generated files.",
         "report": "Only emitted when the creation path produces a structured creation report."
       },
-      "paths": ["package"]
+      "paths": ["package"],
+      "successNext": {
+        kind: "actions",
+        "actions": [{
+          "command": "ha task start {taskId}",
+          "description": "Write {packagePath}/task_plan.md with the deliverable, starting points, protected boundaries, stop conditions, and verification; then start the task."
+        }]
+      },
+      "dryRun": {
+        "data": ["taskId", "slug", "status"],
+        "optionalData": {
+          "preset": "Only emitted when task creation runs through a selected preset.",
+          "module": "Only emitted when --module is supplied or preset/module routing materializes module metadata.",
+          "generated": "Only emitted when preset or template materialization produces generated files.",
+          "report": "Only emitted when the creation path produces a structured creation report."
+        },
+        "paths": ["package"],
+        "successNext": { kind: "none" }
+      }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -143,7 +169,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "status", "report"],
       "optionalData": { "executionId": "Only emitted when a work claim opens a Holder V2 Execution round." },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -161,9 +188,17 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "executionId", "status", "report"],
       "paths": [],
+      "successNext": {
+        kind: "actions",
+        "actions": [{
+          "command": "ha task submit {taskId} --from-file <submission.json>",
+          "description": "Do the contracted work and collect output evidence; submit the active Execution when it is ready for review."
+        }]
+      },
       "dryRun": {
         "data": ["taskId", "report"],
-        "paths": []
+        "paths": [],
+        "successNext": { kind: "none" }
       }
     },
     "eventPolicy": {
@@ -188,7 +223,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": { kind: "none" }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -206,7 +242,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -225,9 +262,11 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "executionId", "status", "report"],
       "paths": [],
+      "successNext": {kind: "none"},
       "dryRun": {
         "data": ["taskId", "report"],
-        "paths": []
+        "paths": [],
+        "successNext": { kind: "none" }
       }
     },
     "eventPolicy": {
@@ -258,6 +297,7 @@ export const coreCommandSpecs = defineCommandSpecs([
         "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence."
       },
       "paths": [],
+      "successNext": {kind: "none"},
       "optionalPaths": {
         "primary": "Only emitted for audited cancellation recovery where the audit progress path is returned as the primary path.",
         "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence."
@@ -281,7 +321,8 @@ export const coreCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "report": "Only emitted when --evidence is supplied and the receipt includes the appended evidence payload."
       },
-      "paths": ["primary", "progress"]
+      "paths": ["primary", "progress"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -296,7 +337,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "examples": ["harness-anything task artifact add task_01ABC reports/check.txt"],
     "parse": parseCoreTaskArgs,
     "run": runDocCommand,
-    "receiptContract": { "data": ["taskId", "report"], "paths": ["primary"] },
+    "receiptContract": { "data": ["taskId", "report"], "paths": ["primary"],
+      "successNext": {kind: "none"}, },
     "eventPolicy": { "conflictMarkerPreflight": true, "runtimeEvent": "auto" }
   },
   {
@@ -309,7 +351,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": { kind: "none" }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -327,7 +370,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskContractMigration,
     "receiptContract": {
       "data": ["report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -350,7 +394,8 @@ export const coreCommandSpecs = defineCommandSpecs([
         "rows": "Present for batch archive receipts.",
         "tasks": "Present for batch archive receipts."
       },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -371,6 +416,7 @@ export const coreCommandSpecs = defineCommandSpecs([
         "report": "Only emitted when superseding by an existing replacement task via --by."
       },
       "paths": ["primary", "replacement"],
+      "successNext": {kind: "none"},
       "optionalPaths": {
         "package": "Only emitted when supersede creates a new replacement task package."
       }
@@ -393,7 +439,8 @@ export const coreCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "report": "Only emitted when delete attribution such as --deleted-by is supplied."
       },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -410,7 +457,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "status"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -427,7 +475,14 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskGatesCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {
+        kind: "actions",
+        "actions": [{
+          "command": "ha task complete {taskId} --help",
+          "description": "The code/document witness is recorded; complete the task with its approved review and CI evidence."
+        }]
+      }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -450,7 +505,8 @@ export const coreCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "completionGate": "Only emitted by completion-oriented task gate results; ordinary task review emits the review contract only."
       },
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -468,7 +524,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskGatesCommand,
     "receiptContract": {
       "data": ["taskId", "executionId", "consentId", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -486,7 +543,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskGatesCommand,
     "receiptContract": {
       "data": ["taskId", "executionId", "reviewId", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -512,61 +570,13 @@ export const coreCommandSpecs = defineCommandSpecs([
         "reviewContract": "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
       },
       "paths": [],
+      "successNext": {kind: "none"},
       "dryRun": {
         "data": ["taskId", "status", "completionGate", "report"],
-        "paths": []
+        "paths": [],
+        "successNext": { kind: "none" }
       }
     },
     "eventPolicy": writeCommandEventPolicy
-  },
-  {
-    "kind": "task-show",
-    "usage": "task show <id> [--view summary|trace|tree] [--json]",
-    "options": [{"flag":"--view","description":"Select the summary, execution trace, or hierarchy tree projection."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "aliases": ["task trace <id> (deprecated, use task show --view trace)", "task tree <id> (deprecated, use task show --view tree)"],
-    "aliasDisplay": {"task trace <id> (deprecated, use task show --view trace)":"hidden", "task tree <id> (deprecated, use task show --view tree)":"hidden"},
-    "summary": "Show a task summary, execution trace, or hierarchy tree projection.",
-    "examples": ["harness-anything task show task_01ABC --view trace --json"],
-    "parse": parseCoreTaskArgs,
-    "run": runTaskViewCommand,
-    "receiptContract": {
-      "data": ["taskId", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": readCommandEventPolicy
-  },
-  {
-    "kind": "relation-list",
-    "usage": "relation list [--entity <entity-ref>] [--source <entity-ref>] [--target <entity-ref>] [--type <type>] [--state active|retired] [--json]",
-    "options": [{"flag":"--entity","description":"Filter relation edges where either endpoint matches the entity ref."},{"flag":"--source","description":"Filter relation edges by source entity ref."},{"flag":"--target","description":"Set the relation target entity ref."},{"flag":"--type","description":"Filter relation edges by relation type."},{"flag":"--state","description":"Filter relation edges by relation state: active or retired."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "List projected relation graph edges with source, target, type, state, owner, and source path filters.",
-    "examples": ["harness-anything relation list --entity task/task_01ABC --json", "harness-anything relation list --target decision/dec_LEDGER_E51 --state active --json"],
-    "parse": parseRelationArgs,
-    "run": runTaskQueryCommand,
-    "receiptContract": {
-      "data": ["rows", "report"],
-      "paths": []
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
-    "kind": "task-relate",
-    "usage": "task relate <source-task-id> depends-on <target-task-id> --rationale <text> [--dry-run] [--json]",
-    "options": [{"flag":"--rationale","description":"Record the rationale for a relation or generated decision."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Append a task->task depends-on relation without scheduling or status side effects.",
-    "examples": ["harness-anything task relate task_01ABC depends-on task_01DEF --rationale \"ABC waits for DEF\""],
-    "parse": parseCoreTaskArgs,
-    "run": runTaskLifecycleCommand,
-    "receiptContract": {
-      "data": ["taskId", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "auto"
-    }
   }
 ]);

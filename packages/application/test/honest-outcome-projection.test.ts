@@ -138,6 +138,7 @@ test("sidecar creation does not change legacy exit, ok, warnings, or serialized 
     action: "show",
     summary: "legacy summary",
     warnings: ["legacy warning"],
+    next: [],
     meta: {
       generatedAt: "2026-07-23T00:00:00.000Z",
       compatibility: { legacyReceipt: "CommandReceipt/v1" }

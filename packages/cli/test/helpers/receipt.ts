@@ -56,6 +56,7 @@ export function unwrapCommandReceipt(value: Record<string, any>): Record<string,
     error: value.error,
     paths,
     warnings: Array.isArray(value.warnings) ? value.warnings : [],
+    next: Array.isArray(value.next) ? value.next : [],
     path: paths.primary,
     packagePath: paths.package,
     projectionPath: paths.projection

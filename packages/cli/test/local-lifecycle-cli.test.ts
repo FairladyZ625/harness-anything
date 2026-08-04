@@ -385,7 +385,11 @@ test("CLI capabilities expose registry-derived entity operations through receipt
     assert.equal(receipt.rows > 0, true);
     assert.equal(Array.isArray(receipt.items), true);
     assert.equal(receipt.items.some((op: Record<string, any>) => op.action === "propose" && op.input?.schemaId === "harness://schema/cli/decision-propose-input/v1"), true);
+    const propose = receipt.items.find((op: Record<string, any>) => op.action === "propose");
+    assert.equal(propose.output?.successNext?.kind, "actions");
+    assert.equal(propose.output?.successNext?.actions?.[0]?.command, "ha decision transition active {decisionId}");
     assert.equal(receipt.details?.report?.generatedFrom?.commandRegistry, "packages/cli/src/cli/command-registry.ts");
+    assert.deepEqual(receipt.next, []);
   });
 });
 

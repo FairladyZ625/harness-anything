@@ -230,7 +230,7 @@ test("CLI creates a local task with generated identity, provenance, and stable J
     assert.match(index, /engine: local/);
     assertHumanProvenance(rootDir, index);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
-    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command="task create" task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path warnings=1 warning="[^"]+" summary=/u);
+    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command="task create" task=(task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}) status=planned path=harness\/tasks\/\1-text-path next="ha task start \1" nextHint="Write harness\/tasks\/\1-text-path\/task_plan\.md[^"]+" summary=/u);
   });
 });
 
@@ -246,15 +246,15 @@ test("CLI task create persists work kind and priority metadata", () => {
   });
 });
 
-test("CLI task create receipt warns that the generated plan must be made substantive before start", () => {
+test("CLI task create receipt declares the concrete plan-and-start next action", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["task", "create", "--title", "Plan Guidance"], true, {});
-    const warning = result.warnings?.find((candidate: Record<string, unknown>) => candidate.code === "task_plan_required_before_start");
+    const action = result.next?.[0];
 
-    assert.ok(warning);
-    assert.match(String(warning.message), new RegExp(`${result.packagePath}/task_plan\\.md`, "u"));
-    assert.match(String(warning.message), /task_plan_placeholder/u);
-    assert.match(String(warning.message), new RegExp(`ha task start ${result.taskId}`, "u"));
+    assert.deepEqual(result.warnings, []);
+    assert.equal(action?.command, `ha task start ${result.taskId}`);
+    assert.match(String(action?.description), new RegExp(`${result.packagePath}/task_plan\\.md`, "u"));
+    assert.match(String(action?.description), /deliverable.+starting points.+protected boundaries.+stop conditions.+verification/u);
   });
 });
 

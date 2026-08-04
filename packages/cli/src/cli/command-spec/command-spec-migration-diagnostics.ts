@@ -20,7 +20,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -39,7 +40,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -59,7 +61,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -79,7 +82,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -97,7 +101,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -115,7 +120,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -135,7 +141,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -154,7 +161,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary", "session"]
+      "paths": ["primary", "session"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -173,7 +181,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -190,7 +199,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -209,7 +219,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary", "plan"]
+      "paths": ["primary", "plan"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -229,7 +240,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -247,7 +259,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["migrationMode", "rows", "report"],
-      "paths": ["primary", "index"]
+      "paths": ["primary", "index"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -264,7 +277,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runMigrationCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -283,7 +297,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runDiagnosticsCommand,
     "receiptContract": {
       "data": ["report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -300,7 +315,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runDiagnosticsCommand,
     "receiptContract": {
       "data": ["report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -317,7 +333,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runDiagnosticsCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -334,7 +351,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runWorktreeCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -351,7 +369,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runWorktreeCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -368,7 +387,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     "run": runDiagnosticsCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary", "projection"]
+      "paths": ["primary", "projection"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,

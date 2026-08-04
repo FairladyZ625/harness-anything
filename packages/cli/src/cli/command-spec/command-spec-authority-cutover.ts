@@ -5,7 +5,7 @@ import { runAuthorityCutoverCommand } from "../../commands/core/authority-cutove
 import { runAuthorityRepoCommand } from "../../commands/core/authority-repo.ts";
 
 const shared = {
-  receiptContract: { data: ["report"], paths: [] },
+  receiptContract: { data: ["report"], paths: [], successNext: { kind: "none" }, },
   eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
 } as const;
 
@@ -38,7 +38,7 @@ export const authorityCutoverCommandSpecs = defineCommandSpecs([
     ],
     parse: parseAuthorityRepoArgs,
     run: runAuthorityRepoCommand,
-    receiptContract: { data: ["report"], paths: ["primary"] },
+    receiptContract: { data: ["report"], paths: ["primary"], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -56,7 +56,7 @@ export const authorityCutoverCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything authority repo resign --repo-id billing --manifest /var/lib/ha/authority-production.json --json"],
     parse: parseAuthorityRepoArgs,
     run: runAuthorityRepoCommand,
-    receiptContract: { data: ["report"], paths: ["primary"] },
+    receiptContract: { data: ["report"], paths: ["primary"], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   }
 ]);

@@ -14,12 +14,20 @@ export const taskSubmitCommandSpecs = defineCommandSpecs([{
   "receiptContract": {
     "data": ["taskId", "executionId", "status", "report"],
     "paths": [],
+    "successNext": {
+      kind: "actions",
+      "actions": [{
+        "command": "ha task review-execution {taskId} --help",
+        "description": "The Execution is submitted; an authorized reviewer should record the verdict and checked evidence before completion."
+      }]
+    },
     "dryRun": {
       "data": ["taskId", "status", "report"],
       "optionalData": {
         "executionId": "Only emitted when dry-run can resolve the active Holder V2 execution."
       },
-      "paths": []
+      "paths": [],
+      "successNext": { kind: "none" }
     }
   },
   "eventPolicy": writeCommandEventPolicy,

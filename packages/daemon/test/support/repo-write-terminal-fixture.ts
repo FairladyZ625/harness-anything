@@ -27,6 +27,7 @@ export function committedCommandReceipt(
     command: "progress append",
     action: "append",
     summary,
+    next: [],
     details: { actor },
     meta: {
       generatedAt,
