@@ -41,29 +41,47 @@ function runTaskLifecycleTransition(
   action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>
 ): ReturnType<CommandRunner> {
   if (action.dryRun === true) {
-    const uncheckedGates = [
-      "canonical-authority-planner",
-      "task-completion-evidence",
-      "durable-transition-write"
-    ] as const;
-    return Effect.succeed({
-      ok: true,
-      command: "task-complete",
-      taskId: action.taskId,
-      status: "in_review",
-      completionGate: {
-        ok: false,
-        evidenceMode: action.evidenceMode,
-        dryRun: true,
-        uncheckedGates
-      },
-      report: {
-        schema: "task-lifecycle-transition-preview/v1",
-        dryRun: true,
-        disposition: "server-planner-validation-required",
-        uncheckedGates
-      }
-    } satisfies CliResult);
+    if (!context.authorityCommandPreflight) {
+      const uncheckedGates = [
+        "canonical-authority-planner",
+        "task-completion-evidence",
+        "durable-transition-write"
+      ] as const;
+      return Effect.succeed(taskCompletionDryRunResult(action, uncheckedGates));
+    }
+    const checkedGates = ["canonical-authority-planner", "task-completion-evidence"] as const;
+    const uncheckedGates = ["durable-transition-write"] as const;
+    const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition-dry-run" });
+    return Effect.gen(function* () {
+      // The canonical planner may run in the repo-write child. Keep the
+      // parent-side holder probe outside that preflight so the child can run
+      // its own read-only planner without contending on the same task lock.
+      yield* Effect.promise(() => Effect.runPromise(coordinator.flush("explicit")));
+      yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
+        { taskId: action.taskId },
+        () => Promise.resolve()
+      ));
+      return {
+        ok: true,
+        command: "task-complete",
+        taskId: action.taskId,
+        status: "in_review",
+        completionGate: {
+          ok: false,
+          evidenceMode: action.evidenceMode,
+          dryRun: true,
+          checkedGates,
+          uncheckedGates
+        },
+        report: {
+          schema: "task-lifecycle-transition-preview/v1",
+          dryRun: true,
+          disposition: "canonical-authority-preflight-passed",
+          checkedGates,
+          uncheckedGates
+        }
+      } satisfies CliResult;
+    });
   }
   if (!context.authorityCommandSubmission) {
     return Effect.succeed({
@@ -103,6 +121,30 @@ function runTaskLifecycleTransition(
       }
     } satisfies CliResult;
   });
+}
+
+function taskCompletionDryRunResult(
+  action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>,
+  uncheckedGates: ReadonlyArray<string>
+): CliResult {
+  return {
+    ok: true,
+    command: "task-complete",
+    taskId: action.taskId,
+    status: "in_review",
+    completionGate: {
+      ok: false,
+      evidenceMode: action.evidenceMode,
+      dryRun: true,
+      uncheckedGates
+    },
+    report: {
+      schema: "task-lifecycle-transition-preview/v1",
+      dryRun: true,
+      disposition: "server-planner-validation-required",
+      uncheckedGates
+    }
+  } satisfies CliResult;
 }
 
 function runTaskCodeDocReconcile(

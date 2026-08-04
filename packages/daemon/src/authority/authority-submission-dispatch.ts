@@ -12,6 +12,12 @@ export function bindAuthoritySubmissionForDispatch(
   dispatch.assertActive();
   const bound = component.bindConnection(dispatch.context);
   return {
+    ...(bound.planCommand ? {
+      planCommand: async (input) => {
+        dispatch.assertActive();
+        return bound.planCommand!(input);
+      }
+    } : {}),
     submit: async (submission) => {
       dispatch.assertActive();
       return bound.submit(submission);

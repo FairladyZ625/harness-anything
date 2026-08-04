@@ -46,6 +46,8 @@ export interface CommandRunnerContext {
   readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
   /** True only while the daemon executes a canonical command through its authority submission. */
   readonly authorityCommandSubmission: boolean;
+  /** True when the daemon supplied the read-only canonical planner for dry-run validation. */
+  readonly authorityCommandPreflight: boolean;
   readonly outerProceedingRecovery: boolean;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
@@ -194,6 +196,7 @@ export function runRegisteredCommand(
     },
     onCommandTelemetry: execution.onCommandTelemetry,
     authorityCommandSubmission: execution.authorityCommandSubmission,
+    authorityCommandPreflight: execution.authorityCommandPreflight === true,
     outerProceedingRecovery: execution.outerProceedingRecovery,
     get runtimeEventLedgerService() {
       runtimeEventLedgerService ??= makeRuntimeEventLedgerService();

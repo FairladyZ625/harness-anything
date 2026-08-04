@@ -53,12 +53,12 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput, hostServices: 
   const layout = resolveHarnessLayout(rootInput);
   const authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/") || ".";
   const registry = loadRegistry(layout.rootDir);
-  // No registry ⇒ doc-sync enforcement is inactive for this repo (a consumer install):
-  // skip the authored-tree scan so we don't manufacture "resolution failed" unresolved
-  // touches for every dirty file, and so the warning layer stays silent. See issue #644.
+  // No registry ⇒ keep consumer scanning narrow: ordinary authored-tree changes remain
+  // inert (see issue #644), while closeout keeps its built-in task-prose lane so a human
+  // can publish the completion document through the existing governed doc-sync road.
   const dirtyFiles = registry.present
     ? gitDirtyEntries(layout.authoredRoot).filter((entry) => !isStandaloneCasObject(layout.authoredRoot, entry))
-    : [];
+    : gitDirtyEntries(layout.authoredRoot).filter((entry) => isConsumerCloseoutPath(entry.path));
   const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows, hostServices));
   const candidateBlobs = files.filter((entry) => entry.docSyncCandidate && entry.newBlobSha256);
   const forbiddenTouches = files.flatMap((entry) => entry.forbiddenTouches);
@@ -526,6 +526,10 @@ const consumerDocSyncRows: ReadonlyArray<RegistryRow> = [{
 
 function registryPath(rootDir: string): string {
   return path.join(rootDir, "tools", "write-road-registry.json");
+}
+
+function isConsumerCloseoutPath(relativePath: string): boolean {
+  return /^tasks\/[^/]+\/closeout\.md$/u.test(relativePath);
 }
 
 function gitDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {

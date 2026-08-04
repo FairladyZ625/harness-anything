@@ -7,6 +7,7 @@ import type { CliResult, ParsedCommand } from "./types.ts";
 
 export interface ConflictMarkerExecutionBoundary {
   readonly authorityCommandSubmission: boolean;
+  readonly authorityCommandPreflight?: boolean;
   readonly outerProceedingRecovery: boolean;
   readonly onTelemetry?: (phase: "command-conflict-preflight" | "command-conflict-recheck") => void;
   readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;

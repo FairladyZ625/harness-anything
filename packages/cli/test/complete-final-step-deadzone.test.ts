@@ -53,6 +53,9 @@ test("one task complete intent publishes approval and completion through the pro
       path.resolve("tools/write-road-registry.json"),
       path.join(fixture.repoRoot, "tools/write-road-registry.json")
     );
+    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Original production closeout."));
+    git(fixture.authoredRoot, "add", `tasks/${taskId}-production-route/closeout.md`);
+    git(fixture.authoredRoot, "commit", "-q", "-m", "test: seed substantive production closeout");
     writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Original facade completion plan."));
     git(fixture.authoredRoot, "add", `tasks/${taskId}-production-route/task_plan.md`);
     git(fixture.authoredRoot, "commit", "-q", "-m", "test: seed facade completion plan");
@@ -128,6 +131,7 @@ test("one task complete intent publishes approval and completion through the pro
     ], env);
     assert.equal(publishedWitness.status, 0, JSON.stringify(publishedWitness.receipt));
 
+    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Closeout amended after the first reconciliation."));
     const approvalPath = path.join(fixture.root, "deadzone-approval.json");
     writeFileSync(approvalPath, JSON.stringify({
       ...packetTemplate(completeHelp),
@@ -143,6 +147,42 @@ test("one task complete intent publishes approval and completion through the pro
       ci: "passed",
       reviewerId: "person_alice"
     }));
+
+    const blockedDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
+    ], env);
+    assert.equal(blockedDryRun.status, 1, JSON.stringify(blockedDryRun.receipt));
+    assert.match(JSON.stringify(blockedDryRun.receipt), /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED[\s\S]*closeout\.md/u);
+
+    const closeoutDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
+      "doc", "sync", "--dry-run"
+    ], env);
+    assert.equal(closeoutDryRun.status, 0, JSON.stringify(closeoutDryRun.receipt));
+    assert.match(JSON.stringify(closeoutDryRun.receipt), /closeout\.md/u);
+    const syncedCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
+      "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/closeout.md`
+    ], env);
+    assert.equal(syncedCloseout.status, 0, JSON.stringify(syncedCloseout.receipt));
+    const publishedCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
+      "materializer", "run", "--current-session-only"
+    ], env);
+    assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
+
+    const readyDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
+    ], env);
+    assert.equal(readyDryRun.status, 0, JSON.stringify(readyDryRun.receipt));
+    const readyDryRunData = (readyDryRun.receipt.details as {
+      readonly data?: {
+        readonly report?: {
+          readonly checkedGates?: ReadonlyArray<string>;
+          readonly uncheckedGates?: ReadonlyArray<string>;
+        };
+      };
+    } | undefined)?.data;
+    assert.deepEqual(readyDryRunData?.report?.checkedGates, ["canonical-authority-planner", "task-completion-evidence"]);
+    assert.deepEqual(readyDryRunData?.report?.uncheckedGates, ["durable-transition-write"]);
+
     const completeCommand = [
       "task", "complete", taskId, "--approve", "--from-file", approvalPath
     ] as const;
@@ -529,6 +569,15 @@ function productionPlan(goal: string): string {
     "## Implementation Plan", "Plan.",
     "## Verification", "Verify.",
     ""
+  ].join("\n");
+}
+
+function productionCloseout(summary: string): string {
+  return [
+    "# Closeout", "",
+    "## Summary", summary, "",
+    "## Verification", "The production daemon completion chain was exercised.", "",
+    "## Residual Risk", "No residual risk accepted.", ""
   ].join("\n");
 }
 
