@@ -61,6 +61,14 @@ export async function compileAuthorityV2Admission(input: {
       responsibleHuman: `person:${verified.token.claims.principalPersonId}`
     },
     sessionId: verified.token.claims.sessionId,
+    ...(verified.token.claims.sessionRuntime ? {
+      currentSession: {
+        runtime: verified.token.claims.sessionRuntime,
+        sessionId: verified.token.claims.sessionId,
+        source: verified.token.claims.sessionRuntime === "human" ? "manual" : "runtime",
+        detectedAt: new Date(Number(verified.token.claims.issuedAt)).toISOString()
+      }
+    } : {}),
     nowMs: input.mode === "outer-proceeding-recovery"
       ? verified.token.claims.issuedAt
       : options.bindingRuntime.nowMs()

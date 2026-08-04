@@ -251,7 +251,7 @@ test("structurally transcript-less runtimes produce a distinct diagnostic", asyn
       artifactStore,
       generateReviewId: () => firstReviewId,
       generateConsentId: () => consentId
-    }).reviewExecution({ ...reviewInput(aliceWorker), consentUtterance: "Approved" }),
+    }).reviewExecution({ ...reviewInput(aliceWorker), reviewerSession: { ...reviewerSession, runtime: "antigravity" }, consentUtterance: "Approved" }),
     /runtime \(antigravity\) structurally does not produce a verifiable transcript/u);
   });
 });

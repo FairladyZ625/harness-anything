@@ -170,6 +170,7 @@ export function createProductionAuthorityAttemptPlanner(input: {
         deviceId: input.config.deviceId,
         viewId: input.config.viewId,
         sessionId: currentSession.sessionId,
+        sessionRuntime: currentSession.runtime,
         allowedEntityKinds,
         allowedActions,
         resourceScopes,

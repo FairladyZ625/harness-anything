@@ -20,7 +20,12 @@ import {
   decodeExecutionForConsent,
   generateConsentId
 } from "./execution-consent-helpers.ts";
-import { consentSourceRequest, resolveConsentAuthorization } from "./consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  executionBoundConsentTranscriptCandidates,
+  resolveConsentAuthorization,
+  reviewCurrentConsentTranscriptCandidate
+} from "./consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "./runtime-session-logs.ts";
 
 export interface RecordExecutionConsentService {
@@ -62,9 +67,17 @@ export function makeRecordExecutionConsentService(options: {
       if (task.documents.some((document) => document.path === `consents/${consentId}.md`)) {
         throw new Error(`consent already exists: ${consentId}`);
       }
+      const grantedAt = now();
       const authorization = await resolveConsentAuthorization({
         rootInput: options.rootInput,
-        execution,
+        transcriptCandidates: [
+          reviewCurrentConsentTranscriptCandidate({
+            execution,
+            session: input.session,
+            reviewedAt: grantedAt
+          }),
+          ...executionBoundConsentTranscriptCandidates(execution)
+        ],
         request: consentSourceRequest({
           utterance: input.utterance,
           standingPolicyDecisionId: input.standingPolicyDecisionId,
@@ -79,7 +92,7 @@ export function makeRecordExecutionConsentService(options: {
         actor: input.actor,
         authorization,
         actions: input.actions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
-        grantedAt: now(),
+        grantedAt,
         ttlMs
       });
       const decoded = Schema.decodeUnknownSync(consentDeclaration.schema)(consent) as ConsentRecord;

@@ -14,7 +14,10 @@ import {
   type ReviewRecord,
   type WriteOp
 } from "@harness-anything/kernel";
-import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  resolveConsentAuthorization
+} from "../consent-source-resolution.ts";
 import {
   assertConsentActions,
   consentSnapshot,
@@ -30,6 +33,7 @@ import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
 import {
   decodeTaskLifecycleTransitionCommandPayloadV2
 } from "./task-lifecycle-transition-command-v2.ts";
+import { authorityConsentTranscriptCandidatesV2 } from "./authority-consent-transcript-candidates-v2.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import {
   type AuthorityAlreadySatisfiedStateProofV1,
@@ -49,6 +53,7 @@ import {
   assertSameCheckpoint,
   assertVerifiedWitnessBindings,
   contractSnapshot,
+  taskLifecycleTransitionCompilerNever,
   taskLifecycleTransitionCheckpointDeclaration,
   transitionCheckpoint,
   witnessSnapshots,
@@ -120,7 +125,7 @@ async function compilePlan(
     case "accepted-replay": return compileAcceptedReplay(options, plan);
     case "commit-anchor": return compileCommitAnchor(options, plan);
     case "already-committed": return compileAlreadyCommitted(options, plan);
-    default: return lifecycleCompilerNever(plan);
+    default: return taskLifecycleTransitionCompilerNever(plan);
   }
 }
 
@@ -434,12 +439,16 @@ async function createPlanConsent(
   try {
     authorization = await resolveConsentAuthorization({
       rootInput: options.rootInput,
-      execution,
+      transcriptCandidates: authorityConsentTranscriptCandidatesV2(execution, context.currentSession, now, context.sessionId),
       request,
       runtimeLogOptions: options.runtimeLogOptions
     });
   } catch (error) {
     throw admission("CONSENT_SOURCE_UNVERIFIED", error instanceof Error ? error.message : String(error));
+  }
+  if (authorization.source.strength === "transcript-verified"
+    && authorization.source.transcript_anchor.session_ref !== `session/${context.sessionId}`) {
+    throw admission("CONSENT_REVIEW_SESSION_MISMATCH");
   }
   return createConsentRecord({
     consentId: plan.consentId,
@@ -585,8 +594,4 @@ function dedupeRefs(values: ReadonlyArray<RegistryEntityRefV2>): ReadonlyArray<R
 
 function dedupeSnapshots(values: CompiledTransition["requiredPathSnapshots"]): CompiledTransition["requiredPathSnapshots"] {
   return [...new Map(values.map((entry) => [entry.path, entry])).values()];
-}
-
-function lifecycleCompilerNever(value: never): never {
-  throw admission("TASK_LIFECYCLE_PLAN_EXHAUSTIVENESS_BREACH", String(value));
 }

@@ -23,11 +23,8 @@ import {
   type AuthoritySemanticCompilerContextV2,
   type ActorAxesBindingClaimsV2,
   type ConsentCommandPayloadV2,
-  type HostedDocumentSnapshotV2,
   type PathCasV2,
-  type RegistryEntityRefV2,
   type SemanticBaseCasV2,
-  type SemanticEntityBaseV2,
   type SemanticMutationEnvelopeV2,
   type SemanticMutationSetV2
 } from "../src/index.ts";
@@ -43,15 +40,29 @@ import {
   type ReviewRecord,
   type WriteOp
 } from "../../kernel/src/index.ts";
-
-const taskId = "task_01KXPP248WACVWSM7F4K855RWH";
-const executionId = "exe_01KXPP248WACVWSM7F4K855RWJ";
-const consentId = "cns_01KXPP248WACVWSM7F4K855RWK";
-const reviewId = "rev_01KXPP248WACVWSM7F4K855RWM";
-const executionPath = `tasks/${taskId}/executions/${executionId}.md`;
-const consentPath = `tasks/${taskId}/consents/${consentId}.md`;
-const taskIndexPath = `tasks/${taskId}/INDEX.md`;
-const stateDigest = Buffer.alloc(32, 0x41);
+import {
+  absent,
+  authorityState,
+  base,
+  bytesEqual,
+  cas,
+  channelNonceDigest,
+  consentId,
+  consentPath,
+  consentRef,
+  executionId,
+  executionPath,
+  executionRef,
+  key,
+  mutationPair,
+  present,
+  reviewId,
+  reviewRef,
+  schemaTuple,
+  snapshot,
+  taskId,
+  taskIndexPath
+} from "./consent-semantic-compiler-v2-fixtures.ts";
 const registry = createWritableEntityRegistry([
   entityRegistry.execution,
   entityRegistry.consent,
@@ -101,24 +112,24 @@ test("consent grant derives principal and time only from authenticated authority
   );
 });
 
-test("authority independently verifies transcript utterances against bound user turns", async () => {
+test("authority verifies the current reviewer session when the Execution is bound to a different worker session", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-consent-authority-transcript-"));
   try {
     const logRoot = path.join(rootDir, "logs");
     mkdirSync(logRoot, { recursive: true });
     writeFileSync(path.join(logRoot, "rollout-2024-07-15T00-00-00-session-w6-consent.jsonl"), [
-      JSON.stringify({ timestamp: "2024-07-15T00:00:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Approved in the bound user turn." } }),
-      JSON.stringify({ timestamp: "2024-07-15T00:00:01.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Assistant approval is not evidence." }] } })
+      JSON.stringify({ timestamp: "2024-07-15T00:11:00.000Z", type: "event_msg", payload: { type: "user_message", message: "Approved in the current reviewer session." } }),
+      JSON.stringify({ timestamp: "2024-07-15T00:11:01.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Assistant approval is not evidence." }] } })
     ].join("\n"));
     const execution = {
       ...submittedExecution(),
       session_bindings: [{
         binding_id: "binding-primary",
-        session_ref: "session/session-w6-consent",
+        session_ref: "session/session-w6-worker",
         role: "primary" as const,
         archive_status: "complete" as const,
         attached_at: "2024-07-15T00:00:00.000Z",
-        session: { runtime: "codex", sessionId: "session-w6-consent", source: "runtime", detectedAt: "2024-07-15T00:00:00.000Z" },
+        session: { runtime: "codex", sessionId: "session-w6-worker", source: "runtime", detectedAt: "2024-07-15T00:00:00.000Z" },
         capture_range: null
       }]
     };
@@ -129,15 +140,100 @@ test("authority independently verifies transcript utterances against bound user 
       rootInput: rootDir,
       runtimeLogOptions: { runtimeLogRoots: { codex: [logRoot] } }
     });
+    const reviewerSession = {
+      runtime: "codex" as const,
+      sessionId: "session-w6-consent",
+      source: "runtime" as const,
+      detectedAt: "2024-07-15T00:12:00.000Z"
+    };
     const compile = (utterance: string) => compiler.compile(envelope({
       schema: "consent.grant/v1", taskId, executionId, consentId,
       utterance, standingPolicyDecisionId: null, assertedRationale: null,
       actions: ["approve_execution", "complete_task"]
-    }, [present(executionRef(), "execution-v1"), absent(consentRef())], [cas(executionPath, executionSnapshot)]), context(1_721_000_000_000n));
+    }, [present(executionRef(), "execution-v1"), absent(consentRef())], [cas(executionPath, executionSnapshot)]), {
+      ...context(BigInt(Date.parse("2024-07-15T00:12:00.000Z"))),
+      currentSession: reviewerSession
+    });
 
-    const verified = decodePrimaryConsent((await compile("Approved in the bound user turn.")).operation.payload);
+    const verified = decodePrimaryConsent((await compile("Approved in the current reviewer session.")).operation.payload);
     assert.equal(verified.source.strength, "transcript-verified");
+    assert.equal(verified.source.transcript_anchor?.session_ref, `session/${reviewerSession.sessionId}`);
     await assert.rejects(compile("Assistant approval is not evidence."), /not found in any bound session transcript user turn/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("authority inline review keeps the Consent anchor equal to the Review session", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-consent-authority-review-session-"));
+  try {
+    const logRoot = path.join(rootDir, "logs");
+    mkdirSync(logRoot, { recursive: true });
+    writeFileSync(path.join(logRoot, "rollout-2024-07-15T00-00-00-session-w6-consent.jsonl"), `${JSON.stringify({
+      timestamp: "2024-07-15T00:11:00.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "Approved for the authority inline review." }
+    })}\n`);
+    const execution: ExecutionRecord = {
+      ...submittedExecution(),
+      session_bindings: [{
+        binding_id: "binding-primary-worker",
+        session_ref: "session/session-w6-worker",
+        role: "primary",
+        archive_status: "complete",
+        attached_at: "2024-07-15T00:00:00.000Z",
+        session: { runtime: "codex", sessionId: "session-w6-worker", source: "runtime", detectedAt: "2024-07-15T00:00:00.000Z" },
+        capture_range: null
+      }]
+    };
+    const executionSnapshot = snapshot(executionDeclaration.documentCodec.encode(execution));
+    const taskIndexSnapshot = snapshot("  status: in_review\n");
+    const state = authorityState(
+      new Map([[key(executionRef()), base("execution-v1")]]),
+      new Map([[executionPath, executionSnapshot], [taskIndexPath, taskIndexSnapshot]])
+    );
+    const payload: ConsentCommandPayloadV2 = {
+      schema: "consent.consume/v1",
+      taskId,
+      executionId,
+      consentId,
+      utterance: "Approved for the authority inline review.",
+      standingPolicyDecisionId: null,
+      assertedRationale: null,
+      actions: ["approve_execution", "complete_task"],
+      review: {
+        reviewId,
+        findings: "The submitted evidence is complete.",
+        evidenceChecked: ["evidence:w6-consent"],
+        rationale: "The exact submitted execution is approved.",
+        archiveWarningsAcknowledged: true
+      }
+    };
+    const reviewedAt = "2024-07-15T00:12:00.000Z";
+    const compiled = await makeConsentSemanticCompilerV2({
+      state,
+      rootInput: rootDir,
+      runtimeLogOptions: { runtimeLogRoots: { codex: [logRoot] } }
+    }).compile(envelope(payload, [
+      present(executionRef(), "execution-v1"), absent(consentRef()), absent(reviewRef())
+    ], [
+      cas(executionPath, executionSnapshot), cas(taskIndexPath, taskIndexSnapshot)
+    ]), {
+      ...context(BigInt(Date.parse(reviewedAt))),
+      currentSession: {
+        runtime: "codex",
+        sessionId: "session-w6-consent",
+        source: "runtime",
+        detectedAt: reviewedAt
+      }
+    });
+
+    const transaction = operationTransaction(compiled.operation.payload);
+    const review = reviewDeclaration.documentCodec.decode(transaction.body) as ReviewRecord;
+    const consent = consentDeclaration.documentCodec.decode(transaction.companionWrites[0]!.body) as ConsentRecord;
+    assert.equal(consent.source.strength, "transcript-verified");
+    assert.equal(consent.source.transcript_anchor?.session_ref, review.reviewer_session_ref);
+    assert.equal(review.reviewer_session_ref, "session/session-w6-consent");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -317,6 +413,7 @@ test("an exact consent grant attempt replays one committed receipt after authore
   let enqueued = 0;
   let consumed = 0;
   let captured: WriteOp | undefined;
+  let admittedContext: AuthoritySemanticCompilerContextV2 | undefined;
   const service = createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
@@ -372,7 +469,12 @@ test("an exact consent grant attempt replays one committed receipt after authore
           && bytesEqual(input.tokenDigest, tokenDigest)
       },
       entityRegistrations: [entityRegistry.consent],
-      semanticCompiler,
+      semanticCompiler: {
+        compile: async (candidate, authorityContext) => {
+          admittedContext = authorityContext;
+          return semanticCompiler.compile(candidate, authorityContext);
+        }
+      },
       operationNamespaceVerifier: { verify: async () => undefined },
       committedEventPublisher: {
         publish: async (input) => materializeCommittedAttributionEventV2({
@@ -394,6 +496,12 @@ test("an exact consent grant attempt replays one committed receipt after authore
   assert.deepEqual(replay, first);
   assert.equal(enqueued, 1);
   assert.equal(consumed, 1);
+  assert.deepEqual(admittedContext?.currentSession, {
+    runtime: "codex",
+    sessionId: claims.sessionId,
+    source: "runtime",
+    detectedAt: new Date(Number(claims.issuedAt)).toISOString()
+  });
   assert.equal(decodePrimaryConsent(captured?.payload).principal.personId, "person_zeyu");
   if (first.tag !== "COMMITTED") return;
   assert.match(first.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
@@ -529,6 +637,7 @@ function authorityClaims(): ActorAxesBindingClaimsV2 {
     deviceId: "device-w6",
     viewId: "view-w6",
     sessionId: "session-w6-consent",
+    sessionRuntime: "codex",
     allowedEntityKinds: ["consent"],
     allowedActions: ["grant"],
     resourceScopes: [{ kind: "workspace" }],
@@ -560,16 +669,6 @@ function submittedExecution(): ExecutionRecord {
   };
 }
 
-function authorityState(
-  bases: ReadonlyMap<string, SemanticEntityBaseV2>,
-  documents: ReadonlyMap<string, HostedDocumentSnapshotV2>
-) {
-  return {
-    readEntityBase: async (entityRef: RegistryEntityRefV2) => bases.get(key(entityRef)) ?? null,
-    readHostedDocument: async (path: string) => documents.get(path) ?? null
-  };
-}
-
 function operationTransaction(payload: unknown): {
   readonly body: string;
   readonly companionWrites: ReadonlyArray<{ readonly body: string }>;
@@ -583,59 +682,4 @@ function operationTransaction(payload: unknown): {
 
 function decodePrimaryConsent(payload: unknown): ConsentRecord {
   return consentDeclaration.documentCodec.decode(operationTransaction(payload).body) as ConsentRecord;
-}
-
-function snapshot(body: string): HostedDocumentSnapshotV2 {
-  return { body, epoch: "epoch-w6", revision: 7n, blobDigest: Buffer.alloc(32, 0x77) };
-}
-
-function base(semanticVersion: string): SemanticEntityBaseV2 {
-  return { semanticVersion, stateDigest };
-}
-
-function ref(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
-  return { registryVersion: 1, entityKind, canonicalRef };
-}
-
-function executionRef(): RegistryEntityRefV2 {
-  return ref("execution", `execution/${taskId}/${executionId}`);
-}
-
-function consentRef(): RegistryEntityRefV2 {
-  return ref("consent", `consent/${taskId}/${consentId}`);
-}
-
-function reviewRef(): RegistryEntityRefV2 {
-  return ref("review", `review/${taskId}/${reviewId}`);
-}
-
-function key(entityRef: RegistryEntityRefV2): string {
-  return `${entityRef.registryVersion}\0${entityRef.entityKind}\0${entityRef.canonicalRef}`;
-}
-
-function absent(entityRef: RegistryEntityRefV2): SemanticBaseCasV2 {
-  return { entityRef, expectedSemanticVersion: null, expectedStateDigest: null };
-}
-
-function present(entityRef: RegistryEntityRefV2, semanticVersion: string): SemanticBaseCasV2 {
-  return { entityRef, expectedSemanticVersion: semanticVersion, expectedStateDigest: stateDigest };
-}
-
-function cas(path: string, value: HostedDocumentSnapshotV2): PathCasV2 {
-  return { path, expectedEpoch: value.epoch, expectedRevision: value.revision, expectedBlobDigest: value.blobDigest };
-}
-
-function mutationPair(mutation: SemanticMutationSetV2["mutations"][number]): string {
-  return `${mutation.entity.canonicalRef}:${mutation.action.action}`;
-}
-
-const schemaTuple = {
-  wire: 2, event: 2, receipt: 2, digest: 2, policy: 1,
-  commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
-} as const;
-
-const channelNonceDigest = Buffer.alloc(32, 0x22);
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
 }

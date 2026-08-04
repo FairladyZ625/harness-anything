@@ -125,10 +125,9 @@ test("fixed-attempt planning is pure and activation validates exact durable reco
     assert.match(plan.semanticDigest, /^[a-f0-9]{64}$/u);
     assert.deepEqual(JSON.parse(JSON.stringify(plan)), plan);
     const exactAttempt = attemptFromProgressAppendPlan(plan);
-    assert.equal(
-      decodeActorAxesBindingV2(exactAttempt.presentationToken).claims.tokenId,
-      plan.tokenId
-    );
+    const plannedClaims = decodeActorAxesBindingV2(exactAttempt.presentationToken).claims;
+    assert.equal(plannedClaims.tokenId, plan.tokenId);
+    assert.equal(plannedClaims.sessionRuntime, compileInput.currentSession.runtime);
     const actorStamp = productionAuthorityActor();
     const proceeding = createRepoWriteProceedingOutcomeV1({
       repoId: config.repoId,

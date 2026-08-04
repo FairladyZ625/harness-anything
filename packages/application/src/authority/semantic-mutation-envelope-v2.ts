@@ -1,4 +1,4 @@
-import type { RegistryMutationPlanInput, StoragePlan, WriteOp } from "@harness-anything/kernel";
+import type { CurrentSessionRef, RegistryMutationPlanInput, StoragePlan, WriteOp } from "@harness-anything/kernel";
 import {
   semanticMutationSetBytesV2,
   semanticMutationSetDigestV2,
@@ -153,6 +153,7 @@ export interface AuthoritySemanticCompilerContextV2 {
     readonly responsibleHuman: string;
   };
   readonly sessionId: string;
+  readonly currentSession?: CurrentSessionRef;
   readonly nowMs: bigint;
 }
 

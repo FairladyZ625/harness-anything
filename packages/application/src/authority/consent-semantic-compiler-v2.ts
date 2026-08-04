@@ -20,7 +20,10 @@ import {
   createConsentRecord,
   DEFAULT_HUMAN_CONSENT_TTL_MS
 } from "../execution-consent-helpers.ts";
-import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  resolveConsentAuthorization
+} from "../consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
 import { assertReviewEvidenceBelongsToExecution } from "../review-execution-service.ts";
 import {
@@ -39,6 +42,7 @@ import {
   type AuthoritySemanticCompilerV2,
   type RegistryEntityRefV2
 } from "./semantic-mutation-envelope-v2.ts";
+import { authorityConsentTranscriptCandidatesV2 } from "./authority-consent-transcript-candidates-v2.ts";
 import {
   semanticAdmissionV2 as admission,
   semanticMutationPlanV2 as plan,
@@ -135,7 +139,7 @@ async function compileConsentGrantV2(
     actor: context.actor,
     authorization: await resolveConsentAuthorizationForAuthority({
       rootInput: options.rootInput,
-      execution,
+      transcriptCandidates: authorityConsentTranscriptCandidates(execution, context, now),
       request: consentSourceRequest({
         utterance: payload.utterance,
         standingPolicyDecisionId: payload.standingPolicyDecisionId,
@@ -190,6 +194,10 @@ async function compileConsentConsumeV2(
   const open = storedConsent
     ? existingConsentForConsumeV2(storedConsent.body, payload, execution, context, now)
     : await newConsentForConsumeV2(payload, execution, context, now, ttlMs, options);
+  if (!storedConsent && open.source.strength === "transcript-verified"
+    && open.source.transcript_anchor.session_ref !== `session/${context.sessionId}`) {
+    throw admission("CONSENT_REVIEW_SESSION_MISMATCH");
+  }
   const consumed = decodeConsentRecordV2({
     ...open,
     state: "consumed",
@@ -349,7 +357,7 @@ async function newConsentForConsumeV2(
     actor: context.actor,
     authorization: await resolveConsentAuthorizationForAuthority({
       rootInput: options.rootInput,
-      execution,
+      transcriptCandidates: authorityConsentTranscriptCandidates(execution, context, now),
       request: consentSourceRequest({
         utterance: payload.utterance,
         standingPolicyDecisionId: payload.standingPolicyDecisionId,
@@ -361,6 +369,18 @@ async function newConsentForConsumeV2(
     grantedAt: now,
     ttlMs
   });
+}
+
+function authorityConsentTranscriptCandidates(
+  execution: ExecutionRecord,
+  context: AuthoritySemanticCompilerContextV2,
+  reviewedAt: string
+): ReturnType<typeof authorityConsentTranscriptCandidatesV2> {
+  try {
+    return authorityConsentTranscriptCandidatesV2(execution, context.currentSession, reviewedAt, context.sessionId);
+  } catch {
+    throw admission("AUTHORITY_COMPILER_SESSION_CONTEXT_MISMATCH");
+  }
 }
 
 async function resolveConsentAuthorizationForAuthority(

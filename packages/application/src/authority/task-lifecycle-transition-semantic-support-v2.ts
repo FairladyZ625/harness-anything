@@ -187,6 +187,10 @@ export async function contractSnapshot(
   return snapshot;
 }
 
+export function taskLifecycleTransitionCompilerNever(value: never): never {
+  throw admission("TASK_LIFECYCLE_PLAN_EXHAUSTIVENESS_BREACH", String(value));
+}
+
 function normalizedCommandPaths(paths: ReadonlyArray<string>): ReadonlyArray<string> {
   return [...new Set(paths.map((entry) => entry.replaceAll("\\", "/")))].sort();
 }

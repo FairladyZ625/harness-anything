@@ -8,6 +8,7 @@ import {
 import {
   actorAxesBindingCoreDigestV2,
   actorAxesBindingCoreV2Domain,
+  type CurrentSessionRuntime,
   type WriteAttribution,
   type ProtocolSchemaTupleV2Core
 } from "@harness-anything/kernel";
@@ -62,6 +63,7 @@ export interface ActorAxesBindingClaimsV2 {
   readonly deviceId: string;
   readonly viewId: string;
   readonly sessionId: string;
+  readonly sessionRuntime?: CurrentSessionRuntime;
   readonly allowedEntityKinds: ReadonlyArray<string>;
   readonly allowedActions: ReadonlyArray<string>;
   readonly resourceScopes: ReadonlyArray<ResourceScopeV2>;
@@ -369,6 +371,7 @@ function claimsWire(claims: ActorAxesBindingClaimsV2): CanonicalCborValue {
     deviceId: claims.deviceId,
     viewId: claims.viewId,
     sessionId: claims.sessionId,
+    ...(claims.sessionRuntime ? { sessionRuntime: claims.sessionRuntime } : {}),
     allowedEntityKinds: [...claims.allowedEntityKinds],
     allowedActions: [...claims.allowedActions],
     resourceScopes: claims.resourceScopes.map(scopeWire),
@@ -390,17 +393,23 @@ function claimsWire(claims: ActorAxesBindingClaimsV2): CanonicalCborValue {
 }
 
 function claimsFromWire(value: CanonicalCborValue): ActorAxesBindingClaimsV2 {
-  const wire = record(value, [
+  const legacyKeys = [
     "tokenId", "bindingId", "principalPersonId", "executorAgentId", "workspaceId", "deviceId", "viewId", "sessionId",
     "allowedEntityKinds", "allowedActions", "resourceScopes", "pathFootprint", "maxBytes", "maxMutations", "maxOperations",
     "authorityGeneration", "channelNonceDigest", "schemaTuple", "issuedAt", "notBefore", "expiresAt", "revocationEpochs"
-  ], "ActorAxesBindingClaimsV2");
+  ];
+  const hasSessionRuntime = Boolean(value && typeof value === "object" && !Array.isArray(value)
+    && !(value instanceof Uint8Array) && "sessionRuntime" in value);
+  const wire = record(value, hasSessionRuntime
+    ? [...legacyKeys.slice(0, 8), "sessionRuntime", ...legacyKeys.slice(8)]
+    : legacyKeys, "ActorAxesBindingClaimsV2");
   const executor = wire.executorAgentId === null ? null : bindingText(wire.executorAgentId, "executorAgentId");
   return {
     tokenId: bindingText(wire.tokenId, "tokenId"), bindingId: bindingText(wire.bindingId, "bindingId"),
     principalPersonId: bindingText(wire.principalPersonId, "principalPersonId"), executorAgentId: executor,
     workspaceId: bindingText(wire.workspaceId, "workspaceId"), deviceId: bindingText(wire.deviceId, "deviceId"),
     viewId: bindingText(wire.viewId, "viewId"), sessionId: bindingText(wire.sessionId, "sessionId"),
+    ...(hasSessionRuntime ? { sessionRuntime: currentSessionRuntime(wire.sessionRuntime) } : {}),
     allowedEntityKinds: textArray(wire.allowedEntityKinds, "allowedEntityKinds"),
     allowedActions: textArray(wire.allowedActions, "allowedActions"),
     resourceScopes: array(wire.resourceScopes, "resourceScopes").map(scopeFromWire),
@@ -419,6 +428,7 @@ function validateClaims(claims: ActorAxesBindingClaimsV2): void {
     workspaceId: claims.workspaceId, deviceId: claims.deviceId, viewId: claims.viewId, sessionId: claims.sessionId
   })) nonBlank(value, name);
   if (claims.executorAgentId !== null) nonBlank(claims.executorAgentId, "executorAgentId");
+  if (claims.sessionRuntime !== undefined) currentSessionRuntime(claims.sessionRuntime);
   sortedSet(claims.allowedEntityKinds, "allowedEntityKinds");
   sortedSet(claims.allowedActions, "allowedActions");
   sortedCborSet(claims.resourceScopes, "resourceScopes", scopeWire);
@@ -452,6 +462,13 @@ function validateClaims(claims: ActorAxesBindingClaimsV2): void {
       if (!isPortablePath(path)) throw new Error("pathFootprint path must be canonical portable ASCII");
     }
   }
+}
+
+function currentSessionRuntime(value: unknown): CurrentSessionRuntime {
+  if (value === "human" || value === "claude-code" || value === "codex" || value === "zcode" || value === "antigravity") {
+    return value;
+  }
+  throw new Error("sessionRuntime must be a supported current-session runtime");
 }
 
 function scopeWire(scope: ResourceScopeV2): CanonicalCborValue {

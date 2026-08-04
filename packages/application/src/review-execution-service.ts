@@ -30,7 +30,12 @@ import {
   decodeExecutionForConsent,
   generateConsentId
 } from "./execution-consent-helpers.ts";
-import { consentSourceRequest, resolveConsentAuthorization } from "./consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  executionBoundConsentTranscriptCandidates,
+  resolveConsentAuthorization,
+  reviewCurrentConsentTranscriptCandidate
+} from "./consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "./runtime-session-logs.ts";
 
 export interface ReviewExecutionService {
@@ -353,7 +358,14 @@ async function resolveApprovalConsent(input: {
     }
     const authorization = await resolveConsentAuthorization({
       rootInput: input.rootInput,
-      execution: input.execution,
+      transcriptCandidates: [
+        reviewCurrentConsentTranscriptCandidate({
+          execution: input.execution,
+          session: input.reviewerSession,
+          reviewedAt: input.reviewedAt
+        }),
+        ...executionBoundConsentTranscriptCandidates(input.execution)
+      ],
       request: consentSourceRequest({
         utterance: input.consentUtterance,
         standingPolicyDecisionId: input.consentStandingPolicyDecisionId,
@@ -361,6 +373,10 @@ async function resolveApprovalConsent(input: {
       }),
       runtimeLogOptions: input.runtimeLogOptions
     });
+    if (authorization.source.strength === "transcript-verified"
+      && authorization.source.transcript_anchor.session_ref !== `session/${input.reviewerSession.sessionId}`) {
+      throw new Error("transcript-verified Review consent must be anchored to the current reviewer session");
+    }
     const consumed = createConsentRecord({
       consentId,
       taskId: input.taskId,
