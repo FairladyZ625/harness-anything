@@ -61,6 +61,8 @@ import {
 } from "./exact-journal-flush.ts";
 import { maybeAutoMaterialize } from "./publication/materialization.ts";
 import { finalizeJournalPostCommit } from "./post-commit.ts";
+import { assertCodeDocReplacementHasAuthoredChange } from "./code-doc-reconcile-noop.ts";
+import { isLocalProjectionPath } from "./projection-path.ts";
 import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
@@ -363,6 +365,14 @@ function flushRecords(
   );
 
   assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
+  assertCodeDocReplacementHasAuthoredChange({
+    rootDir,
+    rootInput,
+    plannedRecords,
+    publicationVcs,
+    attributionEventStore,
+    readPayload: (record) => readVerifiedPayload(rootDir, record)
+  });
   onProjectionFingerprintPhase?.("capture-start");
   const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
     ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs, undefined, {
@@ -392,12 +402,12 @@ function flushRecords(
   const mutationWillCommit = eventCommitPlan.willCommit;
   const eventWrites = mutationWillCommit
     ? attributedRecords
-    .map((record) => attributionEventStore.ensure(record, {
-      rootDir,
-      rootInput,
-      commitSha: eventCommitPlan.preCommitSha,
-      versionControlSystem: eventVcs
-    }))
+      .map((record) => attributionEventStore.ensure(record, {
+        rootDir,
+        rootInput,
+        commitSha: eventCommitPlan.preCommitSha,
+        versionControlSystem: eventVcs
+      }))
     : [];
   const eventPaths = eventWrites.flatMap((write) => write.touchedPaths);
   const mutationCommitSha = commitTouchedPaths(
@@ -524,12 +534,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
-}
-
-function isLocalProjectionPath(rootPath: string, filePath: string): boolean {
-  const relativePath = path.relative(rootPath, filePath);
-  return relativePath.length === 0
-    || (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath));
 }
 
 function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
