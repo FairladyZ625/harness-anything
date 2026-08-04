@@ -237,8 +237,22 @@ test("production service route preserves progress dry-run and publishes canonica
       `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
     )), true, "owner-stage reconciliation must publish code-doc anchors before completion");
 
+    const completionPacketPath = path.join(fixture.root, "slugged-completion.json");
+    writeFileSync(completionPacketPath, JSON.stringify({
+      findings: "Slugged production evidence is complete.",
+      evidenceChecked: ["ev_cli_1"],
+      rationale: "The submitted execution and reconciled code-doc evidence support completion.",
+      archiveWarningsAcknowledged: true,
+      consentAssertedRationale: "Approval was received through an external channel.",
+      consentActions: ["approve_execution", "complete_task"],
+      ci: "passed",
+      executionId: sluggedExecutionId,
+      commit: fixture.publicHead,
+      paths: ["README.md"],
+      reviewerId: "person_alice"
+    }));
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "complete", sluggedLifecycleTaskId, "--ci", "passed", "--reviewer", "person_alice"
+      "task", "complete", sluggedLifecycleTaskId, "--approve", "--from-file", completionPacketPath
     ], sluggedLifecycleEnv);
     assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
     assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
@@ -378,6 +392,9 @@ test("production generic canonical ingress accepts and journals one write for ev
         gid: process.getgid?.() ?? 0
       }
     });
+    const paritySubmitTaskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNJ0";
+    const paritySubmitExecutionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNJ1";
+    const paritySubmitSessionId = "service-wave2-submit-session";
     const cases: ReadonlyArray<{
       readonly kind: string;
       readonly action: ParsedCommand["action"];
@@ -427,10 +444,31 @@ test("production generic canonical ingress accepts and journals one write for ev
       authoredMarker: /decision\/dec_INGRESS\/C1/u
     }, {
       kind: "session",
-      action: { kind: "session-export", sessionId: "session-ingress", runtime: "codex", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z", transcriptFile: fixture.transcriptPath },
-      canonicalEntityId: "entity/session/session-ingress" as EntityId,
-      authoredPath: "sessions/session-ingress.md",
-      authoredMarker: /session-ingress/u
+      action: { kind: "session-export", sessionId: paritySubmitSessionId, runtime: "codex", source: "manual", detectedAt: "2026-07-17T00:00:00.000Z", transcriptFile: fixture.transcriptPath },
+      canonicalEntityId: `entity/session/${paritySubmitSessionId}` as EntityId,
+      authoredPath: `sessions/${paritySubmitSessionId}.md`,
+      authoredMarker: /service-wave2-submit-session/u
+    }, {
+      kind: "task-submit",
+      action: {
+        kind: "task-submit",
+        taskId: paritySubmitTaskId,
+        executionId: paritySubmitExecutionId,
+        leaseToken: null,
+        submission: {
+          completionClaim: "Generic canonical task-submit ingress qualified.",
+          deliverables: ["execution submission"],
+          verificationNotes: ["generic canonical ingress"],
+          knownGaps: [],
+          residualRisks: [],
+          outputs: ["task-submit output evidence"]
+        },
+        callerIdempotencyKey: "generic-task-submit-ingress",
+        dryRun: false
+      },
+      canonicalEntityId: `execution/${paritySubmitExecutionId}` as EntityId,
+      authoredPath: `tasks/${paritySubmitTaskId}/executions/${paritySubmitExecutionId}.md`,
+      authoredMarker: /"state": "submitted"/u
     }, {
       kind: "review",
       action: {
@@ -491,14 +529,33 @@ test("production generic canonical ingress accepts and journals one write for ev
       kind: "task-complete",
       action: {
         kind: "task-complete", taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0",
-        reviewerId: "person_alice", evidenceMode: "execution-review"
+        executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+        ciGate: "passed",
+        reviewerId: "person_alice",
+        evidenceMode: "execution-review",
+        commitRef: fixture.publicHead,
+        judgment: null,
+        approval: {
+          executionId: "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5",
+          findings: "All production evidence verified.",
+          evidenceChecked: ["evidence:ingress"],
+          rationale: "Consent-backed evidence satisfies the closeout contract.",
+          archiveWarningsAcknowledged: true,
+          consentSource: { kind: "recorded-consent", consentId: "cns_01KXQ4WTA7Q4XJ5GDDRS1YXNG3" },
+          consentActions: null,
+          paths: ["README.md"],
+          prRef: null
+        },
+        externalCheckpointRefs: [],
+        callerIdempotencyKey: "generic-task-complete-ingress",
+        dryRun: false
       },
       canonicalEntityId: "execution/exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG5" as EntityId,
       authoredPath: "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0/INDEX.md",
       authoredMarker: /status: done/u
     }];
     const coveredKinds = new Set(cases.map((fixtureCase) => fixtureCase.kind));
-    assert.equal(["consent", "decision", "fact", "module", "relation", "review", "session", "task"]
+    assert.equal(["consent", "decision", "fact", "module", "relation", "review", "session", "task", "task-submit"]
       .every((kind) => coveredKinds.has(kind)), true);
     for (const [index, fixtureCase] of cases.entries()) {
       const sessionId = `real-cli-session-${index + 1}`;
