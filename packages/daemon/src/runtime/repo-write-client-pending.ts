@@ -8,6 +8,7 @@ import {
   beginRepoWriteParentPerformanceTiming,
   type RepoWriteParentPerformanceTiming
 } from "./repo-write-parent-performance.ts";
+import type { RepoWriteParentPendingPhase } from "./repo-write-phase.ts";
 
 export interface PendingSubmit {
   readonly requestId: string;
@@ -15,7 +16,7 @@ export interface PendingSubmit {
   readonly resolve: (receipt: RepoWriteJsonObject) => void;
   readonly reject: (error: Error) => void;
   timer: NodeJS.Timeout | undefined;
-  phase: "queued" | "submitted" | "prepared" | "proceeded";
+  phase: RepoWriteParentPendingPhase;
   opId?: string;
   lastTelemetry?: RepoWriteTelemetryFrame;
   readonly performanceTiming?: RepoWriteParentPerformanceTiming;

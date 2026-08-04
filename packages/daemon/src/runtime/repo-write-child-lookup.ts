@@ -8,9 +8,49 @@ import type {
   RepoWriteOperationLookupResult,
   RepoWriteTerminalOutcome
 } from "./repo-write-protocol.ts";
+import type { RepoWriteChildOperationPhase } from "./repo-write-phase.ts";
 
-export type RepoWriteHostedOperationPhase =
-  "preparing" | "prepared" | "proceeding" | RepoWriteTerminalOutcome | "failed" | "unknown";
+export type RepoWriteHostedOperationPhase = RepoWriteChildOperationPhase;
+export type RepoWriteHostedOperationNonTerminalPhase = Exclude<
+  RepoWriteHostedOperationPhase,
+  "terminal"
+>;
+
+export type RepoWriteHostedOperationSnapshot =
+  | { readonly phase: RepoWriteHostedOperationNonTerminalPhase }
+  | {
+      readonly phase: "terminal";
+      readonly outcome: RepoWriteTerminalOutcome;
+      readonly receipt: RepoWriteJsonObject;
+    };
+
+type RepoWriteAssertTrue<Value extends true> = Value;
+type RepoWriteTerminalSnapshot = Extract<RepoWriteHostedOperationSnapshot, { phase: "terminal" }>;
+type RepoWriteTerminalSnapshotOutcomeIsRequired =
+  object extends Pick<RepoWriteTerminalSnapshot, "outcome"> ? false : true;
+type _RepoWriteTerminalSnapshotMustCarryOutcome =
+  RepoWriteAssertTrue<RepoWriteTerminalSnapshotOutcomeIsRequired>;
+
+export function repoWriteHostedOperationSnapshot(operation: {
+  readonly phase: RepoWriteHostedOperationPhase;
+  readonly outcome?: RepoWriteTerminalOutcome;
+  readonly receipt?: RepoWriteJsonObject;
+}): RepoWriteHostedOperationSnapshot {
+  if (operation.phase === "terminal") {
+    if (operation.outcome === undefined || operation.receipt === undefined) {
+      throw new Error("terminal repo writer operation is missing its outcome or receipt");
+    }
+    return {
+      phase: "terminal",
+      outcome: operation.outcome,
+      receipt: operation.receipt
+    };
+  }
+  if (operation.outcome !== undefined || operation.receipt !== undefined) {
+    throw new Error("non-terminal repo writer operation has terminal result data");
+  }
+  return { phase: operation.phase };
+}
 
 export type RepoWriteCanonicalLookupResult =
   | { readonly state: Exclude<RepoWriteOperationLookupResult["state"], "committed" | "rejected"> }
@@ -55,17 +95,18 @@ export function repoWriteCanonicalLookupResult(
       };
 }
 
-export function repoWriteLocalLookupResult(operation: {
-  readonly phase: RepoWriteHostedOperationPhase;
-  readonly receipt?: RepoWriteJsonObject;
-}): RepoWriteOperationLookupResult {
+export function repoWriteLocalLookupResult(
+  operation: RepoWriteHostedOperationSnapshot
+): RepoWriteOperationLookupResult {
   if (operation.phase === "preparing" || operation.phase === "prepared") return { state: "prepared" };
   if (operation.phase === "proceeding") return { state: "proceeding" };
-  if (operation.phase !== "committed" && operation.phase !== "rejected") {
+  if (operation.phase !== "terminal") {
     return { state: operation.phase };
   }
-  if (!operation.receipt) throw new Error("terminal repo writer operation is missing its receipt");
-  return operation.phase === "committed"
+  if (operation.outcome === undefined || operation.receipt === undefined) {
+    throw new Error("terminal repo writer operation is missing its outcome or receipt");
+  }
+  return operation.outcome === "committed"
     ? { state: "committed", outcome: "committed", receipt: operation.receipt }
     : { state: "rejected", outcome: "rejected", receipt: operation.receipt };
 }

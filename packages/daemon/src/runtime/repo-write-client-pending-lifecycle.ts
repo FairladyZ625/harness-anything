@@ -8,6 +8,8 @@ import type {
   PendingLookup,
   PendingSubmit
 } from "./repo-write-client-pending.ts";
+import type { RepoWriteFailureFrame } from "./repo-write-protocol.ts";
+import { advanceRepoWritePhase } from "./repo-write-phase.ts";
 import { expireRepoWriteSubmit } from "./repo-write-client-timeout.ts";
 import { armRepoWriteSubmitEscalation } from "./repo-write-client-watchdog.ts";
 import { finishRepoWriteParentPerformanceTiming } from "./repo-write-parent-performance.ts";
@@ -69,4 +71,22 @@ export function expireRepoWritePendingSubmit(
       onTimeout
     });
   }
+}
+
+export function repoWritePendingFailureTransitionError(
+  pending: PendingSubmit,
+  message: Extract<RepoWriteFailureFrame, { readonly kind: "failure" }>
+): string | undefined {
+  if (message.outcome === "not-started") {
+    if (pending.phase !== "submitted" && pending.phase !== "prepared" && pending.phase !== "proceeded") {
+      return "Repo writer not-started failure has an invalid phase transition.";
+    }
+    advanceRepoWritePhase("parent", "not-started", pending.phase);
+    return undefined;
+  }
+  if (pending.phase !== "prepared" && pending.phase !== "proceeded") {
+    return "Repo writer outcome-unknown failure has an invalid phase transition.";
+  }
+  advanceRepoWritePhase("parent", "outcome-unknown", pending.phase);
+  return undefined;
 }

@@ -22,6 +22,13 @@ import {
   committedCommandReceipt,
   rejectedCommandReceipt
 } from "./support/repo-write-terminal-fixture.ts";
+import {
+  advanceRepoWritePhase
+} from "../src/runtime/repo-write-phase.ts";
+import {
+  repoWriteHostedOperationSnapshot,
+  repoWriteLocalLookupResult
+} from "../src/runtime/repo-write-child-lookup.ts";
 
 test("submit codec carries command DTOs as JSON-safe values with explicit scalar text encodings", () => {
   const message: RepoWriteParentMessage = {
@@ -210,6 +217,30 @@ test("prepared and proceed form an exact opId handshake before canonical mutatio
 
   assert.deepEqual(parseRepoWriteChildMessage(stringifyRepoWriteChildMessage(prepared)), prepared);
   assert.deepEqual(parseRepoWriteParentMessage(stringifyRepoWriteParentMessage(proceed)), proceed);
+});
+
+test("one phase table derives both views without collapsing the legal transport window", () => {
+  assert.equal(advanceRepoWritePhase("parent", "submit", "queued"), "submitted");
+  assert.equal(advanceRepoWritePhase("child", "submit", null), "preparing");
+  assert.equal(advanceRepoWritePhase("child", "prepared", "preparing"), "prepared");
+  assert.equal(advanceRepoWritePhase("parent", "prepared", "submitted"), "prepared");
+  assert.equal(advanceRepoWritePhase("child", "proceed", "prepared"), "proceeding");
+
+  const receipt = committedCommandReceipt();
+  const terminal = repoWriteHostedOperationSnapshot({
+    phase: "terminal",
+    outcome: "committed",
+    receipt
+  });
+  assert.deepEqual(repoWriteLocalLookupResult(terminal), {
+    state: "committed",
+    outcome: "committed",
+    receipt
+  });
+  assert.throws(
+    () => repoWriteHostedOperationSnapshot({ phase: "terminal" }),
+    /missing its outcome or receipt/u
+  );
 });
 
 test("historical recovery diagnostics carry a bounded startup failure without request correlation", () => {

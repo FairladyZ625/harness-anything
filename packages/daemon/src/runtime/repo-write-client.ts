@@ -20,7 +20,8 @@ import { resolveRepoWriteClientLimits } from "./repo-write-client-limits.ts";
 import { disconnectRepoWritePendingRequests } from "./repo-write-client-disconnect.ts";
 import {
   expireRepoWritePendingSubmit,
-  rejectRepoWriteQueuedRequests
+  rejectRepoWriteQueuedRequests,
+  repoWritePendingFailureTransitionError
 } from "./repo-write-client-pending-lifecycle.ts";
 import {
   expireRepoWriteLookup,
@@ -40,6 +41,7 @@ import {
   finishRepoWriteParentPerformanceTiming,
   markRepoWriteChildStarted
 } from "./repo-write-parent-performance.ts";
+import { advanceRepoWritePhase } from "./repo-write-phase.ts";
 export type { RepoWriteClientLimits, RepoWriteClientOptions, RepoWriteClientTransport } from "./repo-write-client-contract.ts";
 import {
   RepoWriteClientCapacityError,
@@ -233,7 +235,7 @@ export class RepoWriteClient {
   private dispatchSubmit(requestId: string): void {
     const pending = this.pending.get(requestId);
     if (!pending || pending.phase !== "queued") return;
-    pending.phase = "submitted";
+    pending.phase = advanceRepoWritePhase("parent", "submit", pending.phase);
     pending.timer = setTimeout(
       () => this.expireSubmit(requestId),
       this.limits.requestTimeoutMs
@@ -282,7 +284,7 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer sent a duplicate or unknown prepared request.");
         return;
       }
-      pending.phase = "prepared";
+      pending.phase = advanceRepoWritePhase("parent", "prepared", pending.phase);
       pending.opId = message.opId;
       markRepoWriteChildStarted(pending.performanceTiming);
       this.dispatchProceed(pending);
@@ -295,6 +297,7 @@ export class RepoWriteClient {
         this.failProtocol("Repo writer terminal correlation does not match the prepared request.");
         return;
       }
+      advanceRepoWritePhase("parent", "terminal", pending.phase);
       if (!repoWriteTerminalReceiptMatches(message.outcome, message.receipt)) {
         this.failProtocol("Repo writer terminal receipt does not match its durable outcome.");
         return;
@@ -390,6 +393,11 @@ export class RepoWriteClient {
       const pending = this.pending.get(message.requestId);
       if (!pending || (message.opId !== undefined && pending.opId !== message.opId)) {
         this.failProtocol("Repo writer failure correlation does not match the pending request.");
+        return;
+      }
+      const failureTransitionError = repoWritePendingFailureTransitionError(pending, message);
+      if (failureTransitionError !== undefined) {
+        this.failProtocol(failureTransitionError);
         return;
       }
       clearTimeout(pending.timer);
@@ -565,6 +573,8 @@ export class RepoWriteClient {
   }
 
   private dispatchProceed(pending: PendingSubmit): void {
+    if (pending.phase !== "prepared") return;
+    const proceededPhase = advanceRepoWritePhase("parent", "proceed", pending.phase);
     try {
       const sent = this.options.transport.send({
         ...repoWriteClientFrameBase(this.options.repoId, this.options.generation),
@@ -572,13 +582,12 @@ export class RepoWriteClient {
         requestId: pending.requestId,
         opId: pending.opId!
       });
-      if (this.pending.has(pending.requestId)) pending.phase = "proceeded";
+      if (this.pending.has(pending.requestId)) pending.phase = proceededPhase;
       void Promise.resolve(sent).catch((error: unknown) => this.rejectSendFailure(pending.requestId, error));
     } catch (error) {
       this.rejectSendFailure(pending.requestId, error, true);
     }
   }
-
   private pendingRequestCount(): number {
     return this.pending.size + this.directLane.size + this.pendingLookups.size;
   }
