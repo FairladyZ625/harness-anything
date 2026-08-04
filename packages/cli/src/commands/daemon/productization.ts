@@ -20,7 +20,16 @@ import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
-import { resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
+import { resolveLocalDaemonTarget } from "../../daemon/client.ts";
+import {
+  daemonServiceStartupTimeoutMs,
+  diagnoseDaemonServiceLaunchFailure,
+  observeDaemonServiceLaunch,
+  readReachableDaemonStatus,
+  DaemonServiceStartupError,
+  waitForEndpointStopped,
+  waitForReachableStatus
+} from "../../daemon/daemon-service-startup.ts";
 import { renderDaemonHelp } from "./help.ts";
 import { loadDaemonIdentityWithEmail } from "./identity.ts";
 import { runDaemonLogsCommand } from "./logs.ts";
@@ -36,7 +45,6 @@ import type { DaemonCommandInput } from "./command-types.ts";
 import { requireDaemonProductOutputPath } from "./output-path.ts";
 import { daemonSafeId, requiredDaemonOption } from "./productization-options.ts";
 import { installSnapshotCommand, upgradeDaemonSnapshot } from "./snapshot-command.ts";
-import { readDaemonStatusWithGenerationFallback } from "./status-compatibility.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 export type { DaemonCommandInput, DaemonServeHooks } from "./command-types.ts";
@@ -100,7 +108,11 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     );
     return 2;
   } catch (error) {
-    emitDaemonError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error), input.json);
+    const message = error instanceof Error ? error.message : String(error);
+    const context = error instanceof DaemonServiceStartupError
+      ? error.diagnostic
+      : undefined;
+    emitDaemonError(CliErrorCode.JournalUnavailable, message, input.json, context);
     return 1;
   }
 }
@@ -150,20 +162,24 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       ...launchConfiguration.execArgv,
       launchConfiguration.entrypoint,
       ...launchConfiguration.args
-    ], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      env: daemonServerHostEnvironment(process.env, target)
-    });
-    child.unref();
+    ], { detached: true, stdio: ["ignore", "ignore", "pipe"], windowsHide: true, env: daemonServerHostEnvironment(process.env, target) });
     const launchTarget = {
       ...target,
       socketPath: readOption(launchConfiguration.args, "--socket") ?? target.socketPath
     };
-    const status = daemonStatusForCli(await waitForReachableStatus(launchTarget, 6_000));
-    emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath: launchTarget.socketPath }, input.json);
-    return 0;
+    const launch = observeDaemonServiceLaunch(child, launchTarget.userRoot);
+    try {
+      const status = daemonStatusForCli(await waitForReachableStatus(
+        launchTarget,
+        daemonServiceStartupTimeoutMs(),
+        launch
+      ));
+      launch.stderr.discard();
+      emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath: launchTarget.socketPath }, input.json);
+      return 0;
+    } catch (error) {
+      throw await diagnoseDaemonServiceLaunchFailure(launchTarget, launch, error);
+    }
   }
   return 0;
 }
@@ -421,12 +437,16 @@ async function startBootstrapDaemon(
     ...launchConfiguration.args
   ], {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
     env: daemonServerHostEnvironment(process.env, target)
   });
-  child.unref();
-  return waitForReachableStatus(target, 6_000);
+  const launch = observeDaemonServiceLaunch(child, target.userRoot);
+  try {
+    return await waitForReachableStatus(target, daemonServiceStartupTimeoutMs(), launch);
+  } catch (error) {
+    throw await diagnoseDaemonServiceLaunchFailure(target, launch, error);
+  }
 }
 
 async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {
@@ -461,42 +481,6 @@ function readDaemonLock(lockPath: string): Record<string, unknown> {
     ownerKind: lock.ownerKind,
     ownerToken: lock.ownerToken
   };
-}
-
-async function readReachableDaemonStatus(
-  target: LocalDaemonTarget,
-  includeGenerationAxes = false
-): Promise<Record<string, unknown> | undefined> {
-  return readDaemonStatusWithGenerationFallback(includeGenerationAxes, (includeAxes) =>
-    requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", {
-      repo: { repoId: target.repoId },
-      ...(includeAxes ? { includeGenerationAxes: true } : {})
-    }, 1_000, {
-      userRoot: target.userRoot,
-      daemonId: target.daemonId,
-      socketPath: target.socketPath,
-      allowLegacySocket: true
-    })
-  );
-}
-
-async function waitForReachableStatus(target: LocalDaemonTarget, timeoutMs: number): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    const status = await readReachableDaemonStatus(target);
-    if (status) return status;
-    await waitDaemonPollInterval(100);
-  }
-  throw new Error("daemon service did not become reachable before timeout");
-}
-
-async function waitForEndpointStopped(target: LocalDaemonTarget, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    if (!await readReachableDaemonStatus(target)) return true;
-    await waitDaemonPollInterval(100);
-  }
-  return !await readReachableDaemonStatus(target);
 }
 
 function daemonStatusForCli(status: Record<string, unknown>): Record<string, unknown> {
@@ -541,9 +525,14 @@ function emitDaemonResult(command: string, result: Record<string, unknown>, json
   console.log(parts.join(" "));
 }
 
-function emitDaemonError(code: CliErrorCode, message: string, json: boolean): void {
+function emitDaemonError(
+  code: CliErrorCode,
+  message: string,
+  json: boolean,
+  context?: Readonly<Record<string, unknown>>
+): void {
   if (json) {
-    console.log(JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon", error: cliError(code, message) }));
+    console.log(JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon", error: cliError(code, message, context) }));
     return;
   }
   console.error(`error code=${code} hint=${message}`);
@@ -582,10 +571,6 @@ function daemonAssetPath(relativePath: string): string {
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) throw new Error(`daemon asset not found: ${relativePath}`);
   return found;
-}
-
-function waitDaemonPollInterval(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isDaemonRecord(value: unknown): value is Record<string, unknown> {
