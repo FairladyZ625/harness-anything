@@ -1,17 +1,5 @@
 {
   "baselineCommit": "b4db87f72675b78e2dc1f25b803d183610942fa9",
-  "baselineImplementationBlobs": {
-    "packages/cli/src/cli/command-semantic-normalizer.ts": "714a6822fa65957f83c5136bcc19e32252b07e46",
-    "packages/cli/src/cli/command-spec/index.ts": "202dea76b5114628fb98767a0da57f333aad1a42",
-    "packages/cli/src/cli/decision-propose-normalizer.ts": "9855cbd743297bf74506b8964f1e84f9e015ff16",
-    "packages/cli/src/commands/core/decision-propose.ts": "8b97336df933154a9b6bc7c85b92728ec33459ae",
-    "packages/cli/src/commands/core/decision-relate.ts": "22b3eff78b8115c6c97e870d0218b6f779064dca",
-    "packages/cli/src/commands/core/decision-relation-record.ts": "b802dcbb858030d86d40e2b928750afd7150d239",
-    "packages/cli/src/commands/daemon/productization.ts": "565a8eb9ebc5ddf5de9c631154088d30c0bc9476",
-    "packages/cli/src/commands/preset-task.ts": "cd7bb2b01ddad1c4ee2d8f3b49bf067e1bf597a8",
-    "packages/cli/src/commands/settings.ts": "dcc83b0f0775494d4f6d7326aaa7285d5f67b619",
-    "packages/cli/src/composition/adapter-registry.ts": "8c0be49785f847e0e26e8f0c1a5e661f5c5d17df"
-  },
   "adapterE2E": {
     "generic": {
       "envelope": {

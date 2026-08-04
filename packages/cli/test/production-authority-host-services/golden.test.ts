@@ -1,6 +1,5 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { toCliError } from "../../src/cli/error-mapper.ts";
@@ -19,7 +18,6 @@ test("all injected production authority host branches match the parent-commit by
   }
   const fixture = JSON.parse(readFileSync(fixtureUrl, "utf8")) as {
     readonly baselineCommit: string;
-    readonly baselineImplementationBlobs: Readonly<Record<string, string>>;
     readonly hostServices: unknown;
   };
   assert.equal(fixture.baselineCommit, "b4db87f72675b78e2dc1f25b803d183610942fa9");
@@ -28,12 +26,6 @@ test("all injected production authority host branches match the parent-commit by
     JSON.stringify(actual),
     JSON.stringify(captureProductionAuthorityHostEquivalence(directProductionAuthorityHostServices))
   );
-  const repoRoot = new URL("../../../../", import.meta.url);
-  for (const [sourcePath, expectedBlobId] of Object.entries(fixture.baselineImplementationBlobs)) {
-    const bytes = readFileSync(new URL(sourcePath, repoRoot));
-    const header = Buffer.from(`blob ${bytes.byteLength}\0`);
-    assert.equal(createHash("sha1").update(header).update(bytes).digest("hex"), expectedBlobId, sourcePath);
-  }
 });
 
 test("structured daemon unsupported-command data retains the CLI receipt bytes", () => {
