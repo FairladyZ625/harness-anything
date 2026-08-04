@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { VcsCommitAuthor } from "../../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VcsCommitOptions, VcsCommitPhase } from "../../ports/version-control-system.ts";
 
 interface StagedIndexEntry {
   readonly mode: string;
@@ -54,32 +54,57 @@ export function commitWithScopedIndex(
   repoRoot: string,
   message: string,
   author: VcsCommitAuthor | undefined,
-  git: ScopedIndexGitOperations
+  git: ScopedIndexGitOperations,
+  options: VcsCommitOptions = {}
 ): void {
+  const report = (phase: VcsCommitPhase): void => {
+    try {
+      options.onPhase?.(phase);
+    } catch {
+      // Commit telemetry is deliberately non-authoritative.
+    }
+  };
+  const nativeCommit = (): void => {
+    report("native-commit-start");
+    git.runGitWithEnvironment(repoRoot, author, {}, "commit", "-m", message);
+    report("native-commit-done");
+  };
   let stagedPaths: ReadonlyArray<string>;
   try {
+    report("staged-paths-start");
     stagedPaths = stagedGitPaths(repoRoot, git);
+    report("staged-paths-done");
   } catch {
-    git.runGitWithEnvironment(repoRoot, author, {}, "commit", "-m", message);
+    nativeCommit();
     return;
   }
   if (stagedPaths.length === 0) {
-    git.runGitWithEnvironment(repoRoot, author, {}, "commit", "-m", message);
+    nativeCommit();
     return;
   }
 
   let stagedEntries: Map<string, StagedIndexEntry | undefined> | null;
   try {
+    report("staged-entries-start");
     stagedEntries = readStagedIndexEntries(repoRoot, stagedPaths, git);
+    report("staged-entries-done");
   } catch {
-    git.runGitWithEnvironment(repoRoot, author, {}, "commit", "-m", message);
+    nativeCommit();
     return;
   }
-  if (!stagedEntries || !worktreeMatchesStagedEntries(repoRoot, stagedEntries, git)) {
-    git.runGitWithEnvironment(repoRoot, author, {}, "commit", "-m", message);
+  if (!stagedEntries) {
+    nativeCommit();
+    return;
+  }
+  report("worktree-verify-start");
+  const worktreeMatches = worktreeMatchesStagedEntries(repoRoot, stagedEntries, git);
+  report("worktree-verify-done");
+  if (!worktreeMatches) {
+    nativeCommit();
     return;
   }
 
+  report("alternate-index-start");
   const temporaryIndexDirectory = git.fileSystem.makeTemporaryDirectory("ha-git-commit-index-");
   const temporaryIndex = path.join(temporaryIndexDirectory, "index");
   try {
@@ -126,15 +151,63 @@ export function commitWithScopedIndex(
       }
     }
 
+    report("alternate-index-ready");
+
+    report("commit-start");
     git.runGitWithEnvironment(repoRoot, author, environment, "commit", "-m", message);
+    report("commit-done");
 
     // stagedGitPaths enumerates the complete pre-hook staged set, so the
     // alternate index contains every change the normal commit would have
-    // consumed. Re-read HEAD into the original index without touching the
-    // worktree; this keeps the next publication from paying a second refresh.
-    git.runGitWithEnvironment(repoRoot, undefined, {}, "read-tree", "HEAD");
+    // consumed. Refresh only entries changed by this commit in the original
+    // index; a full read-tree clears every stat tuple and makes the following
+    // branch restore pay another cold index refresh.
+    report("index-refresh-start");
+    try {
+      refreshOriginalIndexForCommittedTree(repoRoot, git);
+    } catch {
+      // A root/unsupported tree shape must retain the old fail-closed behavior.
+      report("index-refresh-fallback-start");
+      git.runGitWithEnvironment(repoRoot, undefined, {}, "read-tree", "HEAD");
+      report("index-refresh-fallback-done");
+    }
+    report("index-refresh-done");
   } finally {
     git.fileSystem.removeTemporaryDirectory(temporaryIndexDirectory);
+  }
+}
+
+function refreshOriginalIndexForCommittedTree(repoRoot: string, git: ScopedIndexGitOperations): void {
+  const parent = git.runGitWithEnvironment(repoRoot, undefined, {}, "rev-parse", "HEAD^").trim();
+  if (parent.length === 0) throw new Error("GIT_COMMIT_PARENT_MISSING");
+  const changedPaths = nullDelimitedGitPaths(
+    git.runGitBytes(repoRoot, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", parent, "HEAD")
+  ).map((input) => Buffer.from(input).toString("utf8"));
+  for (const relativePath of changedPaths) {
+    const treeEntries = nullDelimitedGitPaths(
+      git.runGitBytes(repoRoot, "ls-tree", "-z", "-r", "HEAD", "--", relativePath)
+    );
+    if (treeEntries.length === 0) {
+      git.runGitWithEnvironment(repoRoot, undefined, {}, "update-index", "--force-remove", "--", relativePath);
+      continue;
+    }
+    const separator = treeEntries[0]!.indexOf(9);
+    if (separator < 0) throw new Error("GIT_COMMITTED_TREE_ENTRY_INVALID");
+    const metadata = Buffer.from(treeEntries[0]!.subarray(0, separator)).toString("ascii").split(" ");
+    if (metadata.length < 3 || !metadata[0] || !metadata[2]) throw new Error("GIT_COMMITTED_TREE_METADATA_INVALID");
+    const listedPath = Buffer.from(treeEntries[0]!.subarray(separator + 1)).toString("utf8");
+    if (listedPath !== relativePath) throw new Error("GIT_COMMITTED_TREE_PATH_MISMATCH");
+    git.runGitWithEnvironment(
+      repoRoot,
+      undefined,
+      {},
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      metadata[0],
+      metadata[2],
+      relativePath
+    );
   }
 }
 

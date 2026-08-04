@@ -75,6 +75,35 @@ export function repoWriteWaitingStage(
       return "authority-terminal-record-start";
     case "authority-terminal-record-persisted":
       return "authority-terminal-record-persisted";
+    case "authority-flush-git-commit-plan-start":
+    case "authority-flush-git-commit-plan-done":
+    case "authority-flush-git-session-checkout-start":
+    case "authority-flush-git-session-checkout-done":
+    case "authority-flush-git-stage-start":
+    case "authority-flush-git-stage-done":
+    case "authority-flush-git-unstage-logs-start":
+    case "authority-flush-git-unstage-logs-done":
+    case "authority-flush-git-trunk-checkout-start":
+    case "authority-flush-git-trunk-checkout-done":
+    case "authority-flush-git-commit-call-start":
+    case "authority-flush-git-commit-call-done":
+    case "authority-flush-git-staged-paths-start":
+    case "authority-flush-git-staged-paths-done":
+    case "authority-flush-git-staged-entries-start":
+    case "authority-flush-git-staged-entries-done":
+    case "authority-flush-git-worktree-verify-start":
+    case "authority-flush-git-worktree-verify-done":
+    case "authority-flush-git-alternate-index-start":
+    case "authority-flush-git-alternate-index-ready":
+    case "authority-flush-git-commit-start":
+    case "authority-flush-git-commit-done":
+    case "authority-flush-git-index-refresh-start":
+    case "authority-flush-git-index-refresh-done":
+    case "authority-flush-git-index-refresh-fallback-start":
+    case "authority-flush-git-index-refresh-fallback-done":
+    case "authority-flush-git-native-commit-start":
+    case "authority-flush-git-native-commit-done":
+      return phase;
     case "authority-materializer-start":
       return "authority-materializer-start";
     case "authority-materializer-baseline-start":
@@ -87,6 +116,18 @@ export function repoWriteWaitingStage(
       return "authority-materializer-merge-done";
     case "authority-materializer-projection-start":
       return "authority-materializer-projection";
+    case "authority-materializer-projection-load-current":
+    case "authority-materializer-projection-capture-source":
+    case "authority-materializer-projection-derive-affected":
+    case "authority-materializer-projection-declared-delta":
+    case "authority-materializer-projection-hash-next":
+    case "authority-materializer-projection-verify-source":
+    case "authority-materializer-projection-source-delta":
+    case "authority-materializer-projection-publish":
+    case "authority-materializer-projection-mode-incremental":
+    case "authority-materializer-projection-mode-rebuild":
+    case "authority-materializer-projection-mode-unchanged":
+      return phase;
     case "authority-materializer-projection-done":
       return "authority-materializer-projection-done";
     case "authority-materializer-attribution-start":

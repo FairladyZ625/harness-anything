@@ -2,10 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  AuthorityHostAttribution,
+  AuthorityHostCommand,
   CommandReceiptEnvelope,
   DaemonCommandHostServices,
   DaemonHostCommand,
-  DaemonHostCommandResult
+  DaemonHostCommandResult,
+  TaskHolderExecutor
 } from "@harness-anything/application";
 import type { HarnessDaemonRuntime } from "../src/runtime/repo-runtime.ts";
 import {
@@ -51,6 +54,110 @@ test("current-session materializer barrier fails closed without a runtime sessio
   assert.equal(receipt.ok, false);
   assert.equal(receipt.error?.code, "invalid_session", JSON.stringify(receipt));
   assert.match(receipt.error?.hint ?? "", /requires a runtime session/u);
+});
+
+test("authority-backed runtime writes do not enqueue a second current-session materializer barrier", async () => {
+  let materializerCalls = 0;
+  const runtime = {
+    ...unusedRuntime(),
+    enqueueMaterializerBatch: async () => {
+      materializerCalls += 1;
+      return {
+        dryRun: false,
+        merged: 0,
+        considered: 0,
+        branches: [],
+        warnings: [],
+        projectionRebuilt: false,
+        attributionEventsProjected: 0
+      };
+    }
+  };
+  const attribution = {
+    writeAttribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_alice" },
+        executor: null
+      },
+      principalSource: {
+        kind: "daemon-authenticated",
+        providerId: "test-provider",
+        credentialFingerprint: "credential-test"
+      },
+      executorSource: "none"
+    },
+    commitAuthor: { name: "Alice", email: "alice@example.test" },
+    taskHolderPrincipal: {
+      personId: "person_alice",
+      displayName: "Alice",
+      providerId: "test-provider",
+      credential: { kind: "unix-socket-owner-boundary", issuer: "test", subject: "test" }
+    },
+    executor: null
+  } as AuthorityHostAttribution;
+  const service = createDaemonCommandService(
+    runtime,
+    hostServices(() => undefined, {
+      actorAttribution: () => attribution,
+      authorityCommand: (command) => command as unknown as AuthorityHostCommand
+    }),
+    {
+      resolveAuthoritySubmissionV2: () => ({
+        submit: async () => {
+          throw new Error("authority submission should not be needed by this barrier test");
+        }
+      })
+    }
+  );
+
+  const receipt = await service.runCommand({
+    command: {
+      rootDir: "/repo",
+      action: { kind: "progress-append", taskId: "task-current-session", text: "authority-backed", dryRun: false }
+    },
+    session: { ...session(), source: "runtime" }
+  }, {
+    actor: productionAuthorityActor(),
+    executor: { kind: "agent", id: "codex" },
+    authorityConnection: {
+      available: true,
+      context: productionAuthorityConnection(productionAuthorityActor()),
+      assertActive: () => undefined
+    }
+  });
+
+  assert.equal(receipt.ok, true);
+  assert.equal(materializerCalls, 0);
+});
+
+test("non-authority runtime writes retain the current-session materializer barrier", async () => {
+  let materializerCalls = 0;
+  const runtime = {
+    ...unusedRuntime(),
+    enqueueMaterializerBatch: async () => {
+      materializerCalls += 1;
+      return {
+        dryRun: false,
+        merged: 0,
+        considered: 0,
+        branches: [],
+        warnings: [],
+        projectionRebuilt: false,
+        attributionEventsProjected: 0
+      };
+    }
+  };
+  const service = createDaemonCommandService(runtime, hostServices(() => undefined));
+  const receipt = await service.runCommand({
+    command: {
+      rootDir: "/repo",
+      action: { kind: "progress-append", taskId: "task-current-session", text: "queued barrier", dryRun: false }
+    },
+    session: { ...session(), source: "runtime" }
+  });
+
+  assert.equal(receipt.ok, true);
+  assert.equal(materializerCalls, 1);
 });
 
 test("parent command service sends durable governed writes to the child and never invokes inline execution", async () => {
@@ -247,7 +354,14 @@ test("unknown child receipts expose a machine-readable final-state query", async
   }
 });
 
-function hostServices(onExecute: () => void): DaemonCommandHostServices<
+function hostServices(onExecute: () => void, overrides: {
+  readonly actorAttribution?: (
+    actor: ReturnType<typeof productionAuthorityActor>,
+    command: TestCommand,
+    executor: TaskHolderExecutor | null
+  ) => AuthorityHostAttribution;
+  readonly authorityCommand?: (command: TestCommand) => AuthorityHostCommand | undefined;
+} = {}): DaemonCommandHostServices<
   TestCommand,
   TestResult,
   ReturnType<typeof productionAuthorityActor>
@@ -256,7 +370,7 @@ function hostServices(onExecute: () => void): DaemonCommandHostServices<
     parseCommandPayload: (payload) =>
       payload!.command as unknown as TestCommand,
     normalizeCommand: async (command) => command,
-    authorityCommand: () => undefined,
+    authorityCommand: overrides.authorityCommand ?? (() => undefined),
     authorityIngressFor: () => "generic",
     repoWriteChildExecutionMode: (command) =>
       command.action.kind === "progress-append"
@@ -267,9 +381,9 @@ function hostServices(onExecute: () => void): DaemonCommandHostServices<
       command: command.action.kind,
       action: command.action.kind
     }),
-    actorAttribution: () => {
+    actorAttribution: overrides.actorAttribution ?? (() => {
       throw new Error("parent actor attribution should not run");
-    },
+    }),
     migrationWriteAttribution: (attribution) => attribution,
     isActorAttributionError: () => false,
     isDryRunAction: (command) => command.action.dryRun === true,

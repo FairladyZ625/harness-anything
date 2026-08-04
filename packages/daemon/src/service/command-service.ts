@@ -242,7 +242,14 @@ export function createDaemonCommandService<
           })
         );
         return hostServices.toReceipt(
-          await withSessionMaterialization(result, parsedCommand, currentSession, runtime, hostServices)
+          await withSessionMaterialization(
+            result,
+            parsedCommand,
+            currentSession,
+            runtime,
+            hostServices,
+            authorityCoordinator !== undefined
+          )
         );
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
@@ -369,11 +376,17 @@ async function withSessionMaterialization<Command extends DaemonHostCommand, Res
   command: Command,
   currentSession: CurrentSessionRef,
   runtime: CliDaemonRuntime,
-  hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>
+  hostServices: DaemonCommandHostServices<Command, Result, AuthenticatedActor>,
+  authorityPublicationMaterialized: boolean
 ): Promise<Result> {
   if (!result.ok || hostServices.isDryRunAction(command) || currentSession.source !== "runtime") return result;
   const commandClass = commandClassForCliActionKind(command.action.kind);
   if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
+  // The authority lifecycle already materializes and proves this session inside
+  // the publication queue. Re-enqueueing the same branch here races the
+  // five-second poll batch and adds a pure post-terminal wait. Non-authority
+  // coordinators still take the barrier below.
+  if (authorityPublicationMaterialized) return result;
 
   try {
     const report = await measureCurrentDaemonRequestPerformancePhase(

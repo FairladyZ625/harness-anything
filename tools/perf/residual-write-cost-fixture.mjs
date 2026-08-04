@@ -16,8 +16,8 @@ import {
   makeLocalAuthorityAttributionEventV2Log,
   physicalChangeSetDigestV2,
   semanticMutationSetDigestV2,
-  runLedgerMaterializer
 } from "@harness-anything/kernel";
+import { commitTouchedPaths } from "../../packages/kernel/src/write-coordination/journal/publication/git.ts";
 import {
   captureAuthoredProjectionFingerprint,
   captureTrustedAuthoredProjectionFingerprint
@@ -26,6 +26,9 @@ import { makeLocalVersionControlSystem } from "../../packages/kernel/src/persist
 import { rebuildTaskProjection } from "../../packages/kernel/src/projection/sqlite-task-projection.ts";
 import { createAuthorityReplicationContentStore } from "../../packages/daemon/src/authority/replication-content-store.ts";
 import { createGitAuthorityAttributionEvidenceCommitterV2 } from "../../packages/daemon/src/authority/production/publication-evidence.ts";
+import { createDaemonRuntime } from "../../packages/daemon/src/runtime/repo-runtime.ts";
+import { createDaemonCommandService } from "../../packages/daemon/src/service/command-service.ts";
+import { flushGitCommitPhase } from "../../packages/daemon/src/runtime/repo-write-materializer-telemetry.ts";
 import {
   reportCurrentRepoWriteTelemetry,
   runWithRepoWriteTelemetry
@@ -36,10 +39,12 @@ const authoredFileBytes = 5_933;
 const taskPackageCount = 1_011;
 const evidenceShardCount = 3_179;
 const historyCommitCount = 24_000;
+const fixtureMaterializerPollMs = 250;
 const scratch = mkdtempSync(path.join(tmpdir(), "ha-residual-write-cost-"));
 const root = path.join(scratch, "repo");
 const authoredRoot = path.join(root, "harness");
 const authoredPaths = [];
+let pollingRuntime;
 
 try {
   mkdirSync(authoredRoot, { recursive: true });
@@ -60,6 +65,12 @@ try {
   const previousCommit = git("rev-parse", "HEAD");
   const evidenceCommitter = createGitAuthorityAttributionEvidenceCommitterV2(root);
   await evidenceCommitter.commitPending(previousCommit);
+
+  // Keep the production queue shape in this fixture: publication is a normal
+  // queue item, the materializer poll is a background item, and the legacy
+  // command-service barrier is a second background item behind it.
+  pollingRuntime = createDaemonRuntime({ rootDir: root, materializerPollMs: fixtureMaterializerPollMs });
+  await pollingRuntime.start();
 
   const fingerprintMs = measure(() => captureAuthoredProjectionFingerprint(root));
   const projectionRebuildMs = measure(() => rebuildTaskProjection({ rootDir: root }));
@@ -87,29 +98,47 @@ try {
         "utf8"
       );
       git("add", authoredPaths[0]);
-      const sessionCommitStartedAt = performance.now();
-      git("commit", "-q", "-m", `synthetic governance write ${writeIndex}`);
-      const sessionCommitMs = performance.now() - sessionCommitStartedAt;
-      const sessionCommit = git("rev-parse", "HEAD");
-      git("checkout", "master");
-
-      report("authority-flush-start");
-      report("git");
-      report("fsync");
-      report("authority-materializer-start");
-      const materializerStartedAt = performance.now();
-      const materializer = runLedgerMaterializer(root, {
+      let sessionCommit;
+      let sessionCommitMs;
+      const publication = await pollingRuntime.enqueueAuthorityPublication({
         sessionId,
-        versionControlSystem: trustedVcs,
-        onProgress: (step) => report(materializerTelemetryPhase(step))
+        publish: async () => {
+          report("authority-flush-start");
+          const sessionCommitStartedAt = performance.now();
+          sessionCommit = commitTouchedPaths(
+            root,
+            [taskIndexPath],
+            [`op-round7-${String(writeIndex).padStart(2, "0")}`],
+            root,
+            `synthetic governance write ${writeIndex}`,
+            sessionId,
+            {
+              versionControlSystem: trustedVcs,
+              onCommitPhase: (phase) => {
+                report(flushGitCommitPhase(phase));
+              }
+            }
+          );
+          sessionCommitMs = performance.now() - sessionCommitStartedAt;
+          return { reason: "explicit", opCount: 1, committed: true };
+        }
       });
-      const materializerMs = performance.now() - materializerStartedAt;
-      report("authority-materializer-end");
-      report("total");
-      if (materializer.merged !== 1 || materializer.warnings.length > 0) {
+      const materializer = publication.materialization;
+      if (!materializer || materializer.merged !== 1 || materializer.warnings.length > 0) {
         throw new Error(`fixture materializer did not merge ${sessionBranch}: ${JSON.stringify(materializer)}`);
       }
       const canonicalCommit = git("rev-parse", "HEAD");
+
+      const preAuthorityBarrierMs = await measureBarrierBehindQueuedPoll(
+        pollingRuntime,
+        sessionId,
+        false
+      );
+      const postAuthorityBarrierMs = await measureBarrierBehindQueuedPoll(
+        pollingRuntime,
+        sessionId,
+        true
+      );
 
       const canonicalTrustedStartedAt = performance.now();
       const canonicalTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
@@ -143,21 +172,26 @@ try {
       report("child-execution-returned");
       report("child-telemetry-flushed");
       report("child-terminal-response");
+      const telemetry = summarizeTelemetry(telemetryFrames, performance.now() - writeStartedAt);
       trustedFingerprintWrites.push({
         writeIndex,
         sessionCommit,
         sessionCommitMs,
         canonicalCommit,
-        materializerMs,
+        materializerMs: telemetry.materializerWindow.durationMs,
+        preAuthorityBarrierMs,
+        postAuthorityBarrierMs,
         canonicalTrustedMs,
         canonicalFullMs,
         evidenceCommitMs,
         evidenceTrustedMs,
         evidenceFullMs,
-        telemetry: summarizeTelemetry(telemetryFrames, performance.now() - writeStartedAt)
+        telemetry: compactTelemetry(telemetry)
       });
     });
   }
+  await pollingRuntime.stop();
+  pollingRuntime = undefined;
   const values = new Map();
   const state = {
     get: (key) => values.get(key),
@@ -205,7 +239,8 @@ try {
       authoredMiB: authoredFileCount * authoredFileBytes / 1_048_576,
       taskPackageCount,
       evidenceShardCount,
-      historyCommitCount
+      historyCommitCount,
+      fixtureMaterializerPollMs
     },
     phasesMs: {
       projectionFingerprint: fingerprintMs,
@@ -300,20 +335,95 @@ function measure(operation) {
   return performance.now() - startedAt;
 }
 
-function materializerTelemetryPhase(step) {
-  const phases = {
-    "baseline-start": "authority-materializer-baseline-start",
-    "baseline-done": "authority-materializer-baseline-done",
-    "merge-start": "authority-materializer-merge-start",
-    "merge-done": "authority-materializer-merge-done",
-    "projection-start": "authority-materializer-projection-start",
-    "projection-done": "authority-materializer-projection-done",
-    "attribution-start": "authority-materializer-attribution-start",
-    "attribution-done": "authority-materializer-attribution-done"
+async function runSessionMaterializationBarrier(runtime, sessionId, authorityBacked) {
+  const command = {
+    rootDir: root,
+    action: {
+      kind: "progress-append",
+      taskId: "task_synthetic_00000",
+      text: "fixture barrier",
+      dryRun: false
+    }
   };
-  const phase = phases[step];
-  if (!phase) throw new Error(`unknown materializer telemetry step: ${step}`);
-  return phase;
+  const attribution = {
+    writeAttribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_fixture" },
+        executor: null
+      },
+      principalSource: {
+        kind: "daemon-authenticated",
+        providerId: "fixture",
+        credentialFingerprint: "fixture"
+      },
+      executorSource: "none"
+    },
+    commitAuthor: { name: "Synthetic Fixture", email: "fixture@example.test" },
+    taskHolderPrincipal: {
+      personId: "person_fixture",
+      displayName: "Synthetic Fixture",
+      providerId: "fixture",
+      credential: { kind: "unix-socket-owner-boundary", issuer: "fixture", subject: "fixture" }
+    },
+    executor: null
+  };
+  const service = createDaemonCommandService(
+    runtime,
+    {
+      parseCommandPayload: (payload) => payload.command,
+      normalizeCommand: async (input) => input,
+      authorityCommand: authorityBacked ? (input) => input : () => undefined,
+      authorityIngressFor: () => undefined,
+      repoWriteChildExecutionMode: () => "direct",
+      receiptSeed: () => ({ command: "progress append", action: "append" }),
+      actorAttribution: () => attribution,
+      migrationWriteAttribution: (input) => input,
+      isActorAttributionError: () => false,
+      isDryRunAction: (input) => input.action.dryRun === true,
+      executeCommand: async () => ({ ok: true, command: "progress-append" }),
+      materializerCommandResult: (input) => ({ ok: true, command: "materializer", ...input }),
+      toReceipt: (input) => input,
+      toErrorReceipt: ({ error }) => ({ ok: false, error })
+    },
+    authorityBacked
+      ? { resolveAuthoritySubmissionV2: () => ({ submit: async () => { throw new Error("fixture authority submit"); } }) }
+      : {}
+  );
+  await service.runCommand(
+    { command, session: { runtime: "codex", sessionId, source: "runtime", detectedAt: "2026-08-03T00:00:00.000Z" } },
+    authorityBacked
+      ? {
+        actor: { personId: "person_fixture" },
+        executor: { kind: "agent", id: "fixture" },
+        authorityConnection: { available: true, context: {}, assertActive: () => undefined }
+      }
+      : undefined
+  );
+}
+
+async function measureBarrierBehindQueuedPoll(runtime, sessionId, authorityBacked) {
+  // A production timer cycle can already be queued when command-service returns
+  // from the authority publication. Put the same kind of background item ahead
+  // of each comparison barrier so the legacy path measures the queue wait while
+  // the authority-backed path proves it does not enqueue a second barrier.
+  let pollStarted;
+  const pollHasStarted = new Promise((resolve) => {
+    pollStarted = resolve;
+  });
+  const queuedPoll = runtime.enqueueBackgroundBatch({
+    source: "fixture-materializer-poll",
+    priority: "background",
+    run: async () => {
+      pollStarted();
+      await new Promise((resolve) => setTimeout(resolve, fixtureMaterializerPollMs));
+    }
+  });
+  await pollHasStarted;
+  const startedAt = performance.now();
+  await runSessionMaterializationBarrier(runtime, sessionId, authorityBacked);
+  const elapsedMs = performance.now() - startedAt;
+  await queuedPoll;
+  return elapsedMs;
 }
 
 function summarizeTelemetry(frames, wallMs) {
@@ -345,6 +455,34 @@ function summarizeTelemetry(frames, wallMs) {
       wallResidualMs: wallMs - (beforeFirstFrameMs + framedSpanMs + afterLastFrameMs)
     }
   };
+}
+
+function compactTelemetry(telemetry) {
+  const flushWindow = summarizeNamedWindow(
+      telemetry.frames,
+      "authority-flush-start",
+      "git"
+    );
+  return {
+    wallMs: telemetry.wallMs,
+    materializerMs: telemetry.materializerWindow.durationMs,
+    projectionSpans: telemetry.materializerWindow.subspansMs.filter((span) =>
+      span.from.includes("projection") || span.to.includes("projection")
+    ),
+    flushMs: flushWindow.durationMs,
+    flushSpansOver10ms: flushWindow.subspansMs.filter((span) => span.milliseconds >= 10),
+    evidenceTailMs: telemetry.evidenceToChildTail.durationMs,
+    projectionMode: telemetry.frames
+      .filter((frame) => frame.phase.startsWith("authority-materializer-projection-mode-"))
+      .map((frame) => frame.phase),
+    wallResidualMs: telemetry.accounting.wallResidualMs
+  };
+}
+
+function summarizeNamedWindow(frames, startPhase, endPhase) {
+  const startIndex = frames.findIndex((frame) => frame.phase === startPhase);
+  const endIndex = frames.findIndex((frame, index) => index > startIndex && frame.phase === endPhase);
+  return summarizeWindow(frames, startIndex, endIndex);
 }
 
 function summarizeWindow(frames, startIndex, endIndex) {

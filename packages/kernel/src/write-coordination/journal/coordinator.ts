@@ -9,7 +9,7 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "../../ports/write-coordinator.ts";
-import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VcsCommitPhase, VersionControlSystem } from "../../ports/version-control-system.ts";
 import type { EntityId, WriteError } from "../../domain/index.ts";
 import { taskIdFromEntityId } from "../../domain/index.ts";
 import { stablePayloadHash } from "../../integrity/stable-hash.ts";
@@ -124,7 +124,7 @@ function makeJournaledWriteCoordinatorInternal(
         uniquePendingRecords(state.records, state.applied),
         requestedDomain
       );
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -147,7 +147,8 @@ function makeJournaledWriteCoordinatorInternal(
           commitAuthor,
           versionControlSystem,
           attributionEventStore,
-          options.onProjectionChange
+          options.onProjectionChange,
+          options.onCommitPhase
         )
       });
     }, { heldGlobalLock }),
@@ -161,7 +162,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecord: (state, record) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, [record], state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -177,7 +178,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecords: (state, records) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, records, state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -339,7 +340,8 @@ function flushRecords(
   commitAuthor?: VcsCommitAuthor,
   versionControlSystem?: VersionControlSystem,
   attributionEventStore: AttributionEventStore = makeInlineAttributionEventStore(),
-  onProjectionChange?: (event: ProjectionChangeEvent) => void
+  onProjectionChange?: (event: ProjectionChangeEvent) => void,
+  onCommitPhase?: (phase: VcsCommitPhase) => void
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -399,7 +401,8 @@ function flushRecords(
     {
       author: commitAuthor,
       preserveExplicitLogPaths: plannedRecords.flatMap(({ touchedPaths: operationPaths }) => operationPaths),
-      versionControlSystem: publicationVcs
+      versionControlSystem: publicationVcs,
+      ...(onCommitPhase ? { onCommitPhase } : {})
     }
   );
   const attributionEvents = mutationWillCommit

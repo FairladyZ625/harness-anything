@@ -4,6 +4,7 @@ import type { HarnessLayoutInput } from "../../layout/index.ts";
 import { resolveHarnessLayout } from "../../layout/index.ts";
 import type { VersionControlSystem } from "../../ports/version-control-system.ts";
 import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
+import type { IncrementalProjectionPhase } from "../../projection/sqlite-task-incremental-projection.ts";
 import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../../projection/sqlite-task-projection.ts";
 import {
@@ -50,7 +51,13 @@ export interface LedgerMaterializerOptions {
   readonly heldGlobalLock?: OwnedLock;
   readonly versionControlSystem?: VersionControlSystem;
   readonly onProgress?: (step: LedgerMaterializerProgressStep) => void;
+  readonly onProjectionPhase?: (phase: IncrementalProjectionPhase) => void;
+  readonly onProjectionMode?: (mode: IncrementalTaskProjectionMode) => void;
 }
+
+export type { IncrementalProjectionPhase };
+
+export type IncrementalTaskProjectionMode = "incremental" | "rebuild" | "unchanged";
 
 export type LedgerMaterializerProgressStep =
   | "baseline-start"
@@ -88,7 +95,9 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
       options.maxBranches,
       options.sessionId,
       versionControlSystem,
-      options.onProgress
+      options.onProgress,
+      options.onProjectionPhase,
+      options.onProjectionMode
     );
   }, { heldGlobalLock: options.heldGlobalLock });
 }
@@ -100,7 +109,9 @@ function materializeBranches(
   maxBranches: number | undefined,
   sessionId: string | undefined,
   vcs: VersionControlSystem,
-  onProgress: ((step: LedgerMaterializerProgressStep) => void) | undefined
+  onProgress: ((step: LedgerMaterializerProgressStep) => void) | undefined,
+  onProjectionPhase: ((phase: IncrementalProjectionPhase) => void) | undefined,
+  onProjectionMode: ((mode: IncrementalTaskProjectionMode) => void) | undefined
 ): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
@@ -221,8 +232,10 @@ function materializeBranches(
       rootDir: layout.rootDir,
       ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
       touchedPaths: [...touchedPaths],
-      ...(projectionSourceFingerprintBeforeMerge ? { previousSourceFingerprint: projectionSourceFingerprintBeforeMerge } : {})
+      ...(projectionSourceFingerprintBeforeMerge ? { previousSourceFingerprint: projectionSourceFingerprintBeforeMerge } : {}),
+      onPhase: onProjectionPhase
     });
+    onProjectionMode?.(projectionUpdate.mode);
     if (projectionUpdate.sourceHash) {
       rememberTrustedAuthoredProjectionFingerprint(rootInput, projectionUpdate.sourceHash, vcs, repoRoot);
     } else {
