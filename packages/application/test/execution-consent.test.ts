@@ -286,6 +286,7 @@ test("independent consent recording supports transcript, standing-policy, and as
         coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
         artifactStore,
         generateConsentId: () => consentId,
+        now: () => "2026-07-15T00:01:00.000Z",
         runtimeLogOptions
       }).recordConsent({ taskId, executionId, actor: aliceWorker, session: reviewerSession, ...source });
       assert.equal(result.consent.source.strength, source.expected);

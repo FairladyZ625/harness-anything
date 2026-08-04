@@ -23,6 +23,7 @@ import {
 import {
   consentSourceRequest,
   executionBoundConsentTranscriptCandidates,
+  isTranscriptConsentAnchoredToSession,
   resolveConsentAuthorization,
   reviewCurrentConsentTranscriptCandidate
 } from "./consent-source-resolution.ts";
@@ -68,23 +69,28 @@ export function makeRecordExecutionConsentService(options: {
         throw new Error(`consent already exists: ${consentId}`);
       }
       const grantedAt = now();
+      const request = consentSourceRequest({
+        utterance: input.utterance,
+        standingPolicyDecisionId: input.standingPolicyDecisionId,
+        assertedRationale: input.assertedRationale
+      });
       const authorization = await resolveConsentAuthorization({
         rootInput: options.rootInput,
-        transcriptCandidates: [
+        transcriptCandidates: request.kind === "utterance" ? [
           reviewCurrentConsentTranscriptCandidate({
             execution,
             session: input.session,
-            reviewedAt: grantedAt
+            reviewedAt: grantedAt,
+            ttlMs
           }),
           ...executionBoundConsentTranscriptCandidates(execution)
-        ],
-        request: consentSourceRequest({
-          utterance: input.utterance,
-          standingPolicyDecisionId: input.standingPolicyDecisionId,
-          assertedRationale: input.assertedRationale
-        }),
+        ] : [],
+        request,
         runtimeLogOptions: options.runtimeLogOptions
       });
+      if (!isTranscriptConsentAnchoredToSession(authorization.source, `session/${input.session.sessionId}`)) {
+        throw new Error("transcript-verified consent must be anchored to the current consent-command session");
+      }
       const consent = createConsentRecord({
         consentId,
         taskId: input.taskId,

@@ -24,6 +24,14 @@ export interface ResolvedConsentAuthorization {
   readonly response: ConsentResponse;
 }
 
+export function isTranscriptConsentAnchoredToSession(
+  source: ConsentSource,
+  expectedSessionRef: string
+): boolean {
+  return source.strength !== "transcript-verified"
+    || source.transcript_anchor.session_ref === expectedSessionRef;
+}
+
 interface ConsentTranscriptSession {
   readonly runtime: string;
   readonly sessionId: string;
@@ -51,27 +59,39 @@ export type ConsentTranscriptCandidate =
 export function executionBoundConsentTranscriptCandidates(
   execution: ExecutionRecord
 ): ReadonlyArray<ConsentTranscriptCandidate> {
-  return execution.session_bindings.flatMap((binding) =>
-    binding.session_ref && binding.session
-      ? [{ source: "execution-bound", sessionRef: binding.session_ref, session: binding.session }]
-      : []);
+  return execution.session_bindings.flatMap((binding) => {
+    if (!binding.session_ref || !binding.session) return [];
+    const expectedSessionRef = `session/${binding.session.sessionId}`;
+    if (binding.session_ref !== expectedSessionRef) {
+      throw new Error(`execution binding session_ref must equal session/<sessionId>; expected ${expectedSessionRef}`);
+    }
+    return [{ source: "execution-bound", sessionRef: binding.session_ref, session: binding.session }];
+  });
 }
 
 export function reviewCurrentConsentTranscriptCandidate(input: {
   readonly execution: ExecutionRecord;
   readonly session: CurrentSessionRef;
   readonly reviewedAt: string;
+  readonly ttlMs: number;
 }): ConsentTranscriptCandidate {
-  if (!input.execution.submitted_at) {
-    throw new Error("review-current transcript verification requires an execution submission timestamp");
+  const submittedAt = Date.parse(input.execution.submitted_at ?? "");
+  const reviewedAt = Date.parse(input.reviewedAt);
+  if (!Number.isFinite(submittedAt) || !Number.isFinite(reviewedAt)
+    || !Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) {
+    throw new Error("review-current transcript verification has an invalid timestamp window");
+  }
+  const notBefore = Math.max(submittedAt, reviewedAt - input.ttlMs);
+  if (!Number.isFinite(notBefore) || notBefore > reviewedAt) {
+    throw new Error("review-current transcript verification has an invalid timestamp window");
   }
   return {
     source: "review-current",
     sessionRef: `session/${input.session.sessionId}`,
     session: input.session,
     timestampWindow: {
-      notBefore: input.execution.submitted_at,
-      notAfter: input.reviewedAt
+      notBefore: new Date(notBefore).toISOString(),
+      notAfter: new Date(reviewedAt).toISOString()
     }
   };
 }
@@ -134,7 +154,7 @@ export async function resolveConsentAuthorization(input: {
 
   let hasTranscriptCapableRuntime = false;
   let hasReadableTranscript = false;
-  let timestampRejection: "missing" | "outside-window" | null = null;
+  let timestampRejection: "missing" | "invalid-timestamp" | "invalid-window" | "outside-window" | "unreliable-compaction" | null = null;
   const structuralRuntimes = new Set<string>();
   for (const candidate of candidates) {
     const session = candidate.session;
@@ -156,6 +176,10 @@ export async function resolveConsentAuthorization(input: {
     const messageIndex = conversation.messages.findIndex((message) => {
       if (message.role !== "user" || !message.text.includes(utterance)) return false;
       if (candidate.source === "execution-bound") return true;
+      if (message.timestampReliability === "unreliable-compaction") {
+        timestampRejection = "unreliable-compaction";
+        return false;
+      }
       if (!message.timestamp) {
         timestampRejection = "missing";
         return false;
@@ -163,8 +187,12 @@ export async function resolveConsentAuthorization(input: {
       const timestamp = Date.parse(message.timestamp);
       const notBefore = Date.parse(candidate.timestampWindow.notBefore);
       const notAfter = Date.parse(candidate.timestampWindow.notAfter);
-      if (!Number.isFinite(timestamp) || !Number.isFinite(notBefore) || !Number.isFinite(notAfter)) {
-        timestampRejection = "missing";
+      if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter) || notBefore > notAfter) {
+        timestampRejection = "invalid-window";
+        return false;
+      }
+      if (!Number.isFinite(timestamp)) {
+        timestampRejection = "invalid-timestamp";
         return false;
       }
       if (timestamp < notBefore || timestamp > notAfter) {
@@ -201,6 +229,15 @@ export async function resolveConsentAuthorization(input: {
   if (timestampRejection === "missing") {
     throw new Error("review-current consent utterance requires a reliable transcript timestamp; choose standing-policy or asserted consent explicitly");
   }
+  if (timestampRejection === "invalid-timestamp") {
+    throw new Error("review-current consent utterance has an invalid transcript timestamp; choose standing-policy or asserted consent explicitly");
+  }
+  if (timestampRejection === "invalid-window") {
+    throw new Error("review-current consent utterance has an invalid timestamp window; choose standing-policy or asserted consent explicitly");
+  }
+  if (timestampRejection === "unreliable-compaction") {
+    throw new Error("review-current consent utterance uses a compaction-derived timestamp that is unreliable; choose standing-policy or asserted consent explicitly");
+  }
   if (timestampRejection === "outside-window") {
     throw new Error("review-current consent utterance falls outside the execution submission and review window; choose standing-policy or asserted consent explicitly");
   }
@@ -210,11 +247,17 @@ export async function resolveConsentAuthorization(input: {
 function prioritizedTranscriptCandidates(
   candidates: ReadonlyArray<ConsentTranscriptCandidate>
 ): ReadonlyArray<ConsentTranscriptCandidate> {
-  const reviewCurrentRefs = new Set(candidates
-    .filter((candidate) => candidate.source === "review-current")
-    .map((candidate) => candidate.sessionRef));
-  return candidates.filter((candidate) =>
-    candidate.source === "review-current" || !reviewCurrentRefs.has(candidate.sessionRef));
+  const selected = new Map<string, ConsentTranscriptCandidate>();
+  for (const candidate of candidates) {
+    const expectedSessionRef = `session/${candidate.session.sessionId}`;
+    if (candidate.sessionRef !== expectedSessionRef) {
+      throw new Error(`consent transcript candidate session_ref must equal session/<sessionId>; expected ${expectedSessionRef}`);
+    }
+    const key = `${candidate.session.runtime}\0${candidate.session.sessionId}`;
+    const existing = selected.get(key);
+    if (!existing || candidate.source === "review-current") selected.set(key, candidate);
+  }
+  return [...selected.values()];
 }
 
 function isRuntime(value: string): value is CurrentSessionRuntime {

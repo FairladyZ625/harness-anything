@@ -16,6 +16,7 @@ import {
 } from "@harness-anything/kernel";
 import {
   consentSourceRequest,
+  isTranscriptConsentAnchoredToSession,
   resolveConsentAuthorization
 } from "../consent-source-resolution.ts";
 import {
@@ -54,7 +55,9 @@ import {
   assertVerifiedWitnessBindings,
   contractSnapshot,
   taskLifecycleTransitionCompilerNever,
+  taskLifecycleTransitionContextNow,
   taskLifecycleTransitionCheckpointDeclaration,
+  taskLifecycleTransitionRefV2,
   transitionCheckpoint,
   witnessSnapshots,
   type TaskLifecycleTransitionAuthorityStateV2,
@@ -153,7 +156,7 @@ async function compileExecutionReview(
   }
   assertCompletionReviewEvidence(execution, approval.evidenceChecked);
   const storedConsent = await options.state.readHostedDocument(consentPath);
-  const now = contextNow(context);
+  const now = taskLifecycleTransitionContextNow(context);
   const open = storedConsent
     ? existingConsent(storedConsent.body, plan, execution, context, now)
     : await createPlanConsent(options, plan, execution, context, now);
@@ -221,10 +224,10 @@ async function compileExecutionReview(
       checkpointMutation(plan)
     ],
     baseRefs: [
-      lifecycleRefV2("execution", `execution/${plan.taskId}/${plan.executionId}`),
-      lifecycleRefV2("consent", `consent/${plan.taskId}/${plan.consentId}`),
-      lifecycleRefV2("review", `review/${plan.taskId}/${plan.reviewId}`),
-      lifecycleRefV2("task", `task/${plan.taskId}`)
+      taskLifecycleTransitionRefV2("execution", `execution/${plan.taskId}/${plan.executionId}`),
+      taskLifecycleTransitionRefV2("consent", `consent/${plan.taskId}/${plan.consentId}`),
+      taskLifecycleTransitionRefV2("review", `review/${plan.taskId}/${plan.reviewId}`),
+      taskLifecycleTransitionRefV2("task", `task/${plan.taskId}`)
     ]
   });
 }
@@ -285,10 +288,10 @@ async function compileAcceptedReplay(
     ],
     mutations: [taskTransitionMutation(plan.taskId), checkpointMutation(plan)],
     baseRefs: [
-      lifecycleRefV2("execution", `execution/${plan.taskId}/${plan.executionId}`),
-      lifecycleRefV2("review", `review/${plan.taskId}/${plan.approvedReviewId}`),
-      lifecycleRefV2("consent", `consent/${plan.taskId}/${plan.consumedConsentId}`),
-      lifecycleRefV2("task", `task/${plan.taskId}`)
+      taskLifecycleTransitionRefV2("execution", `execution/${plan.taskId}/${plan.executionId}`),
+      taskLifecycleTransitionRefV2("review", `review/${plan.taskId}/${plan.approvedReviewId}`),
+      taskLifecycleTransitionRefV2("consent", `consent/${plan.taskId}/${plan.consumedConsentId}`),
+      taskLifecycleTransitionRefV2("task", `task/${plan.taskId}`)
     ]
   });
 }
@@ -333,7 +336,7 @@ async function compileCommitAnchor(
       { path: transitionTaskPath(plan.taskId, "task-contract.json"), snapshot: contract ?? absentHostedDocumentSnapshotV2(transitionTaskPath(plan.taskId, "task-contract.json")) }
     ],
     mutations: [taskTransitionMutation(plan.taskId), checkpointMutation(plan)],
-    baseRefs: [lifecycleRefV2("task", `task/${plan.taskId}`)]
+    baseRefs: [taskLifecycleTransitionRefV2("task", `task/${plan.taskId}`)]
   });
 }
 
@@ -372,7 +375,7 @@ async function compileAlreadyCommitted(
       ...(executionSnapshot && executionPath ? [{ path: executionPath, snapshot: executionSnapshot }] : []),
       { path: transitionTaskPath(plan.taskId, "task-contract.json"), snapshot: contract ?? absentHostedDocumentSnapshotV2(transitionTaskPath(plan.taskId, "task-contract.json")) }
     ],
-    requiredBaseRefs: [lifecycleRefV2("task", `task/${plan.taskId}`)],
+    requiredBaseRefs: [taskLifecycleTransitionRefV2("task", `task/${plan.taskId}`)],
     alreadySatisfied: {
       verify: taskTransitionAlreadySatisfiedVerifierV1({
         state: options.state,
@@ -439,15 +442,21 @@ async function createPlanConsent(
   try {
     authorization = await resolveConsentAuthorization({
       rootInput: options.rootInput,
-      transcriptCandidates: authorityConsentTranscriptCandidatesV2(execution, context.currentSession, now, context.sessionId),
+      transcriptCandidates: authorityConsentTranscriptCandidatesV2(
+        execution,
+        context.currentSession,
+        now,
+        context.sessionId,
+        options.consentTtlMs ?? DEFAULT_HUMAN_CONSENT_TTL_MS,
+        request.kind === "utterance"
+      ),
       request,
       runtimeLogOptions: options.runtimeLogOptions
     });
   } catch (error) {
     throw admission("CONSENT_SOURCE_UNVERIFIED", error instanceof Error ? error.message : String(error));
   }
-  if (authorization.source.strength === "transcript-verified"
-    && authorization.source.transcript_anchor.session_ref !== `session/${context.sessionId}`) {
+  if (!isTranscriptConsentAnchoredToSession(authorization.source, `session/${context.sessionId}`)) {
     throw admission("CONSENT_REVIEW_SESSION_MISMATCH");
   }
   return createConsentRecord({
@@ -555,16 +564,6 @@ function taskTransitionMutation(taskId: string) {
 
 function checkpointMutation(plan: CanonicalTaskMutationPlan) {
   return { entityKind: "task", identity: { taskId: plan.taskId }, action: "document", storageContext: { documentPath: `transitions/${plan.transitionId}.json` } };
-}
-
-function lifecycleRefV2(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
-  return { registryVersion: 1, entityKind, canonicalRef };
-}
-
-function contextNow(context: AuthoritySemanticCompilerContextV2): string {
-  const numeric = Number(context.nowMs);
-  if (!Number.isSafeInteger(numeric)) throw admission("AUTHORITY_TIME_INVALID");
-  return new Date(numeric).toISOString();
 }
 
 async function requiredTransitionSnapshot(state: TaskLifecycleTransitionAuthorityStateV2, path: string, code: string): Promise<HostedDocumentSnapshotV2> {

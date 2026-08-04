@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeRecordExecutionConsentService, makeReviewExecutionService } from "../src/index.ts";
+import { resolveConsentAuthorization } from "../src/consent-source-resolution.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, taskHolderActor } from "../../kernel/src/index.ts";
 import { taskIndex } from "./execution-saga-fixtures.ts";
 import { writeAttribution } from "./test-attribution.ts";
@@ -107,6 +108,31 @@ test("a review-current utterance from before Execution submission is rejected", 
   });
 });
 
+test("a review-current utterance older than the consent TTL is rejected even when submitted_at is older", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
+    const execution = readExecution(rootDir);
+    execution.submitted_at = "2026-07-01T00:00:00.000Z";
+    writeFileSync(executionPath(rootDir), `${JSON.stringify(execution, null, 2)}\n`, "utf8");
+    const logRoot = runtimeLogOptions.runtimeLogRoots.codex[0]!;
+    writeFileSync(path.join(logRoot, `rollout-2026-07-15T00-00-00-${reviewerSession.sessionId}.jsonl`), `${JSON.stringify({
+      timestamp: "2026-07-13T00:00:00.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "Approved outside the current consent TTL." }
+    })}\n`, "utf8");
+
+    await assert.rejects(makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => firstReviewId,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:01:00.000Z",
+      runtimeLogOptions
+    }).reviewExecution({ ...reviewInput(), consentUtterance: "Approved outside the current consent TTL." }),
+    /falls outside the execution submission and review window/u);
+  });
+});
+
 test("a review-current utterance without a reliable timestamp fails closed", async () => {
   await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
     bindExecutionToWorkerSession(rootDir);
@@ -126,6 +152,95 @@ test("a review-current utterance without a reliable timestamp fails closed", asy
       runtimeLogOptions
     }).reviewExecution({ ...reviewInput(), consentUtterance: "Approved without a timestamp." }),
     /requires a reliable transcript timestamp/u);
+  });
+});
+
+test("an invalid review-current timestamp window is not misreported as a missing message timestamp", async () => {
+  await withConsentFixture(async ({ rootDir, runtimeLogOptions }) => {
+    await assert.rejects(resolveConsentAuthorization({
+      rootInput: rootDir,
+      transcriptCandidates: [{
+        source: "review-current",
+        sessionRef: `session/${reviewerSession.sessionId}`,
+        session: reviewerSession,
+        timestampWindow: { notBefore: "not-a-timestamp", notAfter: "2026-07-15T00:01:00.000Z" }
+      }],
+      request: { kind: "utterance", utterance: "Approved after reviewing the submitted evidence." },
+      runtimeLogOptions
+    }), /invalid timestamp window/u);
+  });
+});
+
+test("an invalid or future submitted_at fails closed as an invalid review-current window", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
+    for (const submittedAtValue of ["not-a-timestamp", "2026-07-15T00:02:00.000Z"]) {
+      const execution = readExecution(rootDir);
+      execution.submitted_at = submittedAtValue;
+      writeFileSync(executionPath(rootDir), `${JSON.stringify(execution, null, 2)}\n`, "utf8");
+
+      await assert.rejects(makeReviewExecutionService({
+        rootInput: rootDir,
+        coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+        artifactStore,
+        generateReviewId: () => firstReviewId,
+        generateConsentId: () => consentId,
+        now: () => "2026-07-15T00:01:00.000Z",
+        runtimeLogOptions
+      }).reviewExecution({ ...reviewInput(), consentUtterance: "Approved after reviewing the submitted evidence." }),
+      /invalid timestamp window/u);
+    }
+  });
+});
+
+test("review-current consent rejects replacement history timestamped only by a later compaction event", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
+    const logRoot = runtimeLogOptions.runtimeLogRoots.codex[0]!;
+    writeFileSync(path.join(logRoot, `rollout-2026-07-15T00-00-00-${reviewerSession.sessionId}.jsonl`), `${JSON.stringify({
+      timestamp: "2026-07-15T00:00:40.000Z",
+      type: "compacted",
+      payload: {
+        replacement_history: [{
+          role: "user",
+          content: [{ type: "input_text", text: "Approved only in pre-compaction history." }]
+        }]
+      }
+    })}\n`, "utf8");
+
+    await assert.rejects(makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => firstReviewId,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:01:00.000Z",
+      runtimeLogOptions
+    }).reviewExecution({ ...reviewInput(), consentUtterance: "Approved only in pre-compaction history." }),
+    /compaction.*timestamp.*unreliable/iu);
+  });
+});
+
+test("an aliased execution session_ref cannot bypass the review-current timestamp window", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
+    const execution = readExecution(rootDir);
+    execution.session_bindings[0].session_ref = "session/alias-for-current-session";
+    writeFileSync(executionPath(rootDir), `${JSON.stringify(execution, null, 2)}\n`, "utf8");
+    const logRoot = runtimeLogOptions.runtimeLogRoots.codex[0]!;
+    writeFileSync(path.join(logRoot, `rollout-2026-07-15T00-00-00-${reviewerSession.sessionId}.jsonl`), `${JSON.stringify({
+      timestamp: "2026-07-14T23:59:59.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "Approved through an aliased execution binding." }
+    })}\n`, "utf8");
+
+    await assert.rejects(makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateReviewId: () => firstReviewId,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:01:00.000Z",
+      runtimeLogOptions
+    }).reviewExecution({ ...reviewInput(), consentUtterance: "Approved through an aliased execution binding." }),
+    /session_ref.*sessionId/iu);
   });
 });
 
@@ -150,6 +265,35 @@ test("independent consent recording verifies the current consent-command session
     assert.equal(result.consent.source.strength, "transcript-verified");
     assert.equal(result.consent.source.transcript_anchor?.session_ref, `session/${reviewerSession.sessionId}`);
     assert.equal(readExecution(rootDir).session_bindings[0].session_ref, `session/${workerSession.sessionId}`);
+  });
+});
+
+test("independent consent recording rejects an execution-bound utterance outside the consent-command session", async () => {
+  await withConsentFixture(async ({ rootDir, artifactStore, runtimeLogOptions }) => {
+    const workerSession = bindExecutionToWorkerSession(rootDir);
+    const logRoot = runtimeLogOptions.runtimeLogRoots.codex[0]!;
+    writeFileSync(path.join(logRoot, `rollout-2026-07-15T00-00-00-${workerSession.sessionId}.jsonl`), `${JSON.stringify({
+      timestamp: "2026-07-15T00:00:40.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "Approved only in the execution-bound worker session." }
+    })}\n`, "utf8");
+
+    await assert.rejects(makeRecordExecutionConsentService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "worker") }),
+      artifactStore,
+      generateConsentId: () => consentId,
+      now: () => "2026-07-15T00:01:00.000Z",
+      runtimeLogOptions
+    }).recordConsent({
+      taskId,
+      executionId,
+      actor: aliceWorker,
+      session: reviewerSession,
+      utterance: "Approved only in the execution-bound worker session."
+    }), /current consent-command session/u);
+
+    assert.equal(existsSync(consentPath(rootDir, consentId)), false);
   });
 });
 

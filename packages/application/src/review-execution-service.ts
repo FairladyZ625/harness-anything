@@ -33,6 +33,7 @@ import {
 import {
   consentSourceRequest,
   executionBoundConsentTranscriptCandidates,
+  isTranscriptConsentAnchoredToSession,
   resolveConsentAuthorization,
   reviewCurrentConsentTranscriptCandidate
 } from "./consent-source-resolution.ts";
@@ -296,6 +297,8 @@ function equivalentApprovalConsent(
   }
   return Boolean(input.consentUtterance)
     && basis.consent_snapshot.source.strength === "transcript-verified"
+    && review.reviewer_session_ref === `session/${input.reviewerSession.sessionId}`
+    && isTranscriptConsentAnchoredToSession(basis.consent_snapshot.source, review.reviewer_session_ref)
     && basis.consent_snapshot.response.kind === "utterance"
     && basis.consent_snapshot.response.text === input.consentUtterance?.trim();
 }
@@ -356,25 +359,26 @@ async function resolveApprovalConsent(input: {
     if (input.documents.some((document) => document.path === `consents/${consentId}.md`)) {
       throw new Error(`consent already exists: ${consentId}`);
     }
+    const request = consentSourceRequest({
+      utterance: input.consentUtterance,
+      standingPolicyDecisionId: input.consentStandingPolicyDecisionId,
+      assertedRationale: input.consentAssertedRationale
+    });
     const authorization = await resolveConsentAuthorization({
       rootInput: input.rootInput,
-      transcriptCandidates: [
+      transcriptCandidates: request.kind === "utterance" ? [
         reviewCurrentConsentTranscriptCandidate({
           execution: input.execution,
           session: input.reviewerSession,
-          reviewedAt: input.reviewedAt
+          reviewedAt: input.reviewedAt,
+          ttlMs: input.consentTtlMs
         }),
         ...executionBoundConsentTranscriptCandidates(input.execution)
-      ],
-      request: consentSourceRequest({
-        utterance: input.consentUtterance,
-        standingPolicyDecisionId: input.consentStandingPolicyDecisionId,
-        assertedRationale: input.consentAssertedRationale
-      }),
+      ] : [],
+      request,
       runtimeLogOptions: input.runtimeLogOptions
     });
-    if (authorization.source.strength === "transcript-verified"
-      && authorization.source.transcript_anchor.session_ref !== `session/${input.reviewerSession.sessionId}`) {
+    if (!isTranscriptConsentAnchoredToSession(authorization.source, `session/${input.reviewerSession.sessionId}`)) {
       throw new Error("transcript-verified Review consent must be anchored to the current reviewer session");
     }
     const consumed = createConsentRecord({
