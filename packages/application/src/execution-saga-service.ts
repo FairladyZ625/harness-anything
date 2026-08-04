@@ -316,7 +316,11 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         if (publication === "absent") throw error;
         if (publication === "partial") {
           throw new Error(
-            `execution submit publication is indeterminate because only part of the exact submission is observable: ${input.executionId}`,
+            [
+              `execution submit publication is indeterminate because only part of the exact submission is observable: ${input.executionId}.`,
+              "The authored execution may already contain its submitted state, submitted_at, outputs, and submission packet.",
+              `Inspect it with \`ha execution show ${input.executionId} --json\` before retrying; do not retry this exact submission blindly.`
+            ].join(" "),
             { cause: error }
           );
         }

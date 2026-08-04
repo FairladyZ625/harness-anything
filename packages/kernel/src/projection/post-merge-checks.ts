@@ -9,6 +9,7 @@ import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords } from "./relation-graph-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
+import { inspectDeclaredIdentityState } from "./declared-identity-repair.ts";
 import { lstatPathIfPresent, readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
@@ -25,7 +26,27 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findRelationRecordIssues(rootInput));
   warnings.push(...findParentCycles(rootDir, source.entries));
   warnings.push(...findRelationCycles(rootInput));
+  warnings.push(...findDeclaredIdentityConflictWarnings(rootInput));
   return warnings;
+}
+
+function findDeclaredIdentityConflictWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  try {
+    const inspection = inspectDeclaredIdentityState(rootInput);
+    return inspection.conflicts.map((conflict) => hardFail(
+      "source-package",
+      "declared_identity_conflict",
+      `Declared ${conflict.projectionTable}/${conflict.primaryKey} is owned by ${conflict.sourcePaths.join(" and ")}.`,
+      "Run ha doctor --repair --json to preserve the selected source and quarantine duplicate declarations."
+    ));
+  } catch (error) {
+    return [hardFail(
+      "source-package",
+      "source_malformed",
+      `Declared identity scan could not complete: ${error instanceof Error ? error.message : String(error)}`,
+      "Run ha doctor --json to inspect the authored declaration that could not be decoded."
+    )];
+  }
 }
 
 export function warning(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {

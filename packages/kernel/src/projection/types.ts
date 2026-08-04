@@ -13,6 +13,7 @@ export type ProjectionWarningCode =
   | "projection_missing"
   | "projection_stale"
   | "projection_tampered"
+  | "declared_identity_conflict"
   | "source_malformed"
   | "duplicate_task_id"
   | "duplicate_external_binding"
@@ -199,4 +200,6 @@ export interface ProjectionMeta {
   readonly taskSourceHash?: string;
   readonly sourceCacheHash?: string;
   readonly legacyPersonIdsHash?: string;
+  /** Number of declared identities withheld from the generated projection due to duplicate source ownership. */
+  readonly declaredIdentityConflictCount?: number;
 }

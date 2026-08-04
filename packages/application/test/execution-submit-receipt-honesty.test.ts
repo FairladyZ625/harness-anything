@@ -116,6 +116,54 @@ test("submit adopts the exact authored publication when the store throws after c
   }
 });
 
+test("partial submission publication stays indeterminate and explains safe recovery", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-partial-publication-"));
+  try {
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const authored = memoryAuthoredStore();
+    const partialPublication = {
+      ...authored,
+      submitForReview: async () => {
+        throw new Error("flush failed after part of the exact submission");
+      },
+      submitPublicationState: async () => "partial" as const
+    };
+    const saga = makeExecutionSagaService({
+      taskHolderService: holder,
+      authoredStore: partialPublication,
+      generateExecutionId: () => executionId,
+      now: () => "2026-07-30T00:00:00.000Z"
+    });
+    await saga.claim({ taskId, principal: actor, ttlMs: 60_000 });
+    authored.taskStatus = "active";
+
+    await assert.rejects(
+      saga.submitForReview({
+        taskId,
+        executionId,
+        principal: actor,
+        submission: {
+          completionClaim: "partial publication",
+          deliverables: [],
+          verificationNotes: [],
+          knownGaps: [],
+          residualRisks: [],
+          evidence: []
+        }
+      }),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /publication is indeterminate/iu);
+        assert.match(message, /submitted state, submitted_at, outputs, and submission packet/iu);
+        assert.match(message, /do not retry this exact submission blindly/iu);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("submit reports cleanup unknown with both release and verification diagnostics", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-cleanup-double-failure-"));
   try {

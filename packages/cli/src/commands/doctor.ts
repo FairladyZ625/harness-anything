@@ -2,13 +2,21 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  inspectDeclaredIdentityState,
+  rebuildTaskProjection,
+  repairDeclaredIdentityState,
+  resolveHarnessLayout,
+  type DeclaredIdentityConflictReport,
+  type DeclaredIdentityRepairReport
+} from "@harness-anything/kernel";
 import type { CliResult } from "../cli/types.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { resolveSettingsView, type ResolvedSettingRow } from "./resolved-settings-view.ts";
 
 export interface DoctorReport {
   readonly schema: "harness-doctor/v1";
-  readonly readOnly: true;
+  readonly readOnly: boolean;
   readonly node: {
     readonly version: string;
     readonly requiredMajor: 24;
@@ -43,28 +51,88 @@ export interface DoctorReport {
     readonly sourceAuthority: "@harness-anything/kernel:landed-settings-registry";
     readonly rows: ReadonlyArray<ResolvedSettingRow>;
   };
+  readonly ledger: {
+    readonly checked: boolean;
+    readonly ok: boolean;
+    readonly scope: string;
+    readonly declaredIdentity: {
+      readonly sourceCount: number;
+      readonly conflictCount: number;
+      readonly misplacedCount: number;
+      readonly conflicts: ReadonlyArray<DeclaredIdentityConflictReport>;
+    };
+    readonly notChecked: ReadonlyArray<string>;
+    readonly checkCommand: string;
+    readonly repairCommand: string;
+    readonly repair: {
+      readonly requested: boolean;
+      readonly changed: boolean;
+      readonly report?: DeclaredIdentityRepairReport;
+      readonly projectionRebuilt: boolean;
+      readonly error?: string;
+    };
+  };
   readonly recommendedCommands: readonly string[];
 }
 
-export function runDoctor(rootInput: HarnessLayoutInput): CliResult {
+export function runDoctor(rootInput: HarnessLayoutInput, options: { readonly repair?: boolean } = {}): CliResult {
   const settings = resolveSettingsView(rootInput);
   if (!settings.ok) return settings.result;
-  const report = collectDoctorReport(rootInput, settings.rows);
+  const repairRequested = options.repair === true;
+  let repairReport: DeclaredIdentityRepairReport | undefined;
+  let repairError: string | undefined;
+  let projectionRebuilt = false;
+  if (repairRequested && existsSync(resolveHarnessLayout(rootInput).authoredRoot)) {
+    try {
+      repairReport = repairDeclaredIdentityState(rootInput);
+      if (repairReport.unresolved.length === 0) {
+        rebuildTaskProjection({ rootDir: resolveHarnessLayout(rootInput).rootDir });
+        projectionRebuilt = true;
+      }
+    } catch (error) {
+      repairError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const report = collectDoctorReport(rootInput, settings.rows, {
+    repairRequested,
+    repairReport,
+    projectionRebuilt,
+    repairError
+  });
+  const healthy = report.ledger.ok && report.ledger.repair.error === undefined && (report.ledger.repair.report?.unresolved.length ?? 0) === 0;
   return {
-    ok: true,
+    ok: healthy,
     command: "doctor",
-    report
+    report,
+    ...(healthy ? {} : {
+      error: cliError(
+        CliErrorCode.ProjectionCheckFailed,
+        repairRequested
+          ? "Ledger repair did not converge all declared identity conflicts; inspect the doctor report before retrying."
+          : "Ledger contains declared identity conflicts; run ha doctor --repair --json before retrying reads."
+      )
+    })
   };
 }
 
-function collectDoctorReport(rootInput: HarnessLayoutInput, settingsRows: ReadonlyArray<ResolvedSettingRow>): DoctorReport {
+function collectDoctorReport(
+  rootInput: HarnessLayoutInput,
+  settingsRows: ReadonlyArray<ResolvedSettingRow>,
+  options: {
+    readonly repairRequested: boolean;
+    readonly repairReport?: DeclaredIdentityRepairReport;
+    readonly projectionRebuilt: boolean;
+    readonly repairError?: string;
+  } = { repairRequested: false, projectionRebuilt: false }
+): DoctorReport {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const gitInsideWorkTree = isInsideDoctorGitWorkTree(rootDir);
   const harnessIsolation = inspectHarnessIsolation(rootDir, doctorRelativeLayoutPath(rootDir, layout.authoredRoot), gitInsideWorkTree);
+  const ledger = collectLedgerReport(rootInput, options);
   return {
     schema: "harness-doctor/v1",
-    readOnly: true,
+    readOnly: !options.repairRequested,
     node: {
       version: process.versions.node,
       requiredMajor: 24,
@@ -90,13 +158,78 @@ function collectDoctorReport(rootInput: HarnessLayoutInput, settingsRows: Readon
       sourceAuthority: "@harness-anything/kernel:landed-settings-registry",
       rows: settingsRows
     },
+    ledger,
     recommendedCommands: [
       "harness-anything init",
       "harness-anything status --json",
       "harness-anything check --post-merge --json",
-      "harness-anything git-diff --json"
+      "harness-anything git-diff --json",
+      "harness-anything doctor --repair --json"
     ]
   };
+}
+
+function collectLedgerReport(
+  rootInput: HarnessLayoutInput,
+  options: {
+    readonly repairRequested: boolean;
+    readonly repairReport?: DeclaredIdentityRepairReport;
+    readonly projectionRebuilt: boolean;
+    readonly repairError?: string;
+  }
+): DoctorReport["ledger"] {
+  const layout = resolveHarnessLayout(rootInput);
+  const baseRepair = {
+    requested: options.repairRequested,
+    changed: options.repairReport?.changed ?? false,
+    ...(options.repairReport ? { report: options.repairReport } : {}),
+    projectionRebuilt: options.projectionRebuilt,
+    ...(options.repairError ? { error: options.repairError } : {})
+  } satisfies DoctorReport["ledger"]["repair"];
+  if (!existsSync(layout.authoredRoot)) {
+    return {
+      checked: false,
+      ok: true,
+      scope: "No authored harness root exists; declaration identity checks were not applicable.",
+      declaredIdentity: { sourceCount: 0, conflictCount: 0, misplacedCount: 0, conflicts: [] },
+      notChecked: ["projection cache integrity", "materializer/session branch state"],
+      checkCommand: "ha check --post-merge --json",
+      repairCommand: "ha doctor --repair --json",
+      repair: baseRepair
+    };
+  }
+  try {
+    const inspection = inspectDeclaredIdentityState(rootInput);
+    return {
+      checked: true,
+      ok: inspection.conflicts.length === 0,
+      scope: "Read-only scan of authored declared entity sources and their layout-derived canonical paths.",
+      declaredIdentity: {
+        sourceCount: inspection.sourceCount,
+        conflictCount: inspection.conflicts.length,
+        misplacedCount: inspection.misplaced.length,
+        conflicts: inspection.conflicts
+      },
+      notChecked: ["projection cache integrity", "materializer/session branch state"],
+      checkCommand: "ha check --post-merge --json",
+      repairCommand: "ha doctor --repair --json",
+      repair: baseRepair
+    };
+  } catch (error) {
+    return {
+      checked: true,
+      ok: false,
+      scope: "Read-only scan of authored declared entity sources and their layout-derived canonical paths.",
+      declaredIdentity: { sourceCount: 0, conflictCount: 0, misplacedCount: 0, conflicts: [] },
+      notChecked: ["projection cache integrity", "materializer/session branch state"],
+      checkCommand: "ha check --post-merge --json",
+      repairCommand: "ha doctor --repair --json",
+      repair: {
+        ...baseRepair,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    };
+  }
 }
 
 function inspectHarnessIsolation(

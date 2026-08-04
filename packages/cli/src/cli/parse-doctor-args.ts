@@ -6,12 +6,13 @@ export function parseDoctorArgs(
   json: boolean
 ): CommandParseResult | null {
   if (args[0] !== "doctor") return null;
+  const repair = args.includes("--repair");
   return {
     ok: true,
     value: {
       rootDir,
       json,
-      action: { kind: "doctor" }
+      action: { kind: "doctor", ...(repair ? { repair: true } : {}) }
     }
   };
 }

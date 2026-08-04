@@ -122,8 +122,8 @@ test("status command registry includes doctor", () => {
 
     assert.equal(result.ok, true);
     const doctor = result.commands.find((entry: Record<string, unknown>) => entry.kind === "doctor");
-    assert.equal(doctor?.primary, "harness-anything doctor --json");
-    assert.equal(doctor?.aliases.includes("ha doctor --json"), true);
+    assert.equal(doctor?.primary, "harness-anything doctor [--repair] --json");
+    assert.equal(doctor?.aliases.includes("ha doctor [--repair] --json"), true);
   });
 });
 

@@ -21,6 +21,12 @@ export interface DeclaredSourceManifestRow {
   readonly projectedRowSha256: string;
 }
 
+export interface DeclaredSourceIdentityConflict {
+  readonly projectionTable: string;
+  readonly primaryKey: string;
+  readonly sourcePaths: ReadonlyArray<string>;
+}
+
 export interface DeclaredTableProjectionDelta {
   readonly declaration: EntityDeclaration;
   readonly deletePrimaryKeys: ReadonlyArray<string>;
@@ -50,6 +56,29 @@ export function declaredSourceManifestRows(
   tables: ReadonlyArray<DeclaredProjectionSnapshot>,
   sources: ReadonlyArray<DeclaredEntitySourceSnapshot> = []
 ): ReadonlyArray<DeclaredSourceManifestRow> {
+  const rows = declaredSourceManifestRowsWithoutIdentityCheck(tables, sources);
+  assertUniqueProjectedIdentities(rows);
+  return rows.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath));
+}
+
+export function declaredSourceManifestRowsWithIdentityConflicts(
+  tables: ReadonlyArray<DeclaredProjectionSnapshot>,
+  sources: ReadonlyArray<DeclaredEntitySourceSnapshot> = []
+): {
+  readonly rows: ReadonlyArray<DeclaredSourceManifestRow>;
+  readonly conflicts: ReadonlyArray<DeclaredSourceIdentityConflict>;
+} {
+  const rows = declaredSourceManifestRowsWithoutIdentityCheck(tables, sources);
+  return {
+    rows: rows.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath)),
+    conflicts: findDeclaredSourceIdentityConflicts(rows)
+  };
+}
+
+function declaredSourceManifestRowsWithoutIdentityCheck(
+  tables: ReadonlyArray<DeclaredProjectionSnapshot>,
+  sources: ReadonlyArray<DeclaredEntitySourceSnapshot>
+): DeclaredSourceManifestRow[] {
   const documentsByPath = new Map(tables.flatMap((table) =>
     table.documents.map((document) => [document.relativePath, { table, document }] as const)));
   const rows = sources.length === 0
@@ -66,10 +95,34 @@ export function declaredSourceManifestRows(
             statSignature: input.statSignature,
             contentSha256: input.contentSha256,
             projectedRowSha256: stablePayloadHash({ ignored: true })
-          };
+        };
     }));
-  assertUniqueProjectedIdentities(rows);
-  return rows.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath));
+  return rows;
+}
+
+export function findDeclaredSourceIdentityConflicts(
+  rows: ReadonlyArray<DeclaredSourceManifestRow>
+): ReadonlyArray<DeclaredSourceIdentityConflict> {
+  const owners = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.primaryKey) continue;
+    const identity = `${row.projectionTable}\0${row.primaryKey}`;
+    const paths = owners.get(identity) ?? [];
+    paths.push(row.sourcePath);
+    owners.set(identity, paths);
+  }
+  return [...owners.entries()]
+    .filter(([, sourcePaths]) => new Set(sourcePaths).size > 1)
+    .map(([identity, sourcePaths]) => {
+      const separator = identity.indexOf("\0");
+      return {
+        projectionTable: identity.slice(0, separator),
+        primaryKey: identity.slice(separator + 1),
+        sourcePaths: [...new Set(sourcePaths)].sort()
+      };
+    })
+    .sort((left, right) => left.projectionTable.localeCompare(right.projectionTable)
+      || left.primaryKey.localeCompare(right.primaryKey));
 }
 
 export function hashDeclaredSourceManifestRows(rows: ReadonlyArray<DeclaredSourceManifestRow>): string {
@@ -342,15 +395,9 @@ function manifestRowForDocument(
 }
 
 function assertUniqueProjectedIdentities(rows: ReadonlyArray<DeclaredSourceManifestRow>): void {
-  const owners = new Map<string, string>();
-  for (const row of rows) {
-    if (!row.primaryKey) continue;
-    const identity = `${row.projectionTable}\0${row.primaryKey}`;
-    const previous = owners.get(identity);
-    if (previous && previous !== row.sourcePath) {
-      throw new Error(`declared entity identity ${row.projectionTable}/${row.primaryKey} is owned by both ${previous} and ${row.sourcePath}`);
-    }
-    owners.set(identity, row.sourcePath);
+  const conflict = findDeclaredSourceIdentityConflicts(rows)[0];
+  if (conflict) {
+    throw new Error(`declared entity identity ${conflict.projectionTable}/${conflict.primaryKey} is owned by both ${conflict.sourcePaths.join(" and ")}`);
   }
 }
 
