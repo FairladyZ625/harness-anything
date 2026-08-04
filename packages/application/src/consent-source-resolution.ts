@@ -147,6 +147,14 @@ export async function resolveConsentAuthorization(input: {
 
   const utterance = input.request.utterance.trim();
   if (!utterance) throw new Error("transcript consent requires a non-empty utterance");
+  if (startsWithConsentDenial(utterance)) {
+    // This is intentionally only defense in depth. Complete semantic protection
+    // requires a server-issued challenge/nonce, which is a separate product decision.
+    throw new Error([
+      "transcript consent utterance starts with a denial phrase and cannot authorize this action.",
+      "Ask the human to send a separate standalone confirmation message containing the target execution id, then pass that complete message."
+    ].join(" "));
+  }
   const candidates = prioritizedTranscriptCandidates(input.transcriptCandidates);
   if (candidates.length === 0) {
     throw new Error("transcript verification requires a bound execution session; choose standing-policy or asserted consent explicitly");
@@ -154,6 +162,7 @@ export async function resolveConsentAuthorization(input: {
 
   let hasTranscriptCapableRuntime = false;
   let hasReadableTranscript = false;
+  let canonicalSessionRejection: { readonly requested: string; readonly canonical: string } | null = null;
   let timestampRejection: "missing" | "invalid-timestamp" | "invalid-window" | "outside-window" | "unreliable-compaction" | null = null;
   const structuralRuntimes = new Set<string>();
   for (const candidate of candidates) {
@@ -173,8 +182,15 @@ export async function resolveConsentAuthorization(input: {
       ...(session.user ? { user: session.user } : {})
     }, input.runtimeLogOptions ?? {}));
     if (conversation.messages.length > 0) hasReadableTranscript = true;
+    if (conversation.canonicalSessionId && conversation.canonicalSessionId !== session.sessionId) {
+      canonicalSessionRejection = {
+        requested: session.sessionId,
+        canonical: conversation.canonicalSessionId
+      };
+      continue;
+    }
     const messageIndex = conversation.messages.findIndex((message) => {
-      if (message.role !== "user" || message.text.trim() !== utterance) return false;
+      if (message.role !== "user" || message.rawText.trim() !== utterance) return false;
       if (candidate.source === "execution-bound") return true;
       if (message.timestampReliability === "unreliable-compaction") {
         timestampRejection = "unreliable-compaction";
@@ -211,7 +227,7 @@ export async function resolveConsentAuthorization(input: {
           session_ref: sessionRef,
           message_index: messageIndex,
           role: "user",
-          message_sha256: `sha256:${sha256Text(message.text)}`,
+          message_sha256: `sha256:${sha256Text(message.rawText.trim())}`,
           ...(message.timestamp ? { timestamp: message.timestamp } : {})
         }
       },
@@ -225,6 +241,11 @@ export async function resolveConsentAuthorization(input: {
   }
   if (!hasReadableTranscript) {
     throw new Error("bound session transcript is unavailable; choose standing-policy or asserted consent explicitly");
+  }
+  if (canonicalSessionRejection) {
+    throw new Error(
+      `bound session ref ${canonicalSessionRejection.requested} does not equal the transcript's canonical session identity ${canonicalSessionRejection.canonical}; rebind the exact canonical session before requesting consent`
+    );
   }
   if (timestampRejection === "missing") {
     throw new Error("review-current consent utterance requires a reliable transcript timestamp; choose standing-policy or asserted consent explicitly");
@@ -243,7 +264,7 @@ export async function resolveConsentAuthorization(input: {
   }
   throw new Error([
     "consent utterance was not found in any bound session transcript user turn as a complete message.",
-    "The utterance must equal the human's complete message after trimming; ask the human to send a separate standalone confirmation message and pass that whole message.",
+    "The utterance must equal the human's complete message after trimming; ask the human to send a separate standalone confirmation message containing the target execution id and pass that whole message.",
     "Choose standing-policy or asserted consent explicitly only when that source accurately describes the approval."
   ].join(" "));
 }
@@ -266,4 +287,9 @@ function prioritizedTranscriptCandidates(
 
 function isRuntime(value: string): value is CurrentSessionRuntime {
   return value === "human" || value === "claude-code" || value === "codex" || value === "zcode" || value === "antigravity";
+}
+
+function startsWithConsentDenial(utterance: string): boolean {
+  return /^(?:do\s+not|don't|dont|never)\b/iu.test(utterance)
+    || /^(?:不要|不同意|别|不批准|不授权|拒绝)/u.test(utterance);
 }
