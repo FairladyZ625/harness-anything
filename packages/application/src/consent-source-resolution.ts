@@ -174,7 +174,7 @@ export async function resolveConsentAuthorization(input: {
     }, input.runtimeLogOptions ?? {}));
     if (conversation.messages.length > 0) hasReadableTranscript = true;
     const messageIndex = conversation.messages.findIndex((message) => {
-      if (message.role !== "user" || !message.text.includes(utterance)) return false;
+      if (message.role !== "user" || message.text.trim() !== utterance) return false;
       if (candidate.source === "execution-bound") return true;
       if (message.timestampReliability === "unreliable-compaction") {
         timestampRejection = "unreliable-compaction";
@@ -241,7 +241,11 @@ export async function resolveConsentAuthorization(input: {
   if (timestampRejection === "outside-window") {
     throw new Error("review-current consent utterance falls outside the execution submission and review window; choose standing-policy or asserted consent explicitly");
   }
-  throw new Error("consent utterance was not found in any bound session transcript user turn; choose standing-policy or asserted consent explicitly");
+  throw new Error([
+    "consent utterance was not found in any bound session transcript user turn as a complete message.",
+    "The utterance must equal the human's complete message after trimming; ask the human to send a separate standalone confirmation message and pass that whole message.",
+    "Choose standing-policy or asserted consent explicitly only when that source accurately describes the approval."
+  ].join(" "));
 }
 
 function prioritizedTranscriptCandidates(

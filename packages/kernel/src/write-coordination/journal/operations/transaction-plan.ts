@@ -14,6 +14,7 @@ import { rejectTaskWrite, rejectWrite } from "../rejection.ts";
 import { resolveContentAddressedBlobPath } from "../../../persistence/blob/content-addressed-blob-store.ts";
 import { assertReservedCodeDocWrite } from "./code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
+import { assertTranscriptConsentAnchorUniqueness } from "./consent-transcript-anchor.ts";
 import {
   prepareRetiredAttributionFieldCleanup,
   retiredAttributionFieldCleanupTargetPath
@@ -113,8 +114,9 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     };
   }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
-    const companionWrites = declaredEntityCompanionWrites(op.payload);
-    const preconditions = declaredEntityPreconditions(op.payload);
+    const declaredPayload = op.payload;
+    const companionWrites = declaredEntityCompanionWrites(declaredPayload);
+    const preconditions = declaredEntityPreconditions(declaredPayload);
     return {
       touchedPaths: (rootInput) => [
         ...declaredEntityTouchedPaths(rootInput, op),
@@ -134,6 +136,7 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
             body: write.body
           }))
         ];
+        assertTranscriptConsentAnchorUniqueness(rootInput, declaredPayload, companionWrites, op.entityId);
         if (!hasRecoverableDocumentTransaction(rootInput, op.opId)) {
           assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
         }
@@ -149,6 +152,7 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       validate: (rootInput) => {
         declaredEntityDocument(rootInput, op);
         assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
+        assertTranscriptConsentAnchorUniqueness(rootInput, declaredPayload, companionWrites, op.entityId);
       }
     };
   }
