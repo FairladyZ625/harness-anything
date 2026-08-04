@@ -13,7 +13,6 @@ import type { VcsCommitAuthor, VcsCommitPhase, VersionControlSystem } from "../.
 import type { EntityId, WriteError } from "../../domain/index.ts";
 import { taskIdFromEntityId } from "../../domain/index.ts";
 import { stablePayloadHash } from "../../integrity/stable-hash.ts";
-import { assertDocumentWritePathsDoNotCollide } from "../../persistence/markdown/markdown-artifact-store.ts";
 import {
   createHarnessRuntimeContext,
   type HarnessLayoutInput,
@@ -25,7 +24,6 @@ import { appendJsonLineDurably, readDurableState, readPayloadRef } from "./durab
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
-import { assertCodeDocGitEvidence } from "./operations/code-doc-policy.ts";
 import { writeJournalRecordCommitSummary } from "./publication/commit-summary.ts";
 import { createAttributionEvent, makeInlineAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./locks.ts";
@@ -41,9 +39,7 @@ import {
 } from "./records.ts";
 import {
   applyWriteOp,
-  documentWritesForWriteValidation,
   readHardDeletePayload,
-  validateWriteTransaction,
   verifyAlreadyAppliedWriteOp,
   writeOpTouchedPaths
 } from "./operations/transaction-plan.ts";
@@ -63,6 +59,11 @@ import { maybeAutoMaterialize } from "./publication/materialization.ts";
 import { finalizeJournalPostCommit } from "./post-commit.ts";
 import { assertCodeDocReplacementHasAuthoredChange } from "./code-doc-reconcile-noop.ts";
 import { isLocalProjectionPath } from "./projection-path.ts";
+import {
+  assertTranscriptConsentAnchorReservation
+} from "./operations/consent-transcript-anchor.ts";
+import { withTranscriptConsentReservationLock } from "./transcript-consent-reservation-lock.ts";
+import { preflightWriteOp, validateWriteOp } from "./preflight.ts";
 import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
@@ -193,7 +194,7 @@ function makeJournaledWriteCoordinatorInternal(
   return {
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
-        validateOp(runtimeContext, op);
+        validateWriteOp(runtimeContext, op);
         // The full declared-entity payload is the recovery source of truth.  In
         // particular, a composite manifest's body must be durable in the journal
         // before apply can install its CAS object.
@@ -210,30 +211,45 @@ function makeJournaledWriteCoordinatorInternal(
         if (mode === "operational-machine-artifact" && !journalOp.kind.startsWith("machine_artifact_")) {
           rejectWrite("operational coordinator only accepts machine artifact writes", journalOp.entityId);
         }
-        preflightWriteOp(rootDir, runtimeContext, journalOp, versionControlSystem);
-        if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
-        const state = readDurableState(journalPath, watermarkPath, rootDir);
-        const existing = state.records.find((record) => record.opId === journalOp.opId);
-        if (existing) {
-          if (attribution) assertRecordMatchesAttributedOp(existing, journalOp, attribution);
-          else assertRecordMatchesOperationalOp(existing, journalOp, operationalActor);
+        const enqueueRecord = (requiresTranscriptConsentReservation: boolean): WriteAck => {
+          preflightWriteOp(rootDir, runtimeContext, journalOp, versionControlSystem);
+          if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
+          const state = readDurableState(journalPath, watermarkPath, rootDir);
+          const existing = state.records.find((record) => record.opId === journalOp.opId);
+          if (existing) {
+            if (attribution) assertRecordMatchesAttributedOp(existing, journalOp, attribution);
+            else assertRecordMatchesOperationalOp(existing, journalOp, operationalActor);
+            return authorizeExactJournalRecord(
+              existing,
+              journalOp.entityId,
+              exactJournalAuthorizations
+            );
+          }
+          if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
+          if (requiresTranscriptConsentReservation) {
+            const outstandingJournaledOps = state.records
+              .filter((record) => record.kind === "doc_write"
+                && !state.applied.has(record.opId)
+                && !state.fileApplied.has(record.opId))
+              .map((record) => recordToOp(rootDir, record));
+            assertTranscriptConsentAnchorReservation(runtimeContext, journalOp, outstandingJournaledOps);
+          }
+          const record = attribution
+            ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
+            : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);
+          appendJsonLineDurably(journalPath, record);
+          pending.push(journalOp);
           return authorizeExactJournalRecord(
-            existing,
+            record,
             journalOp.entityId,
             exactJournalAuthorizations
           );
-        }
-        if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
-        const record = attribution
-          ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
-          : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);
-        appendJsonLineDurably(journalPath, record);
-        pending.push(journalOp);
-        return authorizeExactJournalRecord(
-          record,
-          journalOp.entityId,
-          exactJournalAuthorizations
-        );
+        };
+        return withTranscriptConsentReservationLock({
+          rootDir, rootInput: runtimeContext, journalPath, actor: operationalActor,
+          lockTtlMs, op: journalOp, writeJournalRecord: enqueueRecord,
+          ...(heldGlobalLock ? { heldGlobalLock } : {})
+        });
       },
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
@@ -499,18 +515,6 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
   finalizeRecoverableDocumentTransaction(rootInput, record.opId);
 }
 
-function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
-  const vcs = versionControlSystem ?? makeLocalVersionControlSystem();
-  assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
-  const documentWrites = documentWritesForWriteValidation(rootInput, op);
-  assertCodeDocGitEvidence(rootDir, resolveHarnessLayout(rootInput).authoredRoot, op, documentWrites, vcs);
-  try {
-    assertDocumentWritePathsDoNotCollide(rootInput, documentWrites);
-  } catch (error) {
-    rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
-  }
-}
-
 function recordToOp(rootDir: string, record: ReadableJournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);
   return {
@@ -534,12 +538,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
-}
-
-function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
-  if (op.opId.length === 0) rejectWrite("opId is required", op.entityId);
-  if (op.entityId.length === 0) rejectWrite("entityId is required", op.entityId);
-  validateWriteTransaction(rootInput, op);
 }
 
 function toJournalError(cause: unknown, context: { readonly entityId?: EntityId } = {}): WriteError {

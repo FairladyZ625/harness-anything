@@ -5,6 +5,9 @@ import { Effect } from "effect";
 import { landedSettingDefaults, type CurrentSessionRef, type CurrentSessionRuntime } from "@harness-anything/kernel";
 import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from "./provenance-session-exporter.ts";
 import { unavailableDefaultRuntimeCapture, type RuntimeTranscriptInspection } from "./runtime-transcript-capability.ts";
+import { fileNameMatchesSession, sessionIdFromRuntimeLog } from "./runtime-session-identity.ts";
+
+export { fileNameMatchesSession } from "./runtime-session-identity.ts";
 
 export type { RuntimeTranscriptInspection } from "./runtime-transcript-capability.ts";
 
@@ -18,6 +21,8 @@ export interface RuntimeLogOptions {
 
 export interface RuntimeConversationMessage {
   readonly role: "user" | "assistant" | "summary";
+  /** Raw extracted runtime payload. Authorization consumers must use this field. */
+  readonly rawText: string;
   readonly text: string;
   readonly timestamp?: string;
   readonly timestampReliability?: "unreliable-compaction";
@@ -25,6 +30,7 @@ export interface RuntimeConversationMessage {
 
 export interface RuntimeConversation {
   readonly logPath?: string;
+  readonly canonicalSessionId?: string;
   readonly messages: ReadonlyArray<RuntimeConversationMessage>;
   readonly warnings: ReadonlyArray<string>;
 }
@@ -164,8 +170,14 @@ async function resolveRuntimeConversationAsync(
   try {
     const body = await fs.promises.readFile(logPath, "utf8");
     const messages = parseRuntimeJsonl(session.runtime, body, warnings);
+    const canonicalSessionId = sessionIdFromRuntimeLog(session.runtime, logPath);
     if (messages.length === 0) warnings.push(`No conversation text could be extracted from ${displayRuntimePath(logPath)}.`);
-    return { logPath, messages, warnings };
+    return {
+      logPath,
+      ...(canonicalSessionId ? { canonicalSessionId } : {}),
+      messages,
+      warnings
+    };
   } catch (error) {
     warnings.push(`Failed to read runtime JSONL log ${displayRuntimePath(logPath)}: ${errorMessage(error)}.`);
     return { logPath, messages: [], warnings };
@@ -347,23 +359,6 @@ async function listRuntimeJsonlFiles(root: string, depth: number, warnings: stri
   return files;
 }
 
-function sessionIdFromRuntimeLog(runtime: Exclude<CurrentSessionRuntime, "human">, logPath: string): string | undefined {
-  const basename = path.basename(logPath, ".jsonl");
-  if (runtime === "codex") {
-    const rollout = basename.match(/^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)$/u)?.[1];
-    return rollout ?? basename;
-  }
-  if (runtime === "zcode") {
-    return basename.match(/^model-io-(sess_[A-Za-z0-9._-]+)$/u)?.[1];
-  }
-  return basename;
-}
-
-export function fileNameMatchesSession(filePath: string, sessionId: string): boolean {
-  const basename = path.basename(filePath, ".jsonl");
-  return basename === sessionId || basename.endsWith(`-${sessionId}`) || basename.endsWith(`_${sessionId}`);
-}
-
 function parseRuntimeJsonl(
   runtime: Exclude<CurrentSessionRuntime, "human" | "antigravity">,
   body: string,
@@ -430,10 +425,10 @@ function parseCodexRuntimeJsonl(body: string, warnings: string[]): ReadonlyArray
   const streamAfterSnapshot = lastSnapshot.timestamp
     ? streamMessages.filter((message) => (message.timestamp ?? "") > lastSnapshot.timestamp!)
     : [];
-  const recentSnapshotTexts = new Set(lastSnapshot.messages.slice(-6).map((message) => message.text));
+  const recentSnapshotTexts = new Set(lastSnapshot.messages.slice(-6).map((message) => message.rawText));
   return [
     ...lastSnapshot.messages,
-    ...streamAfterSnapshot.filter((message) => !recentSnapshotTexts.has(message.text))
+    ...streamAfterSnapshot.filter((message) => !recentSnapshotTexts.has(message.rawText))
   ];
 }
 
@@ -489,7 +484,7 @@ function extractCodexReplacementHistory(
 }
 
 function extractTextContent(content: unknown, role: "user" | "assistant"): string {
-  if (typeof content === "string") return cleanRuntimeText(content);
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const item of content) {
@@ -503,7 +498,7 @@ function extractTextContent(content: unknown, role: "user" | "assistant"): strin
     if (text && (type === "text" || type === "input_text" || type === "output_text")) parts.push(text);
     if (role === "user" && type === "image") parts.push("[image]");
   }
-  return cleanRuntimeText(parts.join("\n\n"));
+  return parts.join("\n\n");
 }
 
 function appendMessage(
@@ -517,6 +512,7 @@ function appendMessage(
   if (!text || isSystemNoise(text)) return;
   messages.push({
     role,
+    rawText: rawText.trim(),
     text,
     ...(timestamp ? { timestamp } : {}),
     ...(timestampReliability ? { timestampReliability } : {})

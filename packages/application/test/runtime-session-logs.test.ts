@@ -98,7 +98,7 @@ test("runtime transcript inspection distinguishes absent default capture from an
   }
 });
 
-test("runtime session log lookup uses exact or dash-suffix session id matches", async () => {
+test("runtime session log lookup rejects suffix aliases and accepts the canonical session id", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-"));
   try {
     const logRoot = path.join(rootDir, "logs");
@@ -114,7 +114,7 @@ test("runtime session log lookup uses exact or dash-suffix session id matches", 
       payload: { type: "user_message", message: "substring false positive" }
     })}\n`);
 
-    const conversation = await runEffect(resolveRuntimeConversation({
+    const aliasedConversation = await runEffect(resolveRuntimeConversation({
       schema: "provenance-session/v1",
       sessionId: "abc",
       runtime: "codex",
@@ -125,9 +125,24 @@ test("runtime session log lookup uses exact or dash-suffix session id matches", 
       runtimeLogRoots: { codex: [logRoot] }
     }));
 
-    assert.equal(conversation.logPath?.endsWith("prefix-abc.jsonl"), true);
-    assert.equal(conversation.messages.some((message) => message.text.includes("suffix match")), true);
-    assert.equal(conversation.messages.some((message) => message.text.includes("substring false positive")), false);
+    assert.equal(aliasedConversation.logPath, undefined);
+    assert.deepEqual(aliasedConversation.messages, []);
+
+    const canonicalConversation = await runEffect(resolveRuntimeConversation({
+      schema: "provenance-session/v1",
+      sessionId: "prefix-abc",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: "2026-07-04T00:00:00.000Z",
+      exportedAt: "2026-07-04T00:00:00.000Z"
+    }, {
+      runtimeLogRoots: { codex: [logRoot] }
+    }));
+
+    assert.equal(canonicalConversation.logPath?.endsWith("prefix-abc.jsonl"), true);
+    assert.equal(canonicalConversation.canonicalSessionId, "prefix-abc");
+    assert.equal(canonicalConversation.messages.some((message) => message.text.includes("suffix match")), true);
+    assert.equal(canonicalConversation.messages.some((message) => message.text.includes("substring false positive")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -158,6 +173,7 @@ test("Codex replacement history marks compaction-derived timestamps as unreliabl
     assert.deepEqual(conversation.messages, [{
       role: "user",
       text: "Historical user turn",
+      rawText: "Historical user turn",
       timestamp: "2026-07-04T00:10:00.000Z",
       timestampReliability: "unreliable-compaction"
     }]);

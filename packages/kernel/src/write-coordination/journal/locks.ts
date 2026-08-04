@@ -30,6 +30,28 @@ const lockRecordPublishReadBudgetMs = 20;
 const lockRecordPublishReadDelayMs = 2;
 const lockRecordPublishFreshnessMs = 100;
 
+export function withGlobalRepoLock<T>(
+  rootDir: string,
+  layoutInput: HarnessLayoutInput,
+  journalPath: string,
+  actor: OperationalActor,
+  lockTtlMs: number,
+  fn: () => T,
+  options: RepoLockOptions = {}
+): T {
+  if (options.heldGlobalLock) {
+    assertHeldLock(options.heldGlobalLock);
+    return fn();
+  }
+  const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
+  const lock = acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs);
+  try {
+    return fn();
+  } finally {
+    releaseLock(lock);
+  }
+}
+
 export class WriteLockHeldError extends Error {
   readonly _tag = "WriteLockHeldError";
   readonly owner: string;

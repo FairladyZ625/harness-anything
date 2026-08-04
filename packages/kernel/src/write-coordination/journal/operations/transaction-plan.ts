@@ -15,6 +15,10 @@ import { resolveContentAddressedBlobPath } from "../../../persistence/blob/conte
 import { assertReservedCodeDocWrite } from "./code-doc-policy.ts";
 import { assertDeclaredEntityPreconditions, declaredEntityPreconditions } from "./declared-entity-preconditions.ts";
 import {
+  publishTranscriptConsentAnchorClaims,
+  transcriptConsentClaimsForWriteOp
+} from "./consent-transcript-anchor.ts";
+import {
   prepareRetiredAttributionFieldCleanup,
   retiredAttributionFieldCleanupTargetPath
 } from "./retired-attribution-cleanup.ts";
@@ -113,8 +117,9 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
     };
   }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
-    const companionWrites = declaredEntityCompanionWrites(op.payload);
-    const preconditions = declaredEntityPreconditions(op.payload);
+    const declaredPayload = op.payload;
+    const companionWrites = declaredEntityCompanionWrites(declaredPayload);
+    const preconditions = declaredEntityPreconditions(declaredPayload);
     return {
       touchedPaths: (rootInput) => [
         ...declaredEntityTouchedPaths(rootInput, op),
@@ -137,6 +142,7 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
         if (!hasRecoverableDocumentTransaction(rootInput, op.opId)) {
           assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
         }
+        publishTranscriptConsentAnchorClaims(rootInput, op);
         applyWithCompensatedCasBody(
           rootInput,
           document.blobBody !== undefined && document.blobRef
@@ -149,6 +155,7 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       validate: (rootInput) => {
         declaredEntityDocument(rootInput, op);
         assertDeclaredEntityPreconditions(rootInput, preconditions, op, bodySha256AtPath);
+        transcriptConsentClaimsForWriteOp(rootInput, op);
       }
     };
   }
