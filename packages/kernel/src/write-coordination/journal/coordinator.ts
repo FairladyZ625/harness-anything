@@ -211,7 +211,7 @@ function makeJournaledWriteCoordinatorInternal(
         if (mode === "operational-machine-artifact" && !journalOp.kind.startsWith("machine_artifact_")) {
           rejectWrite("operational coordinator only accepts machine artifact writes", journalOp.entityId);
         }
-        const enqueueRecord = (): WriteAck => {
+        const enqueueRecord = (requiresTranscriptConsentReservation: boolean): WriteAck => {
           preflightWriteOp(rootDir, runtimeContext, journalOp, versionControlSystem);
           if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
           const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -226,10 +226,14 @@ function makeJournaledWriteCoordinatorInternal(
             );
           }
           if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
-          const outstandingJournaledOps = state.records
-            .filter((record) => !state.applied.has(record.opId) && !state.fileApplied.has(record.opId))
-            .map((record) => recordToOp(rootDir, record));
-          assertTranscriptConsentAnchorReservation(runtimeContext, journalOp, outstandingJournaledOps);
+          if (requiresTranscriptConsentReservation) {
+            const outstandingJournaledOps = state.records
+              .filter((record) => record.kind === "doc_write"
+                && !state.applied.has(record.opId)
+                && !state.fileApplied.has(record.opId))
+              .map((record) => recordToOp(rootDir, record));
+            assertTranscriptConsentAnchorReservation(runtimeContext, journalOp, outstandingJournaledOps);
+          }
           const record = attribution
             ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
             : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);

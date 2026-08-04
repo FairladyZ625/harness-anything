@@ -12,10 +12,10 @@ export function withTranscriptConsentReservationLock<T>(input: {
   readonly lockTtlMs: number;
   readonly heldGlobalLock?: OwnedLock;
   readonly op: WriteOp;
-  readonly writeJournalRecord: () => T;
+  readonly writeJournalRecord: (requiresReservation: boolean) => T;
 }): T {
   if (transcriptConsentClaimsForWriteOp(input.rootInput, input.op).length === 0) {
-    return input.writeJournalRecord();
+    return input.writeJournalRecord(false);
   }
   return withGlobalRepoLock(
     input.rootDir,
@@ -23,7 +23,7 @@ export function withTranscriptConsentReservationLock<T>(input: {
     input.journalPath,
     input.actor,
     input.lockTtlMs,
-    input.writeJournalRecord,
+    () => input.writeJournalRecord(true),
     { ...(input.heldGlobalLock ? { heldGlobalLock: input.heldGlobalLock } : {}) }
   );
 }
