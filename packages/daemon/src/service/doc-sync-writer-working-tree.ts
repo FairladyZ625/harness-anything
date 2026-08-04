@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
+import { noFollowPathComponents } from "@harness-anything/kernel/layout/path-safety";
 import {
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
@@ -101,5 +102,7 @@ export function resolveDocSyncChangePath(
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     return { ok: false, reason: "doc sync path is outside authored root" };
   }
+  const noFollow = noFollowPathComponents(authoredRoot, absolute);
+  if (!noFollow.ok) return noFollow;
   return { ok: true, path: absolute };
 }

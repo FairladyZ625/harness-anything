@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -168,9 +168,12 @@ test("one task complete intent publishes approval and completion through the pro
     ], env);
     assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
 
+    const taskHolderRoot = path.join(fixture.repoRoot, ".harness", "task-holders");
+    const holderFilesBeforeDryRun = snapshotDirectory(taskHolderRoot);
     const readyDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
     ], env);
+    assert.deepEqual(snapshotDirectory(taskHolderRoot), holderFilesBeforeDryRun, "task complete --dry-run must not create or remove holder files or locks");
     assert.equal(readyDryRun.status, 0, JSON.stringify(readyDryRun.receipt));
     const readyDryRunData = (readyDryRun.receipt.details as {
       readonly data?: {
@@ -218,6 +221,27 @@ test("one task complete intent publishes approval and completion through the pro
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+function snapshotDirectory(input: string): Readonly<Record<string, unknown>> {
+  try {
+    const stat = lstatSync(input, { bigint: true });
+    return {
+      exists: true,
+      mtimeNs: stat.mtimeNs,
+      entries: readdirSync(input).sort()
+    };
+  } catch (error) {
+    if (isMissingFile(error)) return { exists: false };
+    throw error;
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { readonly code?: unknown }).code === "ENOENT";
+}
 
 test("review immediately after doc sync reproduces non-linear publication without the facade barrier", { timeout: 60_000 }, async () => {
   const fixture = createFixture();

@@ -37,6 +37,7 @@
     { "package": "daemon", "subpath": "./authority/forced-command-session", "target": "./src/authority/forced-command-session.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API", "maxProductionConsumers": 0 },
     { "package": "daemon-client", "subpath": "./connection-pool", "target": "./src/connection-pool.ts", "owner": "PLT-Boundary", "sunset": "W2/W3 consumers migrate to the package root API", "maxProductionConsumers": 1 },
     { "package": "kernel", "subpath": "./daemon/registry", "target": "./src/daemon/registry.ts", "owner": "PLT-Boundary", "sunset": "W2 moves daemon registry ownership out of kernel", "maxProductionConsumers": 2 },
-    { "package": "kernel", "subpath": "./daemon-runtime-support", "target": "./src/daemon-runtime-support.ts", "owner": "PLT-Boundary", "sunset": "Documented B7 coupling; replace with a proper kernel port in a follow-up task", "maxProductionConsumers": 5 }
+    { "package": "kernel", "subpath": "./daemon-runtime-support", "target": "./src/daemon-runtime-support.ts", "owner": "PLT-Boundary", "sunset": "Documented B7 coupling; replace with a proper kernel port in a follow-up task", "maxProductionConsumers": 5 },
+    { "package": "kernel", "subpath": "./layout/path-safety", "target": "./src/layout/path-safety.ts", "owner": "PLT-Boundary", "sunset": "Move authored-path safety behind a stable kernel port", "maxProductionConsumers": 1 }
   ]
 }

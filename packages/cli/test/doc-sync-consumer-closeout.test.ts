@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -60,6 +60,59 @@ test("doc sync keeps a consumer closeout edit visible as a governed task-prose c
       assert.deepEqual(result.appliedChanges.map((change) => change.path), [`tasks/${taskId}/closeout.md`]);
     }
     assert.equal(git(harnessRoot, "status", "--short"), "");
+  }, { writeRegistry: false });
+});
+
+test("doc sync rejects a closeout request whose task package is swapped to an external symlink", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot }) => {
+    const closeoutPath = path.join(taskRoot, "closeout.md");
+    const initial = [
+      "# Closeout",
+      "",
+      "## Summary",
+      "",
+      "Original closeout.",
+      "",
+      "## Verification",
+      "",
+      "Original verification.",
+      "",
+      "## Residual Risk",
+      "",
+      "No known residual risk.",
+      ""
+    ].join("\n");
+    const edited = initial.replace("Original closeout.", "Edited closeout.");
+    writeFileSync(closeoutPath, initial, "utf8");
+    git(harnessRoot, "add", `tasks/${taskId}/closeout.md`);
+    gitCommit(harnessRoot, "seed closeout");
+    writeFileSync(closeoutPath, edited, "utf8");
+
+    const request = buildDocSyncSubmitRequest(
+      rootDir,
+      "consumer",
+      [`tasks/${taskId}/closeout.md`],
+      { kind: "agent", id: "codex-test" },
+      cliDaemonServiceHostServices.docSync
+    );
+    const externalTaskRoot = path.join(rootDir, "outside-task");
+    const externalCloseoutPath = path.join(externalTaskRoot, "closeout.md");
+    mkdirSync(externalTaskRoot, { recursive: true });
+    for (const file of ["INDEX.md", "task_plan.md", "facts.md", "notes.txt"]) {
+      writeFileSync(path.join(externalTaskRoot, file), readFileSync(path.join(taskRoot, file)));
+    }
+    writeFileSync(externalCloseoutPath, initial, "utf8");
+    rmSync(taskRoot, { recursive: true, force: true });
+    symlinkSync(externalTaskRoot, taskRoot, "dir");
+
+    const result = await makeDocSyncService({
+      rootDir,
+      coordinator: attributedCoordinator(rootDir),
+      hostServices: cliDaemonServiceHostServices.docSync
+    }).submit(request);
+
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(readFileSync(externalCloseoutPath, "utf8"), initial);
   }, { writeRegistry: false });
 });
 

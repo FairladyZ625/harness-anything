@@ -476,18 +476,39 @@ function dryRunWriteBarrier(preflight?: () => Promise<unknown>): WriteCoordinato
         opCount = 0;
         return report;
       },
-      catch: (cause): WriteError => ({
-        _tag: "WriteRejected",
-        reason: cause instanceof Error ? cause.message : String(cause)
-      })
+      catch: (cause): WriteError => isWriteRejected(cause)
+        ? cause
+        : {
+          _tag: "WriteRejected",
+          reason: cause instanceof Error ? cause.message : String(cause)
+        }
     }),
     recover: Effect.succeed({ replayedOps: 0 })
   };
 }
 
-function childPreflightRejected(receipt: CommandReceiptEnvelope): Error {
-  if (receipt.ok) return new Error("TASK_COMPLETE_PREFLIGHT_UNEXPECTED_SUCCESS");
-  return new Error(`${receipt.error?.code ?? "TASK_COMPLETE_PREFLIGHT_REJECTED"}:${receipt.error?.hint ?? receipt.summary}`);
+function childPreflightRejected(receipt: CommandReceiptEnvelope): WriteError {
+  if (receipt.ok) {
+    return {
+      _tag: "WriteRejected",
+      reason: "TASK_COMPLETE_PREFLIGHT_UNEXPECTED_SUCCESS",
+      retryable: false
+    };
+  }
+  return {
+    _tag: "WriteRejected",
+    ...(receipt.error?.code ? { code: receipt.error.code } : {}),
+    ...(receipt.error?.context ? { context: receipt.error.context } : {}),
+    reason: receipt.error?.hint ?? receipt.summary,
+    retryable: false
+  };
+}
+
+function isWriteRejected(error: unknown): error is Extract<WriteError, { readonly _tag: "WriteRejected" }> {
+  return typeof error === "object"
+    && error !== null
+    && (error as { readonly _tag?: unknown })._tag === "WriteRejected"
+    && typeof (error as { readonly reason?: unknown }).reason === "string";
 }
 
 function missingDaemonActorCoordinator(

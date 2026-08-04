@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
@@ -13,6 +13,10 @@ export const localEvidenceFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
   realpath: (inputPath: string) => realpathSync(inputPath)
+};
+
+export const localPathSafetyFileSystem = {
+  lstat: (inputPath: string) => lstatSync(inputPath)
 };
 
 export const localProjectionSourceFileSystem = {

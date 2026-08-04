@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout } from "@harness-anything/kernel";
+import { makeLocalVersionControlSystem, resolveHarnessLayout, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -54,13 +54,21 @@ function runTaskLifecycleTransition(
     const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition-dry-run" });
     return Effect.gen(function* () {
       // The canonical planner may run in the repo-write child. Keep the
-      // parent-side holder probe outside that preflight so the child can run
-      // its own read-only planner without contending on the same task lock.
-      yield* Effect.promise(() => Effect.runPromise(coordinator.flush("explicit")));
-      yield* Effect.promise(() => context.taskHolderService.withUnheldTask(
-        { taskId: action.taskId },
-        () => Promise.resolve()
-      ));
+      // parent-side read-only holder probe outside that preflight so the child
+      // can run its own read-only planner without contending on a task lock.
+      yield* coordinator.flush("explicit");
+      const holder = yield* Effect.tryPromise({
+        try: () => context.taskHolderService.holder({ taskId: action.taskId }),
+        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+      });
+      if (holder.effectiveHolder) {
+        return yield* Effect.fail({
+          _tag: "WriteRejected",
+          taskId: action.taskId,
+          reason: `TASK_LIFECYCLE_HOLDER_RELEASE_REQUIRED:${action.taskId}`,
+          retryable: false
+        } satisfies WriteError);
+      }
       return {
         ok: true,
         command: "task-complete",

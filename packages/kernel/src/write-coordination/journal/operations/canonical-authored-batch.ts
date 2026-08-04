@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { EntityId } from "../../../domain/index.ts";
 import { sha256Text } from "../../../integrity/stable-hash.ts";
+import { noFollowPathComponents } from "../../../layout/path-safety.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../layout/index.ts";
 import type { WriteOp } from "../../../ports/write-coordinator.ts";
 import { durableFileExists, durableFileIsRegularNoFollow, readFileBytes, removeFileDurably, writeFileDurably } from "../durable.ts";
@@ -62,6 +63,7 @@ export function validateCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op
   const authoredRoot = resolveHarnessLayout(rootInput).authoredRoot;
   for (const write of canonicalAuthoredBatchWrites(op)) {
     const targetPath = path.join(authoredRoot, write.path);
+    assertCanonicalAuthoredPath(authoredRoot, op, targetPath, write.path);
     const currentHash = durableFileExists(targetPath) ? sha256Text(readText(targetPath)) : null;
     const submittedHash = write.bodySha256 ?? sha256Text(write.body!);
     const acceptsPreAppliedDocSync = op.kind === "doc_sync_submit" && currentHash === submittedHash;
@@ -77,7 +79,8 @@ export function applyCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op: W
     ...write,
     targetPath: path.join(authoredRoot, write.path)
   }));
-  verifyCanonicalAuthoredWorkingTreeReferences(op, writes);
+  for (const write of writes) assertCanonicalAuthoredPath(authoredRoot, op, write.targetPath, write.path);
+  verifyCanonicalAuthoredWorkingTreeReferences(authoredRoot, op, writes);
   const changedWrites = writes.filter((write) => write.body !== undefined);
   const backups = changedWrites.map((write) => ({
     targetPath: write.targetPath,
@@ -87,11 +90,13 @@ export function applyCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op: W
   const writtenBackups: typeof backups[number][] = [];
   try {
     for (const [index, write] of changedWrites.entries()) {
+      assertCanonicalAuthoredPath(authoredRoot, op, write.targetPath, write.path);
       writeFileDurably(write.targetPath, write.body!);
       writtenBackups.push(backups[index]!);
     }
   } catch (error) {
     for (const backup of writtenBackups.reverse()) {
+      assertCanonicalAuthoredPath(authoredRoot, op, backup.targetPath, "rollback target");
       if (backup.existed && backup.body !== null) {
         writeFileDurably(backup.targetPath, backup.body);
       } else {
@@ -108,15 +113,18 @@ export function verifyAppliedCanonicalAuthoredBatch(rootInput: HarnessLayoutInpu
     ...write,
     targetPath: path.join(authoredRoot, write.path)
   }));
-  verifyCanonicalAuthoredWorkingTreeReferences(op, writes);
+  for (const write of writes) assertCanonicalAuthoredPath(authoredRoot, op, write.targetPath, write.path);
+  verifyCanonicalAuthoredWorkingTreeReferences(authoredRoot, op, writes);
 }
 
 function verifyCanonicalAuthoredWorkingTreeReferences(
+  authoredRoot: string,
   op: WriteOp,
   writes: ReadonlyArray<CanonicalAuthoredWrite & { readonly targetPath: string }>
 ): void {
   for (const write of writes) {
     if (write.bodySha256 === undefined) continue;
+    assertCanonicalAuthoredPath(authoredRoot, op, write.targetPath, write.path);
     assertRegularWorkingTreeReference(op, write);
     let actualHash: string;
     try {
@@ -127,6 +135,7 @@ function verifyCanonicalAuthoredWorkingTreeReferences(
         op.entityId
       );
     }
+    assertCanonicalAuthoredPath(authoredRoot, op, write.targetPath, write.path);
     assertRegularWorkingTreeReference(op, write);
     if (actualHash !== write.bodySha256) {
       rejectWrite(
@@ -135,6 +144,20 @@ function verifyCanonicalAuthoredWorkingTreeReferences(
       );
     }
   }
+}
+
+function assertCanonicalAuthoredPath(
+  authoredRoot: string,
+  op: WriteOp,
+  targetPath: string,
+  displayPath: string
+): void {
+  const check = noFollowPathComponents(authoredRoot, targetPath);
+  if (check.ok) return;
+  rejectWrite(
+    `canonical authored path must remain inside non-symlink path components before ${op.kind}: ${displayPath}; ${check.reason}`,
+    op.entityId
+  );
 }
 
 function assertRegularWorkingTreeReference(
