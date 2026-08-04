@@ -4,6 +4,13 @@ import { createTaskPackagePath, generateTaskId } from "@harness-anything/kernel"
 import { runNewTaskFromLegacy } from "../legacy-rebuild.ts";
 import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "../preset-task.ts";
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../settings.ts";
+import {
+  duplicateTitleWarning,
+  findRecentTaskCreateDuplicate,
+  findTaskCreateByIdempotencyKey,
+  idempotencyReuseWarning,
+  taskCreateReuseResult
+} from "../task-create-dedup.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -22,9 +29,26 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
   }
 
   const taskId = action.taskId ?? generateTaskId();
+  const idempotencyCandidate = action.idempotencyKey
+    ? findTaskCreateByIdempotencyKey(context.layoutInput, action.idempotencyKey)
+    : undefined;
+  if (idempotencyCandidate && !action.dryRun) {
+    return Effect.succeed({
+      ok: true,
+      command: "new-task",
+      ...taskCreateReuseResult(idempotencyCandidate),
+      warnings: [idempotencyReuseWarning(idempotencyCandidate)]
+    } satisfies CliResult);
+  }
+  const duplicateCandidate = findRecentTaskCreateDuplicate(context.layoutInput, {
+    title: action.title,
+    parent: action.parent,
+    excludeTaskId: taskId
+  });
   return context.engine.createTask({
     taskId,
     title: action.title,
+    idempotencyKey: action.idempotencyKey,
     parent: action.parent,
     workKind: action.workKind,
     riskTier: action.riskTier,
@@ -37,6 +61,7 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
     taskId: result.taskId,
     slug: action.slug,
     status: result.status,
-    packagePath: path.relative(command.rootDir, createTaskPackagePath(context.layoutInput, result.taskId, action.slug)).split(path.sep).join("/")
+    packagePath: path.relative(command.rootDir, createTaskPackagePath(context.layoutInput, result.taskId, action.slug)).split(path.sep).join("/"),
+    warnings: duplicateCandidate ? [duplicateTitleWarning(duplicateCandidate)] : []
   })));
 };

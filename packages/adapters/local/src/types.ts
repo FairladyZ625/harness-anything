@@ -45,6 +45,7 @@ export interface AdapterProviderMetadata {
 export interface CreateLocalTaskInput {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly idempotencyKey?: string;
   readonly allowManualId?: boolean;
   readonly slug?: string;
   readonly parent?: TaskId;
@@ -155,6 +156,7 @@ export interface LocalLifecycleEngine {
 export interface LocalTaskIndex {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly idempotencyKey?: string;
   readonly parent?: TaskId;
   readonly engine: string;
   readonly status: DomainStatus;

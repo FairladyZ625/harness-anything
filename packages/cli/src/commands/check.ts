@@ -21,6 +21,7 @@ import { discoverScriptEntries } from "./extensions/script.ts";
 import { runScriptHost } from "./extensions/script-host.ts";
 import { undeclaredSectionsForTaskDocument } from "./extensions/managed-section-policy.ts";
 import { validateInReviewExecutionConsistency } from "./task-execution-consistency.ts";
+import { orphanTaskCreateProfileIssues } from "./task-create-dedup.ts";
 import {
   checkScopeReport,
   filterIssuesForScope,
@@ -214,7 +215,8 @@ function validateCheckProfile(
   const rootDir = layout.rootDir;
   const issues: ProfileValidationIssue[] = [
     ...(scope ? [] : validateUniqueTaskDirectoryIds(layout.rootDir, layout.tasksRoot)),
-    ...filterIssuesForScope(validateInReviewExecutionConsistency(rootInput), scope)
+    ...filterIssuesForScope(validateInReviewExecutionConsistency(rootInput), scope),
+    ...orphanTaskCreateProfileIssues(rootInput, scope?.taskDirs)
   ];
   const settingsResult = readProjectHarnessSettings(rootInput, "check");
   const settings = settingsResult.ok ? settingsResult.settings : undefined;

@@ -168,6 +168,7 @@ export function buildLocalTaskCreateWrites(
     const index = makeIndex({
       taskId: input.taskId,
       title: input.title,
+      idempotencyKey: input.idempotencyKey,
       parent: input.parent,
       status: "planned",
       bindingCreatedAt: createdAt,

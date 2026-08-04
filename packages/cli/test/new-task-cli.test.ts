@@ -3,7 +3,7 @@ import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -285,6 +285,55 @@ test("CLI task create keeps runtime provenance without fabricating a missing tra
     assert.equal(existsSync(sessionPath), false);
     assert.doesNotMatch(gitLog(harnessRoot), new RegExp(`session-export-${sessionId}-[a-f0-9]{16}`, "u"));
     assert.equal(gitStatus(harnessRoot), "");
+  });
+});
+
+test("CLI task create reuses an explicit idempotency key without creating a second package", () => {
+  withTempRoot((rootDir) => {
+    const first = runJson(rootDir, [
+      "task", "create", "--title", "Idempotent Create", "--idempotency-key", "caller-retry-42"
+    ], true, {});
+    const second = runJson(rootDir, [
+      "task", "create", "--title", "Idempotent Create", "--idempotency-key", "caller-retry-42"
+    ], true, {});
+
+    assert.equal(second.taskId, first.taskId);
+    assert.equal(second.packagePath, first.packagePath);
+    assert.equal(second.warnings[0]?.code, "task_create_idempotency_reused");
+    assert.equal(second.warnings[0]?.existingTaskId, first.taskId);
+    assert.match(readFileSync(path.join(rootDir, first.packagePath, "INDEX.md"), "utf8"), /^idempotencyKey: caller-retry-42$/mu);
+    assert.equal(readdirSync(path.join(rootDir, "harness/tasks"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).length, 1);
+  });
+});
+
+test("CLI task create warns before allowing a short-window same-title retry", () => {
+  withTempRoot((rootDir) => {
+    const first = runJson(rootDir, ["task", "create", "--title", "Short Window Retry"], true, {});
+    const second = runJson(rootDir, ["task", "create", "--title", "Short Window Retry"], true, {});
+
+    assert.notEqual(second.taskId, first.taskId);
+    assert.equal(second.warnings[0]?.code, "task_create_duplicate_title");
+    assert.equal(second.warnings[0]?.existingTaskId, first.taskId);
+  });
+});
+
+test("CLI check warns on a synthetic untouched planned duplicate without hard-failing", () => {
+  withTempRoot((rootDir) => {
+    const first = runJson(rootDir, ["task", "create", "--title", "Synthetic Orphan Pair"], true, {});
+    runJson(rootDir, ["task", "create", "--title", "Synthetic Orphan Pair"], true, {});
+
+    const redCheck = runJson(rootDir, ["check"], true, {});
+    const redWarnings = redCheck.warnings.filter((warning: Record<string, unknown>) => warning.code === "task_create_orphan_duplicate");
+    assert.equal(redCheck.ok, true);
+    assert.equal(redCheck.report.summary.hardFailCount, 0);
+    assert.equal(redWarnings.length, 2);
+
+    writeSubstantiveTaskPlan(rootDir, String(first.packagePath));
+    const greenCheck = runJson(rootDir, ["check"], true, {});
+    const greenWarnings = greenCheck.warnings.filter((warning: Record<string, unknown>) => warning.code === "task_create_orphan_duplicate");
+    assert.equal(greenCheck.ok, true);
+    assert.equal(greenCheck.report.summary.hardFailCount, 0);
+    assert.equal(greenWarnings.length, 1);
   });
 });
 
