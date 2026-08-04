@@ -364,7 +364,14 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
     requestId: "request-terminal",
     opId: "op-terminal",
     phase: "authority-replica-change-read",
-    elapsedMs: 12.5
+    elapsedMs: 12.5,
+    details: {
+      kind: "source-summary",
+      count: 3,
+      clean: true,
+      hash: "sha256:fixture",
+      absent: null
+    }
   });
   const shutdown = decodeRepoWriteParentMessage({
     ...base("shutdown"),
@@ -385,11 +392,19 @@ test("ready, terminal, status, telemetry, shutdown, and drained frames have exac
   );
   assert.equal(telemetry.kind === "telemetry" ? telemetry.elapsedMs : undefined, 12.5);
   assert.equal(telemetry.kind === "telemetry" ? telemetry.phase : undefined, "authority-replica-change-read");
+  assert.deepEqual(
+    telemetry.kind === "telemetry" ? telemetry.details : undefined,
+    { kind: "source-summary", count: 3, clean: true, hash: "sha256:fixture", absent: null }
+  );
   assert.equal(shutdown.kind, "shutdown");
   assert.equal(drained.kind, "drained");
   assert.throws(() => decodeRepoWriteChildMessage({ ...ready, requestId: "not-allowed" }), protocolInvalid);
   assert.throws(() => decodeRepoWriteParentMessage({ ...shutdown, deadlineMs: 5_000 }), protocolInvalid);
   assert.throws(() => decodeRepoWriteChildMessage({ ...telemetry, payload: "not telemetry" }), protocolInvalid);
+  assert.throws(() => decodeRepoWriteChildMessage({
+    ...telemetry,
+    details: { nested: { not: "scalar" } }
+  }), protocolInvalid);
   assert.throws(() => decodeRepoWriteChildMessage({
     ...base("status"),
     requestId: "status-missing-receipt",

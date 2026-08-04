@@ -1,15 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { performance } from "node:perf_hooks";
-import type { RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
+import type { RepoWriteTelemetryDetails, RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
 
 type RepoWriteTelemetryReporter = (
   phase: RepoWriteTelemetryPhase,
-  elapsedMs: number
+  elapsedMs: number,
+  details?: RepoWriteTelemetryDetails
 ) => void;
 
 export interface RepoWriteTelemetryDelivery {
   readonly report: RepoWriteTelemetryReporter;
-  readonly reportCurrent: (phase: RepoWriteTelemetryPhase) => void;
+  readonly reportCurrent: (phase: RepoWriteTelemetryPhase, details?: RepoWriteTelemetryDetails) => void;
   readonly flush: () => Promise<void>;
   readonly close: () => void;
 }
@@ -27,11 +28,12 @@ export function runWithRepoWriteTelemetry<Result>(
 }
 
 export function reportCurrentRepoWriteTelemetry(
-  phase: RepoWriteTelemetryPhase
+  phase: RepoWriteTelemetryPhase,
+  details?: RepoWriteTelemetryDetails
 ): void {
   const current = storage.getStore();
   if (!current) return;
-  current.report(phase, Math.max(0, performance.now() - current.startedAt));
+  current.report(phase, Math.max(0, performance.now() - current.startedAt), details);
 }
 
 export async function executeRepoWriteChildWithTelemetry<Result>(
@@ -58,23 +60,24 @@ export function bindCurrentRepoWriteTelemetry<Result>(
 export function createRepoWriteTelemetryDelivery(
   deliver: (
     phase: RepoWriteTelemetryPhase,
-    elapsedMs: number
+    elapsedMs: number,
+    details?: RepoWriteTelemetryDetails
   ) => Promise<void>
 ): RepoWriteTelemetryDelivery {
   let pending = Promise.resolve();
   let closed = false;
   const startedAt = performance.now();
   return {
-    report: (phase, elapsedMs) => {
+    report: (phase, elapsedMs, details) => {
       if (closed) return;
       pending = pending
-        .then(() => deliver(phase, elapsedMs))
+        .then(() => deliver(phase, elapsedMs, details))
         .catch(() => undefined);
     },
-    reportCurrent: (phase) => {
+    reportCurrent: (phase, details) => {
       if (closed) return;
       pending = pending
-        .then(() => deliver(phase, Math.max(0, performance.now() - startedAt)))
+        .then(() => deliver(phase, Math.max(0, performance.now() - startedAt), details))
         .catch(() => undefined);
     },
     flush: () => pending,

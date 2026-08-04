@@ -35,6 +35,7 @@ export const repoWriteTelemetryPhases = [
   "authority-flush-git-native-commit-done",
   "authority-flush-projection-fingerprint-start",
   "authority-flush-projection-fingerprint-done",
+  "authority-flush-projection-fingerprint-summary",
   "authority-flush-post-commit-attribution-confirm-start",
   "authority-flush-post-commit-attribution-confirm-done",
   "authority-flush-post-commit-projection-hash-start",
@@ -48,12 +49,16 @@ export const repoWriteTelemetryPhases = [
   "runtime-event-append-start", "runtime-event-append-done",
   "authority-materializer-start", "authority-materializer-baseline-start",
   "authority-materializer-baseline-done", "authority-materializer-merge-start",
+  "authority-materializer-baseline-fence", "authority-materializer-baseline-cache",
   "authority-materializer-merge-done", "authority-materializer-projection-start",
   "authority-materializer-projection-load-current", "authority-materializer-projection-capture-source",
   "authority-materializer-projection-derive-affected", "authority-materializer-projection-declared-delta",
   "authority-materializer-projection-hash-next", "authority-materializer-projection-verify-source",
   "authority-materializer-projection-source-cache-refresh",
   "authority-materializer-projection-source-cache-change",
+  "authority-materializer-projection-source-summary",
+  "authority-materializer-projection-metadata-summary",
+  "authority-materializer-projection-trusted-advance",
   "authority-materializer-projection-attribution-delta",
   "authority-materializer-projection-source-delta", "authority-materializer-projection-publish",
   "authority-materializer-projection-database-start",
@@ -104,12 +109,21 @@ export const repoWriteTelemetryPhases = [
 
 export type RepoWriteTelemetryPhase = typeof repoWriteTelemetryPhases[number];
 
+/**
+ * Optional telemetry context is deliberately flat and scalar. Producers use
+ * this for bounded counts, category hashes, and decision labels; authored
+ * content and raw paths never belong in a常开 diagnostic frame.
+ */
+export type RepoWriteTelemetryDetail = string | number | boolean | null;
+export type RepoWriteTelemetryDetails = Readonly<Record<string, RepoWriteTelemetryDetail>>;
+
 export interface RepoWriteTelemetryFrame extends RepoWriteDiagnosticFrameBase {
   readonly kind: "telemetry";
   readonly requestId: string;
   readonly opId?: string;
   readonly phase: RepoWriteTelemetryPhase;
   readonly elapsedMs: number;
+  readonly details?: RepoWriteTelemetryDetails;
 }
 
 export interface RepoWriteRecoveryDeferredFrame extends RepoWriteDiagnosticFrameBase {

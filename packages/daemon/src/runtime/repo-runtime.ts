@@ -78,7 +78,7 @@ import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-opti
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
 import { bindCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
-import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
+import { reportFlushGitCommitPhase, reportFlushPostCommitPhase, reportFlushProjectionFingerprintDiagnostic, reportFlushProjectionFingerprintPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 export type {
@@ -498,7 +498,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       autoMaterialize: false,
       onProjectionChange: this.projectionChanges.publish,
       onCommitPhase: reportFlushGitCommitPhase,
-      onProjectionFingerprintPhase: reportFlushProjectionFingerprintPhase,
+      onProjectionFingerprintPhase: reportFlushProjectionFingerprintPhase, onProjectionFingerprintDiagnostic: reportFlushProjectionFingerprintDiagnostic,
       onPostCommitPhase: reportFlushPostCommitPhase,
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})

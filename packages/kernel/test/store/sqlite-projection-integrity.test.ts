@@ -43,6 +43,24 @@ test("incremental task and decision edits preserve authored attribution", () => 
   });
 });
 
+test("a source-fingerprint rebuild publishes its generation for the next trusted advance", () => {
+  withTempStore((rootDir) => {
+    writeIntegrityTask(rootDir, "task-a", "Task A", "active");
+    rebuildTaskProjection({ rootDir });
+
+    writeIntegrityTask(rootDir, "task-a", "Task A generation one", "active");
+    const previousSourceFingerprint = captureProjectionSourceSnapshot(rootDir).fingerprint;
+    const mismatchedTouchedPath = writeIntegrityTask(rootDir, "task-b", "Task B generation two", "done");
+    const rebuilt = updateTaskProjectionIncrementally({ rootDir, touchedPaths: [mismatchedTouchedPath], previousSourceFingerprint });
+
+    assert.equal(rebuilt.mode, "rebuild");
+    assert.equal(rebuilt.sourceHash, captureProjectionSourceSnapshot(rootDir).fingerprint);
+    const nextTouchedPath = writeIntegrityTask(rootDir, "task-c", "Task C generation three", "done");
+    const next = updateTaskProjectionIncrementally({ rootDir, touchedPaths: [nextTouchedPath], previousSourceFingerprint: rebuilt.sourceHash });
+    assert.equal(next.mode, "incremental");
+  });
+});
+
 test("projection reads reject valid-looking attribution tampering", () => {
   withTempStore((rootDir) => {
     writeIntegrityTask(rootDir, "task-a", "Task A", "active");

@@ -94,22 +94,35 @@ try {
 
   const fingerprintMs = measure(() => captureAuthoredProjectionFingerprint(root));
   const projectionRebuildMs = measure(() => rebuildTaskProjection({ rootDir: root }));
+
+  // Production's prior materializer generation is followed by an evidence V2
+  // commit before the next governance write. Keep that HEAD/source generation
+  // gap in the fixture so a rebuild can invalidate the trusted cache just as
+  // the daemon does; no trusted capture is allowed to bridge it here.
+  const preflightEvidenceCommitParent = git("rev-parse", "HEAD");
+  evidenceLog.ensure(v2Event("op-preflight-generation", evidenceShardCount + 1, {
+    taskId: "task_synthetic_00000",
+    action: "append",
+    path: "tasks/task_synthetic_00000/progress.md"
+  }));
+  await evidenceCommitter.commitPending(preflightEvidenceCommitParent);
+
   const trustedVcs = makeLocalVersionControlSystem();
   const trustedFingerprintColdMs = measure(() => captureTrustedAuthoredProjectionFingerprint(root, trustedVcs));
   const trustedFingerprintWrites = [];
   for (let writeIndex = 1; writeIndex <= 2; writeIndex += 1) {
     const writeStartedAt = performance.now();
     const telemetryFrames = [];
-    await runWithRepoWriteTelemetry((phase, elapsedMs) => {
-      telemetryFrames.push({ phase, elapsedMs });
+    await runWithRepoWriteTelemetry((phase, elapsedMs, details) => {
+      telemetryFrames.push({ phase, elapsedMs, ...(details ? { details } : {}) });
     }, async () => {
       const report = (phase) => reportCurrentRepoWriteTelemetry(phase);
       report("queue");
       report("compile");
       report("journal");
-      const sessionId = `round9-write-${writeIndex}`;
+      const sessionId = `round10-write-${writeIndex}`;
       const sessionBranch = `sessions/${sessionId}`;
-      const opId = `op-round9-${String(writeIndex).padStart(2, "0")}`;
+      const opId = `op-round10-${String(writeIndex).padStart(2, "0")}`;
       const taskProgressRelativePath = path.join("tasks", "task_synthetic_00000", "progress.md");
       const taskProgressPath = path.join(authoredRoot, taskProgressRelativePath);
       git("branch", sessionBranch);
@@ -165,19 +178,11 @@ try {
         true
       );
 
-      const canonicalTrustedStartedAt = performance.now();
-      const canonicalTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
-      const canonicalTrustedMs = performance.now() - canonicalTrustedStartedAt;
-      const canonicalFullStartedAt = performance.now();
-      const canonicalFullFingerprint = captureAuthoredProjectionFingerprint(root);
-      const canonicalFullMs = performance.now() - canonicalFullStartedAt;
-      if (canonicalTrustedFingerprint !== canonicalFullFingerprint) {
-        throw new Error(`trusted fingerprint mismatch after canonical write ${writeIndex}`);
-      }
+      const canonicalFullMs = measure(() => captureAuthoredProjectionFingerprint(root));
 
       report("authority-evidence-commit");
       report("fsync");
-      evidenceLog.ensure(v2Event(opId, evidenceShardCount + writeIndex, {
+      evidenceLog.ensure(v2Event(opId, evidenceShardCount + 1 + writeIndex, {
         taskId: "task_synthetic_00000",
         action: "append",
         path: taskProgressRelativePath
@@ -187,25 +192,17 @@ try {
       const evidenceCommitMs = performance.now() - evidenceCommitStartedAt;
       report("authority-evidence-publish-returned");
       report("authority-event-published");
-      const evidenceTrustedStartedAt = performance.now();
-      const evidenceTrustedFingerprint = captureTrustedAuthoredProjectionFingerprint(root, trustedVcs);
-      const evidenceTrustedMs = performance.now() - evidenceTrustedStartedAt;
-      const evidenceFullStartedAt = performance.now();
-      const evidenceFullFingerprint = captureAuthoredProjectionFingerprint(root);
-      const evidenceFullMs = performance.now() - evidenceFullStartedAt;
-      if (evidenceTrustedFingerprint !== evidenceFullFingerprint) {
-        throw new Error(`trusted fingerprint mismatch after evidence write ${writeIndex}`);
-      }
+      const evidenceFullMs = measure(() => captureAuthoredProjectionFingerprint(root));
       report("authority-terminal-record-start");
       report("authority-terminal-record-persisted");
       report("runtime-event-append-start");
       const runtimeEventReceipt = await pollingRuntime.enqueueInteractiveWrite({
-        commandId: `runtime-event-round9-${String(writeIndex).padStart(2, "0")}`,
+        commandId: `runtime-event-round10-${String(writeIndex).padStart(2, "0")}`,
         operationalActor: { scope: "operational", kind: "system", id: "runtime-event-cli" },
         ops: [runtimeEventOp(
-          `runtime-event-round9-${String(writeIndex).padStart(2, "0")}`,
+          `runtime-event-round10-${String(writeIndex).padStart(2, "0")}`,
           `${sessionId}.jsonl`,
-          `evt-round9-${String(writeIndex).padStart(2, "0")}`
+          `evt-round10-${String(writeIndex).padStart(2, "0")}`
         )]
       });
       if (!runtimeEventReceipt.flush.committed || runtimeEventReceipt.flush.opCount !== 1) {
@@ -224,10 +221,10 @@ try {
         materializerMs: telemetry.materializerWindow.durationMs,
         preAuthorityBarrierMs,
         postAuthorityBarrierMs,
-        canonicalTrustedMs,
+        canonicalTrustedMs: null,
         canonicalFullMs,
         evidenceCommitMs,
-        evidenceTrustedMs,
+        evidenceTrustedMs: null,
         evidenceFullMs,
         telemetry: compactTelemetry(telemetry)
       });
@@ -283,6 +280,7 @@ try {
       taskPackageCount,
       evidenceShardCount,
       pairedLegacyAttributionShardCount: evidenceShardCount,
+      postProjectionEvidenceGenerationCommit: true,
       historyCommitCount,
       fixtureMaterializerPollMs,
       untrackedProjectionExternalArtifact: true
@@ -527,6 +525,13 @@ function compactTelemetry(telemetry) {
     projectionModeReasons: telemetry.frames
       .filter((frame) => frame.phase.startsWith("authority-materializer-projection-mode-rebuild-reason-"))
       .map((frame) => frame.phase),
+    projectionDiagnostics: telemetry.frames
+      .filter((frame) => frame.phase === "authority-materializer-baseline-fence" ||
+        frame.phase === "authority-materializer-baseline-cache" ||
+        frame.phase === "authority-materializer-projection-source-summary" ||
+        frame.phase === "authority-materializer-projection-metadata-summary" ||
+        frame.phase === "authority-materializer-projection-trusted-advance")
+      .map((frame) => ({ phase: frame.phase, details: frame.details })),
     attributionDecisions: telemetry.frames
       .filter((frame) => frame.phase.startsWith("authority-materializer-projection-attribution-decision-"))
       .map((frame) => frame.phase),

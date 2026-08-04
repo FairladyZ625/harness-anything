@@ -37,7 +37,7 @@ export type IncrementalProjectionRebuildReason =
 
 export type IncrementalTaskProjectionResult = ProjectionReadResult & (
   | { readonly mode: "incremental" | "unchanged"; readonly sourceHash: string; readonly change: ProjectionChangeEvent }
-  | { readonly mode: "rebuild"; readonly rebuildReason: IncrementalProjectionRebuildReason; readonly sourceHash?: undefined; readonly change?: undefined }
+  | { readonly mode: "rebuild"; readonly rebuildReason: IncrementalProjectionRebuildReason; readonly sourceHash?: string; readonly change?: undefined }
 );
 
 export function projectionChange(

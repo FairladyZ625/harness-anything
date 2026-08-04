@@ -4,7 +4,7 @@ import type { HarnessLayoutInput } from "../../layout/index.ts";
 import { resolveHarnessLayout } from "../../layout/index.ts";
 import type { VersionControlSystem } from "../../ports/version-control-system.ts";
 import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
-import type { IncrementalProjectionPhase } from "../../projection/sqlite-task-incremental-projection.ts";
+import type { IncrementalProjectionDiagnostic, IncrementalProjectionPhase } from "../../projection/sqlite-task-incremental-projection.ts";
 import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
 import { rebuildTaskProjection } from "../../projection/sqlite-task-projection.ts";
 import {
@@ -12,6 +12,7 @@ import {
   invalidateTrustedAuthoredProjectionFingerprint,
   rememberTrustedAuthoredProjectionFingerprint
 } from "../../projection/projection-source-baseline.ts";
+import type { TrustedProjectionFingerprintDiagnostic } from "../../projection/projection-source-baseline.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
 import {
   materializerCommitter,
@@ -56,9 +57,12 @@ export interface LedgerMaterializerOptions {
   readonly onProjectionPhase?: (phase: IncrementalProjectionPhase) => void;
   readonly onProjectionMode?: (mode: IncrementalTaskProjectionMode, reason?: IncrementalProjectionRebuildReason) => void;
   readonly onProjectionAttributionDecision?: (reason: AttributionProjectionDecisionReason) => void;
+  readonly onProjectionDiagnostic?: (
+    diagnostic: TrustedProjectionFingerprintDiagnostic | IncrementalProjectionDiagnostic
+  ) => void;
 }
 
-export type { IncrementalProjectionPhase };
+export type { IncrementalProjectionDiagnostic, IncrementalProjectionPhase };
 export type { IncrementalProjectionRebuildReason };
 
 export type IncrementalTaskProjectionMode = "incremental" | "rebuild" | "unchanged";
@@ -102,7 +106,8 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
       options.onProgress,
       options.onProjectionPhase,
       options.onProjectionMode,
-      options.onProjectionAttributionDecision
+      options.onProjectionAttributionDecision,
+      options.onProjectionDiagnostic
     );
   }, { heldGlobalLock: options.heldGlobalLock });
 }
@@ -117,7 +122,8 @@ function materializeBranches(
   onProgress: ((step: LedgerMaterializerProgressStep) => void) | undefined,
   onProjectionPhase: ((phase: IncrementalProjectionPhase) => void) | undefined,
   onProjectionMode: ((mode: IncrementalTaskProjectionMode, reason?: IncrementalProjectionRebuildReason) => void) | undefined,
-  onProjectionAttributionDecision: ((reason: AttributionProjectionDecisionReason) => void) | undefined
+  onProjectionAttributionDecision: ((reason: AttributionProjectionDecisionReason) => void) | undefined,
+  onProjectionDiagnostic: ((diagnostic: TrustedProjectionFingerprintDiagnostic | IncrementalProjectionDiagnostic) => void) | undefined
 ): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
@@ -164,7 +170,9 @@ function materializeBranches(
 
     if (projectionSourceFingerprintBeforeMerge === undefined) {
       onProgress?.("baseline-start");
-      projectionSourceFingerprintBeforeMerge = captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot);
+      projectionSourceFingerprintBeforeMerge = captureTrustedAuthoredProjectionFingerprint(rootInput, vcs, repoRoot, {
+        onDiagnostic: onProjectionDiagnostic
+      });
       onProgress?.("baseline-done");
     }
 
@@ -240,7 +248,8 @@ function materializeBranches(
       touchedPaths: [...touchedPaths],
       ...(projectionSourceFingerprintBeforeMerge ? { previousSourceFingerprint: projectionSourceFingerprintBeforeMerge } : {}),
       onPhase: onProjectionPhase,
-      onAttributionDecision: onProjectionAttributionDecision
+      onAttributionDecision: onProjectionAttributionDecision,
+      onDiagnostic: onProjectionDiagnostic
     });
     onProjectionMode?.(
       projectionUpdate.mode,
