@@ -24,6 +24,13 @@ import { bundledTemplateCatalog } from "./extensions/bundled.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated, type ResolvedPreset } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 import { taskClassSetByPreset } from "./task-lineage-metadata.ts";
+import {
+  duplicateTitleWarning,
+  findRecentTaskCreateDuplicate,
+  findTaskCreateByIdempotencyKey,
+  idempotencyReuseWarning,
+  taskCreateReuseResult
+} from "./task-create-dedup.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
 
@@ -68,6 +75,17 @@ export function runNewTaskWithPreset(
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
+    const idempotencyCandidate = action.idempotencyKey
+      ? findTaskCreateByIdempotencyKey(rootInput, action.idempotencyKey)
+      : undefined;
+    if (idempotencyCandidate && !action.dryRun) {
+      return {
+        ok: true,
+        command: "new-task",
+        ...taskCreateReuseResult(idempotencyCandidate),
+        warnings: [idempotencyReuseWarning(idempotencyCandidate)]
+      } satisfies CliResult;
+    }
     const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
 
     const presetId = action.preset ?? (action.longRunning ? "long-running-task" : settings?.defaultPreset ?? "standard-task");
@@ -128,6 +146,11 @@ export function runNewTaskWithPreset(
       if (!parentValidation.ok) return yield* Effect.fail({ _tag: "WriteRejected", taskId, reason: parentValidation.reason } satisfies WriteError);
     }
 
+    const duplicateCandidate = findRecentTaskCreateDuplicate(rootInput, {
+      title: action.title,
+      parent: action.parent,
+      excludeTaskId: taskId
+    });
     const createdAt = new Date().toISOString();
     const catalog = bundledTemplateCatalog(vertical);
     if (!catalog) {
@@ -135,7 +158,10 @@ export function runNewTaskWithPreset(
         ok: false,
         command: "new-task",
         preset: publicPresetSummary(preset),
-        warnings: preset.warnings ?? [],
+        warnings: [
+          ...(preset.warnings ?? []),
+          ...(duplicateCandidate ? [duplicateTitleWarning(duplicateCandidate)] : [])
+        ],
         error: cliError(CliErrorCode.TemplateCatalogInvalid, `Template catalog is not resolvable for vertical ${vertical}.`)
       } satisfies CliResult;
     }
@@ -186,6 +212,7 @@ export function runNewTaskWithPreset(
     const index = makeIndex({
       taskId,
       title: action.title,
+      idempotencyKey: action.idempotencyKey,
       parent: action.parent,
       status: "planned",
       bindingCreatedAt: createdAt,
@@ -251,7 +278,10 @@ export function runNewTaskWithPreset(
       preset: publicPresetSummary(preset),
       module: module ? { key: module.key, title: module.title } : undefined,
       generated: writes.map((write) => write.path),
-      warnings: preset.warnings ?? [],
+      warnings: [
+        ...(preset.warnings ?? []),
+        ...(duplicateCandidate ? [duplicateTitleWarning(duplicateCandidate)] : [])
+      ],
       report: {
         schema: "preset-task-create-report/v1",
         vertical,
@@ -363,6 +393,7 @@ export function buildAuthorityPresetTaskCreateWrites(
   const index = makeIndex({
     taskId: action.taskId,
     title: action.title,
+    idempotencyKey: action.idempotencyKey,
     parent: action.parent,
     status: "planned",
     bindingCreatedAt: createdAt,

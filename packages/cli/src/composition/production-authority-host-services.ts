@@ -78,6 +78,7 @@ export const productionAuthorityHostServices = {
       : defaultCliAdapterProvider().buildLocalTaskCreateWrites({
           taskId: cliAction.taskId!,
           title: cliAction.title,
+          idempotencyKey: cliAction.idempotencyKey,
           allowManualId: cliAction.allowManualId,
           slug: cliAction.slug,
           parent: cliAction.parent,

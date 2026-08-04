@@ -54,6 +54,9 @@ export function parseNewTaskArgs(
     };
   }
   const title = explicitTitle ?? "Untitled task";
+  const parsedIdempotencyKey = parseIdempotencyKey(normalizedArgs, payload);
+  if (!parsedIdempotencyKey.ok) return { ok: false, error: parsedIdempotencyKey.error };
+  const idempotencyKey = parsedIdempotencyKey.value;
   const explicitSlug = payloadFallback(readOption(normalizedArgs, "--slug"), payload, "slug");
   const parent = readOption(normalizedArgs, "--parent");
   const workKind = readTaskWorkKind(payloadFallback(readOption(normalizedArgs, "--kind"), payload, "workKind"));
@@ -84,7 +87,7 @@ export function parseNewTaskArgs(
   if (registerModuleKey && (!moduleTitle || !moduleScope)) {
     return { ok: false, error: cliError(CliErrorCode.MissingModuleFields, "task create --register-module requires --module-title and --module-scope.") };
   }
-  if (fromLegacyId && (verticalValue || presetValue || profile.value || moduleKeyValue || registerModuleKey)) {
+  if (fromLegacyId && (verticalValue || presetValue || profile.value || moduleKeyValue || registerModuleKey || idempotencyKey)) {
     return {
       ok: false,
       error: cliError(CliErrorCode.LegacyRebuildPresetForbidden, "task create --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately.")
@@ -101,6 +104,7 @@ export function parseNewTaskArgs(
         kind: "new-task",
         taskId: manualId ?? generateTaskId(),
         title,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         parent,
         slug: explicitSlug ?? slugifyTaskTitle(title),
         allowManualId: migrationMode,
@@ -124,4 +128,13 @@ export function parseNewTaskArgs(
       }
     }
   };
+}
+
+function parseIdempotencyKey(args: ReadonlyArray<string>, payload: ReturnType<typeof jsonPayloadFor>):
+  | { readonly ok: true; readonly value?: string }
+  | { readonly ok: false; readonly error: NonNullable<CliResult["error"]> } {
+  const value = payloadFallback(readOption(args, "--idempotency-key"), payload, "idempotencyKey");
+  return value !== undefined && value.trim().length === 0
+    ? { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --idempotency-key with a non-empty value.") }
+    : { ok: true, value };
 }

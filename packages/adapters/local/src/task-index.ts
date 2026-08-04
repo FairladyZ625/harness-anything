@@ -65,6 +65,7 @@ export function assertValidParentBinding(
 export function makeIndex(input: {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly idempotencyKey?: string;
   readonly parent?: TaskId;
   readonly status: DomainStatus;
   readonly bindingCreatedAt: string;
@@ -85,6 +86,7 @@ export function makeIndex(input: {
   return {
     taskId: input.taskId,
     title: input.title,
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     ...(input.parent ? { parent: input.parent } : {}),
     engine: "local",
     status: input.status,
@@ -111,6 +113,7 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     "schema: task-package/v2",
     `task_id: ${index.taskId}`,
     `title: ${index.title}`,
+    ...(index.idempotencyKey ? [`idempotencyKey: ${index.idempotencyKey}`] : []),
     ...(index.parent ? [`parent: ${index.parent}`] : []),
     "lifecycle:",
     "  bindingSchema: lifecycle-binding/v1",
@@ -165,6 +168,7 @@ export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalT
   return {
     taskId: readScalar(frontmatter, "task_id", { required: true }),
     title: readScalar(frontmatter, "title", { required: true }),
+    ...readIdempotencyKey(frontmatter),
     ...readParent(frontmatter),
     engine: readScalar(frontmatter, "  engine", { required: true }),
     status,
@@ -229,6 +233,11 @@ function readProfile(frontmatter: string): { readonly profile?: string } {
 function readParent(frontmatter: string): { readonly parent?: TaskId } {
   const parent = readScalar(frontmatter, "parent");
   return parent ? { parent } : {};
+}
+
+function readIdempotencyKey(frontmatter: string): { readonly idempotencyKey?: string } {
+  const idempotencyKey = readScalar(frontmatter, "idempotencyKey");
+  return idempotencyKey ? { idempotencyKey } : {};
 }
 
 function humanFallbackProvenance(boundAt: string): ProvenancePayload {

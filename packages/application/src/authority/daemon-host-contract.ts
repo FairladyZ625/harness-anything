@@ -141,6 +141,7 @@ export type AuthorityHostNewTaskAction = {
   readonly kind: "new-task";
   readonly taskId?: string;
   readonly title: string;
+  readonly idempotencyKey?: string;
   readonly parent?: string;
   readonly slug: string;
   readonly allowManualId: boolean;
