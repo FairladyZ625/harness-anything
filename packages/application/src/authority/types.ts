@@ -2,8 +2,8 @@ import type {
   ActorAxesBindingCoreV2,
   AttributionEventV2,
   AuthorityOperationIntegrity,
+  ExactWriteCoordinator,
   WriteAttribution,
-  WriteCoordinator,
   WriteOp
 } from "@harness-anything/kernel";
 import type {
@@ -370,7 +370,7 @@ export interface AttributedCoordinatorFactory {
   readonly create: (input: {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
-  }) => WriteCoordinator;
+  }) => ExactWriteCoordinator;
 }
 
 export interface AuthoritySubmissionService {

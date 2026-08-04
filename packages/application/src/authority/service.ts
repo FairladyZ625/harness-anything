@@ -1,8 +1,9 @@
 import { Effect } from "effect";
 import {
+  createJournaledBatch,
   createWritableEntityRegistry,
   daemonAdmissionBytes,
-  type JournalRecordWitnessV1
+  type JournaledBatchEntry
 } from "@harness-anything/kernel";
 import type {
   AuthorityCommittedReceipt,
@@ -246,7 +247,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
-    const journalWitnesses = new Map<PreparedAuthoritySubmission, JournalRecordWitnessV1>();
+    const batchEntries = new Map<PreparedAuthoritySubmission, JournaledBatchEntry>();
     let canonicalFlushCommitted = false;
     const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
       for (const entry of prepared) {
@@ -256,29 +257,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           options.onTelemetry?.("authority-coordinator-enqueue");
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
           options.onTelemetry?.("authority-coordinator-enqueued");
-          if (acknowledgement.journalWitness) {
-            journalWitnesses.set(entry, acknowledgement.journalWitness);
-          }
-          if (entry.recoveryMode) {
-            if (!acknowledgement.journalWitness || !entry.coordinator.flushExactJournalRecord) {
-              receipts.set(entry, await persistTerminal(
-                entry,
-                entry.semanticDigest,
-                "INDETERMINATE",
-                indeterminate(
-                  entry,
-                  entry.semanticDigest,
-                  "AUTHORITY_RECOVERY_EXACT_JOURNAL_WITNESS_UNAVAILABLE"
-                ),
-                entry.authorityIntegrity,
-                entry.canonicalRequestEnvelope,
-                entry.operation,
-                entry.recoveryPublicationPolicy,
-                entry.fixedOperationBinding
-              ));
-              continue;
-            }
-          }
+          batchEntries.set(entry, acknowledgement);
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await put(
             entry,
@@ -312,49 +291,38 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       }
       if (candidates.length === 0) return batchReceipts(admissions, receipts);
       try {
-      await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
-      const recoveryCandidate = candidates[0]!.recoveryMode ? candidates[0] : undefined;
-      const batchCoordinator = candidates[0]!.coordinator;
-      const exactBatchWitnesses = candidates.flatMap((candidate) => {
-        const witness = journalWitnesses.get(candidate);
-        return witness ? [witness] : [];
-      });
-      const canFlushExactBatch = !recoveryCandidate
-        && candidates.every((candidate) => candidate.coordinator === batchCoordinator)
-        && exactBatchWitnesses.length === candidates.length
-        && batchCoordinator.flushExactJournalRecords;
-      options.onTelemetry?.("authority-flush-start");
-      const flush = recoveryCandidate
-        ? await Effect.runPromise(recoveryCandidate.coordinator.flushExactJournalRecord!(
-          "recovery",
-          journalWitnesses.get(recoveryCandidate)!
-        ))
-        : canFlushExactBatch
-          ? await Effect.runPromise(batchCoordinator.flushExactJournalRecords!(
-            "explicit",
-            exactBatchWitnesses
-          ))
-          : await Effect.runPromise(batchCoordinator.flush("explicit"));
-      if (!flush.committed || flush.opCount !== candidates.length) {
-        // Keep the v1 wire reason stable; the invariant now means exactly the
-        // operation set owned by this publication batch, still never a subset.
-        await settlePrepared(candidates, receipts, "RETRYABLE_NOT_COMMITTED", (entry) =>
-          retryable(entry, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
+        await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
+        const [firstCandidate, ...remainingCandidates] = candidates;
+        const batchCoordinator = firstCandidate!.coordinator;
+        const batch = createJournaledBatch([
+          batchEntries.get(firstCandidate!)!,
+          ...remainingCandidates.map((candidate) => batchEntries.get(candidate)!)
+        ]);
+        options.onTelemetry?.("authority-flush-start");
+        const flush = await Effect.runPromise(batchCoordinator.commitExact(
+          firstCandidate!.recoveryMode ? "recovery" : "explicit",
+          batch
+        ));
+        if (!flush.committed || flush.opCount !== candidates.length) {
+          // Keep the v1 wire reason stable; the invariant now means exactly the
+          // operation set owned by this publication batch, still never a subset.
+          await settlePrepared(candidates, receipts, "RETRYABLE_NOT_COMMITTED", (entry) =>
+            retryable(entry, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
+          return batchReceipts(admissions, receipts);
+        }
+        canonicalFlushCommitted = true;
+      } catch (error) {
+        if (isDaemonGenerationFenced(error)) throw error;
+        const deterministicRejection = codeDocReconcileNoopReason(error);
+        if (deterministicRejection) {
+          await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
+            rejected(entry, entry.semanticDigest, deterministicRejection));
+          return batchReceipts(admissions, receipts);
+        }
+        await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
+          indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
         return batchReceipts(admissions, receipts);
       }
-      canonicalFlushCommitted = true;
-    } catch (error) {
-      if (isDaemonGenerationFenced(error)) throw error;
-      const deterministicRejection = codeDocReconcileNoopReason(error);
-      if (deterministicRejection) {
-        await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
-          rejected(entry, entry.semanticDigest, deterministicRejection));
-        return batchReceipts(admissions, receipts);
-      }
-      await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
-      return batchReceipts(admissions, receipts);
-    }
 
     let commitSha: string;
     try {

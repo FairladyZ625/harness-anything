@@ -23,7 +23,7 @@ import {
   type AuthoritySubmissionV2Options,
   type SemanticMutationEnvelopeV2
 } from "../src/index.ts";
-import { stablePayloadHash, taskEntityId } from "../../kernel/src/index.ts";
+import { stablePayloadHash, taskEntityId, withExactCommit } from "../../kernel/src/index.ts";
 import {
   validateAuthorityRecoveryAttemptV2,
   validateAuthorityRecoveryWitnessShape
@@ -249,7 +249,6 @@ for (const recoveryCase of recoveryCases) {
       }
     });
     let compilerCalls = 0;
-    let ordinaryFlushes = 0;
     let exactFlushes = 0;
     const ordering: string[] = [];
     const runtime = {
@@ -262,7 +261,7 @@ for (const recoveryCase of recoveryCases) {
     const service = createAuthoritySubmissionService({
       workspaceId: claims.workspaceId,
       coordinatorFactory: {
-        create: () => ({
+        create: () => withExactCommit({
           enqueue: (operation) => Effect.succeed({
             opId: operation.opId,
             entityId: operation.entityId,
@@ -273,17 +272,23 @@ for (const recoveryCase of recoveryCases) {
               recordDigest: "b".repeat(64)
             } })
           }),
-          flush: () => Effect.sync(() => {
-            ordinaryFlushes += 1;
-            return { reason: "explicit" as const, opCount: 1, committed: true };
-          }),
-          flushExactJournalRecord: (_reason, witness) => Effect.sync(() => {
+          recover: Effect.succeed({ replayedOps: 0 })
+        }, (reason, acknowledgements) => Effect.suspend(() => {
+          const witness = acknowledgements[0].journalWitness;
+          if (!witness) {
+            return Effect.fail({
+              _tag: "WriteRejected" as const,
+              code: "authority_exact_journal_witness_required",
+              reason: "fixture has no exact recovery witness",
+              retryable: false
+            });
+          }
+          return Effect.sync(() => {
             exactFlushes += 1;
             assert.equal(witness.opId, opId);
-            return { reason: "recovery" as const, opCount: 1, committed: true };
-          }),
-          recover: Effect.succeed({ replayedOps: 0 })
-        })
+            return { reason, opCount: 1, committed: true };
+          });
+        }))
       },
       tokenVerifier: { verify: async () => { throw new Error("legacy path"); } },
       operationRegistry: registry,
@@ -333,7 +338,6 @@ for (const recoveryCase of recoveryCases) {
         : "COMMITTED"
     );
     assert.equal(compilerCalls, 0);
-    assert.equal(ordinaryFlushes, 0);
     assert.equal(
       exactFlushes,
       recoveryCase.spliceOperation || recoveryCase.watermarked ? 0 : 1

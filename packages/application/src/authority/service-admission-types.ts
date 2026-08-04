@@ -1,7 +1,7 @@
 import type {
   ActorAxesBindingCoreV2,
   AuthorityOperationIntegrity,
-  WriteCoordinator,
+  ExactWriteCoordinator,
   WriteOp
 } from "@harness-anything/kernel";
 import type {
@@ -20,7 +20,7 @@ export interface PreparedAuthoritySubmission {
   readonly opId: string;
   readonly operation: WriteOp;
   readonly semanticDigest: string;
-  readonly coordinator: WriteCoordinator;
+  readonly coordinator: ExactWriteCoordinator;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;

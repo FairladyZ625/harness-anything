@@ -4,7 +4,7 @@ import type { VcsCommitAuthor, VcsCommitPhase, VersionControlSystem } from "../.
 import type { AttributionEventStore } from "../attribution/inline-attribution-event-store.ts";
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
 import type { TrustedProjectionFingerprintDiagnostic } from "../../projection/projection-source-baseline.ts";
-import type { WriteOp } from "../../ports/write-coordinator.ts";
+import type { ExactWriteScope, WriteOp } from "../../ports/write-coordinator.ts";
 import type { ActorAxes, AgentRef, OperationalActor, WriteAttribution } from "../../schemas/actor-attribution.ts";
 export type { OperationalActor } from "../../schemas/actor-attribution.ts";
 import type {
@@ -22,6 +22,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly lockTtlMs?: number;
   readonly lockConflictRetry?: LockConflictRetryOptions;
   readonly heldGlobalLock?: OwnedLock;
+  readonly exactWriteScope?: ExactWriteScope;
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
   readonly commitAuthor?: VcsCommitAuthor;

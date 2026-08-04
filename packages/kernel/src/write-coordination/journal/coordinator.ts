@@ -1,11 +1,11 @@
 import path from "node:path";
 import { Effect } from "effect";
 import type {
+  ExactCapableWriteCoordinator,
   FlushReason,
   FlushReport,
   RecoveryReport,
   WriteAck,
-  JournalRecordWitnessV1,
   WriteCoordinator,
   WriteOp
 } from "../../ports/write-coordinator.ts";
@@ -64,6 +64,7 @@ import {
 } from "./operations/consent-transcript-anchor.ts";
 import { withTranscriptConsentReservationLock } from "./transcript-consent-reservation-lock.ts";
 import { preflightWriteOp, validateWriteOp } from "./preflight.ts";
+import { createJournalCoordinatorWriteState, withJournalExactCommit } from "./exact-write-coordinator.ts";
 import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
@@ -84,11 +85,11 @@ const defaultRetryMaxDelayMs = 250;
 
 type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
-export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
+export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): ExactCapableWriteCoordinator {
   return makeJournaledWriteCoordinatorInternal(options, "attributed");
 }
 
-export function makeOperationalJournaledWriteCoordinator(options: OperationalJournaledWriteCoordinatorOptions): WriteCoordinator {
+export function makeOperationalJournaledWriteCoordinator(options: OperationalJournaledWriteCoordinatorOptions): ExactCapableWriteCoordinator {
   return makeJournaledWriteCoordinatorInternal(options, "operational-machine-artifact");
 }
 
@@ -99,7 +100,7 @@ export function recoverJournaledWrites(options: JournalRecoveryOptions): Effect.
 function makeJournaledWriteCoordinatorInternal(
   options: JournaledWriteCoordinatorOptions | OperationalJournaledWriteCoordinatorOptions | JournalRecoveryOptions,
   mode: "attributed" | "operational-machine-artifact" | "recovery-only"
-): WriteCoordinator {
+): ExactCapableWriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const layout = resolveHarnessLayout(runtimeContext);
@@ -114,8 +115,7 @@ function makeJournaledWriteCoordinatorInternal(
   const attributionEventStore = options.attributionEventStore ?? makeInlineAttributionEventStore();
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
-  const pending: WriteOp[] = [];
-  const exactJournalAuthorizations = new Map<string, JournalRecordWitnessV1>();
+  const { pending, exactJournalAuthorizations } = createJournalCoordinatorWriteState(options.exactWriteScope);
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, operationalActor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -191,7 +191,7 @@ function makeJournaledWriteCoordinatorInternal(
     )
   });
 
-  return {
+  const coordinator: WriteCoordinator = {
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateWriteOp(runtimeContext, op);
@@ -277,6 +277,7 @@ function makeJournaledWriteCoordinatorInternal(
       ? retryLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
       : recoverOnce
   };
+  return withJournalExactCommit(coordinator, flushExactJournalRecords, options.exactWriteScope);
 }
 
 function retryLockConflict<Result>(

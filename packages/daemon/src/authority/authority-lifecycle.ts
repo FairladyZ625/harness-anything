@@ -23,12 +23,14 @@ import {
   type DurableAuthorityServiceState
 } from "@harness-anything/daemon";
 import {
+  createExactWriteScope,
   resolveHarnessLayout,
   stableStringify,
   type DaemonAdmissionBudget,
+  type ExactWriteCoordinator,
+  type ExactWriteScope,
   type FlushReport,
   type WriteAttribution,
-  type WriteCoordinator
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import type {
@@ -138,7 +140,8 @@ export interface AuthorityLifecycleRuntime {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
     readonly commitAuthor?: { readonly name: string; readonly email: string };
-  }) => WriteCoordinator;
+    readonly exactWriteScope: ExactWriteScope;
+  }) => ExactWriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
   readonly runAuthorizedRepoWriteRecoveryPlan?: <Result>(
     witness: ProductionAuthorityOuterRecoveryWitnessV1,
@@ -369,7 +372,8 @@ export function createAuthorityRepoLifecycleController(input: {
 export function makeHeldLockAttributedCoordinatorFactory(
   runtime: AuthorityLifecycleRuntime
 ): AttributedCoordinatorFactory {
-  const active = new Map<string, WriteCoordinator>();
+  const active = new Map<string, ExactWriteCoordinator>();
+  const exactWriteScope = createExactWriteScope();
   return {
     create: ({ attribution, sessionId }) => {
       const key = stableStringify({ attribution, sessionId });
@@ -378,16 +382,17 @@ export function makeHeldLockAttributedCoordinatorFactory(
       const coordinator = runtime.createAttributedCoordinator({
         attribution,
         sessionId,
-        commitAuthor: authorityCommitter
+        commitAuthor: authorityCommitter,
+        exactWriteScope
       });
-      const shared: WriteCoordinator = {
+      const shared: ExactWriteCoordinator = {
         enqueue: coordinator.enqueue,
-        flush: (reason) => Effect.ensuring(
+        commitExact: (reason, batch) => Effect.ensuring(
           Effect.tryPromise({
             try: async () => {
               const publication = await runtime.enqueueAuthorityPublication({
                 sessionId,
-                publish: () => Effect.runPromise(coordinator.flush(reason))
+                publish: () => Effect.runPromise(coordinator.commitExact(reason, batch))
               });
               const { flush: report, materialization: materialized } = publication;
               if (!report.committed || report.opCount === 0) return report;

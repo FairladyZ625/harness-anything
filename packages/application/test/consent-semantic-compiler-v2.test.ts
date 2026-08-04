@@ -35,6 +35,7 @@ import {
   entityRegistry,
   executionDeclaration,
   reviewDeclaration,
+  withExactCommit,
   type ConsentRecord,
   type ExecutionRecord,
   type ReviewRecord,
@@ -417,16 +418,15 @@ test("an exact consent grant attempt replays one committed receipt after authore
   const service = createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: () => ({
+      create: () => withExactCommit({
         enqueue: (operation) => Effect.sync(() => {
           enqueued += 1;
           captured = operation;
           documents.set(consentPath, snapshot(operationTransaction(operation.payload).body));
           return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
         }),
-        flush: () => Effect.succeed({ reason: "explicit" as const, opCount: 1, committed: true }),
         recover: Effect.succeed({ replayedOps: 0 })
-      })
+      }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }))
     },
     tokenVerifier: { verify: async () => { throw new Error("legacy verifier must not run"); } },
     operationRegistry: createInMemoryAuthorityOperationRegistry(),

@@ -30,6 +30,7 @@ import {
   type ShadowPublicationLog
 } from "../../application/src/index.ts";
 import {
+  createExactWriteScope,
   entityRegistry,
   makeJournaledWriteCoordinator,
   readUnionAttributionEvents,
@@ -192,14 +193,7 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
     let consumed = 0;
     const service = createAuthoritySubmissionService({
       workspaceId,
-      coordinatorFactory: {
-        create: ({ attribution }) => makeJournaledWriteCoordinator({
-          rootDir,
-          attribution,
-          commitAuthor: { name: "Authenticated Person", email: "person@example.test" },
-          autoMaterialize: false
-        })
-      },
+      coordinatorFactory: exactCoordinatorFactory(rootDir),
       tokenVerifier: { verify: async () => { throw new Error("legacy token path disabled"); } },
       operationRegistry,
       replicaChangeLog: changeLog,
@@ -395,14 +389,7 @@ function makeAuthority(
 ) {
   return createAuthoritySubmissionService({
     workspaceId,
-    coordinatorFactory: {
-      create: ({ attribution }) => makeJournaledWriteCoordinator({
-        rootDir,
-        attribution,
-        commitAuthor: { name: "Authenticated Person", email: "person@example.test" },
-        autoMaterialize: false
-      })
-    },
+    coordinatorFactory: exactCoordinatorFactory(rootDir),
     tokenVerifier: verifier,
     operationRegistry: createInMemoryAuthorityOperationRegistry(),
     replicaChangeLog,
@@ -411,6 +398,27 @@ function makeAuthority(
     fenceWitness: { assertHeld: async () => undefined },
     now: () => "2026-07-13T00:00:00.000Z"
   });
+}
+
+function exactCoordinatorFactory(rootDir: string) {
+  const active = new Map<string, ReturnType<typeof makeJournaledWriteCoordinator>>();
+  const exactWriteScope = createExactWriteScope();
+  return {
+    create: ({ attribution, sessionId }: { readonly attribution: WriteAttribution; readonly sessionId: string }) => {
+      const key = JSON.stringify({ attribution, sessionId });
+      const existing = active.get(key);
+      if (existing) return existing;
+      const coordinator = makeJournaledWriteCoordinator({
+        rootDir,
+        attribution,
+        exactWriteScope,
+        commitAuthor: { name: "Authenticated Person", email: "person@example.test" },
+        autoMaterialize: false
+      });
+      active.set(key, coordinator);
+      return coordinator;
+    }
+  };
 }
 
 function operationEnvelope(opId: string, taskId: string, body: string): AuthorityOperationEnvelope {

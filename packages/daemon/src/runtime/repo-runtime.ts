@@ -9,8 +9,6 @@ import {
   type LedgerMaterializerReport,
   type OperationalActor,
   type RecoveryReport,
-  type WriteAttribution,
-  type WriteCoordinator,
   type WriteError,
   resolveHarnessLayout
 } from "@harness-anything/kernel";
@@ -423,18 +421,17 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     return this.projectionGeneration.queryExecutionEvidencePage(query);
   }
 
-  createAttributedCoordinator(input: {
-    readonly attribution: WriteAttribution;
-    readonly sessionId: string;
-    readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
-  }): WriteCoordinator {
+  createAttributedCoordinator(
+    input: Parameters<HarnessDaemonRuntime["createAttributedCoordinator"]>[0]
+  ): ReturnType<HarnessDaemonRuntime["createAttributedCoordinator"]> {
     this.requireWriterAttached();
     return makeDeferredAuthorityCoordinator({
       beginProjectionWrite: (op) => {
         const touchedPaths = writeOpTouchedPaths(this.runtimeContext, op);
         return this.projectionGeneration.beginCanonicalWrite(touchedPaths);
       },
-      makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireWriterAttached(), input)
+      makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireWriterAttached(), input),
+      exactWriteScope: input.exactWriteScope
     });
   }
 
@@ -487,7 +484,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   private makeStartedCoordinator(
     started: ReturnType<DaemonRepoRuntimeContext["requireWriterAttached"]>,
-    request: InteractiveWriteAttribution & { readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"]; readonly sessionId?: string }
+    request: InteractiveWriteAttribution & Partial<Parameters<HarnessDaemonRuntime["createAttributedCoordinator"]>[0]>
   ) {
     const common = {
       rootDir: this.rootDir,
@@ -501,7 +498,8 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       onProjectionFingerprintPhase: reportFlushProjectionFingerprintPhase, onProjectionFingerprintDiagnostic: reportFlushProjectionFingerprintDiagnostic,
       onPostCommitPhase: reportFlushPostCommitPhase,
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
-      ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
+      ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
+      ...(request.exactWriteScope ? { exactWriteScope: request.exactWriteScope } : {})
     };
     return request.attribution
       ? makeJournaledWriteCoordinator({ ...common, attribution: request.attribution })

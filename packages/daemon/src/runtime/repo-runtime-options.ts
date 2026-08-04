@@ -1,11 +1,12 @@
 import type {
   DaemonAdmissionBudget,
+  ExactWriteCoordinator,
+  ExactWriteScope,
   HarnessLayoutOverrides,
   LedgerMaterializerReport,
   OperationalActor,
   RecoveryReport,
-  WriteAttribution,
-  WriteCoordinator
+  WriteAttribution
 } from "@harness-anything/kernel";
 import type {
   ExecutionEvidencePage,
@@ -108,7 +109,8 @@ export interface HarnessDaemonRuntime {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
     readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
-  }) => WriteCoordinator;
+    readonly exactWriteScope: ExactWriteScope;
+  }) => ExactWriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
   readonly daemonGenerationContext?: () => {
     readonly witness: DaemonGenerationWitness;

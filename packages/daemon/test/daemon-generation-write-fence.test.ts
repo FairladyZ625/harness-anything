@@ -15,7 +15,7 @@ import {
   createInMemoryAuthorityOperationRegistry,
   createInMemoryReplicaChangeLog
 } from "@harness-anything/application";
-import { taskEntityId, type WriteAttribution } from "@harness-anything/kernel";
+import { taskEntityId, withExactCommit, type WriteAttribution } from "@harness-anything/kernel";
 import {
   createDaemonGenerationAuthorityFence,
   createRuntimeDaemonGenerationWitnessFence,
@@ -407,14 +407,13 @@ test("generation exclusion spans canonical flush through the corresponding termi
   const service = createAuthoritySubmissionService({
     workspaceId: "workspace-flush-lock",
     coordinatorFactory: {
-      create: () => ({
+      create: () => withExactCommit({
         enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
-        flush: () => {
-          assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
-          return Effect.succeed({ reason: "explicit" as const, opCount: 1, committed: true });
-        },
         recover: Effect.succeed({ replayedOps: 0 })
-      })
+      }, (reason) => {
+          assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
+          return Effect.succeed({ reason, opCount: 1, committed: true });
+        })
     },
     tokenVerifier: validLegacyVerifier("workspace-flush-lock"),
     operationRegistry: registry,
@@ -477,11 +476,10 @@ test("a process that observes post-publish staleness leaves PREPARED for current
     const service = createAuthoritySubmissionService({
       workspaceId: "workspace-post-publish",
       coordinatorFactory: {
-        create: () => ({
+        create: () => withExactCommit({
           enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
-          flush: () => Effect.succeed({ reason: "explicit" as const, opCount: 1, committed: true }),
           recover: Effect.succeed({ replayedOps: 0 })
-        })
+        }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }))
       },
       tokenVerifier: validLegacyVerifier("workspace-post-publish"),
       operationRegistry: registry,

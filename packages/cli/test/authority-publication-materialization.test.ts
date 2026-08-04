@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
+import { createJournaledBatch, withExactCommit } from "@harness-anything/kernel";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime
@@ -18,9 +19,9 @@ test("committed authority publication accepts an already-materialized skipped se
       }]
     }
   })), "session-already-materialized");
-  await enqueueAuthorityTestOperation(coordinator, "op-already-materialized");
+  const entry = await enqueueAuthorityTestOperation(coordinator, "op-already-materialized");
 
-  const report = await runEffect(coordinator.flush("explicit"));
+  const report = await runEffect(coordinator.commitExact("explicit", createJournaledBatch([entry])));
 
   assert.equal(report.committed, true);
   assert.equal(report.opCount, 1);
@@ -40,9 +41,9 @@ test("uncommitted authority publication remains uncommitted", async () => {
       }
     };
   }), "session-uncommitted");
-  await enqueueAuthorityTestOperation(coordinator, "op-uncommitted");
+  const entry = await enqueueAuthorityTestOperation(coordinator, "op-uncommitted");
 
-  const report = await runEffect(coordinator.flush("explicit"));
+  const report = await runEffect(coordinator.commitExact("explicit", createJournaledBatch([entry])));
 
   assert.equal(report.committed, false);
   assert.equal(report.opCount, 1);
@@ -73,9 +74,11 @@ test("committed publication without materialization proof remains indeterminate"
           ? { materialization: fixture.materialization }
           : {})
       })), "session-unproven");
-      await enqueueAuthorityTestOperation(coordinator, `op-${fixture.name.replaceAll(" ", "-")}`);
+      const entry = await enqueueAuthorityTestOperation(coordinator, `op-${fixture.name.replaceAll(" ", "-")}`);
 
-      const outcome = await runEffect(Effect.either(coordinator.flush("explicit")));
+      const outcome = await runEffect(Effect.either(
+        coordinator.commitExact("explicit", createJournaledBatch([entry]))
+      ));
 
       assert.equal(outcome._tag, "Left");
       if (outcome._tag === "Right") return;
@@ -93,18 +96,17 @@ function runtimeFixture(
 ): AuthorityLifecycleRuntime {
   let pending = 0;
   return {
-    createAttributedCoordinator: () => ({
+    createAttributedCoordinator: () => withExactCommit({
       enqueue: (op) => Effect.sync(() => {
         pending += 1;
         return { opId: op.opId, entityId: op.entityId, accepted: true as const };
       }),
-      flush: (reason) => Effect.sync(() => ({
+      recover: Effect.succeed({ replayedOps: 0 })
+    }, (reason) => Effect.sync(() => ({
         reason,
         opCount: pending,
         committed: true
-      })),
-      recover: Effect.succeed({ replayedOps: 0 })
-    }),
+      }))),
     enqueueMaterializerBatch: async () => ({ branches: [] }),
     enqueueAuthorityPublication: publish,
     assertWriteFenceHeld: async () => undefined
