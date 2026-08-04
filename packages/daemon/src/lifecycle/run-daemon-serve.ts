@@ -305,7 +305,8 @@ export async function runDaemonServe<
                   requestId: frame.requestId,
                   ...(frame.opId ? { opId: frame.opId } : {}),
                   phase: frame.phase,
-                  elapsedMs: frame.elapsedMs
+                  elapsedMs: frame.elapsedMs,
+                  ...(frame.details ? { details: frame.details } : {})
                 }),
                 requestId: frame.requestId
               }, { repo }).catch(() => undefined);

@@ -122,7 +122,7 @@ function makeJournaledWriteCoordinatorInternal(
         uniquePendingRecords(state.records, state.applied),
         requestedDomain
       );
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onProjectionFingerprintDiagnostic, options.onPostCommitPhase);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -148,6 +148,7 @@ function makeJournaledWriteCoordinatorInternal(
           options.onProjectionChange,
           options.onCommitPhase,
           options.onProjectionFingerprintPhase,
+          options.onProjectionFingerprintDiagnostic,
           options.onPostCommitPhase
         )
       });
@@ -162,7 +163,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecord: (state, record) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, [record], state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onProjectionFingerprintDiagnostic, options.onPostCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -178,7 +179,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecords: (state, records) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, records, state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onProjectionFingerprintDiagnostic, options.onPostCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -343,6 +344,7 @@ function flushRecords(
   onProjectionChange?: (event: ProjectionChangeEvent) => void,
   onCommitPhase?: (phase: VcsCommitPhase) => void,
   onProjectionFingerprintPhase?: (phase: JournalProjectionFingerprintPhase) => void,
+  onProjectionFingerprintDiagnostic?: (diagnostic: import("../../projection/projection-source-baseline.ts").TrustedProjectionFingerprintDiagnostic) => void,
   onPostCommitPhase?: (phase: JournalPostCommitPhase) => void
 ): FlushReport {
   const touchedPaths: string[] = [];
@@ -363,7 +365,9 @@ function flushRecords(
   assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
   onProjectionFingerprintPhase?.("capture-start");
   const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
-    ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs)
+    ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs, undefined, {
+      onDiagnostic: onProjectionFingerprintDiagnostic
+    })
     : undefined;
   onProjectionFingerprintPhase?.("capture-done");
 

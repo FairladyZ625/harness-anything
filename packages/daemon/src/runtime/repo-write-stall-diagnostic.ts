@@ -105,6 +105,7 @@ export function repoWriteWaitingStage(
     case "authority-flush-git-native-commit-done":
     case "authority-flush-projection-fingerprint-start":
     case "authority-flush-projection-fingerprint-done":
+    case "authority-flush-projection-fingerprint-summary":
     case "authority-flush-post-commit-attribution-confirm-start":
     case "authority-flush-post-commit-attribution-confirm-done":
     case "authority-flush-post-commit-projection-hash-start":
@@ -125,6 +126,8 @@ export function repoWriteWaitingStage(
     case "authority-materializer-baseline-start":
       return "authority-materializer-baseline";
     case "authority-materializer-baseline-done":
+    case "authority-materializer-baseline-fence":
+    case "authority-materializer-baseline-cache":
       return "authority-materializer-baseline-done";
     case "authority-materializer-merge-start":
       return "authority-materializer-merge";
@@ -140,6 +143,9 @@ export function repoWriteWaitingStage(
     case "authority-materializer-projection-verify-source":
     case "authority-materializer-projection-source-cache-refresh":
     case "authority-materializer-projection-source-cache-change":
+    case "authority-materializer-projection-source-summary":
+    case "authority-materializer-projection-metadata-summary":
+    case "authority-materializer-projection-trusted-advance":
     case "authority-materializer-projection-attribution-delta":
     case "authority-materializer-projection-source-delta":
     case "authority-materializer-projection-publish":

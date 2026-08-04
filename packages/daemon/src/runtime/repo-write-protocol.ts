@@ -2,8 +2,9 @@
 import { repoWriteCommandDtoFromDecodedFields, type RepoWriteCommandDto } from "./repo-write-command-dto.ts";
 export * from "./repo-write-command-dto.ts";
 import { repoWriteTerminalReceiptMatches } from "./repo-write-terminal-receipt.ts";
-import { repoWriteTelemetryPhases, type RepoWriteRecoveryDeferredFrame, type RepoWriteRecoveryDiagnosticFrame, type RepoWriteRecoveryRejectedFrame, type RepoWriteTelemetryFrame, type RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
-export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
+import { type RepoWriteRecoveryDeferredFrame, type RepoWriteRecoveryDiagnosticFrame, type RepoWriteRecoveryRejectedFrame, type RepoWriteTelemetryFrame } from "./repo-write-diagnostic-protocol.ts";
+import { decodeRepoWriteTelemetry } from "./repo-write-protocol-telemetry.ts";
+export type { RepoWriteRecoveryDeferredFrame, RepoWriteRecoveryDiagnosticFrame, RepoWriteRecoveryRejectedFrame, RepoWriteTelemetryDetail, RepoWriteTelemetryDetails, RepoWriteTelemetryFrame, RepoWriteTelemetryPhase } from "./repo-write-diagnostic-protocol.ts";
 export { boundedRepoWriteDiagnostic } from "./repo-write-protocol-diagnostic.ts";
 import {
   decodeRepoWriteBigInt,
@@ -188,7 +189,7 @@ export function decodeRepoWriteChildMessage(
   if (frame.kind === "direct-failure") return decodeDirectFailure(frame, limits);
   if (frame.kind === "failure") return decodeFailure(frame, limits);
   if (frame.kind === "status") return decodeStatus(frame, limits, budget);
-  if (frame.kind === "telemetry") return decodeTelemetry(frame, limits);
+  if (frame.kind === "telemetry") return decodeRepoWriteTelemetry(frame, limits, baseFields(frame));
   if (frame.kind === "recovery-deferred") return decodeRecoveryDeferred(frame, limits);
   if (frame.kind === "recovery-rejected") return decodeRecoveryRejected(frame, limits);
   if (frame.kind === "drained") return decodeRequestFrame(frame, limits, "drained");
@@ -410,21 +411,6 @@ function assertTerminalReceipt(
   if (!repoWriteTerminalReceiptMatches(outcome, receipt)) {
     invalid(path, "exact command-receipt/v2");
   }
-}
-function decodeTelemetry(frame: FrameRecord, limits: RepoWriteProtocolLimits): RepoWriteTelemetryFrame {
-  assertExactKeys(frame, baseKeys(["requestId", "phase", "elapsedMs"]), ["opId"], "$");
-  if (!repoWriteTelemetryPhases.includes(frame.phase as RepoWriteTelemetryPhase)) invalid("$.phase", "telemetry phase");
-  if (typeof frame.elapsedMs !== "number" || !Number.isFinite(frame.elapsedMs) || frame.elapsedMs < 0) {
-    invalid("$.elapsedMs", "non-negative finite duration");
-  }
-  return {
-    ...baseFields(frame),
-    kind: "telemetry",
-    requestId: identifier(frame.requestId, "$.requestId", limits),
-    ...("opId" in frame ? { opId: identifier(frame.opId, "$.opId", limits) } : {}),
-    phase: frame.phase as RepoWriteTelemetryPhase,
-    elapsedMs: frame.elapsedMs
-  };
 }
 function decodeRecoveryDeferred(
   frame: FrameRecord,

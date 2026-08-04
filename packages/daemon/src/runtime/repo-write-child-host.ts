@@ -195,8 +195,8 @@ export class RepoWriteChildHost {
     try {
       await this.responses.telemetry(message.requestId, "queue", 0);
       const telemetry = createRepoWriteTelemetryDelivery(
-        (phase, elapsedMs) =>
-          this.responses.telemetry(message.requestId, phase, elapsedMs)
+        (phase, elapsedMs, details) =>
+          this.responses.telemetry(message.requestId, phase, elapsedMs, details)
       );
       operation.telemetry = telemetry;
       const prepared = await runWithRepoWriteTelemetry(telemetry.report, () => {

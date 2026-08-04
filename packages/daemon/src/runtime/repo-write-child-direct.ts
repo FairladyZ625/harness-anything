@@ -90,8 +90,8 @@ export async function executeRepoWriteChildDirect(
   try {
     await options.responses.telemetry(message.requestId, "queue", 0);
     telemetry = createRepoWriteTelemetryDelivery(
-      (phase, elapsedMs) =>
-        options.responses.telemetry(message.requestId, phase, elapsedMs)
+      (phase, elapsedMs, details) =>
+        options.responses.telemetry(message.requestId, phase, elapsedMs, details)
     );
     const receipt = await runWithRepoWriteTelemetry(
       telemetry.report,

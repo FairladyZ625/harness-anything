@@ -187,9 +187,17 @@ export {
   type LedgerMaterializerProgressStep,
   type LedgerMaterializerReport,
   type IncrementalProjectionPhase,
+  type IncrementalProjectionDiagnostic,
   type IncrementalTaskProjectionMode,
   type IncrementalProjectionRebuildReason
 } from "./write-coordination/materialization/ledger-materializer.ts";
+export type {
+  ProjectionSourceSummary
+} from "./projection/projection-source-snapshot.ts";
+export type {
+  ProjectionSourceWorktreeFenceDiagnostic,
+  TrustedProjectionFingerprintDiagnostic
+} from "./projection/projection-source-baseline.ts";
 export type {
   AttributionProjectionDecisionReason
 } from "./projection/sqlite-attribution-incremental.ts";

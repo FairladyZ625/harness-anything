@@ -53,6 +53,24 @@ export interface ProjectionSourceFingerprint {
   readonly fingerprint: string;
 }
 
+/**
+ * Content-free shape information for production diagnostics. Hashes identify
+ * a source generation without putting authored bodies or paths on the wire.
+ */
+export interface ProjectionSourceSummary {
+  readonly taskEntryCount: number;
+  readonly taskInputCount: number;
+  readonly taskSourceHash: string;
+  readonly declaredSourceCount: number;
+  readonly declaredInputCount: number;
+  readonly declaredSourceHash: string;
+  readonly attributionInputCount: number;
+  readonly attributionSourceHash: string;
+  readonly legacyPersonIdCount: number;
+  readonly legacyPersonIdsHash: string;
+  readonly fingerprint: string;
+}
+
 export interface ProjectionSourceSnapshot extends ProjectionSourceFingerprint {
   readonly decisionRows: ReadonlyArray<DecisionProjectionRow>;
   readonly declaredTables: ReadonlyArray<DeclaredProjectionSnapshot>;
@@ -66,6 +84,34 @@ export interface ProjectionSourceCacheReuse {
   readonly touchedTaskPaths?: ReadonlyArray<string>;
   readonly validateReusedTaskDirectories?: boolean;
   readonly validateReusedDeclaredDirectories?: boolean;
+}
+
+export function summarizeProjectionSourceFingerprint(
+  source: ProjectionSourceFingerprint
+): ProjectionSourceSummary {
+  return {
+    taskEntryCount: source.taskSource.entries.length,
+    taskInputCount: source.taskSource.sourceInputs.length,
+    taskSourceHash: source.taskSource.hash,
+    declaredSourceCount: source.declaredSources.length,
+    declaredInputCount: source.declaredSources.reduce(
+      (count, declared) => count + declared.source.inputs.length,
+      0
+    ),
+    declaredSourceHash: stablePayloadHash({
+      schema: "projection-declared-source-summary/v1",
+      sources: source.declaredSources.map(({ table, source: declared }) => ({
+        table,
+        inputCount: declared.inputs.length,
+        hash: declared.hash
+      }))
+    }),
+    attributionInputCount: source.attributionSource.inputs.length,
+    attributionSourceHash: source.attributionSource.hash,
+    legacyPersonIdCount: source.legacyPersonIds.length,
+    legacyPersonIdsHash: hashProjectionLegacyPersonIds(source.legacyPersonIds),
+    fingerprint: source.fingerprint
+  };
 }
 
 export function captureProjectionSourceFingerprint(

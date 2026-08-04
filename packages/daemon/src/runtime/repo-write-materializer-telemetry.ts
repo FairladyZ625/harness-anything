@@ -1,6 +1,7 @@
 import {
   runLedgerMaterializer,
   type IncrementalProjectionPhase,
+  type IncrementalProjectionDiagnostic,
   type IncrementalProjectionRebuildReason,
   type IncrementalTaskProjectionMode,
   type AttributionProjectionDecisionReason,
@@ -9,8 +10,13 @@ import {
   type LedgerMaterializerProgressStep,
   type VcsCommitPhase
 } from "@harness-anything/kernel";
+import type {
+  ProjectionSourceSummary,
+  ProjectionSourceWorktreeFenceDiagnostic,
+  TrustedProjectionFingerprintDiagnostic
+} from "@harness-anything/kernel";
 import { reportCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
-import type { RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
+import type { RepoWriteTelemetryDetails, RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
 
 const materializerProgressPhases: Record<LedgerMaterializerProgressStep, RepoWriteTelemetryPhase> = {
   "baseline-start": "authority-materializer-baseline-start",
@@ -172,6 +178,125 @@ export function reportFlushProjectionFingerprintPhase(phase: JournalProjectionFi
   reportCurrentRepoWriteTelemetry(projectionFingerprintPhases[phase]);
 }
 
+export function reportFlushProjectionFingerprintDiagnostic(
+  diagnostic: TrustedProjectionFingerprintDiagnostic
+): void {
+  reportProjectionDiagnostic(diagnostic, "flush");
+}
+
+type ProjectionDiagnostic = TrustedProjectionFingerprintDiagnostic | IncrementalProjectionDiagnostic;
+
+function reportProjectionDiagnostic(
+  diagnostic: ProjectionDiagnostic,
+  location: "flush" | "materializer"
+): void {
+  if (diagnostic.kind === "cache") {
+    if (diagnostic.fence) {
+      reportCurrentRepoWriteTelemetry(
+        location === "flush"
+          ? "authority-flush-projection-fingerprint-summary"
+          : "authority-materializer-baseline-fence",
+        fenceDetails(diagnostic.fence)
+      );
+    }
+    reportCurrentRepoWriteTelemetry(
+      location === "flush"
+        ? "authority-flush-projection-fingerprint-summary"
+        : "authority-materializer-baseline-cache",
+      {
+        kind: "cache",
+        outcome: diagnostic.outcome,
+        reason: diagnostic.reason,
+        head: diagnostic.head,
+        ...(diagnostic.cachedHead ? { cachedHead: diagnostic.cachedHead } : {}),
+        ...(diagnostic.cachedFingerprint ? { cachedFingerprint: diagnostic.cachedFingerprint } : {}),
+        ...(diagnostic.worktreeVerified !== undefined ? { worktreeVerified: diagnostic.worktreeVerified } : {})
+      }
+    );
+    if (diagnostic.summary) {
+      reportCurrentRepoWriteTelemetry(
+        location === "flush"
+          ? "authority-flush-projection-fingerprint-summary"
+          : "authority-materializer-projection-source-summary",
+        sourceSummaryDetails(diagnostic.summary)
+      );
+    }
+    return;
+  }
+
+  if (diagnostic.kind !== "advance") return;
+
+  reportCurrentRepoWriteTelemetry(
+    location === "flush"
+      ? "authority-flush-projection-fingerprint-summary"
+      : "authority-materializer-baseline-fence",
+    fenceDetails(diagnostic.fence)
+  );
+  reportCurrentRepoWriteTelemetry(
+    location === "flush"
+      ? "authority-flush-projection-fingerprint-summary"
+      : "authority-materializer-projection-trusted-advance",
+    {
+      kind: "advance",
+      outcome: diagnostic.outcome,
+      reason: diagnostic.reason,
+      head: diagnostic.head,
+      cachedHead: diagnostic.cachedHead,
+      cachedFingerprint: diagnostic.cachedFingerprint,
+      ...(diagnostic.fingerprint ? { fingerprint: diagnostic.fingerprint } : {})
+    }
+  );
+}
+
+export function reportMaterializerProjectionDiagnostic(
+  diagnostic: IncrementalProjectionDiagnostic
+): void {
+  reportCurrentRepoWriteTelemetry(
+    "authority-materializer-projection-source-summary",
+    sourceSummaryDetails(diagnostic.summary)
+  );
+  reportCurrentRepoWriteTelemetry(
+    "authority-materializer-projection-metadata-summary",
+    {
+      kind: "metadata",
+      phase: diagnostic.phase,
+      existingSourceHash: diagnostic.existingSourceHash,
+      ...(diagnostic.previousSourceFingerprint
+        ? { previousSourceFingerprint: diagnostic.previousSourceFingerprint }
+        : {}),
+      ...(diagnostic.storedSourceHash ? { storedSourceHash: diagnostic.storedSourceHash } : {})
+    }
+  );
+}
+
+function fenceDetails(fence: ProjectionSourceWorktreeFenceDiagnostic): RepoWriteTelemetryDetails {
+  return {
+    kind: "fence",
+    clean: fence.clean,
+    statusCount: fence.statusCount,
+    sourceDirtyCount: fence.sourceDirtyCount,
+    unparseableStatusCount: fence.unparseableStatusCount,
+    sourceDirtyCategoryHash: fence.sourceDirtyCategoryHash
+  };
+}
+
+function sourceSummaryDetails(summary: ProjectionSourceSummary): RepoWriteTelemetryDetails {
+  return {
+    kind: "source-summary",
+    taskEntryCount: summary.taskEntryCount,
+    taskInputCount: summary.taskInputCount,
+    taskSourceHash: summary.taskSourceHash,
+    declaredSourceCount: summary.declaredSourceCount,
+    declaredInputCount: summary.declaredInputCount,
+    declaredSourceHash: summary.declaredSourceHash,
+    attributionInputCount: summary.attributionInputCount,
+    attributionSourceHash: summary.attributionSourceHash,
+    legacyPersonIdCount: summary.legacyPersonIdCount,
+    legacyPersonIdsHash: summary.legacyPersonIdsHash,
+    fingerprint: summary.fingerprint
+  };
+}
+
 export function runMaterializerWithRepoWriteTelemetry(
   rootInput: Parameters<typeof runLedgerMaterializer>[0],
   options: NonNullable<Parameters<typeof runLedgerMaterializer>[1]> = {}
@@ -192,6 +317,14 @@ export function runMaterializerWithRepoWriteTelemetry(
         reportCurrentRepoWriteTelemetry(materializerProjectionModePhase(mode));
         if (reason) reportCurrentRepoWriteTelemetry(materializerProjectionRebuildReasonPhase(reason));
         options.onProjectionMode?.(mode, reason);
+      },
+      onProjectionDiagnostic: (diagnostic) => {
+        if (diagnostic.kind === "cache" || diagnostic.kind === "advance") {
+          reportProjectionDiagnostic(diagnostic, "materializer");
+        } else {
+          reportMaterializerProjectionDiagnostic(diagnostic);
+        }
+        options.onProjectionDiagnostic?.(diagnostic);
       },
       onProjectionAttributionDecision: (reason) => {
         reportCurrentRepoWriteTelemetry(materializerAttributionDecisionPhase(reason));
