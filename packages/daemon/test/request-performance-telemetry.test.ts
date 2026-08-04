@@ -27,6 +27,7 @@ import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/method-registry.ts";
 import type { JsonRpcRequest, JsonRpcResponse } from "../src/protocol/json-rpc-types.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 test("request performance trace is deterministic, bounded, and terminal exactly once", async () => {
   let now = 102;
@@ -434,6 +435,7 @@ test("production protocol sink stores one redacted bounded performance entry aft
     createProtocolServer: () => createJsonRpcProtocolServer({
       daemonId: "daemon-performance-test",
       repos: [repo],
+      readBuildIdentity: matchingBuildIdentity,
       services: {
         LocalControllerService: {} as never,
         TerminalSessionService: {} as never,

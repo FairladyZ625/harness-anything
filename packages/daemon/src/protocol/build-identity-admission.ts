@@ -1,27 +1,17 @@
 import type { JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt } from "./receipt-envelope.ts";
 
-const exemptAdminMethods: ReadonlySet<string> = new Set([
-  "admin.daemon.launch-spec",
-  "admin.daemon.restart",
-  "admin.daemon.refresh",
-  "admin.people.list",
-  "admin.rbac.roles.list"
-]);
-
 export function buildIdentityAdmissionFailure(
   contract: JsonRpcMethodContract,
-  readBuildIdentity: (() => {
+  readBuildIdentity: () => {
     readonly loadedIdentity: string;
     readonly installedIdentity: string;
-  }) | undefined
+  }
 ): ReturnType<typeof failureReceipt> | undefined {
-  if (!readBuildIdentity
-    || contract.commandClass === "repo-read"
-    || exemptAdminMethods.has(contract.method)) {
+  if (contract.buildIdentityAdmission === "exempt") {
     return undefined;
   }
-  let build: ReturnType<NonNullable<typeof readBuildIdentity>>;
+  let build: ReturnType<typeof readBuildIdentity>;
   try {
     build = readBuildIdentity();
   } catch (error) {

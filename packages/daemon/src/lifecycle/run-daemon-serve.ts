@@ -88,7 +88,6 @@ export async function runDaemonServe<
 ): Promise<void> {
   const { rootDir, layoutOverrides, userRoot, endpoint } = input;
   const { serveRepos, authorityManifest, defaultRepoId, lifecycleRepo } = resolveDaemonServeConfiguration(input);
-  const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
   const startedAt = new Date().toISOString();
   const runtimePolicy = input.runtimePolicy ?? resolveDaemonRuntimePolicy();
   const productionChildCutover = authorityManifest !== undefined
@@ -119,6 +118,10 @@ export async function runDaemonServe<
     let terminalMessage: string | undefined;
     let failure: unknown;
     try {
+      // Endpoint ownership is already published, while connections remain
+      // deferred. Replacement control can therefore observe a live owner
+      // during this potentially expensive non-RPC startup scan.
+      const loadedBuild = calculateDaemonArtifactIdentity(input.entrypoint);
       const connections = { active: 0, total: 0 };
       const authorityLifecycle = hooks.authorityLifecycle ?? (
         authorityManifest && !productionChildCutover

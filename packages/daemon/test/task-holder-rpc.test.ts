@@ -17,6 +17,7 @@ import {
   type JsonRpcResponse,
   type PeopleRoster
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 import { leaseEnforcementEnabled } from "../../cli/src/commands/settings.ts";
 
 test("task holder RPC claims, reports collisions with holder and expiry, and releases", async () => {
@@ -345,6 +346,7 @@ function createActorServer(
   return createJsonRpcProtocolServer({
     daemonId: "daemon-task-holder-test",
     repos: [{ repoId: "canonical", canonicalRoot: rootDir }],
+    readBuildIdentity: matchingBuildIdentity,
     personRegistry,
     identityAdminSnapshot: makePeopleRosterIdentityAdminSnapshot(roster, personRegistry),
     identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),

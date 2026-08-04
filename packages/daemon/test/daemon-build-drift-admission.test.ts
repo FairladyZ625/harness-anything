@@ -10,7 +10,11 @@ import {
   rosterIdentityOptions,
   sampleRoster
 } from "./json-rpc-protocol-fixtures.ts";
-import type { JsonRpcResponse } from "../src/index.ts";
+import {
+  jsonRpcMethodContracts,
+  jsonRpcServiceMethodContracts,
+  type JsonRpcResponse
+} from "../src/index.ts";
 
 interface DriftReceipt {
   readonly ok: boolean;
@@ -24,6 +28,31 @@ function driftReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcResponse>
   assert.ok(response && !Array.isArray(response) && "result" in response);
   return response.result as unknown as DriftReceipt;
 }
+
+test("build-identity admission is declared by the method registry", () => {
+  const adminMethods = jsonRpcMethodContracts
+    .filter((contract) => contract.namespace === "admin")
+    .map((contract) => contract.method);
+  assert.deepEqual(adminMethods, [
+    "admin.daemon.launch-spec",
+    "admin.daemon.restart",
+    "admin.daemon.refresh",
+    "admin.people.list",
+    "admin.rbac.roles.list"
+  ]);
+  for (const contract of jsonRpcMethodContracts) {
+    assert.equal(contract.buildIdentityAdmission === "exempt" || contract.buildIdentityAdmission === "required", true, contract.method);
+    if (contract.commandClass === "repo-read") {
+      assert.equal(contract.buildIdentityAdmission, "exempt", contract.method);
+    }
+    if (contract.commandClass === "repo-write" || contract.commandClass === "arbiter") {
+      assert.equal(contract.buildIdentityAdmission, "required", contract.method);
+    }
+  }
+  for (const contract of jsonRpcServiceMethodContracts) {
+    assert.equal(contract.buildIdentityAdmission, contract.commandClass === "repo-read" ? "exempt" : "required", contract.method);
+  }
+});
 
 test("artifact drift rejects writes before mixed-version service dispatch and keeps reads available", async () => {
   const loadedIdentity = `sha256:${"a".repeat(64)}`;
@@ -194,6 +223,9 @@ test("explicit read and lifecycle admin methods remain available during artifact
     services: {
       LocalControllerService: emptyLocalController(),
       TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      DaemonLaunchSpecService: {
+        getLaunchSpec: () => ({ schema: "daemon-launch-spec/v3" })
+      },
       DaemonControlService: {
         requestControl: (kind) => ({
           ok: true,
@@ -218,6 +250,14 @@ test("explicit read and lifecycle admin methods remain available during artifact
   });
   await server.handle(readFixture("hello-compatible.json"));
 
+  const launchSpec = driftReceipt(await server.handle({
+    jsonrpc: "2.0",
+    id: "launch-spec-during-drift",
+    method: "admin.daemon.launch-spec",
+    params: {}
+  }));
+  assert.equal(launchSpec.ok, true);
+
   const response = await server.handle({
     jsonrpc: "2.0",
     id: "admin-during-drift",
@@ -235,5 +275,21 @@ test("explicit read and lifecycle admin methods remain available during artifact
     params: { payload: { reason: "artifact drift", drainTimeoutMs: 5_000 } }
   }));
   assert.equal(restart.ok, true);
+
+  const refresh = driftReceipt(await server.handle({
+    jsonrpc: "2.0",
+    id: "refresh-during-drift",
+    method: "admin.daemon.refresh",
+    params: { payload: { reason: "artifact drift", drainTimeoutMs: 5_000, trigger: "explicit" } }
+  }));
+  assert.equal(refresh.ok, true);
+
+  const roles = driftReceipt(await server.handle({
+    jsonrpc: "2.0",
+    id: "roles-during-drift",
+    method: "admin.rbac.roles.list",
+    params: {}
+  }));
+  assert.equal(roles.ok, true);
   assert.equal(identityReads, 0);
 });

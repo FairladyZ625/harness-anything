@@ -11,6 +11,7 @@ import {
   type IdentityProvider,
   type JsonRpcResponse
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 test("daemon method registry exposes repo.doc.sync.submit as an active repo write", () => {
   const contract = jsonRpcMethodContracts.find((entry) => entry.method === "repo.doc.sync.submit");
@@ -38,6 +39,7 @@ test("repo.doc.sync.submit appends the authenticated principal and executor axes
   const server = createJsonRpcProtocolServer({
     daemonId: "daemon-test",
     repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    readBuildIdentity: matchingBuildIdentity,
     authContext: { transportKind: "unix-socket" },
     identityProvider,
     personRegistry: personRegistryFromDocument([

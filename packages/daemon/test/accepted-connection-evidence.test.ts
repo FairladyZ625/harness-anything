@@ -20,6 +20,7 @@ import {
   type DaemonTransportConnection,
   type JsonObject
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 test("connection-getpeereid-valid observes the same accepted Darwin socket", {
   skip: process.platform !== "darwin" ? "Darwin getpeereid fixture" : false
@@ -542,6 +543,7 @@ function authorityProtocolServer(
   return createJsonRpcProtocolServer({
     daemonId: "authority-context-test",
     repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    readBuildIdentity: matchingBuildIdentity,
     acceptedConnection,
     authorityPeerPolicy: ({ actor, peerCredential }) =>
       actor.personId === "person_local"
