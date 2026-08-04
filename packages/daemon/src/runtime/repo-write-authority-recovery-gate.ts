@@ -250,6 +250,7 @@ export class RepoWriteAuthorityRecoveryGate {
 
 const permanentHistoricalRecoveryRejectionCodes = new Set([
   "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
+  "AUTHORITY_CANONICAL_PUBLICATION_NOT_FOUND",
   "AUTHORITY_V2_RECOVERY_CHANGE_MISMATCH"
 ]);
 

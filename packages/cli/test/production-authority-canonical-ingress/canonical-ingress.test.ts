@@ -61,6 +61,7 @@ import {
   verifyExplicitTaskSubmitIngress,
   verifyInferredTaskSubmitIngress
 } from "./task-submit-ingress.ts";
+import { exerciseIdenticalCodeDocForce } from "./code-doc-force-replay.ts";
 
 test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
   const fixture = createFixture();
@@ -237,6 +238,12 @@ test("production service route preserves progress dry-run and publishes canonica
       `tasks/${sluggedLifecycleTaskId}-production-route/code-doc-anchors.json`
     )), true, "owner-stage reconciliation must publish code-doc anchors before completion");
 
+    const sluggedTaskRoot = await exerciseIdenticalCodeDocForce(
+      fixture,
+      sluggedLifecycleTaskId,
+      sluggedLifecycleEnv
+    );
+
     const completionPacketPath = path.join(fixture.root, "slugged-completion.json");
     writeFileSync(completionPacketPath, JSON.stringify({
       findings: "Slugged production evidence is complete.",
@@ -249,6 +256,7 @@ test("production service route preserves progress dry-run and publishes canonica
       executionId: sluggedExecutionId,
       commit: fixture.publicHead,
       paths: ["README.md"],
+      prRef: "https://github.com/example/repo/pull/999",
       reviewerId: "person_alice"
     }));
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -256,7 +264,6 @@ test("production service route preserves progress dry-run and publishes canonica
     ], sluggedLifecycleEnv);
     assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
     assert.equal(completed.receipt.ok, true, JSON.stringify(completed.receipt));
-    const sluggedTaskRoot = path.join(fixture.authoredRoot, `tasks/${sluggedLifecycleTaskId}-production-route`);
     assert.match(readFileSync(path.join(sluggedTaskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
     const consentFiles = execFileSync("find", [path.join(sluggedTaskRoot, "consents"), "-type", "f"], { encoding: "utf8" })
       .trim().split("\n").filter(Boolean);
@@ -345,9 +352,13 @@ test("production service route preserves progress dry-run and publishes canonica
     ], { ...env, CODEX_THREAD_ID: concurrentSessionId })));
     assert.equal(interleaved.every((receipt) => receipt.ok === true), true, JSON.stringify(interleaved));
     const settledOperations = authorityOperationRecords(fixture.serviceRoot);
-    assert.equal(settledOperations.every((record) => record.state === "COMMITTED"), true, JSON.stringify(settledOperations));
+    assert.equal(settledOperations.every((record) =>
+      record.state === "COMMITTED"
+      || (record.state === "REJECTED" && record.receipt?.reason?.includes("produced no authored change"))
+    ), true, JSON.stringify(settledOperations));
     const eventBodies = authorityEventBodies(fixture.authoredRoot);
     for (const record of settledOperations) {
+      if (record.state !== "COMMITTED") continue;
       assert.equal(eventBodies.filter((body) => body.includes(record.opId ?? "missing-op")).length, 1, JSON.stringify(record));
     }
   } finally {

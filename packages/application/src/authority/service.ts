@@ -52,6 +52,7 @@ import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 import { createAuthorityRecoverySubmitterV2 } from "./authority-recovery-submission-v2.ts";
 import { authorityOperationPublicView } from "./operation-record-public-view.ts";
 import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
+import { codeDocReconcileNoopReason } from "./code-doc-reconcile-rejection.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
@@ -344,6 +345,12 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       canonicalFlushCommitted = true;
     } catch (error) {
       if (isDaemonGenerationFenced(error)) throw error;
+      const deterministicRejection = codeDocReconcileNoopReason(error);
+      if (deterministicRejection) {
+        await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
+          rejected(entry, entry.semanticDigest, deterministicRejection));
+        return batchReceipts(admissions, receipts);
+      }
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
         indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
       return batchReceipts(admissions, receipts);

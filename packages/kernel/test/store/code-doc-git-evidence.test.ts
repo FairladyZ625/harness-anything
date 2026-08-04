@@ -60,6 +60,36 @@ test("code-doc reconciliation is independent of the Execution and Review documen
   });
 });
 
+test("an identical code-doc replacement fails closed before publication", () => {
+  withTempStore((rootDir) => {
+    const fixture = initializeNestedGitFixture(rootDir);
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      commitAuthor: { name: "Harness Test", email: "harness-test@example.invalid" }
+    });
+    const first = codeDocOp("code-doc-first", [{ kind: "commit", sha: fixture.authoredSha }]);
+    const second = codeDocOp("code-doc-identical-replace", [{ kind: "commit", sha: fixture.authoredSha }]);
+
+    Effect.runSync(coordinator.enqueue(first));
+    const firstReport = Effect.runSync(coordinator.flush("manual"));
+    const firstHead = runHermeticGit(fixture.authoredRoot, "rev-parse", "HEAD");
+
+    Effect.runSync(coordinator.enqueue(second));
+    let secondFailure: unknown;
+    try {
+      Effect.runSync(coordinator.flush("manual"));
+    } catch (error) {
+      secondFailure = error;
+    }
+    const secondHead = runHermeticGit(fixture.authoredRoot, "rev-parse", "HEAD");
+
+    assert.equal(firstReport.committed, true);
+    assert.match(JSON.stringify(secondFailure), /produced no authored change/u);
+    assert.equal(secondHead, firstHead, "a rejected no-op must not advance publication HEAD");
+  });
+});
+
 function codeDocOp(opId: string, anchors: ReadonlyArray<Record<string, string>>) {
   return {
     opId,
