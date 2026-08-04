@@ -31,6 +31,7 @@ export function verifyTypedMinimalParameterMatrix(
     "task-consent-record": { argv: ["task", "consent-record", missingTask, "--execution-id", missingExecution, "--utterance", "Approved"], outcome: "guided-error" },
     "task-retire-execution": { argv: ["task", "retire-execution", missingTask, "--execution-id", missingExecution, "--reason", "minimal"], outcome: "guided-error" },
     "task-review-execution": { argv: ["task", "review-execution", missingTask, "--execution-id", missingExecution, "--verdict", "dismissed", "--findings", "none", "--rationale", "minimal"], outcome: "guided-error" },
+    "task-submit": { argv: ["task", "submit", missingTask], outcome: "guided-error" },
     "task-complete": { argv: ["task", "complete", missingTask], outcome: "guided-error" },
     "decision-propose": { argv: ["decision", "propose", "--title", "Minimal ingress decision", "--question", "Minimal?", "--chosen", "Yes", "--rejected", "No", "--why-not", "Not selected"], outcome: "success" },
     "decision-transition": { argv: ["decision", "transition", "rejected", missingDecision], outcome: "guided-error" },
