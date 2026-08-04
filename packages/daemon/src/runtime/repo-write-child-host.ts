@@ -10,11 +10,16 @@ import {
 import {
   repoWriteCanonicalLookupResult,
   repoWriteLocalLookupResult,
-  type RepoWriteHostedOperationPhase
+  type RepoWriteHostedOperationSnapshot
 } from "./repo-write-child-lookup.ts";
 import {
   RepoWriteChildResponseWriter
 } from "./repo-write-child-response-writer.ts";
+import {
+  sendRepoWriteDuplicateSubmit,
+  sendRepoWriteRejectedProceed,
+  sendRepoWriteRepeatedProceed
+} from "./repo-write-child-host-response.ts";
 import { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
 import {
   executeRepoWriteChildDirect
@@ -38,6 +43,7 @@ import type {
   RepoWriteChildHostOptions,
   RepoWritePreparedOperation
 } from "./repo-write-child-contract.ts";
+import { advanceRepoWritePhase } from "./repo-write-phase.ts";
 
 export type { RepoWriteChildTransport } from "./repo-write-child-response-writer.ts";
 export type { RepoWriteDirectInput } from "./repo-write-child-direct.ts";
@@ -53,10 +59,9 @@ export type {
 
 interface HostedOperation {
   readonly requestId: string;
-  phase: RepoWriteHostedOperationPhase;
+  state: RepoWriteHostedOperationSnapshot;
   opId?: string;
   execute?: RepoWritePreparedOperation["execute"];
-  receipt?: RepoWriteJsonObject;
   telemetry?: RepoWriteTelemetryDelivery;
   admitted: boolean;
   cancelledBeforeProceed?: boolean;
@@ -165,7 +170,7 @@ export class RepoWriteChildHost {
     }
     const existing = this.operationsByRequest.get(message.requestId);
     if (existing) {
-      await this.sendDuplicateSubmit(existing);
+      await sendRepoWriteDuplicateSubmit(this.responses, existing);
       return;
     }
     if (!this.admissionOpen) {
@@ -187,7 +192,7 @@ export class RepoWriteChildHost {
 
     const operation: HostedOperation = {
       requestId: message.requestId,
-      phase: "preparing",
+      state: { phase: advanceRepoWritePhase("child", "submit", null) },
       admitted: true
     };
     this.operationsByRequest.set(message.requestId, operation);
@@ -212,7 +217,7 @@ export class RepoWriteChildHost {
       if (!prepared.opId.trim()) throw new Error("prepare returned an empty opId");
       operation.opId = prepared.opId;
       if (this.operationsById.has(prepared.opId)) {
-        operation.phase = "failed";
+        operation.state = { phase: advanceRepoWritePhase("child", "not-started", "preparing") };
         await this.closeTelemetry(operation);
         this.release(operation);
         await this.responses.notStarted(
@@ -225,7 +230,7 @@ export class RepoWriteChildHost {
       }
       this.operationsById.set(prepared.opId, operation);
       if (!this.admissionOpen) {
-        operation.phase = "failed";
+        operation.state = { phase: advanceRepoWritePhase("child", "not-started", "preparing") };
         await this.closeTelemetry(operation);
         this.release(operation);
         await this.responses.notStarted(
@@ -237,11 +242,13 @@ export class RepoWriteChildHost {
         return;
       }
       operation.execute = () => executeRepoWriteChildWithTelemetry(telemetry, prepared.execute);
-      operation.phase = "prepared";
+      operation.state = { phase: advanceRepoWritePhase("child", "prepared", "preparing") };
       await this.responses.prepared(message.requestId, prepared.opId);
     } catch (error) {
-      if (operation.phase === "preparing") {
-        operation.phase = "failed";
+      if (operation.state.phase === "preparing") {
+        operation.state = {
+          phase: advanceRepoWritePhase("child", "not-started", operation.state.phase)
+        };
         await this.closeTelemetry(operation);
         this.release(operation);
         const rejection = classifyRepoWriteNotStartedFailure(error);
@@ -251,8 +258,10 @@ export class RepoWriteChildHost {
           rejection?.diagnostic ?? error,
           operation.opId
         );
-      } else if (operation.phase === "prepared") {
-        operation.phase = "failed";
+      } else if (operation.state.phase === "prepared") {
+        operation.state = {
+          phase: advanceRepoWritePhase("child", "not-started", operation.state.phase)
+        };
         await this.closeTelemetry(operation);
         this.release(operation);
         throw error;
@@ -268,7 +277,13 @@ export class RepoWriteChildHost {
     const operation = this.operationsByRequest.get(message.requestId);
     const boundaryError = this.boundaryError(message);
     if (boundaryError) {
-      await this.sendRejectedProceed(operation, message.requestId, boundaryError, "proceed rejected by capsule boundary");
+      await sendRepoWriteRejectedProceed(
+        this.responses,
+        operation,
+        message.requestId,
+        boundaryError,
+        "proceed rejected by capsule boundary"
+      );
       return;
     }
     if (!operation) {
@@ -276,12 +291,20 @@ export class RepoWriteChildHost {
       return;
     }
     if (operation.opId !== message.opId) {
-      await this.sendRejectedProceed(operation, message.requestId, "OP_ID_MISMATCH", "proceed opId does not match prepared opId");
+      await sendRepoWriteRejectedProceed(
+        this.responses,
+        operation,
+        message.requestId,
+        "OP_ID_MISMATCH",
+        "proceed opId does not match prepared opId"
+      );
       return;
     }
-    if (!this.admissionOpen && (operation.phase === "prepared" || operation.cancelledBeforeProceed)) {
-      if (operation.phase === "prepared") {
-        operation.phase = "failed";
+    if (!this.admissionOpen && (operation.state.phase === "prepared" || operation.cancelledBeforeProceed)) {
+      if (operation.state.phase === "prepared") {
+        operation.state = {
+          phase: advanceRepoWritePhase("child", "shutdown-before-proceed", operation.state.phase)
+        };
         operation.cancelledBeforeProceed = true;
         await this.closeTelemetry(operation);
         this.release(operation);
@@ -294,12 +317,12 @@ export class RepoWriteChildHost {
       );
       return;
     }
-    if (operation.phase !== "prepared") {
-      await this.sendRepeatedProceed(operation);
+    if (operation.state.phase !== "prepared") {
+      await sendRepoWriteRepeatedProceed(this.responses, operation);
       return;
     }
 
-    operation.phase = "proceeding";
+    operation.state = { phase: advanceRepoWritePhase("child", "proceed", operation.state.phase) };
     try {
       let receipt: RepoWriteJsonObject;
       try {
@@ -314,10 +337,16 @@ export class RepoWriteChildHost {
         }
         assertRepoWriteOutcomeAxesV1(durableOutcome, this.outcomeAxes());
         receipt = durableOutcome.receipt as unknown as RepoWriteJsonObject;
-        operation.phase = durableOutcome.terminalKind;
+        operation.state = {
+          phase: advanceRepoWritePhase("child", "terminal", "proceeding"),
+          outcome: durableOutcome.terminalKind,
+          receipt
+        };
       } catch (error) {
         await this.closeTelemetry(operation);
-        operation.phase = "unknown";
+        operation.state = {
+          phase: advanceRepoWritePhase("child", "outcome-unknown", "proceeding")
+        };
         this.release(operation);
         await this.responses.unknown(
           operation.requestId,
@@ -327,15 +356,18 @@ export class RepoWriteChildHost {
         );
         return;
       }
-      operation.receipt = receipt;
       operation.telemetry?.reportCurrent("child-terminal-response");
       await this.closeTelemetry(operation);
       this.release(operation);
+      if (operation.state.phase !== "terminal") {
+        throw new Error("terminal repo writer operation did not retain its terminal result");
+      }
+      const terminal = operation.state;
       await this.responses.terminal(
         operation.requestId,
         operation.opId!,
-        operation.phase,
-        operation.receipt
+        terminal.outcome,
+        terminal.receipt
       );
     } finally {
       await this.maybeCompleteShutdown();
@@ -378,7 +410,7 @@ export class RepoWriteChildHost {
       );
       const local = this.operationsById.get(message.opId);
       const result = canonical.state === "not-found" && local
-        ? repoWriteLocalLookupResult(local)
+        ? repoWriteLocalLookupResult(local.state)
         : repoWriteCanonicalLookupResult(canonical, message.opId, this.outcomeAxes());
       await this.responses.status(message.requestId, message.opId, result);
     } catch (error) {
@@ -435,8 +467,10 @@ export class RepoWriteChildHost {
 
     const cancelled: HostedOperation[] = [];
     for (const operation of this.operationsByRequest.values()) {
-      if (operation.phase !== "prepared") continue;
-      operation.phase = "failed";
+      if (operation.state.phase !== "prepared") continue;
+      operation.state = {
+        phase: advanceRepoWritePhase("child", "shutdown-before-proceed", operation.state.phase)
+      };
       operation.cancelledBeforeProceed = true;
       await this.closeTelemetry(operation);
       this.release(operation);
@@ -458,64 +492,6 @@ export class RepoWriteChildHost {
     operation.telemetry?.close();
   }
 
-  private async sendDuplicateSubmit(operation: HostedOperation): Promise<void> {
-    if (operation.opId && ["proceeding", "committed", "rejected", "unknown"].includes(operation.phase)) {
-      await this.responses.unknown(
-        operation.requestId,
-        operation.opId,
-        "DUPLICATE_REQUEST",
-        "request already crossed the proceed boundary"
-      );
-      return;
-    }
-    await this.responses.notStarted(
-      operation.requestId,
-      "DUPLICATE_REQUEST",
-      "requestId is already admitted",
-      operation.opId
-    );
-  }
-
-  private async sendRejectedProceed(
-    operation: HostedOperation | undefined,
-    requestId: string,
-    code: string,
-    diagnostic: string
-  ): Promise<void> {
-    if (operation?.opId && ["proceeding", "committed", "rejected", "unknown"].includes(operation.phase)) {
-      await this.responses.unknown(requestId, operation.opId, code, diagnostic);
-      return;
-    }
-    await this.responses.notStarted(requestId, code, diagnostic, operation?.opId);
-  }
-
-  private async sendRepeatedProceed(operation: HostedOperation): Promise<void> {
-    if ((operation.phase === "committed" || operation.phase === "rejected") && operation.receipt) {
-      await this.responses.terminal(
-        operation.requestId,
-        operation.opId!,
-        operation.phase,
-        operation.receipt
-      );
-      return;
-    }
-    if (operation.phase === "proceeding" || operation.phase === "unknown") {
-      await this.responses.unknown(
-        operation.requestId,
-        operation.opId!,
-        "DUPLICATE_PROCEED",
-        "operation already crossed the proceed boundary"
-      );
-      return;
-    }
-    await this.responses.notStarted(
-      operation.requestId,
-      operation.phase === "preparing" ? "NOT_PREPARED" : "OPERATION_NOT_PROCEEDABLE",
-      "operation is not in prepared state",
-      operation.opId
-    );
-  }
-
   private boundaryError(message: RepoWriteParentMessage): string | undefined {
     if (message.repoId !== this.options.repoId) return "REPO_MISMATCH";
     if (message.generation !== this.options.generation) return "STALE_GENERATION";
@@ -531,7 +507,7 @@ export class RepoWriteChildHost {
   private hasUnsettledOperations(): boolean {
     if (this.activeLookups > 0 || this.activeAdmissions > 0) return true;
     for (const operation of this.operationsByRequest.values()) {
-      if (operation.phase === "preparing" || operation.phase === "prepared" || operation.phase === "proceeding") {
+      if (operation.state.phase === "preparing" || operation.state.phase === "prepared" || operation.state.phase === "proceeding") {
         return true;
       }
     }
