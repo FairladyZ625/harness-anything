@@ -1,7 +1,11 @@
 import type {
   RepoWriteCommandDto,
-  RepoWriteParentMessage
+  RepoWriteParentMessage,
+  RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
+import type { WriteError } from "@harness-anything/kernel";
+import { failureReceipt } from "../protocol/receipt-envelope.ts";
+import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { RepoWriteChildResponseWriter } from "./repo-write-child-response-writer.ts";
 import type { RepoWriteExecutionSequencer } from "./repo-write-execution-sequencer.ts";
 import {
@@ -112,6 +116,13 @@ export async function executeRepoWriteChildDirect(
   } catch (error) {
     await telemetry?.flush();
     telemetry?.close();
+    if (isExpectedDirectWriteRejection(error)) {
+      await options.responses.directResult(
+        message.requestId,
+        directWriteRejectionReceipt(message.command.commandName, error)
+      );
+      return;
+    }
     await options.responses.directUnknown(
       message.requestId,
       "DIRECT_EXECUTION_OUTCOME_UNKNOWN",
@@ -119,5 +130,40 @@ export async function executeRepoWriteChildDirect(
     );
   } finally {
     options.release();
+  }
+}
+
+function isExpectedDirectWriteRejection(error: unknown): error is Extract<WriteError, { readonly _tag: "WriteRejected" }> {
+  return typeof error === "object"
+    && error !== null
+    && (error as { readonly _tag?: unknown })._tag === "WriteRejected"
+    && typeof (error as { readonly reason?: unknown }).reason === "string";
+}
+
+function directWriteRejectionReceipt(
+  commandName: string,
+  error: Extract<WriteError, { readonly _tag: "WriteRejected" }>
+): RepoWriteJsonObject {
+  const context = jsonObjectForReceipt({
+    ...(error.context ?? {}),
+    ...(error.taskId ? { taskId: error.taskId } : {})
+  });
+  return failureReceipt(
+    commandName,
+    error.code ?? "write_rejected",
+    error.reason,
+    {},
+    context
+  ) as unknown as RepoWriteJsonObject;
+}
+
+function jsonObjectForReceipt(value: Readonly<Record<string, unknown>>): JsonObject | undefined {
+  try {
+    const parsed: unknown = JSON.parse(JSON.stringify(value));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as JsonObject
+      : undefined;
+  } catch {
+    return undefined;
   }
 }

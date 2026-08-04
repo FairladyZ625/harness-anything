@@ -17,7 +17,7 @@ import {
   type ProvenanceSessionExportResult,
   type TaskHolderExecutor
 } from "@harness-anything/application";
-import type { CurrentSessionRef, WriteCoordinator } from "@harness-anything/kernel";
+import type { CurrentSessionRef, WriteCoordinator, WriteError } from "@harness-anything/kernel";
 import {
   isAuthorityCutoverAction,
   runAuthorityCutoverControlCommand
@@ -101,6 +101,29 @@ export function createDaemonCommandService<
           parsedCommand.action.kind
         );
         const dryRun = hostServices.isDryRunAction(parsedCommand);
+        const dryRunAuthority = context?.authorityConnection;
+        const dryRunChildPreflight = dryRun
+          && parsedCommand.action.kind === "task-complete"
+          && options.repoWriteDispatch
+          && (commandClass === "repo-write" || commandClass === "arbiter")
+          && daemonActor
+          && dryRunAuthority?.available
+          ? async () => {
+            const authority = dryRunAuthority;
+            authority.assertActive();
+            const childCommand = encodeRepoWriteCommand({
+              command: parsedCommand as unknown as Readonly<Record<string, unknown>>,
+              context: {
+                actor: daemonActor,
+                authorityConnection: authority.context,
+                currentSession,
+                executor: context.executor ?? null
+              }
+            });
+            const receipt = await options.repoWriteDispatch!.direct(childCommand);
+            if (!receipt.ok) throw childPreflightRejected(receipt);
+          }
+          : undefined;
         if (options.repoWriteDispatch
           && !dryRun
           && (commandClass === "repo-write" || commandClass === "arbiter")) {
@@ -187,8 +210,19 @@ export function createDaemonCommandService<
             ingressAdapter: hostServices.authorityIngressFor(parsedCommand.action.kind)
           })
           : undefined;
+        const dryRunAuthorityPreflight = dryRun
+          && parsedCommand.action.kind === "task-complete"
+          && productionAuthorityCommand
+          && authoritySubmissionV2?.planCommand
+          ? () => authoritySubmissionV2.planCommand!({
+            command: productionAuthorityCommand,
+            attribution: attribution!,
+            currentSession,
+            ingressAdapter: hostServices.authorityIngressFor(parsedCommand.action.kind)
+          })
+          : dryRunChildPreflight;
         const dryRunCoordinator = dryRun
-          ? dryRunWriteBarrier()
+          ? dryRunWriteBarrier(dryRunAuthorityPreflight)
           : undefined;
         const result = await measureCurrentDaemonRequestPerformancePhase(
           "command-execute",
@@ -203,6 +237,7 @@ export function createDaemonCommandService<
             ...(attribution ? { actorAttribution: attribution } : {}),
             ...(currentSession ? { currentSession } : {}),
             ...(authorityCoordinator ? { inlineCreateProvenanceOnly: true } : {}),
+            ...(dryRunAuthorityPreflight ? { authorityCommandPreflight: true } : {}),
             syncExportedSession: dryRun
               ? () => Effect.void
               : (exported) => materializeExportedSessionEffect(runtime, exported),
@@ -427,20 +462,53 @@ function appendPendingMaterializationWarning<Result extends DaemonHostCommandRes
   } as Result;
 }
 
-function dryRunWriteBarrier(): WriteCoordinator {
+function dryRunWriteBarrier(preflight?: () => Promise<unknown>): WriteCoordinator {
   let opCount = 0;
   return {
     enqueue: (operation) => Effect.sync(() => {
       opCount += 1;
       return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
     }),
-    flush: (reason) => Effect.sync(() => {
-      const report = { reason, opCount, committed: false as const };
-      opCount = 0;
-      return report;
+    flush: (reason) => Effect.tryPromise({
+      try: async () => {
+        await preflight?.();
+        const report = { reason, opCount, committed: false as const };
+        opCount = 0;
+        return report;
+      },
+      catch: (cause): WriteError => isWriteRejected(cause)
+        ? cause
+        : {
+          _tag: "WriteRejected",
+          reason: cause instanceof Error ? cause.message : String(cause)
+        }
     }),
     recover: Effect.succeed({ replayedOps: 0 })
   };
+}
+
+function childPreflightRejected(receipt: CommandReceiptEnvelope): WriteError {
+  if (receipt.ok) {
+    return {
+      _tag: "WriteRejected",
+      reason: "TASK_COMPLETE_PREFLIGHT_UNEXPECTED_SUCCESS",
+      retryable: false
+    };
+  }
+  return {
+    _tag: "WriteRejected",
+    ...(receipt.error?.code ? { code: receipt.error.code } : {}),
+    ...(receipt.error?.context ? { context: receipt.error.context } : {}),
+    reason: receipt.error?.hint ?? receipt.summary,
+    retryable: false
+  };
+}
+
+function isWriteRejected(error: unknown): error is Extract<WriteError, { readonly _tag: "WriteRejected" }> {
+  return typeof error === "object"
+    && error !== null
+    && (error as { readonly _tag?: unknown })._tag === "WriteRejected"
+    && typeof (error as { readonly reason?: unknown }).reason === "string";
 }
 
 function missingDaemonActorCoordinator(

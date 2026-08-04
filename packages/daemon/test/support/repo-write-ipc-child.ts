@@ -1,6 +1,7 @@
 import {
   RepoWriteChildIpcTransport
 } from "../../src/runtime/repo-write-child-process-transport.ts";
+import { createRepoWriteChildHost } from "../../src/runtime/repo-write-child-host.ts";
 import { repoWriteProtocolType } from "../../src/runtime/repo-write-protocol.ts";
 import { committedCommandReceipt } from "./repo-write-terminal-fixture.ts";
 import { appendFileSync } from "node:fs";
@@ -8,7 +9,37 @@ import { appendFileSync } from "node:fs";
 const mode = process.argv[2] ?? "roundtrip";
 const tracePath = process.argv[3];
 
-if (mode === "exit") {
+if (mode === "expected-direct-rejection") {
+  const transport = new RepoWriteChildIpcTransport();
+  transport.onDisconnect(() => setImmediate(() => process.exit()));
+  const host = createRepoWriteChildHost({
+    repoId: "repo-transport",
+    workspaceId: "workspace-canonical",
+    generation: 1,
+    artifactIdentity: `sha256:${"a".repeat(64)}`,
+    transport,
+    hooks: {
+      prepare: async () => {
+        throw new Error("durable prepare is not used by this direct fixture");
+      },
+      direct: async () => {
+        throw {
+          _tag: "WriteRejected",
+          code: "task_holder_required",
+          reason: "TASK_LIFECYCLE_HOLDER_RELEASE_REQUIRED:task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8",
+          context: { taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8" },
+          retryable: false
+        };
+      },
+      lookup: async () => ({ state: "not-found" }),
+      shutdown: async () => undefined
+    }
+  });
+  transport.onMessage((message) => {
+    void host.receive(message);
+  });
+  await host.start();
+} else if (mode === "exit") {
   setImmediate(() => process.exit(23));
 } else {
   const transport = new RepoWriteChildIpcTransport();

@@ -50,6 +50,8 @@ export interface ParsedCommandExecutionOptions {
   readonly currentSession?: CurrentSessionRef;
   /** Typed authority intents already carry the current-session provenance inline. */
   readonly inlineCreateProvenanceOnly?: boolean;
+  /** The daemon supplied a read-only canonical authority planner for this request. */
+  readonly authorityCommandPreflight?: boolean;
   readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   /** Explicit local composition scopes outside the daemon-owned product route. */
   readonly localCoordinatorScope?: LocalCoordinatorScope;
@@ -259,6 +261,7 @@ export async function runRegisteredCommandWithCliComposition(
     })
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal, options.taskLeaseGuardMode), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer, {
     authorityCommandSubmission: options.inlineCreateProvenanceOnly === true,
+    authorityCommandPreflight: options.authorityCommandPreflight === true,
     outerProceedingRecovery: options.outerProceedingRecovery === true,
     onCommandTelemetry: options.onCommandTelemetry,
     onTelemetry: options.onTelemetry,

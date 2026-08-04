@@ -289,6 +289,8 @@ export interface DaemonHostCommandExecutionOptions {
   readonly actorAttribution?: AuthorityHostAttribution;
   readonly currentSession?: CurrentSessionRef;
   readonly inlineCreateProvenanceOnly?: true;
+  /** Production authority dry-runs may validate the canonical plan without publishing it. */
+  readonly authorityCommandPreflight?: boolean;
   readonly syncExportedSession: (
     result: ProvenanceSessionExportResult
   ) => EffectNamespace.Effect.Effect<void, ProvenanceSessionExporterRejected>;

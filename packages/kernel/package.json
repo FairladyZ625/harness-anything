@@ -9,6 +9,7 @@
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
     },
+    "./layout/path-safety": "./src/layout/path-safety.ts",
     "./daemon/registry": "./src/daemon/registry.ts",
     "./daemon-runtime-support": "./src/daemon-runtime-support.ts"
   }

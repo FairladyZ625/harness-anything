@@ -81,6 +81,31 @@ test("supervisor submits through one child and drains it without inline fallback
   assert.equal(supervisor.status().connected, false);
 });
 
+test("expected direct rejection returns a failed receipt without replacing the writer", async (context) => {
+  let forks = 0;
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    spawn: () => {
+      forks += 1;
+      return forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["expected-direct-rejection"]
+      });
+    }
+  });
+  context.after(() => supervisor.stop().catch(() => undefined));
+
+  const receipt = await supervisor.direct(command("direct-rejection"));
+
+  assert.equal(receipt.ok, false, JSON.stringify(receipt));
+  if (!receipt.ok) {
+    assert.equal(receipt.error?.code, "task_holder_required");
+    assert.deepEqual(receipt.error?.context, { taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8" });
+  }
+  assert.equal(forks, 1);
+});
+
 test("supervisor forwards startup recovery diagnostics before READY", async (context) => {
   const diagnostics: unknown[] = [];
   const supervisor = new RepoWriteProcessSupervisor({

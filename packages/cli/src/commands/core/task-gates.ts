@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
-import { makeLocalVersionControlSystem, resolveHarnessLayout } from "@harness-anything/kernel";
+import { makeLocalVersionControlSystem, resolveHarnessLayout, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -41,29 +41,55 @@ function runTaskLifecycleTransition(
   action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>
 ): ReturnType<CommandRunner> {
   if (action.dryRun === true) {
-    const uncheckedGates = [
-      "canonical-authority-planner",
-      "task-completion-evidence",
-      "durable-transition-write"
-    ] as const;
-    return Effect.succeed({
-      ok: true,
-      command: "task-complete",
-      taskId: action.taskId,
-      status: "in_review",
-      completionGate: {
-        ok: false,
-        evidenceMode: action.evidenceMode,
-        dryRun: true,
-        uncheckedGates
-      },
-      report: {
-        schema: "task-lifecycle-transition-preview/v1",
-        dryRun: true,
-        disposition: "server-planner-validation-required",
-        uncheckedGates
+    if (!context.authorityCommandPreflight) {
+      const uncheckedGates = [
+        "canonical-authority-planner",
+        "task-completion-evidence",
+        "durable-transition-write"
+      ] as const;
+      return Effect.succeed(taskCompletionDryRunResult(action, uncheckedGates));
+    }
+    const checkedGates = ["canonical-authority-planner", "task-completion-evidence"] as const;
+    const uncheckedGates = ["durable-transition-write"] as const;
+    const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "task-lifecycle-transition-dry-run" });
+    return Effect.gen(function* () {
+      // The canonical planner may run in the repo-write child. Keep the
+      // parent-side read-only holder probe outside that preflight so the child
+      // can run its own read-only planner without contending on a task lock.
+      yield* coordinator.flush("explicit");
+      const holder = yield* Effect.tryPromise({
+        try: () => context.taskHolderService.holder({ taskId: action.taskId }),
+        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+      });
+      if (holder.effectiveHolder) {
+        return yield* Effect.fail({
+          _tag: "WriteRejected",
+          taskId: action.taskId,
+          reason: `TASK_LIFECYCLE_HOLDER_RELEASE_REQUIRED:${action.taskId}`,
+          retryable: false
+        } satisfies WriteError);
       }
-    } satisfies CliResult);
+      return {
+        ok: true,
+        command: "task-complete",
+        taskId: action.taskId,
+        status: "in_review",
+        completionGate: {
+          ok: false,
+          evidenceMode: action.evidenceMode,
+          dryRun: true,
+          checkedGates,
+          uncheckedGates
+        },
+        report: {
+          schema: "task-lifecycle-transition-preview/v1",
+          dryRun: true,
+          disposition: "canonical-authority-preflight-passed",
+          checkedGates,
+          uncheckedGates
+        }
+      } satisfies CliResult;
+    });
   }
   if (!context.authorityCommandSubmission) {
     return Effect.succeed({
@@ -103,6 +129,30 @@ function runTaskLifecycleTransition(
       }
     } satisfies CliResult;
   });
+}
+
+function taskCompletionDryRunResult(
+  action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>,
+  uncheckedGates: ReadonlyArray<string>
+): CliResult {
+  return {
+    ok: true,
+    command: "task-complete",
+    taskId: action.taskId,
+    status: "in_review",
+    completionGate: {
+      ok: false,
+      evidenceMode: action.evidenceMode,
+      dryRun: true,
+      uncheckedGates
+    },
+    report: {
+      schema: "task-lifecycle-transition-preview/v1",
+      dryRun: true,
+      disposition: "server-planner-validation-required",
+      uncheckedGates
+    }
+  } satisfies CliResult;
 }
 
 function runTaskCodeDocReconcile(

@@ -104,10 +104,31 @@ test("doc_sync_submit apply rejects a symlink working-tree body reference", () =
     symlinkSync(symlinkTarget, absolutePath);
     const op = workingTreeBatch(relativePath, body, null);
 
-    assert.doesNotThrow(() => validateCanonicalAuthoredBatch(rootDir, op));
-    assert.throws(() => applyCanonicalAuthoredBatch(rootDir, op), /regular file/u);
+    assert.throws(() => validateCanonicalAuthoredBatch(rootDir, op), /symbolic link/u);
+    assert.throws(() => applyCanonicalAuthoredBatch(rootDir, op), /symbolic link/u);
     assert.equal(lstatSync(absolutePath).isSymbolicLink(), true);
     assert.equal(readFileSync(symlinkTarget, "utf8"), body);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical authored writes reject a task package symlink before touching its external target", () => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-doc-sync-task-package-link-"));
+  const relativePath = "tasks/task_A/artifacts/large.raw.jsonl";
+  const externalTaskRoot = path.join(rootDir, "outside-task");
+  const externalPath = path.join(externalTaskRoot, "artifacts/large.raw.jsonl");
+  const baseBody = "base evidence\n";
+  try {
+    mkdirSync(path.join(rootDir, "harness", "tasks"), { recursive: true });
+    mkdirSync(path.dirname(externalPath), { recursive: true });
+    writeFileSync(externalPath, baseBody, "utf8");
+    symlinkSync(externalTaskRoot, path.join(rootDir, "harness", "tasks", "task_A"), "dir");
+    const op = inlineBatch(relativePath, "changed evidence\n", sha256Text(baseBody));
+
+    assert.throws(() => validateCanonicalAuthoredBatch(rootDir, op), /symbolic link/u);
+    assert.throws(() => applyCanonicalAuthoredBatch(rootDir, op), /symbolic link/u);
+    assert.equal(readFileSync(externalPath, "utf8"), baseBody);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -201,6 +222,17 @@ function workingTreeBatch(
         bodySha256: sha256Text(body),
         baseBlobSha256
       }]
+    }
+  };
+}
+
+function inlineBatch(relativePath: string, body: string, baseBlobSha256: string | null): WriteOp {
+  return {
+    opId: "op-doc-sync-inline",
+    entityId: "entity/test/doc-sync-inline",
+    kind: "doc_sync_submit",
+    payload: {
+      writes: [{ path: relativePath, body, baseBlobSha256 }]
     }
   };
 }

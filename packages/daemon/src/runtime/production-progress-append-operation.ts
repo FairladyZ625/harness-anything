@@ -176,7 +176,10 @@ export class ProductionRepoWriteOperationHost<
       this.options.hostServices.parseCommandPayload(input.command.payload),
       decoded.currentSession
     );
-    if (this.options.hostServices.repoWriteChildExecutionMode(command) !== "direct") {
+    const taskCompleteDryRun = command.action.kind === "task-complete"
+      && command.action.dryRun === true;
+    if (!taskCompleteDryRun
+      && this.options.hostServices.repoWriteChildExecutionMode(command) !== "direct") {
       throw new Error(`REPO_WRITE_DIRECT_MODE_REQUIRED:${command.action.kind}`);
     }
     const commandService = createDaemonCommandService(

@@ -59,6 +59,13 @@ export interface DaemonAuthorityAttemptCompilerV2 {
 }
 
 export interface DaemonAuthorityCommandSubmissionV2 {
+  /** Read-only canonical planning used by truthful production dry-runs. */
+  readonly planCommand?: (input: {
+    readonly command: AuthorityHostCommand;
+    readonly attribution: AuthorityHostAttribution;
+    readonly currentSession: CurrentSessionRef;
+    readonly ingressAdapter?: AuthorityIngressAdapter;
+  }) => Promise<unknown>;
   readonly submit: (
     input: DaemonAuthorityCommandSubmissionInputV2
   ) => Promise<AuthorityOperationReceipt>;
