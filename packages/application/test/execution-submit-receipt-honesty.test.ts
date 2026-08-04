@@ -60,8 +60,7 @@ test("submit reports the committed authored outcome when its lease expires durin
 
     assert.equal(result.leaseReleased, true);
     assert.equal(result.cleanup.status, "released");
-    assert.equal(result.cleanup.diagnostics.length, 1);
-    assert.match(result.cleanup.diagnostics[0]?.message ?? "", /requires an active lease/u);
+    assert.deepEqual(result.cleanup.diagnostics, []);
     assert.equal(authored.executions.get(executionId)?.state, "submitted");
     assert.equal(authored.taskStatus, "in_review");
     assert.equal((await holder.holder({ taskId })).effectiveHolder, null);

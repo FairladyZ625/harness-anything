@@ -139,7 +139,10 @@ export function produceCodeDocWitness(input: {
   });
   if (expected.recordIds.length === 0 || expected.body !== codeDoc.body) {
     throw new Error(
-      "AUTHORITY_TASK_COMPLETE_CODE_DOC_NOT_RECONCILED_TO_INTENT: run `ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-relative-path>]...` after task submit and before task complete."
+      "AUTHORITY_TASK_COMPLETE_CODE_DOC_NOT_RECONCILED_TO_INTENT: "
+      + `approval intent expects ${describeCodeDocAnchors(expected.body)}; `
+      + `current code-doc ${CODE_DOC_RECONCILIATION_DOCUMENT} has ${describeCodeDocAnchors(codeDoc.body)}; `
+      + "run `ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-relative-path>]...` after task submit and before task complete."
     );
   }
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
@@ -155,6 +158,36 @@ export function produceCodeDocWitness(input: {
     codeDocBodyDigest: `sha256:${sha256Text(codeDoc.body)}`
   };
   return { ...witnessWithoutRef, ref: encodePrepublishWitnessRef(witnessWithoutRef) };
+}
+
+function describeCodeDocAnchors(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { readonly records?: unknown };
+    if (!Array.isArray(parsed.records)) return "invalid records";
+    const anchors = parsed.records.flatMap((record) => {
+      if (!record || typeof record !== "object" || !("anchors" in record)) return [];
+      const value = (record as { readonly anchors?: unknown }).anchors;
+      return Array.isArray(value) ? value : [];
+    });
+    const commits = anchors.flatMap((anchor) => {
+      if (!anchor || typeof anchor !== "object") return [];
+      const value = (anchor as { readonly kind?: unknown; readonly sha?: unknown });
+      return value.kind === "commit" && typeof value.sha === "string" ? [value.sha] : [];
+    });
+    const paths = anchors.flatMap((anchor) => {
+      if (!anchor || typeof anchor !== "object") return [];
+      const value = (anchor as { readonly kind?: unknown; readonly path?: unknown });
+      return value.kind === "path" && typeof value.path === "string" ? [value.path] : [];
+    });
+    const prs = anchors.flatMap((anchor) => {
+      if (!anchor || typeof anchor !== "object") return [];
+      const value = (anchor as { readonly kind?: unknown; readonly ref?: unknown });
+      return value.kind === "pr" && typeof value.ref === "string" ? [value.ref] : [];
+    });
+    return `records=${parsed.records.length}; commits=[${commits.join(",")}]; paths=[${paths.join(",")}]; prs=[${prs.join(",")}]`;
+  } catch {
+    return "invalid JSON";
+  }
 }
 
 export function decodePrepublishWitnessRef(ref: string): VerifiedTaskCompleteExternalWitness {
@@ -289,7 +322,9 @@ function findMaterializedPublication(
   const expectedBlobs = bodies.map((body) => witnessGitText(rootDir, ["hash-object", "--stdin"], body));
   const currentBlobs = witnessGitBlobIds(rootDir, "HEAD", repositoryPaths);
   if (currentBlobs.some((actual, index) => actual !== expectedBlobs[index])) {
-    throw new Error(`AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${repositoryPaths.join(",")}`);
+    throw new Error(
+      `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${describeMaterializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)}`
+    );
   }
   for (const entry of firstParentHistory(rootDir, repositoryPaths)) {
     if (entry.parents.length !== 2) continue;
@@ -299,7 +334,23 @@ function findMaterializedPublication(
     const matches = actualBlobs.every((actual, index) => actual === expectedBlobs[index]);
     if (matches) return { commit: entry.commit, operationIds };
   }
-  throw new Error(`AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${repositoryPaths.join(",")}`);
+  throw new Error(
+    `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:no matching first-parent publication found for declared paths: ${repositoryPaths.join(",")}`
+  );
+}
+
+function describeMaterializationMismatches(
+  repositoryPaths: ReadonlyArray<string>,
+  actualBlobs: ReadonlyArray<string | null>,
+  expectedBlobs: ReadonlyArray<string>
+): string {
+  return repositoryPaths.flatMap((repositoryPath, index) => {
+    const actual = actualBlobs[index];
+    if (actual === expectedBlobs[index]) return [];
+    return [actual === null
+      ? `${repositoryPath} (missing from HEAD)`
+      : `${repositoryPath} (content differs from expected)`];
+  }).join(", ");
 }
 
 function assertMaterializedPublication(

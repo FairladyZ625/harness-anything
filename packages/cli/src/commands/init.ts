@@ -297,6 +297,10 @@ function ensureInnerGitRepository(
   }
 
   try {
+    // Finder metadata is intentionally ignored by the inner ledger repository.
+    // Authority read-down still applies the same structural safety validator to
+    // already-tracked metadata, so this only prevents new accidental tracking.
+    ensureGitignoreEntry(path.join(authoredRoot, ".gitignore"), ".DS_Store");
     try {
       runInitGit(authoredRoot, ["init", "--initial-branch=master"], commitAuthor, gitRuntime);
     } catch (error) {

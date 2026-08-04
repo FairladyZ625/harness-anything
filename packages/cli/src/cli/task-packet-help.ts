@@ -58,7 +58,7 @@ function renderLifecycleSequence(commandKind: string): ReadonlyArray<string> {
       "  1. git rev-parse HEAD",
       "     Put this full 40-character public workspace SHA in approval.commit.",
       "  2. ha task code-doc reconcile <task-id> --commit <approval.commit> --path <each-approval.paths-entry> [--pr <approval.prRef>]",
-      "     Run before complete. Repeat --path in the same values as approval.paths; include --pr only when approval.prRef exists.",
+      "     Each --path is one repository-relative file (not a directory or trailing-slash path). Repeat it in the same values as approval.paths; include --pr only when approval.prRef exists.",
       "  3. ha task complete <task-id> --approve --from-file approval.json",
       "     The task must be unheld; complete reads and verifies the pre-existing reconciliation.",
       "",

@@ -164,8 +164,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "doc-sync",
-    "usage": "doc sync (--dry-run|--submit [--path <authored-relative-path>]...) [--json]",
-    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--submit","description":"Submit eligible authored prose through the daemon doc-sync validator and committer."},{"flag":"--path","description":"Submit only this authored-root-relative dirty path; repeat to select multiple owned files."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "doc sync (--dry-run|--submit [--path <authored-relative-file-path>]...) [--json]",
+    "options": [{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--submit","description":"Submit eligible authored prose through the daemon doc-sync validator and committer."},{"flag":"--path","description":"Submit only this authored-root-relative dirty file; directories and trailing slashes are invalid; repeat to select multiple files. Unrelated dirty paths are excluded from this request."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Preview or submit authored prose through the governed doc-sync path.",
     "examples": ["harness-anything doc sync --dry-run --json", "harness-anything doc sync --submit --path tasks/task_01ABC/task_plan.md --json"],
     "parse": parseDocArgs,

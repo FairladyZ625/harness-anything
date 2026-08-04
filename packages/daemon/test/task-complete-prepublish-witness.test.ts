@@ -82,6 +82,53 @@ test("unpublished document rejection stays bounded with 1011 unrelated first-par
   }
 });
 
+test("unpublished document rejection names only the path whose body is not materialized", () => {
+  const fixture = witnessRepository();
+  try {
+    const documents = fixture.documents.map((document) => document.path === "closeout.md"
+      ? { ...document, body: `${document.body}\nUnpublished mutation.\n` }
+      : document);
+    assert.throws(
+      () => produceDocumentPublicationWitness({ ...fixture, documents }),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /closeout\.md/u);
+        assert.doesNotMatch(message, /code-doc-anchors\.json/u);
+        assert.match(message, /content differs from expected/u);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("code-doc reconciliation rejection names the approval intent and current anchors", () => {
+  const fixture = witnessRepository();
+  try {
+    const command = {
+      ...fixture.command,
+      approval: {
+        ...fixture.command.approval!,
+        paths: ["src/other.ts"]
+      }
+    };
+    assert.throws(
+      () => produceCodeDocWitness({ ...fixture, command }),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /approval intent/u);
+        assert.match(message, /src\/other\.ts/u);
+        assert.match(message, /current code-doc/u);
+        assert.match(message, /README\.md/u);
+        return true;
+      }
+    );
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 function witnessRepository() {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-prepublish-witness-"));
   const rootDir = path.join(fixtureRoot, "workspace");

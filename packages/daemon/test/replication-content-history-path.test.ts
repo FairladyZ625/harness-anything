@@ -42,13 +42,35 @@ test("read-down accepts immutable UTF-8 and legacy long paths but rejects disk e
   }
 
   for (const unsafe of [
-    "../escape", "/absolute", "C:/drive", "\\\\server\\share", "safe/\0escape", ".git/config"
+    "../escape", "/absolute", "C:/drive", "\\\\server\\share", "safe/\0escape", ".git/config", ".DS_Store"
   ]) {
     assert.throws(
       () => validateReadDownManagedPath(unsafe),
       /RESYNC_REQUIRED:GIT_PATH_NOT_SAFE/u,
       unsafe
     );
+  }
+});
+
+test("read-down excludes tracked Finder metadata without weakening path safety", () => {
+  const fixture = createFixture();
+  try {
+    mkdirSync(path.join(fixture.gitRoot, "nested"));
+    writeFileSync(path.join(fixture.gitRoot, "README.md"), "kept\n");
+    writeFileSync(path.join(fixture.gitRoot, ".DS_Store"), "finder metadata\n");
+    writeFileSync(path.join(fixture.gitRoot, "nested", ".DS_Store"), "finder metadata\n");
+    git(fixture.gitRoot, "add", ".");
+    git(fixture.gitRoot, "commit", "-m", "tracked platform metadata");
+
+    const commitSha = git(fixture.gitRoot, "rev-parse", "HEAD");
+    const snapshot = fixture.content.snapshot(commitSha, 0);
+    assert.deepEqual(snapshot.entries.map((entry) => entry.path), ["README.md"]);
+    assert.throws(
+      () => validateReadDownManagedPath("nested/.DS_Store/escape"),
+      /RESYNC_REQUIRED:GIT_PATH_NOT_SAFE/u
+    );
+  } finally {
+    fixture.cleanup();
   }
 });
 

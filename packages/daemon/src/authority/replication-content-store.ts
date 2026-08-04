@@ -232,17 +232,18 @@ function readGitEntries(
   persistBlob: (bytes: Uint8Array) => Sha256Digest
 ): ReadonlyArray<AuthoritySnapshotManifestEntry> {
   const listing = readAuthorityGitBytes(root, "ls-tree", "-r", "-z", "--full-tree", commitSha);
-  const rows = splitNul(listing).map((row) => {
+  const rows = splitNul(listing).flatMap((row) => {
     const separator = row.indexOf(0x09);
     const metadata = separator >= 0 ? row.subarray(0, separator).toString("ascii") : "";
     const match = /^(100644|100755|120000) blob ([0-9a-f]+)$/u.exec(metadata);
     if (!match || separator < 0) throw new Error(`RESYNC_REQUIRED:UNSUPPORTED_GIT_TREE_ENTRY:${metadata.slice(0, 80)}`);
     const pathBytes = row.subarray(separator + 1);
-    return {
-      path: decodePortableGitPath(pathBytes),
+    const pathName = decodePortableGitPath(pathBytes);
+    return pathName === undefined ? [] : [{
+      path: pathName,
       objectId: match[2]!,
       mode: match[1] as ReplicaFileMode
-    };
+    }];
   });
   const blobs = readGitBlobBatch(root, rows.map((row) => row.objectId));
   const entries = rows.map((row) => {
@@ -289,6 +290,7 @@ function readGitEntriesIncrementally(
     const match = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([ADMT])$/u.exec(metadata);
     if (!match) throw new Error(`RESYNC_REQUIRED:GIT_DIFF_RAW_ENTRY:${metadata.slice(0, 80)}`);
     const pathName = decodePortableGitPath(rows[index + 1]!);
+    if (pathName === undefined) continue;
     if (match[5] === "D") {
       changed.push({ path: pathName });
       continue;
@@ -392,7 +394,7 @@ function splitNul(value: Uint8Array): ReadonlyArray<Buffer> {
   return rows;
 }
 
-function decodePortableGitPath(pathBytes: Uint8Array): string {
+function decodePortableGitPath(pathBytes: Uint8Array): string | undefined {
   let pathName: string;
   try {
     pathName = new TextDecoder("utf-8", { fatal: true }).decode(pathBytes);
@@ -402,8 +404,9 @@ function decodePortableGitPath(pathBytes: Uint8Array): string {
   if (!Buffer.from(pathName, "utf8").equals(Buffer.from(pathBytes))) {
     throw new Error(`RESYNC_REQUIRED:GIT_PATH_NOT_UTF8_ROUND_TRIP:${Buffer.from(pathBytes).toString("hex").slice(0, 80)}`);
   }
-  validateReadDownManagedPath(pathName);
-  return pathName;
+  const isPlatformMetadata = pathName.slice(pathName.lastIndexOf("/") + 1) === ".DS_Store";
+  validateReadDownManagedPath(pathName, { allowPlatformMetadataLeaf: isPlatformMetadata });
+  return isPlatformMetadata ? undefined : pathName;
 }
 
 function diffSnapshots(
