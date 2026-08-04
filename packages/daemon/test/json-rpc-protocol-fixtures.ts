@@ -22,12 +22,21 @@ export function makeServer(overrides: Partial<Parameters<typeof createJsonRpcPro
   return createJsonRpcProtocolServer({
     daemonId: "daemon-test",
     repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    readBuildIdentity: matchingBuildIdentity,
     services: {
       LocalControllerService: emptyLocalController(),
       TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
     },
     ...overrides
   });
+}
+
+export function matchingBuildIdentity(): {
+  readonly loadedIdentity: string;
+  readonly installedIdentity: string;
+} {
+  const identity = `sha256:${"0".repeat(64)}`;
+  return { loadedIdentity: identity, installedIdentity: identity };
 }
 
 export function emptyLocalController(): LocalControllerService {

@@ -22,6 +22,7 @@ import {
   type IdentityProvider,
   type JsonRpcResponse
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 test("daemon core asks identity providers only who the credential belongs to and whether the person may act", async () => {
   const calls: string[] = [];
@@ -474,6 +475,7 @@ function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolSe
   return createJsonRpcProtocolServer({
     daemonId: "identity-contract-test",
     repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    readBuildIdentity: matchingBuildIdentity,
     services: {
       LocalControllerService: emptyLocalController(),
       TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })

@@ -38,6 +38,7 @@ import {
   type JsonRpcResponse,
   type PeopleRoster
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 test("unix socket transport uses single-user path and permissions on POSIX", async (t) => {
   if (process.platform === "win32") return;
@@ -554,6 +555,7 @@ function makeProtocolServerFactory(calls: string[] = []): (authContext: DaemonAu
   return (authContext) => createJsonRpcProtocolServer({
     daemonId: "daemon-test",
     repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    readBuildIdentity: matchingBuildIdentity,
     authContext,
     personRegistry,
     identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),

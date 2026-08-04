@@ -25,6 +25,7 @@ import {
   type JsonRpcRequest,
   type JsonRpcResponse
 } from "../src/index.ts";
+import { matchingBuildIdentity } from "./json-rpc-protocol-fixtures.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
 const executionId = "exe_01KX7H00000000000000000001";
@@ -80,6 +81,7 @@ test("daemon status RPC rejects residual return to planned, guards blocked owner
     const server = createJsonRpcProtocolServer({
       daemonId: "daemon-return-planned-test",
       repos: [{ repoId: "canonical", canonicalRoot: rootDir }],
+      readBuildIdentity: matchingBuildIdentity,
       personRegistry,
       identityAdminSnapshot: makePeopleRosterIdentityAdminSnapshot(roster, personRegistry),
       identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),

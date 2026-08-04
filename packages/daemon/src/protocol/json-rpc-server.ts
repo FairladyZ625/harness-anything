@@ -15,7 +15,7 @@ import {
 } from "@harness-anything/application";
 import type { RuntimeEventAppendInput } from "@harness-anything/application/runtime-event-ledger-service";
 import type { TerminalSessionService } from "@harness-anything/application/terminal-session-contract";
-import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContract, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
+import { buildIdentityAdmissionForCommandClass, commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContract, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { toJsonValue } from "./json-value.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
@@ -115,7 +115,7 @@ export interface JsonRpcServerOptions extends ProjectionNotificationOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
-  readonly readBuildIdentity?: () => {
+  readonly readBuildIdentity: () => {
     readonly loadedIdentity: string;
     readonly installedIdentity: string;
   };
@@ -451,9 +451,13 @@ async function callTaskHolderMethod(
 }
 
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {
+  if (contract.commandClassDerivation !== "repo-command-run-action") return contract;
   const commandClass = commandClassForJsonRpcRequest(contract, params);
-  if (commandClass === contract.commandClass) return contract;
-  return commandClass ? { ...contract, commandClass } : { ...contract };
+  return {
+    ...contract,
+    buildIdentityAdmission: buildIdentityAdmissionForCommandClass(commandClass),
+    ...(commandClass ? { commandClass } : {})
+  };
 }
 
 async function handleAdminMethod(

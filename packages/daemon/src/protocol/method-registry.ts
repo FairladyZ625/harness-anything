@@ -6,6 +6,7 @@ export const currentDaemonProtocolVersion = 1 as const;
 
 export type JsonRpcMethodMode = "active" | "notification" | "reserved";
 export type { DaemonCommandClass };
+export type BuildIdentityAdmission = "required" | "exempt";
 
 export interface JsonRpcMethodContract {
   readonly method: string;
@@ -19,6 +20,7 @@ export interface JsonRpcMethodContract {
   readonly routeId?: ApiRouteContract["id"];
   readonly auth: ApiRouteContract["auth"];
   readonly requiresRepo: boolean;
+  readonly buildIdentityAdmission: BuildIdentityAdmission;
   readonly commandClass?: DaemonCommandClass;
   readonly commandClassDerivation?: "repo-command-run-action";
   readonly leaseRequired?: boolean;
@@ -33,7 +35,8 @@ const protocolMethodContracts = [
     outputSchemaId: "daemon.hello-result/v1",
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "none",
-    requiresRepo: false
+    requiresRepo: false,
+    buildIdentityAdmission: "exempt"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
@@ -47,6 +50,7 @@ const cliCommandContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "required",
     commandClassDerivation: "repo-command-run-action"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
@@ -61,6 +65,7 @@ const docSyncContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "required",
     commandClass: "repo-write"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
@@ -75,6 +80,7 @@ const taskHolderContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "required",
     commandClass: "repo-write"
   },
   {
@@ -86,6 +92,7 @@ const taskHolderContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "exempt",
     commandClass: "repo-read"
   },
   {
@@ -97,6 +104,7 @@ const taskHolderContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "required",
     commandClass: "repo-write"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
@@ -111,6 +119,7 @@ const notificationContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "exempt",
     commandClass: "repo-read"
   },
   {
@@ -122,6 +131,7 @@ const notificationContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
+    buildIdentityAdmission: "exempt",
     commandClass: "repo-read"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
@@ -136,6 +146,7 @@ const adminReservedContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: false,
+    buildIdentityAdmission: "exempt",
     commandClass: "admin"
   },
   {
@@ -147,6 +158,7 @@ const adminReservedContracts = [
     errorSchemaId: "daemon.control-error/v1",
     auth: "local-session-token",
     requiresRepo: false,
+    buildIdentityAdmission: "exempt",
     commandClass: "admin"
   },
   {
@@ -158,6 +170,7 @@ const adminReservedContracts = [
     errorSchemaId: "daemon.control-error/v1",
     auth: "local-session-token",
     requiresRepo: false,
+    buildIdentityAdmission: "exempt",
     commandClass: "admin"
   },
   {
@@ -169,6 +182,7 @@ const adminReservedContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: false,
+    buildIdentityAdmission: "exempt",
     commandClass: "admin"
   },
   {
@@ -180,6 +194,7 @@ const adminReservedContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: false,
+    buildIdentityAdmission: "exempt",
     commandClass: "admin"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
@@ -205,6 +220,7 @@ export function deriveJsonRpcServiceMethodContracts(
       routeId: contract.id,
       auth: contract.auth,
       requiresRepo: true,
+      buildIdentityAdmission: buildIdentityAdmissionForCommandClass(commandClassForApiRoute(contract)),
       commandClass: commandClassForApiRoute(contract),
       ...(contract.leaseRequired === true ? { leaseRequired: true } : {})
     };
@@ -216,6 +232,12 @@ export function commandClassForApiRoute(contract: ApiRouteContract): DaemonComma
   if (contract.commandClass) return contract.commandClass;
   if (contract.method === "GET" || contract.method === "WS") return "repo-read";
   return "repo-write";
+}
+
+export function buildIdentityAdmissionForCommandClass(
+  commandClass: DaemonCommandClass | undefined
+): BuildIdentityAdmission {
+  return commandClass === "repo-read" ? "exempt" : "required";
 }
 
 const repoReadCliActionKinds = new Set<string>([
