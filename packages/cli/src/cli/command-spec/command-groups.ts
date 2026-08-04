@@ -143,7 +143,7 @@ export const commandGroups = [
     "ha task progress append <task-id> --text \"<update>\"",
     "ha fact record --task <task-id> --statement \"<verified fact>\"",
     "ha task submit <task-id> --from-file submission.json",
-    "ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-path>]...",
+    "ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-file-path>]...",
     "ha task complete <task-id> --approve --from-file approval.json"
   ]),
   group("template", "List and render templates.", [

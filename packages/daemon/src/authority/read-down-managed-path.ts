@@ -4,13 +4,21 @@ const reservedFoldedSegments = new Set([
   ".conflicts", ".ds_store", "desktop.ini", "thumbs.db"
 ]);
 
+export interface ReadDownManagedPathValidationOptions {
+  /** Only the exact final .DS_Store leaf may use this internal exception. */
+  readonly allowPlatformMetadataLeaf?: boolean;
+}
+
 /**
  * Validates an immutable Git fact before read-down materialization. Unlike
  * authoring admission, historical paths may contain non-ASCII UTF-8; disk
  * escape, reserved metadata names, and filesystem-unsafe structure remain
  * fail-closed.
  */
-export function validateReadDownManagedPath(managedPath: string): void {
+export function validateReadDownManagedPath(
+  managedPath: string,
+  options: ReadDownManagedPathValidationOptions = {}
+): void {
   if (managedPath.length === 0
     || managedPath.startsWith("/")
     || /^[A-Za-z]:/u.test(managedPath)
@@ -23,14 +31,17 @@ export function validateReadDownManagedPath(managedPath: string): void {
     unsafe(managedPath);
   }
   const segments = managedPath.split("/");
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     if (!segment
       || segment === "."
       || segment === "..") {
       unsafe(managedPath);
     }
     const folded = foldAscii(segment);
-    if (reservedFoldedSegments.has(folded)
+    const allowedPlatformMetadataLeaf = options.allowPlatformMetadataLeaf === true
+      && index === segments.length - 1
+      && segment === ".DS_Store";
+    if ((reservedFoldedSegments.has(folded) && !allowedPlatformMetadataLeaf)
       || folded.startsWith(".ha-")) {
       unsafe(managedPath);
     }

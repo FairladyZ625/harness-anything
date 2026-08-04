@@ -27,6 +27,7 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(result.report.isolation.innerRepository.gitDirExists, true);
     assert.equal(result.report.isolation.innerRepository.branch, "master");
     assert.equal(result.report.isolation.innerRepository.commitCount, 1);
+    assert.match(readFileSync(path.join(rootDir, "harness/.gitignore"), "utf8"), /^\.DS_Store$/m);
     assert.equal(result.report.isolation.outerGit.action, "initialized");
     assert.equal(result.report.isolation.outerGit.initialCommitCreated, true);
     assert.equal(result.report.isolation.outerGit.commitCount, 1);

@@ -342,7 +342,12 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
           })).effectiveHolder === null;
           cleanup = {
             status: released ? "released" : "retained",
-            diagnostics
+            // A lease-required/release-not-holder error is an expected
+            // post-publication race when reconciliation proves that the
+            // holder is already gone. Keeping its actionable pre-write hint
+            // on a successful receipt makes agents retry a write that already
+            // committed.
+            diagnostics: released && isLeaseCleanupRace(releaseError) ? [] : diagnostics
           };
         } catch (verificationError) {
           cleanup = {
@@ -367,6 +372,12 @@ function cleanupErrorMessage(error: unknown): string {
   return error instanceof Error
     ? `${error.name}: ${error.message}`
     : String(error);
+}
+
+function isLeaseCleanupRace(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const code = (error as { readonly code?: unknown }).code;
+  return code === "task_lease_required" || code === "task_release_not_holder";
 }
 
 function selectReusableExecution(
