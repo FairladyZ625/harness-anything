@@ -170,6 +170,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "status", argv: ["status"], kind: "status" },
   { name: "version", argv: ["version"], kind: "version" },
   { name: "check", argv: ["check", "--profile", "target-project", "--strict", "--post-merge"], kind: "check", fields: { profile: "target-project", strict: true, postMerge: true } },
+  { name: "check task tree scope", argv: ["check", "--task", "task_01ABC"], kind: "check", fields: { profile: "source-package", strict: false, postMerge: false, scope: { kind: "task-tree", taskId: "task_01ABC" } } },
+  { name: "check path scope", argv: ["check", "--path", "harness/tasks/task_01ABC"], kind: "check", fields: { profile: "source-package", strict: false, postMerge: false, scope: { kind: "path", path: "harness/tasks/task_01ABC" } } },
   { name: "governance rebuild", argv: ["governance", "rebuild", "--archive"], kind: "governance-rebuild", fields: { mode: "archive" } },
   { name: "adopt multica", argv: ["adopt", "multica", "EXT-1", "--task", "task_1", "--title", "External", "--status", "todo"], kind: "adopt-multica", fields: { ref: "EXT-1", taskId: "task_1", title: "External", status: "todo" } },
   { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "external-snapshot", fields: { provider: "multica", ref: "EXT-1", title: "External", status: "todo" } },

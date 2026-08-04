@@ -10,6 +10,7 @@ const finalReceipt = {
   command: "doctor",
   action: "doctor",
   summary: "completed doctor",
+  next: [],
   details: { data: { report: { readOnly: true } } },
   meta: {
     generatedAt: "2026-07-23T00:00:00.000Z",

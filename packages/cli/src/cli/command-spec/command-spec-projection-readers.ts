@@ -13,7 +13,7 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything session show ses_01ABC --view trace --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
-    receiptContract: { data: ["sessionId", "report"], paths: [] },
+    receiptContract: { data: ["sessionId", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -24,7 +24,7 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything execution show exe_01ABC --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
-    receiptContract: { data: ["executionId", "report"], paths: [] },
+    receiptContract: { data: ["executionId", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -35,7 +35,7 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything execution list --task task_01ABC --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
-    receiptContract: { data: ["taskId", "rows", "report"], paths: [] },
+    receiptContract: { data: ["taskId", "rows", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -46,7 +46,7 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything review show rev_01ABC --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
-    receiptContract: { data: ["reviewId", "report"], paths: [] },
+    receiptContract: { data: ["reviewId", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -57,7 +57,7 @@ export const projectionReaderCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything audit provenance --task task_01ABC --json"],
     parse: parseProjectionReaderArgs,
     run: runProjectionReaderCommand,
-    receiptContract: { data: ["taskId", "report"], paths: [] },
+    receiptContract: { data: ["taskId", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   }
 ]);

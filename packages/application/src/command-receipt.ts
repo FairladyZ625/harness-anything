@@ -17,7 +17,7 @@ export interface CommandReceipt<Command extends string = string> {
   readonly items?: ReadonlyArray<unknown>;
   readonly paths?: ReadonlyArray<{ readonly role: string; readonly path: string }>;
   readonly warnings?: ReadonlyArray<unknown>;
-  readonly next?: ReadonlyArray<CommandReceiptNextAction>;
+  readonly next: ReadonlyArray<CommandReceiptNextAction>;
   readonly details?: Record<string, unknown>;
   readonly meta: {
     readonly generatedAt: string;

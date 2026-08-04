@@ -19,6 +19,7 @@ test("honest sidecar leaves legacy command receipt text rendering byte-identical
     action: "show",
     summary: "completed task show",
     warnings: ["legacy warning"],
+    next: [],
     details: { data: { taskId: "task-s2" } },
     meta: {
       generatedAt: "2026-07-23T00:00:00.000Z",

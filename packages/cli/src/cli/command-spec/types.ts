@@ -21,9 +21,29 @@ export type CommandParser = (
 
 export type RuntimeEventPolicy = "auto" | "direct" | "none" | "deferred";
 
+export interface CommandSuccessNextActionTemplate {
+  /**
+   * Command text emitted in the success receipt. `{field}` placeholders are
+   * resolved from the successful CliResult before the receipt is rendered.
+   */
+  readonly command: string;
+  readonly description: string;
+}
+
+export type CommandSuccessNext =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "actions";
+      readonly actions: readonly [
+        CommandSuccessNextActionTemplate,
+        ...ReadonlyArray<CommandSuccessNextActionTemplate>
+      ];
+    };
+
 export interface CommandReceiptContract {
   readonly data: ReadonlyArray<string>;
   readonly paths: ReadonlyArray<string>;
+  readonly successNext: CommandSuccessNext;
   readonly optionalData?: Readonly<Record<string, string>>;
   readonly optionalPaths?: Readonly<Record<string, string>>;
   readonly dryRun?: Omit<CommandReceiptContract, "dryRun">;

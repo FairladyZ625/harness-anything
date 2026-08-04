@@ -12,19 +12,18 @@ import { cliTestEnv } from "./helpers/cli-test-env.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
-test("CLI check profiles expose stable JSON and fail closed on strict task contract issues", () => {
+test("CLI check profiles expose stable JSON and accept planned task-plan scaffolds", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
     runJson(rootDir, ["new-task", "--title", "Scaffold Plan", "--vertical", "software/coding", "--preset", "standard-task"]);
 
-    const result = runJson(rootDir, ["check", "--profile", "private-harness", "--strict"], false);
+    const result = runJson(rootDir, ["check", "--profile", "private-harness", "--strict"]);
 
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, true);
     assert.equal(result.command, "check");
     assert.equal(result.profile, "private-harness");
-    assert.equal(result.error.code, "check_profile_failed");
     assert.equal(result.report.schema, "harness-check-profile-report/v1");
-    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder" && warning.severity === "hard-fail"), true);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder"), false);
   });
 });
 

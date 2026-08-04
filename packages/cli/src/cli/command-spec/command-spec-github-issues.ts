@@ -13,7 +13,7 @@ export const githubIssuesCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything external snapshot github owner/repo#123 --json", "harness-anything external snapshot multica EXT-123 --json"],
     parse: parseGithubIssuesArgs,
     run: runExternalCommand,
-    receiptContract: { data: ["report"], paths: [] },
+    receiptContract: { data: ["report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   },
   {
@@ -30,7 +30,7 @@ export const githubIssuesCommandSpecs = defineCommandSpecs([
     examples: ["harness-anything external list github owner/repo --json"],
     parse: parseGithubIssuesArgs,
     run: runExternalCommand,
-    receiptContract: { data: ["rows", "report"], paths: [] },
+    receiptContract: { data: ["rows", "report"], paths: [], successNext: { kind: "none" }, },
     eventPolicy: { conflictMarkerPreflight: false, runtimeEvent: "none" }
   }
 ]);

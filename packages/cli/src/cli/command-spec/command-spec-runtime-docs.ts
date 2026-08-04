@@ -29,7 +29,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runRuntimeEventCommand,
     "receiptContract": {
       "data": ["report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -48,7 +49,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runRuntimeEventCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -65,7 +67,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runMaterializerCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -82,7 +85,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runSessionCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -100,7 +104,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runSessionCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -119,6 +124,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["rows", "report"],
       "paths": [],
+      "successNext": {kind: "none"},
       "optionalPaths": {
         "primary": "Present when at least one legacy Session requires conversion."
       }
@@ -138,7 +144,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runCasCommand,
     "receiptContract": {
       "data": ["rows", "mode", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -155,7 +162,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runDocCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -170,7 +178,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "examples": ["harness-anything doc sync --dry-run --json", "harness-anything doc sync --submit --path tasks/task_01ABC/task_plan.md --json"],
     "parse": parseDocArgs,
     "run": runDocCommand,
-    "receiptContract": {"data":["report"],"paths":[],"optionalData":{"rows":"Only emitted by --dry-run previews."},"optionalPaths":{"primary":"Only emitted by --dry-run previews."}},
+    "receiptContract": {"data":["report"],"paths": [],
+      "successNext": {kind: "none"},"optionalData":{"rows":"Only emitted by --dry-run previews."},"optionalPaths":{"primary":"Only emitted by --dry-run previews."}},
     "eventPolicy": {
       "conflictMarkerPreflight": false,
       "runtimeEvent": "none"
@@ -186,7 +195,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["templates", "issues", "rows"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -203,7 +213,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["document", "issues"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -220,7 +231,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runTaskQueryCommand,
     "receiptContract": {
       "data": ["tasks", "rows"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -237,7 +249,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "run": runTaskQueryCommand,
     "receiptContract": {
       "data": ["rows", "summary", "report", "commands"],
-      "paths": ["projection"]
+      "paths": ["projection"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -246,15 +259,16 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "check",
-    "usage": "check [--profile source-package|private-harness|target-project] [--strict] [--post-merge] [--json]",
-    "options": [{"flag":"--profile","description":"Select a check or task profile; task create defaults to baseline."},{"flag":"--strict","description":"Run strict checks."},{"flag":"--post-merge","description":"Run checks intended for post-merge validation."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "check [--profile source-package|private-harness|target-project] [--strict] [--post-merge] [--task <task-id>|--path <task-package-path>] [--json]",
+    "options": [{"flag":"--profile","description":"Select a check or task profile; task create defaults to baseline."},{"flag":"--strict","description":"Run strict checks."},{"flag":"--post-merge","description":"Run checks intended for post-merge validation."},{"flag":"--task","description":"Limit findings to one task tree: the named task and all descendants."},{"flag":"--path","description":"Limit findings to task packages under or intersecting a repository-relative path."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Run harness health checks for a selected profile.",
-    "examples": ["harness-anything check --profile target-project --strict"],
+    "examples": ["harness-anything check --profile target-project --strict", "harness-anything check --task task_01ABC --strict --json"],
     "parse": parseStatusCheckArgs,
     "run": runGovernanceCommand,
     "receiptContract": {
       "data": ["profile", "rows", "report", "commands"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -274,7 +288,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "generated": "Only emitted for apply/archive rebuild modes that write generated governance views."
       },
-      "paths": ["projection"]
+      "paths": ["projection"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,

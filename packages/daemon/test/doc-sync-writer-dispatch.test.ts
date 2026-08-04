@@ -261,6 +261,7 @@ function acceptedReceipt(overrides: {
     command: "repo.doc.sync.submit",
     action: "submit",
     summary: "accepted",
+    next: [],
     details: {
       data: {
         ok: true,

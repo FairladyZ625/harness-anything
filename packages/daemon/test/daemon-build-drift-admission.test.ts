@@ -79,6 +79,7 @@ test("artifact drift rejects writes before mixed-version service dispatch and ke
             command: command?.action?.kind ?? "unknown",
             action: "run",
             summary: "dispatched",
+            next: [],
             details: {},
             meta: {
               generatedAt: "2026-07-31T00:00:00.000Z",
@@ -137,6 +138,7 @@ test("matching artifact identities allow writes", async () => {
             command: command?.action?.kind ?? "unknown",
             action: "run",
             summary: "dispatched",
+            next: [],
             details: {},
             meta: { generatedAt: "2026-07-31T00:00:00.000Z", compatibility: {} }
           };
@@ -179,6 +181,7 @@ test("temporarily unavailable artifact identity fails closed and automatically r
             command: command?.action?.kind ?? "unknown",
             action: "run",
             summary: "dispatched",
+            next: [],
             details: {},
             meta: { generatedAt: "2026-07-31T00:00:00.000Z", compatibility: {} }
           };

@@ -270,6 +270,7 @@ function historicalRecoveryReceipt(
     command: outcome.receiptSeed.command,
     action: outcome.receiptSeed.action,
     summary: "Recovered committed outcome from canonical publication.",
+    next: [],
     details: {
       actor: outcome.canonicalCommand.actor,
       data: {

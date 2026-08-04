@@ -95,7 +95,7 @@ function agentHelp(): string {
 }
 
 function agentCommandSuccess(command: string, summary: string): CommandReceipt {
-  return { ok: true, schema: "command-receipt/v2", command, action: command, summary, details: {}, meta: metadata() };
+  return { ok: true, schema: "command-receipt/v2", command, action: command, summary, next: [], details: {}, meta: metadata() };
 }
 
 function failure(command: string, code: string, hint: string): CommandFailureReceipt {

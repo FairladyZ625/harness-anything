@@ -563,6 +563,7 @@ function successReceipt(): CommandReceiptEnvelope {
     entity: { kind: "task", id: "task_01KY" },
     paths: [{ role: "package", path: "harness/tasks/task_01KY" }],
     warnings: [{ code: "pending_materialization", message: "projection follows" }],
+    next: [],
     details: {
       actor: actorStamp(),
       data: {

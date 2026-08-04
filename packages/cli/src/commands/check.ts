@@ -7,10 +7,10 @@ import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout
 import { readFrontmatter, readScalar } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
-import type { CheckProfile, CliResult, CommandRegistryEntry } from "../cli/types.ts";
+import type { CheckProfile, CheckScope, CliResult, CommandRegistryEntry } from "../cli/types.ts";
 import { buildResolvableEntityIndex } from "./check-entity-refs.ts";
 import { attachDecisionContentPinWarnings } from "./check-decision-content-pin-warnings.ts";
-import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
+import { profileIssue, strictSeverity, type ProfileValidationIssue } from "./check-profile-types.ts";
 import { validateJournalActorAttribution } from "./actor-attribution-checker.ts";
 import { resolveLiveTaskSectionPolicies } from "./check-live-section-policy.ts";
 import { resolveTaskContractDocuments } from "./check-task-contract.ts";
@@ -21,24 +21,45 @@ import { discoverScriptEntries } from "./extensions/script.ts";
 import { runScriptHost } from "./extensions/script-host.ts";
 import { undeclaredSectionsForTaskDocument } from "./extensions/managed-section-policy.ts";
 import { validateInReviewExecutionConsistency } from "./task-execution-consistency.ts";
+import {
+  checkScopeReport,
+  filterIssuesForScope,
+  resolveCheckScope,
+  scopedProjection,
+  summarizeValidatorIssues,
+  type ResolvedCheckScope
+} from "./check-scope.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 export function runCheckProfile(
   rootInput: HarnessLayoutInput,
-  action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean },
+  action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean; readonly scope?: CheckScope },
   commandRegistry: ReadonlyArray<CommandRegistryEntry>
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const profilePostMerge = action.postMerge || action.profile === "private-harness" || action.profile === "target-project" || action.strict;
-  const projection = checkTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput), postMerge: profilePostMerge });
+  const fullProjection = checkTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput), postMerge: profilePostMerge });
+  const scope = action.scope ? resolveCheckScope(rootInput, action.scope, fullProjection.rows) : undefined;
+  if (action.scope && !scope) {
+    return {
+      ok: false,
+      command: "check",
+      profile: action.profile,
+      error: cliError(
+        CliErrorCode.InvalidCheckScope,
+        `Check scope ${action.scope.kind === "task-tree" ? action.scope.taskId : action.scope.path} did not match a task package. Run \`ha task list --json\`, choose an existing task id or package path, then retry.`
+      )
+    };
+  }
+  const projection = scope ? scopedProjection(fullProjection, scope) : fullProjection;
   const scriptChecks = runCheckScripts(rootInput);
   const validatorIssues = [
-    ...validateJournalActorAttribution(rootInput),
-    ...validateCheckProfile(rootInput, action.profile, action.strict),
-    ...(action.postMerge ? validateDoneTaskDocumentPlaceholders(rootInput) : []),
-    ...scriptChecks.issues
+    ...filterIssuesForScope(validateJournalActorAttribution(rootInput), scope),
+    ...validateCheckProfile(rootInput, action.profile, action.strict, scope),
+    ...(action.postMerge ? validateDoneTaskDocumentPlaceholders(rootInput, scope?.taskDirs) : []),
+    ...filterIssuesForScope(scriptChecks.issues, scope)
   ];
   const warnings = [...projection.warnings, ...validatorIssues];
   const hardFailCount = warnings.filter((issue) => issue.severity === "hard-fail").length;
@@ -52,6 +73,7 @@ export function runCheckProfile(
     projection: projection.report,
     validators: validatorSummary,
     scriptChecks: scriptChecks.reports,
+    ...(scope ? { scope: checkScopeReport(scope) } : {}),
     summary: {
       rowCount: projection.rows.length,
       warningCount: warnings.length,
@@ -63,6 +85,7 @@ export function runCheckProfile(
     ok,
     validators: validatorSummary,
     scriptChecks: scriptChecks.reports,
+    ...(scope ? { scope: checkScopeReport(scope) } : {}),
     summary: {
       ...projection.report.summary,
       warningCount: warnings.length,
@@ -181,18 +204,23 @@ function findingsFromReport(report: Record<string, unknown>): ReadonlyArray<{
   });
 }
 
-function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+function validateCheckProfile(
+  rootInput: HarnessLayoutInput,
+  profile: CheckProfile,
+  strict: boolean,
+  scope?: ResolvedCheckScope
+): ReadonlyArray<ProfileValidationIssue> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const issues: ProfileValidationIssue[] = [
-    ...validateUniqueTaskDirectoryIds(layout.rootDir, layout.tasksRoot),
-    ...validateInReviewExecutionConsistency(rootInput)
+    ...(scope ? [] : validateUniqueTaskDirectoryIds(layout.rootDir, layout.tasksRoot)),
+    ...filterIssuesForScope(validateInReviewExecutionConsistency(rootInput), scope)
   ];
   const settingsResult = readProjectHarnessSettings(rootInput, "check");
   const settings = settingsResult.ok ? settingsResult.settings : undefined;
   if (!settingsResult.ok) issues.push(settingsIssue(settingsResult));
   if (profile !== "source-package" || strict) {
-    const taskDirs = listTaskIndexPaths(rootInput).map((indexPath) => path.dirname(indexPath));
+    const taskDirs = scope?.taskDirs ?? listTaskIndexPaths(rootInput).map((indexPath) => path.dirname(indexPath));
     const placeholderPolicy = bundledTaskDocumentPlaceholderPolicy();
     for (const taskDir of taskDirs) {
       issues.push(...validateTaskPackageContracts(rootInput, taskDir, profile, strict, placeholderPolicy, settings));
@@ -201,7 +229,7 @@ function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfi
     issues.push(...validateGateArchitectureRetrospectiveGate(rootInput, taskDirs));
   }
 
-  if (profile === "private-harness" || profile === "target-project") {
+  if (!scope && (profile === "private-harness" || profile === "target-project")) {
     issues.push(...validateContextDocs(rootDir, strict));
     issues.push(...validateGovernanceGeneratedViews(rootInput, strict));
   }
@@ -251,6 +279,7 @@ function validateTaskPackageContracts(
     return issues;
   }
   const vertical = readScalar(frontmatter, "vertical");
+  const status = readScalar(frontmatter, "  status");
   const metadataDriven = vertical === "software/coding";
   issues.push(...validateMetadataDrivenTaskPackage(rootInput, taskDir, relativeTaskDir, frontmatter, settings));
 
@@ -262,7 +291,7 @@ function validateTaskPackageContracts(
     if (!/Task Contract:\s*harness-task(?:\/|\s+)v1/u.test(taskPlanBody) && profile !== "source-package") {
       issues.push(profileIssue("task-plan-contract", "task_contract_marker_missing", strictSeverity(strict), `${relativeTaskDir}/task_plan.md lacks Task Contract: harness-task/v1.`, "Add the task contract marker or keep this package outside strict M2 profiles."));
     }
-    if (isTaskDocumentPlaceholderMarkdown(taskPlanBody, placeholderPolicy.taskPlanPlaceholderFingerprintSets)) {
+    if (status !== "planned" && isTaskDocumentPlaceholderMarkdown(taskPlanBody, placeholderPolicy.taskPlanPlaceholderFingerprintSets)) {
       issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready. If the file is already substantive, retry the exact command once unchanged to refresh a lagging read."));
     }
   }
@@ -315,7 +344,6 @@ function validateTaskPackageContracts(
     }
   }
 
-  const status = readScalar(frontmatter, "  status");
   if ((status === "done" || status === "in_review") && !existsSync(path.join(taskDir, "closeout.md"))) {
     issues.push(profileIssue("completion-consistency", "closeout_missing", strictSeverity(strict), `${relativeTaskDir} is ${status} without closeout evidence.`, "Add closeout.md before claiming completion."));
   }
@@ -323,11 +351,15 @@ function validateTaskPackageContracts(
   return issues;
 }
 
-function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): ReadonlyArray<ProfileValidationIssue> {
+function validateDoneTaskDocumentPlaceholders(
+  rootInput: HarnessLayoutInput,
+  scopedTaskDirs?: ReadonlyArray<string>
+): ReadonlyArray<ProfileValidationIssue> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const policy = bundledTaskDocumentPlaceholderPolicy();
   const issues: ProfileValidationIssue[] = [];
-  for (const indexPath of listTaskIndexPaths(rootInput)) {
+  const indexPaths = scopedTaskDirs?.map((taskDir) => path.join(taskDir, "INDEX.md")) ?? listTaskIndexPaths(rootInput);
+  for (const indexPath of indexPaths) {
     const taskDir = path.dirname(indexPath);
     const relativeTaskDir = relativePath(rootDir, taskDir);
     const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
@@ -562,25 +594,4 @@ function validateMilestoneDossierGate(rootInput: HarnessLayoutInput, taskDirs: R
 
 function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
   return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
-}
-
-function strictSeverity(strict: boolean): "warning" | "hard-fail" {
-  return strict ? "hard-fail" : "warning";
-}
-
-function summarizeValidatorIssues(issues: ReadonlyArray<ProfileValidationIssue>): ReadonlyArray<{ readonly source: string; readonly warningCount: number; readonly hardFailCount: number; readonly codes: ReadonlyArray<string> }> {
-  const sources = [...new Set(issues.map((issue) => issue.source))].sort();
-  return sources.map((source) => {
-    const sourceIssues = issues.filter((issue) => issue.source === source);
-    return {
-      source,
-      warningCount: sourceIssues.filter((issue) => issue.severity === "warning").length,
-      hardFailCount: sourceIssues.filter((issue) => issue.severity === "hard-fail").length,
-      codes: [...new Set(sourceIssues.map((issue) => issue.code))].sort()
-    };
-  });
-}
-
-export function isCheckProfile(value: string): value is CheckProfile {
-  return value === "source-package" || value === "private-harness" || value === "target-project";
 }

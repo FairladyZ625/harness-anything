@@ -106,6 +106,7 @@ export function receipt(command: string, data: Record<string, unknown>): unknown
     command,
     action: command,
     summary: command,
+    next: [],
     details: { data },
     meta: { generatedAt: "2026-01-01T00:00:00.000Z", compatibility: {} }
   };

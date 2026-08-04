@@ -622,6 +622,7 @@ function commandReceipt() {
     command: "version",
     action: "version",
     summary: "version",
+    next: [],
     details: {},
     meta: {
       generatedAt: "2026-07-16T00:00:00.000Z",

@@ -132,6 +132,32 @@ test("command receipts allow explicitly optional declared data to be absent", ()
   if (!receipt.ok) return;
   assert.equal(receipt.entity?.id, "task_1");
   assert.equal(receipt.paths?.some((entry) => entry.role === "package"), true);
+  assert.deepEqual(receipt.next, [{
+    command: "ha task start task_1",
+    description: "Write harness/tasks/task_1/task_plan.md with the deliverable, starting points, protected boundaries, stop conditions, and verification; then start the task."
+  }]);
+  assert.match(renderReceiptText(receipt), /next="ha task start task_1"/u);
+  assert.match(renderReceiptText(receipt), /nextHint="Write harness\/tasks\/task_1\/task_plan\.md/u);
+});
+
+test("success receipts always emit next and dry-run selects its independent declaration", () => {
+  const noAction = toCommandReceipt({ ok: true, command: "version", version: "1.2.3" });
+  assert.equal(noAction.ok, true, JSON.stringify(noAction));
+  if (!noAction.ok) return;
+  assert.deepEqual(noAction.next, []);
+
+  const dryRun = toCommandReceipt({
+    ok: true,
+    command: "new-task",
+    taskId: "task_preview",
+    slug: "preview",
+    status: "planned",
+    packagePath: "harness/tasks/task_preview-preview",
+    report: { schema: "new-task-preview/v1", dryRun: true }
+  });
+  assert.equal(dryRun.ok, true, JSON.stringify(dryRun));
+  if (!dryRun.ok) return;
+  assert.deepEqual(dryRun.next, []);
 });
 
 test("materializer warnings use the receipt warning envelope instead of a duplicate data field", () => {

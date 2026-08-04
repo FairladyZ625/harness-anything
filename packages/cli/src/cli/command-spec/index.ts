@@ -8,6 +8,7 @@ import { completionCommandSpecs } from "./command-spec-completion.ts";
 import { githubIssuesCommandSpecs } from "./command-spec-github-issues.ts";
 import { authorityCutoverCommandSpecs } from "./command-spec-authority-cutover.ts";
 import { taskSubmitCommandSpecs } from "./command-spec-task-submit.ts";
+import { taskRelationCommandSpecs } from "./command-spec-task-relations.ts";
 import type { CommandSpecDefinition, ParsedCommandKind } from "./types.ts";
 import {
   attachProductionAuthorityIngress,
@@ -21,6 +22,7 @@ export const commandSpecs = [
   ...githubIssuesCommandSpecs,
   ...projectionReaderCommandSpecs,
   ...coreCommandSpecs,
+  ...taskRelationCommandSpecs,
   ...decisionsCommandSpecs,
   ...runtimeDocsCommandSpecs,
   ...migrationDiagnosticsCommandSpecs,

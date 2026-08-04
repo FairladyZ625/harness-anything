@@ -17,7 +17,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["rows", "report"],
-      "paths": []
+      "paths": [],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -34,7 +35,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -53,6 +55,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["rows", "report"],
       "paths": [],
+      "successNext": {kind: "none"},
       "optionalData": {"decisionId":"Only emitted when verifying one decision; --all emits aggregate rows without a single decision id."}
     },
     "eventPolicy": {
@@ -71,7 +74,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": { kind: "none" }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -88,7 +92,14 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {
+        kind: "actions",
+        "actions": [{
+          "command": "ha decision transition active {decisionId}",
+          "description": "Adjudicate the proposal; activate it if accepted, or choose the appropriate non-active transition."
+        }]
+      }
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -107,7 +118,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -125,7 +137,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -143,7 +156,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -161,7 +175,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "taskId", "factId", "factRef", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -179,7 +194,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -197,7 +213,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDecisionCommand,
     "receiptContract": {
       "data": ["decisionId", "decisionState", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -214,7 +231,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runFactCommand,
     "receiptContract": {
       "data": ["taskId", "rows", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -231,7 +249,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runFactCommand,
     "receiptContract": {
       "data": ["taskId", "factId", "factRef", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -250,7 +269,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runFactCommand,
     "receiptContract": {
       "data": ["taskId", "factId", "factRef", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -268,7 +288,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runFactCommand,
     "receiptContract": {
       "data": ["taskId", "factId", "factRef", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -285,7 +306,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDistillCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
@@ -304,7 +326,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
     "run": runDistillCommand,
     "receiptContract": {
       "data": ["taskId", "factId", "factRef", "report"],
-      "paths": ["primary"]
+      "paths": ["primary"],
+      "successNext": {kind: "none"},
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,

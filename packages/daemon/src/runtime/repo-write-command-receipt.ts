@@ -27,9 +27,11 @@ export function decodeRepoWriteCommandReceiptV2(
   const success = record.ok === true;
   repoWriteCommandReceiptExactKeys(
     record,
-    ["ok", "schema", "command", "action", "summary", "meta"],
     success
-      ? ["entity", "rows", "item", "items", "paths", "warnings", "next", "details"]
+      ? ["ok", "schema", "command", "action", "summary", "next", "meta"]
+      : ["ok", "schema", "command", "action", "summary", "meta"],
+    success
+      ? ["entity", "rows", "item", "items", "paths", "warnings", "details"]
       : ["error", "warnings", "next", "details"],
     path
   );
@@ -61,6 +63,7 @@ export function decodeRepoWriteCommandReceiptV2(
       budget
     );
     const next = repoWriteCommandReceiptOptionalNextAt(record.next, `${path}.next`);
+    if (!next) repoWriteCommandReceiptInvalid(`${path}.next`, "array");
     const details = record.details === undefined
       ? undefined
       : repoWriteJsonObjectAt(record.details, `${path}.details`, budget, 1);
@@ -74,7 +77,7 @@ export function decodeRepoWriteCommandReceiptV2(
       ...(items ? { items } : {}),
       ...(paths ? { paths } : {}),
       ...(warnings ? { warnings } : {}),
-      ...(next ? { next } : {}),
+      next,
       ...(details ? { details } : {})
     };
   }

@@ -6,7 +6,8 @@ import {
   failureReceiptNextActions,
   type CommandFailureReceipt,
   type CommandReceipt,
-  type CommandReceiptEnvelope
+  type CommandReceiptEnvelope,
+  type CommandReceiptNextAction
 } from "@harness-anything/application";
 
 export { commandReceiptEnvelope };
@@ -22,7 +23,7 @@ interface LegacyCommandReceipt<Command extends string = string> {
   readonly data?: Record<string, unknown>;
   readonly paths?: Record<string, string>;
   readonly warnings?: ReadonlyArray<unknown>;
-  readonly next?: ReadonlyArray<string>;
+  readonly next: ReadonlyArray<CommandReceiptNextAction>;
 }
 
 const baseResultKeys = new Set(["ok", "command", "error", "path", "packagePath", "projectionPath", "warnings"]);
@@ -49,10 +50,11 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
   if (forceAudit && typeof forceAudit === "object" && typeof (forceAudit as { path?: unknown }).path === "string") {
     setPath(paths, "forceAudit", (forceAudit as { path: string }).path);
   }
-  const warnings = [
-    ...(result.warnings ?? []),
-    ...taskCreatePlanGuidance(raw)
-  ];
+  const warnings = result.warnings ?? [];
+  const contract = receiptContractFor(result.command, raw.report);
+  const nextResolution = contract
+    ? resolveSuccessNext(contract.successNext, raw)
+    : { ok: true as const, actions: [] };
 
   const legacy = {
     ok: true,
@@ -61,9 +63,11 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
     summary: summarizeResult(raw),
     ...(Object.keys(data).length > 0 ? { data } : {}),
     ...(Object.keys(paths).length > 0 ? { paths } : {}),
-    ...(warnings.length > 0 ? { warnings } : {})
+    ...(warnings.length > 0 ? { warnings } : {}),
+    next: nextResolution.ok ? nextResolution.actions : []
   } satisfies LegacyCommandReceipt;
-  const contractViolation = validateReceiptContract(legacy);
+  const contractViolation = validateReceiptContract(legacy, contract)
+    ?? (nextResolution.ok ? undefined : nextResolution.violation);
   if (contractViolation) {
     return failureToReceipt({
       ok: false,
@@ -72,17 +76,6 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
     } satisfies CliFailureResult);
   }
   return legacyToV2(legacy);
-}
-
-function taskCreatePlanGuidance(raw: Record<string, unknown>): ReadonlyArray<unknown> {
-  if (raw.command !== "new-task" || typeof raw.taskId !== "string" || typeof raw.packagePath !== "string") return [];
-  const report = raw.report;
-  if (report && typeof report === "object" && !Array.isArray(report)
-    && (report as { readonly dryRun?: unknown }).dryRun === true) return [];
-  return [{
-    code: "task_plan_required_before_start",
-    message: `Before running \`ha task start ${raw.taskId}\`, replace the generated placeholders in ${raw.packagePath}/task_plan.md with substantive plan content; an untouched scaffold is rejected as task_plan_placeholder.`
-  }];
 }
 
 export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
@@ -115,6 +108,10 @@ function renderSuccessReceiptText(receipt: CommandReceipt): string {
     parts.push(`warnings=${receipt.warnings.length}`);
     if (warning.message) parts.push(`warning=${formatToken(warning.message)}`);
     if (warning.nextCommand) parts.push(`next=${formatToken(warning.nextCommand)}`);
+  }
+  for (const action of receipt.next) {
+    parts.push(`next=${formatToken(action.command)}`);
+    if (action.description) parts.push(`nextHint=${formatToken(action.description)}`);
   }
   const mode = launchMode(data.launchPlan);
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
@@ -212,7 +209,7 @@ function legacyToV2(legacy: LegacyCommandReceipt): CommandReceipt {
     ...(items ? { items } : {}),
     ...(paths.length > 0 ? { paths } : {}),
     ...(legacy.warnings && legacy.warnings.length > 0 ? { warnings: legacy.warnings } : {}),
-    ...(legacy.next && legacy.next.length > 0 ? { next: legacy.next.map((command) => ({ command })) } : {}),
+    next: legacy.next,
     details: {
       ...(Object.keys(data).length > 0 ? { data } : {}),
       ...(legacy.paths ? { pathsByRole: legacy.paths } : {}),
@@ -250,13 +247,21 @@ function setPath(paths: Record<string, string>, key: string, value: unknown): vo
   if (typeof value === "string" && value.length > 0) paths[key] = value;
 }
 
-function validateReceiptContract(receipt: LegacyCommandReceipt): string | undefined {
-  const declaredContract: CommandReceiptContract | undefined = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
-  if (!declaredContract) return `missing receipt contract for command ${receipt.command}`;
-  const report = receipt.data?.report;
+function receiptContractFor(command: string, report: unknown): CommandReceiptContract | undefined {
+  const declaredContract: CommandReceiptContract | undefined = commandReceiptContractsByKind[command as keyof typeof commandReceiptContractsByKind];
+  if (!declaredContract) return undefined;
   const dryRun = report !== null && typeof report === "object" && !Array.isArray(report)
     && (report as { readonly dryRun?: unknown }).dryRun === true;
-  const contract = dryRun && declaredContract.dryRun ? declaredContract.dryRun : declaredContract;
+  return dryRun && declaredContract.dryRun ? declaredContract.dryRun : declaredContract;
+}
+
+function validateReceiptContract(
+  receipt: LegacyCommandReceipt,
+  contract: CommandReceiptContract | undefined
+): string | undefined {
+  const declaredContract = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
+  if (!declaredContract) return `missing receipt contract for command ${receipt.command}`;
+  if (!contract) return `missing receipt contract for command ${receipt.command}`;
   const allowedData: ReadonlySet<string> = new Set([...contract.data, ...Object.keys(contract.optionalData ?? {})]);
   const allowedPaths: ReadonlySet<string> = new Set([...contract.paths, ...Object.keys(contract.optionalPaths ?? {})]);
   const dataKeys = Object.keys(receipt.data ?? {});
@@ -279,6 +284,41 @@ function validateReceiptContract(receipt: LegacyCommandReceipt): string | undefi
   return missingViolations.length > 0
     ? `receipt for command ${receipt.command} missed declared fields: ${missingViolations.join(", ")}`
     : undefined;
+}
+
+function resolveSuccessNext(
+  declaration: CommandReceiptContract["successNext"],
+  raw: Readonly<Record<string, unknown>>
+): { readonly ok: true; readonly actions: ReadonlyArray<CommandReceiptNextAction> }
+  | { readonly ok: false; readonly violation: string } {
+  if (declaration.kind === "none") return { ok: true, actions: [] };
+  const actions: CommandReceiptNextAction[] = [];
+  for (const action of declaration.actions) {
+    const command = interpolateSuccessNextTemplate(action.command, raw);
+    if (!command.ok) return command;
+    const description = interpolateSuccessNextTemplate(action.description, raw);
+    if (!description.ok) return description;
+    actions.push({ command: command.value, description: description.value });
+  }
+  return { ok: true, actions };
+}
+
+function interpolateSuccessNextTemplate(
+  template: string,
+  raw: Readonly<Record<string, unknown>>
+): { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly violation: string } {
+  const fields = [...template.matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/gu)].map((match) => match[1] as string);
+  for (const field of fields) {
+    const value = raw[field];
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      return { ok: false, violation: `success next-step template requires missing scalar field ${field}` };
+    }
+  }
+  return {
+    ok: true,
+    value: template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/gu, (_placeholder, field: string) => String(raw[field]))
+  };
 }
 
 function classifyPrimaryPath(command: string, paths: Record<string, string>, value: unknown): void {

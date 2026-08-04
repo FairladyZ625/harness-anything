@@ -25,6 +25,7 @@ export function successReceipt(
     summary,
     ...(item ? { item } : {}),
     ...(items ? { items } : {}),
+    next: [],
     details: Object.keys(data).length > 0 ? { data } : {},
     meta: {
       generatedAt: new Date().toISOString(),

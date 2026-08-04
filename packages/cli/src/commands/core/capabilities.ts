@@ -69,7 +69,14 @@ function entities(context: Parameters<CommandRunner>[0]): Map<string, { readonly
       description: descriptor.summary,
       input: input.input,
       shortcuts: input.shortcuts,
-      output: { receiptSchema: "command-receipt/v2", itemKind: entity },
+      output: {
+        receiptSchema: "command-receipt/v2",
+        itemKind: entity,
+        successNext: descriptor.receiptContract.successNext,
+        ...("dryRun" in descriptor.receiptContract && descriptor.receiptContract.dryRun
+          ? { dryRunSuccessNext: descriptor.receiptContract.dryRun.successNext }
+          : {})
+      },
       examples: descriptor.examples
     };
     byEntity.set(entity, [...(byEntity.get(entity) ?? []), op]);
