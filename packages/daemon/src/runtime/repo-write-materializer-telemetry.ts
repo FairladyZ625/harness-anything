@@ -2,6 +2,8 @@ import {
   runLedgerMaterializer,
   type IncrementalProjectionPhase,
   type IncrementalTaskProjectionMode,
+  type JournalPostCommitPhase,
+  type JournalProjectionFingerprintPhase,
   type LedgerMaterializerProgressStep,
   type VcsCommitPhase
 } from "@harness-anything/kernel";
@@ -26,8 +28,22 @@ const projectionPhases: Record<IncrementalProjectionPhase["phase"], RepoWriteTel
   "declared-delta": "authority-materializer-projection-declared-delta",
   "hash-next": "authority-materializer-projection-hash-next",
   "verify-source": "authority-materializer-projection-verify-source",
+  "source-cache-refresh": "authority-materializer-projection-source-cache-refresh",
+  "source-cache-change": "authority-materializer-projection-source-cache-change",
+  "attribution-delta": "authority-materializer-projection-attribution-delta",
   "source-delta": "authority-materializer-projection-source-delta",
-  publish: "authority-materializer-projection-publish"
+  publish: "authority-materializer-projection-publish",
+  "database-start": "authority-materializer-projection-database-start",
+  "database-task-rows-done": "authority-materializer-projection-database-task-rows-done",
+  "database-decision-rows-done": "authority-materializer-projection-database-decision-rows-done",
+  "database-graph-rows-done": "authority-materializer-projection-database-graph-rows-done",
+  "database-declared-rows-done": "authority-materializer-projection-database-declared-rows-done",
+  "database-source-cache-done": "authority-materializer-projection-database-source-cache-done",
+  "database-attribution-done": "authority-materializer-projection-database-attribution-done",
+  "database-meta-done": "authority-materializer-projection-database-meta-done",
+  "database-commit-start": "authority-materializer-projection-database-commit-start",
+  "database-commit-done": "authority-materializer-projection-database-commit-done",
+  "database-done": "authority-materializer-projection-database-done"
 };
 
 const projectionModes: Record<IncrementalTaskProjectionMode, RepoWriteTelemetryPhase> = {
@@ -85,6 +101,32 @@ export function flushGitCommitPhase(phase: VcsCommitPhase): RepoWriteTelemetryPh
 
 export function reportFlushGitCommitPhase(phase: VcsCommitPhase): void {
   reportCurrentRepoWriteTelemetry(flushGitCommitPhase(phase));
+}
+
+const postCommitPhases: Record<JournalPostCommitPhase, RepoWriteTelemetryPhase> = {
+  "attribution-confirm-start": "authority-flush-post-commit-attribution-confirm-start",
+  "attribution-confirm-done": "authority-flush-post-commit-attribution-confirm-done",
+  "projection-hash-start": "authority-flush-post-commit-projection-hash-start",
+  "projection-hash-done": "authority-flush-post-commit-projection-hash-done",
+  "watermark-start": "authority-flush-post-commit-watermark-start",
+  "watermark-done": "authority-flush-post-commit-watermark-done",
+  "compaction-start": "authority-flush-post-commit-compaction-start",
+  "compaction-done": "authority-flush-post-commit-compaction-done",
+  "projection-notify-start": "authority-flush-post-commit-projection-notify-start",
+  "projection-notify-done": "authority-flush-post-commit-projection-notify-done"
+};
+
+export function reportFlushPostCommitPhase(phase: JournalPostCommitPhase): void {
+  reportCurrentRepoWriteTelemetry(postCommitPhases[phase]);
+}
+
+const projectionFingerprintPhases: Record<JournalProjectionFingerprintPhase, RepoWriteTelemetryPhase> = {
+  "capture-start": "authority-flush-projection-fingerprint-start",
+  "capture-done": "authority-flush-projection-fingerprint-done"
+};
+
+export function reportFlushProjectionFingerprintPhase(phase: JournalProjectionFingerprintPhase): void {
+  reportCurrentRepoWriteTelemetry(projectionFingerprintPhases[phase]);
 }
 
 export function runMaterializerWithRepoWriteTelemetry(

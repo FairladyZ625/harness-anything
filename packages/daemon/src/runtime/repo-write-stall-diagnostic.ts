@@ -103,7 +103,23 @@ export function repoWriteWaitingStage(
     case "authority-flush-git-index-refresh-fallback-done":
     case "authority-flush-git-native-commit-start":
     case "authority-flush-git-native-commit-done":
+    case "authority-flush-projection-fingerprint-start":
+    case "authority-flush-projection-fingerprint-done":
+    case "authority-flush-post-commit-attribution-confirm-start":
+    case "authority-flush-post-commit-attribution-confirm-done":
+    case "authority-flush-post-commit-projection-hash-start":
+    case "authority-flush-post-commit-projection-hash-done":
+    case "authority-flush-post-commit-watermark-start":
+    case "authority-flush-post-commit-watermark-done":
+    case "authority-flush-post-commit-compaction-start":
+    case "authority-flush-post-commit-compaction-done":
+    case "authority-flush-post-commit-projection-notify-start":
+    case "authority-flush-post-commit-projection-notify-done":
       return phase;
+    case "runtime-event-append-start":
+      return "runtime-event ledger append";
+    case "runtime-event-append-done":
+      return "runtime-event ledger append done";
     case "authority-materializer-start":
       return "authority-materializer-start";
     case "authority-materializer-baseline-start":
@@ -122,8 +138,22 @@ export function repoWriteWaitingStage(
     case "authority-materializer-projection-declared-delta":
     case "authority-materializer-projection-hash-next":
     case "authority-materializer-projection-verify-source":
+    case "authority-materializer-projection-source-cache-refresh":
+    case "authority-materializer-projection-source-cache-change":
+    case "authority-materializer-projection-attribution-delta":
     case "authority-materializer-projection-source-delta":
     case "authority-materializer-projection-publish":
+    case "authority-materializer-projection-database-start":
+    case "authority-materializer-projection-database-task-rows-done":
+    case "authority-materializer-projection-database-decision-rows-done":
+    case "authority-materializer-projection-database-graph-rows-done":
+    case "authority-materializer-projection-database-declared-rows-done":
+    case "authority-materializer-projection-database-source-cache-done":
+    case "authority-materializer-projection-database-attribution-done":
+    case "authority-materializer-projection-database-meta-done":
+    case "authority-materializer-projection-database-commit-start":
+    case "authority-materializer-projection-database-commit-done":
+    case "authority-materializer-projection-database-done":
     case "authority-materializer-projection-mode-incremental":
     case "authority-materializer-projection-mode-rebuild":
     case "authority-materializer-projection-mode-unchanged":

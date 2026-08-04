@@ -309,6 +309,25 @@ test("deleted attribution events clear stale projected attribution", () => {
   });
 });
 
+test("append-only attribution fast path falls back closed on an op-id collision", () => {
+  withProjectionPair((rootDir) => {
+    seedHarness(rootDir);
+    writeAttributionEvent(rootDir, "event-collision-base", "task/task-a", "op-collision");
+    rebuildTaskProjection({ rootDir });
+    const previousSourceFingerprint = captureProjectionSourceSnapshot(rootDir).fingerprint;
+    writeAttributionEvent(rootDir, "event-collision-divergent", "task/task-a", "op-collision");
+
+    assert.throws(
+      () => updateTaskProjectionIncrementally({
+        rootDir,
+        touchedPaths: [path.join(rootDir, "harness/attribution-events/event-collision-divergent.jsonl")],
+        previousSourceFingerprint
+      }),
+      /ATTRIBUTION_EVENT_OP_ID_COLLISION:op-collision/u
+    );
+  });
+});
+
 test("incremental projection matches full rebuild across deterministic random write sequences", () => {
   for (const seed of [7, 19, 43, 71]) {
     withProjectionPair((incrementalRoot, rebuildRoot) => {
@@ -392,14 +411,14 @@ function seedHarness(rootDir: string): void {
   writeDecision(rootDir, false);
 }
 
-function writeAttributionEvent(rootDir: string, eventId: string, entityId: string): string {
+function writeAttributionEvent(rootDir: string, eventId: string, entityId: string, opId = `op-${eventId}`): string {
   const eventRoot = path.join(rootDir, "harness/attribution-events");
   mkdirSync(eventRoot, { recursive: true });
   const eventPath = path.join(eventRoot, `${eventId}.jsonl`);
   writeFileSync(eventPath, `${JSON.stringify({
     schema: "attribution-event/v1",
     eventId,
-    opId: `op-${eventId}`,
+    opId,
     journalRecordSchema: "write-journal/v2",
     entityId,
     kind: "progress_append",

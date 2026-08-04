@@ -300,6 +300,8 @@ export interface DaemonHostCommandExecutionOptions {
     actor: OperationalActor
   ) => WriteCoordinator;
   readonly onTelemetry?: (phase: DaemonHostCommandExecutionTelemetryPhase) => void;
+  /** Cheap child-local boundaries for work that runs after the authority result is durable. */
+  readonly onCommandTelemetry?: (phase: "runtime-event-append-start" | "runtime-event-append-done") => void;
   readonly conflictMarkerPreflight?: () => ProjectionWarning | undefined;
 }
 

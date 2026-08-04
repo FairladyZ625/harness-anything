@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { hashTaskProjectionRows, rebuildTaskProjection, sha256Text } from "../../src/index.ts";
-import { makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../../src/index.ts";
 import { resolveCommitPlan } from "../../src/write-coordination/journal/publication/git.ts";
 import { moduleEntityId, taskEntityId } from "../../src/domain/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
@@ -97,6 +97,32 @@ test("WriteCoordinator records real projection hash and compacts watermark-cover
     const recovered = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), indexBody("task-1", "Task One", "planned"));
+  });
+});
+
+test("operational machine-artifact flush preserves durability without scanning authored projection", () => {
+  withTempStore((rootDir) => {
+    const fingerprintPhases: string[] = [];
+    const postCommitPhases: string[] = [];
+    const projectionChanges: unknown[] = [];
+    const coordinator = makeOperationalJournaledWriteCoordinator({
+      rootDir,
+      operationalActor: { scope: "operational", kind: "system", id: "runtime-event-test" },
+      onProjectionFingerprintPhase: (phase) => fingerprintPhases.push(phase),
+      onPostCommitPhase: (phase) => postCommitPhases.push(phase),
+      onProjectionChange: (event) => projectionChanges.push(event)
+    });
+
+    Effect.runSync(coordinator.enqueue(runtimeEventOp("op-runtime-event-local", "session.jsonl", "event-local")));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.committed, true);
+    assert.equal(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/session.jsonl"), "utf8"), "{\"schema\":\"runtime-event/v1\",\"eventId\":\"event-local\"}\n");
+    assert.deepEqual(fingerprintPhases, ["capture-start", "capture-done"]);
+    assert.ok(postCommitPhases.includes("projection-hash-start"));
+    assert.ok(postCommitPhases.includes("projection-hash-done"));
+    assert.deepEqual(projectionChanges, []);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /op-runtime-event-local/u);
   });
 });
 
@@ -606,6 +632,19 @@ function indexBody(taskId: string, title: string, status: string): string {
     `# ${title}`,
     ""
   ].join("\n");
+}
+
+function runtimeEventOp(opId: string, fileName: string, eventId: string) {
+  return {
+    opId,
+    entityId: moduleEntityId("runtime-event-ledger"),
+    kind: "machine_artifact_append_jsonl" as const,
+    payload: {
+      boundary: "runtime-event-ledger",
+      path: `.harness/generated/runtime-events/${fileName}`,
+      value: { schema: "runtime-event/v1", eventId }
+    }
+  };
 }
 
 function initializeGitRepo(repoRoot: string): void {

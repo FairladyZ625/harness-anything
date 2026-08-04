@@ -41,6 +41,44 @@ test("WriteCoordinator commits session-routed writes to a session branch", () =>
   });
 });
 
+test("session publication defers projection notification until materializer merge", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const postCommitPhases: string[] = [];
+    const projectionChanges: unknown[] = [];
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      sessionId: "deferred-projection-session",
+      autoMaterialize: false,
+      onPostCommitPhase: (phase) => postCommitPhases.push(phase),
+      onProjectionChange: (event) => projectionChanges.push(event)
+    });
+
+    Effect.runSync(coordinator.enqueue(docWrite(
+      "op-deferred-projection",
+      "task-deferred-projection",
+      "INDEX.md",
+      indexBody("task-deferred-projection", "Deferred projection", "active")
+    )));
+    const flush = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(flush.committed, true);
+    assert.ok(postCommitPhases.includes("projection-hash-start"));
+    assert.ok(postCommitPhases.includes("projection-hash-done"));
+    assert.deepEqual(projectionChanges, []);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-deferred-projection/INDEX.md")), false);
+
+    const materialized = runLedgerMaterializer(rootDir);
+    assert.equal(materialized.merged, 1);
+    assert.equal(readGitFile(rootDir, "tasks/task-deferred-projection/INDEX.md"), indexBody(
+      "task-deferred-projection",
+      "Deferred projection",
+      "active"
+    ));
+  });
+});
+
 test("ledger materializer dry-runs and merges pending session branches", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);
@@ -409,4 +447,29 @@ function readGitFile(rootDir: string, relativePath: string, trunk = "master"): s
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   });
+}
+
+function indexBody(taskId: string, title: string, status: string): string {
+  return [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    `  status: ${status}`,
+    "  ref: ",
+    `  titleSnapshot: ${title}`,
+    "  url: ",
+    "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
+    "  bindingFingerprint: sha256:fixture",
+    "packageDisposition: active",
+    "vertical: default",
+    "preset: default",
+    "---",
+    "",
+    `# ${title}`,
+    ""
+  ].join("\n");
 }

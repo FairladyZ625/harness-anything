@@ -173,6 +173,7 @@ export {
   readContentAddressedTextBlob,
   writeContentAddressedBlobWithDisposition
 } from "./composition/index.ts";
+export type { JournalPostCommitPhase, JournalProjectionFingerprintPhase } from "./composition/index.ts";
 export type {
   CasGarbageCollectionEntry,
   CasGarbageCollectionReport,

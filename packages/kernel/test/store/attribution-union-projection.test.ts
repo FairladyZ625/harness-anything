@@ -282,6 +282,10 @@ test("incremental materializer replaces a projected V1 shadow when durable V2 ap
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.eventSchemaVersion, 2);
     assert.equal(rows[0]?.opId, v2.opId);
+
+    const incrementalRows = readAttributionProjection(rootDir);
+    rebuildTaskProjection({ rootDir });
+    assert.deepEqual(readAttributionProjection(rootDir), incrementalRows);
   });
 });
 

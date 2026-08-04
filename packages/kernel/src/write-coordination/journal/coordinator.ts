@@ -21,7 +21,7 @@ import {
 } from "../../layout/index.ts";
 import type { ProjectionChangeEvent } from "../../projection/projection-change-event.ts";
 import { captureTrustedAuthoredProjectionFingerprint } from "../../projection/projection-source-baseline.ts";
-import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably } from "./durable.ts";
+import { appendJsonLineDurably, readDurableState, readPayloadRef } from "./durable.ts";
 import { finalizeRecoverableDocumentTransaction } from "./operations/recoverable-document-transaction.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./publication/git.ts";
 import { makeLocalVersionControlSystem } from "../../persistence/git/local-version-control-system.ts";
@@ -60,13 +60,14 @@ import {
   flushExactAuthorizedJournalRecord
 } from "./exact-journal-flush.ts";
 import { maybeAutoMaterialize } from "./publication/materialization.ts";
-import { rebuildProjectionHash } from "./publication/projection.ts";
-import { compactJournalAndCanTrimWatermark } from "./journal-compaction.ts";
-import type { JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
+import { finalizeJournalPostCommit } from "./post-commit.ts";
+import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
   JournalRecordV1,
   JournalRecordV2,
+  JournalPostCommitPhase,
+  JournalProjectionFingerprintPhase,
   JournaledWriteCoordinatorOptions,
   LegacyJournalAttribution,
   LockConflictRetryOptions,
@@ -75,9 +76,6 @@ export type {
 } from "./types.ts";
 
 const defaultOperationalActor: OperationalActor = { scope: "operational", kind: "agent", id: "write-coordinator" };
-// Flush writes the full op-id set before compaction for recovery safety, then
-// trims to a bounded recent-id window only after journal compaction succeeds.
-const maxWatermarkCommittedOpIds = 128;
 const defaultRetryInitialDelayMs = 25;
 const defaultRetryMaxDelayMs = 250;
 
@@ -124,7 +122,7 @@ function makeJournaledWriteCoordinatorInternal(
         uniquePendingRecords(state.records, state.applied),
         requestedDomain
       );
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -148,7 +146,9 @@ function makeJournaledWriteCoordinatorInternal(
           versionControlSystem,
           attributionEventStore,
           options.onProjectionChange,
-          options.onCommitPhase
+          options.onCommitPhase,
+          options.onProjectionFingerprintPhase,
+          options.onPostCommitPhase
         )
       });
     }, { heldGlobalLock }),
@@ -162,7 +162,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecord: (state, record) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, [record], state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -178,7 +178,7 @@ function makeJournaledWriteCoordinatorInternal(
       flushRecords: (state, records) => flushRecords(
         reason, rootDir, runtimeContext, journalPath, watermarkPath,
         state.watermark, records, state.fileApplied, sessionId, commitAuthor,
-        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase
+        versionControlSystem, attributionEventStore, options.onProjectionChange, options.onCommitPhase, options.onProjectionFingerprintPhase, options.onPostCommitPhase
       )
     }),
     mapError: (cause) => toJournalError(cause),
@@ -341,7 +341,9 @@ function flushRecords(
   versionControlSystem?: VersionControlSystem,
   attributionEventStore: AttributionEventStore = makeInlineAttributionEventStore(),
   onProjectionChange?: (event: ProjectionChangeEvent) => void,
-  onCommitPhase?: (phase: VcsCommitPhase) => void
+  onCommitPhase?: (phase: VcsCommitPhase) => void,
+  onProjectionFingerprintPhase?: (phase: JournalProjectionFingerprintPhase) => void,
+  onPostCommitPhase?: (phase: JournalPostCommitPhase) => void
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -353,11 +355,17 @@ function flushRecords(
     record,
     touchedPaths: recordTouchedPaths(rootDir, rootInput, record)
   }));
+  const localRoot = resolveHarnessLayout(rootInput).localRoot;
+  const projectionRelevant = plannedRecords.some(({ touchedPaths: operationPaths }) =>
+    operationPaths.some((filePath) => !isLocalProjectionPath(localRoot, filePath))
+  );
 
   assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
-  const previousProjectionSourceFingerprint = records.length > 0
+  onProjectionFingerprintPhase?.("capture-start");
+  const previousProjectionSourceFingerprint = records.length > 0 && projectionRelevant
     ? captureTrustedAuthoredProjectionFingerprint(rootInput, publicationVcs)
     : undefined;
+  onProjectionFingerprintPhase?.("capture-done");
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
     // Ops with a durable apply marker already mutated their file before a crash;
@@ -408,6 +416,7 @@ function flushRecords(
   const attributionEvents = mutationWillCommit
     ? eventWrites.map((write) => write.event)
     : attributedRecords.map(createAttributionEvent);
+  onPostCommitPhase?.("attribution-confirm-start");
   const confirmedAttributionOpIds = new Set(attributionEvents
     .filter((event) => attributionEventStore.confirms(event, {
       rootDir,
@@ -416,46 +425,35 @@ function flushRecords(
       versionControlSystem: eventVcs
     }))
     .map((event) => event.opId));
+  onPostCommitPhase?.("attribution-confirm-done");
   if (mutationWillCommit && confirmedAttributionOpIds.size !== eventWrites.length) {
     throw new Error("attribution event durability confirmation failed");
   }
-  const projectionUpdate = committedOpIds.length > 0
-    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceFingerprint, plannedRecords.map(({ record }) => record.entityId), publicationVcs)
-    : undefined;
-  const projectionHash = projectionUpdate?.hash ?? previousWatermark?.projectionHash ?? "no-projection-change";
-  const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
-  const recentCommitted = recentOpIds(allCommitted);
-  const watermark = committedOpIds.at(-1);
-
-  if (committedOpIds.length > 0) {
-    const fullWatermark = {
-      schema: "write-watermark/v1",
-      lastCommittedOpIds: allCommitted,
-      lastCommitSha: mutationCommitSha,
-      projectionHash,
-      updatedAt: new Date().toISOString()
-    } satisfies WriteWatermark;
-    writeWatermarkDurably(watermarkPath, fullWatermark);
-    if (compactJournalAndCanTrimWatermark(journalPath, new Set(allCommitted), confirmedAttributionOpIds) && recentCommitted.length < allCommitted.length) {
-      writeWatermarkDurably(watermarkPath, {
-        ...fullWatermark,
-        lastCommittedOpIds: recentCommitted,
-        updatedAt: new Date().toISOString()
-      });
-    }
-    try {
-      onProjectionChange?.(projectionUpdate!.event);
-    } catch {
-      // Projection publication and its durable watermark already succeeded.
-      // Ephemeral subscribers must never turn that committed write into a retry.
-    }
-  }
+  finalizeJournalPostCommit({
+    rootDir,
+    rootInput,
+    journalPath,
+    watermarkPath,
+    previousWatermark,
+    records,
+    committedOpIds,
+    confirmedAttributionOpIds,
+    mutationCommitSha,
+    projectionRelevant,
+    deferProjectionUpdate: Boolean(sessionId && mutationWillCommit),
+    touchedPaths,
+    previousProjectionSourceFingerprint,
+    entityIds: plannedRecords.map(({ record }) => record.entityId),
+    versionControlSystem: publicationVcs,
+    onProjectionChange,
+    onPostCommitPhase
+  });
 
   return {
     reason,
     opCount: records.length,
     committed: true,
-    watermark,
+    watermark: committedOpIds.at(-1),
     publicationMode: "integrity-domain"
   };
 }
@@ -524,8 +522,10 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
   return payload;
 }
 
-function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {
-  return opIds.slice(-maxWatermarkCommittedOpIds);
+function isLocalProjectionPath(rootPath: string, filePath: string): boolean {
+  const relativePath = path.relative(rootPath, filePath);
+  return relativePath.length === 0
+    || (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath));
 }
 
 function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {

@@ -34,9 +34,15 @@ import {
   insertAttributionEvent,
   replaceAttributionEvents
 } from "./sqlite-attribution-event-store.ts";
+import {
+  buildAppendOnlyAttributionProjectionDelta,
+  type AttributionProjectionDelta
+} from "./sqlite-attribution-incremental.ts";
 import type { ProjectionSourceCacheChange } from "./sqlite-projection-source-cache.ts";
 import { runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 import type { EntityAttributionProjection } from "./types.ts";
+
+export type { AttributionProjectionDelta } from "./sqlite-attribution-incremental.ts";
 
 export interface AttributionDigestStatus {
   readonly semanticMutationSet: "verified" | "not-present";
@@ -143,13 +149,18 @@ export function applyAttributionProjectionDelta(
   });
 }
 
-export interface AttributionProjectionDelta {
-  readonly deleteEventIds: ReadonlyArray<string>;
-  readonly upsertEvents: ReadonlyArray<UnionAttributionEvent>;
-  readonly affectedSubjects: ReadonlyArray<string>;
+export function buildAttributionProjectionDelta(
+  change: ProjectionSourceCacheChange,
+  projectionPath?: string
+): AttributionProjectionDelta {
+  if (projectionPath) {
+    const incremental = buildAppendOnlyAttributionProjectionDelta(change, projectionPath, eventToProjectionRows);
+    if (incremental) return incremental;
+  }
+  return buildAttributionProjectionDeltaFromFullSource(change);
 }
 
-export function buildAttributionProjectionDelta(change: ProjectionSourceCacheChange): AttributionProjectionDelta {
+function buildAttributionProjectionDeltaFromFullSource(change: ProjectionSourceCacheChange): AttributionProjectionDelta {
   const previous = new Map(selectUnionAttributionEventPrecedence(change.previous.files
     .filter((row) => row.cacheKind === "attribution")
     .map((row) => decodeUnionAttributionEventBody(row.body)))
@@ -175,6 +186,7 @@ export function buildAttributionProjectionDelta(change: ProjectionSourceCacheCha
   }
   return { deleteEventIds: [...deleteEventIds], upsertEvents, affectedSubjects: [...affectedSubjects] };
 }
+
 
 export function materializeEntityAttributionBlocks(
   sql: SqlClient.SqlClient,
@@ -217,8 +229,8 @@ export function materializeEntityAttributionTargets(
 ): Effect.Effect<void, unknown> {
   const uniqueTargets = new Map(targets.map((target) => [`${target.table}\0${target.id}`, target]));
   return Effect.gen(function* () {
-    const rows = yield* readAttributionProjectionRows(sql);
-    const rowsByTarget = attributionRowsByTarget(rows);
+    if (uniqueTargets.size === 0) return;
+    yield* ensureAttributionEventTables(sql);
     const existing = new Set((yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .map((row) => String(row.name)));
     for (const target of uniqueTargets.values()) {
@@ -232,8 +244,8 @@ export function materializeEntityAttributionTargets(
         );
         if (!record) continue;
       }
-      const attributed = rowsByTarget.get(attributionTargetKey(declaration.kind, target.id));
-      if (attributed) yield* upsertEntityAttributionSummary(sql, {
+      const attributed = yield* readAttributionProjectionRowsForTarget(sql, declaration.kind, target.id);
+      if (attributed.length > 0) yield* upsertEntityAttributionSummary(sql, {
         entityKind: declaration.kind,
         entityId: target.id,
         attribution: eventAttribution(attributed)
@@ -374,6 +386,54 @@ function readAttributionProjectionRows(sql: SqlClient.SqlClient): Effect.Effect<
         return v2MutationToProjectionRow(event, mutation);
       })
     ].sort(compareProjectionRows);
+  });
+}
+
+function readAttributionProjectionRowsForTarget(
+  sql: SqlClient.SqlClient,
+  kind: CanonicalEntityKind,
+  id: string
+): Effect.Effect<ReadonlyArray<AttributionProjectionRow>, unknown> {
+  return Effect.gen(function* () {
+    const encodedId = encodeURIComponent(id);
+    const exactRef = `${kind}/${encodedId}`;
+    const nestedRef = `${kind}/%/${encodedId}`;
+    const legacy = yield* sql.unsafe<LegacyAttributionRecord>(`
+      SELECT event_id, op_id, subject_ref, operation, principal_person_id,
+             executor_agent_id, occurred_at, recorded_at, source_json
+      FROM attribution_events
+      WHERE subject_ref = ? OR subject_ref = ? OR subject_ref LIKE ?
+    `, [exactRef, id, nestedRef]);
+    const v2 = yield* sql.unsafe<V2AttributionRecord>(`
+      SELECT h.event_id, h.op_id, h.revision, h.commit_sha, h.occurred_at, h.recorded_at,
+             m.entity_kind, m.subject_ref, m.operation, h.source_json
+      FROM attribution_event_headers h
+      JOIN attribution_event_mutations m ON m.event_id = h.event_id
+      WHERE m.entity_kind = ? AND (m.subject_ref = ? OR m.subject_ref LIKE ?)
+    `, [kind, exactRef, nestedRef]);
+    const rows: AttributionProjectionRow[] = [
+      ...legacy.map((record) => {
+        const event = decodeUnionAttributionEvent(JSON.parse(String(record.source_json)));
+        if (event.schema !== "attribution-event/v1") throw new Error(`LEGACY_ATTRIBUTION_ROW_SCHEMA_MISMATCH:${String(record.event_id)}`);
+        return legacyEventToProjectionRow(event);
+      }),
+      ...v2.map((record) => {
+        const event = decodeUnionAttributionEvent(JSON.parse(String(record.source_json)));
+        if (event.schema !== "attribution-event/v2") throw new Error(`V2_ATTRIBUTION_ROW_SCHEMA_MISMATCH:${String(record.event_id)}`);
+        const mutation = event.mutationSet.mutations.find((entry) =>
+          entry.entity.canonicalRef === String(record.subject_ref) && entry.action.action === String(record.operation));
+        if (!mutation) throw new Error(`EVENT_MUTATION_JOIN_CORRUPT:${String(record.event_id)}`);
+        return v2MutationToProjectionRow(event, mutation);
+      })
+    ].filter((row) => {
+      const resolved = row.eventSchemaVersion === 1
+        ? legacyTargetId(row.subjectRef, kind)
+        : row.entityKind === kind
+          ? resolveTargetId(row.subjectRef, kind)
+          : null;
+      return resolved === id;
+    }).sort(compareProjectionRows);
+    return rows;
   });
 }
 

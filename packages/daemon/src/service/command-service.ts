@@ -236,6 +236,7 @@ export function createDaemonCommandService<
                 actor
               ),
             onTelemetry: reportCurrentRepoWriteTelemetry,
+            onCommandTelemetry: reportCurrentRepoWriteTelemetry,
             ...(options.conflictMarkerPreflight ? {
               conflictMarkerPreflight: options.conflictMarkerPreflight
             } : {})
