@@ -22,6 +22,8 @@ import { resolveTrunkBranch, sessionBranchName } from "../journal/publication/gi
 import { withRepoLocks } from "../journal/locks.ts";
 import type { OwnedLock } from "../journal/types.ts";
 import { durableFileExists } from "../journal/durable.ts";
+import type { AttributionProjectionDecisionReason } from "../../projection/sqlite-attribution-incremental.ts";
+import type { IncrementalProjectionRebuildReason } from "../../projection/projection-change-event.ts";
 
 export interface LedgerMaterializerBranchReport {
   readonly branch: string;
@@ -52,10 +54,12 @@ export interface LedgerMaterializerOptions {
   readonly versionControlSystem?: VersionControlSystem;
   readonly onProgress?: (step: LedgerMaterializerProgressStep) => void;
   readonly onProjectionPhase?: (phase: IncrementalProjectionPhase) => void;
-  readonly onProjectionMode?: (mode: IncrementalTaskProjectionMode) => void;
+  readonly onProjectionMode?: (mode: IncrementalTaskProjectionMode, reason?: IncrementalProjectionRebuildReason) => void;
+  readonly onProjectionAttributionDecision?: (reason: AttributionProjectionDecisionReason) => void;
 }
 
 export type { IncrementalProjectionPhase };
+export type { IncrementalProjectionRebuildReason };
 
 export type IncrementalTaskProjectionMode = "incremental" | "rebuild" | "unchanged";
 
@@ -97,7 +101,8 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
       versionControlSystem,
       options.onProgress,
       options.onProjectionPhase,
-      options.onProjectionMode
+      options.onProjectionMode,
+      options.onProjectionAttributionDecision
     );
   }, { heldGlobalLock: options.heldGlobalLock });
 }
@@ -111,7 +116,8 @@ function materializeBranches(
   vcs: VersionControlSystem,
   onProgress: ((step: LedgerMaterializerProgressStep) => void) | undefined,
   onProjectionPhase: ((phase: IncrementalProjectionPhase) => void) | undefined,
-  onProjectionMode: ((mode: IncrementalTaskProjectionMode) => void) | undefined
+  onProjectionMode: ((mode: IncrementalTaskProjectionMode, reason?: IncrementalProjectionRebuildReason) => void) | undefined,
+  onProjectionAttributionDecision: ((reason: AttributionProjectionDecisionReason) => void) | undefined
 ): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
@@ -233,9 +239,13 @@ function materializeBranches(
       ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
       touchedPaths: [...touchedPaths],
       ...(projectionSourceFingerprintBeforeMerge ? { previousSourceFingerprint: projectionSourceFingerprintBeforeMerge } : {}),
-      onPhase: onProjectionPhase
+      onPhase: onProjectionPhase,
+      onAttributionDecision: onProjectionAttributionDecision
     });
-    onProjectionMode?.(projectionUpdate.mode);
+    onProjectionMode?.(
+      projectionUpdate.mode,
+      projectionUpdate.mode === "rebuild" ? projectionUpdate.rebuildReason : undefined
+    );
     if (projectionUpdate.sourceHash) {
       rememberTrustedAuthoredProjectionFingerprint(rootInput, projectionUpdate.sourceHash, vcs, repoRoot);
     } else {

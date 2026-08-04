@@ -11,13 +11,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
-  actorAxesBindingCoreDigestV2,
-  canonicalAttributionEventDigestV2,
   moduleEntityId,
   makeLocalAuthorityAttributionEventV2Log,
-  physicalChangeSetDigestV2,
-  semanticMutationSetDigestV2,
+  sha256Text,
 } from "@harness-anything/kernel";
+import { authorityAttributionEventV2FilePath } from "../../packages/kernel/src/write-coordination/attribution/authority-attribution-event-v2-log.ts";
+import { v2Event, writeLegacyAttributionEvent } from "./residual-write-cost-fixture-attribution.mjs";
 import { commitTouchedPaths } from "../../packages/kernel/src/write-coordination/journal/publication/git.ts";
 import {
   captureAuthoredProjectionFingerprint,
@@ -59,13 +58,33 @@ try {
 
   const evidenceLog = makeLocalAuthorityAttributionEventV2Log(root);
   for (let index = 0; index < evidenceShardCount; index += 1) {
-    evidenceLog.ensure(v2Event(`op-history-${String(index).padStart(5, "0")}`, index + 1));
+    const opId = `op-history-${String(index).padStart(5, "0")}`;
+    writeLegacyAttributionEvent(
+      opId,
+      path.join(authoredRoot, "attribution-events", `${sha256Text(opId)}.jsonl`),
+      "tasks/task_synthetic_00000/progress.md",
+      { entityId: `fact/task_T/${opId}`, kind: "doc_write" }
+    );
+    evidenceLog.ensure(v2Event(opId, index + 1));
   }
   git("add", ".");
   git("commit", "-q", "-m", "synthetic evidence baseline");
   const previousCommit = git("rev-parse", "HEAD");
   const evidenceCommitter = createGitAuthorityAttributionEvidenceCommitterV2(root);
   await evidenceCommitter.commitPending(previousCommit);
+
+  // Production keeps machine/task artifacts in the authored repository while
+  // they are being reconciled. They are outside the projection source set but
+  // still make the current trusted-cache worktree fence dirty.
+  const untrackedProductionArtifact = path.join(
+    authoredRoot,
+    "tasks",
+    "task_synthetic_00000",
+    "artifacts",
+    "runtime-event.jsonl"
+  );
+  mkdirSync(path.dirname(untrackedProductionArtifact), { recursive: true });
+  writeFileSync(untrackedProductionArtifact, "{\"schema\":\"runtime-event/v1\"}\n", "utf8");
 
   // Keep the production queue shape in this fixture: publication is a normal
   // queue item, the materializer poll is a background item, and the legacy
@@ -88,19 +107,22 @@ try {
       report("queue");
       report("compile");
       report("journal");
-      const sessionId = `round6-write-${writeIndex}`;
+      const sessionId = `round9-write-${writeIndex}`;
       const sessionBranch = `sessions/${sessionId}`;
-      const taskIndexPath = path.join(authoredRoot, authoredPaths[0]);
+      const opId = `op-round9-${String(writeIndex).padStart(2, "0")}`;
+      const taskProgressRelativePath = path.join("tasks", "task_synthetic_00000", "progress.md");
+      const taskProgressPath = path.join(authoredRoot, taskProgressRelativePath);
       git("branch", sessionBranch);
       git("checkout", sessionBranch);
-      evidenceLog.ensure(v2Event(`op-round7-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + 1_000 + writeIndex));
-      const sessionAttributionPath = authorityEventPath(`op-round7-${String(writeIndex).padStart(2, "0")}`);
+      const sessionAttributionRelativePath = path.join("attribution-events", `${sha256Text(opId)}.jsonl`);
+      const sessionAttributionPath = path.join(authoredRoot, sessionAttributionRelativePath);
+      writeLegacyAttributionEvent(opId, sessionAttributionPath, taskProgressRelativePath);
       writeFileSync(
-        taskIndexPath,
-        readFileSync(taskIndexPath, "utf8").replace(/^title:.*$/mu, `title: Synthetic governance write ${writeIndex}`),
+        taskProgressPath,
+        `${readFileSync(taskProgressPath, "utf8")}\n- synthetic governance append ${writeIndex}\n`,
         "utf8"
       );
-      git("add", authoredPaths[0]);
+      git("add", taskProgressRelativePath, sessionAttributionRelativePath);
       let sessionCommit;
       let sessionCommitMs;
       const publication = await pollingRuntime.enqueueAuthorityPublication({
@@ -110,10 +132,10 @@ try {
           const sessionCommitStartedAt = performance.now();
           sessionCommit = commitTouchedPaths(
             root,
-            [taskIndexPath, sessionAttributionPath],
-            [`op-round7-${String(writeIndex).padStart(2, "0")}`],
+            [taskProgressPath, sessionAttributionPath],
+            [opId],
             root,
-            `synthetic governance write ${writeIndex}`,
+            `synthetic progress append ${writeIndex}`,
             sessionId,
             {
               versionControlSystem: trustedVcs,
@@ -155,7 +177,11 @@ try {
 
       report("authority-evidence-commit");
       report("fsync");
-      evidenceLog.ensure(v2Event(`op-round6-${String(writeIndex).padStart(2, "0")}`, evidenceShardCount + writeIndex));
+      evidenceLog.ensure(v2Event(opId, evidenceShardCount + writeIndex, {
+        taskId: "task_synthetic_00000",
+        action: "append",
+        path: taskProgressRelativePath
+      }));
       const evidenceCommitStartedAt = performance.now();
       await evidenceCommitter.commitPending(canonicalCommit);
       const evidenceCommitMs = performance.now() - evidenceCommitStartedAt;
@@ -174,12 +200,12 @@ try {
       report("authority-terminal-record-persisted");
       report("runtime-event-append-start");
       const runtimeEventReceipt = await pollingRuntime.enqueueInteractiveWrite({
-        commandId: `runtime-event-round8-${String(writeIndex).padStart(2, "0")}`,
+        commandId: `runtime-event-round9-${String(writeIndex).padStart(2, "0")}`,
         operationalActor: { scope: "operational", kind: "system", id: "runtime-event-cli" },
         ops: [runtimeEventOp(
-          `runtime-event-round8-${String(writeIndex).padStart(2, "0")}`,
+          `runtime-event-round9-${String(writeIndex).padStart(2, "0")}`,
           `${sessionId}.jsonl`,
-          `evt-round8-${String(writeIndex).padStart(2, "0")}`
+          `evt-round9-${String(writeIndex).padStart(2, "0")}`
         )]
       });
       if (!runtimeEventReceipt.flush.committed || runtimeEventReceipt.flush.opCount !== 1) {
@@ -256,8 +282,10 @@ try {
       authoredMiB: authoredFileCount * authoredFileBytes / 1_048_576,
       taskPackageCount,
       evidenceShardCount,
+      pairedLegacyAttributionShardCount: evidenceShardCount,
       historyCommitCount,
-      fixtureMaterializerPollMs
+      fixtureMaterializerPollMs,
+      untrackedProjectionExternalArtifact: true
     },
     phasesMs: {
       projectionFingerprint: fingerprintMs,
@@ -281,7 +309,7 @@ try {
 function seedAuthoredTree() {
   for (let taskIndex = 0; taskIndex < taskPackageCount; taskIndex += 1) {
     const taskId = `task_synthetic_${String(taskIndex).padStart(5, "0")}`;
-    for (const document of ["INDEX.md", "facts.md", "module.md", "review.md", "closeout.md"]) {
+    for (const document of ["INDEX.md", "facts.md", "module.md", "review.md", "closeout.md", "progress.md"]) {
       const relativePath = path.join("tasks", taskId, document);
       authoredPaths.push(relativePath);
       writeAuthoredFile(relativePath, authoredPaths.length - 1, document === "INDEX.md"
@@ -335,15 +363,7 @@ function invalidateIndexStats() {
 }
 
 function authorityEventPath(opId) {
-  const digest = Buffer.from(
-    // The product key is stable and content-independent; ask Git for the new
-    // shard rather than duplicating that digest protocol in this benchmark.
-    git("ls-files", "--others", "--exclude-standard", "-z"),
-    "utf8"
-  );
-  const candidates = digest.toString("utf8").split("\0").filter((entry) => entry.endsWith(".jsonl"));
-  if (candidates.length !== 1) throw new Error(`expected one pending shard for ${opId}, received ${candidates.length}`);
-  return path.join(authoredRoot, candidates[0]);
+  return authorityAttributionEventV2FilePath(root, "workspace-synthetic", opId);
 }
 
 function measure(operation) {
@@ -504,6 +524,12 @@ function compactTelemetry(telemetry) {
     projectionMode: telemetry.frames
       .filter((frame) => frame.phase.startsWith("authority-materializer-projection-mode-"))
       .map((frame) => frame.phase),
+    projectionModeReasons: telemetry.frames
+      .filter((frame) => frame.phase.startsWith("authority-materializer-projection-mode-rebuild-reason-"))
+      .map((frame) => frame.phase),
+    attributionDecisions: telemetry.frames
+      .filter((frame) => frame.phase.startsWith("authority-materializer-projection-attribution-decision-"))
+      .map((frame) => frame.phase),
     wallResidualMs: telemetry.accounting.wallResidualMs
   };
 }
@@ -545,58 +571,6 @@ function git(...args) {
   }).trim();
 }
 
-function v2Event(opId, revision) {
-  const mutationSet = {
-    registryVersion: 1,
-    mutations: [{
-      entity: { registryVersion: 1, entityKind: "fact", canonicalRef: `fact/task_T/${opId}` },
-      action: { registryVersion: 1, action: "create" }
-    }]
-  };
-  const actorAxesBinding = {
-    bindingId: "binding-synthetic",
-    principalPersonId: "person_fixture",
-    executorAgentId: "agent-fixture",
-    workspaceId: "workspace-synthetic",
-    deviceId: "device-synthetic",
-    viewId: "view-synthetic",
-    sessionId: "session-synthetic",
-    schemaTuple: {
-      wire: 2, event: 2, receipt: 2, digest: 2, policy: 1,
-      commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1,
-      localState: 1, applyJournal: 1
-    }
-  };
-  const physicalChanges = [{
-    path: `tasks/task_T/${opId}.md`,
-    beforeDigest: "11".repeat(32),
-    afterDigest: "22".repeat(32)
-  }];
-  const withoutEventDigest = {
-    schema: "attribution-event/v2",
-    eventId: `attribution:${opId}`,
-    workspaceId: "workspace-synthetic",
-    opId,
-    revision,
-    commitSha: "commit-v2",
-    previousCommit: "commit-v1",
-    outcome: "COMMITTED",
-    occurredAt: "2026-08-03T00:00:00.000Z",
-    recordedAt: "2026-08-03T00:00:00.100Z",
-    actorAxesBinding,
-    semanticRequestDigest: "33".repeat(32),
-    mutationSet,
-    semanticMutationSetDigest: hex(semanticMutationSetDigestV2(mutationSet)),
-    actorAxesBindingDigest: hex(actorAxesBindingCoreDigestV2(actorAxesBinding)),
-    physicalChanges,
-    changeSetDigest: hex(physicalChangeSetDigestV2(physicalChanges))
-  };
-  return {
-    ...withoutEventDigest,
-    canonicalEventDigest: hex(canonicalAttributionEventDigestV2(withoutEventDigest))
-  };
-}
-
 function runtimeEventOp(opId, fileName, eventId) {
   return {
     opId,
@@ -608,8 +582,4 @@ function runtimeEventOp(opId, fileName, eventId) {
       value: { schema: "runtime-event/v1", eventId }
     }
   };
-}
-
-function hex(value) {
-  return Buffer.from(value).toString("hex");
 }

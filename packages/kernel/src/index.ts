@@ -187,8 +187,12 @@ export {
   type LedgerMaterializerProgressStep,
   type LedgerMaterializerReport,
   type IncrementalProjectionPhase,
-  type IncrementalTaskProjectionMode
+  type IncrementalTaskProjectionMode,
+  type IncrementalProjectionRebuildReason
 } from "./write-coordination/materialization/ledger-materializer.ts";
+export type {
+  AttributionProjectionDecisionReason
+} from "./projection/sqlite-attribution-incremental.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/submit.ts";
 export {
   projectDaemonRepoRegistration,

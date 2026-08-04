@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayout } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import { readDeclaredSourceManifestRows } from "./sqlite-declared-source-manifest.ts";
 import { updateTaskProjectionIncrementally } from "./sqlite-task-incremental-projection.ts";
@@ -26,7 +26,7 @@ export function captureAuthoredProjectionFingerprint(rootInput: HarnessLayoutInp
 }
 
 /**
- * Reuse the source hash for a clean, unchanged authored generation. A write
+ * Reuse the source hash for a clean, unchanged projection-source generation. A write
  * coordinator and the ledger materializer share this cache, so one generation
  * pays for a full source capture once and later publications advance it from
  * their touched paths. A cold cache gets a Git HEAD plus scoped worktree fence;
@@ -50,11 +50,11 @@ export function captureTrustedAuthoredProjectionFingerprint(
   const head = vcs.currentHead(resolvedRepoRoot);
   const cached = trustedProjectionFingerprints.get(key);
   if (cached && cached.head === head) {
-    if (cached.worktreeVerified || authoredWorktreeIsClean(vcs, resolvedRepoRoot, layout.authoredRoot)) {
+    if (cached.worktreeVerified || projectionSourceWorktreeIsClean(vcs, resolvedRepoRoot, layout)) {
       return cached.fingerprint;
     }
   }
-  if (cached && authoredWorktreeIsClean(vcs, resolvedRepoRoot, layout.authoredRoot)) {
+  if (cached && projectionSourceWorktreeIsClean(vcs, resolvedRepoRoot, layout)) {
     const advanced = advanceTrustedProjectionFingerprint(
       rootInput,
       layout,
@@ -110,13 +110,52 @@ function trustedProjectionFingerprintKey(repoRoot: string, authoredRoot: string,
   return [path.resolve(repoRoot), path.resolve(authoredRoot), path.resolve(projectionPath)].join("\0");
 }
 
-function authoredWorktreeIsClean(vcs: VersionControlSystem, repoRoot: string, authoredRoot: string): boolean {
-  const relativeRoot = path.relative(vcs.normalizePath(repoRoot), vcs.normalizePath(authoredRoot)).split(path.sep).join("/");
+function projectionSourceWorktreeIsClean(vcs: VersionControlSystem, repoRoot: string, layout: HarnessLayout): boolean {
+  const relativeRoot = path.relative(vcs.normalizePath(repoRoot), vcs.normalizePath(layout.authoredRoot)).split(path.sep).join("/");
   try {
-    return vcs.workingTreeFiles(repoRoot, relativeRoot.length === 0 ? [] : [relativeRoot]).length === 0;
+    const status = vcs.workingTreeFiles(repoRoot, relativeRoot.length === 0 ? [] : [relativeRoot]);
+    return status
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map(parseWorktreeStatusPath)
+      .every((relativePath) => relativePath !== null && !isProjectionSourcePath(layout, relativeRoot, relativePath));
   } catch {
     return false;
   }
+}
+
+function parseWorktreeStatusPath(statusLine: string): string | null {
+  if (statusLine.length < 4 || statusLine[2] !== " ") return null;
+  const pathPart = statusLine.slice(3);
+  if (pathPart.includes('"')) return null;
+  const renameSeparator = pathPart.lastIndexOf(" -> ");
+  return (renameSeparator >= 0 ? pathPart.slice(renameSeparator + 4) : pathPart).replaceAll("\\", "/");
+}
+
+function isProjectionSourcePath(layout: HarnessLayout, relativeRoot: string, statusPath: string): boolean {
+  const authoredPrefix = relativeRoot.length === 0 ? "" : `${relativeRoot}/`;
+  if (!statusPath.startsWith(authoredPrefix)) return true;
+  const relativePath = statusPath.slice(authoredPrefix.length);
+  const tasksRoot = relativePathFromAuthoredRoot(layout, layout.tasksRoot);
+  const decisionsRoot = relativePathFromAuthoredRoot(layout, layout.decisionsRoot);
+  const sessionsRoot = relativePathFromAuthoredRoot(layout, layout.sessionsRoot);
+  const attributionRoot = relativePathFromAuthoredRoot(layout, layout.attributionEventsRoot);
+  const authorityAttributionRoot = relativePathFromAuthoredRoot(layout, layout.authorityAttributionEventsV2Root);
+
+  if (relativePath === "people.yaml") return true;
+  if (relativePath === attributionRoot || relativePath.startsWith(`${attributionRoot}/`)) return true;
+  if (relativePath === authorityAttributionRoot || relativePath.startsWith(`${authorityAttributionRoot}/`)) return true;
+  if (relativePath.startsWith(`${sessionsRoot}/`)) return /^.+\.md$/u.test(relativePath.slice(sessionsRoot.length + 1));
+  if (relativePath.startsWith(`${decisionsRoot}/`)) return path.basename(relativePath) === "decision.md";
+  if (!relativePath.startsWith(`${tasksRoot}/`)) return false;
+
+  const taskRelativePath = relativePath.slice(tasksRoot.length + 1);
+  return /^.+\/(?:INDEX|facts|module|review|closeout)\.md$/u.test(taskRelativePath) ||
+    /^.+\/(?:executions|consents|reviews)\/[^/]+\.md$/u.test(taskRelativePath);
+}
+
+function relativePathFromAuthoredRoot(layout: HarnessLayout, inputPath: string): string {
+  return path.relative(layout.authoredRoot, inputPath).split(path.sep).join("/");
 }
 
 function advanceTrustedProjectionFingerprint(

@@ -1,7 +1,9 @@
 import {
   runLedgerMaterializer,
   type IncrementalProjectionPhase,
+  type IncrementalProjectionRebuildReason,
   type IncrementalTaskProjectionMode,
+  type AttributionProjectionDecisionReason,
   type JournalPostCommitPhase,
   type JournalProjectionFingerprintPhase,
   type LedgerMaterializerProgressStep,
@@ -52,6 +54,39 @@ const projectionModes: Record<IncrementalTaskProjectionMode, RepoWriteTelemetryP
   unchanged: "authority-materializer-projection-mode-unchanged"
 };
 
+const projectionRebuildReasons: Record<IncrementalProjectionRebuildReason, RepoWriteTelemetryPhase> = {
+  "projection-missing": "authority-materializer-projection-mode-rebuild-reason-projection-missing",
+  "projection-read-failed": "authority-materializer-projection-mode-rebuild-reason-projection-read-failed",
+  "projection-version-mismatch": "authority-materializer-projection-mode-rebuild-reason-projection-version-mismatch",
+  "source-cache-invalid": "authority-materializer-projection-mode-rebuild-reason-source-cache-invalid",
+  "projection-metadata-read-failed": "authority-materializer-projection-mode-rebuild-reason-projection-metadata-read-failed",
+  "projection-integrity-mismatch": "authority-materializer-projection-mode-rebuild-reason-projection-integrity-mismatch",
+  "relation-graph-reuse-unavailable": "authority-materializer-projection-mode-rebuild-reason-relation-graph-reuse-unavailable",
+  "declared-projection-delta-failed": "authority-materializer-projection-mode-rebuild-reason-declared-projection-delta-failed",
+  "source-fingerprint-mismatch": "authority-materializer-projection-mode-rebuild-reason-source-fingerprint-mismatch",
+  "source-verification-race": "authority-materializer-projection-mode-rebuild-reason-source-verification-race",
+  "source-verification-failed": "authority-materializer-projection-mode-rebuild-reason-source-verification-failed",
+  "source-cache-reload-failed": "authority-materializer-projection-mode-rebuild-reason-source-cache-reload-failed",
+  "source-cache-refresh-failed": "authority-materializer-projection-mode-rebuild-reason-source-cache-refresh-failed",
+  "attribution-cache-change-missing": "authority-materializer-projection-mode-rebuild-reason-attribution-cache-change-missing",
+  "projection-update-recovered": "authority-materializer-projection-mode-rebuild-reason-projection-update-recovered"
+};
+
+const attributionDecisionReasons: Record<AttributionProjectionDecisionReason, RepoWriteTelemetryPhase> = {
+  "delete-present": "authority-materializer-projection-attribution-decision-delete-present",
+  "non-single-upsert": "authority-materializer-projection-attribution-decision-non-single-upsert",
+  "source-path-exists": "authority-materializer-projection-attribution-decision-source-path-exists",
+  "event-decode-failed": "authority-materializer-projection-attribution-decision-event-decode-failed",
+  "projected-read-failed": "authority-materializer-projection-attribution-decision-projected-read-failed",
+  "op-id-ambiguous": "authority-materializer-projection-attribution-decision-op-id-ambiguous",
+  "v1-v2-precedence": "authority-materializer-projection-attribution-decision-v1-v2-precedence",
+  replay: "authority-materializer-projection-attribution-decision-replay",
+  "new-source-path": "authority-materializer-projection-attribution-decision-new-source-path",
+  "v1-to-v2-replacement": "authority-materializer-projection-attribution-decision-v1-to-v2-replacement",
+  "op-id-collision": "authority-materializer-projection-attribution-decision-op-id-collision",
+  other: "authority-materializer-projection-attribution-decision-other"
+};
+
 const commitPhases: Record<VcsCommitPhase, RepoWriteTelemetryPhase> = {
   "commit-plan-start": "authority-flush-git-commit-plan-start",
   "commit-plan-done": "authority-flush-git-commit-plan-done",
@@ -93,6 +128,14 @@ export function materializerProjectionPhase(phase: IncrementalProjectionPhase): 
 
 export function materializerProjectionModePhase(mode: IncrementalTaskProjectionMode): RepoWriteTelemetryPhase {
   return projectionModes[mode];
+}
+
+export function materializerProjectionRebuildReasonPhase(reason: IncrementalProjectionRebuildReason): RepoWriteTelemetryPhase {
+  return projectionRebuildReasons[reason];
+}
+
+export function materializerAttributionDecisionPhase(reason: AttributionProjectionDecisionReason): RepoWriteTelemetryPhase {
+  return attributionDecisionReasons[reason];
 }
 
 export function flushGitCommitPhase(phase: VcsCommitPhase): RepoWriteTelemetryPhase {
@@ -145,9 +188,14 @@ export function runMaterializerWithRepoWriteTelemetry(
         reportCurrentRepoWriteTelemetry(materializerProjectionPhase(phase));
         options.onProjectionPhase?.(phase);
       },
-      onProjectionMode: (mode) => {
+      onProjectionMode: (mode, reason) => {
         reportCurrentRepoWriteTelemetry(materializerProjectionModePhase(mode));
-        options.onProjectionMode?.(mode);
+        if (reason) reportCurrentRepoWriteTelemetry(materializerProjectionRebuildReasonPhase(reason));
+        options.onProjectionMode?.(mode, reason);
+      },
+      onProjectionAttributionDecision: (reason) => {
+        reportCurrentRepoWriteTelemetry(materializerAttributionDecisionPhase(reason));
+        options.onProjectionAttributionDecision?.(reason);
       }
     });
   } finally {
