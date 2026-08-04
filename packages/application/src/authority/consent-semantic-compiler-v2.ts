@@ -20,7 +20,11 @@ import {
   createConsentRecord,
   DEFAULT_HUMAN_CONSENT_TTL_MS
 } from "../execution-consent-helpers.ts";
-import { consentSourceRequest, resolveConsentAuthorization } from "../consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  isTranscriptConsentAnchoredToSession,
+  resolveConsentAuthorization
+} from "../consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "../runtime-session-logs.ts";
 import { assertReviewEvidenceBelongsToExecution } from "../review-execution-service.ts";
 import {
@@ -39,6 +43,11 @@ import {
   type AuthoritySemanticCompilerV2,
   type RegistryEntityRefV2
 } from "./semantic-mutation-envelope-v2.ts";
+import {
+  AuthorityCompilerSessionContextMismatchV2,
+  authorityConsentTranscriptCandidatesV2,
+  LegacyAuthorityReviewCurrentUnavailableV2
+} from "./authority-consent-transcript-candidates-v2.ts";
 import {
   semanticAdmissionV2 as admission,
   semanticMutationPlanV2 as plan,
@@ -128,21 +137,26 @@ async function compileConsentGrantV2(
   if (await state.readHostedDocument(consentPath)) throw admission("CONSENT_ALREADY_EXISTS");
   const execution = decodeConsentExecutionV2(executionSnapshot.body, payload.taskId, payload.executionId);
   const now = consentCompilerNowV2(context);
+  const request = consentSourceRequest({
+    utterance: payload.utterance,
+    standingPolicyDecisionId: payload.standingPolicyDecisionId,
+    assertedRationale: payload.assertedRationale
+  });
+  const authorization = await resolveConsentAuthorizationForAuthority({
+    rootInput: options.rootInput,
+    transcriptCandidates: authorityConsentTranscriptCandidates(execution, context, now, ttlMs, request.kind === "utterance"),
+    request,
+    runtimeLogOptions: options.runtimeLogOptions
+  });
+  if (!isTranscriptConsentAnchoredToSession(authorization.source, `session/${context.sessionId}`)) {
+    throw admission("CONSENT_REVIEW_SESSION_MISMATCH");
+  }
   const consent = createConsentRecord({
     consentId: payload.consentId,
     taskId: payload.taskId,
     execution,
     actor: context.actor,
-    authorization: await resolveConsentAuthorizationForAuthority({
-      rootInput: options.rootInput,
-      execution,
-      request: consentSourceRequest({
-        utterance: payload.utterance,
-        standingPolicyDecisionId: payload.standingPolicyDecisionId,
-        assertedRationale: payload.assertedRationale
-      }),
-      runtimeLogOptions: options.runtimeLogOptions
-    }),
+    authorization,
     actions: payload.actions,
     grantedAt: now,
     ttlMs
@@ -190,6 +204,9 @@ async function compileConsentConsumeV2(
   const open = storedConsent
     ? existingConsentForConsumeV2(storedConsent.body, payload, execution, context, now)
     : await newConsentForConsumeV2(payload, execution, context, now, ttlMs, options);
+  if (!storedConsent && !isTranscriptConsentAnchoredToSession(open.source, `session/${context.sessionId}`)) {
+    throw admission("CONSENT_REVIEW_SESSION_MISMATCH");
+  }
   const consumed = decodeConsentRecordV2({
     ...open,
     state: "consumed",
@@ -342,6 +359,11 @@ async function newConsentForConsumeV2(
   options: ConsentSemanticCompilerV2Options
 ): Promise<ConsentRecord> {
   requireConsentActionsV2(payload.actions);
+  const request = consentSourceRequest({
+    utterance: payload.utterance,
+    standingPolicyDecisionId: payload.standingPolicyDecisionId,
+    assertedRationale: payload.assertedRationale
+  });
   return createConsentRecord({
     consentId: payload.consentId,
     taskId: payload.taskId,
@@ -349,18 +371,41 @@ async function newConsentForConsumeV2(
     actor: context.actor,
     authorization: await resolveConsentAuthorizationForAuthority({
       rootInput: options.rootInput,
-      execution,
-      request: consentSourceRequest({
-        utterance: payload.utterance,
-        standingPolicyDecisionId: payload.standingPolicyDecisionId,
-        assertedRationale: payload.assertedRationale
-      }),
+      transcriptCandidates: authorityConsentTranscriptCandidates(execution, context, now, ttlMs, request.kind === "utterance"),
+      request,
       runtimeLogOptions: options.runtimeLogOptions
     }),
     actions: payload.actions,
     grantedAt: now,
     ttlMs
   });
+}
+
+function authorityConsentTranscriptCandidates(
+  execution: ExecutionRecord,
+  context: AuthoritySemanticCompilerContextV2,
+  reviewedAt: string,
+  ttlMs: number,
+  requiresReviewCurrent: boolean
+): ReturnType<typeof authorityConsentTranscriptCandidatesV2> {
+  try {
+    return authorityConsentTranscriptCandidatesV2(
+      execution,
+      context.currentSession,
+      reviewedAt,
+      context.sessionId,
+      ttlMs,
+      requiresReviewCurrent
+    );
+  } catch (error) {
+    if (error instanceof AuthorityCompilerSessionContextMismatchV2) {
+      throw admission("AUTHORITY_COMPILER_SESSION_CONTEXT_MISMATCH");
+    }
+    if (error instanceof LegacyAuthorityReviewCurrentUnavailableV2) {
+      throw admission("CONSENT_SOURCE_UNVERIFIED", error.message);
+    }
+    throw admission("CONSENT_SOURCE_UNVERIFIED", error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function resolveConsentAuthorizationForAuthority(

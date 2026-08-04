@@ -20,7 +20,13 @@ import {
   decodeExecutionForConsent,
   generateConsentId
 } from "./execution-consent-helpers.ts";
-import { consentSourceRequest, resolveConsentAuthorization } from "./consent-source-resolution.ts";
+import {
+  consentSourceRequest,
+  executionBoundConsentTranscriptCandidates,
+  isTranscriptConsentAnchoredToSession,
+  resolveConsentAuthorization,
+  reviewCurrentConsentTranscriptCandidate
+} from "./consent-source-resolution.ts";
 import type { RuntimeLogOptions } from "./runtime-session-logs.ts";
 
 export interface RecordExecutionConsentService {
@@ -62,16 +68,29 @@ export function makeRecordExecutionConsentService(options: {
       if (task.documents.some((document) => document.path === `consents/${consentId}.md`)) {
         throw new Error(`consent already exists: ${consentId}`);
       }
+      const grantedAt = now();
+      const request = consentSourceRequest({
+        utterance: input.utterance,
+        standingPolicyDecisionId: input.standingPolicyDecisionId,
+        assertedRationale: input.assertedRationale
+      });
       const authorization = await resolveConsentAuthorization({
         rootInput: options.rootInput,
-        execution,
-        request: consentSourceRequest({
-          utterance: input.utterance,
-          standingPolicyDecisionId: input.standingPolicyDecisionId,
-          assertedRationale: input.assertedRationale
-        }),
+        transcriptCandidates: request.kind === "utterance" ? [
+          reviewCurrentConsentTranscriptCandidate({
+            execution,
+            session: input.session,
+            reviewedAt: grantedAt,
+            ttlMs
+          }),
+          ...executionBoundConsentTranscriptCandidates(execution)
+        ] : [],
+        request,
         runtimeLogOptions: options.runtimeLogOptions
       });
+      if (!isTranscriptConsentAnchoredToSession(authorization.source, `session/${input.session.sessionId}`)) {
+        throw new Error("transcript-verified consent must be anchored to the current consent-command session");
+      }
       const consent = createConsentRecord({
         consentId,
         taskId: input.taskId,
@@ -79,7 +98,7 @@ export function makeRecordExecutionConsentService(options: {
         actor: input.actor,
         authorization,
         actions: input.actions ?? DEFAULT_HUMAN_CONSENT_ACTIONS,
-        grantedAt: now(),
+        grantedAt,
         ttlMs
       });
       const decoded = Schema.decodeUnknownSync(consentDeclaration.schema)(consent) as ConsentRecord;

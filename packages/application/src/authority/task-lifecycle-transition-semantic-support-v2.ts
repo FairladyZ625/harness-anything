@@ -14,7 +14,7 @@ import {
   type TaskCompleteExternalCheckpointRef
 } from "./daemon-host-contract.ts";
 import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
-import type { RegistryEntityRefV2 } from "./semantic-mutation-envelope-v2.ts";
+import type { AuthoritySemanticCompilerContextV2, RegistryEntityRefV2 } from "./semantic-mutation-envelope-v2.ts";
 import { semanticAdmissionV2 as admission } from "./semantic-authority-helpers-v2.ts";
 
 export interface TaskLifecycleTransitionAuthorityStateV2 {
@@ -185,6 +185,20 @@ export async function contractSnapshot(
   const digest = snapshot ? sha256Text(snapshot.body) : null;
   if (digest !== plan.completionContractBodySha256) throw admission("TASK_LIFECYCLE_COMPLETION_CONTRACT_CHANGED");
   return snapshot;
+}
+
+export function taskLifecycleTransitionCompilerNever(value: never): never {
+  throw admission("TASK_LIFECYCLE_PLAN_EXHAUSTIVENESS_BREACH", String(value));
+}
+
+export function taskLifecycleTransitionContextNow(context: AuthoritySemanticCompilerContextV2): string {
+  const numeric = Number(context.nowMs);
+  if (!Number.isSafeInteger(numeric)) throw admission("AUTHORITY_TIME_INVALID");
+  return new Date(numeric).toISOString();
+}
+
+export function taskLifecycleTransitionRefV2(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
+  return { registryVersion: 1, entityKind, canonicalRef };
 }
 
 function normalizedCommandPaths(paths: ReadonlyArray<string>): ReadonlyArray<string> {

@@ -132,3 +132,36 @@ test("runtime session log lookup uses exact or dash-suffix session id matches", 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("Codex replacement history marks compaction-derived timestamps as unreliable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-compaction-"));
+  try {
+    const logRoot = path.join(rootDir, "logs");
+    mkdirSync(logRoot, { recursive: true });
+    writeFileSync(path.join(logRoot, "rollout-2026-07-04T00-00-00-compacted-session.jsonl"), `${JSON.stringify({
+      timestamp: "2026-07-04T00:10:00.000Z",
+      type: "compacted",
+      payload: {
+        replacement_history: [{ role: "user", content: [{ type: "input_text", text: "Historical user turn" }] }]
+      }
+    })}\n`);
+
+    const conversation = await runEffect(resolveRuntimeConversation({
+      schema: "provenance-session/v1",
+      sessionId: "compacted-session",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: "2026-07-04T00:10:00.000Z",
+      exportedAt: "2026-07-04T00:10:00.000Z"
+    }, { runtimeLogRoots: { codex: [logRoot] } }));
+
+    assert.deepEqual(conversation.messages, [{
+      role: "user",
+      text: "Historical user turn",
+      timestamp: "2026-07-04T00:10:00.000Z",
+      timestampReliability: "unreliable-compaction"
+    }]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

@@ -20,6 +20,7 @@ export interface RuntimeConversationMessage {
   readonly role: "user" | "assistant" | "summary";
   readonly text: string;
   readonly timestamp?: string;
+  readonly timestampReliability?: "unreliable-compaction";
 }
 
 export interface RuntimeConversation {
@@ -482,7 +483,7 @@ function extractCodexReplacementHistory(
     if (!isJsonObject(item)) continue;
     const role = readString(item, "role");
     if (role !== "user" && role !== "assistant") continue;
-    appendMessage(messages, role, extractTextContent(item.content, role), timestamp);
+    appendMessage(messages, role, extractTextContent(item.content, role), timestamp, "unreliable-compaction");
   }
   return messages;
 }
@@ -509,11 +510,17 @@ function appendMessage(
   messages: RuntimeConversationMessage[],
   role: RuntimeConversationMessage["role"],
   rawText: string,
-  timestamp?: string
+  timestamp?: string,
+  timestampReliability?: RuntimeConversationMessage["timestampReliability"]
 ): void {
   const text = cleanRuntimeText(rawText);
   if (!text || isSystemNoise(text)) return;
-  messages.push({ role, text, ...(timestamp ? { timestamp } : {}) });
+  messages.push({
+    role,
+    text,
+    ...(timestamp ? { timestamp } : {}),
+    ...(timestampReliability ? { timestampReliability } : {})
+  });
 }
 
 function cleanRuntimeText(text: string): string {
