@@ -51,6 +51,8 @@ import {
 import { updateProjectionWithRecovery } from "./sqlite-projection-recovery.ts";
 import { isDeclaredEntityFile, isPathWithin } from "./projection-path.ts";
 import { realPathIfExists } from "./toctou-safe-fs.ts";
+import type { AttributionProjectionDecisionReason } from "./sqlite-attribution-incremental.ts";
+import type { IncrementalProjectionRebuildReason } from "./projection-change-event.ts";
 
 export interface IncrementalProjectionPhase {
   readonly phase:
@@ -64,6 +66,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   readonly touchedPaths: ReadonlyArray<string>;
   readonly previousSourceFingerprint?: string;
   readonly onPhase?: (phase: IncrementalProjectionPhase) => void;
+  readonly onAttributionDecision?: (reason: AttributionProjectionDecisionReason) => void;
 }): IncrementalTaskProjectionResult {
   let phaseStarted = performance.now();
   const recordPhase = (phase: IncrementalProjectionPhase["phase"]): void => {
@@ -74,9 +77,14 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const rebuild = (reason: IncrementalProjectionRebuildReason): IncrementalTaskProjectionResult => ({
+    ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }),
+    mode: "rebuild",
+    rebuildReason: reason
+  });
 
   if (!existsSync(projectionPath)) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("projection-missing");
   }
 
   const cachedValidation = readCachedProjectionValidation(projectionPath);
@@ -85,10 +93,10 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     ? { ok: true as const, ...cachedProjection }
     : tryReadProjectionDatabase(projectionPath, options.taskFieldExtensions);
   if (!existing.ok) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("projection-read-failed");
   }
   if (existing.meta.version !== projectionVersion) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("projection-version-mismatch");
   }
   let persistedSourceCache: ReturnType<typeof readProjectionSourceCacheSnapshot> | undefined = cachedValidation?.sourceCache;
   if (!cachedValidation) {
@@ -97,7 +105,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       const restored = restoreProjectionSourceCacheSnapshot(runtimeContext, persistedSourceCache);
       if (!restored.valid) throw new Error("projection source cache payload invalid");
     } catch {
-      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+      return rebuild("source-cache-invalid");
     }
   }
   let declaredManifest: ReturnType<typeof readDeclaredSourceManifestRows>;
@@ -110,10 +118,10 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       ? existing.meta.attributionRowsHash ?? ""
       : readAttributionProjectionStateHash(projectionPath);
   } catch {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("projection-metadata-read-failed");
   }
   if (!cachedProjection && !projectionRowsMatchMeta(existing, existingDeclaredTables, declaredManifest, attributionRowsHash)) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("projection-integrity-mismatch");
   }
   recordPhase("load-current");
   const authoredRoot = realPathIfExists(resolveHarnessLayout(runtimeContext).authoredRoot);
@@ -162,7 +170,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     ? null
     : safeReadRelationGraphReuseSeed(projectionPath);
   if (graphSourceChange.changed && reusableGraph === null) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("relation-graph-reuse-unavailable");
   }
   const oldGraph = reusableGraph ?? { relationEdges: [], factRefs: new Set<string>() };
   const preserveGraphFactRows = graphSourceChange.changed && graphSourceChange.factProjectionReusable && reusableGraph !== null;
@@ -186,7 +194,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   try {
     declaredDelta = buildDeclaredProjectionDeltaFromSources(runtimeContext, declaredManifest, snapshot.declaredSources);
   } catch {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("declared-projection-delta-failed");
   }
   const hasDeclaredDelta = declaredDelta.tables.length > 0 ||
     declaredDelta.manifest.deleteSourcePaths.length > 0 ||
@@ -204,7 +212,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   }
 
   if (existing.meta.sourceHash !== sourceHash && existing.meta.sourceHash !== options.previousSourceFingerprint) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("source-fingerprint-mismatch");
   }
 
   const taskChange = incrementalTaskRows(runtimeContext, source.entries, existing.rows, affected.taskIds, options.taskFieldExtensions);
@@ -235,13 +243,13 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     );
     if (verifiedSource.declaredSources.some(({ source: declaredSource }) => !declaredSource.stats.cacheHit) &&
         readMarkdownSource(runtimeContext, "verify").hash !== verifiedSource.taskSource.hash) {
-      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+      return rebuild("source-verification-race");
     }
   } catch {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("source-verification-failed");
   }
   if (verifiedSource.fingerprint !== sourceHash) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("source-verification-failed");
   }
   recordPhase("verify-source");
   const taskSourceCacheChanged = existing.meta.taskSourceHash !== snapshot.taskSource.hash;
@@ -251,7 +259,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     try {
       persistedSourceCache = readVerifiedProjectionSourceCache(projectionPath, existing.meta.sourceCacheHash);
     } catch {
-      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+      return rebuild("source-cache-reload-failed");
     }
   }
   const sourceCache = sourceCacheNeedsRefresh ? refreshProjectionSourceCacheAfterIncrementalChange({
@@ -264,7 +272,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   }) : null;
   recordPhase("source-cache-refresh");
   if (sourceCacheNeedsRefresh && !sourceCache) {
-    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    return rebuild("source-cache-refresh-failed");
   }
   const sourceCacheChange = sourceCache && persistedSourceCache && sourceCache.hash !== persistedSourceCache.hash
     ? buildProjectionSourceCacheChange(
@@ -281,9 +289,13 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   let attributionDelta: ReturnType<typeof buildAttributionProjectionDelta> | undefined;
   if (attributionChanged) {
     if (!sourceCacheChange) {
-      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+      return rebuild("attribution-cache-change-missing");
     }
-    attributionDelta = buildAttributionProjectionDelta(sourceCacheChange, projectionPath);
+    attributionDelta = buildAttributionProjectionDelta(
+      sourceCacheChange,
+      projectionPath,
+      options.onAttributionDecision
+    );
   }
   recordPhase("attribution-delta");
   recordPhase("source-delta");
@@ -328,7 +340,7 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   );
   if (recovery.recovered) {
     recordPhase("publish");
-    return { ...recovery.value, mode: "rebuild" };
+    return { ...recovery.value, mode: "rebuild", rebuildReason: "projection-update-recovered" };
   }
   recordPhase("publish");
   rememberProjectionValidation(

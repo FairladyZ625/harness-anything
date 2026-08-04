@@ -18,9 +18,26 @@ export interface ProjectionChangeEvent {
   }>;
 }
 
+export type IncrementalProjectionRebuildReason =
+  | "projection-missing"
+  | "projection-read-failed"
+  | "projection-version-mismatch"
+  | "source-cache-invalid"
+  | "projection-metadata-read-failed"
+  | "projection-integrity-mismatch"
+  | "relation-graph-reuse-unavailable"
+  | "declared-projection-delta-failed"
+  | "source-fingerprint-mismatch"
+  | "source-verification-race"
+  | "source-verification-failed"
+  | "source-cache-reload-failed"
+  | "source-cache-refresh-failed"
+  | "attribution-cache-change-missing"
+  | "projection-update-recovered";
+
 export type IncrementalTaskProjectionResult = ProjectionReadResult & (
   | { readonly mode: "incremental" | "unchanged"; readonly sourceHash: string; readonly change: ProjectionChangeEvent }
-  | { readonly mode: "rebuild"; readonly sourceHash?: undefined; readonly change?: undefined }
+  | { readonly mode: "rebuild"; readonly rebuildReason: IncrementalProjectionRebuildReason; readonly sourceHash?: undefined; readonly change?: undefined }
 );
 
 export function projectionChange(

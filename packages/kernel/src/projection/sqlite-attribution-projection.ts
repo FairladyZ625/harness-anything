@@ -36,13 +36,18 @@ import {
 } from "./sqlite-attribution-event-store.ts";
 import {
   buildAppendOnlyAttributionProjectionDelta,
+  type AttributionProjectionDecisionReason,
   type AttributionProjectionDelta
 } from "./sqlite-attribution-incremental.ts";
 import type { ProjectionSourceCacheChange } from "./sqlite-projection-source-cache.ts";
 import { runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 import type { EntityAttributionProjection } from "./types.ts";
 
-export type { AttributionProjectionDelta } from "./sqlite-attribution-incremental.ts";
+export type {
+  AttributionProjectionDecision,
+  AttributionProjectionDecisionReason,
+  AttributionProjectionDelta
+} from "./sqlite-attribution-incremental.ts";
 
 export interface AttributionDigestStatus {
   readonly semanticMutationSet: "verified" | "not-present";
@@ -151,11 +156,13 @@ export function applyAttributionProjectionDelta(
 
 export function buildAttributionProjectionDelta(
   change: ProjectionSourceCacheChange,
-  projectionPath?: string
+  projectionPath?: string,
+  onDecision?: (reason: AttributionProjectionDecisionReason) => void
 ): AttributionProjectionDelta {
   if (projectionPath) {
-    const incremental = buildAppendOnlyAttributionProjectionDelta(change, projectionPath, eventToProjectionRows);
-    if (incremental) return incremental;
+    const decision = buildAppendOnlyAttributionProjectionDelta(change, projectionPath, eventToProjectionRows);
+    onDecision?.(decision.reason);
+    if (decision.delta) return decision.delta;
   }
   return buildAttributionProjectionDeltaFromFullSource(change);
 }

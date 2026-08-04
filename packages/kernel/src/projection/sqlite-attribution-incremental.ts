@@ -13,46 +13,75 @@ export interface AttributionProjectionDelta {
   readonly affectedSubjects: ReadonlyArray<string>;
 }
 
+export type AttributionProjectionDecisionReason =
+  | "delete-present"
+  | "non-single-upsert"
+  | "source-path-exists"
+  | "event-decode-failed"
+  | "projected-read-failed"
+  | "op-id-ambiguous"
+  | "v1-v2-precedence"
+  | "replay"
+  | "new-source-path"
+  | "v1-to-v2-replacement"
+  | "op-id-collision"
+  | "other";
+
+export interface AttributionProjectionDecision {
+  readonly mode: "incremental" | "full";
+  readonly reason: AttributionProjectionDecisionReason;
+  readonly delta?: AttributionProjectionDelta;
+}
+
 export function buildAppendOnlyAttributionProjectionDelta(
   change: ProjectionSourceCacheChange,
   projectionPath: string,
   eventToProjectionRows: (event: UnionAttributionEvent) => ReadonlyArray<{ readonly subjectRef: string }>
-): AttributionProjectionDelta | undefined {
+): AttributionProjectionDecision {
   const deleted = change.deleteFiles.filter((row) => row.cacheKind === "attribution");
   const upserted = change.upsertFiles.filter((row) => row.cacheKind === "attribution");
-  if (deleted.length > 0 || upserted.length !== 1) return undefined;
+  if (deleted.length > 0) return full("delete-present");
+  if (upserted.length !== 1) return full("non-single-upsert");
 
   const [candidate] = upserted;
   if (!candidate || change.previous.files.some((row) =>
-    row.cacheKind === "attribution" && row.sourcePath === candidate.sourcePath)) return undefined;
+    row.cacheKind === "attribution" && row.sourcePath === candidate.sourcePath)) return full("source-path-exists");
 
   let event: UnionAttributionEvent;
   try {
     event = decodeUnionAttributionEventBody(candidate.body);
   } catch {
-    return undefined;
+    return full("event-decode-failed");
   }
 
   let projected: ReadonlyArray<UnionAttributionEvent>;
   try {
     projected = readProjectedAttributionEventsByOpId(projectionPath, event.opId);
   } catch {
-    return undefined;
+    return full("projected-read-failed");
   }
-  if (projected.length > 1) return undefined;
+  if (projected.length > 1) return full("op-id-ambiguous");
 
   const prior = projected[0];
-  if (!prior) return delta([], [event], eventToProjectionRows(event));
+  if (!prior) return incremental("new-source-path", delta([], [event], eventToProjectionRows(event)));
   if (prior.schema === "attribution-event/v2" && event.schema === "attribution-event/v1") {
-    return delta([], [], []);
+    return incremental("v1-v2-precedence", delta([], [], []));
   }
-  if (stableStringify(prior) === stableStringify(event)) return delta([], [], []);
-  if (prior.schema === event.schema && prior.eventId !== event.eventId) return undefined;
-  return delta(
+  if (stableStringify(prior) === stableStringify(event)) return incremental("replay", delta([], [], []));
+  if (prior.schema === event.schema && prior.eventId !== event.eventId) return full("op-id-collision");
+  return incremental("v1-to-v2-replacement", delta(
     [prior.eventId],
     [event],
     [...eventToProjectionRows(prior), ...eventToProjectionRows(event)]
-  );
+  ));
+}
+
+function full(reason: AttributionProjectionDecisionReason): AttributionProjectionDecision {
+  return { mode: "full", reason };
+}
+
+function incremental(reason: AttributionProjectionDecisionReason, deltaValue: AttributionProjectionDelta): AttributionProjectionDecision {
+  return { mode: "incremental", reason, delta: deltaValue };
 }
 
 function delta(

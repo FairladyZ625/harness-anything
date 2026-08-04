@@ -242,6 +242,34 @@ test("trusted generation fingerprint advances across a clean descendant HEAD wit
   });
 });
 
+test("trusted generation fingerprint advances past unrelated untracked authored artifacts", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const taskRoot = path.join(rootDir, "harness/tasks/task-baseline");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), indexBody("task-baseline", "Baseline", "active"), "utf8");
+    git(rootDir, "add", "--", "tasks/task-baseline/INDEX.md");
+    git(rootDir, "commit", "-m", "seed scoped fingerprint baseline");
+    rebuildTaskProjection({ rootDir });
+
+    const vcs = makeLocalVersionControlSystem();
+    const first = captureTrustedAuthoredProjectionFingerprint(rootDir, vcs);
+    mkdirSync(path.join(taskRoot, "artifacts"), { recursive: true });
+    writeFileSync(path.join(taskRoot, "artifacts", "runtime-event.jsonl"), "untracked\n", "utf8");
+    writeFileSync(
+      path.join(taskRoot, "INDEX.md"),
+      readFileSync(path.join(taskRoot, "INDEX.md"), "utf8").replace("title: Baseline", "title: Descendant"),
+      "utf8"
+    );
+    git(rootDir, "add", "--", "tasks/task-baseline/INDEX.md");
+    git(rootDir, "commit", "-m", "advance scoped fingerprint with artifact present");
+
+    const expected = captureAuthoredProjectionFingerprint(rootDir);
+    assert.equal(captureTrustedAuthoredProjectionFingerprint(rootDir, vcs), expected);
+    assert.notEqual(expected, first);
+  });
+});
+
 test("single authority commit materialization reuses its complete semantic message", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);

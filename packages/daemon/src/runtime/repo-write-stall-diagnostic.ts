@@ -157,6 +157,33 @@ export function repoWriteWaitingStage(
     case "authority-materializer-projection-mode-incremental":
     case "authority-materializer-projection-mode-rebuild":
     case "authority-materializer-projection-mode-unchanged":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-missing":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-read-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-version-mismatch":
+    case "authority-materializer-projection-mode-rebuild-reason-source-cache-invalid":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-metadata-read-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-integrity-mismatch":
+    case "authority-materializer-projection-mode-rebuild-reason-relation-graph-reuse-unavailable":
+    case "authority-materializer-projection-mode-rebuild-reason-declared-projection-delta-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-source-fingerprint-mismatch":
+    case "authority-materializer-projection-mode-rebuild-reason-source-verification-race":
+    case "authority-materializer-projection-mode-rebuild-reason-source-verification-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-source-cache-reload-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-source-cache-refresh-failed":
+    case "authority-materializer-projection-mode-rebuild-reason-attribution-cache-change-missing":
+    case "authority-materializer-projection-mode-rebuild-reason-projection-update-recovered":
+    case "authority-materializer-projection-attribution-decision-delete-present":
+    case "authority-materializer-projection-attribution-decision-non-single-upsert":
+    case "authority-materializer-projection-attribution-decision-source-path-exists":
+    case "authority-materializer-projection-attribution-decision-event-decode-failed":
+    case "authority-materializer-projection-attribution-decision-projected-read-failed":
+    case "authority-materializer-projection-attribution-decision-op-id-ambiguous":
+    case "authority-materializer-projection-attribution-decision-v1-v2-precedence":
+    case "authority-materializer-projection-attribution-decision-replay":
+    case "authority-materializer-projection-attribution-decision-new-source-path":
+    case "authority-materializer-projection-attribution-decision-v1-to-v2-replacement":
+    case "authority-materializer-projection-attribution-decision-op-id-collision":
+    case "authority-materializer-projection-attribution-decision-other":
       return phase;
     case "authority-materializer-projection-done":
       return "authority-materializer-projection-done";
