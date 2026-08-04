@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../layout/index.ts";
 import { resolveHarnessLayout } from "../../../layout/index.ts";
-import type { VcsCommitAuthor, VersionControlSystem } from "../../../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VcsCommitPhase, VcsCommitOptions, VersionControlSystem } from "../../../ports/version-control-system.ts";
 import { makeLocalVersionControlSystem } from "../../../persistence/git/local-version-control-system.ts";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
@@ -18,14 +18,24 @@ export function commitTouchedPaths(
     readonly preserveExplicitLogPaths?: ReadonlyArray<string>;
     readonly author?: VcsCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
+    readonly onCommitPhase?: VcsCommitOptions["onPhase"];
   } = {}
 ): string {
   if (touchedPaths.length === 0) return "no-git-change";
   const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
+  const report = (phase: VcsCommitPhase): void => {
+    try {
+      options.onCommitPhase?.(phase);
+    } catch {
+      // Commit telemetry is deliberately non-authoritative.
+    }
+  };
 
+  report("commit-plan-start");
   const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
     versionControlSystem: vcs
   });
+  report("commit-plan-done");
   if (!plan) return "no-git-change";
   const preserveExplicitLogs = resolveExplicitLogSet(
     rootDir,
@@ -45,19 +55,37 @@ export function commitTouchedPaths(
   // moves us onto the session branch; the finally must return to the same trunk.
   const trunkBranch = sessionBranch ? resolveTrunkBranch(plan.repoRoot, undefined, vcs) : undefined;
 
-  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
+  if (sessionBranch) {
+    report("session-checkout-start");
+    checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
+    report("session-checkout-done");
+  }
   try {
-    if (addablePaths.length > 0) vcs.add(plan.repoRoot, { paths: addablePaths });
+    if (addablePaths.length > 0) {
+      report("stage-start");
+      vcs.add(plan.repoRoot, { paths: addablePaths });
+      report("stage-done");
+    }
+    report("unstage-logs-start");
     unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
+    report("unstage-logs-done");
     const preservedLogs = plan.relativePaths.filter((relativePath) => preserveExplicitLogs.has(relativePath));
     if (preservedLogs.length > 0) vcs.add(plan.repoRoot, { paths: preservedLogs });
     const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
     if (staged.length === 0) return vcs.currentHead(plan.repoRoot);
 
-    vcs.commit(plan.repoRoot, message ?? `harness write ${opIds.join(",")}`, options.author);
+    report("commit-call-start");
+    vcs.commit(plan.repoRoot, message ?? `harness write ${opIds.join(",")}`, options.author, {
+      ...(options.onCommitPhase ? { onPhase: options.onCommitPhase } : {})
+    });
+    report("commit-call-done");
     return vcs.currentHead(plan.repoRoot);
   } finally {
-    if (sessionBranch && trunkBranch) vcs.checkout(plan.repoRoot, trunkBranch);
+    if (sessionBranch && trunkBranch) {
+      report("trunk-checkout-start");
+      vcs.checkout(plan.repoRoot, trunkBranch);
+      report("trunk-checkout-done");
+    }
   }
 }
 

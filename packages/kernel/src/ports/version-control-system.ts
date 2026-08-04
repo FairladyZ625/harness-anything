@@ -5,6 +5,41 @@ export interface VcsCommitAuthor {
   readonly email: string;
 }
 
+/** Optional observability boundaries inside a scoped Git commit. */
+export type VcsCommitPhase =
+  | "commit-plan-start"
+  | "commit-plan-done"
+  | "session-checkout-start"
+  | "session-checkout-done"
+  | "stage-start"
+  | "stage-done"
+  | "unstage-logs-start"
+  | "unstage-logs-done"
+  | "trunk-checkout-start"
+  | "trunk-checkout-done"
+  | "commit-call-start"
+  | "commit-call-done"
+  | "staged-paths-start"
+  | "staged-paths-done"
+  | "staged-entries-start"
+  | "staged-entries-done"
+  | "worktree-verify-start"
+  | "worktree-verify-done"
+  | "alternate-index-start"
+  | "alternate-index-ready"
+  | "commit-start"
+  | "commit-done"
+  | "index-refresh-start"
+  | "index-refresh-done"
+  | "index-refresh-fallback-start"
+  | "index-refresh-fallback-done"
+  | "native-commit-start"
+  | "native-commit-done";
+
+export interface VcsCommitOptions {
+  readonly onPhase?: (phase: VcsCommitPhase) => void;
+}
+
 export type VcsCommitResolution =
   | { readonly ok: true; readonly sha: string }
   | { readonly ok: false; readonly reason: "missing" | "non-commit"; readonly objectType?: string };
@@ -16,7 +51,7 @@ export interface VersionControlSystem {
   readonly add: (repoRoot: string, input: { readonly paths: ReadonlyArray<string>; readonly force?: boolean }) => void;
   readonly workingTreeFiles: (repoRoot: string, paths: ReadonlyArray<string>) => string;
   readonly stagedFiles: (repoRoot: string, paths: ReadonlyArray<string>) => string;
-  readonly commit: (repoRoot: string, message: string, author?: VcsCommitAuthor) => void;
+  readonly commit: (repoRoot: string, message: string, author?: VcsCommitAuthor, options?: VcsCommitOptions) => void;
   readonly currentHead: (repoRoot: string) => string;
   readonly currentBranch: (repoRoot: string) => string | null;
   readonly originHeadBranch: (repoRoot: string) => string | null;

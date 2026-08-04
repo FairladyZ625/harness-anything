@@ -3,7 +3,7 @@ import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { VcsCommitAuthor, VersionControlSystem } from "../../ports/version-control-system.ts";
+import type { VcsCommitAuthor, VcsCommitOptions, VersionControlSystem } from "../../ports/version-control-system.ts";
 import { VcsCommandError } from "../../ports/version-control-system.ts";
 import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
 import { commitWithScopedIndex, nullDelimitedGitPaths } from "./scoped-index-commit.ts";
@@ -28,20 +28,26 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     },
     workingTreeFiles: (repoRoot, paths) => runGit(repoRoot, "status", "--porcelain", "-uall", "--", ...paths),
     stagedFiles: (repoRoot, paths) => runGit(repoRoot, "diff", "--cached", "--name-only", "--", ...paths),
-    commit: (repoRoot, message, author) => commitWithScopedIndex(repoRoot, message, author, {
-      runGitBytes,
-      runGitWithInput,
-      runGitWithEnvironment,
-      runGitWithInputEnvironment,
-      fileSystem: {
-        exists: existsSync,
-        lstat: lstatSync,
-        readFile: readFileSync,
-        readLink: readlinkSync,
-        makeTemporaryDirectory: (prefix) => mkdtempSync(path.join(tmpdir(), prefix)),
-        removeTemporaryDirectory: (inputPath) => rmSync(inputPath, { recursive: true, force: true })
-      }
-    }),
+    commit: (repoRoot, message, author, options?: VcsCommitOptions) => commitWithScopedIndex(
+      repoRoot,
+      message,
+      author,
+      {
+        runGitBytes,
+        runGitWithInput,
+        runGitWithEnvironment,
+        runGitWithInputEnvironment,
+        fileSystem: {
+          exists: existsSync,
+          lstat: lstatSync,
+          readFile: readFileSync,
+          readLink: readlinkSync,
+          makeTemporaryDirectory: (prefix) => mkdtempSync(path.join(tmpdir(), prefix)),
+          removeTemporaryDirectory: (inputPath) => rmSync(inputPath, { recursive: true, force: true })
+        }
+      },
+      options
+    ),
     currentHead: (repoRoot) => {
       try {
         return runGit(repoRoot, "rev-parse", "HEAD").trim();

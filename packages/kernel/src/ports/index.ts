@@ -13,7 +13,11 @@ export { TemplateLibrary } from "./template-library.ts";
 export type { Locale, TemplateRef, TemplateDocument } from "./template-library.ts";
 
 export { VersionControlSystem, VcsCommandError } from "./version-control-system.ts";
-export type { VcsCommitAuthor, VersionControlSystem as VersionControlSystemPort } from "./version-control-system.ts";
+export type {
+  VcsCommitAuthor,
+  VcsCommitPhase,
+  VersionControlSystem as VersionControlSystemPort
+} from "./version-control-system.ts";
 
 export type {
   ProjectionSourceFence,

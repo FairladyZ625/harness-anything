@@ -77,7 +77,7 @@ import { ReservationReconcilerRunner } from "./reservation-reconciler-runner.ts"
 import { mergeRepoRuntimeDefaults, sortedRepoOptions } from "./repo-runtime-options-merge.ts";
 import { describeRepoRuntimeError } from "./repo-runtime-error.ts";
 import { acquireRepoRuntimeGlobalLock } from "./repo-runtime-lock.ts";
-import { runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
+import { reportFlushGitCommitPhase, runMaterializerWithRepoWriteTelemetry } from "./repo-write-materializer-telemetry.ts";
 
 const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 
@@ -498,6 +498,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       heldGlobalLock: started.lock,
       autoMaterialize: false,
       onProjectionChange: this.projectionChanges.publish,
+      onCommitPhase: reportFlushGitCommitPhase,
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
     };

@@ -1,6 +1,9 @@
 import {
   runLedgerMaterializer,
-  type LedgerMaterializerProgressStep
+  type IncrementalProjectionPhase,
+  type IncrementalTaskProjectionMode,
+  type LedgerMaterializerProgressStep,
+  type VcsCommitPhase
 } from "@harness-anything/kernel";
 import { reportCurrentRepoWriteTelemetry } from "./repo-write-telemetry-context.ts";
 import type { RepoWriteTelemetryPhase } from "./repo-write-protocol.ts";
@@ -16,8 +19,72 @@ const materializerProgressPhases: Record<LedgerMaterializerProgressStep, RepoWri
   "attribution-done": "authority-materializer-attribution-done"
 };
 
+const projectionPhases: Record<IncrementalProjectionPhase["phase"], RepoWriteTelemetryPhase> = {
+  "load-current": "authority-materializer-projection-load-current",
+  "capture-source": "authority-materializer-projection-capture-source",
+  "derive-affected": "authority-materializer-projection-derive-affected",
+  "declared-delta": "authority-materializer-projection-declared-delta",
+  "hash-next": "authority-materializer-projection-hash-next",
+  "verify-source": "authority-materializer-projection-verify-source",
+  "source-delta": "authority-materializer-projection-source-delta",
+  publish: "authority-materializer-projection-publish"
+};
+
+const projectionModes: Record<IncrementalTaskProjectionMode, RepoWriteTelemetryPhase> = {
+  incremental: "authority-materializer-projection-mode-incremental",
+  rebuild: "authority-materializer-projection-mode-rebuild",
+  unchanged: "authority-materializer-projection-mode-unchanged"
+};
+
+const commitPhases: Record<VcsCommitPhase, RepoWriteTelemetryPhase> = {
+  "commit-plan-start": "authority-flush-git-commit-plan-start",
+  "commit-plan-done": "authority-flush-git-commit-plan-done",
+  "session-checkout-start": "authority-flush-git-session-checkout-start",
+  "session-checkout-done": "authority-flush-git-session-checkout-done",
+  "stage-start": "authority-flush-git-stage-start",
+  "stage-done": "authority-flush-git-stage-done",
+  "unstage-logs-start": "authority-flush-git-unstage-logs-start",
+  "unstage-logs-done": "authority-flush-git-unstage-logs-done",
+  "trunk-checkout-start": "authority-flush-git-trunk-checkout-start",
+  "trunk-checkout-done": "authority-flush-git-trunk-checkout-done",
+  "commit-call-start": "authority-flush-git-commit-call-start",
+  "commit-call-done": "authority-flush-git-commit-call-done",
+  "staged-paths-start": "authority-flush-git-staged-paths-start",
+  "staged-paths-done": "authority-flush-git-staged-paths-done",
+  "staged-entries-start": "authority-flush-git-staged-entries-start",
+  "staged-entries-done": "authority-flush-git-staged-entries-done",
+  "worktree-verify-start": "authority-flush-git-worktree-verify-start",
+  "worktree-verify-done": "authority-flush-git-worktree-verify-done",
+  "alternate-index-start": "authority-flush-git-alternate-index-start",
+  "alternate-index-ready": "authority-flush-git-alternate-index-ready",
+  "commit-start": "authority-flush-git-commit-start",
+  "commit-done": "authority-flush-git-commit-done",
+  "index-refresh-start": "authority-flush-git-index-refresh-start",
+  "index-refresh-done": "authority-flush-git-index-refresh-done",
+  "index-refresh-fallback-start": "authority-flush-git-index-refresh-fallback-start",
+  "index-refresh-fallback-done": "authority-flush-git-index-refresh-fallback-done",
+  "native-commit-start": "authority-flush-git-native-commit-start",
+  "native-commit-done": "authority-flush-git-native-commit-done"
+};
+
 export function materializerProgressPhase(step: LedgerMaterializerProgressStep): RepoWriteTelemetryPhase {
   return materializerProgressPhases[step];
+}
+
+export function materializerProjectionPhase(phase: IncrementalProjectionPhase): RepoWriteTelemetryPhase {
+  return projectionPhases[phase.phase];
+}
+
+export function materializerProjectionModePhase(mode: IncrementalTaskProjectionMode): RepoWriteTelemetryPhase {
+  return projectionModes[mode];
+}
+
+export function flushGitCommitPhase(phase: VcsCommitPhase): RepoWriteTelemetryPhase {
+  return commitPhases[phase];
+}
+
+export function reportFlushGitCommitPhase(phase: VcsCommitPhase): void {
+  reportCurrentRepoWriteTelemetry(flushGitCommitPhase(phase));
 }
 
 export function runMaterializerWithRepoWriteTelemetry(
@@ -31,6 +98,14 @@ export function runMaterializerWithRepoWriteTelemetry(
       onProgress: (step) => {
         reportCurrentRepoWriteTelemetry(materializerProgressPhase(step));
         options.onProgress?.(step);
+      },
+      onProjectionPhase: (phase) => {
+        reportCurrentRepoWriteTelemetry(materializerProjectionPhase(phase));
+        options.onProjectionPhase?.(phase);
+      },
+      onProjectionMode: (mode) => {
+        reportCurrentRepoWriteTelemetry(materializerProjectionModePhase(mode));
+        options.onProjectionMode?.(mode);
       }
     });
   } finally {
