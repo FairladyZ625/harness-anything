@@ -129,7 +129,8 @@ export async function productionLifecycleAttemptIntent(input: {
       input.currentSession.sessionId,
       action,
       input.canonicalEntityId,
-      input.actor
+      input.actor,
+      hostServices
     );
   }
   return null;

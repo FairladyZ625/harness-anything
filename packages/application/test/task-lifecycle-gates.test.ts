@@ -10,6 +10,11 @@ import {
   parseReviewMarkdown,
   validatePhaseRows
 } from "../src/task-lifecycle-gates.ts";
+import {
+  completionPrerequisiteCatalog,
+  taskAuthorityCompletionPrerequisites,
+  type TaskCompletionPrerequisiteInput
+} from "../src/task-completion-prerequisite-catalog.ts";
 
 test("review gate blocks open release-blocking P0-P3 findings", () => {
   const result = evaluateReviewGate({
@@ -123,6 +128,84 @@ test("task document placeholder detection distinguishes scaffold text from real 
     ""
   ].join("\n")), false);
 });
+
+test("completion prerequisite catalog keeps authority enumerable and permissive surfaces justified", () => {
+  assert.deepEqual(
+    taskAuthorityCompletionPrerequisites.map((entry) => entry.id),
+    ["closeout-substantive", "ci-passed"]
+  );
+  for (const entry of completionPrerequisiteCatalog) {
+    if (entry.surface.kind === "task-authority") {
+      assert.equal(typeof entry.evaluate, "function");
+      continue;
+    }
+    assert.match(entry.surface.reason, /\S/u);
+    assert.match(entry.surface.decisionRef, /^dec_[^/]+\/[^/]+$/u);
+    assert.match(entry.evaluatorRef, /\S/u);
+  }
+});
+
+test("substantive closeout prerequisite rejects placeholders without a continuing historical exemption", () => {
+  const closeout = taskAuthorityCompletionPrerequisites.find((entry) => entry.id === "closeout-substantive");
+  assert.ok(closeout);
+  const base = completionPrerequisiteInput({
+    taskId: "task_NEW",
+    closeout: "# Closeout\n\n## Summary\n\nReplace me.\n"
+  });
+  assert.deepEqual(closeout.evaluate(base), {
+    id: "closeout-substantive",
+    ok: false,
+    errorCode: "AUTHORITY_TASK_COMPLETE_CLOSEOUT_PLACEHOLDER"
+  });
+  assert.deepEqual(closeout.evaluate({
+    ...base,
+    documents: [{ path: "closeout.md", body: "# Closeout\n\nSubstantive.\n" }]
+  }), {
+    id: "closeout-substantive",
+    ok: true,
+    disposition: "passed"
+  });
+});
+
+test("CI prerequisite is explicit for both applicable and non-applicable contracts", () => {
+  const ci = taskAuthorityCompletionPrerequisites.find((entry) => entry.id === "ci-passed");
+  assert.ok(ci);
+  const base = completionPrerequisiteInput({
+    taskId: "task_CI",
+    closeout: "# Closeout\n\nSubstantive.\n"
+  });
+  assert.deepEqual(ci.evaluate(base), {
+    id: "ci-passed",
+    ok: true,
+    disposition: "not-applicable"
+  });
+  assert.equal(ci.evaluate({ ...base, completionGates: ["ci"], ciGate: "passed" }).ok, true);
+  assert.deepEqual(ci.evaluate({ ...base, completionGates: ["ci"], ciGate: "failed" }), {
+    id: "ci-passed",
+    ok: false,
+    errorCode: "AUTHORITY_TASK_COMPLETE_CI_GATE_REQUIRED:failed"
+  });
+});
+
+function completionPrerequisiteInput(input: {
+  readonly taskId: string;
+  readonly closeout: string;
+}): TaskCompletionPrerequisiteInput {
+  return {
+    taskId: input.taskId,
+    documents: [{ path: "closeout.md", body: input.closeout }],
+    completionGates: [],
+    ciGate: "not-applicable",
+    snapshot: {
+      documentPlaceholderPolicy: {
+        closeoutPlaceholderFingerprints: ["Replace me."],
+        taskPlanPlaceholderFingerprintSets: [],
+        visualMapPlaceholderFingerprintSets: [],
+        lessonCandidatesPlaceholderFingerprintSets: []
+      }
+    }
+  };
+}
 
 test("phase validation rejects agent-owned human gate and missing exit commands", () => {
   const result = validatePhaseRows([{

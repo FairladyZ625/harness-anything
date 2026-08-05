@@ -7,6 +7,7 @@ import {
   encodeTaskLifecycleTransitionCommandPayloadV2,
   makeTaskLifecycleTransitionSemanticCompilerV2,
   semanticMutationEnvelopeV2Schema,
+  taskAuthorityCompletionPrerequisites,
   TaskLifecycleTransitionService,
   type CanonicalTaskMutationPlan,
   type HostedDocumentSnapshotV2,
@@ -18,6 +19,7 @@ import {
 } from "@harness-anything/application";
 import { sha256Text } from "@harness-anything/kernel";
 import { makeDaemonAuthorityWriteCoordinator } from "../src/authority/authority-command-submission.ts";
+import { productionTaskCompletionPrerequisiteIds } from "../src/authority/production/production-authority-task-completion-prerequisites.ts";
 
 const taskId = "task_01KXD8H2QFMMA4T203PJZ77AQ5";
 const executionId = "exe_01KXD8H2QFMMA4T203PJZ77AQ6";
@@ -35,6 +37,13 @@ const witness: VerifiedTaskCompleteDocumentPublicationWitness = {
   coveredTaskRelativePaths: ["closeout.md"],
   coveredPathSetDigest: `sha256:${"c".repeat(64)}`
 };
+
+test("production completion authority consumes the catalog-derived task-authority set", () => {
+  assert.deepEqual(
+    productionTaskCompletionPrerequisiteIds,
+    taskAuthorityCompletionPrerequisites.map((entry) => entry.id)
+  );
+});
 
 test("canonical lifecycle plan fences the daemon-evaluated task-contract snapshot against TOCTOU", async () => {
   const evaluatedContract = "{\"schema\":\"task-contract-snapshot/v1\",\"completionGates\":[]}\n";
