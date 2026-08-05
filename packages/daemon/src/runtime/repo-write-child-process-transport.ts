@@ -24,6 +24,7 @@ import {
   type RepoWriteParentMessage,
   type RepoWriteProtocolLimits
 } from "./repo-write-protocol.ts";
+import { terminateRepoWriteChildAndWait } from "./repo-write-child-exit.ts";
 
 export interface RepoWriteProcessTransportLimits {
   readonly maxBufferedMessages: number;
@@ -167,6 +168,10 @@ export class RepoWriteParentProcessTransport implements RepoWriteClientTransport
 
   terminate(signal: NodeJS.Signals = "SIGTERM"): boolean {
     return this.child.kill(signal);
+  }
+
+  terminateAndWait(signal: NodeJS.Signals, timeoutMs: number): Promise<void> {
+    return terminateRepoWriteChildAndWait(this.child, signal, timeoutMs);
   }
 
   private readonly handleMessage = (value: unknown): void => {

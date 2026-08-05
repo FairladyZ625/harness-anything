@@ -25,12 +25,19 @@ export interface RepoWriteProcessSupervisorOptions {
   readonly onDiagnostic?: ConstructorParameters<typeof RepoWriteClient>[0]["onDiagnostic"];
   readonly onRequestTimeout?: ConstructorParameters<typeof RepoWriteClient>[0]["onRequestTimeout"];
   readonly onRequestFailure?: ConstructorParameters<typeof RepoWriteClient>[0]["onRequestFailure"];
+  readonly onGracefulStopFailure?: (error: unknown) => void | Promise<void>;
 }
 
 interface ActiveWriter {
   readonly transport: RepoWriteParentProcessTransport;
   readonly client: RepoWriteClient;
 }
+
+export interface RepoWriteProcessSupervisorStopOptions {
+  readonly timeoutMs?: number;
+}
+
+const defaultRepoWriteStopTimeoutMs = 4_000;
 
 /**
  * Keeps one child process bound to one repo/writer generation. A submission is
@@ -114,16 +121,44 @@ export class RepoWriteProcessSupervisor {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(options: RepoWriteProcessSupervisorStopOptions = {}): Promise<void> {
     this.closing = true;
     const writer = this.active;
     if (!writer) return;
+    const timeoutMs = options.timeoutMs ?? defaultRepoWriteStopTimeoutMs;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("repo writer stop timeout must be a positive safe integer");
+    }
+    const deadline = Date.now() + timeoutMs;
+    let gracefulError: unknown;
     try {
       if (this.writerConnected(writer)) {
-        await writer.client.shutdown();
+        try {
+          await writer.client.shutdown({ timeoutMs: phaseTimeout(deadline, 2) });
+        } catch (error) {
+          gracefulError = error;
+        }
+      }
+      try {
+        await writer.transport.terminateAndWait("SIGTERM", phaseTimeout(deadline, 2));
+      } catch (termError) {
+        try {
+          await writer.transport.terminateAndWait("SIGKILL", remainingTimeout(deadline));
+        } catch (killError) {
+          throw new AggregateError(
+            [gracefulError, termError, killError].filter((error) => error !== undefined),
+            "failed to terminate repo writer child"
+          );
+        }
+      }
+      if (gracefulError !== undefined) {
+        try {
+          await this.options.onGracefulStopFailure?.(gracefulError);
+        } catch {
+          // A diagnostic observer cannot turn a confirmed child exit into a stop failure.
+        }
       }
     } finally {
-      writer.transport.terminate("SIGTERM");
       if (this.active === writer) this.active = undefined;
     }
   }
@@ -253,6 +288,14 @@ export class RepoWriteProcessSupervisor {
       && writer.transport.child.exitCode === null
       && writer.transport.child.signalCode === null;
   }
+}
+
+function phaseTimeout(deadline: number, phasesRemaining: number): number {
+  return Math.max(1, Math.floor(remainingTimeout(deadline) / phasesRemaining));
+}
+
+function remainingTimeout(deadline: number): number {
+  return Math.max(1, deadline - Date.now());
 }
 
 function decodeReceipt(
