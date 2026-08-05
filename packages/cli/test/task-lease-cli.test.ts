@@ -446,51 +446,78 @@ test("submit reports an unavailable binding when default runtime capture is abse
   });
 });
 
-test("lease-enforced relation writes fail closed and persist after the related task is claimed", () => {
+test("decision relate records the missing CH3 CH4 CH5 edges without activating their planned tasks", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessLeaseEnforcement(rootDir, true);
+    const targets = [
+      {
+        anchor: "CH3",
+        taskId: "task_01KWY509C588MGQMQRTQHC9NVN",
+        title: "Adapter PB Slice 1",
+        rationale: "Reopen after the governance line converges"
+      },
+      {
+        anchor: "CH4",
+        taskId: "task_01KXPZJ0Z22PEZSKXCFVK0NGET",
+        title: "Dual scheduler shared budget",
+        rationale: "Run a read-only bounded premise review before implementation"
+      },
+      {
+        anchor: "CH5",
+        taskId: "task_01KXMJDEXN3R6BBVN0CA2RNQDF",
+        title: "ProdCutover root",
+        rationale: "Keep the root while ground truth is exported again"
+      }
+    ] as const;
+    for (const target of targets) {
+      runJson(rootDir, [
+        "new-task", "--id", target.taskId, "--migration", "--title", target.title
+      ]);
+    }
+
+    runJson(rootDir, [
+      "decision", "propose", "--id", "dec_01KZ9KHST9EM75R4ZKKXG2E2NE",
+      "--title", "Active ledger disposition decisions",
+      "--question", "Which ledger identity should each active line retain?",
+      "--chosen", "Evolution root returns to planned until its plan is substantive",
+      "--chosen", "Benchmark W6 is cancelled because stronger evidence replaced its premise",
+      "--chosen", "Adapter PB Slice 1 reopens after governance convergence",
+      "--chosen", "Dual scheduler runs a read-only bounded premise review first",
+      "--chosen", "ProdCutover root stays active until ground truth is exported again",
+      "--rejected", "Create placeholder children from the stale inventory",
+      "--why-not", "The inventory conflicts with already completed work",
+      "--claim", "Each active line receives an explicit ledger disposition."
+    ]);
+
+    for (const target of targets) {
+      const related = runJson(rootDir, [
+        "decision", "relate", "dec_01KZ9KHST9EM75R4ZKKXG2E2NE",
+        "--anchor", target.anchor, "--type", "relates",
+        "--target", `task/${target.taskId}`, "--rationale", target.rationale
+      ]);
+      assert.equal(related.ok, true);
+      assert.equal(runJson(rootDir, [
+        "relation", "list", "--source", `decision/dec_01KZ9KHST9EM75R4ZKKXG2E2NE/${target.anchor}`
+      ]).rows, 1);
+      assert.equal(runJson(rootDir, ["task", "show", target.taskId]).report.task.status, "planned");
+    }
+  });
+});
+
+test("task relate records a dependency without activating its planned source task", () => {
   withTempRoot((rootDir) => {
     writeHarnessLeaseEnforcement(rootDir, true);
     const source = runJson(rootDir, ["new-task", "--title", "Relation Source"]);
     const target = runJson(rootDir, ["new-task", "--title", "Relation Target"]);
-    writeSubstantiveTaskPlan(rootDir, source.packagePath);
-    writeSubstantiveTaskPlan(rootDir, target.packagePath);
 
-    const taskRejected = runJson(rootDir, [
-      "task", "relate", source.taskId, "depends-on", target.taskId,
-      "--rationale", "Source requires target"
-    ], false);
-    assert.equal(taskRejected.ok, false);
-    assert.match(taskRejected.error?.hint ?? "", /requires an active lease/u);
-    assert.equal(runJson(rootDir, ["relation", "list", "--source", `task/${source.taskId}`]).rows, 0);
-
-    runJson(rootDir, ["task", "claim", source.taskId]);
-    const taskRelated = runJson(rootDir, [
+    const related = runJson(rootDir, [
       "task", "relate", source.taskId, "depends-on", target.taskId,
       "--rationale", "Source requires target"
     ]);
-    assert.equal(taskRelated.ok, true);
+    assert.equal(related.ok, true);
     assert.equal(runJson(rootDir, ["relation", "list", "--source", `task/${source.taskId}`]).rows, 1);
-
-    runJson(rootDir, [
-      "decision", "propose", "--id", "dec_RELATION_LEASE", "--title", "Relation lease",
-      "--question", "Should the task be derived?", "--chosen", "Derive the task",
-      "--rejected", "Leave it orphaned", "--why-not", "Lineage must be explicit",
-      "--claim", "The decision derives the task."
-    ]);
-    const decisionRejected = runJson(rootDir, [
-      "decision", "relate", "dec_RELATION_LEASE", "--anchor", "CH1", "--type", "derives",
-      "--target", `task/${target.taskId}`, "--rationale", "Decision creates target"
-    ], false);
-    assert.equal(decisionRejected.ok, false);
-    assert.match(decisionRejected.error?.hint ?? "", /requires an active lease/u);
-    assert.equal(runJson(rootDir, ["relation", "list", "--source", "decision/dec_RELATION_LEASE/CH1"]).rows, 0);
-
-    runJson(rootDir, ["task", "claim", target.taskId]);
-    const decisionRelated = runJson(rootDir, [
-      "decision", "relate", "dec_RELATION_LEASE", "--anchor", "CH1", "--type", "derives",
-      "--target", `task/${target.taskId}`, "--rationale", "Decision creates target"
-    ]);
-    assert.equal(decisionRelated.ok, true);
-    assert.equal(runJson(rootDir, ["relation", "list", "--source", "decision/dec_RELATION_LEASE/CH1"]).rows, 1);
+    assert.equal(runJson(rootDir, ["task", "show", source.taskId]).report.task.status, "planned");
+    assert.equal(runJson(rootDir, ["task", "show", target.taskId]).report.task.status, "planned");
   });
 });
 
