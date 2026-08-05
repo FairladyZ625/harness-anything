@@ -28,6 +28,7 @@ import {
   createDaemonRequestPerformanceTrace,
   runWithDaemonRequestPerformanceTrace
 } from "../src/observability/request-performance.ts";
+import { classifyProvenanceCapacitySample } from "../src/observability/provenance-capacity-trigger.ts";
 import { repoWriteProductionCommandFixture } from "./support/repo-write-production-command-fixture.ts";
 
 const fixturePath = fileURLToPath(
@@ -153,6 +154,38 @@ test("post-proceed child crash performs one exact op lookup in a replacement cap
   assert.equal(receipt.summary, "transport recovery");
   assert.equal(forks, 2);
   assert.equal(supervisor.status().generation, 1);
+});
+
+test("replacement child gets a fresh client whose first request is cold-start sequence one", async (context) => {
+  let forks = 0;
+  const telemetryRequestIds: string[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    spawn: () => {
+      forks += 1;
+      return forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["roundtrip"]
+      });
+    },
+    onTelemetry: (frame) => telemetryRequestIds.push(frame.requestId)
+  });
+  context.after(() => supervisor.stop().catch(() => undefined));
+
+  await supervisor.start();
+  const firstPid = supervisor.status().pid!;
+  await supervisor.lookup("before-replacement");
+  process.kill(firstPid, "SIGKILL");
+  await waitFor(() => !supervisor.status().connected);
+
+  await supervisor.lookup("after-replacement");
+  const replacementPid = supervisor.status().pid!;
+
+  assert.equal(forks, 2);
+  assert.notEqual(replacementPid, firstPid);
+  assert.deepEqual(telemetryRequestIds, ["1:1", "1:1"]);
+  assert.equal(classifyProvenanceCapacitySample(telemetryRequestIds[1]!, 1), "cold-start");
 });
 
 test("connected child that never announces READY is terminated at the readiness deadline", async (context) => {
