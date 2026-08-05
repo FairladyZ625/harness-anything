@@ -73,7 +73,7 @@ if (mode === "expected-direct-rejection") {
       return;
     }
     if (message.kind === "submit") {
-      trace(`submit:${String(message.command.payload.label ?? "")}`);
+      trace(`submit:${submissionLabel(message.command.payload)}`);
       void transport.send({
         protocol: repoWriteProtocolType,
         repoId: message.repoId,
@@ -213,4 +213,14 @@ if (mode === "expected-direct-rejection") {
 
 function trace(event: string): void {
   if (tracePath) appendFileSync(tracePath, `${event}\n`, "utf8");
+}
+
+function submissionLabel(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const command = (payload as { readonly command?: unknown }).command;
+  if (!command || typeof command !== "object" || Array.isArray(command)) return "";
+  const action = (command as { readonly action?: unknown }).action;
+  if (!action || typeof action !== "object" || Array.isArray(action)) return "";
+  const title = (action as { readonly title?: unknown }).title;
+  return typeof title === "string" ? title : "";
 }

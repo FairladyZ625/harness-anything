@@ -10,7 +10,12 @@ import { sha256Text } from "@harness-anything/kernel";
 import type { AuthenticatedActor } from "../src/identity/types.ts";
 import type { AuthorityConnectionDispatch } from "../src/protocol/connection-context.ts";
 import { RepoWriteIpcPayloadTooLargeError } from "../src/runtime/repo-write-client-errors.ts";
-import type { RepoWriteCommandDto } from "../src/runtime/repo-write-protocol.ts";
+import {
+  parseRepoWriteParentMessage,
+  repoWriteProtocolType,
+  stringifyRepoWriteParentMessage,
+  type RepoWriteCommandDto
+} from "../src/runtime/repo-write-protocol.ts";
 import type { RepoWriteProcessSupervisor } from "../src/runtime/repo-write-process-supervisor.ts";
 import { dispatchDocSyncSubmitToWriter } from "../src/service/doc-sync-writer-dispatch.ts";
 import { resolveDocSyncChangePath } from "../src/service/doc-sync-writer-working-tree.ts";
@@ -67,6 +72,26 @@ test("doc-sync dispatch rejects an externally supplied writer-working-tree conte
     assert.match(result.reason, /internal writer-working-tree content kind/u);
   }
   assert.equal(directCalls, 0);
+});
+
+test("doc-sync's actual dispatch producer survives strict parent-frame serialization", async () => {
+  let decodedCommandName: string | undefined;
+  await dispatchDocSyncSubmitToWriter(dispatchInput(request(), async (command) => {
+    const text = stringifyRepoWriteParentMessage({
+      protocol: repoWriteProtocolType,
+      repoId: "canonical",
+      generation: 1,
+      kind: "direct",
+      requestId: "request-doc-sync-producer",
+      command
+    });
+    const decoded = parseRepoWriteParentMessage(text);
+    assert.equal(decoded.kind, "direct");
+    if (decoded.kind === "direct") decodedCommandName = decoded.command.commandName;
+    return acceptedReceipt();
+  }));
+
+  assert.equal(decodedCommandName, "doc-sync-submit");
 });
 
 test("doc-sync dispatch applies authored-root layout overrides before framing", async () => {

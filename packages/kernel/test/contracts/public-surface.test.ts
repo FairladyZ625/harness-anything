@@ -100,6 +100,7 @@ const publicRuntimeSurface = [
   "createWritableEntityRegistry",
   "daemonAdmissionBytes",
   "decisionAmendFieldSupportsOperation",
+  "decisionAmendOperations",
   "decisionAmendableFields",
   "decisionClaimFulfillments",
   "decisionContentCanonicalization",

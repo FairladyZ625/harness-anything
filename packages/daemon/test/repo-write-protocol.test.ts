@@ -11,7 +11,6 @@ import {
   encodeRepoWriteBytes,
   parseRepoWriteChildMessage,
   parseRepoWriteParentMessage,
-  repoWriteLegacyCommandName,
   repoWriteProtocolType,
   stringifyRepoWriteChildMessage,
   stringifyRepoWriteParentMessage,
@@ -35,10 +34,21 @@ test("submit codec carries command DTOs as JSON-safe values with explicit scalar
     ...base("submit"),
     requestId: "request-1",
     command: {
-      commandName: "task.create",
-      actor: { personId: "person_zeyu" },
+      commandName: "gui",
+      actor: {
+        personId: "person_zeyu",
+        bytes: encodeRepoWriteBytes(Uint8Array.from([0, 127, 255]))
+      },
       context: { leaseEpoch: encodeRepoWriteBigInt(9_223_372_036_854_775_807n) },
-      payload: { bytes: encodeRepoWriteBytes(Uint8Array.from([0, 127, 255])) }
+      payload: {
+        command: { rootDir: "/repo", json: true, action: { kind: "gui" } },
+        session: {
+          runtime: "human",
+          sessionId: "session-scalar-codec",
+          source: "manual",
+          detectedAt: "2026-08-05T00:00:00.000Z"
+        }
+      }
     }
   };
 
@@ -51,7 +61,7 @@ test("submit codec carries command DTOs as JSON-safe values with explicit scalar
     9_223_372_036_854_775_807n
   );
   assert.deepEqual(
-    [...decodeRepoWriteBytes(decoded.kind === "submit" ? decoded.command.payload.bytes : undefined)],
+    [...decodeRepoWriteBytes(decoded.kind === "submit" ? decoded.command.actor.bytes : undefined)],
     [0, 127, 255]
   );
 });
@@ -125,7 +135,7 @@ test("task-complete is a strict typed wire branch instead of a generic command p
   assert.throws(() => decodeRepoWriteParentMessage({
     ...frame,
     command: { ...frame.command, payload: { arbitrary: "generic payload" } }
-  }), /unknown keys|TASK_COMPLETE_TRANSITION_COMMAND_INVALID/u);
+  }), /required field|TASK_COMPLETE_TRANSITION_COMMAND_INVALID/u);
   assert.throws(() => decodeRepoWriteParentMessage({
     ...frame,
     command: {
@@ -135,11 +145,7 @@ test("task-complete is a strict typed wire branch instead of a generic command p
         command: { ...frame.command.payload.command, transportEscape: true }
       }
     }
-  }), /exact message fields/u);
-  assert.throws(
-    () => repoWriteLegacyCommandName("task-complete"),
-    /REPO_WRITE_TASK_COMPLETE_TYPED_COMMAND_REQUIRED/u
-  );
+  }), /no unknown fields/u);
 });
 
 test("task-submit is a strict typed wire branch instead of a generic command payload", () => {
@@ -197,10 +203,6 @@ test("task-submit is a strict typed wire branch instead of a generic command pay
       }
     }
   }), /TASK_SUBMIT_TRANSITION_COMMAND_INVALID/u);
-  assert.throws(
-    () => repoWriteLegacyCommandName("task-submit"),
-    /REPO_WRITE_TASK_SUBMIT_TYPED_COMMAND_REQUIRED/u
-  );
 });
 
 test("prepared and proceed form an exact opId handshake before canonical mutation", () => {
@@ -278,10 +280,18 @@ test("volatile direct execution carries an exact receipt without durable recover
     ...base("direct"),
     requestId: "request-direct",
     command: {
-      commandName: "task.claim",
+      commandName: "gui",
       actor: { personId: "person_zeyu" },
       context: {},
-      payload: { taskId: "task_direct" }
+      payload: {
+        command: { rootDir: "/repo", json: true, action: { kind: "gui" } },
+        session: {
+          runtime: "human",
+          sessionId: "session-direct",
+          source: "manual",
+          detectedAt: "2026-08-05T00:00:00.000Z"
+        }
+      }
     }
   };
   const result: RepoWriteChildMessage = {

@@ -13,8 +13,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
+  repoWriteCurrentCommandForExecution,
   repoWriteActorStampDigestV1,
   RepoWriteOutcomeUnsupportedPlatformError,
   type RepoWriteProceedingInputV1,
@@ -123,6 +125,34 @@ outcomeTest("restrictive umask cannot weaken the 0700 directory and 0600 record 
   });
 });
 
+outcomeTest("pre-cutover dotted commands decode unchanged into fenced historical recovery", () => {
+  withDirectory((directory) => {
+    const input = proceedingInput("outer-legacy-command");
+    const historicalCommand = {
+      commandName: "task.progress.append",
+      actor: input.canonicalCommand.actor,
+      context: { presentation: "json" },
+      payload: {}
+    };
+    new DurableRepoWriteOutcomeStoreV1({ directory, ...axes() }).begin({
+      ...input,
+      canonicalCommand: historicalCommand
+    });
+
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      ...axes(),
+      generation: axes().generation + 1
+    });
+    const [replayed] = current.listHistoricalProceedings();
+    assert.deepEqual(replayed?.canonicalCommand, historicalCommand);
+    assert.throws(
+      () => repoWriteCurrentCommandForExecution(replayed!.canonicalCommand),
+      /REPO_WRITE_HISTORICAL_COMMAND_REQUIRES_FENCED_RECOVERY:task\.progress\.append/u
+    );
+  });
+});
+
 outcomeTest("oversized authority mutation proofs are budgeted before evidence hashing", () => {
   withDirectory((directory) => {
     const input = proceedingInput("outer-mutation-budget");
@@ -167,12 +197,7 @@ function proceedingInput(outerOpId: string): RepoWriteProceedingInputV1 {
     outerOpId,
     innerOpId: `inner-${outerOpId}`,
     authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "task.create",
-      actor,
-      context: { presentation: "json" },
-      payload: { title: "durability" }
-    },
+    canonicalCommand: repoWriteProgressCommand(actor, { presentation: "json" }),
     authenticatedContext: { actor, presentation: { json: true } },
     receiptSeed: {
       schema: "repo-write-receipt-seed/v1",

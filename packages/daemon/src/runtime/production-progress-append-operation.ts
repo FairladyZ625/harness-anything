@@ -34,8 +34,10 @@ import {
   decodeRepoWriteCommand
 } from "./repo-write-progress-command.ts";
 import {
+  repoWriteCurrentCommandForExecution,
   repoWriteActorStampDigestV1,
   repoWriteReceiptSeedSchema,
+  type RepoWriteCanonicalCommandDto,
   type RepoWriteProceedingOutcomeV1,
   type RepoWriteTerminalEvidenceV1
 } from "./repo-write-outcome-schema.ts";
@@ -278,8 +280,9 @@ export class ProductionRepoWriteOperationHost<
     );
   }
 
-  private async prepareFixedCommand(dto: RepoWriteCommandDto) {
-    const decoded = decodeRepoWriteCommand(dto);
+  private async prepareFixedCommand(dto: RepoWriteCanonicalCommandDto) {
+    const currentCommand = repoWriteCurrentCommandForExecution(dto);
+    const decoded = decodeRepoWriteCommand(currentCommand);
     const binding = this.options.authorityComponent.bindConnection(
       decoded.authorityConnection
     );
@@ -288,7 +291,7 @@ export class ProductionRepoWriteOperationHost<
     }
     reportCurrentRepoWriteTelemetry("compile-command-normalize");
     const command = await this.options.hostServices.normalizeCommand(
-      this.options.hostServices.parseCommandPayload(dto.payload),
+      this.options.hostServices.parseCommandPayload(currentCommand.payload),
       decoded.currentSession
     );
     const authorityCommand = this.options.hostServices.authorityCommand(command);
@@ -320,7 +323,10 @@ export class ProductionRepoWriteOperationHost<
     plan: ProductionAuthorityAttemptPlanV1,
     recovery = false
   ): Promise<RepoWriteDurableExecutionResult> {
-    const decoded = decodeRepoWriteCommand(proceeding.canonicalCommand);
+    const currentCommand = repoWriteCurrentCommandForExecution(
+      proceeding.canonicalCommand
+    );
+    const decoded = decodeRepoWriteCommand(currentCommand);
     if (recovery && plan.commandKind === "progress-append") {
       guardProgressAppendRecoveryEffect({
         rootInput: {
@@ -364,7 +370,7 @@ export class ProductionRepoWriteOperationHost<
       }
     );
     const receipt = exactReceipt(await commandService.runCommand(
-      proceeding.canonicalCommand.payload as unknown as JsonObject,
+      currentCommand.payload as unknown as JsonObject,
       {
         actor: decoded.actor,
         executor: decoded.executor,

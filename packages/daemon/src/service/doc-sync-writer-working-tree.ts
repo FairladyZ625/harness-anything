@@ -1,14 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { DocSyncSubmitRequestV1 } from "@harness-anything/application";
+import {
+  docSyncWriterWorkingTreeContentKind,
+  type DocSyncSubmitRequestV1
+} from "@harness-anything/application";
 import { noFollowPathComponents } from "@harness-anything/kernel/layout/path-safety";
 import {
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   type HarnessLayoutInput
 } from "@harness-anything/kernel";
-
-const docSyncWriterWorkingTreeContentKind = "writer-working-tree/v1";
 
 export class ExternalDocSyncWorkingTreeReferenceError extends Error {
   constructor() {

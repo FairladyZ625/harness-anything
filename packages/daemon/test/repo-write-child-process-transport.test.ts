@@ -21,6 +21,7 @@ import {
   type RepoWriteChildMessage
 } from "../src/runtime/repo-write-protocol.ts";
 import { committedCommandReceipt } from "./support/repo-write-terminal-fixture.ts";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   forceTerminateChildAndWait,
   waitForChildExit
@@ -47,12 +48,7 @@ test("uses Node IPC for validated ready and command roundtrips", async (context)
     generation: 1,
     kind: "submit",
     requestId: "request-1",
-    command: {
-      commandName: "task.create",
-      actor: { actorId: "actor-1" },
-      context: {},
-      payload: { title: "bounded command" }
-    }
+    command: repoWriteProgressCommand({ actorId: "actor-1" })
   });
   assert.deepEqual(await prepared, {
     protocol: repoWriteProtocolType,
@@ -251,6 +247,7 @@ test("marks synchronous IPC rejection as definitely not sent before disconnect n
 
 test("reports the exact oversized IPC field, byte overage, and next action", () => {
   const transport = new RepoWriteParentProcessTransport(stalledChild());
+  const baseCommand = repoWriteProgressCommand();
 
   assert.throws(() => transport.send({
     protocol: repoWriteProtocolType,
@@ -259,15 +256,24 @@ test("reports the exact oversized IPC field, byte overage, and next action", () 
     kind: "direct",
     requestId: "oversized-direct",
     command: {
-      commandName: "doc-sync-submit",
-      actor: {},
-      context: {},
-      payload: { body: "x".repeat(256 * 1024 + 1) }
+      ...baseCommand,
+      payload: {
+        ...baseCommand.payload,
+        command: {
+          ...baseCommand.payload.command,
+          action: {
+            kind: "progress-append",
+            taskId: "task_01KY",
+            text: "x".repeat(256 * 1024 + 1),
+            dryRun: false
+          }
+        }
+      }
     }
   }), (error) => {
     assert.ok(error instanceof RepoWriteIpcPayloadTooLargeError);
     assert.equal(error.code, "REPO_WRITE_IPC_PAYLOAD_TOO_LARGE");
-    assert.equal(error.path, "$.command.payload.body");
+    assert.equal(error.path, "$.command.payload.command.action.text");
     assert.equal(error.actualBytes, 256 * 1024 + 1);
     assert.equal(error.maximumBytes, 256 * 1024);
     assert.equal(error.excessBytes, 1);

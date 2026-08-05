@@ -618,10 +618,18 @@ function shutdown(requestId: string): Extract<RepoWriteParentMessage, { kind: "s
 
 function command(): RepoWriteCommandDto {
   return {
-    commandName: "task.create",
+    commandName: "gui",
     actor: { personId: "person_zeyu" },
     context: {},
-    payload: { title: "writer isolate" }
+    payload: {
+      command: { rootDir: "/repo", json: true, action: { kind: "gui" } },
+      session: {
+        runtime: "codex",
+        sessionId: "session-child-host",
+        source: "runtime",
+        detectedAt: "2026-08-05T00:00:00.000Z"
+      }
+    }
   };
 }
 

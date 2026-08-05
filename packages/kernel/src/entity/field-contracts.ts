@@ -100,6 +100,7 @@ export const entityFieldContracts = {
 export const decisionAmendableFields = ["title", "decisionClass", "chosen", "rejected", "claims"] as const satisfies ReadonlyArray<DecisionFieldKey>;
 export type DecisionAmendField = (typeof decisionAmendableFields)[number];
 export type DecisionAmendOperation = Extract<EntityFieldWriteSurface, { readonly kind: "amend" }>["operation"];
+export const decisionAmendOperations = ["replace", "append", "metadata"] as const satisfies ReadonlyArray<DecisionAmendOperation>;
 
 export function isDecisionAmendField(value: string): value is DecisionAmendField {
   return value in decisionFieldContracts && decisionFieldContracts[value as keyof typeof decisionFieldContracts].mutability === "amendable";

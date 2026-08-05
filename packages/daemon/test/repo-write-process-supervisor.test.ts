@@ -28,6 +28,7 @@ import {
   createDaemonRequestPerformanceTrace,
   runWithDaemonRequestPerformanceTrace
 } from "../src/observability/request-performance.ts";
+import { repoWriteProductionCommandFixture } from "./support/repo-write-production-command-fixture.ts";
 
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
@@ -343,13 +344,12 @@ test("replacement rejects an entrypoint whose artifact changed after initial REA
   });
 });
 
-function command(label = "", commandName = "decision-propose") {
-  return {
-    commandName,
-    actor: { personId: "person-test" },
-    context: {},
-    payload: { command: "test", label }
-  };
+function command(
+  label = "",
+  commandName: Parameters<typeof repoWriteProductionCommandFixture>[0] =
+    "decision-propose"
+) {
+  return repoWriteProductionCommandFixture(commandName, label);
 }
 
 function pinnedChildSource(identityModule: string): string {

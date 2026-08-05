@@ -5,6 +5,7 @@ import test from "node:test";
 import { forkRepoWriteProcess } from "../src/runtime/repo-write-child-process-transport.ts";
 import type { RepoWriteRequestTimeoutDiagnostic } from "../src/runtime/repo-write-client-contract.ts";
 import { RepoWriteProcessSupervisor } from "../src/runtime/repo-write-process-supervisor.ts";
+import { repoWriteProductionCommandFixture } from "./support/repo-write-production-command-fixture.ts";
 
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
@@ -30,12 +31,9 @@ test("durable deadline observes a slow canonical publication without replacing i
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  const receipt = await supervisor.submit({
-    commandName: "record-fact",
-    actor: { personId: "person-test" },
-    context: {},
-    payload: {}
-  });
+  const receipt = await supervisor.submit(
+    repoWriteProductionCommandFixture("record-fact", "slow publication")
+  );
 
   assert.equal(receipt.ok, true);
   assert.equal(receipt.summary, "slow canonical publication");
