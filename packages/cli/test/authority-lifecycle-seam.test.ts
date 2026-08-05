@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { sha256Text } from "../../kernel/src/index.ts";
+import { createExactWriteScope, sha256Text, withExactCommit } from "../../kernel/src/index.ts";
 import type { AuthorityOperationReceipt } from "../../application/src/index.ts";
 import {
   channelDigest32,
@@ -273,14 +273,13 @@ test("held-lock attributed factory gives one exact coordinator to a same-attribu
     createAttributedCoordinator: (input) => {
       created += 1;
       commitAuthor = input.commitAuthor;
-      return {
+      return withExactCommit({
         enqueue: (op) => Effect.sync(() => {
           pending += 1;
           return { opId: op.opId, entityId: op.entityId, accepted: true as const };
         }),
-        flush: (reason) => Effect.sync(() => ({ reason, opCount: pending, committed: true })),
         recover: Effect.succeed({ replayedOps: 0 })
-      };
+      }, (reason) => Effect.sync(() => ({ reason, opCount: pending, committed: true })), input.exactWriteScope);
     },
     enqueueMaterializerBatch: async ({ sessionId }) => ({
       branches: [{ branch: `sessions/${sessionId}`, commitCount: 1, status: "merged" as const }]
@@ -289,13 +288,14 @@ test("held-lock attributed factory gives one exact coordinator to a same-attribu
     assertWriteFenceHeld: async () => undefined
   };
   const factory = makeHeldLockAttributedCoordinatorFactory(runtime);
+  const exactWriteScope = createExactWriteScope();
   const attribution = {
     actor: { principal: { kind: "person" as const, personId: "person_test" }, executor: { kind: "agent" as const, id: "codex" } },
     principalSource: { kind: "daemon-authenticated" as const, providerId: "test", credentialFingerprint: "sha256:test" },
     executorSource: "client-asserted" as const
   };
-  const first = factory.create({ attribution, sessionId: "session-test" });
-  const second = factory.create({ attribution, sessionId: "session-test" });
+  const first = factory.create({ attribution, sessionId: "session-test", exactWriteScope });
+  const second = factory.create({ attribution, sessionId: "session-test", exactWriteScope });
   assert.equal(first, second);
   assert.equal(created, 1);
   assert.deepEqual(commitAuthor, {
@@ -556,11 +556,10 @@ function componentFixture(repoId: string): AuthorityRepoComponent {
 
 function runtimeFixture(): AuthorityLifecycleRuntime {
   return {
-    createAttributedCoordinator: () => ({
+    createAttributedCoordinator: ({ exactWriteScope }) => withExactCommit({
       enqueue: (op) => Effect.succeed({ opId: op.opId, entityId: op.entityId, accepted: true as const }),
-      flush: (reason) => Effect.succeed({ reason, opCount: 1, committed: true }),
       recover: Effect.succeed({ replayedOps: 0 })
-    }),
+    }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }), exactWriteScope),
     enqueueMaterializerBatch: async ({ sessionId }) => ({
       branches: [{ branch: `sessions/${sessionId}`, commitCount: 1, status: "merged" as const }]
     }),

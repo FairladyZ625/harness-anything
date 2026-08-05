@@ -93,14 +93,13 @@ test("disease A/C: replacement rejects an old connection before canonical public
     const service = createAuthoritySubmissionService({
       workspaceId: "workspace-generation-fence",
       coordinatorFactory: {
-        create: () => ({
+        create: ({ exactWriteScope }) => withExactCommit({
           enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
-          flush: () => Effect.sync(() => {
+          recover: Effect.succeed({ replayedOps: 0 })
+        }, () => Effect.sync(() => {
             flushes += 1;
             return { reason: "explicit" as const, opCount: 1, committed: true };
-          }),
-          recover: Effect.succeed({ replayedOps: 0 })
-        })
+          }), exactWriteScope)
       },
       tokenVerifier: { verify: async () => { throw new Error("stale generation must reject before token verification"); } },
       operationRegistry: registry,
@@ -353,17 +352,16 @@ test("authority replacement between prepare and flush is fenced without a canoni
     const service = createAuthoritySubmissionService({
       workspaceId: "workspace-before-publish",
       coordinatorFactory: {
-        create: () => ({
+        create: ({ exactWriteScope }) => withExactCommit({
           enqueue: (operation) => Effect.sync(() => {
             enqueued += 1;
             return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
           }),
-          flush: () => Effect.sync(() => {
+          recover: Effect.succeed({ replayedOps: 0 })
+        }, () => Effect.sync(() => {
             flushed += 1;
             return { reason: "explicit" as const, opCount: 1, committed: true };
-          }),
-          recover: Effect.succeed({ replayedOps: 0 })
-        })
+          }), exactWriteScope)
       },
       tokenVerifier: validLegacyVerifier("workspace-before-publish"),
       operationRegistry: registry,
@@ -407,13 +405,13 @@ test("generation exclusion spans canonical flush through the corresponding termi
   const service = createAuthoritySubmissionService({
     workspaceId: "workspace-flush-lock",
     coordinatorFactory: {
-      create: () => withExactCommit({
+      create: ({ exactWriteScope }) => withExactCommit({
         enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
         recover: Effect.succeed({ replayedOps: 0 })
       }, (reason) => {
           assert.equal(generationLockDepth > 0, true, "canonical flush escaped the generation exclusion");
           return Effect.succeed({ reason, opCount: 1, committed: true });
-        })
+        }, exactWriteScope)
     },
     tokenVerifier: validLegacyVerifier("workspace-flush-lock"),
     operationRegistry: registry,
@@ -476,10 +474,10 @@ test("a process that observes post-publish staleness leaves PREPARED for current
     const service = createAuthoritySubmissionService({
       workspaceId: "workspace-post-publish",
       coordinatorFactory: {
-        create: () => withExactCommit({
+        create: ({ exactWriteScope }) => withExactCommit({
           enqueue: (operation) => Effect.succeed({ opId: operation.opId, entityId: operation.entityId, accepted: true as const }),
           recover: Effect.succeed({ replayedOps: 0 })
-        }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }))
+        }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }), exactWriteScope)
       },
       tokenVerifier: validLegacyVerifier("workspace-post-publish"),
       operationRegistry: registry,

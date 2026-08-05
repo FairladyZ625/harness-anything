@@ -15,6 +15,8 @@ WriteCoordinator
   recover       -> RecoveryReport 重放任何做到一半的写入
 ```
 
+Authority 调用方只会取得 `ExactWriteCoordinator` facade，其中的 `commitExact(reason, nonEmptyBatch)` 只能发布本 scope 持有的 journal entries，且不会暴露 broad `flush`。
+
 调用方能做的每一件事都表达为一个 `WriteOp`:一个 `opId`、一个 `entityId`、一个 `kind` 和一份 payload。`kind` 取自一个封闭枚举——task 类(`package_create`、`transition_local`、`progress_append`、`doc_write`、`package_archive`、`package_delete_hard` 等)、decision 类(`decision_propose`、`decision_accept`、`decision_reject`、`decision_relate`、`decision_retire` 等)、fact 类(`fact_invalidate`),以及 module 类。这里根本没有"把这些字节写到那个路径"这种原语。一个操作只要不属于枚举内的某个 kind,就进不了系统。
 
 调用方甚至不用手工构造 op。`packages/kernel/src/write-coordination/write-helpers.ts` 里的辅助函数(`writeCoordinatedTaskDocuments`、`writeCoordinatedPayload`)负责组装 op、推导它的 `opId`、入队并 flush——于是所有通往持久化存储的路径,都收束成同一个两步动作:**先 enqueue,再 flush**。

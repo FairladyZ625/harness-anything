@@ -5,14 +5,16 @@ import { Effect } from "effect";
 import {
   createExactWriteScope,
   createJournaledBatch,
-  type JournalRecordWitnessV1,
+  type WriteAck,
   type WriteCoordinator,
   type WriteOp
 } from "@harness-anything/kernel";
 import { makeDeferredAuthorityCoordinator } from "../../src/runtime/authority-write-coordinator.ts";
 
+type JournalWitness = NonNullable<WriteAck["journalWitness"]>;
+
 test("deferred authority commitExact publishes only records in its opaque batch", () => {
-  const witnesses: JournalRecordWitnessV1[] = [];
+  const witnesses: JournalWitness[] = [];
   let broadFlushes = 0;
   let exactFlushes = 0;
   const durable: WriteCoordinator = {
@@ -38,9 +40,10 @@ test("deferred authority commitExact publishes only records in its opaque batch"
   };
   const deferred = makeDeferredAuthorityCoordinator({
     beginProjectionWrite: () => ({ settle: () => undefined }),
-    makeDurableCoordinator: () => durable,
-    exactWriteScope: createExactWriteScope()
+    makeDurableCoordinator: () => durable
   });
+
+  assert.equal("flush" in deferred, false);
 
   const entry = Effect.runSync(deferred.enqueue(authorityWrite("op-current")));
   const report = Effect.runSync(deferred.commitExact("explicit", createJournaledBatch([entry])));
@@ -49,6 +52,27 @@ test("deferred authority commitExact publishes only records in its opaque batch"
   assert.equal(report.publicationMode, "exact-batch");
   assert.equal(exactFlushes, 1);
   assert.equal(broadFlushes, 0);
+});
+
+test("deferred authority duplicate operation ids fail as typed write rejections", () => {
+  const deferred = makeDeferredAuthorityCoordinator({
+    beginProjectionWrite: () => ({ settle: () => undefined }),
+    makeDurableCoordinator: () => { throw new Error("duplicate enqueue must not reach durable publication"); }
+  });
+  Effect.runSync(deferred.enqueue(authorityWrite("op-duplicate")));
+
+  const result = Effect.runSync(Effect.either(
+    deferred.enqueue(authorityWrite("op-duplicate"))
+  ));
+
+  assert.equal(result._tag, "Left");
+  if (result._tag === "Left") {
+    assert.equal(result.left._tag, "WriteRejected");
+    assert.equal(
+      result.left._tag === "WriteRejected" ? result.left.code : undefined,
+      "authority_exact_operation_duplicate"
+    );
+  }
 });
 
 test("deferred authority commitExact fails closed when an accepted op has no exact journal witness", () => {
@@ -95,7 +119,7 @@ test("deferred authority commitExact fails closed when an accepted op has no exa
 
 test("one exact scope commits entries from distinct attributed coordinators as one batch", () => {
   const scope = createExactWriteScope();
-  const durableAcknowledgements: JournalRecordWitnessV1[] = [];
+  const durableAcknowledgements: JournalWitness[] = [];
   let exactFlushes = 0;
   let settled = 0;
   const durable: WriteCoordinator = {

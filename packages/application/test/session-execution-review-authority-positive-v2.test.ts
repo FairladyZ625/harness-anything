@@ -212,8 +212,8 @@ function authority(
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: ({ attribution }) => makeJournaledWriteCoordinator({
-        rootDir, attribution, commitAuthor: { name: "ZeyuLi", email: "zeyuli@example.test" }, autoMaterialize: false
+      create: ({ attribution, exactWriteScope }) => makeJournaledWriteCoordinator({
+        rootDir, attribution, exactWriteScope, commitAuthor: { name: "ZeyuLi", email: "zeyuli@example.test" }, autoMaterialize: false
       })
     },
     tokenVerifier: { verify: async () => { throw new Error("v1 verifier must not run"); } },

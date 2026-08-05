@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
-import { createJournaledBatch, withExactCommit } from "@harness-anything/kernel";
+import { createExactWriteScope, createJournaledBatch, withExactCommit } from "@harness-anything/kernel";
 import {
   makeHeldLockAttributedCoordinatorFactory,
   type AuthorityLifecycleRuntime
@@ -88,6 +88,41 @@ test("committed publication without materialization proof remains indeterminate"
   }
 });
 
+test("separate session scopes materialize only their own publication routes", async () => {
+  const publishedSessions: string[] = [];
+  const runtime = runtimeFixture(async (input) => {
+    publishedSessions.push(input.sessionId);
+    return {
+      flush: await input.publish(),
+      materialization: {
+        branches: [{
+          branch: `sessions/${input.sessionId}`,
+          commitCount: 1,
+          status: "merged"
+        }]
+      }
+    };
+  });
+  const factory = makeHeldLockAttributedCoordinatorFactory(runtime);
+  const first = factory.create({
+    attribution: authorityAttribution(),
+    sessionId: "session-first",
+    exactWriteScope: createExactWriteScope()
+  });
+  const second = factory.create({
+    attribution: authorityAttribution(),
+    sessionId: "session-second",
+    exactWriteScope: createExactWriteScope()
+  });
+  const firstEntry = await enqueueAuthorityTestOperation(first, "op-first-session");
+  await runEffect(first.commitExact("explicit", createJournaledBatch([firstEntry])));
+
+  const secondEntry = await enqueueAuthorityTestOperation(second, "op-second-session");
+  await runEffect(second.commitExact("explicit", createJournaledBatch([secondEntry])));
+
+  assert.deepEqual(publishedSessions, ["session-first", "session-second"]);
+});
+
 type AuthorityPublication = Parameters<AuthorityLifecycleRuntime["enqueueAuthorityPublication"]>[0];
 type AuthorityPublicationReport = Awaited<ReturnType<AuthorityLifecycleRuntime["enqueueAuthorityPublication"]>>;
 
@@ -96,7 +131,7 @@ function runtimeFixture(
 ): AuthorityLifecycleRuntime {
   let pending = 0;
   return {
-    createAttributedCoordinator: () => withExactCommit({
+    createAttributedCoordinator: ({ exactWriteScope }) => withExactCommit({
       enqueue: (op) => Effect.sync(() => {
         pending += 1;
         return { opId: op.opId, entityId: op.entityId, accepted: true as const };
@@ -106,7 +141,7 @@ function runtimeFixture(
         reason,
         opCount: pending,
         committed: true
-      }))),
+      })), exactWriteScope),
     enqueueMaterializerBatch: async () => ({ branches: [] }),
     enqueueAuthorityPublication: publish,
     assertWriteFenceHeld: async () => undefined
@@ -115,20 +150,25 @@ function runtimeFixture(
 
 function authorityCoordinator(runtime: AuthorityLifecycleRuntime, sessionId: string) {
   return makeHeldLockAttributedCoordinatorFactory(runtime).create({
-    attribution: {
-      actor: {
-        principal: { kind: "person", personId: "person_test" },
-        executor: null
-      },
-      principalSource: {
-        kind: "daemon-authenticated",
-        providerId: "test",
-        credentialFingerprint: "sha256:test"
-      },
-      executorSource: "none"
-    },
-    sessionId
+    attribution: authorityAttribution(),
+    sessionId,
+    exactWriteScope: createExactWriteScope()
   });
+}
+
+function authorityAttribution() {
+  return {
+    actor: {
+      principal: { kind: "person" as const, personId: "person_test" },
+      executor: null
+    },
+    principalSource: {
+      kind: "daemon-authenticated" as const,
+      providerId: "test",
+      credentialFingerprint: "sha256:test"
+    },
+    executorSource: "none" as const
+  };
 }
 
 function enqueueAuthorityTestOperation(

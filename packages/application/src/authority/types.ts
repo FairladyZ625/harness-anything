@@ -2,6 +2,7 @@ import type {
   ActorAxesBindingCoreV2,
   AttributionEventV2,
   AuthorityOperationIntegrity,
+  ExactWriteScope,
   ExactWriteCoordinator,
   WriteAttribution,
   WriteOp
@@ -370,6 +371,7 @@ export interface AttributedCoordinatorFactory {
   readonly create: (input: {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
+    readonly exactWriteScope: ExactWriteScope;
   }) => ExactWriteCoordinator;
 }
 

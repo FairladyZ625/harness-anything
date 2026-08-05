@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  createExactWriteScope,
   withExactCommit,
   type ExactWriteCoordinator,
   type ExactWriteScope,
@@ -28,22 +29,34 @@ const pendingByScope = new WeakMap<ExactWriteScope, Map<string, PendingAuthority
 export function makeDeferredAuthorityCoordinator(input: {
   readonly beginProjectionWrite: (op: WriteOp) => ProjectionWriteHandle;
   readonly makeDurableCoordinator: () => WriteCoordinator;
-  readonly exactWriteScope: ExactWriteScope;
+  readonly exactWriteScope?: ExactWriteScope;
 }): ExactWriteCoordinator {
-  const pending = scopedPendingWrites(input.exactWriteScope);
+  const exactWriteScope = input.exactWriteScope ?? createExactWriteScope();
+  const pending = scopedPendingWrites(exactWriteScope);
   const coordinator = {
-    enqueue: (op: WriteOp) => Effect.sync(() => {
+    enqueue: (op: WriteOp) => Effect.suspend(() => {
       if (pending.has(op.opId)) {
-        throw new Error(`authority exact coordinator already contains operation: ${op.opId}`);
+        const error: WriteError = {
+          _tag: "WriteRejected",
+          code: "authority_exact_operation_duplicate",
+          reason: `Authority exact coordinator already contains operation: ${op.opId}`,
+          retryable: false
+        };
+        return Effect.fail(error);
       }
-      const acknowledgement = { opId: op.opId, entityId: op.entityId, accepted: true as const };
-      pending.set(op.opId, {
-        operation: op,
-        acknowledgement,
-        projectionWrite: input.beginProjectionWrite(op),
-        makeDurableCoordinator: input.makeDurableCoordinator
+      return Effect.try({
+        try: () => {
+          const acknowledgement = { opId: op.opId, entityId: op.entityId, accepted: true as const };
+          pending.set(op.opId, {
+            operation: op,
+            acknowledgement,
+            projectionWrite: input.beginProjectionWrite(op),
+            makeDurableCoordinator: input.makeDurableCoordinator
+          });
+          return acknowledgement;
+        },
+        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
       });
-      return acknowledgement;
     }),
     recover: Effect.suspend(() => input.makeDurableCoordinator().recover)
   };
@@ -60,17 +73,13 @@ export function makeDeferredAuthorityCoordinator(input: {
     }
     const owned = selected as Array<NonNullable<(typeof selected)[number]>>;
     for (const entry of owned) pending.delete(entry.operation.opId);
-    const durableEntries = owned.map((entry) => ({
-      entry,
-      coordinator: entry.makeDurableCoordinator()
-    }));
-    return Effect.forEach(durableEntries, ({ entry, coordinator }) => coordinator.enqueue(entry.operation)).pipe(
+    const durableCoordinator = owned[0]!.makeDurableCoordinator();
+    return Effect.forEach(owned, (entry) => durableCoordinator.enqueue(entry.operation)).pipe(
       Effect.flatMap((durableAcknowledgements) => {
         const witnesses = durableAcknowledgements.flatMap((acknowledgement) =>
           acknowledgement.journalWitness ? [acknowledgement.journalWitness] : []
         );
-        const coordinator = durableEntries[0]!.coordinator;
-        if (!coordinator.flushExactJournalRecords || witnesses.length !== owned.length) {
+        if (!durableCoordinator.flushExactJournalRecords || witnesses.length !== owned.length) {
           const witnessedOpIds = new Set(witnesses.map((witness) => witness.opId));
           const missingOpIds = owned
             .map((entry) => entry.operation.opId)
@@ -84,7 +93,7 @@ export function makeDeferredAuthorityCoordinator(input: {
           };
           return Effect.fail(error);
         }
-        return coordinator.flushExactJournalRecords(reason, witnesses).pipe(
+        return durableCoordinator.flushExactJournalRecords(reason, witnesses).pipe(
           Effect.map((report) => ({
             ...report,
             publicationMode: "exact-batch" as const
@@ -95,7 +104,7 @@ export function makeDeferredAuthorityCoordinator(input: {
         for (const entry of owned) entry.projectionWrite.settle();
       }))
     );
-  }), input.exactWriteScope);
+  }), exactWriteScope);
 }
 
 function scopedPendingWrites(scope: ExactWriteScope): Map<string, PendingAuthorityWrite> {

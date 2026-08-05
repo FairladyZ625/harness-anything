@@ -20,6 +20,7 @@ export interface PreparedAuthoritySubmission {
   readonly opId: string;
   readonly operation: WriteOp;
   readonly semanticDigest: string;
+  readonly publicationSessionId: string;
   readonly coordinator: ExactWriteCoordinator;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
   readonly actorAxesBinding?: ActorAxesBindingCoreV2;

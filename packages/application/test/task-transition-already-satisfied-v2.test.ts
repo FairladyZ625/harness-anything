@@ -218,9 +218,10 @@ async function submitTransition(input: {
   const service = createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: ({ attribution }) => makeJournaledWriteCoordinator({
+      create: ({ attribution, exactWriteScope }) => makeJournaledWriteCoordinator({
         rootDir: input.rootDir,
         attribution,
+        exactWriteScope,
         commitAuthor: { name: "ZeyuLi", email: "zeyuli@example.test" },
         autoMaterialize: false
       })

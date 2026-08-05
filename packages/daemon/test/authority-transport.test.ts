@@ -30,11 +30,11 @@ import {
   type ShadowPublicationLog
 } from "../../application/src/index.ts";
 import {
-  createExactWriteScope,
   entityRegistry,
   makeJournaledWriteCoordinator,
   readUnionAttributionEvents,
   taskEntityId,
+  type ExactWriteScope,
   type WriteAttribution
 } from "../../kernel/src/index.ts";
 import {
@@ -402,9 +402,12 @@ function makeAuthority(
 
 function exactCoordinatorFactory(rootDir: string) {
   const active = new Map<string, ReturnType<typeof makeJournaledWriteCoordinator>>();
-  const exactWriteScope = createExactWriteScope();
   return {
-    create: ({ attribution, sessionId }: { readonly attribution: WriteAttribution; readonly sessionId: string }) => {
+    create: ({ attribution, sessionId, exactWriteScope }: {
+      readonly attribution: WriteAttribution;
+      readonly sessionId: string;
+      readonly exactWriteScope: ExactWriteScope;
+    }) => {
       const key = JSON.stringify({ attribution, sessionId });
       const existing = active.get(key);
       if (existing) return existing;

@@ -431,7 +431,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         return this.projectionGeneration.beginCanonicalWrite(touchedPaths);
       },
       makeDurableCoordinator: () => this.makeStartedCoordinator(this.requireWriterAttached(), input),
-      exactWriteScope: input.exactWriteScope
+      ...(input.exactWriteScope ? { exactWriteScope: input.exactWriteScope } : {})
     });
   }
 

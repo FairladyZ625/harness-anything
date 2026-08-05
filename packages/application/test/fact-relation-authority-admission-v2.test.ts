@@ -28,6 +28,7 @@ import {
   encodeCanonicalCbor,
   entityRegistry,
   semanticMutationWireV2,
+  withExactCommit,
   type RegistryEntityRefV2
 } from "../../kernel/src/index.ts";
 
@@ -67,14 +68,13 @@ test("six W2 negative controls are REJECTED before PREPARED, enqueue, or token c
   const service = createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: () => ({
+      create: ({ exactWriteScope }) => withExactCommit({
         enqueue: (operation) => Effect.sync(() => {
           enqueued += 1;
           return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
         }),
-        flush: () => Effect.die("negative control must not flush"),
         recover: Effect.succeed({ replayedOps: 0 })
-      })
+      }, () => Effect.die("negative control must not commit"), exactWriteScope)
     },
     tokenVerifier: { verify: async () => { throw new Error("v1 verifier must not run"); } },
     operationRegistry,

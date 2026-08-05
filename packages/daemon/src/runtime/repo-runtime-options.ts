@@ -109,7 +109,7 @@ export interface HarnessDaemonRuntime {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
     readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"];
-    readonly exactWriteScope: ExactWriteScope;
+    readonly exactWriteScope?: ExactWriteScope;
   }) => ExactWriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
   readonly daemonGenerationContext?: () => {

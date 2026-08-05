@@ -418,7 +418,7 @@ test("an exact consent grant attempt replays one committed receipt after authore
   const service = createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: () => withExactCommit({
+      create: ({ exactWriteScope }) => withExactCommit({
         enqueue: (operation) => Effect.sync(() => {
           enqueued += 1;
           captured = operation;
@@ -426,7 +426,7 @@ test("an exact consent grant attempt replays one committed receipt after authore
           return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
         }),
         recover: Effect.succeed({ replayedOps: 0 })
-      }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }))
+      }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }), exactWriteScope)
     },
     tokenVerifier: { verify: async () => { throw new Error("legacy verifier must not run"); } },
     operationRegistry: createInMemoryAuthorityOperationRegistry(),

@@ -1,5 +1,10 @@
 import type { WriteError } from "../../domain/index.ts";
-import type { FlushReason, FlushReport, WriteOp } from "../../ports/write-coordinator.ts";
+import type {
+  FlushReason,
+  FlushReport,
+  JournalRecordWitnessV1,
+  WriteOp
+} from "../../ports/write-coordinator.ts";
 import { durableFileExists, readDurableState, readFileBytes } from "./durable.ts";
 
 export function reconcileDurableFlush(
@@ -29,6 +34,28 @@ export function reconcileDurableFlush(
     watermark: ownedOpIds.at(-1),
     publicationMode: "integrity-domain"
   };
+}
+
+export function reconcileDurableExactFlush(
+  reason: FlushReason,
+  witnesses: ReadonlyArray<JournalRecordWitnessV1>,
+  authorizations: Map<string, JournalRecordWitnessV1>,
+  pending: WriteOp[],
+  journalPath: string,
+  watermarkPath: string,
+  rootDir: string
+): FlushReport | undefined {
+  const report = reconcileDurableFlush(
+    reason,
+    witnesses.map((witness) => witness.opId),
+    pending,
+    journalPath,
+    watermarkPath,
+    rootDir
+  );
+  if (!report) return undefined;
+  for (const witness of witnesses) authorizations.delete(witness.opId);
+  return { ...report, publicationMode: "exact-batch" };
 }
 
 export function shouldWaitForForeignCommitter(error: WriteError, globalLockPath: string): boolean {

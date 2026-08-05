@@ -13,7 +13,8 @@ import {
 } from "../../../application/src/index.ts";
 import {
   entityRegistry,
-  taskEntityId
+  taskEntityId,
+  withExactCommit
 } from "../../../kernel/src/index.ts";
 import {
   v2Claims,
@@ -62,16 +63,20 @@ export async function submitThroughActualAuthorityServiceV2(): Promise<Authority
   const service = createAuthoritySubmissionService({
     workspaceId,
     coordinatorFactory: {
-      create: () => {
+      create: ({ exactWriteScope }) => {
         let opCount = 0;
-        return {
+        return withExactCommit({
           enqueue: (operation) => Effect.sync(() => {
             opCount += 1;
             return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
           }),
-          flush: (reason) => Effect.succeed({ reason, opCount, committed: true, watermark: "commit-after" }),
           recover: Effect.succeed({ replayedOps: 0 })
-        };
+        }, (reason) => Effect.succeed({
+          reason,
+          opCount,
+          committed: true,
+          watermark: "commit-after"
+        }), exactWriteScope);
       }
     },
     tokenVerifier: { verify: async () => { throw new Error("legacy authority path must not run"); } },

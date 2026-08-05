@@ -2,6 +2,8 @@ import {
   createWritableEntityRegistry,
   stableStringify,
   type AuthorityOperationIntegrity,
+  type ExactWriteCoordinator,
+  type WriteAttribution,
   type WriteOp
 } from "@harness-anything/kernel";
 import {
@@ -52,6 +54,10 @@ export async function prepareAuthorityV2(input: {
   readonly canonicalRequestEnvelope: string;
   readonly mode: AuthorityV2AdmissionMode;
   readonly options: AuthoritySubmissionServiceOptions;
+  readonly createCoordinator: (
+    attribution: WriteAttribution,
+    sessionId: string
+  ) => ExactWriteCoordinator;
   readonly writableEntityRegistry: ReturnType<typeof createWritableEntityRegistry>;
   readonly put: Persistence["put"];
   readonly persistTerminal: Persistence["persistTerminal"];
@@ -289,16 +295,15 @@ export async function prepareAuthorityV2(input: {
       ));
     }
     await consumeAuthorityOperationForModeV2({ mode, verified, opId, options: v2 });
-    const coordinator = options.coordinatorFactory.create({
-      attribution: verified.attribution,
-      sessionId: verified.token.claims.sessionId
-    });
+    const publicationSessionId = verified.token.claims.sessionId;
+    const coordinator = input.createCoordinator(verified.attribution, publicationSessionId);
     return {
       kind: "prepared",
       workspaceId: envelope.workspaceId,
       opId,
       operation: fixedOperation,
       semanticDigest,
+      publicationSessionId,
       coordinator,
       authorityIntegrity: computedIntegrity,
       actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),

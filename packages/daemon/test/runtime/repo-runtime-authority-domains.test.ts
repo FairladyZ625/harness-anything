@@ -6,6 +6,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import { createDaemonRuntime } from "../../src/runtime/repo-runtime.ts";
 import {
+  createJournaledBatch,
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
   moduleEntityId
@@ -21,7 +22,7 @@ test("daemon serializes authority and runtime-event flush domains before either 
     const runtime = createDaemonRuntime({ rootDir, materializerPollMs: false, interactiveMicroBatchMs: 20 });
     await runtime.start();
     const authority = runtime.createAttributedCoordinator({ attribution: testAttribution, sessionId: "authority-domain" });
-    Effect.runSync(authority.enqueue({
+    const authorityEntry = Effect.runSync(authority.enqueue({
       ...docWrite("op-authority-domain", "task-authority-domain", "note.md", "authority\n"),
       authorityIntegrity: authorityIntegrity("11", "22", "33", "task-authority-domain")
     }));
@@ -30,7 +31,10 @@ test("daemon serializes authority and runtime-event flush domains before either 
       operationalActor: { scope: "operational", kind: "system", id: "daemon-runtime" },
       ops: [runtimeEventOp("runtime-event-domain", "authority-domain.jsonl", "evt-domain")]
     });
-    const authorityReceipt = await runEffect(authority.flush("explicit"));
+    const authorityReceipt = await runEffect(authority.commitExact(
+      "explicit",
+      createJournaledBatch([authorityEntry])
+    ));
 
     assert.equal(runtimeEventReceipt.flush.opCount, 1);
     assert.equal(authorityReceipt.opCount, 1);

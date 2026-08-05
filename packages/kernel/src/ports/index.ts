@@ -40,7 +40,6 @@ export {
 } from "./write-coordinator.ts";
 export type {
   AuthorityOperationIntegrity,
-  ExactCapableWriteCoordinator,
   ExactWriteScope,
   ExactWriteCoordinator,
   WriteOp,
@@ -50,9 +49,7 @@ export type {
   LocalTransitionWriteOp,
   ProvenancePayload,
   WriteAck,
-  JournaledBatch,
   JournaledBatchEntry,
-  JournalRecordWitnessV1,
   FlushReason,
   FlushReport,
   RecoveryReport

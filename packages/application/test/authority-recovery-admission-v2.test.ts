@@ -261,7 +261,7 @@ for (const recoveryCase of recoveryCases) {
     const service = createAuthoritySubmissionService({
       workspaceId: claims.workspaceId,
       coordinatorFactory: {
-        create: () => withExactCommit({
+        create: ({ exactWriteScope }) => withExactCommit({
           enqueue: (operation) => Effect.succeed({
             opId: operation.opId,
             entityId: operation.entityId,
@@ -288,7 +288,7 @@ for (const recoveryCase of recoveryCases) {
             assert.equal(witness.opId, opId);
             return { reason, opCount: 1, committed: true };
           });
-        }))
+        }), exactWriteScope)
       },
       tokenVerifier: { verify: async () => { throw new Error("legacy path"); } },
       operationRegistry: registry,
