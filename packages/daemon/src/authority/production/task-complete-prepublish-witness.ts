@@ -20,17 +20,18 @@ import {
   prepublishGitBlobText,
   prepublishGitTextOrNull
 } from "./task-complete-prepublish-publication.ts";
+import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 
 const witnessPrefix = "ha-prepublish-witness-v1.";
 
-export function resolveVerifiedTaskCompleteWitnesses(input: {
+export async function resolveVerifiedTaskCompleteWitnesses(input: {
   readonly rootDir: string;
   readonly authoredRoot: string;
   readonly taskId: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
   readonly command: TaskCompleteTransitionCommand;
   readonly requireCodeDoc: boolean;
-}): ReadonlyArray<VerifiedTaskCompleteExternalWitness> {
+}): Promise<ReadonlyArray<VerifiedTaskCompleteExternalWitness>> {
   const suppliedByKind = new Map<string, TaskCompleteExternalCheckpointRef>();
   for (const witness of input.command.externalCheckpointRefs) {
     if (suppliedByKind.has(witness.kind)) {
@@ -46,15 +47,15 @@ export function resolveVerifiedTaskCompleteWitnesses(input: {
   if (unknown) throw new Error(`AUTHORITY_TASK_COMPLETE_WITNESS_NOT_APPLICABLE:${unknown}`);
   const refs = [
     suppliedByKind.get("document-publication")
-      ?? produceDocumentPublicationWitness(input),
+      ?? (await produceDocumentPublicationWitness(input)),
     ...(input.requireCodeDoc
-      ? [suppliedByKind.get("code-doc-reconciliation") ?? produceCodeDocWitness(input)]
+      ? [suppliedByKind.get("code-doc-reconciliation") ?? (await produceCodeDocWitness(input))]
       : [])
   ];
-  return verifyTaskCompleteWitnessRefs({ ...input, refs });
+  return await verifyTaskCompleteWitnessRefs({ ...input, refs });
 }
 
-export function verifyTaskCompleteWitnessRefs(input: {
+export async function verifyTaskCompleteWitnessRefs(input: {
   readonly rootDir: string;
   readonly authoredRoot: string;
   readonly taskId: string;
@@ -63,7 +64,7 @@ export function verifyTaskCompleteWitnessRefs(input: {
   readonly requireCodeDoc: boolean;
   readonly refs: ReadonlyArray<TaskCompleteExternalCheckpointRef>;
   readonly snapshotMode?: "current" | "committed";
-}): ReadonlyArray<VerifiedTaskCompleteExternalWitness> {
+}): Promise<ReadonlyArray<VerifiedTaskCompleteExternalWitness>> {
   const decodedByKind = new Map<string, VerifiedTaskCompleteExternalWitness>();
   for (const supplied of input.refs) {
     if (decodedByKind.has(supplied.kind)) throw new Error(`AUTHORITY_TASK_COMPLETE_WITNESS_DUPLICATE:${supplied.kind}`);
@@ -75,13 +76,13 @@ export function verifyTaskCompleteWitnessRefs(input: {
   if (!document || document.kind !== "document-publication") {
     throw new Error("AUTHORITY_TASK_COMPLETE_DOCUMENT_PUBLICATION_WITNESS_REQUIRED");
   }
-  verifyDocumentPublicationWitness(input, document, input.snapshotMode ?? "current");
+  await verifyDocumentPublicationWitness(input, document, input.snapshotMode ?? "current");
   const codeDoc = decodedByKind.get("code-doc-reconciliation");
   if (input.requireCodeDoc) {
     if (!codeDoc || codeDoc.kind !== "code-doc-reconciliation") {
       throw new Error("AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED");
     }
-    verifyCodeDocWitness(input, codeDoc, input.snapshotMode ?? "current");
+    await verifyCodeDocWitness(input, codeDoc, input.snapshotMode ?? "current");
   } else if (codeDoc) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_NOT_APPLICABLE:code-doc-reconciliation");
   }
@@ -94,18 +95,22 @@ export function verifyTaskCompleteWitnessRefs(input: {
   return [document, ...(codeDoc ? [codeDoc] : [])];
 }
 
-export function produceDocumentPublicationWitness(input: {
+export async function produceDocumentPublicationWitness(input: {
   readonly rootDir: string;
   readonly authoredRoot: string;
   readonly taskId: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
-}): VerifiedTaskCompleteDocumentPublicationWitness {
+}): Promise<VerifiedTaskCompleteDocumentPublicationWitness> {
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "document-produce",
+    state: "start"
+  });
   const covered = [...input.documents]
     .map((document) => ({ path: canonicalTaskRelativePath(document.path), body: document.body }))
     .sort((left, right) => lexicalCompare(left.path, right.path));
   if (covered.length === 0) throw new Error("AUTHORITY_TASK_COMPLETE_DOCUMENT_PUBLICATION_EMPTY");
   const repositoryPaths = taskRepositoryPaths(input, covered.map((entry) => entry.path));
-  const publication = findAttributedMaterializedPublication(input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
+  const publication = await findAttributedMaterializedPublication(input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
   const witnessWithoutRef = {
     kind: "document-publication" as const,
     repositoryCommit: publication.commit,
@@ -116,23 +121,32 @@ export function produceDocumentPublicationWitness(input: {
       bodySha256: sha256Text(entry.body)
     }))))}`
   };
-  return { ...witnessWithoutRef, ref: encodePrepublishWitnessRef(witnessWithoutRef) };
+  const witness = { ...witnessWithoutRef, ref: encodePrepublishWitnessRef(witnessWithoutRef) };
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "document-produce",
+    state: "done"
+  });
+  return witness;
 }
 
-export function produceCodeDocWitness(input: {
+export async function produceCodeDocWitness(input: {
   readonly rootDir: string;
   readonly authoredRoot: string;
   readonly taskId: string;
   readonly documents: ReadonlyArray<{ readonly path: string; readonly body: string }>;
   readonly command: TaskCompleteTransitionCommand;
-}): VerifiedTaskCompleteCodeDocWitness {
+}): Promise<VerifiedTaskCompleteCodeDocWitness> {
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "code-doc-produce",
+    state: "start"
+  });
   const codeDoc = input.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
   if (!codeDoc) {
     throw new Error(
       "AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED: run `ha task submit <task-id> --from-file submission.json`, then `ha task code-doc reconcile <task-id> --commit <full-sha> [--path <repo-relative-path>]...`, before `ha task complete`."
     );
   }
-  const reconciled = resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD");
+  const reconciled = await resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD");
   const normalizedPaths = normalizeCommandPaths(input.rootDir, input.command.approval?.paths ?? []);
   const prRef = input.command.approval?.prRef ?? null;
   const expected = renderCodeDocReconciliationDraft({
@@ -151,7 +165,7 @@ export function produceCodeDocWitness(input: {
     );
   }
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
-  const publication = findAttributedMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);
+  const publication = await findAttributedMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);
   const witnessWithoutRef = {
     kind: "code-doc-reconciliation" as const,
     repositoryCommit: publication.commit,
@@ -162,7 +176,12 @@ export function produceCodeDocWitness(input: {
     prRef,
     codeDocBodyDigest: `sha256:${sha256Text(codeDoc.body)}`
   };
-  return { ...witnessWithoutRef, ref: encodePrepublishWitnessRef(witnessWithoutRef) };
+  const witness = { ...witnessWithoutRef, ref: encodePrepublishWitnessRef(witnessWithoutRef) };
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "code-doc-produce",
+    state: "done"
+  });
+  return witness;
 }
 
 function describeCodeDocAnchors(body: string): string {
@@ -232,7 +251,7 @@ export function decodePrepublishWitnessRef(ref: string): VerifiedTaskCompleteExt
   throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_KIND_INVALID");
 }
 
-function verifyDocumentPublicationWitness(
+async function verifyDocumentPublicationWitness(
   input: {
     readonly rootDir: string;
     readonly authoredRoot: string;
@@ -241,16 +260,26 @@ function verifyDocumentPublicationWitness(
   },
   witness: VerifiedTaskCompleteDocumentPublicationWitness,
   snapshotMode: "current" | "committed"
-): void {
+): Promise<void> {
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "document-verify",
+    state: "start"
+  });
   const repositoryPaths = taskRepositoryPaths(input, witness.coveredTaskRelativePaths);
-  const covered = snapshotMode === "current"
-    ? [...input.documents]
+  let covered: ReadonlyArray<{ readonly path: string; readonly body: string }>;
+  if (snapshotMode === "current") {
+    covered = [...input.documents]
       .map((document) => ({ path: canonicalTaskRelativePath(document.path), body: document.body }))
-      .sort((left, right) => lexicalCompare(left.path, right.path))
-    : witness.coveredTaskRelativePaths.map((coveredPath, index) => ({
-      path: canonicalTaskRelativePath(coveredPath),
-      body: prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPaths[index]!)
-    }));
+      .sort((left, right) => lexicalCompare(left.path, right.path));
+  } else {
+    covered = [];
+    for (const [index, coveredPath] of witness.coveredTaskRelativePaths.entries()) {
+      covered = [...covered, {
+        path: canonicalTaskRelativePath(coveredPath),
+        body: await prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPaths[index]!)
+      }];
+    }
+  }
   const digestValue = `sha256:${sha256Text(stableStringify(covered.map((entry) => ({
     path: entry.path,
     bodySha256: sha256Text(entry.body)
@@ -259,7 +288,7 @@ function verifyDocumentPublicationWitness(
     || witness.coveredPathSetDigest !== digestValue) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:document-publication");
   }
-  assertAttributedMaterializedPublication(
+  await assertAttributedMaterializedPublication(
     input.authoredRoot,
     witness.repositoryCommit,
     repositoryPaths,
@@ -267,9 +296,13 @@ function verifyDocumentPublicationWitness(
     witness.publicationOperationIds,
     snapshotMode === "committed" ? witness.repositoryCommit : "HEAD"
   );
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "document-verify",
+    state: "done"
+  });
 }
 
-function verifyCodeDocWitness(
+async function verifyCodeDocWitness(
   input: {
     readonly rootDir: string;
     readonly authoredRoot: string;
@@ -279,15 +312,19 @@ function verifyCodeDocWitness(
   },
   witness: VerifiedTaskCompleteCodeDocWitness,
   snapshotMode: "current" | "committed"
-): void {
+): Promise<void> {
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "code-doc-verify",
+    state: "start"
+  });
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
   const currentCodeDoc = input.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
   const codeDocBody = snapshotMode === "current"
     ? currentCodeDoc?.body
-    : prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPath!);
+    : await prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPath!);
   if (!codeDocBody) throw new Error("AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED");
   const reconciledCommitRef = snapshotMode === "current"
-    ? resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD")
+    ? await resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD")
     : witness.reconciledCommitRef;
   const normalizedPaths = normalizeCommandPaths(input.rootDir, input.command.approval?.paths ?? []);
   const prRef = input.command.approval?.prRef ?? null;
@@ -298,16 +335,17 @@ function verifyCodeDocWitness(
     paths: normalizedPaths,
     ...(prRef ? { prRef } : {})
   }) : null;
+  const revParseResult = await prepublishGitTextOrNull(input.rootDir, ["rev-parse", "--verify", "--end-of-options", `${witness.reconciledCommitRef}^{commit}`]);
   if ((expected && (expected.recordIds.length === 0 || expected.body !== codeDocBody))
     || witness.taskId !== input.taskId
     || witness.reconciledCommitRef !== reconciledCommitRef
     || stableStringify(witness.normalizedPaths) !== stableStringify(normalizedPaths)
     || witness.prRef !== prRef
     || witness.codeDocBodyDigest !== `sha256:${sha256Text(codeDocBody)}`
-    || prepublishGitTextOrNull(input.rootDir, ["rev-parse", "--verify", "--end-of-options", `${witness.reconciledCommitRef}^{commit}`]) !== witness.reconciledCommitRef) {
+    || revParseResult !== witness.reconciledCommitRef) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:code-doc-reconciliation");
   }
-  assertAttributedMaterializedPublication(
+  await assertAttributedMaterializedPublication(
     input.authoredRoot,
     witness.repositoryCommit,
     [repositoryPath!],
@@ -315,6 +353,10 @@ function verifyCodeDocWitness(
     witness.publicationOperationIds,
     snapshotMode === "committed" ? witness.repositoryCommit : "HEAD"
   );
+  reportCurrentRepoWriteTelemetry("compile-task-witness", {
+    stage: "code-doc-verify",
+    state: "done"
+  });
 }
 
 function encodePrepublishWitnessRef(value: Omit<VerifiedTaskCompleteExternalWitness, "ref">): string {
@@ -357,8 +399,8 @@ function canonicalTaskRelativePath(value: string): string {
   return normalized;
 }
 
-function resolveCommit(rootDir: string, ref: string): string {
-  const resolved = prepublishGitTextOrNull(rootDir, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+async function resolveCommit(rootDir: string, ref: string): Promise<string> {
+  const resolved = await prepublishGitTextOrNull(rootDir, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
   if (!resolved || !/^[0-9a-f]{40}$/u.test(resolved)) throw new Error(`AUTHORITY_TASK_COMPLETE_COMMIT_REF_INVALID:${ref}`);
   return resolved;
 }

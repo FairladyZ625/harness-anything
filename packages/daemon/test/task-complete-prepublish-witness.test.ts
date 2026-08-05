@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -23,15 +23,19 @@ import {
   produceDocumentPublicationWitness,
   verifyTaskCompleteWitnessRefs
 } from "../src/authority/production/task-complete-prepublish-witness.ts";
+import {
+  createRepoWriteTelemetryDelivery,
+  runWithRepoWriteTelemetry
+} from "../src/runtime/repo-write-telemetry-context.ts";
 
 const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
 
-test("daemon-produced prepublish witnesses bind immutable publication history, covered blobs, and code intent", () => {
+test("daemon-produced prepublish witnesses bind immutable publication history, covered blobs, and code intent", async () => {
   const fixture = witnessRepository();
   try {
-    const document = produceDocumentPublicationWitness(fixture);
-    const codeDoc = produceCodeDocWitness(fixture);
-    const verified = verifyTaskCompleteWitnessRefs({
+    const document = await produceDocumentPublicationWitness(fixture);
+    const codeDoc = await produceCodeDocWitness(fixture);
+    const verified = await verifyTaskCompleteWitnessRefs({
       ...fixture,
       requireCodeDoc: true,
       refs: [
@@ -48,7 +52,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
     assert.deepEqual(codeDoc.publicationOperationIds, ["op_code_doc", "op_document"]);
 
     const forged = forgeWitnessRef(document.ref, { repositoryCommit: fixture.authoredInitialCommit });
-    assert.throws(() => verifyTaskCompleteWitnessRefs({
+    await assert.rejects(() => verifyTaskCompleteWitnessRefs({
       ...fixture,
       requireCodeDoc: true,
       refs: [
@@ -57,7 +61,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
       ]
     }), /WITNESS_COMMIT_NOT_PATH_ATTRIBUTED/u);
 
-    assert.throws(() => verifyTaskCompleteWitnessRefs({
+    await assert.rejects(() => verifyTaskCompleteWitnessRefs({
       ...fixture,
       documents: fixture.documents.map((entry) => entry.path === "closeout.md"
         ? { ...entry, body: `${entry.body}\npost-publication mutation\n` }
@@ -73,7 +77,64 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
   }
 });
 
-test("document publication remains verifiable without machine-local write payloads", () => {
+test("one multi-path publication proof scans first-parent history once", async () => {
+  const fixture = witnessRepository();
+  try {
+    const traced = await withTracedGit(fixture.fixtureRoot, 0, () =>
+      Promise.resolve(produceDocumentPublicationWitness(fixture))
+    );
+    const historyCalls = traced.events.filter((event) =>
+      event.event === "start"
+      && event.args.includes("log")
+      && event.args.includes("--first-parent")
+    );
+    const treeCalls = traced.events.filter((event) =>
+      event.event === "start" && event.args.includes("ls-tree")
+    );
+    assert.equal(historyCalls.length, 1, JSON.stringify(historyCalls));
+    assert.equal(treeCalls.length, 5, JSON.stringify(treeCalls));
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("history telemetry is delivered before a delayed Git history call completes", async () => {
+  const fixture = witnessRepository();
+  try {
+    let proofSettled = false;
+    let observeHistoryStart!: () => void;
+    const historyStart = new Promise<void>((resolve) => { observeHistoryStart = resolve; });
+    const delivery = createRepoWriteTelemetryDelivery(async (_phase, _elapsedMs, details) => {
+      if (details?.stage === "history-start") observeHistoryStart();
+    });
+    const traced = withTracedGit(fixture.fixtureRoot, 300, async (tracePath) => {
+      const proof = Promise.resolve(runWithRepoWriteTelemetry(delivery.report, () =>
+        produceDocumentPublicationWitness(fixture)
+      )).finally(() => { proofSettled = true; });
+      try {
+        await withTimeout(
+          historyStart,
+          1_000,
+          "history-start telemetry was not delivered while Git was running"
+        );
+        await waitForTraceEvent(tracePath, (event) => event.event === "start" && event.delayed);
+        const duringGit = readTraceEvents(tracePath);
+        const delayedEnds = duringGit.filter((event) => event.event === "done" && event.delayed);
+        assert.equal(proofSettled, false);
+        assert.equal(delayedEnds.length, 0);
+      } finally {
+        await proof;
+      }
+    });
+    await traced;
+    await delivery.flush();
+    delivery.close();
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("document publication remains verifiable without machine-local write payloads", async () => {
   const fixture = witnessRepository();
   try {
     rmSync(path.join(fixture.rootDir, ".harness", "write-journal", "payloads"), {
@@ -81,9 +142,9 @@ test("document publication remains verifiable without machine-local write payloa
       force: true
     });
 
-    const document = produceDocumentPublicationWitness(fixture);
+    const document = await produceDocumentPublicationWitness(fixture);
     assert.deepEqual(document.publicationOperationIds, ["op_code_doc", "op_document"]);
-    const verified = verifyTaskCompleteWitnessRefs({
+    const verified = await verifyTaskCompleteWitnessRefs({
       ...fixture,
       requireCodeDoc: false,
       refs: [{ kind: "document-publication", ref: document.ref }]
@@ -94,10 +155,10 @@ test("document publication remains verifiable without machine-local write payloa
   }
 });
 
-test("committed replay rejects a forged merge whose authority parent never changed the task documents", () => {
+test("committed replay rejects a forged merge whose authority parent never changed the task documents", async () => {
   const fixture = witnessRepository();
   try {
-    const document = produceDocumentPublicationWitness(fixture);
+    const document = await produceDocumentPublicationWitness(fixture);
     const taskRoot = path.join(fixture.authoredRoot, "tasks", `${taskId}-witness`);
     const closeout = fixture.documents.find((entry) => entry.path === "closeout.md")!.body;
     writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nRaw first-parent rollback.\n");
@@ -119,7 +180,7 @@ test("committed replay rejects a forged merge whose authority parent never chang
       publicationOperationIds: ["op_forged"]
     });
 
-    assert.throws(() => verifyTaskCompleteWitnessRefs({
+    await assert.rejects(() => verifyTaskCompleteWitnessRefs({
       ...fixture,
       requireCodeDoc: false,
       refs: [{ kind: "document-publication", ref: forged }],
@@ -130,11 +191,11 @@ test("committed replay rejects a forged merge whose authority parent never chang
   }
 });
 
-test("unpublished document rejection stays bounded with 1011 unrelated first-parent materializations", () => {
+test("unpublished document rejection stays bounded with 1011 unrelated first-parent materializations", async () => {
   const fixture = unpublishedScaleWitnessRepository(1_011, 11);
   try {
     const startedAt = performance.now();
-    assert.throws(
+    await assert.rejects(
       () => produceDocumentPublicationWitness(fixture),
       /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED/u
     );
@@ -145,13 +206,13 @@ test("unpublished document rejection stays bounded with 1011 unrelated first-par
   }
 });
 
-test("unpublished document rejection names only the path whose body is not materialized", () => {
+test("unpublished document rejection names only the path whose body is not materialized", async () => {
   const fixture = witnessRepository();
   try {
     const documents = fixture.documents.map((document) => document.path === "closeout.md"
       ? { ...document, body: `${document.body}\nUnpublished mutation.\n` }
       : document);
-    assert.throws(
+    await assert.rejects(
       () => produceDocumentPublicationWitness({ ...fixture, documents }),
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -166,10 +227,10 @@ test("unpublished document rejection names only the path whose body is not mater
   }
 });
 
-test("a later publication cannot attribute an unchanged raw task document", () => {
+test("a later publication cannot attribute an unchanged raw task document", async () => {
   const fixture = partiallyPublishedWitnessRepository();
   try {
-    assert.throws(
+    await assert.rejects(
       () => produceDocumentPublicationWitness(fixture),
       /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:[^\n]*task_plan\.md/u
     );
@@ -178,7 +239,7 @@ test("a later publication cannot attribute an unchanged raw task document", () =
   }
 });
 
-test("code-doc reconciliation rejection names the approval intent and current anchors", () => {
+test("code-doc reconciliation rejection names the approval intent and current anchors", async () => {
   const fixture = witnessRepository();
   try {
     const command = {
@@ -188,7 +249,7 @@ test("code-doc reconciliation rejection names the approval intent and current an
         paths: ["src/other.ts"]
       }
     };
-    assert.throws(
+    await assert.rejects(
       () => produceCodeDocWitness({ ...fixture, command }),
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -469,4 +530,98 @@ function git(rootDir: string, ...args: ReadonlyArray<string>): string {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
+}
+
+interface GitTraceEvent {
+  readonly event: "start" | "done";
+  readonly args: ReadonlyArray<string>;
+  readonly delayed: boolean;
+}
+
+async function withTracedGit<Result>(
+  fixtureRoot: string,
+  historyDelayMs: number,
+  operation: (tracePath: string) => Promise<Result>
+): Promise<{ readonly result: Result; readonly events: ReadonlyArray<GitTraceEvent> }> {
+  const wrapperRoot = path.join(fixtureRoot, "git-wrapper");
+  const wrapperPath = path.join(wrapperRoot, "git");
+  const tracePath = path.join(fixtureRoot, "git-trace.jsonl");
+  mkdirSync(wrapperRoot, { recursive: true });
+  writeFileSync(wrapperPath, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const args = process.argv.slice(2);
+const delayed = args.includes("log") && args.includes("--first-parent");
+appendFileSync(process.env.HA_TEST_GIT_TRACE, JSON.stringify({ event: "start", args, delayed }) + "\\n");
+if (delayed && Number(process.env.HA_TEST_GIT_HISTORY_DELAY_MS) > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.HA_TEST_GIT_HISTORY_DELAY_MS));
+}
+const result = spawnSync(process.env.HA_TEST_REAL_GIT, args, { stdio: "inherit" });
+appendFileSync(process.env.HA_TEST_GIT_TRACE, JSON.stringify({ event: "done", args, delayed }) + "\\n");
+process.exit(result.status ?? 1);
+`);
+  chmodSync(wrapperPath, 0o755);
+  const previous = {
+    path: process.env.PATH,
+    trace: process.env.HA_TEST_GIT_TRACE,
+    realGit: process.env.HA_TEST_REAL_GIT,
+    delay: process.env.HA_TEST_GIT_HISTORY_DELAY_MS
+  };
+  const realGit = execFileSync("/usr/bin/which", ["git"], { encoding: "utf8" }).trim();
+  process.env.PATH = `${wrapperRoot}${path.delimiter}${previous.path ?? ""}`;
+  process.env.HA_TEST_GIT_TRACE = tracePath;
+  process.env.HA_TEST_REAL_GIT = realGit;
+  process.env.HA_TEST_GIT_HISTORY_DELAY_MS = String(historyDelayMs);
+  try {
+    const result = await operation(tracePath);
+    return { result, events: readTraceEvents(tracePath) };
+  } finally {
+    restoreEnvironment("PATH", previous.path);
+    restoreEnvironment("HA_TEST_GIT_TRACE", previous.trace);
+    restoreEnvironment("HA_TEST_REAL_GIT", previous.realGit);
+    restoreEnvironment("HA_TEST_GIT_HISTORY_DELAY_MS", previous.delay);
+  }
+}
+
+function readTraceEvents(tracePath: string): ReadonlyArray<GitTraceEvent> {
+  try {
+    return readFileSync(tracePath, "utf8")
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as GitTraceEvent);
+  } catch {
+    return [];
+  }
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+async function waitForTraceEvent(
+  tracePath: string,
+  predicate: (event: GitTraceEvent) => boolean
+): Promise<void> {
+  await withTimeout(new Promise<void>((resolve) => {
+    const poll = () => {
+      if (readTraceEvents(tracePath).some(predicate)) resolve();
+      else setTimeout(poll, 5);
+    };
+    poll();
+  }), 1_000, "delayed Git history call did not start");
+}
+
+async function withTimeout<Result>(promise: Promise<Result>, timeoutMs: number, message: string): Promise<Result> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
