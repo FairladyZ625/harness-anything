@@ -68,10 +68,7 @@ export function createFixture() {
     "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK6"
   ]) {
     mkdirSync(path.join(authoredRoot, `tasks/${taskId}`), { recursive: true });
-    const body = taskId.endsWith("NK0")
-      ? taskIndexBody(taskId).replace("vertical: default", "vertical: software/coding")
-      : taskIndexBody(taskId);
-    writeFileSync(path.join(authoredRoot, `tasks/${taskId}/INDEX.md`), body);
+    writeFileSync(path.join(authoredRoot, `tasks/${taskId}/INDEX.md`), taskIndexBody(taskId));
   }
   mkdirSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route"), { recursive: true });
   writeFileSync(path.join(authoredRoot, "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8-production-route/INDEX.md"), taskIndexBody("task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8"));
@@ -379,7 +376,7 @@ function operationPath(serviceRoot: string): string {
 }
 
 function taskIndexBody(taskId: string): string {
-  return ["---", "schema: task-package/v2", `task_id: ${taskId}`, "title: Production ingress", "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active", "  ref: ", "  titleSnapshot: Production ingress", "  url: ", "  bindingCreatedAt: 2026-07-17T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`, "packageDisposition: active", "vertical: default", "preset: default", "provenance:", "  - {runtime: \"human\", sessionId: \"fixture\", boundAt: \"2026-07-17T00:00:00.000Z\"}", "---", "", "# Production ingress", ""].join("\n");
+  return ["---", "schema: task-package/v2", `task_id: ${taskId}`, "title: Production ingress", "lifecycle:", "  bindingSchema: lifecycle-binding/v1", "  engine: local", "  status: active", "  ref: ", "  titleSnapshot: Production ingress", "  url: ", "  bindingCreatedAt: 2026-07-17T00:00:00.000Z", `  bindingFingerprint: sha256:${"b".repeat(64)}`, "packageDisposition: active", "vertical: software/coding", "preset: standard-task", "provenance:", "  - {runtime: \"human\", sessionId: \"fixture\", boundAt: \"2026-07-17T00:00:00.000Z\"}", "---", "", "# Production ingress", ""].join("\n");
 }
 
 function writeReviewVerdictTask(
