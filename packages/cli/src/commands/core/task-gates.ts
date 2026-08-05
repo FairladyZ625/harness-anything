@@ -42,12 +42,15 @@ function runTaskLifecycleTransition(
 ): ReturnType<CommandRunner> {
   if (action.dryRun === true) {
     if (!context.authorityCommandPreflight) {
-      const uncheckedGates = [
-        "canonical-authority-planner",
-        "task-completion-evidence",
-        "durable-transition-write"
-      ] as const;
-      return Effect.succeed(taskCompletionDryRunResult(action, uncheckedGates));
+      return Effect.succeed({
+        ok: false,
+        command: "task-complete",
+        taskId: action.taskId,
+        error: cliError(
+          CliErrorCode.WriteRejected,
+          "Task completion dry-run is blocked because the canonical authority planner is unavailable; no completion requirement was evaluated."
+        )
+      } satisfies CliResult);
     }
     const checkedGates = ["canonical-authority-planner", "task-completion-evidence"] as const;
     const uncheckedGates = ["durable-transition-write"] as const;
@@ -129,30 +132,6 @@ function runTaskLifecycleTransition(
       }
     } satisfies CliResult;
   });
-}
-
-function taskCompletionDryRunResult(
-  action: ReturnType<typeof taskCompleteTransitionCommandFromCliAction>,
-  uncheckedGates: ReadonlyArray<string>
-): CliResult {
-  return {
-    ok: true,
-    command: "task-complete",
-    taskId: action.taskId,
-    status: "in_review",
-    completionGate: {
-      ok: false,
-      evidenceMode: action.evidenceMode,
-      dryRun: true,
-      uncheckedGates
-    },
-    report: {
-      schema: "task-lifecycle-transition-preview/v1",
-      dryRun: true,
-      disposition: "server-planner-validation-required",
-      uncheckedGates
-    }
-  } satisfies CliResult;
 }
 
 function runTaskCodeDocReconcile(

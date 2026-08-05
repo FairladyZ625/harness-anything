@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
@@ -37,7 +37,7 @@ test("fresh init creates a workspace HEAD without ambient git identity", () => {
   });
 });
 
-test("task packet help templates pass submission and approval dry-runs", () => {
+test("task packet help templates parse while approval dry-run requires the authority planner", () => {
   withTempRoot((rootDir) => {
     const repoEnv = { HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") };
     runJson(rootDir, ["init"], repoEnv);
@@ -86,19 +86,13 @@ test("task packet help templates pass submission and approval dry-runs", () => {
     writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`, "utf8");
     const indexPath = path.join(rootDir, created.packagePath, "INDEX.md");
     const indexBeforeDryRun = readFileSync(indexPath, "utf8");
-    const approvalDryRun = runJson(rootDir, [
+    const approvalDryRun = runJsonFailure(rootDir, [
       "task", "complete", created.taskId,
       "--approve", "--from-file", approvalPath, "--dry-run"
     ], sessionEnv);
-    assert.equal(approvalDryRun.ok, true);
-    assert.notEqual(approvalDryRun.status, "done");
-    assert.equal(approvalDryRun.report.schema, "task-lifecycle-transition-preview/v1");
-    assert.equal(approvalDryRun.report.disposition, "server-planner-validation-required");
-    assert.deepEqual(approvalDryRun.report.uncheckedGates, [
-      "canonical-authority-planner",
-      "task-completion-evidence",
-      "durable-transition-write"
-    ]);
+    assert.equal(approvalDryRun.ok, false);
+    assert.equal(approvalDryRun.error.code, "write_rejected");
+    assert.match(approvalDryRun.error.hint, /canonical authority planner is unavailable/iu);
     assert.equal(readFileSync(indexPath, "utf8"), indexBeforeDryRun);
   });
 });
@@ -119,6 +113,15 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.Proce
     env: { ...cleanGitEnv, ...env }
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function runJsonFailure(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}): Record<string, any> {
+  const result = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: { ...cleanGitEnv, ...env }
+  });
+  assert.notEqual(result.status, 0, result.stdout || result.stderr);
+  return unwrapCommandReceipt(JSON.parse(result.stdout) as Record<string, any>);
 }
 
 function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {

@@ -49,7 +49,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
         { kind: "document-publication", ref: forged },
         { kind: "code-doc-reconciliation", ref: codeDoc.ref }
       ]
-    }), /WITNESS_COMMIT_NOT_MATERIALIZED_FIRST_PARENT/u);
+    }), /WITNESS_COMMIT_NOT_PATH_ATTRIBUTED/u);
 
     assert.throws(() => verifyTaskCompleteWitnessRefs({
       ...fixture,
@@ -97,6 +97,18 @@ test("unpublished document rejection names only the path whose body is not mater
         assert.match(message, /content differs from expected/u);
         return true;
       }
+    );
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a later publication cannot attribute an unchanged raw task document", () => {
+  const fixture = partiallyPublishedWitnessRepository();
+  try {
+    assert.throws(
+      () => produceDocumentPublicationWitness(fixture),
+      /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:[^\n]*task_plan\.md/u
     );
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
@@ -220,6 +232,54 @@ function unpublishedScaleWitnessRepository(mergeCount: number, documentCount: nu
     : document);
   writeFileSync(path.join(taskRoot, mutatedDocuments[0]!.path), mutatedDocuments[0]!.body);
   return { fixtureRoot, rootDir, authoredRoot, taskId, documents: mutatedDocuments };
+}
+
+function partiallyPublishedWitnessRepository() {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-prepublish-partial-"));
+  const rootDir = path.join(fixtureRoot, "workspace");
+  const authoredRoot = path.join(rootDir, "harness");
+  const taskRoot = path.join(authoredRoot, "tasks", `${taskId}-partial`);
+  mkdirSync(taskRoot, { recursive: true });
+  gitInit(authoredRoot);
+
+  const taskPlan = "# Plan\n\nRaw task plan that has never entered the governed write road.\n";
+  const originalCloseout = "# Closeout\n\nOriginal closeout.\n";
+  const publishedCloseout = "# Closeout\n\nGoverned closeout.\n";
+  writeFileSync(path.join(taskRoot, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    "title: Partial publication fixture",
+    "lifecycle:",
+    "  engine: local",
+    "  status: in_review",
+    "---",
+    "",
+    "# Partial publication fixture",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(taskRoot, "task_plan.md"), taskPlan);
+  writeFileSync(path.join(taskRoot, "closeout.md"), originalCloseout);
+  git(authoredRoot, "add", ".");
+  git(authoredRoot, "commit", "-q", "-m", "test: raw task documents");
+
+  git(authoredRoot, "checkout", "-q", "-b", "publication");
+  writeFileSync(path.join(taskRoot, "closeout.md"), publishedCloseout);
+  git(authoredRoot, "add", ".");
+  git(authoredRoot, "commit", "-q", "-m", "authority publication [op_closeout]");
+  git(authoredRoot, "checkout", "-q", "main");
+  git(authoredRoot, "merge", "-q", "--no-ff", "publication", "-m", "materialize [op_closeout]");
+
+  return {
+    fixtureRoot,
+    rootDir,
+    authoredRoot,
+    taskId,
+    documents: [
+      { path: "closeout.md", body: publishedCloseout },
+      { path: "task_plan.md", body: taskPlan }
+    ]
+  };
 }
 
 function appendNoopFirstParentMerges(rootDir: string, initialCommit: string, mergeCount: number): void {

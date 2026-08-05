@@ -132,24 +132,22 @@ test("changes_requested closeout packet cannot complete the submitted task", () 
   });
 });
 
-test("closeout dry-run satisfies its receipt contract without inventing execution state", () => {
+test("completion dry-runs fail closed when the authority planner is unavailable", () => {
   withTempRoot((rootDir) => {
     const fixture = prepareActiveTask(rootDir, "Dry Run Contract");
     const packet = writeCloseoutPacket(rootDir);
+    const approvalPacket = writeApprovalPacket(rootDir);
     const taskRoot = path.join(rootDir, fixture.packagePath);
     const indexBefore = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
 
-    const previewed = runJson(rootDir, ["task", "closeout", fixture.taskId, "--from-file", packet, "--dry-run"], true, fixture.env);
+    const closeout = runJson(rootDir, ["task", "closeout", fixture.taskId, "--from-file", packet, "--dry-run"], false, fixture.env);
+    const complete = runJson(rootDir, ["task", "complete", fixture.taskId, "--approve", "--from-file", approvalPacket, "--dry-run"], false, fixture.env);
 
-    assert.equal(previewed.ok, true);
-    assert.equal(previewed.command, "task-closeout");
-    assert.equal(previewed.taskId, fixture.taskId);
-    assert.equal(previewed.executionId, undefined);
-    assert.equal(previewed.status, undefined);
-    assert.equal(previewed.report.schema, "task-closeout-dry-run/v1");
-    assert.equal(previewed.report.dryRun, true);
-    assert.equal(previewed.report.preview.schema, "command-dry-run-preview/v1");
-    assert.deepEqual(previewed.report.steps, ["task-complete"]);
+    assert.deepEqual([closeout.ok, complete.ok], [false, false], JSON.stringify({ closeout, complete }));
+    for (const previewed of [closeout, complete]) {
+      assert.equal(previewed.error.code, "write_rejected", JSON.stringify(previewed));
+      assert.match(previewed.error.hint, /authority planner.+unavailable/iu);
+    }
     assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), indexBefore);
   });
 });

@@ -63,6 +63,33 @@ test("doc sync keeps a consumer closeout edit visible as a governed task-prose c
   }, { writeRegistry: false });
 });
 
+test("doc sync publishes a consumer task plan through the governed prose road without a registry", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot }) => {
+    const relativePath = `tasks/${taskId}/task_plan.md`;
+    const planPath = path.join(taskRoot, "task_plan.md");
+    writeFileSync(planPath, planBody().replace("Original prose.", "Edited consumer plan."), "utf8");
+
+    const request = buildDocSyncSubmitRequest(
+      rootDir,
+      "consumer",
+      [relativePath],
+      { kind: "agent", id: "codex-test" },
+      cliDaemonServiceHostServices.docSync
+    );
+    const report = buildDocSyncReport(rootDir, cliDaemonServiceHostServices.docSync);
+    assert.deepEqual(report.candidateBlobs.map((entry) => entry.path), [relativePath]);
+    const result = await makeDocSyncService({
+      rootDir,
+      coordinator: attributedCoordinator(rootDir),
+      hostServices: cliDaemonServiceHostServices.docSync
+    }).submit(request);
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (result.ok) assert.deepEqual(result.appliedChanges.map((change) => change.path), [relativePath]);
+    assert.equal(git(harnessRoot, "status", "--short"), "");
+  });
+});
+
 test("doc sync rejects a closeout request whose task package is swapped to an external symlink", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot }) => {
     const closeoutPath = path.join(taskRoot, "closeout.md");

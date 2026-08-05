@@ -30,20 +30,19 @@ export async function runTaskCloseoutFacade(command: ParsedCommand, dispatch: Di
   const resolved = resolveCommit(closeoutCommand.rootDir, closeoutCommand.action.commitRef);
   if (!resolved.ok) return resolved.result;
   const steps = taskCloseoutFacadeSteps(closeoutCommand, resolved.sha);
-  if (command.action.dryRun) return dryRun(closeoutCommand, steps, { commit: resolved.sha });
   const receipt = await dispatch(steps[0]!);
   if (!receipt.ok) return receipt;
-  const submitData = lifecycleFacadeReceiptData(receipt);
+  const completionData = lifecycleFacadeReceiptData(receipt);
   return {
     ok: true,
     command: "task-closeout",
-    taskId: command.action.taskId,
-    executionId: text(submitData.executionId),
-    status: "done",
+    ...completionData,
     ...(receipt.warnings && receipt.warnings.length > 0 ? { warnings: receipt.warnings } : {}),
     report: {
-      schema: "task-closeout-result/v1",
+      schema: command.action.dryRun ? "task-closeout-dry-run/v1" : "task-closeout-result/v1",
+      ...(command.action.dryRun ? { dryRun: true } : {}),
       commit: resolved.sha,
+      completionPlan: completionData.report,
       steps: [receipt]
     }
   } satisfies CliResult;
@@ -64,6 +63,7 @@ export function taskCloseoutFacadeSteps(
       reviewerId: action.reviewerId,
       evidenceMode: "execution-review",
       commitRef: sha,
+      dryRun: action.dryRun,
       approval: {
         ...(action.review.executionId ? { executionId: action.review.executionId } : {}),
         findings: action.review.findings,
@@ -140,10 +140,6 @@ function resolveCommit(rootDir: string, commitRef: string, command = "task-close
 
 function lifecycleFacadeRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function lifecycleFacadeReceiptData(receipt: CommandReceipt): Record<string, unknown> {

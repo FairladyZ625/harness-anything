@@ -1,4 +1,4 @@
-import { defineCommandSpecs } from "./types.ts";
+import { defineCommandSpecs, type CommandReceiptContract } from "./types.ts";
 import { writeCommandEventPolicy } from "./command-event-policies.ts";
 import { parseCapabilitiesArgs } from "../parsers/capabilities.ts";
 import { parseCoreTaskArgs } from "../parsers/core-task.ts";
@@ -14,6 +14,25 @@ import { runTaskLifecycleWithDemotions as runTaskLifecycleCommand } from "../../
 import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
 import { rejectDaemonTaskLifecycleFacade } from "../../commands/core/task-lifecycle-facade.ts";
+
+const taskCompletionReceiptContract = {
+  data: ["taskId", "status", "completionGate"],
+  optionalData: {
+    report: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate.",
+    executionId: "Only emitted when completion accepts a submitted Execution.",
+    completionEvidence: "Only emitted when completion accepts an immutable commit-anchor judgment record.",
+    reviewContract: "Compatibility-only legacy review.md gate evidence; it never authorizes completion.",
+    authorityOutcome: "Only emitted when the production authority reports an already-satisfied replay.",
+    repoWrite: "Only emitted when the production daemon child includes its durable writer outcome."
+  },
+  paths: [],
+  successNext: { kind: "none" },
+  dryRun: {
+    data: ["taskId", "status", "completionGate", "report"],
+    paths: [],
+    successNext: { kind: "none" }
+  }
+} satisfies CommandReceiptContract;
 
 export const coreCommandSpecs = defineCommandSpecs([
   {
@@ -254,20 +273,13 @@ export const coreCommandSpecs = defineCommandSpecs([
     "kind": "task-closeout",
     "display": "advanced",
     "usage": "task closeout <id> --from-file <closeout.json> [--execution-id <execution-id>] [--lease-token <token>] [--commit <git-ref>] [--reviewer <id>] [--dry-run] [--json]",
-    "options": [{"flag":"--from-file","description":"Read the human completion claim, Review judgment and consent, CI result, and optional evidence fields."},{"flag":"--execution-id","description":"Select the active Execution; otherwise use Holder V2 and the sole submitted round."},{"flag":"--lease-token","description":"Authenticate the active Holder V2 lease when it is not available implicitly."},{"flag":"--commit","description":"Resolve this git ref to a full 40-character commit SHA; defaults to HEAD."},{"flag":"--reviewer","description":"Set the completion reviewer id recorded by the existing completion gate."},{"flag":"--dry-run","description":"Resolve the commit and list the separately admitted gate steps without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Compatibility approval entry: after task submit, record the owner's Review, sync task prose, reconcile the workspace commit, and complete.",
+    "options": [{"flag":"--from-file","description":"Read the human completion claim, Review judgment and consent, CI result, and optional evidence fields."},{"flag":"--execution-id","description":"Select the active Execution; otherwise use Holder V2 and the sole submitted round."},{"flag":"--lease-token","description":"Authenticate the active Holder V2 lease when it is not available implicitly."},{"flag":"--commit","description":"Resolve this git ref to a full 40-character commit SHA; defaults to HEAD."},{"flag":"--reviewer","description":"Set the completion reviewer id recorded by the existing completion gate."},{"flag":"--dry-run","description":"Run the same canonical task-complete planner without writing."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Compatibility approval entry that translates one closeout packet into the canonical task-complete planner and transaction.",
     "examples": ["harness-anything task closeout task_01ABC --from-file closeout.json --json"],
     "parse": parseCoreTaskArgs,
     "run": rejectDaemonTaskLifecycleFacade,
     "receiptContract": {
-      "data": ["taskId", "executionId", "status", "report"],
-      "paths": [],
-      "successNext": {kind: "none"},
-      "dryRun": {
-        "data": ["taskId", "report"],
-        "paths": [],
-        "successNext": { kind: "none" }
-      }
+      ...taskCompletionReceiptContract
     },
     "eventPolicy": {
       "conflictMarkerPreflight": false,
@@ -277,7 +289,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "nounOwnership": "Task lifecycle closeout facade; a human must invoke it after work is active.",
       "lifecycle": "permanent",
       "decisionRef": "decision/dec_01KXWRC9CH70HN61B5FYPQP3XV",
-      "chain": { "stepCount": 4, "submissionFieldCount": 6, "structuredInput": true }
+      "chain": { "stepCount": 1, "submissionFieldCount": 6, "structuredInput": true }
     }
   },
   {
@@ -562,20 +574,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
     "receiptContract": {
-      "data": ["taskId", "status", "completionGate"],
-      "optionalData": {
-        "report": "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate.",
-        "executionId": "Only emitted when completion accepts a submitted Execution.",
-        "completionEvidence": "Only emitted when completion accepts an immutable commit-anchor judgment record.",
-        "reviewContract": "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
-      },
-      "paths": [],
-      "successNext": {kind: "none"},
-      "dryRun": {
-        "data": ["taskId", "status", "completionGate", "report"],
-        "paths": [],
-        "successNext": { kind: "none" }
-      }
+      ...taskCompletionReceiptContract
     },
     "eventPolicy": writeCommandEventPolicy
   }
