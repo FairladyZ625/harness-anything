@@ -49,7 +49,10 @@ async function acquireTaskHolderMutationLock(lockPath: string, taskId: string): 
       acquiredAt: new Date().toISOString(),
       ownerToken
     };
-    if (localRuntimeStateFileSystem.createExclusiveText(lockPath, JSON.stringify(record))) return ownerToken;
+    if (localRuntimeStateFileSystem.createExclusiveText(lockPath, JSON.stringify(record))) {
+      clearTaskHolderMutationLockReleaseMarkers(lockPath);
+      return ownerToken;
+    }
     recoverAbandonedTaskHolderMutationLock(lockPath);
     await new Promise<void>((resolve) => setTimeout(resolve, mutationLockRetryMs));
   }
@@ -61,23 +64,26 @@ function recoverAbandonedTaskHolderMutationLock(lockPath: string): void {
   try {
     record = readTaskHolderMutationLock(lockPath);
   } catch (error) {
-    if (isConcurrentWindowsLockAccess(error, lockPath)) return;
+    if (isConcurrentWindowsLockAccess(error)) return;
     throw error;
   }
+  const releaseMarkerPath = record ? taskHolderMutationLockReleaseMarkerPath(lockPath, record.ownerToken) : null;
+  const released = releaseMarkerPath ? localRuntimeStateFileSystem.exists(releaseMarkerPath) : false;
   const modifiedAtMs = record ? null : readTaskHolderMutationLockModifiedAtMs(lockPath);
   const acquiredAtMs = record ? Date.parse(record.acquiredAt) : modifiedAtMs;
   if (acquiredAtMs === null) return;
   const ageMs = Date.now() - acquiredAtMs;
-  const abandoned = record?.hostname === hostname()
+  const abandoned = released || (record?.hostname === hostname()
     ? !processIsAlive(record.pid)
-    : Number.isFinite(ageMs) && ageMs > mutationLockStaleMs;
+    : Number.isFinite(ageMs) && ageMs > mutationLockStaleMs);
   if (!abandoned) return;
   const quarantinePath = `${lockPath}.stale.${randomBytes(6).toString("hex")}`;
   try {
     localRuntimeStateFileSystem.rename(lockPath, quarantinePath);
     localRuntimeStateFileSystem.remove(quarantinePath);
+    if (releaseMarkerPath) localRuntimeStateFileSystem.remove(releaseMarkerPath);
   } catch (error) {
-    if (!isMissingFileError(error) && !isConcurrentRenameLoss(error, lockPath)) throw error;
+    if (!isMissingFileError(error) && !isConcurrentRenameLoss(error)) throw error;
   }
 }
 
@@ -85,14 +91,40 @@ function readTaskHolderMutationLockModifiedAtMs(lockPath: string): number | null
   try {
     return localRuntimeStateFileSystem.modifiedAtMs(lockPath);
   } catch (error) {
-    if (isMissingFileError(error) || isConcurrentWindowsLockAccess(error, lockPath)) return null;
+    if (isMissingFileError(error) || isConcurrentWindowsLockAccess(error)) return null;
     throw error;
   }
 }
 
 function releaseTaskHolderMutationLock(lockPath: string, ownerToken: string): void {
-  const record = readTaskHolderMutationLock(lockPath);
+  let record: TaskHolderMutationLockRecord | null;
+  try {
+    record = readTaskHolderMutationLock(lockPath);
+  } catch (error) {
+    if (isConcurrentWindowsLockAccess(error)) {
+      // Carry ownership across the sharing violation; recovery only acts on a matching lock generation.
+      localRuntimeStateFileSystem.writeText(taskHolderMutationLockReleaseMarkerPath(lockPath, ownerToken), "");
+      return;
+    }
+    throw error;
+  }
   if (record?.ownerToken === ownerToken) localRuntimeStateFileSystem.remove(lockPath);
+}
+
+function taskHolderMutationLockReleaseMarkerPath(lockPath: string, ownerToken: string): string {
+  return `${lockPath}.release.${ownerToken}`;
+}
+
+function clearTaskHolderMutationLockReleaseMarkers(lockPath: string): void {
+  const directoryPath = path.dirname(lockPath);
+  const markerPrefix = `${path.basename(lockPath)}.release.`;
+  try {
+    for (const entry of localRuntimeStateFileSystem.readNames(directoryPath)) {
+      if (entry.startsWith(markerPrefix)) localRuntimeStateFileSystem.remove(path.join(directoryPath, entry));
+    }
+  } catch {
+    // Markers belong to older generations and are safe to leave for the next acquisition.
+  }
 }
 
 function readTaskHolderMutationLock(lockPath: string): TaskHolderMutationLockRecord | null {
@@ -124,10 +156,10 @@ function isMissingFileError(error: unknown): boolean {
   return isNodeErrorCode(error, "ENOENT");
 }
 
-function isConcurrentWindowsLockAccess(error: unknown, lockPath: string): boolean {
+function isConcurrentWindowsLockAccess(error: unknown): boolean {
+  // Callers already know this failed operation targeted the mutation lock; a later exists check would be racy.
   return process.platform === "win32" &&
-    isNodeErrorCode(error, "EPERM") &&
-    localRuntimeStateFileSystem.exists(lockPath);
+    isNodeErrorCode(error, "EPERM");
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {

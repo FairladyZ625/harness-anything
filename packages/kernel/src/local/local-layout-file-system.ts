@@ -74,7 +74,7 @@ export const localRuntimeStateFileSystem = {
     try {
       descriptor = openSync(inputPath, "wx");
     } catch (error) {
-      if (isExclusiveCreateConflict(error, inputPath)) return false;
+      if (isExclusiveCreateConflict(error)) return false;
       throw error;
     }
     try {
@@ -87,6 +87,7 @@ export const localRuntimeStateFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   mkdirp: (inputPath: string) => mkdirSync(inputPath, { recursive: true }),
   modifiedAtMs: (inputPath: string) => statSync(inputPath).mtimeMs,
+  readNames: (inputPath: string): ReadonlyArray<string> => readdirSync(inputPath),
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   rename: (fromPath: string, toPath: string) => renameSync(fromPath, toPath),
   remove: (inputPath: string) => rmSync(inputPath, { force: true }),
@@ -108,19 +109,17 @@ export const localDeclaredIdentityRepairFileSystem = {
 
 export function isExclusiveCreateConflict(
   error: unknown,
-  inputPath: string,
   platform: NodeJS.Platform = process.platform
 ): boolean {
   const code = nodeErrorCode(error);
-  return code === "EEXIST" || (platform === "win32" && code === "EPERM" && existsSync(inputPath));
+  return code === "EEXIST" || (platform === "win32" && code === "EPERM");
 }
 
 export function isConcurrentRenameLoss(
   error: unknown,
-  sourcePath: string,
   platform: NodeJS.Platform = process.platform
 ): boolean {
-  return platform === "win32" && nodeErrorCode(error) === "EPERM" && !existsSync(sourcePath);
+  return platform === "win32" && nodeErrorCode(error) === "EPERM";
 }
 
 function nodeErrorCode(error: unknown): unknown {
