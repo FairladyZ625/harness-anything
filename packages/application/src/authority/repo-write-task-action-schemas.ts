@@ -110,7 +110,8 @@ export const repoWriteTaskActionSchemas = {
     status: strictEnum("planned", "active", "blocked", "in_review", "done", "cancelled"),
     force: strictBoolean
   }, {
-    reason: strictString
+    reason: strictString,
+    dryRun: strictBoolean
   }),
   "task-closeout": strictObject({
     kind: strictLiteral("task-closeout"),

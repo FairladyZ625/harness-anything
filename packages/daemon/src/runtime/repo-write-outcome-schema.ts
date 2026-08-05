@@ -6,8 +6,10 @@ import {
   type RepoWriteJsonObject
 } from "./repo-write-protocol.ts";
 /*
- * Canonical outcomes retain the same command decoder as the live IPC frame;
- * recovery must not reopen a payload shape rejected on ingress.
+ * Current canonical outcomes retain the same command decoder as the live IPC
+ * frame. Pre-cutover dotted command names are preserved only at this durable
+ * boundary so an old immutable frame can enter the fenced historical recovery
+ * path without reopening the live IPC contract.
  */
 import { decodeRepoWriteCommandReceiptV2 } from "./repo-write-command-receipt.ts";
 import { RepoWriteOutcomeValidationError } from "./repo-write-outcome-errors.ts";
@@ -37,6 +39,20 @@ const repoWriteActorStampDigestSchema = "repo-write-actor-stamp-digest/v1" as co
 const digestPattern = /^[a-f0-9]{64}$/u;
 const maximumIdentifierBytes = 4_096;
 const maximumJsonStringBytes = 256 * 1_024;
+const historicalCommandNamePattern =
+  /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
+
+/** Immutable pre-cutover command material retained by repo-write-outcome/v1. */
+export interface RepoWriteHistoricalCommandDtoV0 {
+  readonly commandName: string;
+  readonly actor: RepoWriteJsonObject;
+  readonly context: RepoWriteJsonObject;
+  readonly payload: RepoWriteJsonObject;
+}
+
+export type RepoWriteCanonicalCommandDto =
+  | RepoWriteCommandDto
+  | RepoWriteHistoricalCommandDtoV0;
 
 export interface RepoWriteOutcomeAxesV1 {
   readonly repoId: string;
@@ -48,7 +64,7 @@ export interface RepoWriteProceedingInputV1 extends RepoWriteOutcomeAxesV1 {
   readonly outerOpId: string;
   readonly innerOpId: string;
   readonly authoritySemanticDigest: string;
-  readonly canonicalCommand: RepoWriteCommandDto;
+  readonly canonicalCommand: RepoWriteCanonicalCommandDto;
   readonly authenticatedContext: RepoWriteJsonObject;
   readonly receiptSeed: RepoWriteReceiptSeedV1;
   readonly recoveryContext: RepoWriteJsonObject;
@@ -194,6 +210,32 @@ export function repoWriteActorStampDigestV1(actorStamp: RepoWriteJsonObject): st
   return stablePayloadHash({
     schema: repoWriteActorStampDigestSchema,
     actor: jsonObjectAt(actorStamp, "$.actor", budget, 1)
+  });
+}
+
+export function isRepoWriteHistoricalCommandDtoV0(
+  command: RepoWriteCanonicalCommandDto
+): command is RepoWriteHistoricalCommandDtoV0 {
+  return historicalCommandNamePattern.test(command.commandName);
+}
+
+/**
+ * Current-generation execution must never reinterpret a pre-cutover payload.
+ * Historical rows are recovered through RepoWriteAuthorityRecoveryGate.
+ */
+export function repoWriteCurrentCommandForExecution(
+  command: RepoWriteCanonicalCommandDto
+): RepoWriteCommandDto {
+  if (isRepoWriteHistoricalCommandDtoV0(command)) {
+    throw new Error(
+      `REPO_WRITE_HISTORICAL_COMMAND_REQUIRES_FENCED_RECOVERY:${command.commandName}`
+    );
+  }
+  return repoWriteCommandDtoFromDecodedFields({
+    commandName: command.commandName,
+    actor: command.actor,
+    context: command.context,
+    payload: command.payload as unknown as RepoWriteJsonObject
   });
 }
 
@@ -346,7 +388,7 @@ function repoWriteOutcomeCommandAt(
   value: unknown,
   path: string,
   budget: JsonBudget
-): RepoWriteCommandDto {
+): RepoWriteCanonicalCommandDto {
   const record = repoWriteOutcomeRecordAt(value, path);
   repoWriteOutcomeExactKeys(record, ["commandName", "actor", "context", "payload"], [], path);
   const fields = {
@@ -358,6 +400,7 @@ function repoWriteOutcomeCommandAt(
   try {
     return repoWriteCommandDtoFromDecodedFields(fields, path);
   } catch (error) {
+    if (isRepoWriteHistoricalCommandDtoV0(fields)) return fields;
     repoWriteOutcomeInvalid(
       `${path}.payload`,
       error instanceof Error ? error.message : "strict task-complete command payload"

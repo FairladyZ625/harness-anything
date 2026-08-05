@@ -16,6 +16,7 @@ import test from "node:test";
 import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
+  repoWriteCurrentCommandForExecution,
   repoWriteActorStampDigestV1,
   RepoWriteOutcomeUnsupportedPlatformError,
   type RepoWriteProceedingInputV1,
@@ -121,6 +122,34 @@ outcomeTest("restrictive umask cannot weaken the 0700 directory and 0600 record 
     assert.ok(record);
     assert.equal(statSync(directory).mode & 0o777, 0o700);
     assert.equal(statSync(path.join(directory, record)).mode & 0o777, 0o600);
+  });
+});
+
+outcomeTest("pre-cutover dotted commands decode unchanged into fenced historical recovery", () => {
+  withDirectory((directory) => {
+    const input = proceedingInput("outer-legacy-command");
+    const historicalCommand = {
+      commandName: "task.progress.append",
+      actor: input.canonicalCommand.actor,
+      context: { presentation: "json" },
+      payload: {}
+    };
+    new DurableRepoWriteOutcomeStoreV1({ directory, ...axes() }).begin({
+      ...input,
+      canonicalCommand: historicalCommand
+    });
+
+    const current = new DurableRepoWriteOutcomeStoreV1({
+      directory,
+      ...axes(),
+      generation: axes().generation + 1
+    });
+    const [replayed] = current.listHistoricalProceedings();
+    assert.deepEqual(replayed?.canonicalCommand, historicalCommand);
+    assert.throws(
+      () => repoWriteCurrentCommandForExecution(replayed!.canonicalCommand),
+      /REPO_WRITE_HISTORICAL_COMMAND_REQUIRES_FENCED_RECOVERY:task\.progress\.append/u
+    );
   });
 });
 
