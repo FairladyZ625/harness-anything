@@ -15,6 +15,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import { isExclusiveCreateConflict } from "../local/local-layout-file-system.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
 
@@ -367,7 +368,7 @@ function withDaemonRegistryMutationLock<T>(options: DaemonRegistryOptions, mutat
       mkdirSync(lockPath);
       break;
     } catch (error) {
-      if (!isRegistryLockCollision(error, lockPath)) throw error;
+      if (!isExclusiveCreateConflict(error, options.platform)) throw error;
       if (registryLockIsStale(lockPath)) {
         try {
           rmSync(lockPath, { recursive: true });
@@ -385,12 +386,6 @@ function withDaemonRegistryMutationLock<T>(options: DaemonRegistryOptions, mutat
   } finally {
     rmSync(lockPath, { recursive: true, force: true });
   }
-}
-
-function isRegistryLockCollision(error: unknown, lockPath: string): boolean {
-  if (!(error instanceof Error) || !("code" in error)) return false;
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "EEXIST" || ((code === "EPERM" || code === "EACCES") && existsSync(lockPath));
 }
 
 function registryLockIsStale(lockPath: string): boolean {
