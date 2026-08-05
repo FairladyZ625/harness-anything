@@ -17,27 +17,16 @@ import {
   writeColdCodexSessionLog
 } from "./production-authority-canonical-ingress/fixture.ts";
 import {
-  productionCloseout,
   productionPlan,
   publishSeededTaskFixture
 } from "./helpers/canonical-task-publication-fixture.ts";
+import {
+  publishCloseout,
+  withReviewedCompletionFixture
+} from "./helpers/production-completion-fixture.ts";
 
-test("one task complete intent publishes approval and completion through the production daemon", { timeout: 60_000 }, async () => {
+test("completion help documents the canonical production sequence", () => {
   const fixture = createFixture();
-  const userRoot = defaultDaemonUserRoot(fixture.root);
-  const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
-  const executionId = "exe_01KXQ4WTA7Q4XJ5GDDRS1YXNG7";
-  const sessionId = "complete-final-step-deadzone";
-  const taskRoot = path.join(fixture.authoredRoot, `tasks/${taskId}-production-route`);
-  const env = {
-    HARNESS_ACTOR: "agent:codex",
-    HARNESS_DAEMON_MODE: "local",
-    HARNESS_DAEMON_USER_ROOT: userRoot,
-    HARNESS_DAEMON_IDLE_MS: "60000",
-    HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "20000",
-    HARNESS_DAEMON_MATERIALIZER_POLL_MS: "3600000",
-    CODEX_THREAD_ID: sessionId
-  };
   try {
     const submitHelp = cliHelp(fixture.repoRoot, ["task", "submit", "--help"]);
     assertHelpOrder(submitHelp, [
@@ -46,6 +35,14 @@ test("one task complete intent publishes approval and completion through the pro
       "releases it after the submitted round is published",
       "completion requires the task to remain unheld"
     ]);
+    assert.deepEqual(packetTemplate(submitHelp), {
+      completionClaim: "<what is complete>",
+      deliverables: ["<delivered file, behavior, or result>"],
+      outputs: ["<output evidence>"],
+      verificationNotes: ["<verification command and result>"],
+      knownGaps: [],
+      residualRisks: []
+    });
     const completeHelp = cliHelp(fixture.repoRoot, ["task", "complete", "--help"]);
     assertHelpOrder(completeHelp, [
       "Required sequence for --approve --from-file (after task submit released the Holder):",
@@ -53,132 +50,32 @@ test("one task complete intent publishes approval and completion through the pro
       "2. ha task code-doc reconcile <task-id> --commit <approval.commit> --path <each-approval.paths-entry>",
       "3. ha task complete <task-id> --approve --from-file approval.json"
     ]);
+    assert.deepEqual(packetTemplate(completeHelp), {
+      findings: "<review findings>",
+      rationale: "<why the evidence supports approval>",
+      evidenceChecked: ["ev_cli_1"],
+      archiveWarningsAcknowledged: true,
+      consentAssertedRationale: "<how owner approval was obtained outside the bound transcript>",
+      consentActions: ["approve_execution", "complete_task"],
+      ci: "passed",
+      commit: "<full 40-character public workspace commit SHA>",
+      paths: ["<repo-relative delivered path>"],
+      externalCheckpointRefs: []
+    });
     const docSyncHelp = cliHelp(fixture.repoRoot, ["doc", "sync", "--help"]);
     assert.match(docSyncHelp, /doc sync --submit --path tasks\/task_01ABC\/task_plan\.md/u);
     const closeoutHelp = cliHelp(fixture.repoRoot, ["task", "closeout", "--help"]);
     assert.match(closeoutHelp, /--dry-run\s+Run the same canonical task-complete planner without writing\./u);
-    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Original production closeout."));
-    git(fixture.authoredRoot, "add", `tasks/${taskId}-production-route/closeout.md`);
-    git(fixture.authoredRoot, "commit", "-q", "-m", "test: seed substantive production closeout");
-    writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Original facade completion plan."));
-    git(fixture.authoredRoot, "add", `tasks/${taskId}-production-route/task_plan.md`);
-    git(fixture.authoredRoot, "commit", "-q", "-m", "test: seed facade completion plan");
-    publishSeededTaskFixture(fixture.authoredRoot, taskRoot, taskId);
-    const registered = runDaemonCommand(fixture.repoRoot, [
-      "daemon", "repo", "register", "--repo-id", "canonical",
-      "--canonical-root", fixture.repoRoot, "--user-root", userRoot, "--no-link", "--json"
-    ], env);
-    assert.equal(registered.ok, true, JSON.stringify(registered));
-    try {
-      runDaemonCommand(fixture.repoRoot, [
-        "daemon", "start", "--service", "--authority-manifest", fixture.manifestPath, "--json"
-      ], env);
-    } catch {
-      // Observe the same detached production service if startup outlives the CLI wait.
-    }
-    await pollUntil(
-      () => runDaemonCommand(fixture.repoRoot, ["daemon", "status", "--user-root", userRoot, "--json"], env),
-      (status) => status.reachable === true,
-      (status, error) => JSON.stringify({ status, error: error instanceof Error ? error.message : String(error ?? "") }),
-      { timeoutMs: 20_000 }
-    );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
 
-    writeColdCodexSessionLog(fixture.repoRoot, sessionId);
-    const exported = runRawJsonMaybeFail(fixture.repoRoot, [
-      "session", "export", "--session", sessionId, "--runtime", "codex", "--source", "runtime",
-      "--detected-at", "2026-07-31T00:00:00.000Z", "--transcript-file", fixture.transcriptPath
-    ], env);
-    assert.equal(exported.status, 0, JSON.stringify(exported.receipt));
-
-    const started = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "start", taskId, "--execution-id", executionId
-    ], env);
-    assert.equal(started.status, 0, JSON.stringify(started.receipt));
-
-    const submissionPath = path.join(fixture.root, "deadzone-submission.json");
-    writeFileSync(submissionPath, JSON.stringify({
-      ...packetTemplate(submitHelp),
-      completionClaim: "The production facade deadzone regression is ready for approval.",
-      deliverables: ["Facade completion regression"],
-      outputs: ["Full-chain production daemon evidence"],
-      verificationNotes: ["Production daemon setup completed."],
-      knownGaps: [],
-      residualRisks: []
-    }));
-    const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
-    ], env);
-    assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
-    const holder = runRawJsonMaybeFail(fixture.repoRoot, ["task", "holder", taskId], env);
-    assert.equal(holder.status, 0, JSON.stringify(holder.receipt));
-    const holderData = (holder.receipt.details as {
-      readonly data?: { readonly effectiveHolder?: unknown };
-    } | undefined)?.data;
-    assert.equal(holderData?.effectiveHolder, null, JSON.stringify(holder.receipt));
-
-    writeFileSync(path.join(taskRoot, "task_plan.md"), productionPlan("Updated by the final facade chain."));
-
-    const synced = runRawJsonMaybeFail(fixture.repoRoot, [
-      "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/task_plan.md`
-    ], env);
-    assert.equal(synced.status, 0, JSON.stringify(synced.receipt));
-    const publishedProse = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
-    assert.equal(publishedProse.status, 0, JSON.stringify(publishedProse.receipt));
-    const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "code-doc", "reconcile", taskId,
-      "--commit", fixture.publicHead, "--path", "README.md", "--force"
-    ], env);
-    assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
-    const publishedWitness = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
-    assert.equal(publishedWitness.status, 0, JSON.stringify(publishedWitness.receipt));
-
-    const approvalPath = path.join(fixture.root, "deadzone-approval.json");
-    writeFileSync(approvalPath, JSON.stringify({
-      ...packetTemplate(completeHelp),
-      executionId,
-      verdict: "approved",
-      findings: "The submitted evidence and public code anchor satisfy the task.",
-      evidenceChecked: ["ev_cli_1"],
-      rationale: "The production daemon path proves the requested full-chain behavior.",
-      archiveWarningsAcknowledged: true,
-      consentAssertedRationale: "Approval was received through an external channel.",
-      consentActions: ["approve_execution", "complete_task"],
-      commit: fixture.publicHead,
-      paths: ["README.md"],
-      ci: "passed",
-      reviewerId: "person_alice"
-    }));
-    const reviewed = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "review-execution", taskId, "--from-file", approvalPath
-    ], env);
-    assert.equal(reviewed.status, 0, JSON.stringify(reviewed.receipt));
-    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Closeout amended after the first reconciliation."));
-    const closeoutPacketPath = path.join(fixture.root, "deadzone-closeout.json");
-    writeFileSync(closeoutPacketPath, JSON.stringify({
-      completionClaim: "The production facade deadzone regression is ready for approval.",
-      deliverables: ["Facade completion regression"],
-      outputs: ["Full-chain production daemon evidence"],
-      verificationNotes: ["Production daemon setup completed."],
-      knownGaps: [],
-      residualRisks: [],
-      executionId,
-      verdict: "approved",
-      findings: "The submitted evidence and public code anchor satisfy the task.",
-      evidenceChecked: ["ev_cli_1"],
-      rationale: "The production daemon path proves the requested full-chain behavior.",
-      archiveWarningsAcknowledged: true,
-      consentAssertedRationale: "Approval was received through an external channel.",
-      consentActions: ["approve_execution", "complete_task"],
-      commit: fixture.publicHead,
-      paths: ["README.md"],
-      ci: "passed",
-      reviewerId: "person_alice"
-    }));
-
+test("unpublished closeout blocks task complete and task closeout through the production daemon", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("complete-unpublished-closeout", {
+    exercisePlanPublication: true,
+    assertReleasedHolder: true
+  }, ({ fixture, taskId, approvalPath, closeoutPacketPath, env }) => {
     const blockedCompleteDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
     ], env);
@@ -203,22 +100,18 @@ test("one task complete intent publishes approval and completion through the pro
       ]
     );
     for (const error of blockedErrors) assert.match(error ?? "", /closeout\.md/u);
+  });
+});
 
-    const closeoutDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
-      "doc", "sync", "--dry-run"
-    ], env);
+test("published completion dry-runs report checked gates without mutating holders", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("complete-ready-dry-run", {}, ({
+    fixture, taskId, approvalPath, closeoutPacketPath, taskHolderRoot, env
+  }) => {
+    const closeoutDryRun = runRawJsonMaybeFail(fixture.repoRoot, ["doc", "sync", "--dry-run"], env);
     assert.equal(closeoutDryRun.status, 0, JSON.stringify(closeoutDryRun.receipt));
     assert.match(JSON.stringify(closeoutDryRun.receipt), /closeout\.md/u);
-    const syncedCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
-      "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/closeout.md`
-    ], env);
-    assert.equal(syncedCloseout.status, 0, JSON.stringify(syncedCloseout.receipt));
-    const publishedCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
-    assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
+    publishCloseout(fixture.repoRoot, taskId, env);
 
-    const taskHolderRoot = path.join(fixture.repoRoot, ".harness", "task-holders");
     const holderFilesBeforeDryRun = snapshotDirectory(taskHolderRoot);
     const readyDryRun = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
@@ -251,10 +144,15 @@ test("one task complete intent publishes approval and completion through the pro
     } | undefined)?.data;
     assert.deepEqual(readyCloseoutDryRunData?.report?.completionPlan?.checkedGates, ["canonical-authority-planner", "task-completion-evidence"]);
     assert.deepEqual(readyCloseoutDryRunData?.report?.completionPlan?.uncheckedGates, ["durable-transition-write"]);
+  });
+});
 
-    const closeoutCommand = [
-      "task", "closeout", taskId, "--from-file", closeoutPacketPath
-    ] as const;
+test("task closeout publishes approval and completion through the production daemon", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("complete-final-step-deadzone", {}, ({
+    fixture, taskId, executionId, taskRoot, closeoutPacketPath, env
+  }) => {
+    publishCloseout(fixture.repoRoot, taskId, env);
+    const closeoutCommand = ["task", "closeout", taskId, "--from-file", closeoutPacketPath] as const;
     const original = runRawJsonMaybeFail(fixture.repoRoot, closeoutCommand, env);
     const completed = original.status === 0
       ? original
@@ -292,10 +190,7 @@ test("one task complete intent publishes approval and completion through the pro
       } | undefined)?.data?.report?.completionPlan)?.transitionId;
       assert.equal(replayTransition, transitionId, JSON.stringify({ attempt, replayed: replayed.receipt }));
     }
-  } finally {
-    await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
+  });
 });
 
 function snapshotDirectory(input: string): Readonly<Record<string, unknown>> {
