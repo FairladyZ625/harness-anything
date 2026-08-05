@@ -101,6 +101,7 @@ const publicRuntimeSurface = [
   "daemonAdmissionBytes",
   "decisionAmendFieldSupportsOperation",
   "decisionAmendableFields",
+  "decisionAmendOperations",
   "decisionClaimFulfillments",
   "decisionContentCanonicalization",
   "decisionContentDigestFields",
