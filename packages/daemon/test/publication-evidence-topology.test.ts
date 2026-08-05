@@ -41,6 +41,38 @@ test("publication proof accepts a two-parent semantic merge with the complete se
   assert.deepEqual(evidence.parentCommits, [fixture.base, fixture.session]);
 });
 
+test("publication proof accepts two interleaved sessions from their captured trunk", async (context) => {
+  const fixture = publicationFixture(context);
+  const interleavedOpId = "namespace-test:interleaved-publication";
+  fixtureGit(fixture.root, "checkout", "-q", "--detach", fixture.validMerge);
+  writeFileSync(path.join(fixture.root, "tasks/task_topology/progress.md"), "publication\ninterleaved\n");
+  const interleavedAttributionPath = attributionPath(interleavedOpId);
+  mkdirSync(path.dirname(path.join(fixture.root, interleavedAttributionPath)), { recursive: true });
+  writeFileSync(path.join(fixture.root, interleavedAttributionPath), "{\"schema\":\"attribution-event/v1\"}\n");
+  fixtureGit(fixture.root, "add", "--", ".");
+  fixtureGit(fixture.root, "commit", "-q", "-m", semanticMessage(interleavedOpId));
+  const interleavedSession = fixtureGit(fixture.root, "rev-parse", "HEAD");
+  const interleavedTree = fixtureGit(fixture.root, "rev-parse", "HEAD^{tree}");
+  fixtureGit(fixture.root, "checkout", "-q", "master");
+  const interleavedMerge = commitTree(
+    fixture.root,
+    interleavedTree,
+    [fixture.base, interleavedSession],
+    "materializer: merge session interleaved"
+  );
+  const inspector = createGitCanonicalPublicationInspector(fixture.root);
+
+  const [firstEvidence, interleavedEvidence] = await Promise.all([
+    inspector.inspectPublication(fixture.base, [opId], fixture.validMerge),
+    inspector.inspectPublication(fixture.base, [interleavedOpId], interleavedMerge)
+  ]);
+
+  assert.equal(firstEvidence.commitSha, fixture.validMerge);
+  assert.equal(interleavedEvidence.commitSha, interleavedMerge);
+  assert.deepEqual(interleavedEvidence.pipelineGeneratedPaths, [interleavedAttributionPath]);
+  assert.equal(interleavedEvidence.physicalChanges.some((change) => change.path === attributionPath(opId)), false);
+});
+
 test("first-parent recovery accepts an old-shape merge immediately after its watermark", async (context) => {
   const fixture = publicationFixture(context);
   fixtureGit(fixture.root, "update-ref", "refs/heads/master", fixture.validMerge);
@@ -157,7 +189,7 @@ test("publication proof rejects a merge whose first parent is not the expected t
   );
 });
 
-test("publication proof rejects a session commit based on an older trunk", async (context) => {
+test("publication proof accepts a strongly matched session based on an older trunk", async (context) => {
   const fixture = publicationFixture(context);
   const currentTrunk = commitTree(
     fixture.root,
@@ -172,11 +204,11 @@ test("publication proof rejects a session commit based on an older trunk", async
     "materializer: merge session topology"
   );
 
-  await assert.rejects(
-    createGitCanonicalPublicationInspector(fixture.root)
-      .inspectPublication(currentTrunk, [opId], staleSessionMerge),
-    topologyError
-  );
+  const evidence = await createGitCanonicalPublicationInspector(fixture.root)
+    .inspectPublication(currentTrunk, [opId], staleSessionMerge);
+
+  assert.equal(evidence.commitSha, staleSessionMerge);
+  assert.deepEqual(evidence.parentCommits, [currentTrunk, fixture.session]);
 });
 
 test("publication proof rejects a merge tree that differs from the session tree", async (context) => {

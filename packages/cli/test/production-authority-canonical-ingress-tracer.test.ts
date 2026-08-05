@@ -9,6 +9,7 @@ import {
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
+  runRawJsonAsync,
   runRawJsonMaybeFail,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
@@ -18,7 +19,7 @@ import {
   latestAuthorityOperation
 } from "./production-authority-canonical-ingress/fixture.ts";
 
-test("PR canonical ingress tracer starts the real daemon and publishes one full-chain task write", { timeout: 60_000 }, async () => {
+test("PR canonical ingress keeps two interleaved session receipts determinate", { timeout: 60_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
@@ -72,6 +73,28 @@ test("PR canonical ingress tracer starts the real daemon and publishes one full-
     assert.equal(publication.physicalChanges.some((change) => change.path ===
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"), true);
     assert.equal(publication.physicalChanges.some((change) => change.path.startsWith("attribution-events/")), true);
+
+    const interleaved = await Promise.all([
+      runRawJsonAsync(fixture.repoRoot, [
+        "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
+        "--text", "interleaved publication from alpha"
+      ], { ...env, CODEX_THREAD_ID: "canonical-ingress-interleaved-alpha" }),
+      runRawJsonAsync(fixture.repoRoot, [
+        "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
+        "--text", "interleaved publication from beta"
+      ], { ...env, CODEX_THREAD_ID: "canonical-ingress-interleaved-beta" })
+    ]);
+    assert.equal(interleaved.every((receipt) => receipt.ok === true), true, JSON.stringify(interleaved));
+    assert.doesNotMatch(
+      JSON.stringify(interleaved),
+      /repo_write_outcome_unknown|AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u
+    );
+    const progress = readFileSync(path.join(
+      fixture.authoredRoot,
+      "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"
+    ), "utf8");
+    assert.match(progress, /interleaved publication from alpha/u);
+    assert.match(progress, /interleaved publication from beta/u);
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

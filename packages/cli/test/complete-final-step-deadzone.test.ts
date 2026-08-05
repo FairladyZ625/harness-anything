@@ -243,7 +243,7 @@ function isMissingFile(error: unknown): boolean {
     && (error as { readonly code?: unknown }).code === "ENOENT";
 }
 
-test("review immediately after doc sync reproduces non-linear publication without the facade barrier", { timeout: 60_000 }, async () => {
+test("review immediately after doc sync remains determinate when publication advances trunk", { timeout: 60_000 }, async () => {
   const fixture = createFixture();
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const taskId = "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8";
@@ -330,8 +330,12 @@ test("review immediately after doc sync reproduces non-linear publication withou
       "task", "review-execution", taskId, "--from-file", approvalPath
     ], env);
 
-    assert.equal(reviewed.status, 1, JSON.stringify(reviewed.receipt));
-    assert.match(JSON.stringify(reviewed.receipt), /AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u);
+    assert.equal(reviewed.status, 0, JSON.stringify(reviewed.receipt));
+    assert.equal(reviewed.receipt.ok, true, JSON.stringify(reviewed.receipt));
+    assert.doesNotMatch(
+      JSON.stringify(reviewed.receipt),
+      /repo_write_outcome_unknown|AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u
+    );
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

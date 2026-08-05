@@ -28,6 +28,7 @@ import {
 } from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
 import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
+import { publicationGitExitCode } from "./publication-git-observation.ts";
 import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 
 const materializerCommitter = {
@@ -321,13 +322,12 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       expectedOpIds
     });
     const mergeTreeMatchesSession = sessionCommit
-      ? gitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
+      ? publicationGitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
     if (!expectedPreviousHead
       || parentCommits.length !== 2
       || parentCommits[0] !== expectedPreviousHead
       || sessionParents.length !== 1
-      || sessionParents[0] !== expectedPreviousHead
       || (!legacySubjectShape && !semanticSubjectShape)
       || !mergeTreeMatchesSession) {
       throw publicationTopologyError({
@@ -344,7 +344,8 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         mergeTreeMatchesSession
       });
     }
-    const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", expectedPreviousHead, head)
+    const publicationBase = sessionParents[0]!;
+    const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", publicationBase, head)
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
@@ -354,9 +355,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     for (const changedPath of changedPaths) {
       physicalChanges.push({
         path: changedPath,
-        beforeDigest: expectedPreviousHead
-          ? await blobDigestAsync(rootDir, expectedPreviousHead, changedPath)
-          : null,
+        beforeDigest: await blobDigestAsync(rootDir, publicationBase, changedPath),
         afterDigest: await blobDigestAsync(rootDir, head, changedPath)
       });
     }
@@ -565,20 +564,6 @@ async function publicationGitTextAsync(rootDir: string, ...args: ReadonlyArray<s
     maxBuffer: 64 * 1024 * 1024
   });
   return stdout.trim();
-}
-
-function gitExitCode(rootDir: string, ...args: ReadonlyArray<string>): number {
-  try {
-    execFileSync("git", ["-C", rootDir, ...args], {
-      stdio: "ignore",
-      windowsHide: true
-    });
-    return 0;
-  } catch (error) {
-    return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
-      ? error.status
-      : 1;
-  }
 }
 
 /** Read-only Git observation shared by authority publication and cutover scanners. */
