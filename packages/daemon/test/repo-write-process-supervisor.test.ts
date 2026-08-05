@@ -121,6 +121,40 @@ test("a failed graceful drain still stops the child without reporting a false st
   assert.match(String(gracefulStopFailures[0]), /fixture graceful drain failed/u);
 });
 
+test("the default stop budget does not preempt a child that drains gracefully", {
+  skip: process.platform === "win32" ? "POSIX child signal semantics are required" : false
+}, async (context) => {
+  let transport: RepoWriteParentProcessTransport | undefined;
+  const gracefulStopFailures: unknown[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    onGracefulStopFailure: (error) => {
+      gracefulStopFailures.push(error);
+    },
+    spawn: () => {
+      transport = forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["slow-shutdown-success"]
+      });
+      return transport;
+    }
+  });
+  context.after(async () => {
+    if (transport?.child.exitCode === null && transport.child.signalCode === null) {
+      await forceTerminateChildAndWait(transport.child, {
+        label: "slow-drain repo writer cleanup"
+      });
+    }
+  });
+
+  await supervisor.start();
+  await supervisor.stop();
+
+  assert.deepEqual(gracefulStopFailures, []);
+  assert.equal(transport?.child.signalCode, "SIGTERM");
+});
+
 test("stop escalates past an ignored SIGTERM and confirms the child is gone", {
   skip: process.platform === "win32" ? "POSIX child signal semantics are required" : false
 }, async (context) => {

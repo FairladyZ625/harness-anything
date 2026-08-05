@@ -59,6 +59,7 @@ export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "di
 
 export interface DaemonServeHooks {
   readonly onStarted?: (status: Record<string, unknown>) => void;
+  readonly onStop?: () => Promise<void>;
   readonly authorityLifecycle?: AuthorityRepoLifecycleController;
 }
 
@@ -420,6 +421,7 @@ export async function runDaemonServe<
         transportStarted = false;
         await transport.stop();
       });
+      if (hooks.onStop) serviceHost.onStop(hooks.onStop);
       if (input.requestedAuthorityManifest) {
         persistAuthorityManifestPointer(input.requestedAuthorityManifest, userRoot);
       }

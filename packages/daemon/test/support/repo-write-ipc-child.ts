@@ -179,6 +179,18 @@ if (mode === "expected-direct-rejection") {
       return;
     }
     if (message.kind === "shutdown") {
+      if (mode === "slow-shutdown-success") {
+        setTimeout(() => {
+          void transport.send({
+            protocol: repoWriteProtocolType,
+            repoId: message.repoId,
+            generation: message.generation,
+            kind: "drained",
+            requestId: message.requestId
+          });
+        }, 2_250);
+        return;
+      }
       if (mode === "shutdown-failure" || mode === "ignore-sigterm-shutdown-failure") {
         void transport.send({
           protocol: repoWriteProtocolType,

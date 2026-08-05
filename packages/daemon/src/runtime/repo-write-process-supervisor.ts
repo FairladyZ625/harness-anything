@@ -37,7 +37,10 @@ export interface RepoWriteProcessSupervisorStopOptions {
   readonly timeoutMs?: number;
 }
 
-const defaultRepoWriteStopTimeoutMs = 4_000;
+// Parent runtime drain does not own in-flight child IPC submissions. Without an
+// outer stop deadline, retain the client's established graceful-drain window.
+const defaultRepoWriteGracefulStopTimeoutMs = 30_000;
+const defaultRepoWriteTerminationPhaseTimeoutMs = 2_000;
 
 /**
  * Keeps one child process bound to one repo/writer generation. A submission is
@@ -125,25 +128,41 @@ export class RepoWriteProcessSupervisor {
     this.closing = true;
     const writer = this.active;
     if (!writer) return;
-    const timeoutMs = options.timeoutMs ?? defaultRepoWriteStopTimeoutMs;
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    if (options.timeoutMs !== undefined
+      && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)) {
       throw new Error("repo writer stop timeout must be a positive safe integer");
     }
-    const deadline = Date.now() + timeoutMs;
+    const deadline = options.timeoutMs === undefined
+      ? undefined
+      : Date.now() + options.timeoutMs;
     let gracefulError: unknown;
     try {
       if (this.writerConnected(writer)) {
         try {
-          await writer.client.shutdown({ timeoutMs: phaseTimeout(deadline, 2) });
+          await writer.client.shutdown({
+            timeoutMs: deadline === undefined
+              ? defaultRepoWriteGracefulStopTimeoutMs
+              : phaseTimeout(deadline, 2)
+          });
         } catch (error) {
           gracefulError = error;
         }
       }
       try {
-        await writer.transport.terminateAndWait("SIGTERM", phaseTimeout(deadline, 2));
+        await writer.transport.terminateAndWait(
+          "SIGTERM",
+          deadline === undefined
+            ? defaultRepoWriteTerminationPhaseTimeoutMs
+            : phaseTimeout(deadline, 2)
+        );
       } catch (termError) {
         try {
-          await writer.transport.terminateAndWait("SIGKILL", remainingTimeout(deadline));
+          await writer.transport.terminateAndWait(
+            "SIGKILL",
+            deadline === undefined
+              ? defaultRepoWriteTerminationPhaseTimeoutMs
+              : remainingTimeout(deadline)
+          );
         } catch (killError) {
           throw new AggregateError(
             [gracefulError, termError, killError].filter((error) => error !== undefined),
