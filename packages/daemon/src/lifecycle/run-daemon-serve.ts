@@ -9,7 +9,7 @@ import {
   type DaemonServiceHostServices
 } from "@harness-anything/application";
 import { makeLocalProjectionSourceFenceReader } from "@harness-anything/adapter-local";
-import { readDaemonRegistry, type DaemonRegistryRepo } from "@harness-anything/kernel";
+import { readDaemonRegistry, resolveHarnessLayout, type DaemonRegistryRepo } from "@harness-anything/kernel";
 import { createMultiRepoDaemonRuntime, type HarnessDaemonRuntime } from "../runtime/repo-runtime.ts";
 import type { AuthenticatedActor } from "../identity/types.ts";
 import type { AuthorityRepoLifecycleController } from "../authority/authority-lifecycle.ts";
@@ -46,6 +46,10 @@ import {
   encodeRepoWriteChildLaunchConfig,
   repoWriteChildLaunchConfigSchema
 } from "../runtime/repo-write-child-launch-config.ts";
+import {
+  createProvenanceCapacityTelemetryTrigger
+} from "../observability/provenance-capacity-trigger.ts";
+import { scheduleProvenanceCapacityLog } from "../observability/provenance-capacity-log.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -264,6 +268,11 @@ export async function runDaemonServe<
               `REPO_WRITE_CHILD_REPO_NOT_CONFIGURED:${repo.repoId}`
             );
           }
+          const provenanceCapacityTrigger = createProvenanceCapacityTelemetryTrigger();
+          const authoredGitRoot = resolveHarnessLayout({
+            rootDir: repo.canonicalRoot,
+            ...(layoutOverrides ? { layoutOverrides } : {})
+          }).authoredRoot;
           const supervisor = new RepoWriteProcessSupervisor({
             repoId: repo.repoId,
             generation: generation.daemonGeneration,
@@ -298,6 +307,7 @@ export async function runDaemonServe<
               }
             }),
             onTelemetry: (frame) => {
+              const capacitySignal = provenanceCapacityTrigger.observe(frame);
               void daemonLogService.append({
                 level: "debug",
                 source: "daemon",
@@ -313,6 +323,14 @@ export async function runDaemonServe<
                 }),
                 requestId: frame.requestId
               }, { repo }).catch(() => undefined);
+              if (capacitySignal) {
+                scheduleProvenanceCapacityLog(
+                  daemonLogService,
+                  { repo },
+                  authoredGitRoot,
+                  capacitySignal
+                );
+              }
             },
             onDiagnostic: (frame) => {
               const rejected = frame.kind === "recovery-rejected";
