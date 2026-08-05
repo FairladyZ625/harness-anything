@@ -3869,25 +3869,11 @@
           "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/publication-evidence.ts this exact execFileSync call for git-worktree/code-truth; it does not bypass a canonical entity coordinator road."
         },
         {
-          "key": "packages/daemon/src/authority/production/task-complete-prepublish-publication.ts#execFileSync@1",
+          "key": "packages/daemon/src/authority/production/task-complete-prepublish-publication.ts#execFile@1",
           "owner": "public-code-change.git",
           "classification": "design-exemption",
-          "ref": "task_01KZ8VKAYSHYYJT2F58FTDGGG0",
-          "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/task-complete-prepublish-publication.ts this exact execFileSync call for git-worktree/code-truth; it reads publication topology (show/ls-tree/hash-object) and does not bypass a canonical entity coordinator road."
-        },
-        {
-          "key": "packages/daemon/src/authority/production/task-complete-prepublish-publication.ts#execFileSync@2",
-          "owner": "public-code-change.git",
-          "classification": "design-exemption",
-          "ref": "task_01KZ8VKAYSHYYJT2F58FTDGGG0",
-          "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/task-complete-prepublish-publication.ts this exact execFileSync call for git-worktree/code-truth; it reads publication topology (show/ls-tree/hash-object) and does not bypass a canonical entity coordinator road."
-        },
-        {
-          "key": "packages/daemon/src/authority/production/task-complete-prepublish-publication.ts#execFileSync@3",
-          "owner": "public-code-change.git",
-          "classification": "design-exemption",
-          "ref": "task_01KZ8VKAYSHYYJT2F58FTDGGG0",
-          "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/task-complete-prepublish-publication.ts this exact execFileSync call for git-worktree/code-truth; it reads publication topology (show/ls-tree/hash-object) and does not bypass a canonical entity coordinator road."
+          "ref": "task_01KZ9CYGP6R850Q069DM07HVSQ",
+          "reason": "Design exemption: write-road row public-code-change.git assigns packages/daemon/src/authority/production/task-complete-prepublish-publication.ts this exact asynchronous execFile call for git-worktree/code-truth; it reads publication topology (show/ls-tree/hash-object) and does not bypass a canonical entity coordinator road."
         },
         {
           "key": "packages/kernel/src/persistence/git/local-version-control-system.ts#execFileSync@1",

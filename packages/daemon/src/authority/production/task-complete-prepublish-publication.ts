@@ -1,21 +1,41 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { stableStringify } from "@harness-anything/kernel";
+import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
 
-export function findAttributedMaterializedPublication(
+const execFileAsync = promisify(execFile);
+
+export async function findAttributedMaterializedPublication(
   rootDir: string,
   repositoryPaths: ReadonlyArray<string>,
   bodies: ReadonlyArray<string>,
   headRef = "HEAD"
-): { readonly commit: string; readonly operationIds: ReadonlyArray<string> } {
-  const expectedBlobs = bodies.map((body) => taskCompletePublicationGitText(rootDir, ["hash-object", "--stdin"], body));
-  const currentBlobs = gitBlobIds(rootDir, headRef, repositoryPaths);
+): Promise<{ readonly commit: string; readonly operationIds: ReadonlyArray<string> }> {
+  reportCurrentRepoWriteTelemetry("authority-publication-proof", { stage: "blob-hash" });
+  const expectedBlobs: string[] = [];
+  for (const body of bodies) expectedBlobs.push(await gitHashObject(rootDir, body));
+  const currentBlobs = await gitBlobIds(rootDir, headRef, repositoryPaths);
   if (currentBlobs.some((actual, index) => actual !== expectedBlobs[index])) {
     throw new Error(
       `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${describeMaterializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)}`
     );
   }
-  const attributions = repositoryPaths.map((repositoryPath, index) =>
-    findPathMaterializedPublication(rootDir, repositoryPath, expectedBlobs[index]!, headRef)
+  const historyPromise = firstParentHistory(rootDir, repositoryPaths, headRef);
+  reportCurrentRepoWriteTelemetry("authority-publication-proof", {
+    stage: "history-start",
+    pathCount: repositoryPaths.length
+  });
+  const history = await historyPromise;
+  reportCurrentRepoWriteTelemetry("authority-publication-proof", {
+    stage: "history-done",
+    pathCount: repositoryPaths.length,
+    historyEntryCount: history.length
+  });
+  const attributions = await findPathMaterializedPublications(
+    rootDir,
+    repositoryPaths,
+    expectedBlobs,
+    history
   );
   const missing = attributions.flatMap((attribution, index) => attribution ? [] : [repositoryPaths[index]!]);
   if (missing.length > 0) {
@@ -27,8 +47,7 @@ export function findAttributedMaterializedPublication(
   }
   const attributed = attributions.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   const attributedCommits = new Set(attributed.map((entry) => entry.commit));
-  const representative = firstParentHistory(rootDir, repositoryPaths, headRef)
-    .find((entry) => attributedCommits.has(entry.commit));
+  const representative = history.find((entry) => attributedCommits.has(entry.commit));
   if (!representative) throw new Error("AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:attributed publication missing from first-parent history");
   return {
     commit: representative.commit,
@@ -36,15 +55,15 @@ export function findAttributedMaterializedPublication(
   };
 }
 
-export function assertAttributedMaterializedPublication(
+export async function assertAttributedMaterializedPublication(
   rootDir: string,
   repositoryCommit: string,
   repositoryPaths: ReadonlyArray<string>,
   bodies: ReadonlyArray<string>,
   expectedOperationIds: ReadonlyArray<string>,
   headRef = "HEAD"
-): void {
-  const publication = findAttributedMaterializedPublication(rootDir, repositoryPaths, bodies, headRef);
+): Promise<void> {
+  const publication = await findAttributedMaterializedPublication(rootDir, repositoryPaths, bodies, headRef);
   if (publication.commit !== repositoryCommit) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_COMMIT_NOT_PATH_ATTRIBUTED");
   }
@@ -53,66 +72,87 @@ export function assertAttributedMaterializedPublication(
   }
 }
 
-export function prepublishGitBlobText(rootDir: string, commitRef: string, repositoryPath: string): string {
+export async function prepublishGitBlobText(rootDir: string, commitRef: string, repositoryPath: string): Promise<string> {
   try {
-    return execFileSync("git", ["-C", rootDir, "show", `${commitRef}:${repositoryPath}`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true
-    });
+    return await taskCompletePublicationGitTextRaw(rootDir, ["show", `${commitRef}:${repositoryPath}`]);
   } catch {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_BLOB_MISSING");
   }
 }
 
-export function prepublishGitTextOrNull(rootDir: string, args: ReadonlyArray<string>): string | null {
+export async function prepublishGitTextOrNull(rootDir: string, args: ReadonlyArray<string>): Promise<string | null> {
   try {
-    return taskCompletePublicationGitText(rootDir, args);
+    return await taskCompletePublicationGitText(rootDir, args);
   } catch {
     return null;
   }
 }
 
-function findPathMaterializedPublication(
+async function findPathMaterializedPublications(
   rootDir: string,
-  repositoryPath: string,
-  expectedBlob: string,
-  headRef: string
-): { readonly commit: string; readonly operationIds: ReadonlyArray<string> } | null {
-  for (const entry of firstParentHistory(rootDir, [repositoryPath], headRef)) {
+  repositoryPaths: ReadonlyArray<string>,
+  expectedBlobs: ReadonlyArray<string>,
+  history: ReadonlyArray<{
+    readonly commit: string;
+    readonly parents: ReadonlyArray<string>;
+    readonly subject: string;
+  }>
+): Promise<ReadonlyArray<{ readonly commit: string; readonly operationIds: ReadonlyArray<string> } | null>> {
+  const attributions: Array<{ readonly commit: string; readonly operationIds: ReadonlyArray<string> } | null> =
+    repositoryPaths.map(() => null);
+  let remaining = repositoryPaths.length;
+  for (const entry of history) {
     if (entry.parents.length !== 2) continue;
-    const [actualBlob] = gitBlobIds(rootDir, entry.commit, [repositoryPath]);
-    if (actualBlob !== expectedBlob) continue;
-    const [firstParentBlob] = gitBlobIds(rootDir, entry.parents[0]!, [repositoryPath]);
-    if (firstParentBlob === actualBlob) continue;
-    const operationIds = attributedPathOperationIds(rootDir, entry.parents[0]!, entry.parents[1]!, repositoryPath, expectedBlob);
-    if (operationIds.length === 0) continue;
-    return { commit: entry.commit, operationIds };
+    const actualBlobs = await gitBlobIds(rootDir, entry.commit, repositoryPaths);
+    const candidates = repositoryPaths.flatMap((_repositoryPath, index) =>
+      attributions[index] === null && actualBlobs[index] === expectedBlobs[index] ? [index] : []
+    );
+    if (candidates.length === 0) continue;
+    const firstParentBlobs = await gitBlobIds(rootDir, entry.parents[0]!, repositoryPaths);
+    for (const index of candidates) {
+      if (firstParentBlobs[index] === actualBlobs[index]) continue;
+      const operationIds = await attributedPathOperationIds(
+        rootDir,
+        entry.parents[0]!,
+        entry.parents[1]!,
+        repositoryPaths[index]!,
+        expectedBlobs[index]!
+      );
+      if (operationIds.length === 0) continue;
+      attributions[index] = { commit: entry.commit, operationIds };
+      remaining -= 1;
+      reportCurrentRepoWriteTelemetry("authority-publication-proof", {
+        stage: "path-attribution",
+        pathCount: repositoryPaths.length,
+        completedPathCount: repositoryPaths.length - remaining
+      });
+    }
+    if (remaining === 0) break;
   }
-  return null;
+  return attributions;
 }
 
-function attributedPathOperationIds(
+async function attributedPathOperationIds(
   rootDir: string,
   firstParent: string,
   authorityTip: string,
   repositoryPath: string,
   expectedBlob: string
-): ReadonlyArray<string> {
-  const commits = taskCompletePublicationGitText(rootDir, [
+): Promise<ReadonlyArray<string>> {
+  const output = await taskCompletePublicationGitText(rootDir, [
     "rev-list",
     "--reverse",
     "--topo-order",
     `${firstParent}..${authorityTip}`,
     "--",
     `:(literal)${repositoryPath}`
-  ]).split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean);
+  ]);
+  const commits = output.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean);
   const lastChangingCommit = commits.at(-1);
   if (!lastChangingCommit) return [];
-  const [attributedBlob] = gitBlobIds(rootDir, lastChangingCommit, [repositoryPath]);
+  const [attributedBlob] = await gitBlobIds(rootDir, lastChangingCommit, [repositoryPath]);
   if (attributedBlob !== expectedBlob) return [];
-  const subject = taskCompletePublicationGitText(rootDir, ["show", "-s", "--format=%s", lastChangingCommit]);
+  const subject = await taskCompletePublicationGitText(rootDir, ["show", "-s", "--format=%s", lastChangingCommit]);
   return publicationOperationIds(subject);
 }
 
@@ -130,12 +170,12 @@ function describeMaterializationMismatches(
   }).join(", ");
 }
 
-function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>, headRef = "HEAD"): ReadonlyArray<{
+async function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>, headRef = "HEAD"): Promise<ReadonlyArray<{
   readonly commit: string;
   readonly parents: ReadonlyArray<string>;
   readonly subject: string;
-}> {
-  const fields = taskCompletePublicationGitText(rootDir, [
+}>> {
+  const output = await taskCompletePublicationGitText(rootDir, [
     "log",
     "--first-parent",
     "--full-history",
@@ -143,7 +183,8 @@ function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<stri
     headRef,
     "--",
     ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
-  ]).split("\0");
+  ]);
+  const fields = output.split("\0");
   const rows: Array<{ commit: string; parents: ReadonlyArray<string>; subject: string }> = [];
   for (let index = 0; index + 2 < fields.length; index += 3) {
     const commit = fields[index]!.trim();
@@ -164,36 +205,55 @@ function publicationOperationIds(subject: string): ReadonlyArray<string> {
     : [];
 }
 
-function taskCompletePublicationGitText(rootDir: string, args: ReadonlyArray<string>, input?: string): string {
-  return execFileSync("git", ["-C", rootDir, ...args], {
-    encoding: "utf8",
-    input,
-    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true
-  }).trim();
+async function taskCompletePublicationGitText(rootDir: string, args: ReadonlyArray<string>): Promise<string> {
+  return (await taskCompletePublicationGitTextRaw(rootDir, args)).trim();
 }
 
-function gitBlobIds(
+async function taskCompletePublicationGitTextRaw(rootDir: string, args: ReadonlyArray<string>): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+    timeout: 25_000
+  });
+  return stdout;
+}
+
+async function gitHashObject(rootDir: string, body: string): Promise<string> {
+  const child = execFile("git", ["-C", rootDir, "hash-object", "--stdin"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 25_000
+  });
+  child.stdin?.write(body);
+  child.stdin?.end();
+  const { stdout } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) reject(new Error(`git hash-object failed (exit ${code}): ${stderr.trim()}`));
+      else resolve({ stdout, stderr });
+    });
+  });
+  return stdout.trim();
+}
+
+async function gitBlobIds(
   rootDir: string,
   commitRef: string,
   repositoryPaths: ReadonlyArray<string>
-): ReadonlyArray<string | null> {
-  const output = execFileSync("git", [
-    "-C",
-    rootDir,
+): Promise<ReadonlyArray<string | null>> {
+  const output = await taskCompletePublicationGitText(rootDir, [
     "ls-tree",
     "-z",
     "--full-tree",
     commitRef,
     "--",
     ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
-  ], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true
-  });
+  ]);
   const byPath = new Map<string, string>();
   for (const row of output.split("\0")) {
     if (!row) continue;

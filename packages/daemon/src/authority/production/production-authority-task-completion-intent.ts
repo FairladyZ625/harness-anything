@@ -77,8 +77,8 @@ export async function taskCompletionIntent(
   };
   reportCurrentRepoWriteTelemetry("compile-task-witness");
   const witnesses = existing
-    ? verifyTaskCompleteWitnessRefs({ ...witnessInput, refs: existing.externalCheckpointRefs, snapshotMode: "committed" })
-    : resolveVerifiedTaskCompleteWitnesses(witnessInput);
+    ? await verifyTaskCompleteWitnessRefs({ ...witnessInput, refs: existing.externalCheckpointRefs, snapshotMode: "committed" })
+    : await resolveVerifiedTaskCompleteWitnesses(witnessInput);
   assertLifecycleCompletionPrerequisites(documents, command, completionGates);
   const selectedReplayApproval = !existing && currentRound.kind === "accepted-replay"
     ? acceptedReplayApproval(documents, taskId, currentRound.execution)
