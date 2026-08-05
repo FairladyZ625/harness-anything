@@ -15,6 +15,7 @@ import {
   committedCommandReceipt,
   rejectedCommandReceipt
 } from "./support/repo-write-terminal-fixture.ts";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 
 const controllerTest = process.platform === "win32" ? test.skip : test;
 
@@ -152,10 +153,10 @@ controllerTest("replacement recovery completes an earlier PROCEEDING before a la
       ...first,
       outerOpId: "outer-controller-B",
       innerOpId: "inner-controller-B",
-      canonicalCommand: {
-        ...first.canonicalCommand,
-        payload: { taskId: "task_01KY", text: "B" }
-      }
+      canonicalCommand: repoWriteProgressCommand(
+        first.canonicalCommand.actor,
+        first.canonicalCommand.context
+      )
     };
     const prepared = controller.prepare({
       proceeding: second,
@@ -251,12 +252,7 @@ function proceedingInput(): RepoWriteProceedingInputV1 {
     outerOpId: "outer-controller",
     innerOpId: "inner-outer-controller",
     authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "progress.append",
-      actor,
-      context: {},
-      payload: { taskId: "task_01KY", text: "progress" }
-    },
+    canonicalCommand: repoWriteProgressCommand(actor),
     authenticatedContext: { actor },
     receiptSeed: {
       schema: "repo-write-receipt-seed/v1",

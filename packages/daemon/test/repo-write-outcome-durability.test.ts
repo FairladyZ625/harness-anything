@@ -13,6 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
   repoWriteActorStampDigestV1,
@@ -167,12 +168,7 @@ function proceedingInput(outerOpId: string): RepoWriteProceedingInputV1 {
     outerOpId,
     innerOpId: `inner-${outerOpId}`,
     authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "task.create",
-      actor,
-      context: { presentation: "json" },
-      payload: { title: "durability" }
-    },
+    canonicalCommand: repoWriteProgressCommand(actor, { presentation: "json" }),
     authenticatedContext: { actor, presentation: { json: true } },
     receiptSeed: {
       schema: "repo-write-receipt-seed/v1",

@@ -33,7 +33,7 @@ import {
   type RepoWriteHistoricalRecoveryRejectionV1,
   type RepoWriteHistoricalRecoveryRejectInputV1
 } from "./repo-write-historical-recovery-rejection.ts";
-import { repoWriteLegacyCommandName } from "./repo-write-protocol.ts";
+import type { RepoWriteCommandDto } from "./repo-write-protocol.ts";
 import {
   RepoWriteOutcomeConflictError,
   RepoWriteOutcomeCorruptionError,
@@ -114,7 +114,7 @@ export class DurableRepoWriteOutcomeStoreV1 {
         outerOpId: "store-axis-check",
         innerOpId: "store-axis-check",
         authoritySemanticDigest: "0".repeat(64),
-        canonicalCommand: { commandName: repoWriteLegacyCommandName("store.axis.check"), actor: {}, context: {}, payload: {} },
+        canonicalCommand: repoWriteOutcomePlaceholderCommand(),
         authenticatedContext: { actor: {} },
         receiptSeed: repoWriteOutcomePlaceholderReceiptSeed(),
         recoveryContext: {}
@@ -450,7 +450,7 @@ function repoWriteOutcomePaths(directory: string, outerOpId: string): {
     outerOpId,
     innerOpId: "path-check",
     authoritySemanticDigest: "0".repeat(64),
-    canonicalCommand: { commandName: repoWriteLegacyCommandName("path.check"), actor: {}, context: {}, payload: {} },
+    canonicalCommand: repoWriteOutcomePlaceholderCommand(),
     authenticatedContext: { actor: {} },
     receiptSeed: repoWriteOutcomePlaceholderReceiptSeed(),
     recoveryContext: {}
@@ -466,6 +466,23 @@ function repoWriteOutcomePaths(directory: string, outerOpId: string): {
 
 function repoWriteOutcomeSafeIdentity(value: string): string {
   return sha256Text(value).slice(0, 12);
+}
+
+function repoWriteOutcomePlaceholderCommand(): RepoWriteCommandDto {
+  return {
+    commandName: "gui",
+    actor: {},
+    context: {},
+    payload: {
+      command: { rootDir: "/repo-write-outcome-placeholder", json: true, action: { kind: "gui" } },
+      session: {
+        runtime: "human",
+        sessionId: "repo-write-outcome-placeholder",
+        source: "manual",
+        detectedAt: "1970-01-01T00:00:00.000Z"
+      }
+    }
+  };
 }
 
 function repoWriteOutcomePlaceholderReceiptSeed() {

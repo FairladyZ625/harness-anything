@@ -384,10 +384,10 @@ function submit(requestId: string): Extract<RepoWriteParentMessage, { kind: "sub
     ...parentBase("submit"),
     requestId,
     command: {
-      commandName: "progress.append",
+      commandName: "progress-append",
       actor: { personId: "person_zeyu" },
       context: {},
-      payload: { taskId: "task_01KY", text: "progress" }
+      payload: progressPayload()
     }
   };
 }
@@ -401,10 +401,17 @@ function direct(requestId: string): Extract<RepoWriteParentMessage, { kind: "dir
     ...parentBase("direct"),
     requestId,
     command: {
-      commandName: "task.claim",
+      commandName: "task-claim",
       actor: { personId: "person_zeyu" },
       context: {},
-      payload: { taskId: "task_direct" }
+      payload: {
+        command: {
+          rootDir: "/repo",
+          json: true,
+          action: { kind: "task-claim", taskId: "task_direct" }
+        },
+        session: wireSession()
+      }
     }
   };
 }
@@ -419,6 +426,31 @@ function parentBase<K extends RepoWriteParentMessage["kind"]>(kind: K) {
 
 function childBase<K extends RepoWriteChildMessage["kind"]>(kind: K) {
   return { protocol: repoWriteProtocolType, repoId: "repo-canonical", generation: 3, kind } as const;
+}
+
+function progressPayload() {
+  return {
+    command: {
+      rootDir: "/repo",
+      json: true,
+      action: {
+        kind: "progress-append",
+        taskId: "task_01KY",
+        text: "progress",
+        dryRun: false
+      }
+    },
+    session: wireSession()
+  } as const;
+}
+
+function wireSession() {
+  return {
+    runtime: "codex",
+    sessionId: "session-child-host-terminal",
+    source: "runtime",
+    detectedAt: "2026-08-05T00:00:00.000Z"
+  } as const;
 }
 
 function deferred<T>() {

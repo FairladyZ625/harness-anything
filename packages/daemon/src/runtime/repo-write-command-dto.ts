@@ -1,24 +1,17 @@
 import {
+  decodeRepoWriteCommandAction,
+  decodeRepoWriteDocSyncSubmitRequest,
   decodeTaskCompleteTransitionCommand,
   decodeTaskSubmitTransitionCommand,
+  type DocSyncSubmitRequestV1,
+  type RepoWriteCommandAction,
+  type RepoWriteCommandActionKind,
   type TaskCompleteTransitionCommand,
   type TaskSubmitTransitionCommand
 } from "@harness-anything/application";
 import type { RepoWriteJsonObject } from "./repo-write-protocol.ts";
 
-declare const repoWriteLegacyCommandNameBrand: unique symbol;
-export type RepoWriteLegacyCommandName = string & {
-  readonly [repoWriteLegacyCommandNameBrand]: "not-typed-lifecycle-command";
-};
-
-export interface RepoWriteLegacyCommandDto {
-  readonly commandName: RepoWriteLegacyCommandName;
-  readonly actor: RepoWriteJsonObject;
-  readonly context: RepoWriteJsonObject;
-  readonly payload: RepoWriteJsonObject;
-}
-
-interface RepoWriteTypedWireCommand<Action> {
+interface RepoWriteCliWireCommand<Action> {
   readonly rootDir: string;
   readonly rootResolutionSource?: "explicit-override" | "local-cwd";
   readonly layoutOverrides?: RepoWriteJsonObject;
@@ -31,7 +24,13 @@ interface RepoWriteTypedWireCommand<Action> {
   readonly action: Action;
 }
 
-interface RepoWriteTypedWireSession {
+interface RepoWriteDocSyncWireCommand {
+  readonly rootDir: string;
+  readonly action: { readonly kind: "doc-sync-submit" };
+  readonly request: DocSyncSubmitRequestV1;
+}
+
+interface RepoWriteWireSession {
   readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity";
   readonly sessionId: string;
   readonly source: "runtime" | "manual";
@@ -39,56 +38,41 @@ interface RepoWriteTypedWireSession {
   readonly user?: string;
 }
 
-export type RepoWriteTaskCompleteWireCommand =
-  RepoWriteTypedWireCommand<TaskCompleteTransitionCommand>;
+type RepoWriteTransportAction =
+  | RepoWriteCommandAction
+  | TaskCompleteTransitionCommand
+  | TaskSubmitTransitionCommand
+  | { readonly kind: "doc-sync-submit" };
 
-export type RepoWriteTaskCompleteWireSession = RepoWriteTypedWireSession;
+export type RepoWriteCommandName = RepoWriteTransportAction["kind"];
 
-export type RepoWriteTaskSubmitWireCommand =
-  RepoWriteTypedWireCommand<TaskSubmitTransitionCommand>;
+type RepoWriteWireCommandFor<Name extends RepoWriteCommandName> =
+  Name extends "task-complete"
+    ? RepoWriteCliWireCommand<TaskCompleteTransitionCommand>
+    : Name extends "task-submit"
+      ? RepoWriteCliWireCommand<TaskSubmitTransitionCommand>
+      : Name extends "doc-sync-submit"
+        ? RepoWriteDocSyncWireCommand
+        : RepoWriteCliWireCommand<Extract<RepoWriteCommandAction, { readonly kind: Name }>>;
 
-export type RepoWriteTaskSubmitWireSession = RepoWriteTypedWireSession;
-
-export interface RepoWriteTaskCompleteCommandPayload {
-  readonly command: RepoWriteTaskCompleteWireCommand;
-  readonly session: RepoWriteTaskCompleteWireSession;
+export interface RepoWriteCommandPayload<Name extends RepoWriteCommandName> {
+  readonly command: RepoWriteWireCommandFor<Name>;
+  readonly session: RepoWriteWireSession;
 }
 
-export interface RepoWriteTaskCompleteCommandDto {
-  readonly commandName: "task-complete";
+export type RepoWriteCommandDtoFor<Name extends RepoWriteCommandName> = {
+  readonly commandName: Name;
   readonly actor: RepoWriteJsonObject;
   readonly context: RepoWriteJsonObject;
-  readonly payload: RepoWriteTaskCompleteCommandPayload;
-}
+  readonly payload: RepoWriteCommandPayload<Name>;
+};
 
-export interface RepoWriteTaskSubmitCommandPayload {
-  readonly command: RepoWriteTaskSubmitWireCommand;
-  readonly session: RepoWriteTaskSubmitWireSession;
-}
-
-export interface RepoWriteTaskSubmitCommandDto {
-  readonly commandName: "task-submit";
-  readonly actor: RepoWriteJsonObject;
-  readonly context: RepoWriteJsonObject;
-  readonly payload: RepoWriteTaskSubmitCommandPayload;
-}
-
-export type RepoWriteCommandDto =
-  | RepoWriteLegacyCommandDto
-  | RepoWriteTaskCompleteCommandDto
-  | RepoWriteTaskSubmitCommandDto;
+/** commandName and payload.action.kind are correlated for every registered writer command. */
+export type RepoWriteCommandDto = {
+  [Name in RepoWriteCommandName]: RepoWriteCommandDtoFor<Name>
+}[RepoWriteCommandName];
 
 type Invalid = (path: string, expected: string) => never;
-
-export function repoWriteLegacyCommandName(value: string): RepoWriteLegacyCommandName {
-  if (value === "task-complete") {
-    throw new Error("REPO_WRITE_TASK_COMPLETE_TYPED_COMMAND_REQUIRED");
-  }
-  if (value === "task-submit") {
-    throw new Error("REPO_WRITE_TASK_SUBMIT_TYPED_COMMAND_REQUIRED");
-  }
-  return value as RepoWriteLegacyCommandName;
-}
 
 export function repoWriteCommandDtoFromDecodedFields(input: {
   readonly commandName: string;
@@ -96,86 +80,54 @@ export function repoWriteCommandDtoFromDecodedFields(input: {
   readonly context: RepoWriteJsonObject;
   readonly payload: RepoWriteJsonObject;
 }, path = "$.command", invalid: Invalid = commandInvalid): RepoWriteCommandDto {
-  if (input.commandName === "task-complete") {
-    return {
-      ...input,
-      commandName: "task-complete",
-      payload: decodeTaskCompleteCommandPayload(input.payload, `${path}.payload`, invalid)
-    };
-  }
-  if (input.commandName === "task-submit") {
-    return {
-      ...input,
-      commandName: "task-submit",
-      payload: decodeTaskSubmitCommandPayload(input.payload, `${path}.payload`, invalid)
-    };
-  }
-  return { ...input, commandName: repoWriteLegacyCommandName(input.commandName) };
+  const payload = decodeCommandPayload(
+    input.commandName,
+    input.payload,
+    `${path}.payload`,
+    invalid
+  );
+  return {
+    ...input,
+    commandName: input.commandName,
+    payload
+  } as RepoWriteCommandDto;
 }
 
-function decodeTaskCompleteCommandPayload(
+function decodeCommandPayload(
+  commandName: string,
   payload: RepoWriteJsonObject,
   path: string,
   invalid: Invalid
-): RepoWriteTaskCompleteCommandPayload {
-  return decodeTypedCommandPayload(
-    payload,
-    path,
-    invalid,
-    "task-complete",
-    decodeTaskCompleteTransitionCommand
-  );
-}
-
-function decodeTaskSubmitCommandPayload(
-  payload: RepoWriteJsonObject,
-  path: string,
-  invalid: Invalid
-): RepoWriteTaskSubmitCommandPayload {
-  return decodeTypedCommandPayload(
-    payload,
-    path,
-    invalid,
-    "task-submit",
-    decodeTaskSubmitTransitionCommand
-  );
-}
-
-function decodeTypedCommandPayload<Action>(
-  payload: RepoWriteJsonObject,
-  path: string,
-  invalid: Invalid,
-  commandName: "task-complete" | "task-submit",
-  decodeAction: (value: unknown, path: string) => Action
-): {
-  readonly command: RepoWriteTypedWireCommand<Action>;
-  readonly session: RepoWriteTypedWireSession;
-} {
-  const payloadKeys = Object.keys(payload);
-  if (payloadKeys.length !== 2 || !payloadKeys.includes("command") || !payloadKeys.includes("session")) {
-    invalid(path, `typed ${commandName} payload with required command/session and no unknown keys`);
+): RepoWriteCommandPayload<RepoWriteCommandName> {
+  repoWriteWireExactKeys(payload, ["command", "session"], [], path, invalid);
+  const command = wireRecord(payload.command, `${path}.command`, invalid);
+  const session = decodeSession(payload.session, `${path}.session`, invalid);
+  if (commandName === "doc-sync-submit") {
+    repoWriteWireExactKeys(command, ["rootDir", "action", "request"], [], `${path}.command`, invalid);
+    const action = wireRecord(command.action, `${path}.command.action`, invalid);
+    repoWriteWireExactKeys(action, ["kind"], [], `${path}.command.action`, invalid);
+    if (action.kind !== "doc-sync-submit") {
+      invalid(`${path}.command.action.kind`, "doc-sync-submit");
+    }
+    return {
+      command: {
+        rootDir: nonEmptyString(command.rootDir, `${path}.command.rootDir`, invalid),
+        action: { kind: "doc-sync-submit" },
+        request: decodeRepoWriteDocSyncSubmitRequest(
+          command.request,
+          `${path}.command.request`
+        )
+      },
+      session
+    };
   }
-  const command = taskCompleteWireRecord(payload.command, `${path}.command`, invalid);
-  taskCompleteWireExactKeys(command, ["rootDir", "json", "action"], [
+
+  repoWriteWireExactKeys(command, ["rootDir", "json", "action"], [
     "rootResolutionSource", "layoutOverrides", "daemonRepoId", "actor",
     "daemonModeOverride", "daemonProfileOverride", "deprecatedInvocation"
   ], `${path}.command`, invalid);
-  const action = decodeAction(
-    command.action,
-    `${path}.command.action`
-  );
-  const session = taskCompleteWireRecord(payload.session, `${path}.session`, invalid);
-  taskCompleteWireExactKeys(
-    session,
-    ["runtime", "sessionId", "source", "detectedAt"],
-    ["user"],
-    `${path}.session`,
-    invalid
-  );
-  if (typeof command.rootDir !== "string" || !command.rootDir.trim()) {
-    invalid(`${path}.command.rootDir`, "non-empty string");
-  }
   if (typeof command.json !== "boolean") invalid(`${path}.command.json`, "boolean");
+  const action = decodeCliAction(commandName, command.action, `${path}.command.action`, invalid);
   const rootResolutionSource = optionalEnum(
     command.rootResolutionSource,
     ["explicit-override", "local-cwd"],
@@ -194,59 +146,88 @@ function decodeTypedCommandPayload<Action>(
     `${path}.command.daemonProfileOverride`,
     invalid
   );
-  const runtime = requiredEnum(
-    session.runtime,
-    ["human", "claude-code", "codex", "zcode", "antigravity"],
-    `${path}.session.runtime`,
-    invalid
-  );
-  const source = requiredEnum(
-    session.source,
-    ["runtime", "manual"],
-    `${path}.session.source`,
-    invalid
-  );
   return {
     command: {
-      rootDir: command.rootDir,
+      rootDir: nonEmptyString(command.rootDir, `${path}.command.rootDir`, invalid),
       ...(rootResolutionSource ? { rootResolutionSource } : {}),
-      ...(command.layoutOverrides === undefined
-        ? {}
-        : { layoutOverrides: taskCompleteWireRecord(command.layoutOverrides, `${path}.command.layoutOverrides`, invalid) as RepoWriteJsonObject }),
-      ...(command.daemonRepoId === undefined
-        ? {}
-        : { daemonRepoId: nonEmptyString(command.daemonRepoId, `${path}.command.daemonRepoId`, invalid) }),
-      ...(command.actor === undefined
-        ? {}
-        : { actor: nonEmptyString(command.actor, `${path}.command.actor`, invalid) }),
+      ...(command.layoutOverrides === undefined ? {} : {
+        layoutOverrides: wireRecord(
+          command.layoutOverrides,
+          `${path}.command.layoutOverrides`,
+          invalid
+        ) as RepoWriteJsonObject
+      }),
+      ...(command.daemonRepoId === undefined ? {} : {
+        daemonRepoId: nonEmptyString(command.daemonRepoId, `${path}.command.daemonRepoId`, invalid)
+      }),
+      ...(command.actor === undefined ? {} : {
+        actor: nonEmptyString(command.actor, `${path}.command.actor`, invalid)
+      }),
       ...(daemonModeOverride ? { daemonModeOverride } : {}),
       ...(daemonProfileOverride ? { daemonProfileOverride } : {}),
       json: command.json,
-      ...(command.deprecatedInvocation === undefined
-        ? {}
-        : { deprecatedInvocation: taskCompleteWireRecord(command.deprecatedInvocation, `${path}.command.deprecatedInvocation`, invalid) as RepoWriteJsonObject }),
+      ...(command.deprecatedInvocation === undefined ? {} : {
+        deprecatedInvocation: wireRecord(
+          command.deprecatedInvocation,
+          `${path}.command.deprecatedInvocation`,
+          invalid
+        ) as RepoWriteJsonObject
+      }),
       action
     },
-    session: {
-      runtime,
-      sessionId: nonEmptyString(session.sessionId, `${path}.session.sessionId`, invalid),
-      source,
-      detectedAt: nonEmptyString(session.detectedAt, `${path}.session.detectedAt`, invalid),
-      ...(session.user === undefined
-        ? {}
-        : { user: nonEmptyString(session.user, `${path}.session.user`, invalid) })
-    }
+    session
+  } as RepoWriteCommandPayload<RepoWriteCommandName>;
+}
+
+function decodeCliAction(
+  commandName: string,
+  value: unknown,
+  path: string,
+  invalid: Invalid
+): RepoWriteCommandAction | TaskCompleteTransitionCommand | TaskSubmitTransitionCommand {
+  let action: RepoWriteCommandAction | TaskCompleteTransitionCommand | TaskSubmitTransitionCommand;
+  if (commandName === "task-complete") {
+    action = decodeTaskCompleteTransitionCommand(value, path);
+  } else if (commandName === "task-submit") {
+    action = decodeTaskSubmitTransitionCommand(value, path);
+  } else {
+    action = decodeRepoWriteCommandAction(value, path);
+  }
+  if (action.kind !== commandName) {
+    invalid(`${path}.kind`, `the same command kind as ${commandName}`);
+  }
+  return action;
+}
+
+function decodeSession(value: unknown, path: string, invalid: Invalid): RepoWriteWireSession {
+  const session = wireRecord(value, path, invalid);
+  repoWriteWireExactKeys(session, ["runtime", "sessionId", "source", "detectedAt"], ["user"], path, invalid);
+  const runtime = requiredEnum(
+    session.runtime,
+    ["human", "claude-code", "codex", "zcode", "antigravity"],
+    `${path}.runtime`,
+    invalid
+  );
+  const source = requiredEnum(session.source, ["runtime", "manual"], `${path}.source`, invalid);
+  return {
+    runtime,
+    sessionId: nonEmptyString(session.sessionId, `${path}.sessionId`, invalid),
+    source,
+    detectedAt: nonEmptyString(session.detectedAt, `${path}.detectedAt`, invalid),
+    ...(session.user === undefined ? {} : {
+      user: nonEmptyString(session.user, `${path}.user`, invalid)
+    })
   };
 }
 
-function taskCompleteWireRecord(value: unknown, path: string, invalid: Invalid): Record<string, unknown> {
+function wireRecord(value: unknown, path: string, invalid: Invalid): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) invalid(path, "plain object");
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) invalid(path, "plain object");
   return value as Record<string, unknown>;
 }
 
-function taskCompleteWireExactKeys(
+function repoWriteWireExactKeys(
   value: Record<string, unknown>,
   required: ReadonlyArray<string>,
   optional: ReadonlyArray<string>,
@@ -254,31 +235,31 @@ function taskCompleteWireExactKeys(
   invalid: Invalid
 ): void {
   const allowed = new Set([...required, ...optional]);
-  if (required.some((key) => !Object.hasOwn(value, key))
-    || Object.keys(value).some((key) => !allowed.has(key))) {
-    invalid(path, "exact message fields");
-  }
+  const missing = required.find((key) => !Object.hasOwn(value, key));
+  if (missing) invalid(`${path}.${missing}`, "required field");
+  const unknown = Object.keys(value).find((key) => !allowed.has(key));
+  if (unknown) invalid(`${path}.${unknown}`, "no unknown fields");
 }
 
-function optionalEnum<const T extends string>(
+function optionalEnum<const Value extends string>(
   value: unknown,
-  allowed: ReadonlyArray<T>,
+  allowed: ReadonlyArray<Value>,
   path: string,
   invalid: Invalid
-): T | undefined {
+): Value | undefined {
   return value === undefined ? undefined : requiredEnum(value, allowed, path, invalid);
 }
 
-function requiredEnum<const T extends string>(
+function requiredEnum<const Value extends string>(
   value: unknown,
-  allowed: ReadonlyArray<T>,
+  allowed: ReadonlyArray<Value>,
   path: string,
   invalid: Invalid
-): T {
-  if (typeof value !== "string" || !allowed.includes(value as T)) {
+): Value {
+  if (typeof value !== "string" || !allowed.includes(value as Value)) {
     invalid(path, allowed.join(", "));
   }
-  return value as T;
+  return value as Value;
 }
 
 function nonEmptyString(value: unknown, path: string, invalid: Invalid): string {
@@ -287,5 +268,9 @@ function nonEmptyString(value: unknown, path: string, invalid: Invalid): string 
 }
 
 function commandInvalid(path: string, expected: string): never {
-  throw new Error(`REPO_WRITE_TASK_COMPLETE_COMMAND_INVALID:${path}:${expected}`);
+  throw new Error(`REPO_WRITE_COMMAND_INVALID:${path}:${expected}`);
 }
+
+const applicationKindsAreNames = true satisfies
+  RepoWriteCommandActionKind extends RepoWriteCommandName ? true : never;
+void applicationKindsAreNames;

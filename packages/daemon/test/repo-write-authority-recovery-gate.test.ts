@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   AuthorityImmutablePublicationProofError,
   DurableRepoWriteOutcomeStoreV1,
@@ -517,12 +518,7 @@ function proceedingInput(): RepoWriteProceedingInputV1 {
     outerOpId: "outer-recovery",
     innerOpId: "inner-recovery",
     authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "progress.append",
-      actor,
-      context: {},
-      payload: {}
-    },
+    canonicalCommand: repoWriteProgressCommand(actor),
     authenticatedContext: { actor },
     receiptSeed: {
       schema: "repo-write-receipt-seed/v1",

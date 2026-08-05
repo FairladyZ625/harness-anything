@@ -4,7 +4,6 @@ import {
   chmodSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -18,14 +17,21 @@ import { stableStringify } from "@harness-anything/kernel";
 import {
   canonicalRepoWriteOutcomeText,
   DurableRepoWriteOutcomeStoreV1,
-  repoWriteActorStampDigestV1,
   repoWriteRequestDigestV1,
-  RepoWriteOutcomeConflictError,
-  RepoWriteOutcomeCorruptionError,
   RepoWriteOutcomeGenerationFenceError,
-  type RepoWriteProceedingInputV1,
-  type RepoWriteTerminalEvidenceV1
 } from "../src/index.ts";
+import {
+  actorStamp,
+  axes,
+  conflict,
+  corrupt,
+  files,
+  proceedingInput,
+  rejectedReceipt,
+  successReceipt,
+  terminalEvidence,
+  withStore
+} from "./support/repo-write-outcome-store-fixture.ts";
 
 const outcomeTest = process.platform === "win32" ? test.skip : test;
 
@@ -36,10 +42,10 @@ outcomeTest("PROCEEDING is canonical, private, durable, and same-request idempot
     const duplicate = store.begin({
       ...input,
       canonicalCommand: {
-        payload: { title: "性能优化", parent: null },
+        payload: input.canonicalCommand.payload,
         context: { presentation: "json", requestId: "request-1" },
         actor: actorStamp(),
-        commandName: "task.create"
+        commandName: "progress-append"
       }
     });
 
@@ -90,7 +96,18 @@ outcomeTest("same outer opId rejects a different request digest or immutable rec
       ...input,
       canonicalCommand: {
         ...input.canonicalCommand,
-        payload: { title: "different request" }
+        payload: {
+          ...input.canonicalCommand.payload,
+          command: {
+            ...input.canonicalCommand.payload.command,
+            action: {
+              kind: "progress-append",
+              taskId: "task_01KY",
+              text: "different request",
+              dryRun: false
+            }
+          }
+        }
       }
     }), conflict);
     assert.throws(() => store.begin({
@@ -513,178 +530,3 @@ outcomeTest("receipt arrays and aggregate JSON bytes are bounded before persiste
     assert.deepEqual(files(directory, "terminal"), []);
   });
 });
-
-function proceedingInput(outerOpId: string): RepoWriteProceedingInputV1 {
-  return {
-    ...axes(),
-    outerOpId,
-    innerOpId: `inner-${outerOpId}`,
-    authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "task.create",
-      actor: actorStamp(),
-      context: { requestId: "request-1", presentation: "json" },
-      payload: { parent: null, title: "性能优化" }
-    },
-    authenticatedContext: {
-      actor: actorStamp(),
-      presentation: { json: true }
-    },
-    receiptSeed: {
-      schema: "repo-write-receipt-seed/v1",
-      renderer: "cli-command-receipt/v2@1",
-      generatedAt: "2026-07-23T12:00:00.000Z",
-      command: "task create",
-      action: "create",
-      actorStampDigest: repoWriteActorStampDigestV1(actorStamp())
-    },
-    recoveryContext: {
-      authorityEnvelopeDigest: "1".repeat(64),
-      bindingTokenDigest: "2".repeat(64)
-    }
-  };
-}
-
-function axes() {
-  return {
-    repoId: "repo-canonical",
-    workspaceId: "workspace-canonical",
-    generation: 1
-  } as const;
-}
-
-function successReceipt(): CommandReceiptEnvelope {
-  return {
-    ok: true,
-    schema: "command-receipt/v2",
-    command: "task create",
-    action: "create",
-    summary: "created task",
-    entity: { kind: "task", id: "task_01KY" },
-    paths: [{ role: "package", path: "harness/tasks/task_01KY" }],
-    warnings: [{ code: "pending_materialization", message: "projection follows" }],
-    next: [],
-    details: {
-      actor: actorStamp(),
-      data: {
-        taskId: "task_01KY",
-        actorStamp: { personId: "person_zeyu", signature: "exact-child-value" }
-      }
-    },
-    meta: {
-      generatedAt: "2026-07-23T12:00:00.000Z",
-      compatibility: { legacyReceipt: "CommandReceipt/v1" }
-    }
-  };
-}
-
-function rejectedReceipt(): CommandReceiptEnvelope {
-  return {
-    ok: false,
-    schema: "command-receipt/v2",
-    command: "task create",
-    action: "create",
-    summary: "lease rejected",
-    error: {
-      code: "task_lease_required",
-      hint: "Claim the task lease.",
-      context: { taskId: "task_01KY" }
-    },
-    next: [{ command: "ha task claim task_01KY", description: "Claim and retry." }],
-    details: {
-      actor: actorStamp()
-    },
-    meta: {
-      generatedAt: "2026-07-23T12:00:00.000Z",
-      compatibility: { legacyReceipt: "CommandReceipt/v1" }
-    }
-  };
-}
-
-function files(directory: string, phase: "proceeding" | "terminal"): ReadonlyArray<string> {
-  return readdirSync(directory)
-    .filter((name) => name.endsWith(`.${phase}.json`))
-    .sort();
-}
-
-function actorStamp() {
-  return {
-    personId: "person_zeyu",
-    displayName: "Zeyu Li",
-    providerId: "local-socket",
-    credential: {
-      kind: "unix-socket-owner-boundary",
-      issuer: "local-daemon",
-      subject: "person_zeyu"
-    }
-  } as const;
-}
-
-function terminalEvidence(
-  input: Pick<RepoWriteProceedingInputV1, "innerOpId" | "workspaceId">,
-  disposition: "committed" | "rejected"
-): RepoWriteTerminalEvidenceV1 {
-  return disposition === "committed" ? {
-    tag: "COMMITTED",
-    workspaceId: input.workspaceId,
-    opId: input.innerOpId,
-    semanticDigest: "1".repeat(64),
-    revision: 1,
-    commitSha: "a".repeat(40),
-    previousCommit: null,
-    authorityIntegrity: {
-      schema: "authority-operation-integrity/v2",
-      semanticRequestDigest: "1".repeat(64),
-      semanticMutationSetDigest: "2".repeat(64),
-      mutationRegistryVersion: 1,
-      actorAxesBindingDigest: "3".repeat(64),
-      canonicalMutationSet: { registryVersion: 1, mutations: [] }
-    },
-    integrityTuple: {
-      schema: "authority-integrity-tuple/v2",
-      canonicalEventDigest: "4".repeat(64),
-      changeSetDigest: "5".repeat(64),
-      semanticMutationSetDigest: "2".repeat(64),
-      actorAxesBindingDigest: "3".repeat(64)
-    }
-  } : {
-    tag: "REJECTED",
-    workspaceId: input.workspaceId,
-    opId: input.innerOpId,
-    semanticDigest: "1".repeat(64),
-    reason: "known durable rejection"
-  };
-}
-
-function withStore(
-  run: (fixture: {
-    readonly directory: string;
-    readonly options: ConstructorParameters<typeof DurableRepoWriteOutcomeStoreV1>[0];
-    readonly store: DurableRepoWriteOutcomeStoreV1;
-  }) => void
-): void {
-  const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-outcome-"));
-  try {
-    const options = {
-      directory: path.join(root, "outcomes"),
-      ...axes()
-    };
-    run({
-      directory: options.directory,
-      options,
-      store: new DurableRepoWriteOutcomeStoreV1(options)
-    });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-function conflict(error: unknown): boolean {
-  return error instanceof RepoWriteOutcomeConflictError
-    && error.code === "REPO_WRITE_OUTCOME_CONFLICT";
-}
-
-function corrupt(error: unknown): boolean {
-  return error instanceof RepoWriteOutcomeCorruptionError
-    && error.code === "REPO_WRITE_OUTCOME_CORRUPT";
-}

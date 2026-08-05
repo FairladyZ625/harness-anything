@@ -26,6 +26,7 @@ import {
 } from "../../cli/test/helpers/production-authority-connection.ts";
 
 interface TestCommand extends DaemonHostCommand {
+  readonly json: boolean;
   readonly action: {
     readonly kind: string;
     readonly dryRun?: boolean;
@@ -47,6 +48,7 @@ test("current-session materializer barrier fails closed without a runtime sessio
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: { kind: "materializer-run", dryRun: false, currentSessionOnly: true }
     }
   });
@@ -113,6 +115,7 @@ test("authority-backed runtime writes do not enqueue a second current-session ma
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: { kind: "progress-append", taskId: "task-current-session", text: "authority-backed", dryRun: false }
     },
     session: { ...session(), source: "runtime" }
@@ -151,6 +154,7 @@ test("non-authority runtime writes retain the current-session materializer barri
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: { kind: "progress-append", taskId: "task-current-session", text: "queued barrier", dryRun: false }
     },
     session: { ...session(), source: "runtime" }
@@ -185,6 +189,7 @@ test("parent command service sends durable governed writes to the child and neve
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: {
         kind: "progress-append",
         taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
@@ -235,10 +240,10 @@ test("parent command service sends operation-derived writes to the child direct 
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: {
         kind: "task-claim",
-        taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
-        dryRun: false
+        taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4"
       }
     },
     session: session()
@@ -280,10 +285,11 @@ test("parent command service preserves a structured child rejection before proce
   const receipt = await service.runCommand({
     command: {
       rootDir: "/repo",
+      json: true,
       action: {
-        kind: "decision-propose",
-        decisionId: "dec_01KXT3E1MN1VBS64DCNZ4VX81C",
-        decisionIdProvided: true,
+        kind: "progress-append",
+        taskId: "task-rejected",
+        text: "rejected before proceed",
         dryRun: false
       }
     },
@@ -329,9 +335,10 @@ test("unknown child receipts expose a machine-readable final-state query", async
     const receipt = await service.runCommand({
       command: {
         rootDir: "/repo",
+        json: true,
         action: kind === "durable"
           ? { kind: "progress-append", taskId: "task-queryable", text: "unknown", dryRun: false }
-          : { kind: "task-claim", taskId: "task-queryable", dryRun: false }
+          : { kind: "task-claim", taskId: "task-queryable" }
       },
       session: session()
     }, {

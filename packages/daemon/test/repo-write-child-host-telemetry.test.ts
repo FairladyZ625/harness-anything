@@ -15,6 +15,7 @@ import {
   committedCommandReceipt,
   committedTerminalOutcome
 } from "./support/repo-write-terminal-fixture.ts";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 
 test("direct failure telemetry cannot poison the parent client for the next command", async () => {
   const messages: RepoWriteChildMessage[] = [];
@@ -76,10 +77,5 @@ test("direct failure telemetry cannot poison the parent client for the next comm
 });
 
 function command(): RepoWriteCommandDto {
-  return {
-    commandName: "task.create",
-    actor: { personId: "person_zeyu" },
-    context: {},
-    payload: { title: "writer isolate" }
-  };
+  return repoWriteProgressCommand({ personId: "person_zeyu" });
 }

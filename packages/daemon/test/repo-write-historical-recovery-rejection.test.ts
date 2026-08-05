@@ -4,6 +4,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { repoWriteProgressCommand } from "./support/repo-write-command-fixture.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
   repoWriteActorStampDigestV1,
@@ -93,12 +94,10 @@ function proceedingInput(outerOpId: string, generation: number): RepoWriteProcee
     outerOpId,
     innerOpId: `inner-${outerOpId}`,
     authoritySemanticDigest: "1".repeat(64),
-    canonicalCommand: {
-      commandName: "task.create",
-      actor,
-      context: { requestId: "request-1", presentation: "json" },
-      payload: { parent: null, title: "性能优化" }
-    },
+    canonicalCommand: repoWriteProgressCommand(actor, {
+      requestId: "request-1",
+      presentation: "json"
+    }),
     authenticatedContext: {
       actor,
       presentation: { json: true }

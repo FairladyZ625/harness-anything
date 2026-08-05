@@ -103,10 +103,27 @@ function terminalOutcome(
     innerOpId,
     authoritySemanticDigest: semanticDigest,
     canonicalCommand: {
-      commandName: "progress.append",
+      commandName: "progress-append",
       actor,
       context: {},
-      payload: { taskId: "task_01KY", text: "progress" }
+      payload: {
+        command: {
+          rootDir: "/repo",
+          json: true,
+          action: {
+            kind: "progress-append",
+            taskId: "task_01KY",
+            text: "progress",
+            dryRun: false
+          }
+        },
+        session: {
+          runtime: "codex",
+          sessionId: "session-terminal-fixture",
+          source: "runtime",
+          detectedAt: generatedAt
+        }
+      }
     },
     authenticatedContext: { actor },
     receiptSeed: {
