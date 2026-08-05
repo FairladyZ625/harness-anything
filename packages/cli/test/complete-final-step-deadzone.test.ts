@@ -151,30 +151,9 @@ test("published completion dry-runs report checked gates without mutating holder
 
 test("task closeout publishes approval and completion through the production daemon", { timeout: 60_000 }, async () => {
   await withReviewedCompletionFixture("complete-final-step-deadzone", {}, ({
-    fixture, taskId, executionId, taskRoot, approvalPath, closeoutPacketPath, env
+    fixture, taskId, executionId, taskRoot, closeoutPacketPath, env
   }) => {
-    writeFileSync(path.join(taskRoot, "closeout.md"), placeholderCloseout());
     publishCloseout(fixture.repoRoot, taskId, env);
-    const blockedPlaceholderCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "complete", taskId, "--approve", "--from-file", approvalPath
-    ], env);
-    assert.equal(blockedPlaceholderCloseout.status, 1, JSON.stringify(blockedPlaceholderCloseout.receipt));
-    assert.match(JSON.stringify(blockedPlaceholderCloseout.receipt), /AUTHORITY_TASK_COMPLETE_CLOSEOUT_PLACEHOLDER/u);
-    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
-
-    const holder = runRawJsonMaybeFail(fixture.repoRoot, ["task", "holder", taskId], env);
-    assert.equal(holder.status, 0, JSON.stringify(holder.receipt));
-    assert.equal((holder.receipt.details as {
-      readonly data?: { readonly effectiveHolder?: unknown };
-    } | undefined)?.data?.effectiveHolder, null, JSON.stringify(holder.receipt));
-
-    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Corrected after the placeholder rejection."));
-    publishCloseout(fixture.repoRoot, taskId, env);
-    const correctedReady = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "complete", taskId, "--approve", "--from-file", approvalPath, "--dry-run"
-    ], env);
-    assert.equal(correctedReady.status, 0, JSON.stringify(correctedReady.receipt));
-
     const closeoutCommand = ["task", "closeout", taskId, "--from-file", closeoutPacketPath] as const;
     const original = runRawJsonMaybeFail(fixture.repoRoot, closeoutCommand, env);
     const completed = original.status === 0
@@ -213,6 +192,35 @@ test("task closeout publishes approval and completion through the production dae
       } | undefined)?.data?.report?.completionPlan)?.transitionId;
       assert.equal(replayTransition, transitionId, JSON.stringify({ attempt, replayed: replayed.receipt }));
     }
+  });
+});
+
+test("placeholder closeout rejection leaves production authority usable for corrected completion", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("completion-placeholder-authority", {}, ({
+    fixture, taskId, taskRoot, approvalPath, env
+  }) => {
+    writeFileSync(path.join(taskRoot, "closeout.md"), placeholderCloseout());
+    publishCloseout(fixture.repoRoot, taskId, env);
+    const blocked = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+    assert.equal(blocked.status, 1, JSON.stringify(blocked.receipt));
+    assert.match(JSON.stringify(blocked.receipt), /AUTHORITY_TASK_COMPLETE_CLOSEOUT_PLACEHOLDER/u);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
+
+    const holder = runRawJsonMaybeFail(fixture.repoRoot, ["task", "holder", taskId], env);
+    assert.equal(holder.status, 0, JSON.stringify(holder.receipt));
+    assert.equal((holder.receipt.details as {
+      readonly data?: { readonly effectiveHolder?: unknown };
+    } | undefined)?.data?.effectiveHolder, null, JSON.stringify(holder.receipt));
+
+    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Corrected after the placeholder rejection."));
+    publishCloseout(fixture.repoRoot, taskId, env);
+    const completed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+    assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
   });
 });
 
