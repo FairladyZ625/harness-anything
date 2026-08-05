@@ -243,7 +243,38 @@ test("progress evidence ingests an untracked artifact before recording its gover
 
 test("progress evidence preserves a URL-shaped free pointer when it is not a local artifact", async () => {
   await withTempRoot(async (rootDir) => {
-    await assertPointerOnlyEvidence(rootDir, "pr:https://github.com/FairladyZ625/harness-anything/pull/1104:merged");
+    // The URL must live in the summary slot, not PATH: `type:PATH:summary` cannot encode ':' in PATH
+    // (the parser rejects `pr:https://...:merged` because the URL scheme 'https' would silently become
+    // PATH and the rest would leak into summary — see task_01KZ92RAJ1HXRSYDY4JP6APRCN). Use a short
+    // label in PATH and the full URL in summary, which allows ':'.
+    await assertPointerOnlyEvidence(rootDir, "pr:1104:https://github.com/FairladyZ625/harness-anything/pull/1104:merged");
+  });
+});
+
+test("progress evidence rejects a URL-in-PATH shape that the parser cannot disambiguate, with a copyable correct form", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    writeFileSync(path.join(taskRoot, "progress.md"), "# Progress\n\n## Entries\n\n");
+    initHarnessGit(harnessRoot);
+
+    const rejected = runJson(rootDir, [
+      "task", "progress", "append", taskId,
+      "--text", "must not be appended",
+      "--evidence", "pr:https://github.com/FairladyZ625/harness-anything/pull/1104:merged"
+    ], false);
+
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, "invalid_evidence");
+    assert.match(rejected.error.hint, /PATH cannot contain ':'/u);
+    assert.match(rejected.error.hint, /URL scheme 'https' became PATH/u);
+    assert.match(rejected.error.hint, /--evidence pr:<short-label>:https:/u);
+    // progress.md was not changed — no miscategorized pointer persisted.
+    assert.equal(readFileSync(path.join(taskRoot, "progress.md"), "utf8"), "# Progress\n\n## Entries\n\n");
   });
 });
 
