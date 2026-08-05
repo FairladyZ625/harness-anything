@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { defaultDaemonAutostartTimeoutMs } from "@harness-anything/daemon";
 import { renderDaemonHelp } from "../src/commands/daemon/help.ts";
 import {
   runDaemonProductCommand,
@@ -107,7 +108,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
       assert.equal(exitCode, 0);
       assert.equal(requests.length, 1);
       assert.equal(replacementStarts, 1);
-      assert.equal(replacementTimeoutMs, 6_000);
+      assert.equal(replacementTimeoutMs, defaultDaemonAutostartTimeoutMs);
       assert.equal(requests[0]?.method, scenario.method);
       const payload = requests[0]?.params.payload as Record<string, unknown>;
       assert.equal(payload.drainTimeoutMs, 30_000);

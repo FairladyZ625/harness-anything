@@ -47,7 +47,8 @@ export {
   type ParsedDaemonLaunchArgv
 } from "./daemon-launch-spec-store.ts";
 
-export const defaultDaemonAutostartTimeoutMs = 6_000;
+// Cold authority readiness measured ~7.2s, so a 6s budget could never confirm it.
+export const defaultDaemonAutostartTimeoutMs = 30_000;
 export const defaultDaemonIdleExitMs = 750;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
