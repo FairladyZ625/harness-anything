@@ -4,7 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createDaemonServiceHost } from "@harness-anything/daemon";
+import {
+  createDaemonServiceHost,
+  type RepoWriteProcessSupervisor
+} from "@harness-anything/daemon";
 import { cliDaemonServiceHostServices } from "../src/composition/daemon-service-host-services.ts";
 
 const batch4Golden = JSON.parse(readFileSync(new URL("../../daemon/test/fixtures/batch4-equivalence-golden.json", import.meta.url), "utf8")) as Record<string, string>;
@@ -83,6 +86,103 @@ test("daemon control reports a stuck drain and does not run transport shutdown",
     assert.equal(JSON.stringify({ phase: activeControl?.phase, failure: activeControl?.failure }), batch4Golden.ownerExitReceipt);
     assert.deepEqual(events, ["runtime:stop-stuck"]);
     assert.equal(stopSettled, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("daemon stop runs later cleanup handlers after a repo writer stop failure", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-stop-handlers-"));
+  const serviceRoot = path.join(root, "service");
+  const repoRoot = path.join(root, "repo");
+  mkdirSync(serviceRoot, { recursive: true });
+  mkdirSync(repoRoot, { recursive: true });
+  const events: string[] = [];
+  const repo = { repoId: "alpha", canonicalRoot: repoRoot };
+  const repoRuntime = runtimeStatus(repo);
+  const runtime = {
+    start: async () => managerStatus(repo),
+    stop: async () => { events.push("runtime:stop"); },
+    status: () => managerStatus(repo),
+    attachRepo: async () => { throw new Error("fixture attach not used"); },
+    detachRepo: async () => { throw new Error("fixture detach not used"); },
+    retryUnavailableRepos: async () => [],
+    getRepoRuntime: () => repoRuntime,
+    enqueueInteractiveWrite: async () => { throw new Error("fixture enqueue not used"); },
+    enqueueBackgroundBatch: async () => { throw new Error("fixture background not used"); },
+    enqueueMaterializerBatch: async () => { throw new Error("fixture materializer not used"); }
+  };
+  let observedWriterStopTimeoutMs: number | undefined;
+  const supervisors = new Map<string, RepoWriteProcessSupervisor>([[
+    repo.repoId,
+    {
+      status: () => ({
+        repoId: repo.repoId,
+        generation: 1,
+        connected: true
+      }),
+      submit: async () => { throw new Error("fixture submit not used"); },
+      direct: async () => { throw new Error("fixture direct not used"); },
+      stop: async (options?: { readonly timeoutMs?: number }) => {
+        observedWriterStopTimeoutMs = options?.timeoutMs;
+        events.push("repo-writer:stop");
+        throw new Error("repo writer could not be terminated");
+      }
+    } as RepoWriteProcessSupervisor
+  ]]);
+
+  try {
+    const entrypoint = path.resolve("packages/cli/src/index.ts");
+    const host = await createDaemonServiceHost(
+      runtime as Parameters<typeof createDaemonServiceHost>[0],
+      [repo],
+      repo.repoId,
+      undefined,
+      0,
+      path.join(serviceRoot, "daemon.sock"),
+      { active: 0, total: 0 },
+      serviceRoot,
+      {
+        entrypoint,
+        loadedIdentity: `sha256:${"0".repeat(64)}`,
+        startedAt: "2026-08-06T00:00:00.000Z",
+        launchConfiguration: {
+          execPath: process.execPath,
+          execArgv: [],
+          entrypoint,
+          args: ["--root", repoRoot, "daemon", "serve"]
+        },
+        preflightReplacement: async () => undefined
+      },
+      cliDaemonServiceHostServices,
+      undefined,
+      undefined,
+      supervisors
+    );
+    host.onStop(async () => {
+      events.push("transport:stop");
+    });
+    const control = await host.requestControl("restart", {
+      reason: "verify aggregate stop deadline",
+      drainTimeoutMs: 500
+    });
+    assert.equal(control.ok, true);
+    if (!control.ok) assert.fail(control.error.hint);
+    control.afterResponse();
+    await host.waitForStopRequest();
+
+    await assert.rejects(host.stop(), (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      return true;
+    });
+    assert.deepEqual(events, [
+      "runtime:stop",
+      "repo-writer:stop",
+      "transport:stop"
+    ]);
+    assert.ok(observedWriterStopTimeoutMs !== undefined);
+    assert.ok(observedWriterStopTimeoutMs > 0);
+    assert.ok(observedWriterStopTimeoutMs < 500);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

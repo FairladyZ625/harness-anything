@@ -9,6 +9,10 @@ import { appendFileSync } from "node:fs";
 const mode = process.argv[2] ?? "roundtrip";
 const tracePath = process.argv[3];
 
+if (mode === "ignore-sigterm-shutdown-failure") {
+  process.on("SIGTERM", () => undefined);
+}
+
 if (mode === "expected-direct-rejection") {
   const transport = new RepoWriteChildIpcTransport();
   transport.onDisconnect(() => setImmediate(() => process.exit()));
@@ -175,6 +179,33 @@ if (mode === "expected-direct-rejection") {
       return;
     }
     if (message.kind === "shutdown") {
+      if (mode === "slow-shutdown-success") {
+        setTimeout(() => {
+          void transport.send({
+            protocol: repoWriteProtocolType,
+            repoId: message.repoId,
+            generation: message.generation,
+            kind: "drained",
+            requestId: message.requestId
+          });
+        }, 2_250);
+        return;
+      }
+      if (mode === "shutdown-failure" || mode === "ignore-sigterm-shutdown-failure") {
+        void transport.send({
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "failure",
+          requestId: message.requestId,
+          phase: "before-proceed",
+          outcome: "not-started",
+          replay: "caller-may-retry",
+          code: "SHUTDOWN_FAILED",
+          diagnostic: "fixture graceful drain failed"
+        });
+        return;
+      }
       void transport.send({
         protocol: repoWriteProtocolType,
         repoId: message.repoId,

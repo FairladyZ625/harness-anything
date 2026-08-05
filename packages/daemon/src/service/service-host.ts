@@ -133,7 +133,6 @@ export async function createDaemonServiceHost<
   const daemonLogService = providedDaemonLogService
     ?? makeDaemonLogService({ store: makeDaemonLogFileStore({ userRoot }) });
   const stopHandlers: Array<() => Promise<void>> = [];
-  registerRepoWriteSupervisorStops(stopHandlers, repoWriteSupervisors);
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
   const buildIdentity = installDaemonBuildWriteGuard({
     runtime, repos, defaultRepoId, build, daemonLogService
@@ -146,7 +145,13 @@ export async function createDaemonServiceHost<
   let reconciling = false;
   let stopping = false;
   let drainTimeoutMs: number | undefined;
+  let stopDeadlineAt: number | undefined;
   let activeControl: DaemonActiveControlStatus | null = null;
+  registerRepoWriteSupervisorStops(
+    stopHandlers,
+    repoWriteSupervisors,
+    () => remainingStopTimeout(stopDeadlineAt)
+  );
   const idleExit = createDaemonIdleExitScheduler({
     idleMs,
     isStopping: () => stopping,
@@ -163,7 +168,9 @@ export async function createDaemonServiceHost<
       await drainDaemonRuntime({
         authorityLifecycle,
         runtime,
-        drainTimeoutMs
+        drainTimeoutMs: stopDeadlineAt === undefined
+          ? drainTimeoutMs
+          : Math.max(0, stopDeadlineAt - Date.now())
       });
     } catch (error) {
       if (isDaemonDrainTimeout(error) && activeControl) {
@@ -179,8 +186,16 @@ export async function createDaemonServiceHost<
       }
       throw error;
     }
+    const failures: unknown[] = [];
     for (const handler of stopHandlers.splice(0, stopHandlers.length)) {
-      await handler();
+      try {
+        await handler();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "failed to stop daemon service handlers");
     }
   };
   const scheduleIdleExit = idleExit.schedule;
@@ -200,7 +215,10 @@ export async function createDaemonServiceHost<
     status: () => serviceStatus(defaultRepoId),
     activeControl: () => activeControl,
     setActiveControl: (active) => { activeControl = active; },
-    setDrainTimeout: (timeoutMs) => { drainTimeoutMs = timeoutMs; },
+    setDrainTimeout: (timeoutMs) => {
+      drainTimeoutMs = timeoutMs;
+      stopDeadlineAt = Date.now() + timeoutMs;
+    },
     requestStop: (request) => requestStop?.(request)
   }, hostServices.errors);
   publishRuntimeRegistrationSnapshot({ userRoot, ...build, runtimeStatus: runtime.status() });
@@ -401,6 +419,10 @@ export async function createDaemonServiceHost<
       ...(includeGenerationAxes ? { includeGenerationAxes: true as const } : {})
     });
   }
+}
+
+function remainingStopTimeout(deadline: number | undefined): number | undefined {
+  return deadline === undefined ? undefined : Math.max(1, deadline - Date.now() - 1);
 }
 
 function createRepoServiceBinding<

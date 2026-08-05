@@ -10,12 +10,18 @@ export function remainWedgedAfterFailedDrain(): Promise<never> {
 
 export function registerRepoWriteSupervisorStops(
   stopHandlers: Array<() => Promise<void>>,
-  supervisors: ReadonlyMap<string, RepoWriteProcessSupervisor> | undefined
+  supervisors: ReadonlyMap<string, RepoWriteProcessSupervisor> | undefined,
+  stopTimeoutMs?: () => number | undefined
 ): void {
   if (!supervisors) return;
   stopHandlers.push(async () => {
     const results = await Promise.allSettled(
-      [...supervisors.values()].map((supervisor) => supervisor.stop())
+      [...supervisors.values()].map((supervisor) => {
+        const timeoutMs = stopTimeoutMs?.();
+        return timeoutMs === undefined
+          ? supervisor.stop()
+          : supervisor.stop({ timeoutMs });
+      })
     );
     const failures = results
       .filter((result): result is PromiseRejectedResult =>

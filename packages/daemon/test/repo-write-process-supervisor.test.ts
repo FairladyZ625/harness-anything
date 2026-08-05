@@ -7,7 +7,8 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
-  forkRepoWriteProcess
+  forkRepoWriteProcess,
+  type RepoWriteParentProcessTransport
 } from "../src/runtime/repo-write-child-process-transport.ts";
 import {
   RepoWriteProcessSupervisor,
@@ -30,6 +31,7 @@ import {
 } from "../src/observability/request-performance.ts";
 import { classifyProvenanceCapacitySample } from "../src/observability/provenance-capacity-trigger.ts";
 import { repoWriteProductionCommandFixture } from "./support/repo-write-production-command-fixture.ts";
+import { forceTerminateChildAndWait } from "../../../tools/test-child-process-lifecycle.mjs";
 
 const fixturePath = fileURLToPath(
   new URL("./support/repo-write-ipc-child.ts", import.meta.url)
@@ -81,6 +83,106 @@ test("supervisor submits through one child and drains it without inline fallback
   assert.equal(supervisor.status().connected, true);
   await supervisor.stop();
   assert.equal(supervisor.status().connected, false);
+});
+
+test("a failed graceful drain still stops the child without reporting a false stop failure", {
+  skip: process.platform === "win32" ? "POSIX child signal semantics are required" : false
+}, async (context) => {
+  let transport: RepoWriteParentProcessTransport | undefined;
+  const gracefulStopFailures: unknown[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    onGracefulStopFailure: (error) => {
+      gracefulStopFailures.push(error);
+    },
+    spawn: () => {
+      transport = forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["shutdown-failure"]
+      });
+      return transport;
+    }
+  });
+  context.after(async () => {
+    if (transport?.child.exitCode === null && transport.child.signalCode === null) {
+      await forceTerminateChildAndWait(transport.child, {
+        label: "failed-drain repo writer cleanup"
+      });
+    }
+  });
+
+  await supervisor.start();
+  await supervisor.stop({ timeoutMs: 500 });
+
+  assert.equal(supervisor.status().connected, false);
+  assert.equal(transport?.child.signalCode, "SIGTERM");
+  assert.equal(gracefulStopFailures.length, 1);
+  assert.match(String(gracefulStopFailures[0]), /fixture graceful drain failed/u);
+});
+
+test("the default stop budget does not preempt a child that drains gracefully", {
+  skip: process.platform === "win32" ? "POSIX child signal semantics are required" : false
+}, async (context) => {
+  let transport: RepoWriteParentProcessTransport | undefined;
+  const gracefulStopFailures: unknown[] = [];
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    onGracefulStopFailure: (error) => {
+      gracefulStopFailures.push(error);
+    },
+    spawn: () => {
+      transport = forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["slow-shutdown-success"]
+      });
+      return transport;
+    }
+  });
+  context.after(async () => {
+    if (transport?.child.exitCode === null && transport.child.signalCode === null) {
+      await forceTerminateChildAndWait(transport.child, {
+        label: "slow-drain repo writer cleanup"
+      });
+    }
+  });
+
+  await supervisor.start();
+  await supervisor.stop();
+
+  assert.deepEqual(gracefulStopFailures, []);
+  assert.equal(transport?.child.signalCode, "SIGTERM");
+});
+
+test("stop escalates past an ignored SIGTERM and confirms the child is gone", {
+  skip: process.platform === "win32" ? "POSIX child signal semantics are required" : false
+}, async (context) => {
+  let transport: RepoWriteParentProcessTransport | undefined;
+  const supervisor = new RepoWriteProcessSupervisor({
+    repoId: "repo-transport",
+    generation: 1,
+    spawn: () => {
+      transport = forkRepoWriteProcess({
+        modulePath: fixturePath,
+        args: ["ignore-sigterm-shutdown-failure"]
+      });
+      return transport;
+    }
+  });
+  context.after(async () => {
+    if (transport?.child.exitCode === null && transport.child.signalCode === null) {
+      await forceTerminateChildAndWait(transport.child, {
+        label: "SIGTERM-resistant repo writer cleanup"
+      });
+    }
+  });
+
+  await supervisor.start();
+  await supervisor.stop({ timeoutMs: 500 });
+
+  assert.equal(supervisor.status().connected, false);
+  assert.equal(transport?.child.signalCode, "SIGKILL");
 });
 
 test("expected direct rejection returns a failed receipt without replacing the writer", async (context) => {

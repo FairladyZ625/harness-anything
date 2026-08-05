@@ -50,11 +50,16 @@ import {
   createProvenanceCapacityTelemetryTrigger
 } from "../observability/provenance-capacity-trigger.ts";
 import { scheduleProvenanceCapacityLog } from "../observability/provenance-capacity-log.ts";
+import {
+  formatDaemonFailure,
+  repoWriteGracefulFailureLog
+} from "./daemon-failure-diagnostic.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
 export interface DaemonServeHooks {
   readonly onStarted?: (status: Record<string, unknown>) => void;
+  readonly onStop?: () => Promise<void>;
   readonly authorityLifecycle?: AuthorityRepoLifecycleController;
 }
 
@@ -369,6 +374,9 @@ export async function runDaemonServe<
                 errorCode: diagnostic.code,
                 requestId: diagnostic.requestId
               }, { repo }).catch(() => undefined);
+            },
+            onGracefulStopFailure: async (error) => {
+              await daemonLogService.append(repoWriteGracefulFailureLog(error), { repo });
             }
           });
           repoWriteSupervisors.set(repo.repoId, supervisor);
@@ -413,6 +421,7 @@ export async function runDaemonServe<
         transportStarted = false;
         await transport.stop();
       });
+      if (hooks.onStop) serviceHost.onStop(hooks.onStop);
       if (input.requestedAuthorityManifest) {
         persistAuthorityManifestPointer(input.requestedAuthorityManifest, userRoot);
       }
@@ -447,7 +456,7 @@ export async function runDaemonServe<
     } catch (error) {
       failure = error;
       terminalReason = `unexpected-error:${error instanceof Error ? error.name : "unknown"}`;
-      terminalMessage = `Daemon service terminated after an unexpected error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
+      terminalMessage = `Daemon service terminated after an unexpected error: ${formatDaemonFailure(error)}`;
     }
     try {
       let stoppedByHost = false;
@@ -473,9 +482,10 @@ export async function runDaemonServe<
       }
     } catch (error) {
       failure ??= error;
+      const cleanupTrigger = terminalReason ?? "unknown stop trigger";
       terminalClean = false;
       terminalReason = `shutdown-error:${error instanceof Error ? error.name : "unknown"}`;
-      terminalMessage = `Daemon service cleanup failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
+      terminalMessage = `Daemon service cleanup after ${cleanupTrigger} failed: ${formatDaemonFailure(error)}`;
     }
     if (lifecycleStarted && serviceHost) {
       try {
