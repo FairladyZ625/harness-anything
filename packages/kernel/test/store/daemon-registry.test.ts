@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +25,42 @@ test("daemon registry reads missing registry as an empty v1 registry", () => {
       repos: []
     });
   });
+});
+
+test("register classifies a Windows lock-create EPERM after the lock disappears as contention", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-registry-eperm-"));
+  const userRoot = path.join(root, "user-harness");
+  const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+  const lockPath = `${daemonRegistryPaths({ userRoot }).registryPath}.lock`;
+  mkdirSync(userRoot, { recursive: true });
+  mkdirSync(lockPath);
+
+  const originalMkdirSync = fs.mkdirSync;
+  let injectLockFailure = true;
+  fs.mkdirSync = ((inputPath: Parameters<typeof fs.mkdirSync>[0], options?: Parameters<typeof fs.mkdirSync>[1]) => {
+    if (inputPath === lockPath && injectLockFailure) {
+      injectLockFailure = false;
+      rmSync(lockPath, { recursive: true, force: true });
+      throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+    }
+    return Reflect.apply(originalMkdirSync, fs, [inputPath, options]);
+  }) as typeof fs.mkdirSync;
+  syncBuiltinESMExports();
+  context.after(() => {
+    fs.mkdirSync = originalMkdirSync;
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const result = registerDaemonRepo({
+    userRoot,
+    canonicalRoot,
+    repoId: "project",
+    platform: "win32",
+    createConvenienceLinks: false
+  });
+
+  assert.equal(result.repo.repoId, "project");
 });
 
 test("daemon registry register realpaths canonical roots and writes registry-only when links are disabled", () => {
