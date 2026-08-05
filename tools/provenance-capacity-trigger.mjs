@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  classifyProvenanceCapacitySample,
   provenanceCapacityHeadroomThresholdRatio,
   readProvenanceLedgerScale
 } from "../packages/daemon/src/observability/provenance-capacity-trigger.ts";
@@ -81,12 +82,14 @@ export function summarizeRequestEntries(entries, input) {
   const headroomRatio = roundRatio(headroomMs / writerDeadlineMs);
   const alert = writerDeadlineMs - writerTerminalMs
     <= writerDeadlineMs * provenanceCapacityHeadroomThresholdRatio;
+  const sampleClass = classifyProvenanceCapacitySample(input.requestId);
   return {
     schema: "provenance-capacity-report/v1",
     status: telemetryComplete
-      ? (alert ? "alert" : "ok")
+      ? (sampleClass === "cold-start" ? "cold-start" : alert ? "alert" : "ok")
       : "measurement-failed",
     source: committed ? "production-task-complete" : "production-dry-run",
+    sampleClass,
     requestId: input.requestId,
     proofObservedAt,
     proofHistoryMs: telemetryComplete
@@ -107,6 +110,7 @@ export function formatProvenanceCapacityReport(report) {
   const values = [
     `status=${report.status}`,
     `source=${report.source}`,
+    `sampleClass=${report.sampleClass}`,
     `request=${report.requestId}`,
     `proofObservedAt=${report.proofObservedAt ?? "unknown"}`,
     `ledgerHeadNow=${report.ledgerHeadNow}`,
@@ -187,6 +191,7 @@ function latestObservedRequestId(entries, repoId) {
     if (entry.repoId !== repoId || ![
       "provenance.capacity.observation",
       "provenance.capacity.alert",
+      "provenance.capacity.cold-start",
       "provenance.capacity.measurement-failed"
     ].includes(entry.event)) continue;
     const message = parseObject(entry.message);

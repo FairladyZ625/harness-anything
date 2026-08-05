@@ -5,6 +5,11 @@ import {
   type ProvenanceCapacitySignal
 } from "./provenance-capacity-trigger.ts";
 
+export interface ProvenanceCapacityLogDisposition {
+  readonly level: "info" | "warn";
+  readonly event: string;
+}
+
 export function scheduleProvenanceCapacityLog(
   daemonLogService: DaemonLogService,
   context: DaemonLogRepoContext,
@@ -15,11 +20,12 @@ export function scheduleProvenanceCapacityLog(
     void readProvenanceLedgerScale(authoredGitRoot)
       .then((scale) => {
         const observation = completeProvenanceCapacityObservation(signal, scale);
+        const disposition = provenanceCapacityLogDisposition(signal.status);
         return daemonLogService.append({
-          level: signal.status === "ok" ? "info" : "warn",
+          level: disposition.level,
           source: "daemon",
           component: "repo-write-child",
-          event: provenanceCapacityEvent(signal.status),
+          event: disposition.event,
           message: JSON.stringify(observation),
           ...(signal.status === "alert" ? {
             errorCode: "PROVENANCE_CAPACITY_HEADROOM_LOW",
@@ -33,11 +39,12 @@ export function scheduleProvenanceCapacityLog(
       })
       .catch(() => {
         const fallbackStatus = signal.status === "alert" ? "alert" : "measurement-failed";
+        const disposition = provenanceCapacityLogDisposition(fallbackStatus);
         return daemonLogService.append({
-          level: "warn",
+          level: disposition.level,
           source: "daemon",
           component: "repo-write-child",
-          event: provenanceCapacityEvent(fallbackStatus),
+          event: disposition.event,
           message: JSON.stringify({
             ...signal,
             schema: "provenance-capacity-observation-partial/v1",
@@ -55,8 +62,13 @@ export function scheduleProvenanceCapacityLog(
   });
 }
 
-function provenanceCapacityEvent(status: ProvenanceCapacitySignal["status"]): string {
-  if (status === "alert") return "provenance.capacity.alert";
-  if (status === "measurement-failed") return "provenance.capacity.measurement-failed";
-  return "provenance.capacity.observation";
+export function provenanceCapacityLogDisposition(
+  status: ProvenanceCapacitySignal["status"]
+): ProvenanceCapacityLogDisposition {
+  if (status === "alert") return { level: "warn", event: "provenance.capacity.alert" };
+  if (status === "cold-start") return { level: "info", event: "provenance.capacity.cold-start" };
+  if (status === "measurement-failed") {
+    return { level: "warn", event: "provenance.capacity.measurement-failed" };
+  }
+  return { level: "info", event: "provenance.capacity.observation" };
 }

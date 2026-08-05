@@ -31,8 +31,9 @@ export interface ProvenanceCapacityTriggerOptions {
 export interface ProvenanceCapacitySignal {
   readonly schema: "provenance-capacity-signal/v1";
   readonly requestId: string;
-  readonly status: "ok" | "alert" | "measurement-failed";
+  readonly status: "ok" | "alert" | "cold-start" | "measurement-failed";
   readonly source: "production-task-complete";
+  readonly sampleClass: "cold-start" | "warm";
   readonly proofHistoryMs: number | null;
   readonly historyScanCount: number;
   readonly historyPathCounts: ReadonlyArray<number | null>;
@@ -95,7 +96,13 @@ export function createProvenanceCapacityTelemetryTrigger(
       if (frame.phase !== "child-terminal-response") return null;
       requests.delete(frame.requestId);
       if (!state.completionWitnessObserved || !state.canonicalEventPublished) return null;
-      return capacitySignal(frame.requestId, state, finiteMilliseconds(frame.elapsedMs), writerDeadlineMs);
+      return capacitySignal(
+        frame.requestId,
+        classifyProvenanceCapacitySample(frame.requestId, frame.generation),
+        state,
+        finiteMilliseconds(frame.elapsedMs),
+        writerDeadlineMs
+      );
     }
   };
 }
@@ -138,8 +145,19 @@ export function completeProvenanceCapacityObservation(
   };
 }
 
+export function classifyProvenanceCapacitySample(
+  requestId: string,
+  generation?: number
+): ProvenanceCapacitySignal["sampleClass"] {
+  const match = /^(\d+):(\d+)$/u.exec(requestId);
+  if (!match || match[2] !== "1") return "warm";
+  if (generation !== undefined && match[1] !== String(generation)) return "warm";
+  return "cold-start";
+}
+
 function capacitySignal(
   requestId: string,
+  sampleClass: ProvenanceCapacitySignal["sampleClass"],
   state: RequestState,
   writerTerminalMs: number,
   writerDeadlineMs: number
@@ -152,11 +170,17 @@ function capacitySignal(
   const headroomRatio = roundProvenanceRatio(headroomMs / writerDeadlineMs);
   const alert = writerDeadlineMs - writerTerminalMs
     <= writerDeadlineMs * provenanceCapacityHeadroomThresholdRatio;
+  const status = !telemetryComplete
+    ? "measurement-failed"
+    : sampleClass === "cold-start"
+      ? "cold-start"
+      : alert ? "alert" : "ok";
   return {
     schema: "provenance-capacity-signal/v1",
     requestId,
-    status: telemetryComplete ? (alert ? "alert" : "ok") : "measurement-failed",
+    status,
     source: "production-task-complete",
+    sampleClass,
     proofHistoryMs: telemetryComplete
       ? roundProvenanceMilliseconds(state.historyDurationsMs.reduce((sum, duration) => sum + duration, 0))
       : null,

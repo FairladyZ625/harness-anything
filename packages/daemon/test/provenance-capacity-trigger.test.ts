@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  classifyProvenanceCapacitySample,
   createProvenanceCapacityTelemetryTrigger,
   readProvenanceLedgerScale
 } from "../src/observability/provenance-capacity-trigger.ts";
+import { provenanceCapacityLogDisposition } from "../src/observability/provenance-capacity-log.ts";
 import type { RepoWriteTelemetryFrame } from "../src/runtime/repo-write-protocol.ts";
 
 test("real task-complete traffic reports history cost and terminal writer headroom", () => {
@@ -35,6 +37,7 @@ test("real task-complete traffic reports history cost and terminal writer headro
     requestId: "writer:1",
     status: "alert",
     source: "production-task-complete",
+    sampleClass: "warm",
     proofHistoryMs: 5_900,
     historyScanCount: 4,
     historyPathCounts: [20, 1, 20, 1],
@@ -44,6 +47,52 @@ test("real task-complete traffic reports history cost and terminal writer headro
     headroomMs: 2_942,
     headroomRatio: 0.0981,
     alertThresholdRatio: 0.3333
+  });
+});
+
+test("the first request on a writer connection is informational even when its cold start crosses the threshold", () => {
+  const trigger = createProvenanceCapacityTelemetryTrigger({ writerDeadlineMs: 30_000 });
+  const frame = (
+    phase: RepoWriteTelemetryFrame["phase"],
+    elapsedMs: number,
+    details?: RepoWriteTelemetryFrame["details"]
+  ) => telemetry(phase, elapsedMs, details, "582:1", 582);
+  trigger.observe(frame("compile-task-witness", 10, {
+    stage: "document-produce", state: "start"
+  }));
+  for (let index = 0; index < 4; index += 1) {
+    trigger.observe(frame("authority-publication-proof", 100 + index * 100, {
+      stage: "history-start", pathCount: index % 2 === 0 ? 19 : 1
+    }));
+    trigger.observe(frame("authority-publication-proof", 150 + index * 100, {
+      stage: "history-done", pathCount: index % 2 === 0 ? 19 : 1
+    }));
+  }
+  trigger.observe(frame("authority-event-published", 16_000));
+  trigger.observe(frame("child-execution-returned", 16_927));
+
+  const signal = trigger.observe(frame("child-terminal-response", 27_058));
+  assert.equal(signal?.status, "cold-start");
+  assert.equal(signal?.sampleClass, "cold-start");
+  assert.equal(signal?.headroomRatio, 0.0981);
+});
+
+test("writer connection sequence classifies the observed production sample ids", () => {
+  assert.equal(classifyProvenanceCapacitySample("582:1", 582), "cold-start");
+  assert.equal(classifyProvenanceCapacitySample("582:67", 582), "warm");
+  assert.equal(classifyProvenanceCapacitySample("582:92", 582), "warm");
+  assert.equal(classifyProvenanceCapacitySample("582:103", 582), "warm");
+  assert.equal(classifyProvenanceCapacitySample("582:1", 583), "warm");
+});
+
+test("cold-start capacity samples stay informational instead of emitting an alert", () => {
+  assert.deepEqual(provenanceCapacityLogDisposition("cold-start"), {
+    level: "info",
+    event: "provenance.capacity.cold-start"
+  });
+  assert.deepEqual(provenanceCapacityLogDisposition("alert"), {
+    level: "warn",
+    event: "provenance.capacity.alert"
   });
 });
 
@@ -140,14 +189,16 @@ test("ledger scale reports first-parent and total commit counts from real Git ob
 function telemetry(
   phase: RepoWriteTelemetryFrame["phase"],
   elapsedMs: number,
-  details?: RepoWriteTelemetryFrame["details"]
+  details?: RepoWriteTelemetryFrame["details"],
+  requestId = "writer:1",
+  generation = 1
 ): RepoWriteTelemetryFrame {
   return {
     protocol: "harness-repo-write-ipc/v1",
     repoId: "canonical",
-    generation: 1,
+    generation,
     kind: "telemetry",
-    requestId: "writer:1",
+    requestId,
     phase,
     elapsedMs,
     ...(details ? { details } : {})

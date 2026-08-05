@@ -28,6 +28,7 @@ test("historical production dry-run is explicitly labeled and uses its request p
   });
   assert.equal(report.status, "ok");
   assert.equal(report.source, "production-dry-run");
+  assert.equal(report.sampleClass, "warm");
   assert.equal(report.proofHistoryMs, 5_900);
   assert.equal(report.writerTerminalMs, 14_560.21);
   assert.equal(report.headroomMs, 15_439.79);
@@ -58,6 +59,7 @@ test("real completion report uses child-terminal-response and crosses the relati
 
   assert.equal(report.status, "alert");
   assert.equal(report.source, "production-task-complete");
+  assert.equal(report.sampleClass, "warm");
   assert.equal(report.writerExecutionMs, 16_927);
   assert.equal(report.writerTerminalMs, 27_058);
   assert.equal(report.headroomRatio, 0.0981);
@@ -68,6 +70,7 @@ test("text report exposes both commit-count vocabularies and the temporal measur
     schema: "provenance-capacity-report/v1",
     status: "ok",
     source: "production-dry-run",
+    sampleClass: "warm",
     requestId: "writer:1",
     proofObservedAt: "2026-08-05T19:08:27.347Z",
     ledgerHeadNow: "a".repeat(40),
