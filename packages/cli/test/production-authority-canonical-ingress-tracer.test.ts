@@ -15,6 +15,7 @@ import {
 } from "./helpers/daemon-cli.ts";
 import {
   authorityEventBodies,
+  authorityOperationRecords,
   createFixture,
   latestAuthorityOperation
 } from "./production-authority-canonical-ingress/fixture.ts";
@@ -74,6 +75,7 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
       "tasks/task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4/progress.md"), true);
     assert.equal(publication.physicalChanges.some((change) => change.path.startsWith("attribution-events/")), true);
 
+    const operationCountBeforeInterleaved = authorityOperationRecords(fixture.serviceRoot).length;
     const interleaved = await Promise.all([
       runRawJsonAsync(fixture.repoRoot, [
         "task", "progress", "append", "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
@@ -95,6 +97,28 @@ test("PR canonical ingress keeps two interleaved session receipts determinate", 
     ), "utf8");
     assert.match(progress, /interleaved publication from alpha/u);
     assert.match(progress, /interleaved publication from beta/u);
+    const interleavedRecords = authorityOperationRecords(fixture.serviceRoot)
+      .slice(operationCountBeforeInterleaved)
+      .filter((record) => record.canonicalOperation?.kind === "progress_append");
+    assert.equal(interleavedRecords.length, 2, JSON.stringify(interleavedRecords));
+    const authorityOrder = interleavedRecords.map((record) => {
+      assert.equal(record.receipt?.tag, "COMMITTED", JSON.stringify(record));
+      const append = (record.canonicalOperation?.payload as { readonly append?: unknown })?.append;
+      assert.equal(typeof append, "string", JSON.stringify(record));
+      const label = append.includes("alpha")
+        ? "interleaved publication from alpha"
+        : append.includes("beta")
+          ? "interleaved publication from beta"
+          : undefined;
+      assert.ok(label, JSON.stringify(record));
+      return { label, revision: record.receipt.revision };
+    }).sort((left, right) => left.revision - right.revision);
+    assert.ok(authorityOrder[0]!.revision < authorityOrder[1]!.revision, JSON.stringify(authorityOrder));
+    const physicalOrder = [
+      "interleaved publication from alpha",
+      "interleaved publication from beta"
+    ].sort((left, right) => progress.indexOf(left) - progress.indexOf(right));
+    assert.deepEqual(physicalOrder, authorityOrder.map((entry) => entry.label));
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });

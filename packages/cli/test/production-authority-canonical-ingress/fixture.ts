@@ -319,11 +319,15 @@ export function latestAuthorityOperation(serviceRoot: string): AuthorityStoredOp
   return rows.at(-1)!.value as unknown as AuthorityStoredOperationRecord;
 }
 
-export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<{ readonly state?: string; readonly opId?: string }> {
+export function authorityOperationRecords(serviceRoot: string): ReadonlyArray<AuthorityStoredOperationRecord> {
   if (!existsSync(operationPath(serviceRoot))) return [];
-  const latest = new Map<string, { readonly state?: string; readonly opId?: string }>();
+  const latest = new Map<string, AuthorityStoredOperationRecord>();
   for (const line of readFileSync(operationPath(serviceRoot), "utf8").trim().split("\n").filter(Boolean)) {
-    const row = JSON.parse(line) as { readonly table?: string; readonly key?: string; readonly value?: { readonly state?: string; readonly opId?: string } };
+    const row = JSON.parse(line) as {
+      readonly table?: string;
+      readonly key?: string;
+      readonly value?: AuthorityStoredOperationRecord;
+    };
     if (row.table === "operation" && row.key && row.value) latest.set(row.key, row.value);
   }
   return [...latest.values()];

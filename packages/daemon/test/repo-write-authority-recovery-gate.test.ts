@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  AuthorityImmutablePublicationProofError,
   DurableRepoWriteOutcomeStoreV1,
   RepoWriteAuthorityRecoveryGate,
   repoWriteActorStampDigestV1,
@@ -250,6 +251,58 @@ recoveryTest("NON_LINEAR semicolon diagnostic is durably rejected once", async (
     assert.deepEqual(current.listHistoricalProceedings(), []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+recoveryTest("immutable publication proof failures are durably rejected across generations", async () => {
+  const codes = [
+    "AUTHORITY_CANONICAL_PUBLICATION_PIPELINE_EVIDENCE_MISMATCH",
+    "AUTHORITY_CANONICAL_PUBLICATION_CONTENT_ADDRESS_MISMATCH",
+    "AUTHORITY_PUBLICATION_TREE_MISMATCH",
+    "AUTHORITY_PUBLICATION_DECLARED_PATH_MISSING"
+  ] as const;
+  for (const code of codes) {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-historical-proof-"));
+    try {
+      const historical = { ...proceedingInput(), generation: 403 };
+      const previous = new DurableRepoWriteOutcomeStoreV1({
+        directory,
+        repoId: historical.repoId,
+        workspaceId: historical.workspaceId,
+        generation: historical.generation
+      }).begin(historical);
+      const current = new DurableRepoWriteOutcomeStoreV1({
+        directory,
+        repoId: historical.repoId,
+        workspaceId: historical.workspaceId,
+        generation: 409
+      });
+      const gate = new RepoWriteAuthorityRecoveryGate({
+        repoId: historical.repoId,
+        workspaceId: historical.workspaceId,
+        generation: 409,
+        store: current,
+        assertCurrentWriterFence: () => undefined,
+        resolveHistoricalPublication: async () => {
+          throw new AuthorityImmutablePublicationProofError(code, "immutable-proof");
+        }
+      });
+
+      assert.deepEqual(
+        await gate.recoverHistoricalProceeding(current.listHistoricalProceedings()[0]!),
+        { disposition: "permanently-rejected", code }
+      );
+      assert.equal(current.getHistoricalRecoveryRejection(previous.outerOpId)?.code, code);
+      const restarted = new DurableRepoWriteOutcomeStoreV1({
+        directory,
+        repoId: historical.repoId,
+        workspaceId: historical.workspaceId,
+        generation: 410
+      });
+      assert.deepEqual(restarted.listHistoricalProceedings(), []);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
 });
 

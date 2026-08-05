@@ -44,8 +44,9 @@ test("publication proof accepts a two-parent semantic merge with the complete se
 test("publication proof accepts two interleaved sessions from their captured trunk", async (context) => {
   const fixture = publicationFixture(context);
   const interleavedOpId = "namespace-test:interleaved-publication";
-  fixtureGit(fixture.root, "checkout", "-q", "--detach", fixture.validMerge);
-  writeFileSync(path.join(fixture.root, "tasks/task_topology/progress.md"), "publication\ninterleaved\n");
+  fixtureGit(fixture.root, "checkout", "-q", "--detach", fixture.base);
+  mkdirSync(path.join(fixture.root, "tasks/task_topology"), { recursive: true });
+  writeFileSync(path.join(fixture.root, "tasks/task_topology/progress.md"), "interleaved\n");
   const interleavedAttributionPath = attributionPath(interleavedOpId);
   mkdirSync(path.dirname(path.join(fixture.root, interleavedAttributionPath)), { recursive: true });
   writeFileSync(path.join(fixture.root, interleavedAttributionPath), "{\"schema\":\"attribution-event/v1\"}\n");
@@ -209,6 +210,14 @@ test("publication proof accepts a strongly matched session based on an older tru
 
   assert.equal(evidence.commitSha, staleSessionMerge);
   assert.deepEqual(evidence.parentCommits, [currentTrunk, fixture.session]);
+  assert.deepEqual(
+    new Set(evidence.physicalChanges.map((change) => change.path)),
+    new Set(["tasks/task_topology/progress.md", attributionPath(opId)])
+  );
+  for (const change of evidence.physicalChanges) {
+    assert.equal(change.beforeDigest, null, `${change.path} is absent from the older publication base`);
+    assert.match(change.afterDigest ?? "", /^[a-f0-9]{64}$/u);
+  }
 });
 
 test("publication proof rejects a merge tree that differs from the session tree", async (context) => {

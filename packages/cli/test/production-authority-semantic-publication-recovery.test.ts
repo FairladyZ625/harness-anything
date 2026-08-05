@@ -140,6 +140,123 @@ test("recovery crosses old-to-semantic shape while V2 evidence is delayed withou
   }
 });
 
+test("same-session retry cannot hide an unanchored authority batch from recovery", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authority-recovery-unanchored-prefix-"));
+  const watermarkPath = path.join(root, "recovery-watermark.json");
+  const workspaceId = "workspace-production";
+  const firstOpId = "namespace-production:unanchored-first";
+  const secondOpId = "namespace-production:anchored-second";
+  const firstMutationDigest = "c".repeat(64);
+  const secondMutationDigest = "e".repeat(64);
+  const git = (...args: ReadonlyArray<string>) => execFileSync("git", ["-C", root, ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Harness Test",
+      GIT_AUTHOR_EMAIL: "harness@example.test",
+      GIT_COMMITTER_NAME: "Harness Test",
+      GIT_COMMITTER_EMAIL: "harness@example.test"
+    }
+  }).trim();
+  const semanticMessage = (opId: string, semanticMutationSetDigest: string) => {
+    const integrity = buildAuthorityBatchIntegrity([{ opId, semanticMutationSetDigest }]);
+    return `task(progress-append): task_BOUNDARY progress.md [${opId}]\n\n${authorityBatchTrailerName}: ${integrity.trailerValue}`;
+  };
+  try {
+    git("init", "-q", "-b", "master");
+    writeFileSync(path.join(root, "seed.txt"), "seed\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "seed");
+    const expectedPreviousHead = git("rev-parse", "HEAD");
+
+    git("checkout", "-q", "-b", "sessions/materialization-retry");
+    mkdirSync(path.join(root, "attribution-events"), { recursive: true });
+    mkdirSync(path.join(root, "tasks/task_BOUNDARY"), { recursive: true });
+    writeFileSync(path.join(root, "tasks/task_BOUNDARY/progress.md"), "first publication\n");
+    writeFileSync(
+      path.join(root, "attribution-events", `${sha256Text(firstOpId)}.jsonl`),
+      `${JSON.stringify({ schema: "attribution-event/v1", opId: firstOpId })}\n`
+    );
+    git("add", ".");
+    git("commit", "-q", "-m", semanticMessage(firstOpId, firstMutationDigest));
+
+    // The first materialization fails after its authority batch commit exists.
+    // The same session then appends a second batch on top of that unmerged commit.
+    writeFileSync(path.join(root, "tasks/task_BOUNDARY/progress.md"), "first publication\nsecond publication\n");
+    writeFileSync(
+      path.join(root, "attribution-events", `${sha256Text(secondOpId)}.jsonl`),
+      `${JSON.stringify({ schema: "attribution-event/v1", opId: secondOpId })}\n`
+    );
+    git("add", ".");
+    git("commit", "-q", "-m", semanticMessage(secondOpId, secondMutationDigest));
+    git("checkout", "-q", "master");
+    git("merge", "-q", "--no-ff", "sessions/materialization-retry", "-m", "materializer: merge session materialization-retry");
+
+    const inspector = createGitCanonicalPublicationInspector(root);
+    let proofFailure: unknown;
+    try {
+      await inspector.inspectPublication(expectedPreviousHead, [secondOpId]);
+    } catch (error) {
+      proofFailure = error;
+    }
+
+    const records = new Map<string, AuthorityStoredOperationRecord>([
+      [firstOpId, pendingRecord(workspaceId, firstOpId, firstMutationDigest)],
+      [secondOpId, pendingRecord(workspaceId, secondOpId, secondMutationDigest)]
+    ]);
+    let change: ReplicaChangeRecord | undefined;
+    let recoveryCount = 0;
+    const deferred: Array<{ readonly opId: string; readonly error: unknown }> = [];
+    await recoverPendingProductionEvents({
+      workspaceId,
+      operationRegistry: {
+        get: async (_workspaceId, opId) => records.get(opId),
+        list: async () => [...records.values()],
+        put: async (record) => { records.set(record.opId, record); }
+      },
+      replicaChangeLog: {
+        append: async (next) => { change = next; },
+        latest: async () => change,
+        getByOperation: async (_workspaceId, opId) =>
+          change?.operations.some((operation) => operation.opId === opId) ? change : undefined,
+        changesAfter: async () => change ? [change] : []
+      },
+      eventLog: {} as ReturnType<typeof makeLocalAuthorityAttributionEventV2Log>,
+      publicationInspector: inspector,
+      recover: async (record) => {
+        recoveryCount += 1;
+        return {
+          tag: "COMMITTED",
+          workspaceId,
+          opId: record.opId,
+          semanticDigest: record.semanticDigest,
+          revision: 1,
+          commitSha: git("rev-parse", "HEAD"),
+          previousCommit: expectedPreviousHead,
+          authorityIntegrity: record.authorityIntegrity!
+        };
+      },
+      watermarkPath,
+      onDeferred: async (record, error) => { deferred.push({ opId: record.opId, error }); }
+    });
+
+    assert.match(
+      proofFailure instanceof Error ? proofFailure.message : "",
+      /AUTHORITY_CANONICAL_PUBLICATION_UNANCHORED_BATCH_PREFIX/u
+    );
+    assert.equal(records.get(firstOpId)?.state, "INDETERMINATE");
+    assert.equal(records.get(secondOpId)?.state, "INDETERMINATE");
+    assert.equal(recoveryCount, 0);
+    assert.deepEqual(deferred.map((entry) => entry.opId), [firstOpId, secondOpId]);
+    assert.equal(deferred.every((entry) =>
+      entry.error instanceof Error
+      && entry.error.message.startsWith("AUTHORITY_CANONICAL_PUBLICATION_UNANCHORED_BATCH_PREFIX")
+    ), true, deferred.map((entry) => String(entry.error)).join("\n"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function pendingRecord(
   workspaceId: string,
   opId: string,
