@@ -55,6 +55,7 @@ export const CliErrorCode = {
   InvalidEvidence: "invalid_evidence",
   InvalidFactConfidence: "invalid_fact_confidence",
   InvalidFactId: "invalid_fact_id",
+  InvalidDaemonLogInput: "invalid_daemon_log_input",
   InvalidJsonInput: "invalid_json_input",
   InvalidFactMemoryClass: "invalid_fact_memory_class",
   InvalidFactMemoryTag: "invalid_fact_memory_tag",
@@ -98,6 +99,7 @@ export const CliErrorCode = {
   MissingPreset: "missing_preset",
   MissingProfile: "missing_profile",
   MissingReason: "missing_reason",
+  MissingRequiredOption: "missing_required_option",
   MissingSession: "missing_session",
   MissingSupersedeTarget: "missing_supersede_target",
   MissingTask: "missing_task",
@@ -152,6 +154,7 @@ export const CliErrorCode = {
   TerminalReopenRequiresSupersede: "terminal_reopen_requires_supersede",
   TerminalServiceUnavailable: "terminal_service_unavailable",
   TerminalStatusRequiresTaskComplete: "terminal_status_requires_task_complete",
+  UnclassifiedCommandFailure: "unclassified_command_failure",
   UnknownCommand: "unknown_command",
   UnknownHelpTopic: "unknown_help_topic",
   UserSettingsInvalid: "user_settings_invalid",
@@ -281,6 +284,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.InvalidDecisionTier]: { category: "parse", defaultHint: "The Decision tier is invalid because `--risk-tier` and `--urgency` accept only low, medium, or high. Correct the rejected option, then rerun the original `ha decision ...` command." },
   [CliErrorCode.InvalidEntrypoint]: { category: "parse", defaultHint: "The preset invocation was rejected because the named entrypoint is not declared by that preset. Run `ha preset inspect <id> --json`, choose a listed entrypoint, then retry." },
   [CliErrorCode.InvalidEvidence]: { category: "parse", defaultHint: "The evidence input was rejected because it does not match `type:PATH:summary`. Run `ha task progress append --help`, correct the `--evidence` value, then retry." },
+  [CliErrorCode.InvalidDaemonLogInput]: { category: "parse", defaultHint: "The daemon log query was rejected because `--limit`, `--cursor`, `--levels`, `--since`, or `--errors` failed validation. Run `ha daemon logs --help`, correct the reported option, then retry." },
   [CliErrorCode.InvalidFactConfidence]: { category: "parse", defaultHint: "The Fact input was rejected because confidence must be low, medium, or high. Run `ha fact record --help`, correct `--confidence`, then retry." },
   [CliErrorCode.InvalidFactId]: { category: "parse", defaultHint: "The Fact input was rejected because the id does not match the Fact id format. Run `ha fact list --task <task-id> --json`, copy an existing id or omit generated-id input, then retry." },
   [CliErrorCode.InvalidJsonInput]: { category: "parse", defaultHint: "The command input was rejected because `--json-input` or `--from-file` is malformed or conflicts with another input source. Run `ha capabilities --json`, correct the JSON against the command schema, then retry." },
@@ -326,6 +330,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.MissingPreset]: { category: "parse", defaultHint: "The preset command was rejected because its required preset id is missing. Run `ha preset list --json`, choose an id, then retry." },
   [CliErrorCode.MissingProfile]: { category: "parse", defaultHint: "The command was rejected because its required profile id is missing. Run `ha doctor --json`, select a configured profile, then retry with `--profile <id>`." },
   [CliErrorCode.MissingReason]: { category: "parse", defaultHint: "The lifecycle write was rejected because its auditable reason is missing. Run `ha task transition --help`, add `--reason <text>`, then retry." },
+  [CliErrorCode.MissingRequiredOption]: { category: "parse", defaultHint: "The command was rejected because a required option is missing or empty. Run the command with `--help`, add the reported option with a non-empty value, then retry." },
   [CliErrorCode.MissingSession]: { category: "parse", defaultHint: "The session command was rejected because its required session id is missing. Run `ha session show --help`, add `--session <session-id>` or the required positional id, then retry." },
   [CliErrorCode.MissingSupersedeTarget]: { category: "parse", defaultHint: "The supersede request was rejected because no replacement was selected. Run `ha task supersede --help`, provide `--title <title>` or `--by <task-id>`, then retry." },
   [CliErrorCode.MissingTask]: { category: "parse", defaultHint: "The command was rejected because its required task id is missing. Run `ha task list --json`, choose a task id, then retry." },
@@ -386,6 +391,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.TerminalReopenRequiresSupersede]: { category: "domain", defaultHint: "Reopen was rejected because terminal tasks require an auditable replacement. Run `ha task supersede <task-id> --title <follow-up-title>`, then continue work on the returned task." },
   [CliErrorCode.TerminalServiceUnavailable]: { category: "command", defaultHint: "The terminal operation failed because its local service is unavailable. Run `ha doctor --json`, restore the reported service dependency, then retry." },
   [CliErrorCode.TerminalStatusRequiresTaskComplete]: { category: "command", defaultHint: "Preferred path: ha task complete <id> --approve. If the task is already terminal and more work is required, run ha task supersede <id> --title <follow-up-title>." },
+  [CliErrorCode.UnclassifiedCommandFailure]: { category: "command", defaultHint: "The command failed for an unexpected reason that the command group could not classify. Rerun the command; if it repeats, run `ha doctor --json` and inspect the reported condition, then contact maintenance with the receipt." },
   [CliErrorCode.UnknownCommand]: { category: "parse", defaultHint: "Unknown command. Run 'ha help' to inspect valid commands." },
   [CliErrorCode.UnknownHelpTopic]: { category: "parse", defaultHint: "Unknown help topic. Run 'ha help' to inspect valid commands." },
   [CliErrorCode.UserSettingsInvalid]: { category: "settings", defaultHint: "User settings were rejected because one or more values failed validation. Run `ha doctor --json`, correct the reported user setting, then retry." },
@@ -413,6 +419,29 @@ export function cliError(code: CliErrorCode, hint?: string, context?: Readonly<R
 
 export function isCliErrorCode(value: unknown): value is CliErrorCode {
   return typeof value === "string" && Object.hasOwn(cliErrorCodeRegistry, value);
+}
+
+/**
+ * Reads a {@link CliErrorCode} that a throw site attached to an error so a
+ * catch block can pass it through without guessing. Catch blocks should
+ * always fall back to an honest "unclassified" code when this returns
+ * undefined — never to a specific diagnosis that the error did not carry.
+ */
+export function errorCodeFromThrown(error: unknown): CliErrorCode | undefined {
+  if (error !== null && typeof error === "object" && "cliErrorCode" in error) {
+    const code = (error as { readonly cliErrorCode?: unknown }).cliErrorCode;
+    return isCliErrorCode(code) ? code : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Attaches a {@link CliErrorCode} to an Error so a catch block can pass it
+ * through. Use this at throw sites that know the honest semantic class of
+ * the failure (parameter validation, missing option, etc.).
+ */
+export function withCliErrorCode(error: Error, code: CliErrorCode): Error & { readonly cliErrorCode: CliErrorCode } {
+  return Object.assign(error, { cliErrorCode: code });
 }
 
 export function cliErrorFamily(code: CliErrorCode): CliErrorFamily {

@@ -5,6 +5,7 @@ import {
   type DaemonLogPageV1
 } from "@harness-anything/application";
 import type { JsonObject } from "@harness-anything/daemon";
+import { CliErrorCode, withCliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 import { requestLocalDaemonJsonRpc, resolveLocalDaemonTarget } from "../../daemon/client.ts";
 import type { DaemonCommandInput } from "./productization.ts";
@@ -41,8 +42,7 @@ export async function runDaemonLogsCommand(input: DaemonCommandInput): Promise<n
   );
   const details = isDaemonLogReceiptRecord(receipt.details) ? receipt.details : {};
   if (receipt.ok !== true) {
-    const error = isDaemonLogReceiptRecord(receipt.error) ? receipt.error : {};
-    throw new Error(typeof error.hint === "string" ? error.hint : "Daemon log query failed.");
+    throw daemonLogReceiptError(receipt.error);
   }
   emitDaemonLogs(decodeDaemonLogPage(details.data), input.json);
   return 0;
@@ -62,4 +62,19 @@ function emitDaemonLogs(page: DaemonLogPageV1, json: boolean): void {
 
 function isDaemonLogReceiptRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function daemonLogReceiptError(errorValue: unknown): Error {
+  const error = isDaemonLogReceiptRecord(errorValue) ? errorValue : {};
+  const hint = readOptionalString(error, "hint") ?? "Daemon log query failed.";
+  const tag = readOptionalString(error, "code");
+  if (tag === "invalid_daemon_log_list_input") {
+    return withCliErrorCode(new Error(hint), CliErrorCode.InvalidDaemonLogInput);
+  }
+  return new Error(hint);
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }

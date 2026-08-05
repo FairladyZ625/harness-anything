@@ -14,6 +14,9 @@ import type { CliResult, ParsedCommand } from "../src/cli/types.ts";
 import { canonicalTaskStartResult } from "../src/commands/core/task-holder-support.ts";
 import { runTaskLifecycleWithDemotions } from "../src/commands/core/task-lifecycle-demotions.ts";
 import {
+  dispatchLifecycleFacadeSteps
+} from "../src/commands/core/task-lifecycle-facade-guidance.ts";
+import {
   runTaskStartFacade,
   taskCloseoutFacadeSteps,
   taskStartFacadeSteps
@@ -275,5 +278,75 @@ for (const scenario of [
       return aliasReceipt;
     });
     assert.deepEqual(startReceipt, aliasReceipt);
+  });
+}
+
+test("dispatchLifecycleFacadeSteps soft-warns when doc-sync fails because the daemon-backed path is required", async () => {
+  const docSyncStep = {
+    rootDir: "/fixture",
+    json: true,
+    action: { kind: "doc-sync", mode: "submit", paths: ["tasks/task_FIXTURE/task_plan.md"] }
+  } as ParsedCommand;
+
+  const result = await dispatchLifecycleFacadeSteps(
+    [docSyncStep],
+    () => Promise.resolve(failureReceipt(
+      CliErrorCode.JournalUnavailable,
+      "Doc sync submit requires the daemon-backed CLI path; remove HARNESS_DAEMON_MODE=direct and retry."
+    )),
+    "task-complete"
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0]?.code, "doc_sync_dirty");
+});
+
+test("dispatchLifecycleFacadeSteps soft-warns when doc-sync fails because the daemon is unreachable", async () => {
+  const docSyncStep = {
+    rootDir: "/fixture",
+    json: true,
+    action: { kind: "doc-sync", mode: "submit", paths: ["tasks/task_FIXTURE/task_plan.md"] }
+  } as ParsedCommand;
+
+  const result = await dispatchLifecycleFacadeSteps(
+    [docSyncStep],
+    () => Promise.resolve(failureReceipt(
+      CliErrorCode.JournalUnavailable,
+      "Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'. If the daemon is stuck and this write must be recovered locally, run 'HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha --json doc sync --submit'."
+    )),
+    "task-closeout"
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0]?.code, "doc_sync_dirty");
+});
+
+test("dispatchLifecycleFacadeSteps hard-fails when doc-sync is rejected for a non-journal reason", async () => {
+  const docSyncStep = {
+    rootDir: "/fixture",
+    json: true,
+    action: { kind: "doc-sync", mode: "submit", paths: ["tasks/task_FIXTURE/task_plan.md"] }
+  } as ParsedCommand;
+
+  const result = await dispatchLifecycleFacadeSteps(
+    [docSyncStep],
+    () => Promise.resolve(failureReceipt(
+      CliErrorCode.WriteRejected,
+      "Doc sync selected path is outside the authored root."
+    )),
+    "task-complete"
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.receipt.ok, false);
+});
+
+function failureReceipt(code: CliErrorCode, hint: string) {
+  return toCommandReceipt({
+    ok: false,
+    command: "doc-sync-submit",
+    error: cliError(code, hint)
   });
 }
