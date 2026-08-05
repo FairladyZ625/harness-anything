@@ -1,8 +1,9 @@
+import { CliErrorCode, withCliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 
 export function requiredDaemonOption(args: ReadonlyArray<string>, name: string): string {
   const value = readOption(args, name);
-  if (!value || value.startsWith("--")) throw new Error(`Use ${name} <value>.`);
+  if (!value || value.startsWith("--")) throw withCliErrorCode(new Error(`Use ${name} <value>.`), CliErrorCode.MissingRequiredOption);
   return value;
 }
 

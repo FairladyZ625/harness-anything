@@ -1,4 +1,4 @@
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { cliError, CliErrorCode, errorCodeFromThrown } from "../../cli/error-codes.ts";
 import type { DaemonCommandInput } from "./command-types.ts";
 import {
   runDaemonProductCommand as runBaselineDaemonProductCommand
@@ -21,7 +21,8 @@ export async function runDaemonCommand(input: DaemonCommandInput): Promise<numbe
     emitDaemonStatusResult(status.result, input.json);
     return status.exitCode;
   } catch (error) {
-    emitDaemonStatusError(error instanceof Error ? error.message : String(error), input.json);
+    const code = errorCodeFromThrown(error) ?? CliErrorCode.UnclassifiedCommandFailure;
+    emitDaemonStatusError(code, error instanceof Error ? error.message : String(error), input.json);
     return 1;
   }
 }
@@ -51,15 +52,15 @@ function isDaemonCommandRecord(value: unknown): value is Record<string, unknown>
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function emitDaemonStatusError(message: string, json: boolean): void {
+function emitDaemonStatusError(code: CliErrorCode, message: string, json: boolean): void {
   if (json) {
     console.log(JSON.stringify({
       ok: false,
       schema: "daemon-command/v1",
       command: "daemon",
-      error: cliError(CliErrorCode.JournalUnavailable, message)
+      error: cliError(code, message)
     }));
     return;
   }
-  console.error(`error code=${CliErrorCode.JournalUnavailable} hint=${message}`);
+  console.error(`error code=${code} hint=${message}`);
 }

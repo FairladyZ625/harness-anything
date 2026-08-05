@@ -18,7 +18,7 @@ import {
 } from "@harness-anything/daemon";
 import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { cliError, CliErrorCode, errorCodeFromThrown, withCliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 import { resolveLocalDaemonTarget } from "../../daemon/client.ts";
 import {
@@ -112,7 +112,8 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     const context = error instanceof DaemonServiceStartupError
       ? error.diagnostic
       : undefined;
-    emitDaemonError(CliErrorCode.JournalUnavailable, message, input.json, context);
+    const code = errorCodeFromThrown(error) ?? CliErrorCode.UnclassifiedCommandFailure;
+    emitDaemonError(code, message, input.json, context);
     return 1;
   }
 }
@@ -250,7 +251,7 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
 
 function installTemplates(input: DaemonCommandInput): number {
   const requestedOutDir = readOption(input.args, "--out");
-  if (!requestedOutDir) throw new Error("Use ha daemon install-templates --out <directory>.");
+  if (!requestedOutDir) throw withCliErrorCode(new Error("Use ha daemon install-templates --out <directory>."), CliErrorCode.MissingRequiredOption);
   const outDir = requireDaemonProductOutputPath({
     requestedPath: requestedOutDir, rootDir: input.rootDir, label: "Daemon template output path"
   });

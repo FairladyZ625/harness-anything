@@ -20,6 +20,30 @@ test("unknown daemon product commands use parse errors with focused next steps",
   assert.match(repoCommand.receipt.error.hint, /ha daemon repo --help/u);
 });
 
+test("missing --repo-id on daemon repo unregister reports a parse error, not a journal failure", () => {
+  const result = runDaemonFailure(["daemon", "repo", "unregister"]);
+  assert.equal(result.status, 1);
+  assert.equal(result.receipt.error.code, "missing_required_option");
+  assert.equal(result.receipt.error.hint, "Use --repo-id <value>.");
+  assert.doesNotMatch(result.receipt.error.code, /journal/u);
+});
+
+test("missing --out on daemon install-templates reports a parse error, not a journal failure", () => {
+  const result = runDaemonFailure(["daemon", "install-templates"]);
+  assert.equal(result.status, 1);
+  assert.equal(result.receipt.error.code, "missing_required_option");
+  assert.match(result.receipt.error.hint, /Use ha daemon install-templates --out/u);
+  assert.doesNotMatch(result.receipt.error.code, /journal/u);
+});
+
+test("unregistering an unknown repo id reports an honest unclassified failure, not a journal failure", () => {
+  const result = runDaemonFailure(["daemon", "repo", "unregister", "--repo-id", "nonexistent-repo"]);
+  assert.equal(result.status, 1);
+  assert.equal(result.receipt.error.code, "unclassified_command_failure");
+  assert.match(result.receipt.error.hint, /not registered/u);
+  assert.doesNotMatch(result.receipt.error.code, /journal/u);
+});
+
 function runDaemonFailure(args: ReadonlyArray<string>): {
   readonly status: number | null;
   readonly receipt: { readonly error: { readonly code: string; readonly hint: string } };

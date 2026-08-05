@@ -4,7 +4,7 @@ import {
   unregisterDaemonRepo,
   type DaemonRegistryRepo
 } from "@harness-anything/kernel";
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { cliError, CliErrorCode, errorCodeFromThrown, withCliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 import { readDaemonUserRoot } from "../../daemon/client.ts";
 
@@ -53,7 +53,7 @@ export function runDaemonRepoCommand(input: DaemonRepoCommandInput): number {
     }
     if (action === "unregister") {
       const repoId = readOption(input.args, "--repo-id");
-      if (!repoId || repoId.startsWith("--")) throw new Error("Use --repo-id <value>.");
+      if (!repoId || repoId.startsWith("--")) throw withCliErrorCode(new Error("Use --repo-id <value>."), CliErrorCode.MissingRequiredOption);
       const result = unregisterDaemonRepo(repoId, options);
       emitDaemonRepoResult("daemon-repo-unregister", {
         registryPath: result.registryPath,
@@ -70,7 +70,8 @@ export function runDaemonRepoCommand(input: DaemonRepoCommandInput): number {
     );
     return 2;
   } catch (error) {
-    emitDaemonRepoError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error), input.json);
+    const code = errorCodeFromThrown(error) ?? CliErrorCode.UnclassifiedCommandFailure;
+    emitDaemonRepoError(code, error instanceof Error ? error.message : String(error), input.json);
     return 1;
   }
 }
