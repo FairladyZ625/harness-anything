@@ -323,7 +323,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "progress-append",
     "usage": "task progress append <id> --text <text> [--evidence type:PATH:summary]... [--dry-run]",
-    "options": [{"flag":"--text","description":"Progress text appended as-is (no Markdown formatting or normalization)."},{"flag":"--evidence","description":"Attach evidence in type:path:summary format; repeat for multiple entries."},{"flag":"--dry-run","description":"Preview the append without entering canonical authority ingress or writing files."}],
+    "options": [{"flag":"--text","description":"Progress text appended as-is (no Markdown formatting or normalization)."},{"flag":"--evidence","description":"Attach evidence in type:PATH:summary format; PATH must not contain ':' (use the summary slot, which allows ':') and is resolved against the working directory, repository root, then authored root. Repeat for multiple entries."},{"flag":"--dry-run","description":"Preview the append without entering canonical authority ingress or writing files."}],
     "summary": "Append the provided text as-is to a task package, with optional repeatable evidence; no Markdown formatting or normalization is applied.",
     "examples": ["harness-anything task progress append task_01ABC --text \"Implemented parser guard\" --evidence log:artifacts/check.log:passed"],
     "parse": parseCoreTaskArgs,

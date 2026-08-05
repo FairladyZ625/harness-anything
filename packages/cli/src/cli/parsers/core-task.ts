@@ -2,6 +2,7 @@ import { domainStatuses, isDomainStatus, slugifyTaskTitle } from "@harness-anyth
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
+import { parseEvidence } from "./evidence-parser.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseArtifactAdd } from "./core-task-artifact.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
@@ -208,22 +209,6 @@ function parseTaskRelate(args: ReadonlyArray<string>, rootDir: string, json: boo
     rationale,
     dryRun: args.includes("--dry-run")
   });
-}
-
-function parseEvidence(values: ReadonlyArray<string | undefined>):
-  | { readonly ok: true; readonly value?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }> }
-  | { readonly ok: false; readonly error: NonNullable<CliResult["error"]> } {
-  if (values.length === 0) return { ok: true };
-  const evidence: Array<{ readonly type: string; readonly path: string; readonly summary: string }> = [];
-  for (const value of values) {
-    if (!value) return { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
-    const [type, evidencePath, ...summaryParts] = value.split(":");
-    if (!type || !evidencePath || summaryParts.length === 0) {
-      return { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
-    }
-    evidence.push({ type, path: evidencePath, summary: summaryParts.join(":") });
-  }
-  return { ok: true, value: evidence };
 }
 
 function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): ParseResult {
