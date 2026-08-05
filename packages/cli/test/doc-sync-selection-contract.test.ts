@@ -57,6 +57,36 @@ test("doc sync submits a large selected file batch without importing unrelated m
   });
 });
 
+test("doc sync --path rejection suggests the authored-root-relative form when the caller passed a repo-root-relative path", () => {
+  // `--evidence file:<path>` accepts repo-root-relative paths (it tries cwd → rootDir → authoredRoot);
+  // `doc sync --submit --path` is authored-root-relative only. Agents that use both commands
+  // routinely type `harness/tasks/<id>/...` here and get this rejection. The error must name the
+  // authored-root prefix to drop and the exact rewritten path to retry. See task_01KZ92RAJ1HXRSYDY4JP6APRCN.
+  withFixture(({ rootDir, harnessRoot, taskId }) => {
+    const authoredRelative = `tasks/${taskId}/task_plan.md`;
+    // Keep the required ## Goal heading so the rewritten path is a valid doc-sync candidate.
+    writeFileSync(path.join(harnessRoot, authoredRelative), "# Plan\n\n## Goal\nUpdated prose.\n", "utf8");
+    const repoRootRelative = `harness/${authoredRelative}`;
+
+    assert.throws(
+      () => buildSelectedRequest(rootDir, [repoRootRelative]),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /Doc sync selected path is not dirty or is unknown/u);
+        assert.match(message, new RegExp(repoRootRelative.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+        assert.match(message, /relative to the authored root/u);
+        assert.match(message, /drop that prefix/u);
+        assert.match(message, new RegExp(`'${authoredRelative}'`.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+        return true;
+      }
+    );
+
+    // Round-trip: the suggested authored-relative form is accepted and produces a single change.
+    const request = buildSelectedRequest(rootDir, [authoredRelative]);
+    assert.deepEqual(request.payload.changes.map((change) => change.path), [authoredRelative]);
+  });
+});
+
 function buildSelectedRequest(rootDir: string, selectedPaths: ReadonlyArray<string>) {
   return buildDocSyncSubmitRequest(
     rootDir,

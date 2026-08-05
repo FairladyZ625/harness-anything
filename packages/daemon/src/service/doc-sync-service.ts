@@ -35,6 +35,7 @@ import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledg
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
 import { consumerDocSyncRows, isConsumerGovernedTaskDocument } from "./doc-sync-consumer-surface.ts";
 import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
+import { renderDocSyncSelectionHint } from "./doc-sync-selection-hint.ts";
 
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
@@ -117,7 +118,12 @@ export function buildDocSyncSubmitRequest(
     : report.dirtyFiles;
   const missingSelections = [...selected].filter((selectedPath) => !files.some((entry) => entry.path === selectedPath));
   if (missingSelections.length > 0) {
-    throw new Error(`Doc sync selected path is not dirty or is unknown: ${missingSelections.join(", ")}. Run 'ha doc status'.`);
+    // `doc sync --path` is authored-root-relative; `--evidence file:<path>`
+    // accepts repo-root-relative paths too. When the caller used the repo-root
+    // form here, append the actionable prefix-strip hint. See
+    // task_01KZ92RAJ1HXRSYDY4JP6APRCN for the basis mismatch.
+    const hint = renderDocSyncSelectionHint(report.authoredRoot, missingSelections);
+    throw new Error(`Doc sync selected path is not dirty or is unknown: ${missingSelections.join(", ")}.${hint} Run 'ha doc status'.`);
   }
   const filePaths = new Set(files.map((entry) => entry.path));
   const forbiddenTouches = report.forbiddenTouches.filter((entry) => filePaths.has(entry.path));
