@@ -5,10 +5,17 @@ import test from "node:test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { checkTaskProjection, moduleEntityId, sha256Text } from "../../src/index.ts";
+import {
+  checkTaskProjection,
+  createExactWriteScope,
+  createJournaledBatch,
+  makeJournaledWriteCoordinator,
+  moduleEntityId,
+  sha256Text
+} from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
 import { serializeDecisionDocument } from "../../src/domain/decision-document.ts";
-import { makeJournaledWriteCoordinator } from "../../src/index.ts";
+import { exactJournalAuthorizationsFor } from "../../src/write-coordination/journal/exact-write-coordinator.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator recovers queued journal entries after crash before watermark", () => {
@@ -145,6 +152,30 @@ test("exact journal publication commits only the witnessed batch and leaves an o
       existsSync(path.join(rootDir, "harness/tasks/task-orphan/progress.md")),
       false
     );
+  });
+});
+
+test("successful exact batch consumption removes every shared scope authorization", () => {
+  withTempStore((rootDir) => {
+    const exactWriteScope = createExactWriteScope();
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      exactWriteScope
+    });
+    const entry = Effect.runSync(coordinator.enqueue(
+      docWrite("op-auth-cleanup", "task-auth-cleanup", "progress.md", "clean")
+    ));
+    const authorizations = exactJournalAuthorizationsFor(exactWriteScope);
+    assert.equal(authorizations.size, 1);
+
+    const report = Effect.runSync(coordinator.commitExact(
+      "explicit",
+      createJournaledBatch([entry])
+    ));
+
+    assert.equal(report.committed, true);
+    assert.equal(authorizations.size, 0);
   });
 });
 

@@ -1,11 +1,11 @@
 import path from "node:path";
 import { Effect } from "effect";
 import type {
+  ExactCapableWriteCoordinator,
   FlushReason,
   FlushReport,
   RecoveryReport,
   WriteAck,
-  JournalRecordWitnessV1,
   WriteCoordinator,
   WriteOp
 } from "../../ports/write-coordinator.ts";
@@ -43,7 +43,11 @@ import {
   verifyAlreadyAppliedWriteOp,
   writeOpTouchedPaths
 } from "./operations/transaction-plan.ts";
-import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./receipt.ts";
+import {
+  reconcileDurableExactFlush,
+  reconcileDurableFlush,
+  shouldWaitForForeignCommitter
+} from "./receipt.ts";
 import { semanticCommitMessage } from "./publication/authority-trailer.ts";
 import { recoverJournalIntegrityDomains } from "./recovery/integrity-domains.ts";
 import { recordsForWriteIntegrityDomain, singleWriteIntegrityDomain } from "./integrity-domain.ts";
@@ -64,7 +68,9 @@ import {
 } from "./operations/consent-transcript-anchor.ts";
 import { withTranscriptConsentReservationLock } from "./transcript-consent-reservation-lock.ts";
 import { preflightWriteOp, validateWriteOp } from "./preflight.ts";
-import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
+import { createJournalCoordinatorWriteState, withJournalExactCommit } from "./exact-write-coordinator.ts";
+import { isWriteLockConflict, retryWriteLockConflict } from "./lock-conflict-retry.ts";
+import type { JournalPostCommitPhase, JournalProjectionFingerprintPhase, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./types.ts";
 export type {
   JournalActor,
   JournalRecordV1,
@@ -79,16 +85,14 @@ export type {
 } from "./types.ts";
 
 const defaultOperationalActor: OperationalActor = { scope: "operational", kind: "agent", id: "write-coordinator" };
-const defaultRetryInitialDelayMs = 25;
-const defaultRetryMaxDelayMs = 250;
 
 type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
-export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
+export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): ExactCapableWriteCoordinator {
   return makeJournaledWriteCoordinatorInternal(options, "attributed");
 }
 
-export function makeOperationalJournaledWriteCoordinator(options: OperationalJournaledWriteCoordinatorOptions): WriteCoordinator {
+export function makeOperationalJournaledWriteCoordinator(options: OperationalJournaledWriteCoordinatorOptions): ExactCapableWriteCoordinator {
   return makeJournaledWriteCoordinatorInternal(options, "operational-machine-artifact");
 }
 
@@ -99,7 +103,7 @@ export function recoverJournaledWrites(options: JournalRecoveryOptions): Effect.
 function makeJournaledWriteCoordinatorInternal(
   options: JournaledWriteCoordinatorOptions | OperationalJournaledWriteCoordinatorOptions | JournalRecoveryOptions,
   mode: "attributed" | "operational-machine-artifact" | "recovery-only"
-): WriteCoordinator {
+): ExactCapableWriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const layout = resolveHarnessLayout(runtimeContext);
@@ -114,8 +118,7 @@ function makeJournaledWriteCoordinatorInternal(
   const attributionEventStore = options.attributionEventStore ?? makeInlineAttributionEventStore();
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
-  const pending: WriteOp[] = [];
-  const exactJournalAuthorizations = new Map<string, JournalRecordWitnessV1>();
+  const { pending, exactJournalAuthorizations } = createJournalCoordinatorWriteState(options.exactWriteScope);
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, operationalActor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -172,6 +175,15 @@ function makeJournaledWriteCoordinatorInternal(
     mapError: (cause) => toJournalError(cause),
     finish: (effect) => maybeAutoMaterialize(
       effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem
+    ),
+    ...(lockConflictRetry ? { lockConflictRetry } : {}),
+    reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
+      reason, witnesses, exactJournalAuthorizations, pending,
+      journalPath, watermarkPath, rootDir
+    ),
+    shouldContinueAfterTimeout: (error) => shouldWaitForForeignCommitter(
+      error,
+      path.join(layout.locksRoot, "global.lock")
     )
   });
   const flushExactJournalRecords = createExactJournalRecordsFlusher({
@@ -188,10 +200,19 @@ function makeJournaledWriteCoordinatorInternal(
     mapError: (cause) => toJournalError(cause),
     finish: (effect) => maybeAutoMaterialize(
       effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem
+    ),
+    ...(lockConflictRetry ? { lockConflictRetry } : {}),
+    reconcileDurable: (reason, witnesses) => reconcileDurableExactFlush(
+      reason, witnesses, exactJournalAuthorizations, pending,
+      journalPath, watermarkPath, rootDir
+    ),
+    shouldContinueAfterTimeout: (error) => shouldWaitForForeignCommitter(
+      error,
+      path.join(layout.locksRoot, "global.lock")
     )
   });
 
-  return {
+  const coordinator: WriteCoordinator = {
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateWriteOp(runtimeContext, op);
@@ -257,7 +278,7 @@ function makeJournaledWriteCoordinatorInternal(
       const ownedOpIds = pending.map((op) => op.opId);
       const reconcileDurable = () => reconcileDurableFlush(reason, ownedOpIds, pending, journalPath, watermarkPath, rootDir);
       const effect = lockConflictRetry
-        ? retryLockConflict(
+        ? retryWriteLockConflict(
           () => flushOnce(reason),
           lockConflictRetry,
           Date.now(),
@@ -266,7 +287,7 @@ function makeJournaledWriteCoordinatorInternal(
           (error) => shouldWaitForForeignCommitter(error, path.join(layout.locksRoot, "global.lock"))
         )
         : flushOnce(reason).pipe(Effect.catchAll((error) => {
-          const reconciled = isLockConflict(error) ? reconcileDurable() : undefined;
+          const reconciled = isWriteLockConflict(error) ? reconcileDurable() : undefined;
           return reconciled ? Effect.succeed(reconciled) : Effect.fail(error);
         }));
       return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
@@ -274,71 +295,10 @@ function makeJournaledWriteCoordinatorInternal(
     flushExactJournalRecords,
     flushExactJournalRecord,
     recover: lockConflictRetry
-      ? retryLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
+      ? retryWriteLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
       : recoverOnce
   };
-}
-
-function retryLockConflict<Result>(
-  runOnce: () => Effect.Effect<Result, WriteError>,
-  retry: LockConflictRetryOptions,
-  startedAt: number,
-  attempt: number,
-  reconcileDurable?: () => Result | undefined,
-  shouldContinueAfterTimeout?: (error: WriteError) => boolean
-): Effect.Effect<Result, WriteError> {
-  return runOnce().pipe(
-    Effect.catchAll((error) => {
-      if (!isLockConflict(error)) return Effect.fail(error);
-      const reconciled = reconcileDurable?.();
-      if (reconciled !== undefined) return Effect.succeed(reconciled);
-      const remainingMs = retry.maxWaitMs - (Date.now() - startedAt);
-      if (remainingMs <= 0) {
-        if (!shouldContinueAfterTimeout?.(error)) return Effect.fail(lockConflictTimeout(error, retry.maxWaitMs));
-        const delayMs = retry.maxDelayMs ?? defaultRetryMaxDelayMs;
-        return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
-          Effect.flatMap(() => retryLockConflict(
-            runOnce,
-            retry,
-            Date.now(),
-            0,
-            reconcileDurable,
-            shouldContinueAfterTimeout
-          ))
-        );
-      }
-      const delayMs = Math.min(
-        remainingMs,
-        retry.maxDelayMs ?? defaultRetryMaxDelayMs,
-        (retry.initialDelayMs ?? defaultRetryInitialDelayMs) * (2 ** attempt)
-      );
-      return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
-        Effect.flatMap(() => retryLockConflict(
-          runOnce,
-          retry,
-          startedAt,
-          attempt + 1,
-          reconcileDurable,
-          shouldContinueAfterTimeout
-        ))
-      );
-    })
-  );
-}
-
-function lockConflictTimeout(error: WriteError, maxWaitMs: number): WriteError {
-  const suggestion = `timed out after ${maxWaitMs}ms; the holder may be committing, so retry the command or use the daemon-backed client when a daemon owns the lock`;
-  if (error._tag === "WriteConflict") {
-    return { ...error, owner: `${error.owner ?? "task write lock"}; ${suggestion}` };
-  }
-  if (error._tag === "GlobalWriteConflict") {
-    return { ...error, owner: `${error.owner ?? "global write lock"}; ${suggestion}` };
-  }
-  return error;
-}
-
-function isLockConflict(error: WriteError): boolean {
-  return error._tag === "GlobalWriteConflict" || error._tag === "WriteConflict";
+  return withJournalExactCommit(coordinator, flushExactJournalRecords, options.exactWriteScope);
 }
 
 function cleanSessionId(sessionId: string | undefined): string | undefined {

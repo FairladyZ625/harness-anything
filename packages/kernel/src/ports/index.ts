@@ -32,9 +32,16 @@ export type {
   CurrentSessionSource
 } from "./current-session-probe.ts";
 
-export { WriteCoordinator } from "./write-coordinator.ts";
+export {
+  WriteCoordinator,
+  createExactWriteScope,
+  createJournaledBatch,
+  withExactCommit
+} from "./write-coordinator.ts";
 export type {
   AuthorityOperationIntegrity,
+  ExactWriteScope,
+  ExactWriteCoordinator,
   WriteOp,
   WriteOpKind,
   TaskWriteOpKind,
@@ -42,7 +49,7 @@ export type {
   LocalTransitionWriteOp,
   ProvenancePayload,
   WriteAck,
-  JournalRecordWitnessV1,
+  JournaledBatchEntry,
   FlushReason,
   FlushReport,
   RecoveryReport

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
+  createJournaledBatch,
   createHarnessRuntimeContext,
   makeJournaledWriteCoordinator,
   rebuildTaskProjection,
@@ -76,13 +77,16 @@ test("authority publication materializes its session before a queued timer batch
       () => runtime.enqueueAuthorityPublication({
         sessionId: "authority-atomic-materialization",
         publish: async () => {
-          Effect.runSync(coordinator.enqueue(docWrite(
+          const entry = Effect.runSync(coordinator.enqueue(docWrite(
             "op-authority-atomic",
             "task-authority-atomic",
             "note.md",
             "authority\n"
           )));
-          const flush = Effect.runSync(coordinator.flush("explicit"));
+          const flush = Effect.runSync(coordinator.commitExact(
+            "explicit",
+            createJournaledBatch([entry])
+          ));
           competingMaterializer = runtime.enqueueMaterializerBatch();
           return flush;
         }

@@ -107,6 +107,32 @@ export interface WriteAck {
   readonly journalWitness?: JournalRecordWitnessV1;
 }
 
+const journaledBatchEntryBrand: unique symbol = Symbol("JournaledBatchEntry");
+const journaledBatchBrand: unique symbol = Symbol("JournaledBatch");
+const exactWriteScopeBrand: unique symbol = Symbol("ExactWriteScope");
+const journaledBatchEntries = new WeakMap<JournaledBatchEntry, {
+  readonly owner: object;
+  readonly acknowledgement: WriteAck;
+}>();
+const journaledBatches = new WeakMap<JournaledBatch, ReadonlyArray<JournaledBatchEntry>>();
+const exactWriteScopeOwners = new WeakMap<ExactWriteScope, object>();
+
+/** Shared opaque ownership for coordinators participating in one exact authority batch. */
+export interface ExactWriteScope {
+  readonly [exactWriteScopeBrand]: true;
+}
+
+/** Opaque membership capability minted inside one exact write scope. */
+export interface JournaledBatchEntry extends WriteAck {
+  readonly [journaledBatchEntryBrand]: true;
+}
+
+/** Non-empty exact publication batch. Construct with createJournaledBatch. */
+export interface JournaledBatch {
+  readonly opIds: readonly [string, ...string[]];
+  readonly [journaledBatchBrand]: true;
+}
+
 export interface JournalRecordWitnessV1 {
   readonly schema: "write-journal-record-witness/v1";
   readonly opId: string;
@@ -147,6 +173,126 @@ export interface WriteCoordinator {
     witness: JournalRecordWitnessV1
   ) => Effect.Effect<FlushReport, WriteError>;
   readonly recover: Effect.Effect<RecoveryReport, WriteError>;
+}
+
+/** Authority-facing capability: broad flush is deliberately absent. */
+export interface ExactWriteCoordinator {
+  readonly enqueue: (op: WriteOp) => Effect.Effect<JournaledBatchEntry, WriteError>;
+  readonly commitExact: (
+    reason: FlushReason,
+    batch: JournaledBatch
+  ) => Effect.Effect<FlushReport, WriteError>;
+  readonly recover: Effect.Effect<RecoveryReport, WriteError>;
+}
+
+export type ExactCapableWriteCoordinator = Omit<WriteCoordinator, "enqueue"> & ExactWriteCoordinator;
+
+export function createExactWriteScope(): ExactWriteScope {
+  const scope = Object.freeze({ [exactWriteScopeBrand]: true as const });
+  exactWriteScopeOwners.set(scope, Object.freeze({}));
+  return scope;
+}
+
+export function createJournaledBatch(
+  entries: readonly [JournaledBatchEntry, ...JournaledBatchEntry[]]
+): JournaledBatch {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw invalidExactBatch(
+      "authority_exact_batch_empty",
+      "Authority publication requires a non-empty exact journal batch."
+    );
+  }
+  const opIds: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null || !journaledBatchEntries.has(entry)) {
+      throw invalidExactBatch(
+        "authority_exact_batch_entry_invalid",
+        "Authority publication requires entries minted by the kernel exact-write boundary."
+      );
+    }
+    opIds.push(entry.opId);
+  }
+  if (new Set(opIds).size !== opIds.length) {
+    throw invalidExactBatch(
+      "authority_exact_batch_duplicate_operation",
+      "Authority publication exact journal batch entries must have unique operation ids."
+    );
+  }
+  const batch = Object.freeze({
+    opIds: Object.freeze(opIds) as readonly [string, ...string[]],
+    [journaledBatchBrand]: true as const
+  });
+  journaledBatches.set(batch, Object.freeze([...entries]));
+  return batch;
+}
+
+/**
+ * Adds an opaque exact-batch boundary around a coordinator-specific enqueue
+ * and commit implementation. A batch containing an entry minted outside the
+ * supplied exact scope fails closed before the implementation sees it.
+ */
+export function withExactCommit<Coordinator extends {
+  readonly enqueue: (op: WriteOp) => Effect.Effect<WriteAck, WriteError>;
+  readonly recover: Effect.Effect<RecoveryReport, WriteError>;
+}>(
+  coordinator: Coordinator,
+  commit: (
+    reason: FlushReason,
+    acknowledgements: readonly [WriteAck, ...WriteAck[]]
+  ) => Effect.Effect<FlushReport, WriteError>,
+  scope: ExactWriteScope = createExactWriteScope()
+): Omit<Coordinator, "enqueue"> & ExactWriteCoordinator {
+  const owner = exactWriteScopeOwners.get(scope);
+  if (!owner) {
+    throw invalidExactBatch(
+      "authority_exact_scope_invalid",
+      "Exact write scope must be created by the kernel constructor."
+    );
+  }
+  return {
+    ...coordinator,
+    enqueue: (op) => coordinator.enqueue(op).pipe(Effect.map((acknowledgement) => {
+      const entry = Object.freeze({
+        ...acknowledgement,
+        [journaledBatchEntryBrand]: true as const
+      });
+      journaledBatchEntries.set(entry, { owner, acknowledgement });
+      return entry;
+    })),
+    commitExact: (reason, batch) => Effect.suspend(() => {
+      const entries = journaledBatches.get(batch);
+      if (!entries) {
+        return Effect.fail(invalidExactBatch(
+          "authority_exact_batch_invalid",
+          "Authority publication requires a JournaledBatch created by the kernel constructor."
+        ));
+      }
+      const acknowledgements: WriteAck[] = [];
+      for (const entry of entries) {
+        const internal = journaledBatchEntries.get(entry);
+        if (!internal || internal.owner !== owner) {
+          return Effect.fail(invalidExactBatch(
+            "authority_exact_batch_owner_mismatch",
+            "Authority publication cannot combine entries minted by different exact write scopes."
+          ));
+        }
+        acknowledgements.push(internal.acknowledgement);
+      }
+      return commit(
+        reason,
+        acknowledgements as [WriteAck, ...WriteAck[]]
+      );
+    })
+  };
+}
+
+function invalidExactBatch(code: string, reason: string): WriteError {
+  return {
+    _tag: "WriteRejected",
+    code,
+    reason,
+    retryable: false
+  };
 }
 
 export const WriteCoordinator = Context.GenericTag<WriteCoordinator>(

@@ -19,7 +19,8 @@ export function authorityPublicationSegments(
       continue;
     }
     if (current.length > 0
-      && Boolean(current[0]!.authorityIntegrity) !== Boolean(entry.authorityIntegrity)) {
+      && (current[0]!.publicationSessionId !== entry.publicationSessionId
+        || Boolean(current[0]!.authorityIntegrity) !== Boolean(entry.authorityIntegrity))) {
       flush();
     }
     current.push(entry);
@@ -30,6 +31,7 @@ export function authorityPublicationSegments(
 
 function requiresSegmentation(prepared: ReadonlyArray<PreparedAuthoritySubmission>): boolean {
   return prepared.some((entry) => entry.publicationRevalidation || entry.recoveryMode)
+    || new Set(prepared.map((entry) => entry.publicationSessionId)).size > 1
     || (prepared.some((entry) => entry.authorityIntegrity)
       && prepared.some((entry) => !entry.authorityIntegrity));
 }

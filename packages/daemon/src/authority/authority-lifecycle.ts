@@ -26,9 +26,11 @@ import {
   resolveHarnessLayout,
   stableStringify,
   type DaemonAdmissionBudget,
+  type ExactWriteCoordinator,
+  type ExactWriteScope,
   type FlushReport,
   type WriteAttribution,
-  type WriteCoordinator
+  type WriteError,
 } from "@harness-anything/kernel";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import type {
@@ -138,7 +140,8 @@ export interface AuthorityLifecycleRuntime {
     readonly attribution: WriteAttribution;
     readonly sessionId: string;
     readonly commitAuthor?: { readonly name: string; readonly email: string };
-  }) => WriteCoordinator;
+    readonly exactWriteScope: ExactWriteScope;
+  }) => ExactWriteCoordinator;
   readonly assertWriteFenceHeld: () => Promise<void>;
   readonly runAuthorizedRepoWriteRecoveryPlan?: <Result>(
     witness: ProductionAuthorityOuterRecoveryWitnessV1,
@@ -369,25 +372,35 @@ export function createAuthorityRepoLifecycleController(input: {
 export function makeHeldLockAttributedCoordinatorFactory(
   runtime: AuthorityLifecycleRuntime
 ): AttributedCoordinatorFactory {
-  const active = new Map<string, WriteCoordinator>();
+  const active = new Map<string, {
+    readonly coordinator: ExactWriteCoordinator;
+    readonly exactWriteScope: ExactWriteScope;
+  }>();
   return {
-    create: ({ attribution, sessionId }) => {
+    create: ({ attribution, sessionId, exactWriteScope }) => {
       const key = stableStringify({ attribution, sessionId });
       const existing = active.get(key);
-      if (existing) return existing;
+      if (existing) return existing.coordinator;
       const coordinator = runtime.createAttributedCoordinator({
         attribution,
         sessionId,
-        commitAuthor: authorityCommitter
+        commitAuthor: authorityCommitter,
+        exactWriteScope
       });
-      const shared: WriteCoordinator = {
+      const shared: ExactWriteCoordinator = {
         enqueue: coordinator.enqueue,
-        flush: (reason) => Effect.ensuring(
+        commitExact: (reason, batch) => Effect.ensuring(
           Effect.tryPromise({
             try: async () => {
               const publication = await runtime.enqueueAuthorityPublication({
                 sessionId,
-                publish: () => Effect.runPromise(coordinator.flush(reason))
+                publish: async () => {
+                  const result = await Effect.runPromise(Effect.either(
+                    coordinator.commitExact(reason, batch)
+                  ));
+                  if (result._tag === "Left") throw result.left;
+                  return result.right;
+                }
               });
               const { flush: report, materialization: materialized } = publication;
               if (!report.committed || report.opCount === 0) return report;
@@ -402,15 +415,19 @@ export function makeHeldLockAttributedCoordinatorFactory(
               }
               return report;
             },
-            catch: (cause) => ({ _tag: "JournalUnavailable" as const, cause: diagnosticCause(cause) })
+            catch: (cause): WriteError => isAuthorityLifecycleWriteError(cause)
+              ? cause
+              : { _tag: "JournalUnavailable", cause: diagnosticCause(cause) }
           }),
           Effect.sync(() => {
-            if (active.get(key) === shared) active.delete(key);
+            for (const [activeKey, entry] of active) {
+              if (entry.exactWriteScope === exactWriteScope) active.delete(activeKey);
+            }
           })
         ),
         recover: coordinator.recover
       };
-      active.set(key, shared);
+      active.set(key, { coordinator: shared, exactWriteScope });
       return shared;
     }
   };
@@ -420,6 +437,14 @@ const authorityCommitter = {
   name: "Harness Anything Authority",
   email: "authority@harness-anything.local"
 } as const;
+
+function isAuthorityLifecycleWriteError(cause: unknown): cause is WriteError {
+  if (typeof cause !== "object" || cause === null || !("_tag" in cause)) return false;
+  return cause._tag === "WriteRejected"
+    || cause._tag === "WriteConflict"
+    || cause._tag === "GlobalWriteConflict"
+    || cause._tag === "JournalUnavailable";
+}
 
 function diagnosticCause(cause: unknown): unknown {
   if (!(cause instanceof Error)) return cause;

@@ -5,7 +5,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { executionDeclaration, taskEntityId, taskHolderActor, type ExecutionRecord, type WriteOp } from "../../kernel/src/index.ts";
+import {
+  createExactWriteScope,
+  createJournaledBatch,
+  executionDeclaration,
+  taskEntityId,
+  taskHolderActor,
+  withExactCommit,
+  type ExecutionRecord,
+  type WriteOp
+} from "../../kernel/src/index.ts";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { makeDaemonAuthorityWriteCoordinator, provenanceSessionAttemptIntent, taskClaimAttemptIntent } from "@harness-anything/daemon";
 import {
@@ -343,19 +352,18 @@ test("task claim typed ingress rejects forged entity, actor, and write-set data"
   }, "/fixture"), /AUTHORITY_TASK_CLAIM_WRITE_SET_INVALID/u);
 });
 
-test("held-lock authority flush uses one atomic publication instead of direct materialization", async () => {
+test("held-lock authority commitExact uses one atomic publication instead of direct materialization", async () => {
   let pending = 0;
   let atomicPublications = 0;
   let directMaterializations = 0;
   const runtime: AuthorityLifecycleRuntime = {
-    createAttributedCoordinator: () => ({
+    createAttributedCoordinator: ({ exactWriteScope }) => withExactCommit({
       enqueue: (op) => Effect.sync(() => {
         pending += 1;
         return { opId: op.opId, entityId: op.entityId, accepted: true as const };
       }),
-      flush: (reason) => Effect.sync(() => ({ reason, opCount: pending, committed: true })),
       recover: Effect.succeed({ replayedOps: 0 })
-    }),
+    }, (reason) => Effect.sync(() => ({ reason, opCount: pending, committed: true })), exactWriteScope),
     enqueueMaterializerBatch: async ({ sessionId }) => {
       directMaterializations += 1;
       return { branches: [{ branch: `sessions/${sessionId}`, commitCount: 1, status: "merged" as const }] };
@@ -378,15 +386,19 @@ test("held-lock authority flush uses one atomic publication instead of direct ma
       principalSource: { kind: "daemon-authenticated", providerId: "test", credentialFingerprint: "sha256:test" },
       executorSource: "client-asserted"
     },
-    sessionId: "session-test"
+    sessionId: "session-test",
+    exactWriteScope: createExactWriteScope()
   });
-  await runEffect(coordinator.enqueue({
+  const entry = await runEffect(coordinator.enqueue({
     opId: "authority-atomic-op",
     entityId: "task/task-test",
     kind: "progress_append"
   }));
 
-  const flush = await runEffect(coordinator.flush("explicit"));
+  const flush = await runEffect(coordinator.commitExact(
+    "explicit",
+    createJournaledBatch([entry])
+  ));
 
   assert.equal(flush.opCount, 1);
   assert.equal(atomicPublications, 1);
@@ -395,11 +407,10 @@ test("held-lock authority flush uses one atomic publication instead of direct ma
 
 test("held-lock authority publication preserves materializer error name and message", async () => {
   const runtime: AuthorityLifecycleRuntime = {
-    createAttributedCoordinator: () => ({
+    createAttributedCoordinator: ({ exactWriteScope }) => withExactCommit({
       enqueue: (op) => Effect.succeed({ opId: op.opId, entityId: op.entityId, accepted: true as const }),
-      flush: (reason) => Effect.succeed({ reason, opCount: 1, committed: true }),
       recover: Effect.succeed({ replayedOps: 0 })
-    }),
+    }, (reason) => Effect.succeed({ reason, opCount: 1, committed: true }), exactWriteScope),
     enqueueMaterializerBatch: async () => { throw new Error("materializer unavailable"); },
     enqueueAuthorityPublication: async ({ publish }) => {
       await publish();
@@ -413,10 +424,19 @@ test("held-lock authority publication preserves materializer error name and mess
       principalSource: { kind: "daemon-authenticated", providerId: "test", credentialFingerprint: "sha256:test" },
       executorSource: "none"
     },
-    sessionId: "session-test"
+    sessionId: "session-test",
+    exactWriteScope: createExactWriteScope()
   });
+  const entry = await runEffect(coordinator.enqueue({
+    opId: "authority-materializer-error-op",
+    entityId: "task/task-test",
+    kind: "progress_append"
+  }));
 
-  const result = await runEffect(Effect.either(coordinator.flush("explicit")));
+  const result = await runEffect(Effect.either(coordinator.commitExact(
+    "explicit",
+    createJournaledBatch([entry])
+  )));
 
   assert.equal(result._tag, "Left");
   if (result._tag === "Left") {
@@ -425,6 +445,45 @@ test("held-lock authority publication preserves materializer error name and mess
       cause: { name: "Error", message: "materializer unavailable" }
     });
   }
+});
+
+test("held-lock authority publication preserves typed write rejection", async () => {
+  const rejection = {
+    _tag: "WriteRejected" as const,
+    code: "authority_exact_fixture_rejected",
+    reason: "fixture exact rejection",
+    retryable: false
+  };
+  const runtime: AuthorityLifecycleRuntime = {
+    createAttributedCoordinator: ({ exactWriteScope }) => withExactCommit({
+      enqueue: (op) => Effect.succeed({ opId: op.opId, entityId: op.entityId, accepted: true as const }),
+      recover: Effect.succeed({ replayedOps: 0 })
+    }, () => Effect.fail(rejection), exactWriteScope),
+    enqueueMaterializerBatch: async () => ({ branches: [] }),
+    enqueueAuthorityPublication: async ({ publish }) => ({ flush: await publish() }),
+    assertWriteFenceHeld: async () => undefined
+  };
+  const coordinator = makeHeldLockAttributedCoordinatorFactory(runtime).create({
+    attribution: {
+      actor: { principal: { kind: "person", personId: "person_test" }, executor: null },
+      principalSource: { kind: "daemon-authenticated", providerId: "test", credentialFingerprint: "sha256:test" },
+      executorSource: "none"
+    },
+    sessionId: "session-rejected",
+    exactWriteScope: createExactWriteScope()
+  });
+  const entry = await runEffect(coordinator.enqueue({
+    opId: "authority-typed-rejection-op",
+    entityId: "task/task-test",
+    kind: "progress_append"
+  }));
+
+  const result = await runEffect(Effect.either(coordinator.commitExact(
+    "explicit",
+    createJournaledBatch([entry])
+  )));
+
+  assert.deepEqual(result.left, rejection);
 });
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

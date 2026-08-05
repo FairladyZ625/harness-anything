@@ -266,9 +266,10 @@ function authority(
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
     coordinatorFactory: {
-      create: ({ attribution }) => makeJournaledWriteCoordinator({
+      create: ({ attribution, exactWriteScope }) => makeJournaledWriteCoordinator({
         rootDir,
         attribution,
+        exactWriteScope,
         commitAuthor: { name: "ZeyuLi", email: "zeyuli@example.test" },
         autoMaterialize: false
       })

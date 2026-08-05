@@ -1,8 +1,11 @@
 import { Effect } from "effect";
 import {
+  createExactWriteScope,
+  createJournaledBatch,
   createWritableEntityRegistry,
   daemonAdmissionBytes,
-  type JournalRecordWitnessV1
+  type ExactWriteCoordinator,
+  type JournaledBatchEntry
 } from "@harness-anything/kernel";
 import type {
   AuthorityCommittedReceipt,
@@ -52,13 +55,14 @@ import type { AuthoritySubmissionServiceOptions } from "./service-options.ts";
 import { createAuthorityRecoverySubmitterV2 } from "./authority-recovery-submission-v2.ts";
 import { authorityOperationPublicView } from "./operation-record-public-view.ts";
 import { prepareAuthorityV2 } from "./authority-v2-preparation.ts";
-import { codeDocReconcileNoopReason } from "./code-doc-reconcile-rejection.ts";
+import { classifyAuthorityPublicationOutcome } from "./publication-outcome.ts";
 export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service-options.ts";
 export function createAuthoritySubmissionService(options: AuthoritySubmissionServiceOptions): AuthoritySubmissionService {
   const writableEntityRegistry = options.v2
     ? createWritableEntityRegistry(options.v2.entityRegistrations)
     : undefined;
   const byOperation = new KeyedSerialAuthorityExecutor();
+  const exactWriteScopes = new Map<string, ReturnType<typeof createExactWriteScope>>();
   const now = options.now ?? (() => new Date().toISOString());
   const persistence = createAuthorityOperationRecordPersistence(options.operationRegistry, options.generationFenceWitness);
   const { put } = persistence;
@@ -84,6 +88,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
             ...validated,
             mode: "outer-proceeding-recovery",
             options,
+            createCoordinator,
             writableEntityRegistry: writableEntityRegistry!,
             put,
             persistTerminal
@@ -144,6 +149,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           canonicalRequestEnvelope: Buffer.from(attempt.envelope).toString("base64url"),
           mode: "new-admission",
           options,
+          createCoordinator,
           writableEntityRegistry: writableEntityRegistry!,
           put,
           persistTerminal
@@ -195,16 +201,15 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       return terminal(await persistTerminal(envelope, semanticDigest, "INDETERMINATE", indeterminate(envelope, semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`)));
     }
 
-    const coordinator = options.coordinatorFactory.create({
-      attribution: verification.attribution,
-      sessionId: verification.claims.sessionId
-    });
+    const publicationSessionId = verification.claims.sessionId;
+    const coordinator = createCoordinator(verification.attribution, publicationSessionId);
     return {
       kind: "prepared",
       workspaceId: envelope.workspaceId,
       opId: envelope.opId,
       operation: envelope.operation,
       semanticDigest,
+      publicationSessionId,
       coordinator,
       recordedProtocol: { kind: "authority-operation/v1", schemaTuple: envelope.protocol }
     };
@@ -246,7 +251,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
-    const journalWitnesses = new Map<PreparedAuthoritySubmission, JournalRecordWitnessV1>();
+    const batchEntries = new Map<PreparedAuthoritySubmission, JournaledBatchEntry>();
     let canonicalFlushCommitted = false;
     const publishWhileGenerationCurrent = async (): Promise<ReadonlyArray<AuthorityOperationReceipt>> => {
       for (const entry of prepared) {
@@ -256,29 +261,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
           options.onTelemetry?.("authority-coordinator-enqueue");
           const acknowledgement = await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
           options.onTelemetry?.("authority-coordinator-enqueued");
-          if (acknowledgement.journalWitness) {
-            journalWitnesses.set(entry, acknowledgement.journalWitness);
-          }
-          if (entry.recoveryMode) {
-            if (!acknowledgement.journalWitness || !entry.coordinator.flushExactJournalRecord) {
-              receipts.set(entry, await persistTerminal(
-                entry,
-                entry.semanticDigest,
-                "INDETERMINATE",
-                indeterminate(
-                  entry,
-                  entry.semanticDigest,
-                  "AUTHORITY_RECOVERY_EXACT_JOURNAL_WITNESS_UNAVAILABLE"
-                ),
-                entry.authorityIntegrity,
-                entry.canonicalRequestEnvelope,
-                entry.operation,
-                entry.recoveryPublicationPolicy,
-                entry.fixedOperationBinding
-              ));
-              continue;
-            }
-          }
+          batchEntries.set(entry, acknowledgement);
           await options.generationFenceWitness?.assertHeld("before-prepare", entry);
           await put(
             entry,
@@ -311,80 +294,77 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         }
       }
       if (candidates.length === 0) return batchReceipts(admissions, receipts);
+      let outcome: ReturnType<typeof classifyAuthorityPublicationOutcome>;
       try {
-      await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
-      const recoveryCandidate = candidates[0]!.recoveryMode ? candidates[0] : undefined;
-      const batchCoordinator = candidates[0]!.coordinator;
-      const exactBatchWitnesses = candidates.flatMap((candidate) => {
-        const witness = journalWitnesses.get(candidate);
-        return witness ? [witness] : [];
-      });
-      const canFlushExactBatch = !recoveryCandidate
-        && candidates.every((candidate) => candidate.coordinator === batchCoordinator)
-        && exactBatchWitnesses.length === candidates.length
-        && batchCoordinator.flushExactJournalRecords;
-      options.onTelemetry?.("authority-flush-start");
-      const flush = recoveryCandidate
-        ? await Effect.runPromise(recoveryCandidate.coordinator.flushExactJournalRecord!(
-          "recovery",
-          journalWitnesses.get(recoveryCandidate)!
-        ))
-        : canFlushExactBatch
-          ? await Effect.runPromise(batchCoordinator.flushExactJournalRecords!(
-            "explicit",
-            exactBatchWitnesses
-          ))
-          : await Effect.runPromise(batchCoordinator.flush("explicit"));
-      if (!flush.committed || flush.opCount !== candidates.length) {
-        // Keep the v1 wire reason stable; the invariant now means exactly the
-        // operation set owned by this publication batch, still never a subset.
+        await options.generationFenceWitness?.assertHeld("before-canonical-publish", candidates[0]);
+        const [firstCandidate, ...remainingCandidates] = candidates;
+        const batchCoordinator = firstCandidate!.coordinator;
+        const batch = createJournaledBatch([
+          batchEntries.get(firstCandidate!)!,
+          ...remainingCandidates.map((candidate) => batchEntries.get(candidate)!)
+        ]);
+        options.onTelemetry?.("authority-flush-start");
+        const result = await Effect.runPromise(Effect.either(batchCoordinator.commitExact(
+          firstCandidate!.recoveryMode ? "recovery" : "explicit",
+          batch
+        )));
+        outcome = result._tag === "Left"
+          ? classifyAuthorityPublicationOutcome({ kind: "error", error: result.left })
+          : classifyAuthorityPublicationOutcome({
+            kind: "report",
+            report: result.right,
+            expectedOpCount: candidates.length
+          });
+      } catch (error) {
+        if (isDaemonGenerationFenced(error)) throw error;
+        outcome = classifyAuthorityPublicationOutcome({ kind: "error", error });
+      }
+      if (outcome.kind === "rejected") {
+        await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
+          rejected(entry, entry.semanticDigest, outcome.reason));
+        return batchReceipts(admissions, receipts);
+      }
+      if (outcome.kind === "retryable") {
         await settlePrepared(candidates, receipts, "RETRYABLE_NOT_COMMITTED", (entry) =>
-          retryable(entry, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
+          retryable(entry, entry.semanticDigest, outcome.reason));
+        return batchReceipts(admissions, receipts);
+      }
+      if (outcome.kind === "indeterminate") {
+        await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
+          indeterminate(entry, entry.semanticDigest, outcome.reason));
         return batchReceipts(admissions, receipts);
       }
       canonicalFlushCommitted = true;
-    } catch (error) {
-      if (isDaemonGenerationFenced(error)) throw error;
-      const deterministicRejection = codeDocReconcileNoopReason(error);
-      if (deterministicRejection) {
-        await settlePrepared(candidates, receipts, "REJECTED", (entry) =>
-          rejected(entry, entry.semanticDigest, deterministicRejection));
+
+      let commitSha: string;
+      try {
+        await options.fenceWitness.assertHeld("after-canonical-publish", candidates[0]);
+        const publication = await options.publicationInspector.inspectPublishedHead(
+          previousHead,
+          candidates.map((entry) => entry.opId)
+        );
+        commitSha = publication.commitSha;
+        for (const entry of candidates) {
+          await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
+          await put(
+            entry,
+            entry.semanticDigest,
+            "PUBLISHED",
+            undefined,
+            commitSha,
+            entry.authorityIntegrity,
+            entry.canonicalRequestEnvelope,
+            entry.operation,
+            entry.recoveryPublicationPolicy,
+            entry.fixedOperationBinding
+          );
+        }
+      } catch (error) {
+        if (isDaemonGenerationFenced(error)) throw error;
+        await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
+          indeterminate(entry, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
         return batchReceipts(admissions, receipts);
       }
-      await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
-      return batchReceipts(admissions, receipts);
-    }
-
-    let commitSha: string;
-    try {
-      await options.fenceWitness.assertHeld("after-canonical-publish", candidates[0]);
-      const publication = await options.publicationInspector.inspectPublishedHead(
-        previousHead,
-        candidates.map((entry) => entry.opId)
-      );
-      commitSha = publication.commitSha;
-      for (const entry of candidates) {
-        await options.generationFenceWitness?.assertHeld("after-canonical-publish", entry);
-        await put(
-          entry,
-          entry.semanticDigest,
-          "PUBLISHED",
-          undefined,
-          commitSha,
-          entry.authorityIntegrity,
-          entry.canonicalRequestEnvelope,
-          entry.operation,
-          entry.recoveryPublicationPolicy,
-          entry.fixedOperationBinding
-        );
-      }
-    } catch (error) {
-      if (isDaemonGenerationFenced(error)) throw error;
-      await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
-      return batchReceipts(admissions, receipts);
-    }
 
     const latest = await options.replicaChangeLog.latest(candidates[0]!.workspaceId);
     const change = createReplicaPublicationChange({
@@ -553,6 +533,27 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (!isDaemonGenerationFenced(error)) throw error;
       return generationFencedIndeterminateReceipt(entry, entry.semanticDigest, error, commitSha);
     }
+  }
+
+  function createCoordinator(
+    attribution: Parameters<typeof options.coordinatorFactory.create>[0]["attribution"],
+    sessionId: string
+  ): ExactWriteCoordinator {
+    let exactWriteScope = exactWriteScopes.get(sessionId);
+    if (!exactWriteScope) {
+      exactWriteScope = createExactWriteScope();
+      exactWriteScopes.set(sessionId, exactWriteScope);
+    }
+    const coordinator = options.coordinatorFactory.create({
+      attribution,
+      sessionId,
+      exactWriteScope
+    });
+    return {
+      enqueue: coordinator.enqueue,
+      commitExact: coordinator.commitExact,
+      recover: coordinator.recover
+    };
   }
 
   async function settlePrepared(

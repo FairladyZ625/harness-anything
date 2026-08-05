@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import {
+  createJournaledBatch,
   createHarnessRuntimeContext,
   makeJournaledWriteCoordinator,
   makeTaskHolderService,
@@ -572,9 +573,16 @@ test("authority attributed coordinator is backed by the current daemon held-lock
       attribution: testAttribution,
       sessionId: "authority-held-lock"
     });
-    Effect.runSync(coordinator.enqueue(docWrite("op-authority-held-a", "task-authority-a", "note.md", "a\n")));
-    Effect.runSync(coordinator.enqueue(docWrite("op-authority-held-b", "task-authority-b", "note.md", "b\n")));
-    const flush = Effect.runSync(coordinator.flush("explicit"));
+    const first = Effect.runSync(coordinator.enqueue(
+      docWrite("op-authority-held-a", "task-authority-a", "note.md", "a\n")
+    ));
+    const second = Effect.runSync(coordinator.enqueue(
+      docWrite("op-authority-held-b", "task-authority-b", "note.md", "b\n")
+    ));
+    const flush = Effect.runSync(coordinator.commitExact(
+      "explicit",
+      createJournaledBatch([first, second])
+    ));
 
     assert.equal(flush.committed, true);
     assert.equal(flush.opCount, 2);

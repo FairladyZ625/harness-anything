@@ -24,6 +24,8 @@ WriteCoordinator
   recover       -> RecoveryReport replay anything left half-applied
 ```
 
+Authority callers receive an `ExactWriteCoordinator` facade whose `commitExact(reason, nonEmptyBatch)` can publish only its scope-owned journal entries and does not expose broad `flush`.
+
 Everything a caller can do is expressed as a `WriteOp`: an `opId`, an
 `entityId`, a `kind`, and a payload. The `kind` is drawn from a closed
 enumeration — task kinds (`package_create`, `transition_local`,
