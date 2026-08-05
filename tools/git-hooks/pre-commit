@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+set -eu
+
+# Installed by pointing git at this directory:
+#   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
+#
+# Rejects commits whose author email is not one the CLA assistant accepts.
+#
+# Why this exists as a hook rather than as advice: the repository's local
+# git config has been correct every time this went wrong. What goes wrong is
+# that an agent runs `git -c user.email=... commit` and overrides it, using
+# whatever identity looked most authoritative to it -- an actor registry's real
+# address, a hermetic test fixture's fake identity, or its own vendor identity.
+# Each time, the failure surfaced only on CI as a red cla-assistant, after a
+# push, and cost a force-push to repair. `git var` below resolves the identity
+# git will actually stamp, including `-c` overrides, so this catches it at the
+# moment the commit is created.
+#
+# This defends against accidents, not against a determined author: `--no-verify`
+# skips it, and that is the correct escape hatch for someone who knows why they
+# need a different identity.
+
+allowed_email="33339424+FairladyZ625@users.noreply.github.com"
+
+author_ident=$(git var GIT_AUTHOR_IDENT)
+author_email=$(printf '%s' "$author_ident" | sed -n 's/.*<\(.*\)>.*/\1/p')
+
+if [ "$author_email" = "$allowed_email" ]; then
+  exit 0
+fi
+
+printf 'Refusing to create a commit authored by <%s>.\n' "$author_email" >&2
+printf '\n' >&2
+printf 'This repository requires the CLA-signing identity:\n' >&2
+printf '  %s\n' "$allowed_email" >&2
+printf '\n' >&2
+printf 'The repository config is probably already correct -- check whether\n' >&2
+printf 'something overrode it, such as `git -c user.email=...` on the command\n' >&2
+printf 'line, or GIT_AUTHOR_EMAIL in the environment. Do not copy an identity\n' >&2
+printf 'out of the actor registry or out of a test fixture; neither is the CLA\n' >&2
+printf 'identity. Current setting:\n' >&2
+printf '  user.name  = %s\n' "$(git config user.name || echo '(unset)')" >&2
+printf '  user.email = %s\n' "$(git config user.email || echo '(unset)')" >&2
+printf '\n' >&2
+printf 'To set it for this repository:\n' >&2
+printf '  git config user.name "ZeyuLi"\n' >&2
+printf '  git config user.email "%s"\n' "$allowed_email" >&2
+printf '\n' >&2
+printf 'To repair commits that already carry the wrong author:\n' >&2
+printf '  git rebase --exec "git commit --amend --no-edit --reset-author" origin/main\n' >&2
+printf '\n' >&2
+printf 'If you genuinely need a different author, bypass with `git commit --no-verify`.\n' >&2
+exit 1
