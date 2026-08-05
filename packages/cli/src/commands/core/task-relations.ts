@@ -9,7 +9,6 @@ import { parseRelationFlowRecords } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
-import { activeTaskLeaseFailure } from "./task-lease-guard.ts";
 
 type TaskRelateAction = Extract<ParsedCommand["action"], { readonly kind: "task-relate" }>;
 
@@ -35,8 +34,6 @@ export function runTaskRelate(
   if (action.dryRun) return Effect.succeed(taskRelateSuccess(action.sourceTaskId, relation, true));
 
   return Effect.gen(function* () {
-    const leaseFailure = yield* activeTaskLeaseFailure(context, action.sourceTaskId, "task-relate");
-    if (leaseFailure) return leaseFailure;
     const indexPath = taskDocumentPath(context.layoutInput, action.sourceTaskId, "INDEX.md");
     const body = readFileSync(indexPath, "utf8");
     const nextBody = appendRelationToTaskIndex(body, relation);

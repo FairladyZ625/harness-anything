@@ -9,7 +9,6 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { decisionRelationRecord } from "./decision-relation-record.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
-import { activeTaskLeaseFailure } from "./task-lease-guard.ts";
 import { decisionReadFailureHint } from "./decision-shared.ts";
 
 type DecisionRelateAction = Extract<ParsedCommand["action"], { readonly kind: "decision-relate" }>;
@@ -37,11 +36,6 @@ export function runDecisionRelate(
       } satisfies CliResult;
     }
     if (action.dryRun) return decisionRelateResult(rootInput, "decision-relate", current.decision_id, current.state, true);
-    const relatedTaskId = taskIdFromTarget(relation.record.target);
-    if (relatedTaskId) {
-      const leaseFailure = yield* activeTaskLeaseFailure(context, relatedTaskId, "decision-relate");
-      if (leaseFailure) return { ...leaseFailure, decisionId: current.decision_id };
-    }
     const taskWrites = materializedTaskPriorityWrites(rootInput, current, relation.record);
     if (!taskWrites.ok) {
       return {
