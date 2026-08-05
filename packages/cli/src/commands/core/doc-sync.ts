@@ -1,8 +1,11 @@
 import path from "node:path";
 import { buildDocSyncReport } from "@harness-anything/daemon";
-import { resolveManagedSectionPolicy } from "../extensions/managed-section-policy.ts";
+import {
+  resolveDeclaredManagedSectionPolicy,
+  resolveManagedSectionPolicy
+} from "../extensions/managed-section-policy.ts";
 
-const docSyncHostServices = { resolveManagedSectionPolicy };
+const docSyncHostServices = { resolveDeclaredManagedSectionPolicy, resolveManagedSectionPolicy };
 import { resolveHarnessLayout, taskPackagePath, type HarnessLayoutInput, type TaskId } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";

@@ -27,7 +27,7 @@ export function isConsumerGovernedTaskDocument(
   hostServices: DaemonDocSyncHostServices
 ): boolean {
   if (entry.status === "deleted" || !/^tasks\/[^/]+\/.+/u.test(entry.path)) return false;
-  return hostServices.resolveManagedSectionPolicy({
+  return hostServices.resolveDeclaredManagedSectionPolicy({
     rootDir,
     layoutOverrides: { authoredRoot: path.relative(rootDir, authoredRoot) }
   }, entry.path) !== null;

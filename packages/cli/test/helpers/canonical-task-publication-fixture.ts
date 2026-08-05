@@ -1,27 +1,56 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
+import {
+  makeJournaledWriteCoordinator,
+  taskEntityId
+} from "../../../kernel/src/index.ts";
 import { git } from "../production-authority-canonical-ingress/fixture.ts";
 
 export function publishSeededTaskFixture(authoredRoot: string, taskRoot: string, taskId: string): void {
+  const rootDir = path.dirname(authoredRoot);
   const taskPath = path.relative(authoredRoot, taskRoot).split(path.sep).join("/");
   const files = snapshotTextTree(taskRoot);
-  const trunk = git(authoredRoot, "branch", "--show-current");
-  const sessionBranch = `sessions/fixture-task-seed-${taskId}`;
   const opId = `op_fixture_task_seed_${taskId}`;
+  const packageName = path.basename(taskRoot);
+  const packageSlug = packageName === taskId ? undefined : packageName.slice(`${taskId}-`.length);
   rmSync(taskRoot, { recursive: true, force: true });
   git(authoredRoot, "add", "-A", taskPath);
   git(authoredRoot, "commit", "-q", "-m", "test: prepare canonical task creation fixture");
-  git(authoredRoot, "checkout", "-q", "-b", sessionBranch);
-  for (const [relativePath, body] of files) {
-    const target = path.join(taskRoot, relativePath);
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, body);
-  }
-  git(authoredRoot, "add", taskPath);
-  git(authoredRoot, "commit", "-q", "-m", `harness write fixture task seed [${opId}]`);
-  git(authoredRoot, "checkout", "-q", trunk);
-  git(authoredRoot, "merge", "-q", "--no-ff", "-m", `materialize fixture task seed [${opId}]`, sessionBranch);
+  const coordinator = makeJournaledWriteCoordinator({
+    rootDir,
+    attribution: fixtureAttribution,
+    sessionId: `fixture-task-seed-${taskId}`,
+    commitAuthor: { name: "Harness Test", email: "harness@example.test" }
+  });
+  Effect.runSync(coordinator.enqueue({
+    opId,
+    entityId: taskEntityId(taskId),
+    kind: "package_create",
+    payload: {
+      writes: files.map(([relativePath, body]) => ({
+        taskId,
+        path: relativePath.split(path.sep).join("/"),
+        body,
+        ...(packageSlug ? { packageSlug } : {})
+      }))
+    }
+  }));
+  Effect.runSync(coordinator.flush("explicit"));
 }
+
+const fixtureAttribution = {
+  actor: {
+    principal: { kind: "person" as const, personId: "person_fixture" },
+    executor: { kind: "agent" as const, id: "fixture-writer" }
+  },
+  principalSource: {
+    kind: "local-configured" as const,
+    authority: "harness.yaml",
+    authoritySha256: `sha256:${"0".repeat(64)}`
+  },
+  executorSource: "client-asserted" as const
+};
 
 export function productionPlan(goal: string): string {
   return [

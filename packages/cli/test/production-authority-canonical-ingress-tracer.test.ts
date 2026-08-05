@@ -19,6 +19,7 @@ import {
   createFixture,
   latestAuthorityOperation
 } from "./production-authority-canonical-ingress/fixture.ts";
+import { publishSeededTaskFixture } from "./helpers/canonical-task-publication-fixture.ts";
 
 test("PR canonical ingress keeps two interleaved session receipts determinate", { timeout: 60_000 }, async () => {
   const fixture = createFixture();
@@ -180,6 +181,7 @@ test("commit-anchor completion crosses production authority with daemon judgment
     ].join("\n"));
     execFileSync("git", ["-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "add", "."], { cwd: fixture.authoredRoot });
     execFileSync("git", ["-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-q", "-m", "seed commit completion fixture"], { cwd: fixture.authoredRoot });
+    publishSeededTaskFixture(fixture.authoredRoot, taskRoot, taskId);
 
     const registered = runDaemonCommand(fixture.repoRoot, [
       "daemon", "repo", "register", "--repo-id", "canonical", "--canonical-root", fixture.repoRoot,

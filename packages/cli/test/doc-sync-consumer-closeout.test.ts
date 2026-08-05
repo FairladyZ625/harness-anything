@@ -90,6 +90,38 @@ test("doc sync publishes a consumer task plan through the governed prose road wi
   });
 });
 
+test("doc sync rejects a template-shaped consumer document whose declared preset is invalid", async () => {
+  await withHarnessFixture(({ rootDir, harnessRoot, taskRoot }) => {
+    const relativePath = `tasks/${taskId}/task_plan.md`;
+    writeFileSync(
+      path.join(taskRoot, "INDEX.md"),
+      taskIndex().replace("preset: standard-task", "preset: definitely-not-installed"),
+      "utf8"
+    );
+    git(harnessRoot, "add", `tasks/${taskId}/INDEX.md`);
+    gitCommit(harnessRoot, "declare invalid preset");
+    writeFileSync(
+      path.join(taskRoot, "task_plan.md"),
+      planBody().replace("Original prose.", "Template-shaped but undeclared prose."),
+      "utf8"
+    );
+
+    const report = buildDocSyncReport(rootDir, cliDaemonServiceHostServices.docSync);
+    assert.deepEqual(report.candidateBlobs.map((entry) => entry.path), []);
+    assert.deepEqual(report.writeIntentPreview.changes.map((entry) => entry.path), []);
+    assert.throws(
+      () => buildDocSyncSubmitRequest(
+        rootDir,
+        "consumer",
+        [relativePath],
+        { kind: "agent", id: "codex-test" },
+        cliDaemonServiceHostServices.docSync
+      ),
+      /Doc sync selected path is not dirty or is unknown/u
+    );
+  });
+});
+
 test("doc sync rejects a closeout request whose task package is swapped to an external symlink", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot }) => {
     const closeoutPath = path.join(taskRoot, "closeout.md");

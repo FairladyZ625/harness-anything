@@ -111,6 +111,7 @@ const publicRuntimeSurface = [
   "decisionSemanticMutationActions",
   "decisionStates",
   "decodeAndVerifyAttributionEventV2",
+  "decodeAttributionEventBody",
   "decodeCanonicalCbor",
   "decodeEntityDeclaration",
   "defaultTaskProjectionPath",

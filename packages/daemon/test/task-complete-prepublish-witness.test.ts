@@ -6,11 +6,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { Effect } from "effect";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
   renderCodeDocReconciliationDraft,
   type TaskCompleteTransitionCommand
 } from "../../application/src/index.ts";
+import {
+  makeJournaledWriteCoordinator,
+  taskEntityId,
+  type WriteOp
+} from "../../kernel/src/index.ts";
 import {
   decodePrepublishWitnessRef,
   produceCodeDocWitness,
@@ -39,7 +45,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
     assert.equal(codeDoc.taskId, taskId);
     assert.equal(codeDoc.reconciledCommitRef, fixture.publicCommit);
     assert.deepEqual(codeDoc.normalizedPaths, ["README.md"]);
-    assert.deepEqual(codeDoc.publicationOperationIds, ["op_code_doc", "op_document"]);
+    assert.deepEqual(codeDoc.publicationOperationIds, ["op_code_doc"]);
 
     const forged = forgeWitnessRef(document.ref, { repositoryCommit: fixture.authoredInitialCommit });
     assert.throws(() => verifyTaskCompleteWitnessRefs({
@@ -62,6 +68,72 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
         { kind: "code-doc-reconciliation", ref: codeDoc.ref }
       ]
     }), /WITNESS_SNAPSHOT_MISMATCH:document-publication/u);
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("committed replay rejects a forged merge whose authority parent never changed the task documents", () => {
+  const fixture = witnessRepository();
+  try {
+    const document = produceDocumentPublicationWitness(fixture);
+    const taskRoot = path.join(fixture.authoredRoot, "tasks", `${taskId}-witness`);
+    const closeout = fixture.documents.find((entry) => entry.path === "closeout.md")!.body;
+    writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nRaw first-parent rollback.\n");
+    git(fixture.authoredRoot, "add", ".");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "test: raw first-parent rollback");
+
+    git(fixture.authoredRoot, "checkout", "-q", "-b", "forged-publication");
+    writeFileSync(path.join(fixture.authoredRoot, "unrelated.txt"), "second parent never changed task documents\n");
+    git(fixture.authoredRoot, "add", ".");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "test: unrelated authority parent");
+    git(fixture.authoredRoot, "checkout", "-q", "main");
+    git(fixture.authoredRoot, "merge", "-q", "--no-ff", "--no-commit", "forged-publication");
+    writeFileSync(path.join(taskRoot, "closeout.md"), closeout);
+    git(fixture.authoredRoot, "add", ".");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "materialize forged task documents [op_forged]");
+    const forgedCommit = git(fixture.authoredRoot, "rev-parse", "HEAD");
+    const forged = forgeWitnessRef(document.ref, {
+      repositoryCommit: forgedCommit,
+      publicationOperationIds: ["op_forged"]
+    });
+
+    assert.throws(() => verifyTaskCompleteWitnessRefs({
+      ...fixture,
+      requireCodeDoc: false,
+      refs: [{ kind: "document-publication", ref: forged }],
+      snapshotMode: "committed"
+    }), /WITNESS_COMMIT_NOT_PATH_ATTRIBUTED/u);
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("a forged operation id in a raw path-changing commit cannot satisfy publication", () => {
+  const fixture = witnessRepository();
+  try {
+    const taskRoot = path.join(fixture.authoredRoot, "tasks", `${taskId}-witness`);
+    const forgedCloseout = "# Closeout\n\nRaw content with a forged operation subject.\n";
+    writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nFirst-parent value.\n");
+    git(fixture.authoredRoot, "add", ".");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "test: first-parent value");
+
+    git(fixture.authoredRoot, "checkout", "-q", "-b", "forged-operation-subject");
+    writeFileSync(path.join(taskRoot, "closeout.md"), forgedCloseout);
+    git(fixture.authoredRoot, "add", ".");
+    git(fixture.authoredRoot, "commit", "-q", "-m", "manual raw write [op_forged]");
+    git(fixture.authoredRoot, "checkout", "-q", "main");
+    git(fixture.authoredRoot, "merge", "-q", "--no-ff", "forged-operation-subject", "-m", "ordinary merge");
+
+    assert.throws(
+      () => produceDocumentPublicationWitness({
+        ...fixture,
+        documents: fixture.documents.map((document) => document.path === "closeout.md"
+          ? { ...document, body: forgedCloseout }
+          : document)
+      }),
+      /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED/u
+    );
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
   }
@@ -187,12 +259,10 @@ function witnessRepository() {
   ];
   const command = completeCommand(publicCommit);
 
-  git(authoredRoot, "checkout", "-q", "-b", "publication");
-  for (const document of documents) writeFileSync(path.join(taskRoot, document.path), document.body);
-  git(authoredRoot, "add", ".");
-  git(authoredRoot, "commit", "-q", "-m", "authority publication [op_code_doc,op_document]");
-  git(authoredRoot, "checkout", "-q", "main");
-  git(authoredRoot, "merge", "-q", "--no-ff", "publication", "-m", "materialize [op_code_doc,op_document]");
+  publishTaskDocumentOps(rootDir, "witness-publication", [
+    taskDocumentOp("op_code_doc", "code_doc_reconcile", CODE_DOC_RECONCILIATION_DOCUMENT, codeDoc.body),
+    taskDocumentOp("op_document", "doc_write", "closeout.md", closeout)
+  ]);
 
   return {
     fixtureRoot,
@@ -263,12 +333,9 @@ function partiallyPublishedWitnessRepository() {
   git(authoredRoot, "add", ".");
   git(authoredRoot, "commit", "-q", "-m", "test: raw task documents");
 
-  git(authoredRoot, "checkout", "-q", "-b", "publication");
-  writeFileSync(path.join(taskRoot, "closeout.md"), publishedCloseout);
-  git(authoredRoot, "add", ".");
-  git(authoredRoot, "commit", "-q", "-m", "authority publication [op_closeout]");
-  git(authoredRoot, "checkout", "-q", "main");
-  git(authoredRoot, "merge", "-q", "--no-ff", "publication", "-m", "materialize [op_closeout]");
+  publishTaskDocumentOps(rootDir, "partial-publication", [
+    taskDocumentOp("op_closeout", "doc_write", "closeout.md", publishedCloseout)
+  ]);
 
   return {
     fixtureRoot,
@@ -350,6 +417,46 @@ function completeCommand(commitRef: string): TaskCompleteTransitionCommand {
     callerIdempotencyKey: `task-complete-${"4".repeat(64)}`,
     dryRun: false
   };
+}
+
+function taskDocumentOp(
+  opId: string,
+  kind: "doc_write" | "code_doc_reconcile",
+  documentPath: string,
+  body: string
+): WriteOp {
+  return {
+    opId,
+    entityId: taskEntityId(taskId),
+    kind,
+    payload: { path: documentPath, body }
+  };
+}
+
+function publishTaskDocumentOps(
+  rootDir: string,
+  sessionId: string,
+  operations: ReadonlyArray<WriteOp>
+): void {
+  const coordinator = makeJournaledWriteCoordinator({
+    rootDir,
+    attribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_test" },
+        executor: { kind: "agent", id: "witness-fixture" }
+      },
+      principalSource: {
+        kind: "local-configured",
+        authority: "harness.yaml",
+        authoritySha256: `sha256:${"0".repeat(64)}`
+      },
+      executorSource: "client-asserted"
+    },
+    sessionId,
+    commitAuthor: { name: "Harness Test", email: "harness@example.test" }
+  });
+  for (const operation of operations) Effect.runSync(coordinator.enqueue(operation));
+  Effect.runSync(coordinator.flush("explicit"));
 }
 
 function forgeWitnessRef(ref: string, patch: Record<string, unknown>): string {

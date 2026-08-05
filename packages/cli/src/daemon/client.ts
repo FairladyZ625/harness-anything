@@ -50,9 +50,12 @@ import {
   remoteArtifactSafetyReceipt,
   type ArtifactIngestPlan
 } from "./artifact-ingest.ts";
-import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
+import {
+  resolveDeclaredManagedSectionPolicy,
+  resolveManagedSectionPolicy
+} from "../commands/extensions/managed-section-policy.ts";
 
-const docSyncHostServices = { resolveManagedSectionPolicy };
+const docSyncHostServices = { resolveDeclaredManagedSectionPolicy, resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
 import { readRemoteConfig, remoteDaemonSshArgs, remoteDaemonUnavailableHint, type RemoteDaemonConfig } from "./remote-config.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
