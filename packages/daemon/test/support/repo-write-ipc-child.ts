@@ -63,7 +63,17 @@ if (mode === "expected-direct-rejection") {
           requestId: message.requestId,
           phase: "projection",
           elapsedMs: 2.5
-        });
+        }).then(() => transport.send({
+          // Same-channel ordering makes this a deterministic test barrier: the
+          // parent cannot observe it before recording the telemetry above.
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "recovery-deferred",
+          outerOpId: `fixture-direct-stalled:${message.requestId}`,
+          code: "FIXTURE_DIRECT_STALLED",
+          diagnostic: "fixture direct request reported projection and will remain unresolved"
+        }));
         return;
       }
       void transport.send({

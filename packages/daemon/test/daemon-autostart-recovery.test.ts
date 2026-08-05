@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import {
   DaemonAutostartTimeoutError,
+  localDaemonRetryIntervalMs,
   replaceSpawnLocalDaemonForTest,
   requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
@@ -19,6 +20,10 @@ import {
 
 const legacyAutostartBudgetMs = 6_000;
 const injectedColdStartDelayMs = legacyAutostartBudgetMs + 250;
+// The server starts idle, and protocol.hello deliberately does not count as a
+// served request. Keep the first-request grace structurally wider than one
+// client retry interval plus the hello and real-request loopback round trips.
+const injectedFirstRequestGraceMs = localDaemonRetryIntervalMs * 20;
 
 test("two commands recover through one daemon whose cold readiness exceeds the legacy budget", async (context) => {
   if (process.platform === "win32") return;
@@ -69,7 +74,7 @@ function startInjectedColdDaemon(
         servers.push(server);
         const idleExit = setTimeout(() => {
           void closeServer(server).then(resolve, reject);
-        }, 100);
+        }, injectedFirstRequestGraceMs);
         server.on("request-served", () => clearTimeout(idleExit));
       }, reject);
     }, injectedColdStartDelayMs);
