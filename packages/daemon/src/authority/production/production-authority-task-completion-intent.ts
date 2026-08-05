@@ -11,6 +11,7 @@ import {
   type CanonicalTaskMutationPlan,
   type ExistingTaskLifecycleTransition,
   type ProductionAuthorityCommand,
+  type ProductionAuthorityCompilerHostServices,
   type TaskCompleteTransitionCommand
 } from "@harness-anything/application";
 import {
@@ -43,6 +44,7 @@ import {
 import {
   reportCurrentRepoWriteTelemetry
 } from "../../runtime/repo-write-telemetry-context.ts";
+import { assertProductionTaskCompletionPrerequisites } from "./production-authority-task-completion-prerequisites.ts";
 
 export async function taskCompletionIntent(
   authoredRoot: string,
@@ -52,7 +54,8 @@ export async function taskCompletionIntent(
   sessionId: string,
   action: Extract<ProductionAuthorityCommand["action"], { readonly kind: "task-complete" }>,
   canonicalEntityId: string,
-  actor: ExecutionRecord["primary_actor"]
+  actor: ExecutionRecord["primary_actor"],
+  hostServices: ProductionAuthorityCompilerHostServices
 ): Promise<CanonicalAttemptIntent> {
   const taskId = action.taskId;
   const taskRoot = resolvedTaskRoot(authoredRoot, taskId);
@@ -79,7 +82,13 @@ export async function taskCompletionIntent(
   const witnesses = existing
     ? await verifyTaskCompleteWitnessRefs({ ...witnessInput, refs: existing.externalCheckpointRefs, snapshotMode: "committed" })
     : await resolveVerifiedTaskCompleteWitnesses(witnessInput);
-  assertLifecycleCompletionPrerequisites(documents, command, completionGates);
+  assertProductionTaskCompletionPrerequisites({
+    taskId,
+    documents,
+    completionGates,
+    ciGate: command.ciGate,
+    snapshot: hostServices.readTaskCompletionPrerequisiteSnapshot()
+  });
   const selectedReplayApproval = !existing && currentRound.kind === "accepted-replay"
     ? acceptedReplayApproval(documents, taskId, currentRound.execution)
     : undefined;
@@ -149,18 +158,6 @@ function existingLifecycleTransition(
     throw new Error("AUTHORITY_TASK_COMPLETE_TRANSITION_IDEMPOTENCY_CONFLICT");
   }
   return decoded;
-}
-
-function assertLifecycleCompletionPrerequisites(
-  documents: ReadonlyArray<{ readonly path: string; readonly body: string }>,
-  command: TaskCompleteTransitionCommand,
-  completionGates: ReadonlyArray<string>
-): void {
-  const closeout = documents.find((document) => document.path === "closeout.md");
-  if (!closeout || !closeout.body.trim()) throw new Error("AUTHORITY_TASK_COMPLETE_CLOSEOUT_REQUIRED");
-  if (completionGates.includes("ci") && command.ciGate !== "passed") {
-    throw new Error(`AUTHORITY_TASK_COMPLETE_CI_GATE_REQUIRED:${command.ciGate ?? "missing"}`);
-  }
 }
 
 function commitCompletionEvidence(input: {

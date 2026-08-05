@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -11,12 +10,15 @@ import {
   runRawJsonMaybeFail,
   stopDaemon
 } from "./helpers/daemon-cli.ts";
+import { assertHelpOrder, cliHelp, packetTemplate } from "./helpers/cli-help-fixture.ts";
 import {
   createFixture,
   git,
   writeColdCodexSessionLog
 } from "./production-authority-canonical-ingress/fixture.ts";
 import {
+  placeholderCloseout,
+  productionCloseout,
   productionPlan,
   publishSeededTaskFixture
 } from "./helpers/canonical-task-publication-fixture.ts";
@@ -190,6 +192,35 @@ test("task closeout publishes approval and completion through the production dae
       } | undefined)?.data?.report?.completionPlan)?.transitionId;
       assert.equal(replayTransition, transitionId, JSON.stringify({ attempt, replayed: replayed.receipt }));
     }
+  });
+});
+
+test("placeholder closeout rejection leaves production authority usable for corrected completion", { timeout: 60_000 }, async () => {
+  await withReviewedCompletionFixture("completion-placeholder-authority", {}, ({
+    fixture, taskId, taskRoot, approvalPath, env
+  }) => {
+    writeFileSync(path.join(taskRoot, "closeout.md"), placeholderCloseout());
+    publishCloseout(fixture.repoRoot, taskId, env);
+    const blocked = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+    assert.equal(blocked.status, 1, JSON.stringify(blocked.receipt));
+    assert.match(JSON.stringify(blocked.receipt), /AUTHORITY_TASK_COMPLETE_CLOSEOUT_PLACEHOLDER/u);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
+
+    const holder = runRawJsonMaybeFail(fixture.repoRoot, ["task", "holder", taskId], env);
+    assert.equal(holder.status, 0, JSON.stringify(holder.receipt));
+    assert.equal((holder.receipt.details as {
+      readonly data?: { readonly effectiveHolder?: unknown };
+    } | undefined)?.data?.effectiveHolder, null, JSON.stringify(holder.receipt));
+
+    writeFileSync(path.join(taskRoot, "closeout.md"), productionCloseout("Corrected after the placeholder rejection."));
+    publishCloseout(fixture.repoRoot, taskId, env);
+    const completed = runRawJsonMaybeFail(fixture.repoRoot, [
+      "task", "complete", taskId, "--approve", "--from-file", approvalPath
+    ], env);
+    assert.equal(completed.status, 0, JSON.stringify(completed.receipt));
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
   });
 });
 
@@ -557,24 +588,3 @@ test("task complete closes one legacy submitted current round with no live holde
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
-
-function cliHelp(rootDir: string, args: ReadonlyArray<string>): string {
-  return execFileSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "--root", rootDir, ...args], {
-    encoding: "utf8"
-  });
-}
-
-function packetTemplate(help: string): Readonly<Record<string, unknown>> {
-  const match = help.match(/Packet template \(copy as [^)]+\):\n([\s\S]+?)(?:\n\n|$)/u);
-  assert.ok(match, help);
-  return JSON.parse(match[1]!.split("\n").map((line) => line.replace(/^  /u, "")).join("\n")) as Record<string, unknown>;
-}
-
-function assertHelpOrder(help: string, fragments: ReadonlyArray<string>): void {
-  let previous = -1;
-  for (const fragment of fragments) {
-    const index = help.indexOf(fragment, previous + 1);
-    assert.ok(index > previous, `Expected help fragment after offset ${previous}: ${fragment}\n${help}`);
-    previous = index;
-  }
-}

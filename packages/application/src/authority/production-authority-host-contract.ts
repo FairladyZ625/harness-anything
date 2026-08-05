@@ -15,6 +15,7 @@ import type {
 import type { TaskWipSnapshotV1 } from "./task-wip-policy.ts";
 import type { TaskReturnToIdeaSnapshotV1 } from "./task-return-to-idea-policy.ts";
 import type { TaskPlanAdmissionSnapshotV1 } from "./task-execution-admission-policy.ts";
+import type { TaskCompletionPrerequisiteSnapshot } from "../task-completion-prerequisite-catalog.ts";
 
 export type ProductionAuthorityCommand = AuthorityHostCommand;
 export type ProductionAuthorityCommandAction = AuthorityHostCommandAction;
@@ -70,6 +71,7 @@ export interface ProductionAuthorityCompilerHostServices {
     rootInput: HarnessLayoutInput,
     taskId: string
   ) => Promise<TaskReturnToIdeaSnapshotV1>;
+  readonly readTaskCompletionPrerequisiteSnapshot: () => TaskCompletionPrerequisiteSnapshot;
 }
 
 export interface ProductionAuthorityIdentityHostService<Identity> {

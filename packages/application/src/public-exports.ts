@@ -475,6 +475,20 @@ export type {
   TaskLifecycleWriter
 } from "./task-lifecycle-orchestrator.ts";
 export {
+  completionPrerequisiteCatalog,
+  taskAuthorityCompletionPrerequisites
+} from "./task-completion-prerequisite-catalog.ts";
+export type {
+  CompletionPrerequisiteCatalogEntry,
+  CompletionPrerequisiteDecisionRef,
+  CompletionPrerequisiteEnforcementSurface,
+  TaskAuthorityCompletionPrerequisiteEntry,
+  TaskAuthorityCompletionPrerequisiteId,
+  TaskCompletionPrerequisiteInput,
+  TaskCompletionPrerequisiteResult,
+  TaskCompletionPrerequisiteSnapshot
+} from "./task-completion-prerequisite-catalog.ts";
+export {
   TaskLifecycleTransitionPlanningError,
   TaskLifecycleTransitionService,
   decodeCanonicalTaskMutationPlan,
