@@ -20,6 +20,36 @@ export function resolveManagedSectionPolicy(
     const declaration = bundledTemplateCatalog("software/coding")?.documents.find((document) => document.id === "entity/decision-body");
     return declaration ? { path: normalized, sections: declaration.sectionPermissions } : null;
   }
+  const declared = resolveDeclaredTaskManagedSectionPolicy(rootInput, normalized);
+  if (declared) return declared;
+  const taskMatch = /^(tasks\/[^/]+)\/(.+)$/u.exec(normalized);
+  if (!taskMatch?.[1] || !taskMatch[2] || taskMatch[2] === "INDEX.md") return null;
+  const layout = resolveHarnessLayout(rootInput);
+  const documentAbsolutePath = path.join(layout.authoredRoot, normalized);
+  if (!existsSync(documentAbsolutePath)) return null;
+  const documentBody = readFileSync(documentAbsolutePath, "utf8");
+  const headings = markdownHeadingSections(documentBody).map((section) => section.anchor);
+  const matches = (bundledTemplateCatalog("software/coding")?.documents ?? [])
+    .filter((document) => document.materializeAs === taskMatch[2])
+    .filter((document) => undeclaredSectionsForTaskDocument(document.sectionPermissions) === "allow"
+      ? document.sectionPermissions.every((permission) => headings.includes(permission.anchor))
+      : headings.every((heading) => document.sectionPermissions.some((permission) => permission.anchor === heading)))
+    .sort((left, right) => left.sectionPermissions.length - right.sectionPermissions.length || left.id.localeCompare(right.id));
+  if (!matches[0] || (matches[1] && matches[1].sectionPermissions.length === matches[0].sectionPermissions.length)) return null;
+  return taskDocumentPolicy(normalized, matches[0].sectionPermissions);
+}
+
+export function resolveDeclaredManagedSectionPolicy(
+  rootInput: HarnessLayoutInput,
+  documentPath: string
+): SemanticDiffDocumentPolicy | null {
+  return resolveDeclaredTaskManagedSectionPolicy(rootInput, documentPath.split(path.sep).join("/"));
+}
+
+function resolveDeclaredTaskManagedSectionPolicy(
+  rootInput: HarnessLayoutInput,
+  normalized: string
+): SemanticDiffDocumentPolicy | null {
   const taskMatch = /^(tasks\/[^/]+)\/(.+)$/u.exec(normalized);
   if (!taskMatch?.[1] || !taskMatch[2] || taskMatch[2] === "INDEX.md") return null;
   const layout = resolveHarnessLayout(rootInput);
@@ -41,18 +71,7 @@ export function resolveManagedSectionPolicy(
       : undefined;
     if (declaration) return taskDocumentPolicy(normalized, declaration.sectionPermissions);
   }
-  const documentAbsolutePath = path.join(layout.authoredRoot, normalized);
-  if (!existsSync(documentAbsolutePath)) return null;
-  const documentBody = readFileSync(documentAbsolutePath, "utf8");
-  const headings = markdownHeadingSections(documentBody).map((section) => section.anchor);
-  const matches = (bundledTemplateCatalog("software/coding")?.documents ?? [])
-    .filter((document) => document.materializeAs === taskMatch[2])
-    .filter((document) => undeclaredSectionsForTaskDocument(document.sectionPermissions) === "allow"
-      ? document.sectionPermissions.every((permission) => headings.includes(permission.anchor))
-      : headings.every((heading) => document.sectionPermissions.some((permission) => permission.anchor === heading)))
-    .sort((left, right) => left.sectionPermissions.length - right.sectionPermissions.length || left.id.localeCompare(right.id));
-  if (!matches[0] || (matches[1] && matches[1].sectionPermissions.length === matches[0].sectionPermissions.length)) return null;
-  return taskDocumentPolicy(normalized, matches[0].sectionPermissions);
+  return null;
 }
 
 export function undeclaredSectionsForTaskDocument(

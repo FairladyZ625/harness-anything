@@ -5,7 +5,10 @@ import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-controller-options.ts";
-import { resolveManagedSectionPolicy } from "../commands/extensions/managed-section-policy.ts";
+import {
+  resolveDeclaredManagedSectionPolicy,
+  resolveManagedSectionPolicy
+} from "../commands/extensions/managed-section-policy.ts";
 import { leaseEnforcementEnabled } from "../commands/settings.ts";
 import { resolveCliVersion } from "../commands/core/version.ts";
 import { readTaskReturnToIdeaSnapshot } from "../commands/task-return-to-idea-snapshot.ts";
@@ -27,7 +30,7 @@ export const cliDaemonServiceHostServices = {
         code: "daemon_queue_drain_timeout" as const
       }
   },
-  docSync: { resolveManagedSectionPolicy },
+  docSync: { resolveDeclaredManagedSectionPolicy, resolveManagedSectionPolicy },
   loadDaemonIdentity,
   daemonActorAttribution,
   makeGuiControllerOptions: (runtime, rootInput, commandOptions) => makeDaemonGuiControllerOptions(

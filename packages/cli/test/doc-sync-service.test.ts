@@ -67,15 +67,17 @@ test("doc sync preview and submit validator classify same-extension prose and fr
   });
 });
 
-test("doc sync report treats a missing write-road registry as empty coverage instead of crashing", async () => {
+test("doc sync report supplies the installed consumer task-prose road when the dogfood registry is missing", async () => {
   // Regression for #644: consumer repos have no dogfood write-road registry, so the
   // unguarded readFileSync in loadRegistry crashed every decision command (incl. --dry-run).
-  await withHarnessFixture(async ({ rootDir, taskRoot }) => {
-    writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nConsumer edit.\n", "utf8");
+  await withHarnessFixture(async ({ rootDir, taskRoot, taskId }) => {
+    writeFileSync(path.join(taskRoot, "task_plan.md"), planBody("Consumer edit."), "utf8");
     const report = buildDocSyncReport(rootDir);
-    // Inert: no crash, empty coverage, and no manufactured warnings/touches.
+    // Consumer installs do not ship the dogfood registry, but their declared task
+    // prose still resolves through the bundled preset/template policy.
     assert.equal(report.registry.sha256, sha256Text(""));
-    assert.equal(report.dirtyFiles.length, 0);
+    assert.deepEqual(report.dirtyFiles.map((entry) => entry.path), [`tasks/${taskId}/task_plan.md`]);
+    assert.deepEqual(report.candidateBlobs.map((entry) => entry.path), [`tasks/${taskId}/task_plan.md`]);
     assert.deepEqual(report.forbiddenTouches, []);
     assert.deepEqual(report.unresolvedTouches, []);
     assert.equal(report.readyToSubmitPreview, true);

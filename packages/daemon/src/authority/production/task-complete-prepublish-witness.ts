@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
@@ -15,6 +14,12 @@ import {
   stableStringify,
   taskPackagePath
 } from "@harness-anything/kernel";
+import {
+  assertAttributedMaterializedPublication,
+  findAttributedMaterializedPublication,
+  prepublishGitBlobText,
+  prepublishGitTextOrNull
+} from "./task-complete-prepublish-publication.ts";
 
 const witnessPrefix = "ha-prepublish-witness-v1.";
 
@@ -100,7 +105,7 @@ export function produceDocumentPublicationWitness(input: {
     .sort((left, right) => lexicalCompare(left.path, right.path));
   if (covered.length === 0) throw new Error("AUTHORITY_TASK_COMPLETE_DOCUMENT_PUBLICATION_EMPTY");
   const repositoryPaths = taskRepositoryPaths(input, covered.map((entry) => entry.path));
-  const publication = findMaterializedPublication(input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
+  const publication = findAttributedMaterializedPublication(input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
   const witnessWithoutRef = {
     kind: "document-publication" as const,
     repositoryCommit: publication.commit,
@@ -146,7 +151,7 @@ export function produceCodeDocWitness(input: {
     );
   }
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
-  const publication = findMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);
+  const publication = findAttributedMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);
   const witnessWithoutRef = {
     kind: "code-doc-reconciliation" as const,
     repositoryCommit: publication.commit,
@@ -244,7 +249,7 @@ function verifyDocumentPublicationWitness(
       .sort((left, right) => lexicalCompare(left.path, right.path))
     : witness.coveredTaskRelativePaths.map((coveredPath, index) => ({
       path: canonicalTaskRelativePath(coveredPath),
-      body: witnessGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPaths[index]!)
+      body: prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPaths[index]!)
     }));
   const digestValue = `sha256:${sha256Text(stableStringify(covered.map((entry) => ({
     path: entry.path,
@@ -254,12 +259,13 @@ function verifyDocumentPublicationWitness(
     || witness.coveredPathSetDigest !== digestValue) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:document-publication");
   }
-  assertMaterializedPublication(
+  assertAttributedMaterializedPublication(
     input.authoredRoot,
     witness.repositoryCommit,
     repositoryPaths,
     covered.map((entry) => entry.body),
-    witness.publicationOperationIds
+    witness.publicationOperationIds,
+    snapshotMode === "committed" ? witness.repositoryCommit : "HEAD"
   );
 }
 
@@ -278,7 +284,7 @@ function verifyCodeDocWitness(
   const currentCodeDoc = input.documents.find((document) => document.path === CODE_DOC_RECONCILIATION_DOCUMENT);
   const codeDocBody = snapshotMode === "current"
     ? currentCodeDoc?.body
-    : witnessGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPath!);
+    : prepublishGitBlobText(input.authoredRoot, witness.repositoryCommit, repositoryPath!);
   if (!codeDocBody) throw new Error("AUTHORITY_TASK_COMPLETE_CODE_DOC_WITNESS_REQUIRED");
   const reconciledCommitRef = snapshotMode === "current"
     ? resolveCommit(input.rootDir, input.command.commitRef ?? "HEAD")
@@ -298,125 +304,21 @@ function verifyCodeDocWitness(
     || stableStringify(witness.normalizedPaths) !== stableStringify(normalizedPaths)
     || witness.prRef !== prRef
     || witness.codeDocBodyDigest !== `sha256:${sha256Text(codeDocBody)}`
-    || gitTextOrNull(input.rootDir, ["rev-parse", "--verify", "--end-of-options", `${witness.reconciledCommitRef}^{commit}`]) !== witness.reconciledCommitRef) {
+    || prepublishGitTextOrNull(input.rootDir, ["rev-parse", "--verify", "--end-of-options", `${witness.reconciledCommitRef}^{commit}`]) !== witness.reconciledCommitRef) {
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:code-doc-reconciliation");
   }
-  assertMaterializedPublication(
+  assertAttributedMaterializedPublication(
     input.authoredRoot,
     witness.repositoryCommit,
     [repositoryPath!],
     [codeDocBody],
-    witness.publicationOperationIds
+    witness.publicationOperationIds,
+    snapshotMode === "committed" ? witness.repositoryCommit : "HEAD"
   );
 }
 
 function encodePrepublishWitnessRef(value: Omit<VerifiedTaskCompleteExternalWitness, "ref">): string {
   return `${witnessPrefix}${Buffer.from(stableStringify(value), "utf8").toString("base64url")}`;
-}
-
-function findMaterializedPublication(
-  rootDir: string,
-  repositoryPaths: ReadonlyArray<string>,
-  bodies: ReadonlyArray<string>
-): { readonly commit: string; readonly operationIds: ReadonlyArray<string> } {
-  const expectedBlobs = bodies.map((body) => witnessGitText(rootDir, ["hash-object", "--stdin"], body));
-  const currentBlobs = witnessGitBlobIds(rootDir, "HEAD", repositoryPaths);
-  if (currentBlobs.some((actual, index) => actual !== expectedBlobs[index])) {
-    throw new Error(
-      `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:${describeMaterializationMismatches(repositoryPaths, currentBlobs, expectedBlobs)}`
-    );
-  }
-  for (const entry of firstParentHistory(rootDir, repositoryPaths)) {
-    if (entry.parents.length !== 2) continue;
-    const operationIds = canonicalPublicationOperationIds(rootDir, entry);
-    if (operationIds.length === 0) continue;
-    const actualBlobs = witnessGitBlobIds(rootDir, entry.commit, repositoryPaths);
-    const matches = actualBlobs.every((actual, index) => actual === expectedBlobs[index]);
-    if (matches) return { commit: entry.commit, operationIds };
-  }
-  throw new Error(
-    `AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:no matching first-parent publication found for declared paths: ${repositoryPaths.join(",")}`
-  );
-}
-
-function describeMaterializationMismatches(
-  repositoryPaths: ReadonlyArray<string>,
-  actualBlobs: ReadonlyArray<string | null>,
-  expectedBlobs: ReadonlyArray<string>
-): string {
-  return repositoryPaths.flatMap((repositoryPath, index) => {
-    const actual = actualBlobs[index];
-    if (actual === expectedBlobs[index]) return [];
-    return [actual === null
-      ? `${repositoryPath} (missing from HEAD)`
-      : `${repositoryPath} (content differs from expected)`];
-  }).join(", ");
-}
-
-function assertMaterializedPublication(
-  rootDir: string,
-  repositoryCommit: string,
-  repositoryPaths: ReadonlyArray<string>,
-  bodies: ReadonlyArray<string>,
-  expectedOperationIds: ReadonlyArray<string>
-): void {
-  const entry = firstParentHistory(rootDir, repositoryPaths)
-    .find((candidate) => candidate.commit === repositoryCommit);
-  if (!entry || entry.parents.length !== 2) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_COMMIT_NOT_MATERIALIZED_FIRST_PARENT");
-  }
-  const operationIds = canonicalPublicationOperationIds(rootDir, entry);
-  if (operationIds.length === 0 || stableStringify(operationIds) !== stableStringify(expectedOperationIds)) {
-    throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_OPERATION_MISMATCH");
-  }
-  const expectedBlobs = bodies.map((body) => witnessGitText(rootDir, ["hash-object", "--stdin"], body));
-  const actualBlobs = witnessGitBlobIds(rootDir, repositoryCommit, repositoryPaths);
-  const matches = actualBlobs.every((actual, index) => actual === expectedBlobs[index]);
-  if (!matches) throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_BLOB_MISMATCH");
-}
-
-function canonicalPublicationOperationIds(
-  rootDir: string,
-  entry: { readonly parents: ReadonlyArray<string>; readonly subject: string }
-): ReadonlyArray<string> {
-  const firstParentIds = publicationOperationIds(entry.subject);
-  return firstParentIds.length > 0
-    ? firstParentIds
-    : publicationOperationIds(witnessGitText(rootDir, ["show", "-s", "--format=%s", entry.parents[1]!]));
-}
-
-function firstParentHistory(rootDir: string, repositoryPaths: ReadonlyArray<string>): ReadonlyArray<{
-  readonly commit: string;
-  readonly parents: ReadonlyArray<string>;
-  readonly subject: string;
-}> {
-  const fields = witnessGitText(rootDir, [
-    "log",
-    "--first-parent",
-    "--full-history",
-    "--format=%H%x00%P%x00%s%x00",
-    "HEAD",
-    "--",
-    ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
-  ]).split("\0");
-  const rows: Array<{ commit: string; parents: ReadonlyArray<string>; subject: string }> = [];
-  for (let index = 0; index + 2 < fields.length; index += 3) {
-    const commit = fields[index]!.trim();
-    if (!commit) continue;
-    rows.push({
-      commit,
-      parents: fields[index + 1]!.trim().split(" ").filter(Boolean),
-      subject: fields[index + 2]!.trim()
-    });
-  }
-  return rows;
-}
-
-function publicationOperationIds(subject: string): ReadonlyArray<string> {
-  const match = /\[([^\]]+)\]$/u.exec(subject);
-  return match?.[1]
-    ? [...new Set(match[1].split(",").map((entry) => entry.trim()).filter(Boolean))].sort()
-    : [];
 }
 
 function taskRepositoryPaths(
@@ -456,71 +358,9 @@ function canonicalTaskRelativePath(value: string): string {
 }
 
 function resolveCommit(rootDir: string, ref: string): string {
-  const resolved = gitTextOrNull(rootDir, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+  const resolved = prepublishGitTextOrNull(rootDir, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
   if (!resolved || !/^[0-9a-f]{40}$/u.test(resolved)) throw new Error(`AUTHORITY_TASK_COMPLETE_COMMIT_REF_INVALID:${ref}`);
   return resolved;
-}
-
-function witnessGitText(rootDir: string, args: ReadonlyArray<string>, input?: string): string {
-  return execFileSync("git", ["-C", rootDir, ...args], {
-    encoding: "utf8",
-    input,
-    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true
-  }).trim();
-}
-
-function witnessGitBlobText(rootDir: string, commitRef: string, repositoryPath: string): string {
-  try {
-    return execFileSync("git", ["-C", rootDir, "show", `${commitRef}:${repositoryPath}`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true
-    });
-  } catch {
-    throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_BLOB_MISSING");
-  }
-}
-
-function witnessGitBlobIds(
-  rootDir: string,
-  commitRef: string,
-  repositoryPaths: ReadonlyArray<string>
-): ReadonlyArray<string | null> {
-  const output = execFileSync("git", [
-    "-C",
-    rootDir,
-    "ls-tree",
-    "-z",
-    "--full-tree",
-    commitRef,
-    "--",
-    ...repositoryPaths.map((repositoryPath) => `:(literal)${repositoryPath}`)
-  ], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true
-  });
-  const byPath = new Map<string, string>();
-  for (const row of output.split("\0")) {
-    if (!row) continue;
-    const separator = row.indexOf("\t");
-    if (separator < 0) continue;
-    const [mode, type, objectId] = row.slice(0, separator).split(" ");
-    if (mode && type === "blob" && objectId) byPath.set(row.slice(separator + 1), objectId);
-  }
-  return repositoryPaths.map((repositoryPath) => byPath.get(repositoryPath) ?? null);
-}
-
-function gitTextOrNull(rootDir: string, args: ReadonlyArray<string>): string | null {
-  try {
-    return witnessGitText(rootDir, args);
-  } catch {
-    return null;
-  }
 }
 
 function witnessRecord(value: unknown): Record<string, unknown> {

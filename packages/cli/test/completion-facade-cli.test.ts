@@ -99,7 +99,7 @@ test("owner coldstart approves after the submitted execution lease is released",
   });
 });
 
-test("task complete dry-run previews one terminal intent without evaluating Review rules in the client", () => {
+test("task complete dry-run blocks when the canonical authority planner is unavailable", () => {
   withTempRoot((rootDir) => {
     const chain = prepareSubmitted(rootDir, "Review Evidence Preflight", "facade");
     const packetPath = path.join(rootDir, "invalid-review-evidence-approval.json");
@@ -118,17 +118,11 @@ test("task complete dry-run previews one terminal intent without evaluating Revi
     const preview = runJson(rootDir, [
       "--actor", "human:person_test", "task", "complete", chain.taskId,
       "--approve", "--from-file", packetPath, "--dry-run"
-    ], true, chain.env);
+    ], false, chain.env);
 
-    assert.notEqual(preview.status, "done");
-    assert.equal(preview.report.schema, "task-lifecycle-transition-preview/v1");
-    assert.equal(preview.report.disposition, "server-planner-validation-required");
-    assert.equal(preview.completionGate.ok, false);
-    assert.deepEqual(preview.report.uncheckedGates, [
-      "canonical-authority-planner",
-      "task-completion-evidence",
-      "durable-transition-write"
-    ]);
+    assert.equal(preview.ok, false, JSON.stringify(preview));
+    assert.equal(preview.error.code, "write_rejected");
+    assert.match(preview.error.hint, /canonical authority planner is unavailable/iu);
     assert.equal(existsSync(path.join(rootDir, chain.packagePath, "reviews")), false);
     assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });

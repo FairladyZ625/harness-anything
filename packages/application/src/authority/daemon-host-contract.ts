@@ -360,6 +360,10 @@ export interface DaemonControlErrorHostServices<PresentedError> {
 }
 
 export interface DaemonDocSyncHostServices {
+  readonly resolveDeclaredManagedSectionPolicy: (
+    rootInput: HarnessLayoutInput,
+    relativePath: string
+  ) => SemanticDiffDocumentPolicy | null;
   readonly resolveManagedSectionPolicy: (
     rootInput: HarnessLayoutInput,
     relativePath: string

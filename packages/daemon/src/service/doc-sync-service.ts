@@ -33,6 +33,7 @@ import {
 import { DocSyncJournalFailure, docSyncWriteFailure } from "./doc-sync-journal-failure.ts";
 import { gitText, resolveDocSyncAppliedLedgerSha } from "./doc-sync-applied-ledger.ts";
 import { isStandaloneCasObject } from "./doc-sync-cas.ts";
+import { consumerDocSyncRows, isConsumerGovernedTaskDocument } from "./doc-sync-consumer-surface.ts";
 import { resolveDocSyncChangePath } from "./doc-sync-writer-working-tree.ts";
 
 export interface DocSyncServiceOptions {
@@ -53,12 +54,19 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput, hostServices: 
   const layout = resolveHarnessLayout(rootInput);
   const authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/") || ".";
   const registry = loadRegistry(layout.rootDir);
-  // No registry ⇒ keep consumer scanning narrow: ordinary authored-tree changes remain
-  // inert (see issue #644), while closeout keeps its built-in task-prose lane so a human
-  // can publish the completion document through the existing governed doc-sync road.
+  const dirtyEntries = gitDirtyEntries(layout.authoredRoot)
+    .filter((entry) => !isStandaloneCasObject(layout.authoredRoot, entry));
+  // The dogfood registry is not installed in consumer repositories. Keep their scan
+  // fail-closed by admitting only task prose whose installed preset/template resolves a
+  // managed section policy; typed task records and unknown authored files remain inert.
   const dirtyFiles = registry.present
-    ? gitDirtyEntries(layout.authoredRoot).filter((entry) => !isStandaloneCasObject(layout.authoredRoot, entry))
-    : gitDirtyEntries(layout.authoredRoot).filter((entry) => isConsumerCloseoutPath(entry.path));
+    ? dirtyEntries
+    : dirtyEntries.filter((entry) => isConsumerGovernedTaskDocument(
+        layout.rootDir,
+        layout.authoredRoot,
+        entry,
+        hostServices
+      ));
   const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows, hostServices));
   const candidateBlobs = files.filter((entry) => entry.docSyncCandidate && entry.newBlobSha256);
   const forbiddenTouches = files.flatMap((entry) => entry.forbiddenTouches);
@@ -515,21 +523,8 @@ function loadRegistry(rootDir: string): { readonly present: boolean; readonly sh
   return { present: true, sha256: sha256Text(body), rows: parsed.rows };
 }
 
-const consumerDocSyncRows: ReadonlyArray<RegistryRow> = [{
-  id: "task.document.write-stage",
-  bearing: "task-document",
-  channel: {
-    pathClass: "doc-sync-allowed",
-    zoneClass: "task-authored-prose-or-stage"
-  }
-}];
-
 function registryPath(rootDir: string): string {
   return path.join(rootDir, "tools", "write-road-registry.json");
-}
-
-function isConsumerCloseoutPath(relativePath: string): boolean {
-  return /^tasks\/[^/]+\/closeout\.md$/u.test(relativePath);
 }
 
 function gitDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {

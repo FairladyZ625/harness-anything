@@ -84,11 +84,14 @@ test("command receipts fail closed on missing declared success data", () => {
   }
 });
 
-test("task closeout dry-run uses its declared receipt variant while real closeout stays strict", () => {
+test("task closeout derives the task-complete receipt contract for dry-run and real success", () => {
+  assert.deepEqual(commandReceiptContractsByKind["task-closeout"], commandReceiptContractsByKind["task-complete"]);
   const dryRun = toCommandReceipt({
     ok: true,
     command: "task-closeout",
     taskId: "task_1",
+    status: "in_review",
+    completionGate: { ok: false, dryRun: true },
     report: { schema: "task-closeout-dry-run/v1", dryRun: true }
   });
   assert.equal(dryRun.ok, true, JSON.stringify(dryRun));
@@ -97,10 +100,11 @@ test("task closeout dry-run uses its declared receipt variant while real closeou
     ok: true,
     command: "task-closeout",
     taskId: "task_1",
+    status: "done",
+    completionGate: { ok: true },
     report: { schema: "task-closeout-result/v1" }
   });
-  assert.equal(realCloseout.ok, false);
-  if (!realCloseout.ok) assert.match(realCloseout.error?.hint ?? "", /data\.executionId, data\.status/u);
+  assert.equal(realCloseout.ok, true, JSON.stringify(realCloseout));
 });
 
 test("command receipts fail closed on missing declared paths", () => {
@@ -390,9 +394,37 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.completionGate",
     reason: "Only emitted by completion-oriented task gate results; ordinary task review emits the review contract only."
   }, {
+    command: "task-closeout",
+    field: "data.report",
+    reason: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
+  }, {
+    command: "task-closeout",
+    field: "data.authorityOutcome",
+    reason: "Only emitted when the production authority reports an already-satisfied replay."
+  }, {
+    command: "task-closeout",
+    field: "data.completionEvidence",
+    reason: "Only emitted when completion accepts an immutable commit-anchor judgment record."
+  }, {
+    command: "task-closeout",
+    field: "data.executionId",
+    reason: "Only emitted when completion accepts a submitted Execution."
+  }, {
+    command: "task-closeout",
+    field: "data.repoWrite",
+    reason: "Only emitted when the production daemon child includes its durable writer outcome."
+  }, {
+    command: "task-closeout",
+    field: "data.reviewContract",
+    reason: "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
+  }, {
     command: "task-complete",
     field: "data.report",
     reason: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
+  }, {
+    command: "task-complete",
+    field: "data.authorityOutcome",
+    reason: "Only emitted when the production authority reports an already-satisfied replay."
   }, {
     command: "task-complete",
     field: "data.completionEvidence",
@@ -401,6 +433,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     command: "task-complete",
     field: "data.executionId",
     reason: "Only emitted when completion accepts a submitted Execution."
+  }, {
+    command: "task-complete",
+    field: "data.repoWrite",
+    reason: "Only emitted when the production daemon child includes its durable writer outcome."
   }, {
     command: "task-complete",
     field: "data.reviewContract",
