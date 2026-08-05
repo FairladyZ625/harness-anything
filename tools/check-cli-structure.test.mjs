@@ -76,6 +76,27 @@ test("CLI structure check rejects duplicate descriptors for one ParsedCommand ki
   assert.match(result.stderr, /ParsedCommand kind help must have exactly one registered descriptor; found 2/u);
 });
 
+test("CLI structure check rejects a manual repo-write kind mirror", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-repo-write-source-"));
+  writeFixtureTree(root);
+  writeFile(root, "packages/application/src/authority/repo-write-command-action.ts", [
+    "export const repoWriteCommandActionKinds = ['repo-write-only'];",
+    ""
+  ].join("\n"));
+  writeFile(root, "packages/cli/src/cli/types.ts", [
+    "import type { RepoWriteCommandAction } from '@harness-anything/application';",
+    "export interface ParsedCommand {",
+    "  readonly action: RepoWriteCommandAction | { readonly kind: 'help' } | { readonly kind: 'repo-write-only' };",
+    "}",
+    ""
+  ].join("\n"));
+
+  const result = spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /application repo-write action kind repo-write-only must not be redeclared inline/u);
+});
+
 function writeFixtureTree(root) {
   const files = [
     "packages/cli/src/cli/parse-args.ts",
@@ -91,9 +112,14 @@ function writeFixtureTree(root) {
   for (const file of files) {
     writeFile(root, file, "export function ok(): void {}\n");
   }
+  writeFile(root, "packages/application/src/authority/repo-write-command-action.ts", [
+    "export const repoWriteCommandActionKinds = [];",
+    ""
+  ].join("\n"));
   writeFile(root, "packages/cli/src/cli/types.ts", [
+    "import type { RepoWriteCommandAction } from '@harness-anything/application';",
     "export interface ParsedCommand {",
-    "  readonly action: { readonly kind: 'help' };",
+    "  readonly action: RepoWriteCommandAction | { readonly kind: 'help' };",
     "}",
     ""
   ].join("\n"));

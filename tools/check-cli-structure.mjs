@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const root = process.cwd();
 const violations = [];
+const repoWriteCommandActionKinds = await loadRepoWriteCommandActionKinds();
 
 const parserFiles = [
   "packages/cli/src/cli/parse-args.ts",
@@ -189,6 +191,15 @@ function collectParsedCommandKinds(file) {
     violations.push(`${file}: ParsedCommand must declare an action type`);
     return [];
   }
+  const usesRepoWriteCommandAction = containsTypeReference(
+    action.type,
+    "RepoWriteCommandAction"
+  );
+  if (!usesRepoWriteCommandAction) {
+    violations.push(
+      `${file}: ParsedCommand action must consume application RepoWriteCommandAction`
+    );
+  }
   const kinds = [];
   function visit(node) {
     if (ts.isPropertySignature(node) && propertyName(node.name) === "kind" && node.type) {
@@ -197,7 +208,41 @@ function collectParsedCommandKinds(file) {
     ts.forEachChild(node, visit);
   }
   visit(action.type);
-  return [...new Set(kinds)];
+  const redeclaredRepoWriteKinds = [...new Set(
+    kinds.filter((kind) => repoWriteCommandActionKinds.includes(kind))
+  )];
+  for (const kind of redeclaredRepoWriteKinds) {
+    violations.push(
+      `${file}: application repo-write action kind ${kind} must not be redeclared inline`
+    );
+  }
+  return [...new Set([
+    ...kinds,
+    ...(usesRepoWriteCommandAction ? repoWriteCommandActionKinds : [])
+  ])];
+}
+
+async function loadRepoWriteCommandActionKinds() {
+  const registryPath = path.join(
+    root,
+    "packages/application/src/authority/repo-write-command-action.ts"
+  );
+  if (!existsSync(registryPath)) {
+    throw new Error(`missing application repo-write action registry: ${registryPath}`);
+  }
+  const registry = await import(pathToFileURL(registryPath).href);
+  if (!Array.isArray(registry.repoWriteCommandActionKinds)
+    || registry.repoWriteCommandActionKinds.some((kind) => typeof kind !== "string")) {
+    throw new Error("application repoWriteCommandActionKinds must be a string array");
+  }
+  return registry.repoWriteCommandActionKinds;
+}
+
+function containsTypeReference(node, name) {
+  if (ts.isTypeReferenceNode(node)
+    && ts.isIdentifier(node.typeName)
+    && node.typeName.text === name) return true;
+  return node.getChildren().some((child) => containsTypeReference(child, name));
 }
 
 function collectCommandDescriptorFacts() {

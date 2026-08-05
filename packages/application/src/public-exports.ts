@@ -85,6 +85,7 @@ export * from "./authority/canonical-cbor.ts";
 export * from "./authority/semantic-mutation-envelope-v2.ts";
 export * from "./authority/daemon-host-contract.ts";
 export * from "./authority/repo-write-command-action.ts";
+export * from "./authority/repo-write-command-envelope.ts";
 export { decodeRepoWriteDocSyncSubmitRequest } from "./authority/repo-write-doc-sync-request.ts";
 export { StrictCommandDecodeError } from "./authority/strict-command-schema.ts";
 export * from "./authority/production-authority-host-contract.ts";
@@ -255,7 +256,12 @@ export { collectCasGarbage } from "@harness-anything/kernel";
 export type { CasGarbageCollectionEntry, CasGarbageCollectionReport } from "@harness-anything/kernel";
 export { readSessionEntity } from "./session-entity-reader.ts";
 export type { SessionEntityReadResult } from "./session-entity-reader.ts";
-export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
+export {
+  classifyStaticZones,
+  classifyTouchedZones,
+  docSyncWriterWorkingTreeContentKind,
+  forbiddenTouchesForZones
+} from "./doc-sync.ts";
 export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
 export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
 export type { CodeDocDocument, CodeDocReconciliationDraft, CodeDocReconciliationDraftInput, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning } from "./code-doc-reconciliation.ts";
@@ -315,6 +321,7 @@ export type {
 } from "./provenance-session-exporter.ts";
 export type {
   DocSyncChangeV1,
+  DocSyncChangeContentV1,
   DocSyncConflictV1,
   DocSyncForbiddenTouchV1,
   DocSyncSubmitRequestV1,

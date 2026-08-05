@@ -14,6 +14,12 @@ export interface RegistryRow {
   readonly writeKinds?: ReadonlyArray<string>;
 }
 
+export const docSyncWriterWorkingTreeContentKind = "writer-working-tree/v1" as const;
+
+export type DocSyncChangeContentV1 =
+  | { readonly kind: "inline"; readonly body: string }
+  | { readonly kind: typeof docSyncWriterWorkingTreeContentKind };
+
 export interface DocSyncChangeV1 {
   readonly path: string;
   readonly baseBlobSha256: string | null;
@@ -23,7 +29,7 @@ export interface DocSyncChangeV1 {
   readonly declaredPathClass?: string;
   readonly declaredZoneClass?: string;
   readonly declaredBearing?: string;
-  readonly content: { readonly kind: "inline"; readonly body: string } | { readonly kind: string };
+  readonly content: DocSyncChangeContentV1;
 }
 
 export interface DocSyncSubmitRequestV1 {

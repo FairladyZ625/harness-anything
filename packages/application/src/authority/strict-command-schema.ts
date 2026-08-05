@@ -1,6 +1,6 @@
 export class StrictCommandDecodeError extends Error {
   constructor(path: string, expected: string) {
-    super(`REPO_WRITE_COMMAND_ACTION_INVALID:${path}:${expected}`);
+    super(`REPO_WRITE_COMMAND_INVALID:${path}:${expected}`);
     this.name = "StrictCommandDecodeError";
   }
 }
@@ -37,7 +37,7 @@ export function strictObject<
       const optionalKeys = Object.keys(optional);
       const allowed = new Set([...requiredKeys, ...optionalKeys]);
       const unknownKey = Object.keys(input).find((key) => !allowed.has(key));
-      if (unknownKey) strictInvalid(`${path}.${unknownKey}`, "no unknown fields");
+      if (unknownKey !== undefined) strictInvalid(`${path}.${unknownKey}`, "no unknown fields");
       const missingKey = requiredKeys.find((key) => !Object.hasOwn(input, key));
       if (missingKey) strictInvalid(`${path}.${missingKey}`, "required field");
       const output: Record<string, unknown> = {};

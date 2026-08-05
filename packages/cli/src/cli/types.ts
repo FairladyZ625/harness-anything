@@ -7,6 +7,7 @@ import type {
 } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type {
+  DeprecatedCommandInvocation,
   RepoWriteCommandAction,
   RepoWriteCommandActionFor,
   TaskCompleteTransitionCommand,
@@ -191,75 +192,9 @@ export interface ParsedCommand {
   readonly daemonModeOverride?: "direct" | "local" | "remote";
   readonly daemonProfileOverride?: "default" | "isolated";
   readonly json: boolean;
-  readonly deprecatedInvocation?: import("./command-deprecations.ts").DeprecatedCommandInvocation;
+  readonly deprecatedInvocation?: DeprecatedCommandInvocation;
   readonly action:
-    // check-cli-structure reads this AST marker without resolving imported types.
-    // Payload authority remains the intersected application-owned schema union.
-    | (RepoWriteCommandAction & { readonly kind:
-      | "adopt-multica"
-      | "artifact-add"
-      | "cas-gc"
-      | "decision-amend"
-      | "decision-propose"
-      | "decision-reckon"
-      | "decision-relate"
-      | "decision-relation-replace"
-      | "decision-relation-retire"
-      | "decision-repin"
-      | "decision-transition"
-      | "distill-candidate"
-      | "distill-commit"
-      | "fact-invalidate"
-      | "git-diff"
-      | "governance-rebuild"
-      | "graph"
-      | "gui"
-      | "init"
-      | "legacy-copy-safe-docs"
-      | "legacy-index"
-      | "legacy-intake-plan"
-      | "materializer-run"
-      | "migrate-anchors"
-      | "migrate-fact-execution"
-      | "migrate-provenance"
-      | "migrate-retired-attribution-fields"
-      | "migrate-run"
-      | "migrate-structure"
-      | "module-register"
-      | "module-scaffold"
-      | "module-step"
-      | "module-unregister"
-      | "new-task"
-      | "preset-entrypoint"
-      | "preset-install"
-      | "preset-seed"
-      | "preset-uninstall"
-      | "progress-append"
-      | "record-fact"
-      | "runtime-event-append"
-      | "script-run"
-      | "session-backfill"
-      | "session-export"
-      | "session-sync"
-      | "status-set"
-      | "task-amend"
-      | "task-archive"
-      | "task-claim"
-      | "task-closeout"
-      | "task-code-doc-reconcile"
-      | "task-consent-record"
-      | "task-contract-migrate"
-      | "task-delete"
-      | "task-relate"
-      | "task-release"
-      | "task-reopen"
-      | "task-retire-execution"
-      | "task-review"
-      | "task-review-execution"
-      | "task-start"
-      | "task-supersede"
-      | "worktree-create"
-    })
+    | RepoWriteCommandAction
     | { readonly kind: "task-holder"; readonly taskId: string }
     | { readonly kind: "task-submit"; readonly taskId: string; readonly submission: { readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> }; readonly executionId?: string; readonly leaseToken?: string; readonly dryRun: boolean }
     | TaskSubmitTransitionCommand

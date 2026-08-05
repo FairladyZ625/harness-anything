@@ -2,6 +2,7 @@ import type {
   DocSyncChangeV1,
   DocSyncSubmitRequestV1
 } from "../doc-sync.ts";
+import { docSyncWriterWorkingTreeContentKind } from "../doc-sync.ts";
 import {
   strictArray,
   strictEnum,
@@ -19,7 +20,7 @@ const inlineContent = strictObject({
 });
 
 const referencedContent = strictObject({
-  kind: strictString
+  kind: strictLiteral(docSyncWriterWorkingTreeContentKind)
 });
 
 const change = strictObject({

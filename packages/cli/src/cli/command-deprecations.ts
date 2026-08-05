@@ -1,19 +1,18 @@
+import {
+  authorityCutoverSunsetDecision,
+  claimActivationFoldDecision,
+  compatibilitySunsetDecision,
+  type CommandDeprecationKind,
+  type DeprecatedCommandInvocation
+} from "@harness-anything/application";
 import type { ParsedCommand } from "./types.ts";
 
-export const compatibilitySunsetDecision = "dec_01KXQKTCKDDZF16QSMP5E5HFG1";
-export const authorityCutoverSunsetDecision = "dec_01KXSN6AVD6PSEB4CFCW8P2RQP";
-export const claimActivationFoldDecision = "dec_01KXWRC9CH70HN61B5FYPQP3XV";
-
-export type CommandDeprecationKind = "alias-grammar" | "migration-command" | "cutover-command";
-
-export interface DeprecatedCommandInvocation {
-  readonly kind: CommandDeprecationKind;
-  readonly commandKind: string;
-  readonly syntax: string;
-  readonly replacement: string;
-  readonly sunsetStage: "warning";
-  readonly decisionId: typeof compatibilitySunsetDecision | typeof authorityCutoverSunsetDecision | typeof claimActivationFoldDecision;
-}
+export {
+  authorityCutoverSunsetDecision,
+  claimActivationFoldDecision,
+  compatibilitySunsetDecision
+};
+export type { CommandDeprecationKind, DeprecatedCommandInvocation };
 
 interface DeprecatedCommandDefinition extends DeprecatedCommandInvocation {
   readonly tokens: ReadonlyArray<string>;

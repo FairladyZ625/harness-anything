@@ -1,26 +1,30 @@
 import {
   decodeRepoWriteCommandAction,
+  decodeRepoWriteDeprecatedCommandInvocation,
   decodeRepoWriteDocSyncSubmitRequest,
+  decodeRepoWriteHarnessLayoutOverrides,
   decodeTaskCompleteTransitionCommand,
   decodeTaskSubmitTransitionCommand,
   type DocSyncSubmitRequestV1,
+  type DeprecatedCommandInvocation,
   type RepoWriteCommandAction,
   type RepoWriteCommandActionKind,
   type TaskCompleteTransitionCommand,
   type TaskSubmitTransitionCommand
 } from "@harness-anything/application";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 import type { RepoWriteJsonObject } from "./repo-write-protocol.ts";
 
 interface RepoWriteCliWireCommand<Action> {
   readonly rootDir: string;
   readonly rootResolutionSource?: "explicit-override" | "local-cwd";
-  readonly layoutOverrides?: RepoWriteJsonObject;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly daemonRepoId?: string;
   readonly actor?: string;
   readonly daemonModeOverride?: "direct" | "local" | "remote";
   readonly daemonProfileOverride?: "default" | "isolated";
   readonly json: boolean;
-  readonly deprecatedInvocation?: RepoWriteJsonObject;
+  readonly deprecatedInvocation?: DeprecatedCommandInvocation;
   readonly action: Action;
 }
 
@@ -87,8 +91,9 @@ export function repoWriteCommandDtoFromDecodedFields(input: {
     invalid
   );
   return {
-    ...input,
     commandName: input.commandName,
+    actor: input.actor,
+    context: input.context,
     payload
   } as RepoWriteCommandDto;
 }
@@ -151,11 +156,10 @@ function decodeCommandPayload(
       rootDir: nonEmptyString(command.rootDir, `${path}.command.rootDir`, invalid),
       ...(rootResolutionSource ? { rootResolutionSource } : {}),
       ...(command.layoutOverrides === undefined ? {} : {
-        layoutOverrides: wireRecord(
+        layoutOverrides: decodeRepoWriteHarnessLayoutOverrides(
           command.layoutOverrides,
-          `${path}.command.layoutOverrides`,
-          invalid
-        ) as RepoWriteJsonObject
+          `${path}.command.layoutOverrides`
+        )
       }),
       ...(command.daemonRepoId === undefined ? {} : {
         daemonRepoId: nonEmptyString(command.daemonRepoId, `${path}.command.daemonRepoId`, invalid)
@@ -167,11 +171,10 @@ function decodeCommandPayload(
       ...(daemonProfileOverride ? { daemonProfileOverride } : {}),
       json: command.json,
       ...(command.deprecatedInvocation === undefined ? {} : {
-        deprecatedInvocation: wireRecord(
+        deprecatedInvocation: decodeRepoWriteDeprecatedCommandInvocation(
           command.deprecatedInvocation,
-          `${path}.command.deprecatedInvocation`,
-          invalid
-        ) as RepoWriteJsonObject
+          `${path}.command.deprecatedInvocation`
+        )
       }),
       action
     },
@@ -238,7 +241,7 @@ function repoWriteWireExactKeys(
   const missing = required.find((key) => !Object.hasOwn(value, key));
   if (missing) invalid(`${path}.${missing}`, "required field");
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
-  if (unknown) invalid(`${path}.${unknown}`, "no unknown fields");
+  if (unknown !== undefined) invalid(`${path}.${unknown}`, "no unknown fields");
 }
 
 function optionalEnum<const Value extends string>(
