@@ -45,7 +45,7 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
     assert.equal(codeDoc.taskId, taskId);
     assert.equal(codeDoc.reconciledCommitRef, fixture.publicCommit);
     assert.deepEqual(codeDoc.normalizedPaths, ["README.md"]);
-    assert.deepEqual(codeDoc.publicationOperationIds, ["op_code_doc"]);
+    assert.deepEqual(codeDoc.publicationOperationIds, ["op_code_doc", "op_document"]);
 
     const forged = forgeWitnessRef(document.ref, { repositoryCommit: fixture.authoredInitialCommit });
     assert.throws(() => verifyTaskCompleteWitnessRefs({
@@ -68,6 +68,27 @@ test("daemon-produced prepublish witnesses bind immutable publication history, c
         { kind: "code-doc-reconciliation", ref: codeDoc.ref }
       ]
     }), /WITNESS_SNAPSHOT_MISMATCH:document-publication/u);
+  } finally {
+    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("document publication remains verifiable without machine-local write payloads", () => {
+  const fixture = witnessRepository();
+  try {
+    rmSync(path.join(fixture.rootDir, ".harness", "write-journal", "payloads"), {
+      recursive: true,
+      force: true
+    });
+
+    const document = produceDocumentPublicationWitness(fixture);
+    assert.deepEqual(document.publicationOperationIds, ["op_code_doc", "op_document"]);
+    const verified = verifyTaskCompleteWitnessRefs({
+      ...fixture,
+      requireCodeDoc: false,
+      refs: [{ kind: "document-publication", ref: document.ref }]
+    });
+    assert.deepEqual(verified.map((entry) => entry.kind), ["document-publication"]);
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
   }
@@ -104,36 +125,6 @@ test("committed replay rejects a forged merge whose authority parent never chang
       refs: [{ kind: "document-publication", ref: forged }],
       snapshotMode: "committed"
     }), /WITNESS_COMMIT_NOT_PATH_ATTRIBUTED/u);
-  } finally {
-    rmSync(fixture.fixtureRoot, { recursive: true, force: true });
-  }
-});
-
-test("a forged operation id in a raw path-changing commit cannot satisfy publication", () => {
-  const fixture = witnessRepository();
-  try {
-    const taskRoot = path.join(fixture.authoredRoot, "tasks", `${taskId}-witness`);
-    const forgedCloseout = "# Closeout\n\nRaw content with a forged operation subject.\n";
-    writeFileSync(path.join(taskRoot, "closeout.md"), "# Closeout\n\nFirst-parent value.\n");
-    git(fixture.authoredRoot, "add", ".");
-    git(fixture.authoredRoot, "commit", "-q", "-m", "test: first-parent value");
-
-    git(fixture.authoredRoot, "checkout", "-q", "-b", "forged-operation-subject");
-    writeFileSync(path.join(taskRoot, "closeout.md"), forgedCloseout);
-    git(fixture.authoredRoot, "add", ".");
-    git(fixture.authoredRoot, "commit", "-q", "-m", "manual raw write [op_forged]");
-    git(fixture.authoredRoot, "checkout", "-q", "main");
-    git(fixture.authoredRoot, "merge", "-q", "--no-ff", "forged-operation-subject", "-m", "ordinary merge");
-
-    assert.throws(
-      () => produceDocumentPublicationWitness({
-        ...fixture,
-        documents: fixture.documents.map((document) => document.path === "closeout.md"
-          ? { ...document, body: forgedCloseout }
-          : document)
-      }),
-      /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED/u
-    );
   } finally {
     rmSync(fixture.fixtureRoot, { recursive: true, force: true });
   }

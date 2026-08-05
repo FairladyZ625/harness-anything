@@ -94,10 +94,7 @@ export {
 } from "./integrity/decision-content-digest.ts";
 export type { DecisionContentDigestField } from "./integrity/decision-content-digest.ts";
 export { validateOutputEvidence } from "./local/output-evidence-validator.ts";
-export {
-  decodeAttributionEventBody,
-  readUnionAttributionEvents
-} from "./local/attribution-event-source.ts";
+export { readUnionAttributionEvents } from "./local/attribution-event-source.ts";
 export { makeCodeDocGitEvidenceResolver } from "./git/code-doc-git-evidence.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";

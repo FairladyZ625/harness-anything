@@ -105,7 +105,7 @@ export function produceDocumentPublicationWitness(input: {
     .sort((left, right) => lexicalCompare(left.path, right.path));
   if (covered.length === 0) throw new Error("AUTHORITY_TASK_COMPLETE_DOCUMENT_PUBLICATION_EMPTY");
   const repositoryPaths = taskRepositoryPaths(input, covered.map((entry) => entry.path));
-  const publication = findAttributedMaterializedPublication(input.rootDir, input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
+  const publication = findAttributedMaterializedPublication(input.authoredRoot, repositoryPaths, covered.map((entry) => entry.body));
   const witnessWithoutRef = {
     kind: "document-publication" as const,
     repositoryCommit: publication.commit,
@@ -151,7 +151,7 @@ export function produceCodeDocWitness(input: {
     );
   }
   const [repositoryPath] = taskRepositoryPaths(input, [CODE_DOC_RECONCILIATION_DOCUMENT]);
-  const publication = findAttributedMaterializedPublication(input.rootDir, input.authoredRoot, [repositoryPath!], [codeDoc.body]);
+  const publication = findAttributedMaterializedPublication(input.authoredRoot, [repositoryPath!], [codeDoc.body]);
   const witnessWithoutRef = {
     kind: "code-doc-reconciliation" as const,
     repositoryCommit: publication.commit,
@@ -260,7 +260,6 @@ function verifyDocumentPublicationWitness(
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:document-publication");
   }
   assertAttributedMaterializedPublication(
-    input.rootDir,
     input.authoredRoot,
     witness.repositoryCommit,
     repositoryPaths,
@@ -309,7 +308,6 @@ function verifyCodeDocWitness(
     throw new Error("AUTHORITY_TASK_COMPLETE_WITNESS_SNAPSHOT_MISMATCH:code-doc-reconciliation");
   }
   assertAttributedMaterializedPublication(
-    input.rootDir,
     input.authoredRoot,
     witness.repositoryCommit,
     [repositoryPath!],
