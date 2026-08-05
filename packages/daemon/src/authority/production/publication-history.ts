@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { parseAuthorityBatchCommitMessage } from "@harness-anything/kernel";
 
 const execFileAsync = promisify(execFile);
 const subjectBatchSize = 256;
@@ -9,6 +10,12 @@ export interface FirstParentPublicationMetadata {
   readonly parents: ReadonlyArray<string>;
   readonly subject: string;
   readonly sessionSubject?: string;
+  readonly sessionParents?: ReadonlyArray<string>;
+}
+
+export interface AuthorityBatchCommitMetadata {
+  readonly commitSha: string;
+  readonly opIds: ReadonlyArray<string>;
 }
 
 export function publicationSubjectOperationIds(subject: string): ReadonlyArray<string> {
@@ -38,25 +45,63 @@ export async function scanFirstParentPublicationMetadata(input: {
   const sessionCommits = [...new Set(history
     .filter((row) =>
       row.parents.length === 2
-      && row.subject.startsWith("materializer: merge session "))
+      && (row.subject.startsWith("materializer: merge session ")
+        || publicationSubjectOperationIds(row.subject).length > 0))
     .map((row) => row.parents[1]!))];
-  const subjects = new Map<string, string>();
+  const sessions = new Map<string, {
+    readonly parents: ReadonlyArray<string>;
+    readonly subject: string;
+  }>();
   for (let start = 0; start < sessionCommits.length; start += subjectBatchSize) {
     const batch = sessionCommits.slice(start, start + subjectBatchSize);
-    for (const [commitSha, subject] of parsePairs(await publicationHistoryGitText(
+    for (const [commitSha, parents, subject] of parseTriples(await publicationHistoryGitText(
       input.rootDir,
       "log",
       "--no-walk=unsorted",
-      "--format=%H%x00%s%x00",
+      "--format=%H%x00%P%x00%s%x00",
       ...batch
     ))) {
-      subjects.set(commitSha, subject);
+      sessions.set(commitSha, {
+        parents: parents.split(" ").filter(Boolean),
+        subject
+      });
     }
   }
   return history.map((row) => ({
     ...row,
-    ...(row.parents[1] ? { sessionSubject: subjects.get(row.parents[1]) ?? "" } : {})
+    ...(row.parents[1] ? {
+      sessionSubject: sessions.get(row.parents[1])?.subject ?? "",
+      sessionParents: sessions.get(row.parents[1])?.parents ?? []
+    } : {})
   }));
+}
+
+export async function scanAuthorityBatchCommits(input: {
+  readonly rootDir: string;
+  readonly headCommit: string;
+  readonly exclusiveCommit?: string;
+}): Promise<ReadonlyArray<AuthorityBatchCommitMetadata>> {
+  const revision = input.exclusiveCommit
+    ? `${input.exclusiveCommit}..${input.headCommit}`
+    : input.headCommit;
+  const batches: AuthorityBatchCommitMetadata[] = [];
+  for (const [commitSha, message] of parsePairs(await publicationHistoryGitText(
+    input.rootDir,
+    "log",
+    "--format=%H%x00%B%x00",
+    revision
+  ))) {
+    try {
+      const parsed = parseAuthorityBatchCommitMessage(message);
+      batches.push({
+        commitSha,
+        opIds: parsed.integrity.entries.map((entry) => entry.opId)
+      });
+    } catch {
+      // Ordinary commits are not authority batch evidence.
+    }
+  }
+  return batches;
 }
 
 async function publicationHistoryGitText(rootDir: string, ...args: ReadonlyArray<string>): Promise<string> {

@@ -3,6 +3,7 @@ export * from "./platform/index.ts";
 export * from "./authority/production/cutover-admission.ts";
 export * from "./authority/production/production-scanner.ts";
 export * from "./authority/production/publication-evidence.ts";
+export * from "./authority/production/publication-proof-error.ts";
 export * from "./authority/production/recovery.ts";
 export * from "./authority/production/semantic-state.ts";
 export * from "./authority/production/service-state.ts";

@@ -15,6 +15,7 @@ import {
   AuthorityRecoveryWatermarkInvalidError,
   type GitCanonicalPublicationInspector
 } from "./publication-evidence.ts";
+import { AuthorityCanonicalPublicationUnanchoredBatchPrefixError } from "./publication-unanchored-batches.ts";
 import { recoverReplicaPublicationGroup } from "./publication-recovery-group.ts";
 
 interface ProductionRecoveryInput {
@@ -52,12 +53,17 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
   const attempts = [...new Set([preferredCommitSha, baseCommitSha, undefined])];
   let scan: Awaited<ReturnType<GitCanonicalPublicationInspector["scanFirstParentOperationAnchors"]>> | undefined;
   let retainedAnchors: ReadonlyArray<RecoveryWatermarkAnchor> = [];
+  let retainedUnanchoredOperationIds: ReadonlyArray<string> = [];
   let retainedBaseCommitSha: string | undefined;
   for (const exclusiveCommit of attempts) {
     const priorAnchors = resumePartial && exclusiveCommit === preferredCommitSha
       ? storedCheckpoint.anchors
       : [];
+    const priorUnanchoredOperationIds = resumePartial && exclusiveCommit === preferredCommitSha
+      ? storedCheckpoint.unanchoredOperationIds
+      : [];
     const progressAnchors = [...priorAnchors];
+    const progressUnanchoredOperationIds = new Set(priorUnanchoredOperationIds);
     const attemptBaseCommitSha = exclusiveCommit === undefined ? undefined : baseCommitSha;
     try {
       scan = await input.publicationInspector.scanFirstParentOperationAnchors({
@@ -65,15 +71,20 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
         interestedOpIds,
         onProgress: async (progress) => {
           progressAnchors.push(...progress.anchors);
+          for (const opId of progress.unanchoredOperationIds ?? []) {
+            progressUnanchoredOperationIds.add(opId);
+          }
           await persistPartialRecoveryWatermark(input, watermarkPath, {
             commitSha: progress.commitSha,
             ...(attemptBaseCommitSha ? { baseCommitSha: attemptBaseCommitSha } : {}),
             interestedOpIdsDigest,
-            anchors: progressAnchors
+            anchors: progressAnchors,
+            unanchoredOperationIds: [...progressUnanchoredOperationIds]
           });
         }
       });
       retainedAnchors = priorAnchors;
+      retainedUnanchoredOperationIds = priorUnanchoredOperationIds;
       retainedBaseCommitSha = attemptBaseCommitSha;
       break;
     } catch (error) {
@@ -82,12 +93,17 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
   }
   if (!scan) throw new Error("AUTHORITY_RECOVERY_SCAN_UNAVAILABLE");
   const allAnchors = [...retainedAnchors, ...scan.anchors];
+  const unanchoredOperationIds = new Set([
+    ...retainedUnanchoredOperationIds,
+    ...(scan.unanchoredOperationIds ?? [])
+  ]);
   if (scan.headCommit) {
     await persistPartialRecoveryWatermark(input, watermarkPath, {
       commitSha: scan.headCommit,
       ...(retainedBaseCommitSha ? { baseCommitSha: retainedBaseCommitSha } : {}),
       interestedOpIdsDigest,
-      anchors: allAnchors
+      anchors: allAnchors,
+      unanchoredOperationIds: [...unanchoredOperationIds]
     });
   }
   const anchorsByOpId = new Map<string, typeof scan.anchors>();
@@ -107,6 +123,13 @@ async function recoverIncrementally(input: ProductionRecoveryInput, watermarkPat
   for (const record of ordered) {
     const anchors = anchorsByOpId.get(record.opId) ?? [];
     if (anchors.length === 0) {
+      if (unanchoredOperationIds.has(record.opId)) {
+        await input.onDeferred?.(
+          record,
+          new AuthorityCanonicalPublicationUnanchoredBatchPrefixError({ opIds: [record.opId] })
+        );
+        continue;
+      }
       if (record.state === "INDETERMINATE" && !record.commitSha) {
         await runTerminalRecovery(input, record, () => terminalizeConfirmedAbsent(input, record));
       } else {
@@ -270,6 +293,7 @@ type RecoveryWatermark =
     readonly baseCommitSha?: string;
     readonly interestedOpIdsDigest: string;
     readonly anchors: ReadonlyArray<RecoveryWatermarkAnchor>;
+    readonly unanchoredOperationIds: ReadonlyArray<string>;
   };
 
 function readRecoveryWatermark(filePath: string, workspaceId: string): RecoveryWatermark | undefined {
@@ -289,7 +313,9 @@ function readRecoveryWatermark(filePath: string, workspaceId: string): RecoveryW
       || (parsed.baseCommitSha !== undefined && (typeof parsed.baseCommitSha !== "string" || !isCommitSha(parsed.baseCommitSha)))
       || typeof parsed.interestedOpIdsDigest !== "string"
       || !/^[a-f0-9]{64}$/u.test(parsed.interestedOpIdsDigest)
-      || !Array.isArray(parsed.anchors)) return undefined;
+      || !Array.isArray(parsed.anchors)
+      || !Array.isArray(parsed.unanchoredOperationIds)
+      || !parsed.unanchoredOperationIds.every((opId) => typeof opId === "string")) return undefined;
     const anchors = parsed.anchors.map(parseRecoveryWatermarkAnchor);
     if (anchors.some((anchor) => !anchor)) return undefined;
     return {
@@ -297,7 +323,8 @@ function readRecoveryWatermark(filePath: string, workspaceId: string): RecoveryW
       commitSha: parsed.commitSha,
       ...(typeof parsed.baseCommitSha === "string" ? { baseCommitSha: parsed.baseCommitSha } : {}),
       interestedOpIdsDigest: parsed.interestedOpIdsDigest,
-      anchors: anchors as RecoveryWatermarkAnchor[]
+      anchors: anchors as RecoveryWatermarkAnchor[],
+      unanchoredOperationIds: parsed.unanchoredOperationIds as string[]
     };
   } catch {
     return undefined;

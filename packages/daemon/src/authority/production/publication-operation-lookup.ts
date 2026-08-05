@@ -8,7 +8,7 @@ export function createUniquePublicationOperationLookup<Anchor, Evidence extends 
   return async (opId) => findUniquePublication(opId, await input.anchors(opId), input);
 }
 
-async function findUniquePublication<Anchor, Evidence extends { readonly commitSha: string }>(
+export async function findUniquePublication<Anchor, Evidence extends { readonly commitSha: string }>(
   opId: string,
   anchors: ReadonlyArray<Anchor>,
   input: {

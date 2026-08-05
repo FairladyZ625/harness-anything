@@ -4,6 +4,7 @@ import {
   type CommandReceiptEnvelope
 } from "@harness-anything/application";
 import type { ProductionAuthorityOuterRecoveryWitnessV1 } from "../authority/production/production-authority-attempt-plan.ts";
+import { authorityImmutablePublicationProofErrorCode } from "../authority/production/publication-proof-error.ts";
 import {
   DurableRepoWriteOutcomeStoreV1,
   RepoWriteOutcomeConflictError,
@@ -255,6 +256,8 @@ const permanentHistoricalRecoveryRejectionCodes = new Set([
 ]);
 
 function permanentHistoricalRecoveryRejectionCode(error: unknown): string | undefined {
+  const immutableProofCode = authorityImmutablePublicationProofErrorCode(error);
+  if (immutableProofCode) return immutableProofCode;
   const message = error instanceof Error ? error.message : String(error);
   const code = /^([A-Z][A-Z0-9_]*)(?=[:;]|$)/u.exec(message)?.[1];
   return code && permanentHistoricalRecoveryRejectionCodes.has(code) ? code : undefined;

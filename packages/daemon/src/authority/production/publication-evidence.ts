@@ -5,16 +5,22 @@ import { promisify } from "node:util";
 import type { CanonicalPublicationInspector } from "@harness-anything/application";
 import {
   encodeCanonicalCbor,
-  entityRegistry,
   makeLocalAuthorityAttributionEventV2Log,
   makeLocalVersionControlSystem,
   resolveHarnessLayout,
   sha256Text,
   type HarnessLayoutInput,
-  type PhysicalChangeV2,
-  type SemanticMutationSetV2
+  type PhysicalChangeV2
 } from "@harness-anything/kernel";
-import { scanFirstParentPublicationMetadata } from "./publication-history.ts";
+import {
+  scanFirstParentPublicationMetadata,
+  type AuthorityBatchCommitMetadata
+} from "./publication-history.ts";
+import {
+  assertNoUnanchoredAuthorityBatchPrefix,
+  unanchoredAuthorityBatchesForPublications,
+  unanchoredBatchError
+} from "./publication-unanchored-batches.ts";
 import {
   orderedOperationIdsEqual,
   publicationMessageShape,
@@ -27,8 +33,12 @@ import {
   readAuthorityEvidenceWorktreeState
 } from "./authority-evidence-tree.ts";
 import { historicalPublicationEvidence } from "./historical-publication-evidence.ts";
-import { createUniquePublicationOperationLookup } from "./publication-operation-lookup.ts";
+import { findUniquePublication } from "./publication-operation-lookup.ts";
+import { publicationGitExitCode } from "./publication-git-observation.ts";
+import { AuthorityImmutablePublicationProofError } from "./publication-proof-error.ts";
 import { reportCurrentRepoWriteTelemetry } from "../../runtime/repo-write-telemetry-context.ts";
+
+export { assertPublicationMatchesMutationSet } from "./publication-mutation-proof.ts";
 
 const materializerCommitter = {
   name: "Harness Anything Materializer",
@@ -76,6 +86,7 @@ export interface FirstParentOperationAnchorScan {
   readonly headCommit: string | null;
   readonly scannedCommitCount: number;
   readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
+  readonly unanchoredOperationIds?: ReadonlyArray<string>;
 }
 
 export interface FirstParentOperationAnchorScanProgress {
@@ -83,6 +94,7 @@ export interface FirstParentOperationAnchorScanProgress {
   readonly commitSha: string;
   readonly scannedCommitCount: number;
   readonly anchors: ReadonlyArray<FirstParentOperationAnchor>;
+  readonly unanchoredOperationIds?: ReadonlyArray<string>;
 }
 
 export class AuthorityCanonicalPublicationNotFoundError extends Error {
@@ -192,13 +204,15 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         readonly previousCommit: string;
         readonly opIds: ReadonlyArray<string>;
       }>>;
+      readonly unanchoredByOperationId: ReadonlyMap<string, ReadonlyArray<AuthorityBatchCommitMetadata>>;
     }>;
   } | undefined;
   const indexedHistory = async () => {
     const headCommit = await currentHead();
     if (!headCommit) return null;
     if (indexedHistoryCache?.headCommit === headCommit) return indexedHistoryCache.value;
-    const value = scanFirstParentPublicationMetadata({ rootDir, headCommit }).then((commits) => {
+    const value = (async () => {
+      const commits = await scanFirstParentPublicationMetadata({ rootDir, headCommit });
       const byOperationId = new Map<string, Array<{
         readonly commitSha: string;
         readonly previousCommit: string;
@@ -218,8 +232,16 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
           byOperationId.set(opId, known);
         }
       }
-      return { commits, byOperationId };
-    });
+      const unanchoredByOperationId = new Map<string, AuthorityBatchCommitMetadata[]>();
+      for (const batch of await unanchoredAuthorityBatchesForPublications({ rootDir, publications: commits })) {
+        for (const opId of batch.opIds) {
+          const known = unanchoredByOperationId.get(opId) ?? [];
+          known.push(batch);
+          unanchoredByOperationId.set(opId, known);
+        }
+      }
+      return { commits, byOperationId, unanchoredByOperationId };
+    })();
     indexedHistoryCache = { headCommit, value };
     return value;
   };
@@ -230,7 +252,9 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     readonly onProgress?: (progress: FirstParentOperationAnchorScanProgress) => Promise<void>;
   }): Promise<FirstParentOperationAnchorScan> => {
     const headCommit = await currentHead();
-    if (!headCommit) return { headCommit: null, scannedCommitCount: 0, anchors: [] };
+    if (!headCommit) {
+      return { headCommit: null, scannedCommitCount: 0, anchors: [], unanchoredOperationIds: [] };
+    }
     let commits: Awaited<ReturnType<typeof scanFirstParentPublicationMetadata>>;
     try {
       commits = input.exclusiveCommit === headCommit
@@ -255,12 +279,25 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     if (!Number.isInteger(progressBatchSize) || progressBatchSize <= 0) {
       throw new Error("AUTHORITY_RECOVERY_PROGRESS_BATCH_SIZE_INVALID");
     }
+    const unanchoredOperationIds = new Set<string>();
     const anchors: FirstParentOperationAnchor[] = [];
     let batchAnchors: FirstParentOperationAnchor[] = [];
     let scannedCommitCount = 0;
     // A watermark may advance only from the old boundary toward HEAD. Scanning
     // oldest-to-newest makes every reported commit a complete prefix.
     for (const commit of [...commits].reverse()) {
+      const expectedPreviousHead = commit.parents[0];
+      const publicationBase = commit.sessionParents?.[0];
+      if (expectedPreviousHead && publicationBase && expectedPreviousHead !== publicationBase) {
+        for (const batch of await unanchoredAuthorityBatchesForPublications({
+          rootDir,
+          publications: [commit]
+        })) {
+          for (const opId of batch.opIds) {
+            if (input.interestedOpIds.has(opId)) unanchoredOperationIds.add(opId);
+          }
+        }
+      }
       if (commit.parents.length === 2) {
         const opIds = publicationMetadataOperationIds(commit);
         if (opIds.some((opId) => input.interestedOpIds.has(opId))) {
@@ -279,14 +316,20 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
           await input.onProgress({
             commitSha: commit.commitSha,
             scannedCommitCount,
-            anchors: batchAnchors
+            anchors: batchAnchors,
+            unanchoredOperationIds: [...unanchoredOperationIds]
           });
           batchAnchors = [];
         }
         await yieldToEventLoop();
       }
     }
-    return { headCommit, scannedCommitCount, anchors };
+    return {
+      headCommit,
+      scannedCommitCount,
+      anchors,
+      unanchoredOperationIds: [...unanchoredOperationIds]
+    };
   };
   const inspectPublication = async (
     expectedPreviousHead: string | null,
@@ -321,13 +364,12 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       expectedOpIds
     });
     const mergeTreeMatchesSession = sessionCommit
-      ? gitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
+      ? publicationGitExitCode(rootDir, "diff", "--quiet", head, sessionCommit) === 0
       : false;
     if (!expectedPreviousHead
       || parentCommits.length !== 2
       || parentCommits[0] !== expectedPreviousHead
       || sessionParents.length !== 1
-      || sessionParents[0] !== expectedPreviousHead
       || (!legacySubjectShape && !semanticSubjectShape)
       || !mergeTreeMatchesSession) {
       throw publicationTopologyError({
@@ -344,7 +386,13 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
         mergeTreeMatchesSession
       });
     }
-    const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", expectedPreviousHead, head)
+    const publicationBase = sessionParents[0]!;
+    await assertNoUnanchoredAuthorityBatchPrefix({
+      rootDir,
+      expectedPreviousHead,
+      publicationBase
+    });
+    const changedPaths = readAuthorityGitBytes(rootDir, "diff", "--name-only", "-z", publicationBase, head)
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
@@ -354,9 +402,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     for (const changedPath of changedPaths) {
       physicalChanges.push({
         path: changedPath,
-        beforeDigest: expectedPreviousHead
-          ? await blobDigestAsync(rootDir, expectedPreviousHead, changedPath)
-          : null,
+        beforeDigest: await blobDigestAsync(rootDir, publicationBase, changedPath),
         afterDigest: await blobDigestAsync(rootDir, head, changedPath)
       });
     }
@@ -368,15 +414,19 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
     const observedPipelinePaths = changedPaths.filter((changedPath) => changedPath.startsWith("attribution-events/"));
     if (observedPipelinePaths.length !== pipelineGeneratedPaths.length
       || observedPipelinePaths.some((changedPath) => !pipelineGeneratedPaths.includes(changedPath))) {
-      throw new Error(
-        `AUTHORITY_CANONICAL_PUBLICATION_PIPELINE_EVIDENCE_MISMATCH:expected=${pipelineGeneratedPaths.join(",") || "none"};actual=${observedPipelinePaths.join(",") || "none"};head=${head}`
+      throw new AuthorityImmutablePublicationProofError(
+        "AUTHORITY_CANONICAL_PUBLICATION_PIPELINE_EVIDENCE_MISMATCH",
+        `expected=${pipelineGeneratedPaths.join(",") || "none"};actual=${observedPipelinePaths.join(",") || "none"};head=${head}`
       );
     }
     const contentAddressedPaths = physicalChanges.filter((change) => {
       const match = /^objects\/sha256\/([a-f0-9]{2})\/([a-f0-9]{62})$/u.exec(change.path);
       if (!match) return false;
       if (change.afterDigest !== `${match[1]}${match[2]}`) {
-        throw new Error(`AUTHORITY_CANONICAL_PUBLICATION_CONTENT_ADDRESS_MISMATCH:path=${change.path};afterDigest=${change.afterDigest ?? "null"}`);
+        throw new AuthorityImmutablePublicationProofError(
+          "AUTHORITY_CANONICAL_PUBLICATION_CONTENT_ADDRESS_MISMATCH",
+          `path=${change.path};afterDigest=${change.afterDigest ?? "null"}`
+        );
       }
       return true;
     }).map((change) => change.path);
@@ -390,11 +440,15 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
       contentAddressedPaths
     };
   };
-  const findPublicationForOperation = createUniquePublicationOperationLookup({
-    anchors: async (opId) => (await indexedHistory())?.byOperationId.get(opId) ?? [],
-    inspect: (anchor) => inspectPublication(anchor.previousCommit, anchor.opIds, anchor.commitSha),
-    notFound: (opId) => new AuthorityCanonicalPublicationNotFoundError(opId)
-  });
+  const findPublicationForOperation = async (opId: string): Promise<CanonicalPublicationEvidence> => {
+    const history = await indexedHistory();
+    const unanchored = history?.unanchoredByOperationId.get(opId) ?? [];
+    if (unanchored.length > 0) throw unanchoredBatchError(unanchored);
+    return findUniquePublication(opId, history?.byOperationId.get(opId) ?? [], {
+      inspect: (anchor) => inspectPublication(anchor.previousCommit, anchor.opIds, anchor.commitSha),
+      notFound: (expectedOpId) => new AuthorityCanonicalPublicationNotFoundError(expectedOpId)
+    });
+  };
   return {
     currentHead,
     inspectPublishedHead: async (expectedPreviousHead, expectedOpIds) => {
@@ -438,80 +492,6 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
-}
-
-/** Fail closed unless every observed tree change is covered by the canonical registry mutation set. */
-export function assertPublicationMatchesMutationSet(
-  evidence: CanonicalPublicationEvidence,
-  mutationSet: SemanticMutationSetV2
-): void {
-  const targets = mutationSet.mutations.flatMap((mutation) => {
-    const registration = entityRegistry[mutation.entity.entityKind as keyof typeof entityRegistry];
-    if (!registration || registration.projectionFacet.status !== "ready" || registration.storageLocator.status !== "ready") {
-      throw new Error(`AUTHORITY_PUBLICATION_ENTITY_UNAVAILABLE:${mutation.entity.entityKind}`);
-    }
-    const identity = registration.projectionFacet.resolveCanonicalRef(mutation.entity.canonicalRef);
-    try {
-      return registration.storageLocator.locator.locate(identity, {}).targets
-        .filter((target): target is typeof target & { readonly path: string } => Boolean(target.path));
-    } catch (error) {
-      if (mutation.entity.entityKind === "relation"
-        && error instanceof Error
-        && error.message === "RELATION_STORAGE_SOURCE_REQUIRED") return [];
-      throw error;
-    }
-  });
-  const permitsContentAddressedBlob = mutationSet.mutations.some((mutation) => mutation.entity.entityKind === "session");
-  const permitsTaskPackageAlias = targets.some((target) => target.path.startsWith("tasks/"));
-  if (evidence.physicalChanges.length === 0) throw new Error("AUTHORITY_PUBLICATION_TREE_EMPTY");
-  for (const change of evidence.physicalChanges) {
-    if (evidence.pipelineGeneratedPaths.includes(change.path)) continue;
-    if (permitsContentAddressedBlob && evidence.contentAddressedPaths.includes(change.path)) continue;
-    if (!targets.some((target) => publicationChangeMatchesTarget(change.path, target, permitsTaskPackageAlias))) {
-      throw publicationTreeMismatchError(change.path, targets, evidence.physicalChanges, permitsTaskPackageAlias);
-    }
-  }
-  for (const target of targets) {
-    const observed = evidence.physicalChanges.some((change) =>
-      publicationChangeMatchesTarget(change.path, target, permitsTaskPackageAlias)
-    );
-    if (!observed) throw new Error(`AUTHORITY_PUBLICATION_DECLARED_PATH_MISSING:${target.path}`);
-  }
-}
-
-function publicationChangeMatchesTarget(
-  changedPath: string,
-  target: { readonly path: string; readonly access: string },
-  permitsTaskPackageAlias: boolean
-): boolean {
-  if (changedPath === target.path) return true;
-  if (target.access !== "exact" && changedPath.startsWith(`${target.path}/`)) return true;
-  if (!permitsTaskPackageAlias || !target.path.startsWith("tasks/")) return false;
-  const targetMatch = /^(tasks\/[^/]+)(\/.*)?$/u.exec(target.path);
-  const changedMatch = /^(tasks\/[^/]+)(\/.*)?$/u.exec(changedPath);
-  if (!targetMatch?.[1] || !changedMatch?.[1]) return false;
-  if (!changedMatch[1].startsWith(`${targetMatch[1]}-`)) return false;
-  const slug = changedMatch[1].slice(targetMatch[1].length);
-  if (!/^-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(slug)) return false;
-  const targetSuffix = targetMatch[2] ?? "";
-  const changedSuffix = changedMatch[2] ?? "";
-  return target.access === "exact"
-    ? changedSuffix === targetSuffix
-    : changedSuffix === targetSuffix || changedSuffix.startsWith(`${targetSuffix}/`);
-}
-
-function publicationTreeMismatchError(
-  changedPath: string,
-  targets: ReadonlyArray<{ readonly path: string; readonly access: string }>,
-  physicalChanges: ReadonlyArray<PhysicalChangeV2>,
-  taskPackageAliasAllowed: boolean
-): Error {
-  return new Error([
-    `AUTHORITY_PUBLICATION_TREE_MISMATCH:${changedPath}`,
-    `expectedTargets=${targets.map((target) => `${target.access}:${target.path}`).join(",") || "none"}`,
-    `observedPaths=${physicalChanges.map((change) => change.path).join(",") || "none"}`,
-    `taskPackageAliasAllowed=${String(taskPackageAliasAllowed)}`
-  ].join(";"));
 }
 
 async function blobDigestAsync(
@@ -565,20 +545,6 @@ async function publicationGitTextAsync(rootDir: string, ...args: ReadonlyArray<s
     maxBuffer: 64 * 1024 * 1024
   });
   return stdout.trim();
-}
-
-function gitExitCode(rootDir: string, ...args: ReadonlyArray<string>): number {
-  try {
-    execFileSync("git", ["-C", rootDir, ...args], {
-      stdio: "ignore",
-      windowsHide: true
-    });
-    return 0;
-  } catch (error) {
-    return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
-      ? error.status
-      : 1;
-  }
 }
 
 /** Read-only Git observation shared by authority publication and cutover scanners. */
