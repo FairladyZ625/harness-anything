@@ -1,10 +1,17 @@
 import {
+  decisionAmendableFields,
+  decisionAmendOperations,
+  type DecisionAmendField,
+  type DecisionAmendOperation
+} from "@harness-anything/kernel";
+import {
   strictArray,
   strictBoolean,
   strictEnum,
   strictLiteral,
   strictObject,
-  strictString
+  strictString,
+  type StrictSchema
 } from "./strict-command-schema.ts";
 
 const strings = strictArray(strictString);
@@ -55,9 +62,13 @@ const evidenceRelation = strictObject({
   rationale: strictString
 });
 
+// The amendable field and operation vocabularies are owned by the kernel field
+// contracts; deriving the wire enums from them keeps this schema from drifting.
+const amendField: StrictSchema<DecisionAmendField> = strictEnum(...decisionAmendableFields);
+const amendOperation: StrictSchema<DecisionAmendOperation> = strictEnum(...decisionAmendOperations);
 const amendPatch = strictObject({
-  field: strictEnum("title", "decisionClass", "chosen", "rejected", "claims"),
-  operation: strictEnum("replace", "append", "metadata"),
+  field: amendField,
+  operation: amendOperation,
   value: strictString
 });
 
