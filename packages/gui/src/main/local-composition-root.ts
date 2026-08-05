@@ -10,7 +10,10 @@ import type { ApiRouteContract } from "../api/api-contract-registry.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import type { DaemonTransport } from "../daemon/remote-tunnel.ts";
 
-const defaultDaemonAutostartTimeoutMs = 6_000;
+// Keep in step with defaultDaemonAutostartTimeoutMs in
+// packages/daemon/src/client/local-json-rpc-client.ts; gui depends on
+// daemon-client rather than daemon, so the value cannot be imported here.
+const defaultDaemonAutostartTimeoutMs = 30_000;
 const defaultDaemonIdleExitMs = 5 * 60_000;
 
 type JsonObject = { readonly [key: string]: JsonValue };
