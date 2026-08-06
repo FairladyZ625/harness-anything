@@ -8,6 +8,9 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   createDaemonLaunchConfiguration,
+  daemonAutostartRootLifetimeEnabled,
+  daemonAutostartRootLifetimeEnvironmentVariable,
+  daemonServerHostEnvironment,
   daemonLaunchOptionsResolvedFlag,
   DaemonAutostartTimeoutError,
   DaemonJsonRpcRequestTimeoutError,
@@ -66,6 +69,14 @@ test("daemon launch configuration is the canonical argv derivation for every spa
       daemonLaunchOptionsResolvedFlag
     ]
   });
+});
+
+test("ordinary daemon server launches cannot inherit the internal autostart root lifetime", () => {
+  const env = daemonServerHostEnvironment({
+    [daemonAutostartRootLifetimeEnvironmentVariable]: "1"
+  }, makeTarget("/tmp/ha-daemon-autostart-lifetime.sock"));
+
+  assert.equal(daemonAutostartRootLifetimeEnabled(env), false);
 });
 
 test("legacy socket fallback diagnoses and removes an unowned empty directory occupying the socket path", async (t) => {

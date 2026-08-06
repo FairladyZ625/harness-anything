@@ -101,6 +101,7 @@ export * from "./lifecycle/queued-write-coordinator.ts";
 export * from "./lifecycle/daemon-control-service.ts";
 export * from "./lifecycle/reservation-reconciler.ts";
 export * from "./lifecycle/run-daemon-serve.ts";
+export * from "./lifecycle/daemon-root-lifetime.ts";
 export * from "./service/command-service.ts";
 export * from "./service/doc-sync-service.ts";
 export * from "./service/doc-sync-writer-working-tree.ts";

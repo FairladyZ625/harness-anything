@@ -27,6 +27,11 @@ import {
   defaultDaemonJsonRpcRequestTimeoutMs,
   JsonRpcLineClient
 } from "./json-rpc-line-client.ts";
+import {
+  daemonAutostartRootLifetimeEnvironmentVariable,
+  daemonRootIdentity
+} from "../lifecycle/daemon-root-lifetime.ts";
+import { daemonServerHostEnvironment } from "./daemon-server-host-environment.ts";
 
 export {
   createDaemonLaunchConfiguration,
@@ -46,6 +51,12 @@ export {
   type DaemonLaunchOptions,
   type ParsedDaemonLaunchArgv
 } from "./daemon-launch-spec-store.ts";
+export { daemonServerHostEnvironment } from "./daemon-server-host-environment.ts";
+export {
+  daemonAutostartRootIdentity,
+  daemonAutostartRootLifetimeEnabled,
+  daemonAutostartRootLifetimeEnvironmentVariable
+} from "../lifecycle/daemon-root-lifetime.ts";
 
 // Cold authority readiness measured ~7.2s, so a 6s budget could never confirm it.
 export const defaultDaemonAutostartTimeoutMs = 30_000;
@@ -308,21 +319,6 @@ export function spawnLocalDaemon(target: LocalDaemonTarget, options: LocalDaemon
   return typeof pid === "number" ? pid : undefined;
 }
 
-export function daemonServerHostEnvironment(
-  base: NodeJS.ProcessEnv,
-  target: Pick<LocalDaemonTarget, "userRoot" | "daemonId">
-): NodeJS.ProcessEnv {
-  const env = { ...base };
-  delete env.HARNESS_DAEMON_MODE;
-  delete env.HARNESS_DIRECT_WRITE_REASON;
-  return {
-    ...env,
-    HARNESS_DAEMON_SERVER_HOST: "1",
-    HARNESS_DAEMON_USER_ROOT: target.userRoot,
-    HARNESS_DAEMON_ID: target.daemonId
-  };
-}
-
 export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): () => void {
   const previous = spawnLocalDaemonImplementation;
   spawnLocalDaemonImplementation = replacement;
@@ -332,6 +328,7 @@ export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): (
 }
 
 function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): number | undefined {
+  const expectedRootIdentity = daemonRootIdentity(target.canonicalRoot) ?? "missing";
   const launchConfiguration = options.launchConfiguration ?? createDaemonLaunchConfiguration({
     target,
     entrypoint: options.entryPath,
@@ -348,7 +345,10 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
   ], {
     detached: true,
     stdio: "ignore",
-    env: daemonServerHostEnvironment(options.env ?? process.env, target)
+    env: {
+      ...daemonServerHostEnvironment(options.env ?? process.env, target),
+      [daemonAutostartRootLifetimeEnvironmentVariable]: expectedRootIdentity
+    }
   });
   child.unref();
   return child.pid;
