@@ -90,11 +90,13 @@ test("generated ingress identities mark compatibility input and fact source deri
   assert.deepEqual(twice, normalized);
 });
 
-test("command-spec exposes generated identities and optional fact source", () => {
+test("command-spec hides legacy identity ingress while declaring it for validation", () => {
   const propose = commandSpecs.find((spec) => spec.kind === "decision-propose")!;
   const fact = commandSpecs.find((spec) => spec.kind === "record-fact")!;
   assert.equal(propose.options.some((option) => option.flag === "--id"), false);
   assert.equal(fact.options.some((option) => option.flag === "--id"), false);
+  assert.match(propose.hiddenOptions.find((option) => option.flag === "--id")?.description ?? "", /canonical ingress can reject it explicitly/u);
+  assert.match(fact.hiddenOptions.find((option) => option.flag === "--id")?.description ?? "", /canonical ingress can reject it explicitly/u);
   assert.match(fact.usage, /\[--source <text>\]/u);
   assert.match(fact.options.find((option) => option.flag === "--source")?.description ?? "", /active execution or current session/u);
 });

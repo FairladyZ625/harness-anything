@@ -9,6 +9,12 @@ export interface CommandGroupDefinition {
 
 export const globalCommandOptions = [
   { flag: "--root DIR", description: "Use DIR as the harness repository root." },
+  { flag: "--authored-root DIR", description: "Override the authored harness root." },
+  { flag: "--repo ID", description: "Select the daemon repository route." },
+  { flag: "--actor ACTOR", description: "Attribute the command to an explicit actor." },
+  { flag: "--daemon-mode MODE", description: "Override daemon routing with direct, local, or remote." },
+  { flag: "--daemon-profile PROFILE", description: "Select the default or isolated daemon profile." },
+  { flag: "--help", description: "Show help for the selected command." },
   { flag: "--json", description: "Emit machine-readable JSON." }
 ] as const satisfies ReadonlyArray<CommandOptionDefinition>;
 
