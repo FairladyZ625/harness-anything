@@ -54,6 +54,8 @@ import {
   formatDaemonFailure,
   repoWriteGracefulFailureLog
 } from "./daemon-failure-diagnostic.ts";
+import { daemonRootLifetimeGuard } from "./daemon-root-lifetime.ts";
+import { waitForDaemonStopSignal } from "./daemon-stop-signal.ts";
 
 export type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName" | "authorityManifestPath">;
 
@@ -73,6 +75,7 @@ export interface DaemonServeInput {
   readonly requestedAuthorityManifest?: string;
   readonly entrypoint: string;
   readonly idleMs: number;
+  readonly expectedRootIdentity?: string;
   readonly preflightReplacement: (configuration: DaemonLaunchConfiguration) => Promise<void>;
   readonly platform?: NodeJS.Platform;
   readonly runtimePolicy?: DaemonRuntimePolicy;
@@ -126,7 +129,9 @@ export async function runDaemonServe<
     let terminalClean = false;
     let terminalMessage: string | undefined;
     let failure: unknown;
+    const rootLifetime = daemonRootLifetimeGuard(rootDir, input.expectedRootIdentity);
     try {
+      rootLifetime.assertAvailable();
       // Endpoint ownership is already published, while connections remain
       // deferred. Replacement control can therefore observe a live owner
       // during this potentially expensive non-RPC startup scan.
@@ -169,6 +174,7 @@ export async function runDaemonServe<
       });
       await transport.start();
       transportStarted = true;
+      rootLifetime.assertAvailable();
       const registry = readDaemonRegistry({ userRoot });
       const priorGeneration = registry.machineId !== undefined && registry.daemonGeneration !== undefined
         ? { machineId: registry.machineId, daemonGeneration: registry.daemonGeneration }
@@ -256,6 +262,7 @@ export async function runDaemonServe<
         }))
       });
       const startStatus = await runtime.start();
+      rootLifetime.assertAvailable();
       if (startStatus.repoCount > 0 && startStatus.attachedCount === 0 && startStatus.unavailableCount > 0) {
         throw new Error(`daemon did not attach any registered repo: ${startStatus.repos.map((repo) => `${repo.repoId}:${repo.lastError ?? repo.state}`).join("; ")}`);
       }
@@ -446,18 +453,15 @@ export async function runDaemonServe<
       lifecycleStarted = true;
       hooks.onStarted?.(serveHostServices.projectStartedStatus(serviceHost.status()));
       serviceHost.scheduleIdleExit();
-      const trigger = await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
-      terminalReason = trigger.reason === "signal"
-        ? `signal:${trigger.signal}`
-        : trigger.reason === "control"
-          ? `control:${trigger.kind}`
-          : "idle-timeout";
+      const trigger = await rootLifetime.waitForStop(waitForDaemonStopSignal(), serviceHost.waitForStopRequest());
+      terminalReason = rootLifetime.terminalReason(trigger);
       terminalClean = true;
     } catch (error) {
       failure = error;
       terminalReason = `unexpected-error:${error instanceof Error ? error.name : "unknown"}`;
       terminalMessage = `Daemon service terminated after an unexpected error: ${formatDaemonFailure(error)}`;
     }
+    rootLifetime.stop();
     try {
       let stoppedByHost = false;
       try {
@@ -572,20 +576,6 @@ function defaultDaemonServeRepoId(repos: ReadonlyArray<DaemonServeRepo>, rootDir
   if (repos.some((repo) => repo.repoId === requestedRepoId)) return requestedRepoId;
   const matchingRoot = repos.find((repo) => realpathOrResolvedServeRoot(repo.canonicalRoot) === realpathOrResolvedServeRoot(rootDir));
   return matchingRoot?.repoId ?? repos[0]?.repoId ?? requestedRepoId;
-}
-
-function waitForStopSignal(): Promise<{ readonly reason: "signal"; readonly signal: "SIGINT" | "SIGTERM" }> {
-  return new Promise((resolve) => {
-    const stop = (signal: "SIGINT" | "SIGTERM") => {
-      process.off("SIGINT", onSigint);
-      process.off("SIGTERM", onSigterm);
-      resolve({ reason: "signal", signal });
-    };
-    const onSigint = () => stop("SIGINT");
-    const onSigterm = () => stop("SIGTERM");
-    process.on("SIGINT", onSigint);
-    process.on("SIGTERM", onSigterm);
-  });
 }
 
 function realpathOrResolvedServeRoot(input: string): string {

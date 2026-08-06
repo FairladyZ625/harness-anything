@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 
 test("a timed-out write reports an unknown outcome after the daemon accepted the request", { skip: process.platform === "win32" }, async () => {
   await withSocketTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"]);
+    initializeFixtureWithoutDaemon(rootDir);
     const daemon = testDaemonLocation(rootDir);
     let acceptedRequest = false;
     const server = await startCommandServer(daemon, (request, socket) => {
@@ -50,7 +50,7 @@ test("a timed-out write reports an unknown outcome after the daemon accepted the
 
 test("a daemon JSON-RPC rejection remains a known request failure", { skip: process.platform === "win32" }, async () => {
   await withSocketTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"]);
+    initializeFixtureWithoutDaemon(rootDir);
     const daemon = testDaemonLocation(rootDir);
     const server = await startCommandServer(daemon, (request, socket) => {
       socket.end(`${JSON.stringify({
@@ -76,7 +76,7 @@ test("a daemon JSON-RPC rejection remains a known request failure", { skip: proc
 
 test("a timed-out local materializer request keeps its intentional local fallback", { skip: process.platform === "win32" }, async () => {
   await withSocketTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"]);
+    initializeFixtureWithoutDaemon(rootDir);
     const daemon = testDaemonLocation(rootDir);
     let acceptedRequest = false;
     const server = await startCommandServer(daemon, (request, socket) => {
@@ -101,7 +101,7 @@ test("a timed-out local materializer request keeps its intentional local fallbac
 
 test("an unreachable daemon remains unavailable with the direct recovery guidance", { skip: process.platform === "win32" }, async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"]);
+    initializeFixtureWithoutDaemon(rootDir);
     const unreachableUserRoot = path.join(rootDir, "u".repeat(180));
     const daemon = testDaemonLocation(rootDir, unreachableUserRoot);
     const result = await runCliFailure(rootDir, ["task", "create", "--title", "Unreachable Write"], {
@@ -166,6 +166,13 @@ function testDaemonEnv(daemon: TestDaemonLocation): Readonly<Record<string, stri
     XDG_RUNTIME_DIR: daemon.runtimeDir,
     TMPDIR: daemon.runtimeDir
   };
+}
+
+function initializeFixtureWithoutDaemon(rootDir: string): void {
+  runRawJson(rootDir, ["init"], {
+    HARNESS_DAEMON_MODE: "direct",
+    HARNESS_DIRECT_WRITE_REASON: "recovery"
+  });
 }
 
 async function withSocketTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {

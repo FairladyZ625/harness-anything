@@ -8,6 +8,8 @@ import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   checkDaemonServeConfiguration as checkDaemonServeConfigurationRoot,
+  daemonAutostartRootIdentity,
+  daemonAutostartRootLifetimeEnabled,
   resolveDaemonRuntimePolicy,
   runDaemonServe as runDaemonServeRoot
 } from "@harness-anything/daemon";
@@ -263,6 +265,9 @@ async function runDaemonServe(
     ...(restoredLaunchOptions.authorityManifest ? { requestedAuthorityManifest: restoredLaunchOptions.authorityManifest } : {}),
     entrypoint,
     idleMs: parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true }),
+    ...(daemonAutostartRootLifetimeEnabled(process.env)
+      ? { expectedRootIdentity: daemonAutostartRootIdentity(process.env) }
+      : {}),
     preflightReplacement: preflightDaemonLaunch,
     runtimePolicy: resolveDaemonRuntimePolicy(process.env, projectSettings.settings.daemonRuntime),
     ...daemonServeAdmissionOptions(projectSettings.settings)
