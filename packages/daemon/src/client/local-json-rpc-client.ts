@@ -49,7 +49,8 @@ export {
 
 // Cold authority readiness measured ~7.2s, so a 6s budget could never confirm it.
 export const defaultDaemonAutostartTimeoutMs = 30_000;
-export const defaultDaemonIdleExitMs = 750;
+// dec_01KZA1ZS0JHS9ZRQXESMC1W5HB: resident by default; 750ms misread pauses as session end. Override: --idle-ms.
+export const defaultDaemonIdleExitMs = 0;
 export const localDaemonRetryIntervalMs = 100;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
