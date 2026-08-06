@@ -386,8 +386,7 @@ function prepareSubmitted(rootDir: string, title: string, mode: ChainMode): {
       "task", "code-doc", "reconcile", created.taskId, "--commit", sha, "--path", "evidence/equivalence.txt"
     ], true, env);
     const submitReceipt = runJson(rootDir, [
-      "task", "submit", created.taskId, "--from-file", writeSubmissionPacket(rootDir, submission),
-      "--execution-id", executionId
+      "task", "submit", created.taskId, "--from-file", writeSubmissionPacket(rootDir, submission)
     ], true, env);
     submitSteps = [codeDocReceipt, submitReceipt];
   } else {

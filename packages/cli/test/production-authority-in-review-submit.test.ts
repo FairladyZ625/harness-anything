@@ -92,7 +92,7 @@ test("production daemon authority submits an active recovery round while the tas
       residualRisks: []
     }), "utf8");
     const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
+      "task", "submit", taskId, "--from-file", submissionPath
     ], { ...env, CODEX_THREAD_ID: submitterSessionId });
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
     assert.equal(submitted.receipt.ok, true, JSON.stringify(submitted.receipt));

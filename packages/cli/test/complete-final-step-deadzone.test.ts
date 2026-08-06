@@ -308,7 +308,7 @@ test("review immediately after doc sync remains determinate when publication adv
       residualRisks: []
     }));
     const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
+      "task", "submit", taskId, "--from-file", submissionPath
     ], env);
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
 
@@ -402,7 +402,7 @@ test("task complete consumes one explicitly accepted current round and replays t
       residualRisks: []
     }));
     const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
+      "task", "submit", taskId, "--from-file", submissionPath
     ], env);
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
 

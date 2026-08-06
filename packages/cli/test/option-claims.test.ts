@@ -39,6 +39,7 @@ test("declared option sets equal the options read by current parser seams", () =
     .flatMap(declaredOptions);
   const decisionPropose = commandSpecs.find((spec) => spec.kind === "decision-propose")!;
   const recordFact = commandSpecs.find((spec) => spec.kind === "record-fact")!;
+  const taskSubmit = commandSpecs.find((spec) => spec.kind === "task-submit")!;
   const daemonSources = [
     ...typescriptFiles(path.join(root, "packages/cli/src/commands/daemon")),
     path.join(root, "packages/cli/src/main.ts"),
@@ -50,6 +51,7 @@ test("declared option sets equal the options read by current parser seams", () =
     global: sorted(global),
     taskCreate: sorted(without(optionSet(specsParsedBy("parseNewTaskArgs")), global)),
     taskList: sorted(without(optionSet(commandSpecs.find((spec) => spec.kind === "task-list")!.options), global)),
+    taskSubmit: sorted(without(optionSet(declaredOptions(taskSubmit)), global)),
     decisionPropose: sorted(without(optionSet(declaredOptions(decisionPropose)), global)),
     recordFact: sorted(without(optionSet(declaredOptions(recordFact)), global)),
     githubIssues: sorted(without(optionSet(specsParsedBy("parseGithubIssuesArgs")), global)),
@@ -73,6 +75,10 @@ test("declared option sets equal the options read by current parser seams", () =
       ...(bundledVerticalDefinition()?.entityFieldExtensions ?? [])
         .filter((extension) => extension.projection.queryable)
         .map((extension) => `--${extension.field}`)
+    ]), global)),
+    taskSubmit: sorted(without(new Set([
+      ...literalOptionsInFunction(path.join(root, "packages/cli/src/cli/parsers/task-submit.ts"), "parseTaskSubmit"),
+      ...literalOptionsInFunction(path.join(root, "packages/cli/src/cli/json-input.ts"), "extractJsonInput")
     ]), global)),
     decisionPropose: sorted(without(new Set([
       ...literalOptionsInFunction(path.join(root, "packages/cli/src/cli/parsers/decision.ts"), "parseDecisionPropose"),

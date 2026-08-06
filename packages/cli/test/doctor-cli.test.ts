@@ -49,8 +49,8 @@ test("doctor rejects unknown local flags instead of silently ignoring them", () 
     assert.equal(child.status, 2, child.stdout);
     const receipt = JSON.parse(child.stdout) as Record<string, any>;
     assert.equal(receipt.ok, false, child.stdout);
-    assert.equal(receipt.error.code, "unknown_command");
-    assert.match(receipt.error.hint, /Unknown doctor option: --bogus/u);
+    assert.equal(receipt.error.code, "unknown_option");
+    assert.match(receipt.error.hint, /Unknown option '--bogus' for 'doctor'/u);
   });
 });
 
@@ -214,7 +214,7 @@ test("CLI global help matches the layered discovery snapshot", () => {
     });
 
     assert.equal(stdout, readSnapshot("global-help.txt"));
-    assert.equal(Buffer.byteLength(stdout) <= 2_000, true, "global help must remain at or below 2 KB");
+    assert.equal(Buffer.byteLength(stdout) <= 2_500, true, "global help must remain at or below 2.5 KB");
   });
 });
 

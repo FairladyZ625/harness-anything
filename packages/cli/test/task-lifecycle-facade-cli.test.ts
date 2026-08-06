@@ -157,8 +157,7 @@ test("task submit held by another worker recommends waiting or contacting the ho
     const fixture = prepareActiveTask(leaseRoot, "Lost Lease");
     const packet = writeSubmissionPacket(leaseRoot);
     const rejected = runJson(leaseRoot, [
-      "task", "submit", fixture.taskId, "--from-file", packet,
-      "--execution-id", fixture.executionId, "--lease-token", fixture.leaseToken
+      "task", "submit", fixture.taskId, "--from-file", packet
     ], false, { HARNESS_ACTOR: "agent:different-worker", HARNESS_DAEMON_MODE: "fixture" });
     assert.equal(rejected.error.code, "write_rejected");
     assert.match(rejected.error.hint, /not held by the caller|requires an active lease/iu);
