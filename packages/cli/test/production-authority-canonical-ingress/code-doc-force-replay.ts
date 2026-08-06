@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createGitCanonicalPublicationInspector } from "../../../daemon/src/index.ts";
 import { runRawJsonMaybeFail } from "../helpers/daemon-cli.ts";
-import { git, latestAuthorityOperation } from "./fixture.ts";
+import { latestAuthorityOperation } from "./fixture.ts";
 
 interface CanonicalFixtureRoots {
   readonly authoredRoot: string;
@@ -20,8 +20,12 @@ export async function exerciseIdenticalCodeDocForce(
   const taskRoot = path.join(fixture.authoredRoot, `tasks/${taskId}-production-route`);
   const closeoutPath = path.join(taskRoot, "closeout.md");
   writeFileSync(closeoutPath, `${readFileSync(closeoutPath, "utf8")}\nAmended after implementation review.\n`);
-  git(fixture.authoredRoot, "add", `tasks/${taskId}-production-route/closeout.md`);
-  git(fixture.authoredRoot, "commit", "-q", "-m", "amend closeout before force reconciliation");
+  const syncedCloseout = runRawJsonMaybeFail(fixture.repoRoot, [
+    "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/closeout.md`
+  ], env);
+  assert.equal(syncedCloseout.status, 0, JSON.stringify(syncedCloseout.receipt));
+  const publishedCloseout = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
+  assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
 
   const forceArgs = [
     "task", "code-doc", "reconcile", taskId,
@@ -48,4 +52,37 @@ export async function exerciseIdenticalCodeDocForce(
     /repo_write_outcome_unknown|execution_outcome_unknown|outcome remains unknown/u
   );
   return taskRoot;
+}
+
+export function exerciseUnpublishedCloseoutPositiveControl(input: {
+  readonly fixture: CanonicalFixtureRoots;
+  readonly taskId: string;
+  readonly taskRoot: string;
+  readonly completionPacketPath: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly diagnostic: (message: string) => void;
+}): void {
+  const closeoutPath = path.join(input.taskRoot, "closeout.md");
+  writeFileSync(
+    closeoutPath,
+    `${readFileSync(closeoutPath, "utf8")}\nUnpublished positive-control amendment.\n`
+  );
+  const unpublishedCompletion = runRawJsonMaybeFail(input.fixture.repoRoot, [
+    "task", "complete", input.taskId, "--approve", "--from-file", input.completionPacketPath
+  ], input.env);
+  assert.notEqual(unpublishedCompletion.status, 0, JSON.stringify(unpublishedCompletion.receipt));
+  assert.equal(unpublishedCompletion.receipt.ok, false, JSON.stringify(unpublishedCompletion.receipt));
+  assert.match(
+    JSON.stringify(unpublishedCompletion.receipt),
+    /AUTHORITY_TASK_COMPLETE_PREPUBLISH_NOT_MATERIALIZED:.*closeout\.md/u,
+    "positive control: completion must reject a current task document without canonical publication evidence"
+  );
+  input.diagnostic("positive control: prepublish gate rejected the unpublished closeout.md amendment before doc sync");
+
+  const syncedCloseout = runRawJsonMaybeFail(input.fixture.repoRoot, [
+    "doc", "sync", "--submit", "--path", `tasks/${input.taskId}-production-route/closeout.md`
+  ], input.env);
+  assert.equal(syncedCloseout.status, 0, JSON.stringify(syncedCloseout.receipt));
+  const publishedCloseout = runRawJsonMaybeFail(input.fixture.repoRoot, ["materializer", "run"], input.env);
+  assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
 }
