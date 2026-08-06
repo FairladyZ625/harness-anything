@@ -12,14 +12,18 @@ const fixturePath = fileURLToPath(
 );
 
 test("durable deadline observes a slow canonical publication without replacing its writer", async (context) => {
+  const requestTimeoutMs = 40;
   let forks = 0;
-  const timeoutDiagnostics: RepoWriteRequestTimeoutDiagnostic[] = [];
+  let timeoutDiagnostic: RepoWriteRequestTimeoutDiagnostic | undefined;
+  let barrierError: unknown;
+  let confirmSlowTerminalReady!: () => void;
+  const slowTerminalReady = new Promise<void>((resolve) => {
+    confirmSlowTerminalReady = resolve;
+  });
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
-    // Keep the 40ms observation deadline below the fixture's 60ms terminal,
-    // while leaving an order-of-magnitude margin before stall escalation.
-    limits: { requestTimeoutMs: 40, proceededStallTimeoutMs: 1_000 },
+    limits: { requestTimeoutMs },
     spawn: () => {
       forks += 1;
       return forkRepoWriteProcess({
@@ -27,20 +31,46 @@ test("durable deadline observes a slow canonical publication without replacing i
         args: ["slow-terminal"]
       });
     },
-    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
+    onRequestTimeout: (diagnostic) => {
+      timeoutDiagnostic = diagnostic;
+    },
+    onDiagnostic: (frame) => {
+      if (frame.code !== "FIXTURE_SLOW_TERMINAL_READY") return;
+      try {
+        // Advance synchronously while handling the ordered barrier. Node may
+        // deliver the following terminal in the same IPC poll turn, before an
+        // awaiting continuation gets its own microtask checkpoint.
+        assert.equal(timeoutDiagnostic, undefined);
+        context.mock.timers.tick(requestTimeoutMs);
+      } catch (error) {
+        // Recovery-diagnostic observers intentionally swallow exceptions, so
+        // hand assertion failures back to the test continuation explicitly.
+        barrierError = error;
+      } finally {
+        confirmSlowTerminalReady();
+      }
+    }
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  const receipt = await supervisor.submit(
+  await supervisor.start();
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+
+  const outcome = supervisor.submit(
     repoWriteProductionCommandFixture("record-fact", "slow publication")
   );
+  await slowTerminalReady;
+  if (barrierError) throw barrierError;
+  assert.equal(timeoutDiagnostic?.watchdogStage, "observation");
+  assert.ok(timeoutDiagnostic);
+  assert.equal(timeoutDiagnostic.deadlineMs, requestTimeoutMs);
+  assert.equal(timeoutDiagnostic.lane, "durable");
+  assert.equal(timeoutDiagnostic.lastTelemetry?.phase, "git");
+
+  const receipt = await outcome;
 
   assert.equal(receipt.ok, true);
   assert.equal(receipt.summary, "slow canonical publication");
-  assert.ok(timeoutDiagnostics.some((diagnostic) =>
-    diagnostic.watchdogStage === "observation"
-    && diagnostic.deadlineMs === 40
-    && diagnostic.lane === "durable"));
   assert.equal(forks, 1, "PROCEED transfers terminal ownership to the current writer");
   assert.equal(supervisor.status().connected, true);
 });
