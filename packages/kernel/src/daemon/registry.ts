@@ -1,5 +1,5 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -18,6 +18,11 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { isExclusiveCreateConflict } from "../local/local-layout-file-system.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v1";
+
+interface DaemonRegistryMutationLockRecord {
+  readonly schema: "daemon-registry-mutation-lock/v1";
+  readonly ownerToken: string;
+}
 
 export type DaemonRepoState = "enabled" | "disabled";
 
@@ -56,6 +61,7 @@ export interface DaemonRegistryOptions {
   readonly now?: () => Date;
   readonly platform?: NodeJS.Platform;
   readonly createConvenienceLinks?: boolean;
+  readonly mutationLockStaleMs?: number;
 }
 
 export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
@@ -361,15 +367,18 @@ function replaceRepo(registry: DaemonRegistry, replacement: DaemonRegistryRepo):
 function withDaemonRegistryMutationLock<T>(options: DaemonRegistryOptions, mutate: () => T): T {
   const { userRoot, registryPath } = daemonRegistryPaths(options);
   const lockPath = `${registryPath}.lock`;
+  const staleMs = options.mutationLockStaleMs ?? 30_000;
+  const ownerToken = randomBytes(12).toString("hex");
   mkdirSync(userRoot, { recursive: true });
   const deadline = Date.now() + 5_000;
   while (true) {
+    if (Date.now() >= deadline) throw new Error(`timed out acquiring daemon registry mutation lock: ${lockPath}`);
     try {
       mkdirSync(lockPath);
-      break;
+      if (createDaemonRegistryMutationLockRecord(lockPath, ownerToken)) break;
     } catch (error) {
       if (!isExclusiveCreateConflict(error, options.platform)) throw error;
-      if (registryLockIsStale(lockPath)) {
+      if (registryLockIsStale(lockPath, staleMs)) {
         try {
           rmSync(lockPath, { recursive: true });
         } catch {
@@ -377,20 +386,54 @@ function withDaemonRegistryMutationLock<T>(options: DaemonRegistryOptions, mutat
         }
         continue;
       }
-      if (Date.now() >= deadline) throw new Error(`timed out acquiring daemon registry mutation lock: ${lockPath}`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
   try {
     return mutate();
   } finally {
-    rmSync(lockPath, { recursive: true, force: true });
+    releaseDaemonRegistryMutationLock(lockPath, ownerToken);
   }
 }
 
-function registryLockIsStale(lockPath: string): boolean {
+function createDaemonRegistryMutationLockRecord(lockPath: string, ownerToken: string): boolean {
+  const record = {
+    schema: "daemon-registry-mutation-lock/v1",
+    ownerToken
+  } satisfies DaemonRegistryMutationLockRecord;
   try {
-    return Date.now() - statSync(lockPath).mtimeMs > 30_000;
+    // Acquisition completes at the exclusive record write; stale recovery may replace the directory after mkdir.
+    writeFileSync(path.join(lockPath, "owner.json"), `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "EEXIST" || code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function releaseDaemonRegistryMutationLock(lockPath: string, ownerToken: string): void {
+  const record = readDaemonRegistryMutationLockRecord(lockPath);
+  // Missing, unreadable, or replaced records cannot prove ownership and are left to stale recovery.
+  if (record?.ownerToken === ownerToken) rmSync(lockPath, { recursive: true, force: true });
+}
+
+function readDaemonRegistryMutationLockRecord(lockPath: string): DaemonRegistryMutationLockRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(lockPath, "owner.json"), "utf8")) as unknown;
+    return isDaemonRegistryRecord(parsed)
+      && parsed.schema === "daemon-registry-mutation-lock/v1"
+      && typeof parsed.ownerToken === "string"
+      ? { schema: "daemon-registry-mutation-lock/v1", ownerToken: parsed.ownerToken }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function registryLockIsStale(lockPath: string, staleMs: number): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > staleMs;
   } catch {
     return false;
   }

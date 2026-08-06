@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import {
   daemonRegistryPaths,
   daemonRegistrySchema,
@@ -61,6 +62,138 @@ test("register classifies a Windows lock-create EPERM after the lock disappears 
   });
 
   assert.equal(result.repo.repoId, "project");
+});
+
+test("owner-record loss retries honor the registry lock acquisition deadline", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-registry-owner-loss-"));
+  const userRoot = path.join(root, "user-harness");
+  const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+  const lockPath = `${daemonRegistryPaths({ userRoot }).registryPath}.lock`;
+  const ownerPath = path.join(lockPath, "owner.json");
+  const originalWriteFileSync = fs.writeFileSync;
+  const originalDateNow = Date.now;
+  let ownerRecordAttempts = 0;
+  let clockReads = 0;
+  fs.writeFileSync = ((
+    inputPath: Parameters<typeof fs.writeFileSync>[0],
+    data: Parameters<typeof fs.writeFileSync>[1],
+    options?: Parameters<typeof fs.writeFileSync>[2]
+  ) => {
+    if (inputPath === ownerPath) {
+      ownerRecordAttempts += 1;
+      if (ownerRecordAttempts >= 3) throw new Error("owner-record retry bypassed registry lock deadline");
+      rmSync(lockPath, { recursive: true, force: true });
+    }
+    return Reflect.apply(originalWriteFileSync, fs, [inputPath, data, options]);
+  }) as typeof fs.writeFileSync;
+  Date.now = () => {
+    clockReads += 1;
+    return clockReads <= 2 ? 0 : 5_000;
+  };
+  syncBuiltinESMExports();
+  context.after(() => {
+    fs.writeFileSync = originalWriteFileSync;
+    Date.now = originalDateNow;
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  assert.throws(
+    () => registerDaemonRepo({
+      userRoot,
+      canonicalRoot,
+      repoId: "project",
+      createConvenienceLinks: false,
+      mutationLockStaleMs: 0
+    }),
+    /timed out acquiring daemon registry mutation lock/u
+  );
+  assert.equal(ownerRecordAttempts, 1);
+});
+
+test("a stale registry lock owner cannot release a replacement owner's lock", { timeout: 10_000 }, async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-registry-owner-"));
+  const userRoot = path.join(root, "user-harness");
+  const firstRoot = createHarnessRepo(path.join(root, "first"));
+  const secondRoot = createHarnessRepo(path.join(root, "second"));
+  const lockPath = `${daemonRegistryPaths({ userRoot }).registryPath}.lock`;
+  const moduleUrl = pathToFileURL(path.resolve("packages/kernel/src/daemon/registry.ts")).href;
+  const state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4));
+  const first = startPausedRegistryMutationWorker({
+    moduleUrl, userRoot, canonicalRoot: firstRoot, repoId: "first", state, enteredIndex: 0, releaseIndex: 1
+  });
+  let second: ReturnType<typeof startPausedRegistryMutationWorker> | undefined;
+  try {
+    await waitForWorkerState(state, 0);
+    fs.utimesSync(lockPath, new Date(0), new Date(0));
+    second = startPausedRegistryMutationWorker({
+      moduleUrl,
+      userRoot,
+      canonicalRoot: secondRoot,
+      repoId: "second",
+      state,
+      enteredIndex: 2,
+      releaseIndex: 3,
+      mutationLockStaleMs: 0
+    });
+    await waitForWorkerState(state, 2);
+
+    releasePausedRegistryMutation(state, 1);
+    await first.finished;
+
+    assert.equal(existsSync(lockPath), true, "the stale owner removed the replacement owner's lock");
+  } finally {
+    releasePausedRegistryMutation(state, 1);
+    releasePausedRegistryMutation(state, 3);
+    await Promise.allSettled([first.finished, ...(second ? [second.finished] : [])]);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an uncontended registry mutation changes the registry and releases its lock", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    const lockPath = `${daemonRegistryPaths({ userRoot }).registryPath}.lock`;
+
+    const registered = registerDaemonRepo({
+      userRoot,
+      canonicalRoot,
+      repoId: "project",
+      createConvenienceLinks: false
+    });
+
+    assert.equal(registered.changed, true);
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.state, "enabled");
+    assert.equal(existsSync(lockPath), false);
+
+    const unregistered = unregisterDaemonRepo("project", { userRoot, createConvenienceLinks: false });
+    assert.equal(unregistered.changed, true);
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.state, "disabled");
+    assert.equal(existsSync(lockPath), false);
+  });
+});
+
+test("a registry mutation recovers a stale tokenless legacy lock", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    const lockPath = `${daemonRegistryPaths({ userRoot }).registryPath}.lock`;
+    mkdirSync(lockPath, { recursive: true });
+    fs.utimesSync(lockPath, new Date(0), new Date(0));
+
+    const result = registerDaemonRepo({
+      userRoot,
+      canonicalRoot,
+      repoId: "project",
+      createConvenienceLinks: false,
+      mutationLockStaleMs: 0
+    });
+
+    assert.equal(result.changed, true);
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.repoId, "project");
+    assert.equal(existsSync(lockPath), false);
+  });
 });
 
 test("daemon registry register realpaths canonical roots and writes registry-only when links are disabled", () => {
@@ -461,4 +594,79 @@ async function runRegistryMutationChild(source: string): Promise<void> {
     child.on("error", reject);
     child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`registry mutation child exited ${String(code)}: ${stderr}`)));
   });
+}
+
+function startPausedRegistryMutationWorker(input: {
+  readonly moduleUrl: string;
+  readonly userRoot: string;
+  readonly canonicalRoot: string;
+  readonly repoId: string;
+  readonly state: Int32Array;
+  readonly enteredIndex: number;
+  readonly releaseIndex: number;
+  readonly mutationLockStaleMs?: number;
+}): { readonly finished: Promise<void> } {
+  const source = `
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const { syncBuiltinESMExports } = require("node:module");
+    const { workerData } = require("node:worker_threads");
+    const state = new Int32Array(workerData.sharedState);
+    const registryPath = path.join(workerData.userRoot, "registry.json");
+    const originalExistsSync = fs.existsSync;
+    let paused = false;
+    fs.existsSync = (inputPath) => {
+      if (!paused && inputPath === registryPath) {
+        paused = true;
+        Atomics.store(state, workerData.enteredIndex, 1);
+        Atomics.notify(state, workerData.enteredIndex);
+        Atomics.wait(state, workerData.releaseIndex, 0);
+      }
+      return originalExistsSync(inputPath);
+    };
+    syncBuiltinESMExports();
+    void import(workerData.moduleUrl).then(({ registerDaemonRepo }) => {
+      registerDaemonRepo({
+        userRoot: workerData.userRoot,
+        canonicalRoot: workerData.canonicalRoot,
+        repoId: workerData.repoId,
+        createConvenienceLinks: false,
+        ...(workerData.mutationLockStaleMs === undefined
+          ? {}
+          : { mutationLockStaleMs: workerData.mutationLockStaleMs })
+      });
+    }).catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const worker = new Worker(source, {
+    eval: true,
+    workerData: {
+      moduleUrl: input.moduleUrl,
+      userRoot: input.userRoot,
+      canonicalRoot: input.canonicalRoot,
+      repoId: input.repoId,
+      sharedState: input.state.buffer,
+      enteredIndex: input.enteredIndex,
+      releaseIndex: input.releaseIndex,
+      mutationLockStaleMs: input.mutationLockStaleMs
+    }
+  });
+  const finished = new Promise<void>((resolve, reject) => {
+    worker.once("error", reject);
+    worker.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`registry mutation worker exited ${code}`)));
+  });
+  return { finished };
+}
+
+async function waitForWorkerState(state: Int32Array, index: number): Promise<void> {
+  while (Atomics.load(state, index) === 0) {
+    await Atomics.waitAsync(state, index, 0).value;
+  }
+}
+
+function releasePausedRegistryMutation(state: Int32Array, index: number): void {
+  Atomics.store(state, index, 1);
+  Atomics.notify(state, index);
 }
