@@ -100,10 +100,10 @@ function inlineCliResultErrorViolations(relativePath, source) {
   const lines = source.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (!/\bcode\s*:/u.test(line)) continue;
+    if (!/(?:^|[{,])\s*\bcode\s*:/u.test(line)) continue;
     if (/\bfunction\b/u.test(line)) continue;
-    const windowText = lines.slice(Math.max(0, index - 3), Math.min(lines.length, index + 5)).join("\n");
-    if (!/\bhint\s*:/u.test(windowText)) continue;
+    const windowLines = lines.slice(Math.max(0, index - 3), Math.min(lines.length, index + 5));
+    if (!windowLines.some((candidate) => /(?:^|[{,])\s*\bhint\s*:/u.test(candidate))) continue;
     if (/\breadonly\s+code\s*:/u.test(line)) continue;
     const match = line.match(/\bcode\s*:\s*(["'`][^"'`]*["'`]|CliErrorCode\.[A-Za-z0-9]+|[A-Za-z0-9_$]+\()/u);
     const value = match?.[1] ?? "dynamic code";

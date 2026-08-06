@@ -85,6 +85,44 @@ test("CLI error code gate accepts registry helpers and validation issue codes", 
   });
 });
 
+test("CLI error code gate accepts PR 1250 property-read ternaries", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "packages/cli/src/cli/error-codes.ts", `
+      export const CliErrorCode = {
+        InvalidDaemonLogInput: "invalid_daemon_log_input",
+        UnknownCommand: "unknown_command"
+      } as const;
+      export type CliErrorCode = typeof CliErrorCode[keyof typeof CliErrorCode];
+      export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([]);
+      export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
+        Object.values(CliErrorCode).filter((code): code is CliErrorCode => !cliKernelMappedErrorCodes.has(code as CliErrorCode))
+      );
+      export const cliErrorCodeRegistry = {
+        [CliErrorCode.InvalidDaemonLogInput]: { category: "parse", defaultHint: "Invalid daemon log input." },
+        [CliErrorCode.UnknownCommand]: { category: "parse", defaultHint: "Unknown command." }
+      };
+      export function cliError(code: CliErrorCode, hint?: string) {
+        return { code, hint: hint ?? cliErrorCodeRegistry[code].defaultHint };
+      }
+      export function isCliErrorCode(value: string): value is CliErrorCode {
+        return Object.values(CliErrorCode).includes(value as CliErrorCode);
+      }
+      export function cliErrorFamily(code: CliErrorCode) {
+        return cliKernelMappedErrorCodes.has(code) ? "kernel-mapped" : "command-local";
+      }
+    `);
+    writeFile(rootDir, "packages/cli/src/commands/daemon/logs.ts", `
+      export function daemonLogReceiptError(error: Record<string, unknown>) {
+        const hint = typeof error.hint === "string" ? error.hint : "Daemon log query failed.";
+        const tag = typeof error.code === "string" ? error.code : undefined;
+        return { hint, tag };
+      }
+    `);
+
+    assert.deepEqual(findCliErrorCodeViolations(rootDir), []);
+  });
+});
+
 test("CLI error code gate rejects PascalCase adapter codes outside the kernel mapped family", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, "packages/cli/src/cli/error-codes.ts", `
