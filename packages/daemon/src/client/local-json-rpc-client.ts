@@ -50,6 +50,7 @@ export {
 // Cold authority readiness measured ~7.2s, so a 6s budget could never confirm it.
 export const defaultDaemonAutostartTimeoutMs = 30_000;
 export const defaultDaemonIdleExitMs = 750;
+export const localDaemonRetryIntervalMs = 100;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
 export class DaemonAutostartTimeoutError extends Error {
@@ -383,7 +384,7 @@ async function requestLocalDaemonJsonRpcWithAutostart(
     } catch (error) {
       if (error instanceof DaemonJsonRpcResponseError || error instanceof DaemonJsonRpcRequestTimeoutError) throw error;
       lastError = error;
-      await delay(Math.min(100, Math.max(1, deadline - Date.now())));
+      await delay(Math.min(localDaemonRetryIntervalMs, Math.max(1, deadline - Date.now())));
     } finally {
       autostart.onPhase?.("request-end");
     }
@@ -442,7 +443,7 @@ async function spawnAndWaitForLocalDaemon(
       return;
     } catch (error) {
       flight.lastError = error;
-      const retryDelayMs = Math.min(100, flight.deadline - Date.now());
+      const retryDelayMs = Math.min(localDaemonRetryIntervalMs, flight.deadline - Date.now());
       if (retryDelayMs > 0) await delay(retryDelayMs);
     }
   }

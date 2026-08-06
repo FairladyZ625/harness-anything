@@ -361,12 +361,18 @@ test("child that swallows PROCEED is replaced after the bounded stall window and
 test("non-durable task-claim timeout replaces the child without replay or lookup", async (context) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-repo-write-direct-"));
   const tracePath = path.join(root, "trace.log");
+  const requestTimeoutMs = 40;
   let forks = 0;
+  let lastTelemetryPhase: string | undefined;
   let timeoutDiagnostic: RepoWriteRequestTimeoutDiagnostic | undefined;
+  let confirmDirectStalled!: () => void;
+  const directStalled = new Promise<void>((resolve) => {
+    confirmDirectStalled = resolve;
+  });
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
-    limits: { requestTimeoutMs: 40 },
+    limits: { requestTimeoutMs },
     spawn: () => {
       forks += 1;
       return forkRepoWriteProcess({
@@ -376,6 +382,12 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
     },
     onRequestTimeout: (diagnostic) => {
       timeoutDiagnostic = diagnostic;
+    },
+    onTelemetry: (frame) => {
+      lastTelemetryPhase = frame.phase;
+    },
+    onDiagnostic: (frame) => {
+      if (frame.code === "FIXTURE_DIRECT_STALLED") confirmDirectStalled();
     }
   });
   context.after(async () => {
@@ -383,15 +395,27 @@ test("non-durable task-claim timeout replaces the child without replay or lookup
     rmSync(root, { recursive: true, force: true });
   });
 
+  await supervisor.start();
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+
   const trace = createDaemonRequestPerformanceTrace({
     method: "repo.command.run",
     requestId: "direct-timeout-recovery",
     receivedAtMs: performance.now()
   });
-  await runWithDaemonRequestPerformanceTrace(trace, () => assert.rejects(
-      supervisor.direct(command("", "task-claim")),
-      (error) => error instanceof RepoWriteDirectOutcomeUnknownError
-    ));
+  const outcome = runWithDaemonRequestPerformanceTrace(trace, () =>
+    supervisor.direct(command("", "task-claim")));
+  void outcome.catch(() => undefined);
+  // Wait for the child to report its phase, then advance the modeled deadline;
+  // neither assertion depends on which real-time callback the runner schedules first.
+  await directStalled;
+  assert.equal(timeoutDiagnostic, undefined);
+  context.mock.timers.tick(requestTimeoutMs);
+  await assert.rejects(
+    outcome,
+    (error) => error instanceof RepoWriteDirectOutcomeUnknownError
+  );
+  assert.equal(lastTelemetryPhase, "projection");
   const performanceSummary = trace.finish("response-written");
   assert.equal(forks, 2);
   assert.ok((performanceSummary.phasesMs["repo-write-recovery"] ?? 0) > 0);
