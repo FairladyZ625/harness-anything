@@ -40,6 +40,18 @@ test("global write conflicts explain that direct recovery cannot race a live dae
   });
 });
 
+test("authored-root isolation rejection preserves its structured semantic code", () => {
+  const reason = "authored root is not isolated from the outer code repository; run harness-anything init";
+  assert.deepEqual(toCliError({
+    _tag: "WriteRejected",
+    code: "authored_root_not_isolated",
+    reason
+  }), {
+    code: "authored_root_not_isolated",
+    hint: reason
+  });
+});
+
 test("daemon generation rejection preserves its stable code and structured context", () => {
   const context = {
     schema: "daemon-generation-write-rejection/v1",

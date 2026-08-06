@@ -281,6 +281,7 @@ export type {
   DecisionWriteService,
   DecisionWriteServiceOptions
 } from "./decision-write-service.ts";
+export { DecisionWriteRejectionCode } from "./decision-write-service.ts";
 export type {
   FactInvalidateRequest,
   FactInvalidateResult,

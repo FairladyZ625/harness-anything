@@ -22,7 +22,8 @@ test("CLI reports doctor-aligned journal cause when authored root is tracked by 
     const doctor = runJson(rootDir, ["doctor"]);
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "journal_unavailable");
+    assert.equal(failure.error?.code, "authored_root_not_isolated", JSON.stringify(failure));
+    assert.doesNotMatch(failure.error?.hint, /Journal is unavailable/u);
     assert.match(failure.error?.hint, /authored root is not isolated from the outer code repository/);
     assert.match(failure.error?.hint, /independent Git repository/u);
     assert.match(failure.error?.hint, /harness-anything init/u);
@@ -44,7 +45,8 @@ test("CLI reports actionable journal cause when authored root is ignored without
     const failure = runJson(rootDir, ["new-task", "--title", "Ignored Root"], false);
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "journal_unavailable");
+    assert.equal(failure.error?.code, "authored_root_not_isolated", JSON.stringify(failure));
+    assert.doesNotMatch(failure.error?.hint, /Journal is unavailable/u);
     assert.match(failure.error?.hint, /authored root is not isolated from the outer code repository/);
     assert.match(failure.error?.hint, /independent Git repository/u);
     assert.match(failure.error?.hint, /harness-anything init/u);

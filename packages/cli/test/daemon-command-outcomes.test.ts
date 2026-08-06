@@ -109,7 +109,7 @@ test("an unreachable daemon remains unavailable with the direct recovery guidanc
       HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "40"
     });
 
-    assert.equal(result.error.code, "journal_unavailable");
+    assert.equal(result.error.code, "daemon_unavailable");
     assert.match(result.error.hint, /Daemon unavailable/iu);
     assert.match(result.error.hint, /HARNESS_DAEMON_MODE=direct/iu);
     assert.doesNotMatch(result.error.hint, /outcome is unknown/iu);

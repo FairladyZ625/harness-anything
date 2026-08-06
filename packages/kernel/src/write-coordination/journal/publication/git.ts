@@ -3,9 +3,11 @@ import type { HarnessLayoutInput } from "../../../layout/index.ts";
 import { resolveHarnessLayout } from "../../../layout/index.ts";
 import type { VcsCommitAuthor, VcsCommitPhase, VcsCommitOptions, VersionControlSystem } from "../../../ports/version-control-system.ts";
 import { makeLocalVersionControlSystem } from "../../../persistence/git/local-version-control-system.ts";
+import { WriteRejectedError } from "../rejection.ts";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
 const authoredRootNotIsolatedMessage = "authored root is not isolated from the outer code repository; run harness-anything init so the authored root is an independent Git repository and the outer .gitignore isolates it";
+const authoredRootNotIsolatedCode = "authored_root_not_isolated";
 
 export function commitTouchedPaths(
   rootDir: string,
@@ -132,10 +134,10 @@ function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths
   if (!touchedPaths.every((filePath) => isPathInside(authoredRoot, filePath, vcs))) return null;
   if (!authoredRepo) {
     if (!rootRepo || !isPathInsideRepo(rootRepo, authoredRoot, vcs)) return null;
-    throw new Error(authoredRootNotIsolatedMessage);
+    throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
   if (rootRepo && authoredRepo === rootRepo && !isSamePath(rootRepo, authoredRoot, vcs)) {
-    throw new Error(authoredRootNotIsolatedMessage);
+    throw new WriteRejectedError(authoredRootNotIsolatedMessage, undefined, { code: authoredRootNotIsolatedCode });
   }
   return { repoRoot: authoredRepo };
 }

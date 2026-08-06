@@ -13,6 +13,6 @@ export const runDocCommand: CommandRunner = (context, command) => Effect.sync(()
   return {
     ok: false,
     command: "doc-sync-submit",
-    error: cliError(CliErrorCode.JournalUnavailable, "Doc sync submit requires the daemon-backed CLI path; remove HARNESS_DAEMON_MODE=direct and retry.")
+    error: cliError(CliErrorCode.DaemonBackedPathRequired, "Doc sync submit requires the daemon-backed CLI path; remove HARNESS_DAEMON_MODE=direct and retry.")
   } satisfies CliResult;
 });

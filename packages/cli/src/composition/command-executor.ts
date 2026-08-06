@@ -25,6 +25,7 @@ import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/ru
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { finalizeDryRunResult } from "../cli/dry-run-preview.ts";
+import { preserveWriteErrorOrUnclassified } from "../cli/write-error-classification.ts";
 import { leaseEnforcementEnabled, resolveTaskLeaseTtlMs } from "../commands/settings.ts";
 import { readTaskReturnToIdeaSnapshot } from "../commands/task-return-to-idea-snapshot.ts";
 import { CliActorAttributionError, migrationWriteAttribution, type CliActorAttribution } from "./actor-attribution.ts";
@@ -420,7 +421,7 @@ function taskLeaseWriteError(error: unknown): WriteError {
       retryable: false
     };
   }
-  return { _tag: "JournalUnavailable", cause: error };
+  return preserveWriteErrorOrUnclassified(error);
 }
 
 function withConflictMarkerFlushRecheck(
@@ -440,7 +441,7 @@ function withConflictMarkerFlushRecheck(
         onTelemetry?.("command-conflict-recheck");
         return warning;
       },
-      catch: (cause) => ({ _tag: "JournalUnavailable" as const, cause })
+      catch: preserveWriteErrorOrUnclassified
     }).pipe(
       Effect.flatMap((warning) => warning
         ? Effect.fail({

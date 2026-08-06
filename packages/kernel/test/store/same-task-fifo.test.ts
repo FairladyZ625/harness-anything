@@ -8,7 +8,6 @@ import path from "node:path";
 import { Effect } from "effect";
 import { hashTaskProjectionRows, rebuildTaskProjection, sha256Text } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../../src/index.ts";
-import { resolveCommitPlan } from "../../src/write-coordination/journal/publication/git.ts";
 import { moduleEntityId, taskEntityId } from "../../src/domain/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -342,29 +341,17 @@ test("WriteCoordinator refuses to create missing authored root inside the outer 
       commitAuthor: testCommitAuthor
     });
 
-    assert.throws(
-      () => Effect.runSync(coordinator.enqueue(docWrite("op-create-authored-root", "task-1", "notes.md", "first write"))),
-      /authored root is not isolated from the outer code repository/u
-    );
+    const rejected = Effect.runSync(Effect.either(
+      coordinator.enqueue(docWrite("op-create-authored-root", "task-1", "notes.md", "first write"))
+    ));
+    assert.equal(rejected._tag, "Left");
+    if (rejected._tag === "Left") {
+      assert.equal(rejected.left._tag, "WriteRejected");
+      assert.equal(rejected.left._tag === "WriteRejected" ? rejected.left.code : undefined, "authored_root_not_isolated");
+      assert.match(rejected.left._tag === "WriteRejected" ? rejected.left.reason : "", /authored root is not isolated from the outer code repository/u);
+    }
     assert.equal(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/notes.md")), false);
-    assert.equal(runGit(rootDir, "branch", "--list", "sessions/*"), "");
-  });
-});
-
-test("resolveCommitPlan fails closed when missing authored root is inside the outer repo", () => {
-  withTempStore((rootDir) => {
-    initializeGitRepo(rootDir);
-    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
-    runGit(rootDir, "add", ".gitignore");
-    runGit(rootDir, "commit", "-m", "ignore private harness");
-    const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
-
-    assert.throws(
-      () => resolveCommitPlan(rootDir, [path.join(rootDir, "harness/tasks/task-1/notes.md")], rootDir),
-      /authored root is not isolated from the outer code repository/u
-    );
-    assert.equal(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
     assert.equal(runGit(rootDir, "branch", "--list", "sessions/*"), "");
   });
 });
@@ -580,10 +567,15 @@ test("WriteCoordinator fails closed when authored root is not an independent nes
 
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
-    assert.throws(
-      () => Effect.runSync(coordinator.enqueue(docWrite("op-unisolated", "task-1", "notes.md", "unisolated"))),
-      /authored root is not isolated from the outer code repository/
-    );
+    const rejected = Effect.runSync(Effect.either(
+      coordinator.enqueue(docWrite("op-unisolated", "task-1", "notes.md", "unisolated"))
+    ));
+    assert.equal(rejected._tag, "Left");
+    if (rejected._tag === "Left") {
+      assert.equal(rejected.left._tag, "WriteRejected");
+      assert.equal(rejected.left._tag === "WriteRejected" ? rejected.left.code : undefined, "authored_root_not_isolated");
+      assert.match(rejected.left._tag === "WriteRejected" ? rejected.left.reason : "", /authored root is not isolated from the outer code repository/u);
+    }
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
   });
@@ -601,10 +593,15 @@ test("WriteCoordinator still fails closed when ignored authored root was force-t
 
     const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
-    assert.throws(
-      () => Effect.runSync(coordinator.enqueue(docWrite("op-force-tracked-ignored", "task-1", "notes.md", "ignored"))),
-      /authored root is not isolated from the outer code repository/
-    );
+    const rejected = Effect.runSync(Effect.either(
+      coordinator.enqueue(docWrite("op-force-tracked-ignored", "task-1", "notes.md", "ignored"))
+    ));
+    assert.equal(rejected._tag, "Left");
+    if (rejected._tag === "Left") {
+      assert.equal(rejected.left._tag, "WriteRejected");
+      assert.equal(rejected.left._tag === "WriteRejected" ? rejected.left.code : undefined, "authored_root_not_isolated");
+      assert.match(rejected.left._tag === "WriteRejected" ? rejected.left.reason : "", /authored root is not isolated from the outer code repository/u);
+    }
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
 });

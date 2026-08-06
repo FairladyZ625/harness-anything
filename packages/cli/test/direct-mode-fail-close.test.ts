@@ -29,9 +29,20 @@ test("initialized ledgers fail closed when an ordinary caller requests a direct 
 
     assert.equal(failed.status, 1);
     assert.equal(failed.receipt.ok, false);
+    assert.equal((failed.receipt.error as Record<string, unknown>).code, "daemon_backed_path_required");
     assert.match(JSON.stringify(failed.receipt), /reserved for operator recovery/iu);
     assert.match(JSON.stringify(failed.receipt), /HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha --root .* --json task create --title 'Must Use Daemon'/u);
     assert.equal(canonicalHead(rootDir), initialHead, "rejected direct write must not move the canonical ref");
+
+    const docSync = runRawJsonMaybeFail(rootDir, ["doc", "sync", "--submit"], {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "recovery",
+      NODE_TEST_CONTEXT: ""
+    });
+    assert.equal(docSync.status, 1);
+    assert.equal((docSync.receipt.error as Record<string, unknown>).code, "daemon_backed_path_required");
+    assert.match(String((docSync.receipt.error as Record<string, unknown>).hint), /requires the daemon-backed CLI path/u);
+    assert.equal(canonicalHead(rootDir), initialHead, "rejected doc sync must not move the canonical ref");
 
     const recovery = runRawJson(rootDir, ["task", "create", "--title", "Explicit Recovery"], {
       HARNESS_DAEMON_MODE: "direct",

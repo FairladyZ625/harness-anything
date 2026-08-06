@@ -99,9 +99,31 @@ export interface DecisionWriteResult {
   readonly state: DecisionState;
 }
 
+export const DecisionWriteRejectionCode = {
+  AcceptEvidenceRequired: "decision_accept_evidence_required",
+  AmendmentRejected: "decision_amendment_rejected",
+  ContentPinRejected: "decision_content_pin_rejected",
+  DispositionRejected: "decision_disposition_rejected",
+  JudgmentActorConflict: "decision_judgment_actor_conflict",
+  JudgmentAttributionRequired: "decision_judgment_attribution_required",
+  JudgmentAttributionUnverifiable: "decision_judgment_attribution_unverifiable",
+  LifecycleContentPinsOwned: "decision_lifecycle_content_pins_owned",
+  ProposeAttributionRequired: "decision_propose_attribution_required",
+  ProposeStateRequired: "decision_propose_state_required",
+  ProvenanceBindingRejected: "decision_provenance_binding_rejected",
+  RejectedAlternativeInvalid: "decision_rejected_alternative_invalid",
+  RelationRejected: "decision_relation_rejected",
+  RelationValidationFailed: "decision_relation_validation_failed",
+  SchemaValidationFailed: "decision_schema_validation_failed",
+  TransitionRejected: "decision_transition_rejected"
+} as const;
+
+export type DecisionWriteRejectionCode = (typeof DecisionWriteRejectionCode)[keyof typeof DecisionWriteRejectionCode];
+
 export interface DecisionWriteRejected {
   readonly _tag: "DecisionWriteRejected";
   readonly decisionId: string;
+  readonly code: DecisionWriteRejectionCode;
   readonly reason: string;
 }
 
@@ -125,13 +147,14 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
   return {
     propose: (request) => {
       if (request.decision.state !== "proposed") {
-        return Effect.fail(rejection(request.decision.decision_id, "decision_propose requires state proposed"));
+        return Effect.fail(rejection(request.decision.decision_id, DecisionWriteRejectionCode.ProposeStateRequired, "decision_propose requires state proposed"));
       }
       if ("contentPins" in request.decision) {
-        return Effect.fail(rejection(request.decision.decision_id, "decision_propose cannot supply lifecycle-owned contentPins"));
+        return Effect.fail(rejection(request.decision.decision_id, DecisionWriteRejectionCode.LifecycleContentPinsOwned, "decision_propose cannot supply lifecycle-owned contentPins"));
       }
       return bindDecisionCreateProvenance(options, request.decision, timestamp()).pipe(
-        Effect.catchAll((error) => Effect.fail(rejection(request.decision.decision_id, error.reason))),
+        Effect.catchAll((error) => Effect.fail(error.writeError
+          ?? rejection(request.decision.decision_id, DecisionWriteRejectionCode.ProvenanceBindingRejected, error.reason))),
         Effect.flatMap((decision) => writeDecision(options.coordinator, hashPayload, "decision_propose", decision, request))
       );
     },
@@ -143,14 +166,14 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     supersede: (request) => transitionDecision(options, hashPayload, "decision_supersede", request, "retired", timestamp()),
     amend: (request) => {
       const rejectedChange = firstNonAmendableDecisionChange(request.current, request.next);
-      if (rejectedChange) return Effect.fail(rejection(request.current.decision_id, rejectedChange));
+      if (rejectedChange) return Effect.fail(rejection(request.current.decision_id, DecisionWriteRejectionCode.AmendmentRejected, rejectedChange));
       const next = appendLoadBearingAmendPin(options, request.current, request.next, timestamp());
-      if (!next.ok) return Effect.fail(rejection(request.current.decision_id, next.reason));
+      if (!next.ok) return Effect.fail(rejection(request.current.decision_id, DecisionWriteRejectionCode.ContentPinRejected, next.reason));
       return writeDecision(options.coordinator, hashPayload, "decision_amend", next.decision, request, request.current);
     },
     repinForMigration: (request) => {
       const next = appendMigrationRepin(options, request.current, timestamp());
-      if (!next.ok) return Effect.fail(rejection(request.current.decision_id, next.reason));
+      if (!next.ok) return Effect.fail(rejection(request.current.decision_id, DecisionWriteRejectionCode.ContentPinRejected, next.reason));
       return writeDecision(options.coordinator, hashPayload, "decision_amend", next.decision, request, request.current, {
         kind: "append_content_pin",
         expectedWatermark: request.current._coordinatorWatermark ?? null,
@@ -169,14 +192,14 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     },
     retireRelation: (request) => {
       const retired = retireRelationRecord(request.current, request.relationId);
-      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, retired.reason));
+      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, DecisionWriteRejectionCode.RelationRejected, retired.reason));
       const disposition = assertDispositionAllowed(options, `relation/${request.relationId}`, "retire", request.current.decision_id);
       if (disposition) return Effect.fail(disposition);
       return writeDecision(options.coordinator, hashPayload, "relation_retire", retired.decision, request, request.current);
     },
     replaceRelation: (request) => {
       const retired = retireRelationRecord(request.current, request.relationId);
-      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, retired.reason));
+      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, DecisionWriteRejectionCode.RelationRejected, retired.reason));
       const disposition = assertDispositionAllowed(options, `relation/${request.relationId}`, "retire", request.current.decision_id);
       if (disposition) return Effect.fail(disposition);
       const next = {
@@ -311,7 +334,11 @@ function transitionDecision(
   };
   const transition = explainDecisionStateTransition(request.current.state, to);
   if (!transition.allowed) {
-    return Effect.fail(rejection(request.current.decision_id, `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`));
+    return Effect.fail(rejection(
+      request.current.decision_id,
+      DecisionWriteRejectionCode.TransitionRejected,
+      `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`
+    ));
   }
   const independence = assertIndependentJudgmentActor(options, request.current.decision_id);
   if (independence) return Effect.fail(independence);
@@ -380,7 +407,11 @@ function acceptEvidenceFloor(decision: DecisionPackage, judgmentOnlyRationale?: 
     claimRefs.has(relation.source) &&
     /^(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|task\/[A-Za-z0-9_-]+|decision\/[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?)$/u.test(relation.target)
   );
-  return hasEvidence ? null : rejection(decision.decision_id, "decision_accept requires at least one evidence relation from a claim anchor, or --judgment-only <rationale>");
+  return hasEvidence ? null : rejection(
+    decision.decision_id,
+    DecisionWriteRejectionCode.AcceptEvidenceRequired,
+    "decision_accept requires at least one evidence relation from a claim anchor, or --judgment-only <rationale>"
+  );
 }
 
 function judgmentOnlyBodySection(request: DecisionTransitionRequest): string | undefined {
@@ -407,7 +438,7 @@ function assertDispositionAllowed(
     entityRef,
     action
   });
-  return evaluation.allowed ? null : rejection(decisionId, evaluation.reason);
+  return evaluation.allowed ? null : rejection(decisionId, DecisionWriteRejectionCode.DispositionRejected, evaluation.reason);
 }
 
 function writeDecision(
@@ -448,7 +479,7 @@ type DecisionDocumentWriteMode =
 
 function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPackage): DecisionWriteRejected | null {
   if (decision.rejected.length === 0 || decision.rejected.some((entry) => entry.why_not.trim().length === 0)) {
-    return rejection(decision.decision_id, "decision rejected alternatives require non-empty why_not");
+    return rejection(decision.decision_id, DecisionWriteRejectionCode.RejectedAlternativeInvalid, "decision rejected alternatives require non-empty why_not");
   }
   // Delta enforcement: a write must not introduce new relation issues, but is not
   // blocked by pre-existing issues it leaves untouched. Without this, a host holding
@@ -464,19 +495,23 @@ function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPac
     : new Set<string>();
   const introduced = relationIssues.filter((issue) => !preexisting.has(`${issue.code}|${issue.relationId ?? ""}`));
   if (introduced.length > 0) {
-    return rejection(decision.decision_id, introduced.map((issue) => issue.message).join("; "));
+    return rejection(decision.decision_id, DecisionWriteRejectionCode.RelationValidationFailed, introduced.map((issue) => issue.message).join("; "));
   }
   try {
     Schema.decodeUnknownSync(DecisionPackageSchema)(decision);
     return null;
   } catch (error) {
-    return rejection(decision.decision_id, error instanceof Error ? error.message : "decision package schema validation failed");
+    return rejection(
+      decision.decision_id,
+      DecisionWriteRejectionCode.SchemaValidationFailed,
+      error instanceof Error ? error.message : "decision package schema validation failed"
+    );
   }
 }
 
 function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, decisionId: string): DecisionWriteRejected | null {
   const currentActor = options.attribution?.actor;
-  if (!currentActor) return rejection(decisionId, "decision judgment requires request attribution");
+  if (!currentActor) return rejection(decisionId, DecisionWriteRejectionCode.JudgmentAttributionRequired, "decision judgment requires request attribution");
   try {
     const events: ReadonlyArray<UnionAttributionEvent> = options.readUnionAttributionEvents?.()
       ?? options.readAttributionEvents?.()
@@ -488,7 +523,7 @@ function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, de
           && mutation.entity.canonicalRef === `decision/${decisionId}`));
     // 溯源仍然 fail-closed,对谁都一样:判定前必须能验到那条不可变的 propose 事件。
     // 下面豁免的只是「判定者与提议者不得同一」,不是「提议事件必须存在」。
-    if (!propose) return rejection(decisionId, "decision judgment requires an immutable decision_propose attribution event");
+    if (!propose) return rejection(decisionId, DecisionWriteRejectionCode.ProposeAttributionRequired, "decision judgment requires an immutable decision_propose attribution event");
     // 判定动作没有 executor = 一个人在直接操作 → 分离校验整条豁免:人可以批自己提的,
     // 也可以批别人提的(dec_01KXCHW9MFV8E3QGZJJW91YNDS)。分离不变量承重的目的是阻止
     // **agent** 给自己签字 —— 那是问责层的核心承诺 —— 不是阻止人给自己签字。单人
@@ -503,11 +538,11 @@ function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, de
             : { kind: "agent", id: propose.actorAxesBinding.executorAgentId }
         };
     return sameActorAxes(proposeActor, currentActor)
-      ? rejection(decisionId, "an agent may not judge the decision it proposed; a human must sign off")
+      ? rejection(decisionId, DecisionWriteRejectionCode.JudgmentActorConflict, "an agent may not judge the decision it proposed; a human must sign off")
       : null;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return rejection(decisionId, `decision judgment could not verify decision_propose attribution: ${detail}`);
+    return rejection(decisionId, DecisionWriteRejectionCode.JudgmentAttributionUnverifiable, `decision judgment could not verify decision_propose attribution: ${detail}`);
   }
 }
 
@@ -521,6 +556,6 @@ function contentPinActor(actor: ActorAxes): NonNullable<DecisionPackage["content
     : { kind: "human", id: actor.principal.personId };
 }
 
-function rejection(decisionId: string, reason: string): DecisionWriteRejected {
-  return { _tag: "DecisionWriteRejected", decisionId, reason };
+function rejection(decisionId: string, code: DecisionWriteRejectionCode, reason: string): DecisionWriteRejected {
+  return { _tag: "DecisionWriteRejected", decisionId, code, reason };
 }

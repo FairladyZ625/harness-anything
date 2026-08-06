@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { bindCreateProvenance, makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteAttribution, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import { bindCreateProvenance, makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput, type ProvenanceSessionExporter, type ProvenanceSessionExporterRejected } from "../src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteAttribution, type WriteCoordinator, type WriteError, type WriteOp } from "../../kernel/src/index.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 const testAttribution = {
@@ -112,6 +112,54 @@ test("fact create service binds provenance into the single-line record and expor
   }
 });
 
+test("decision and fact provenance binding preserve the underlying structured write rejection", async () => {
+  const rootDir = createHarnessRoot();
+  const writeError = {
+    _tag: "WriteRejected",
+    code: "authored_root_not_isolated",
+    reason: "authored root is not isolated",
+    retryable: false
+  } as const satisfies WriteError;
+  const exporterError = {
+    _tag: "ProvenanceSessionExporterRejected",
+    sessionId: "human-test",
+    code: "write_failed",
+    reason: writeError.reason,
+    writeError
+  } as const;
+  const exporter = failingExporter(exporterError);
+  const currentSessionProbe = makeHumanFallbackSessionProbe();
+  try {
+    const decision = makeDecisionWriteService({
+      coordinator: fakeCoordinator([]),
+      currentSessionProbe,
+      provenanceSessionExporter: exporter
+    });
+    const fact = makeFactWriteService({
+      rootInput: rootDir,
+      coordinator: fakeCoordinator([]),
+      currentSessionProbe,
+      provenanceSessionExporter: exporter
+    });
+
+    const decisionResult = await runEffect(Effect.either(decision.propose({ decision: decisionCreateInput() })));
+    const factResult = await runEffect(Effect.either(fact.record({
+      ownerTaskId: "task_OWNER",
+      factId: "F-DEADBEEF",
+      statement: "Structured write failures survive provenance binding.",
+      source: "service test",
+      confidence: "high"
+    })));
+
+    assert.equal(decisionResult._tag, "Left");
+    assert.equal(factResult._tag, "Left");
+    if (decisionResult._tag === "Left") assert.equal(decisionResult.left, writeError);
+    if (factResult._tag === "Left") assert.equal(factResult.left, writeError);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("automatic provenance binding keeps the session pointer when transcript availability is indeterminate", async () => {
   const rootDir = createHarnessRoot();
   try {
@@ -155,6 +203,16 @@ function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
     flush: () => Effect.succeed({ reason: "explicit", opCount: enqueued.length, committed: true }),
     recover: Effect.succeed({ replayedOps: 0 })
   };
+}
+
+function failingExporter(error: ProvenanceSessionExporterRejected): ProvenanceSessionExporter {
+  const fail = () => Effect.fail(error);
+  return {
+    exportSession: fail,
+    exportCurrentSession: fail,
+    backfillRuntimeSessions: fail,
+    readById: fail
+  } as ProvenanceSessionExporter;
 }
 
 function decisionCreateInput(): DecisionCreateInput {

@@ -16,14 +16,16 @@ test("decision accept blocks zero-evidence decisions without judgment-only ratio
   });
   const proposed = decisionPackage({ state: "proposed" });
 
-  const result = Effect.runSyncExit(service.accept({
+  const result = Effect.runSync(Effect.flip(service.accept({
     current: proposed,
     arbiter: { kind: "human", id: "ZeyuLi" },
     opIdPrefix: "accept"
-  }));
+  })));
 
-  assert.equal(result._tag, "Failure");
-  assert.match(failureReason(result.cause), /requires at least one evidence relation/u);
+  assert.equal(result._tag, "DecisionWriteRejected");
+  if (result._tag !== "DecisionWriteRejected") return;
+  assert.equal(result.code, "decision_accept_evidence_required");
+  assert.match(result.reason, /requires at least one evidence relation/u);
 });
 
 test("decision write service proposes and accepts through WriteCoordinator with evidence", () => {

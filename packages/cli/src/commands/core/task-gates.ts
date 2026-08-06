@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, taskLifecycleTransitionId } from "@harness-anything/application";
 import { makeLocalVersionControlSystem, resolveHarnessLayout, type WriteError } from "@harness-anything/kernel";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { preserveWriteErrorOrUnclassified } from "../../cli/write-error-classification.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { taskCompleteTransitionCommandFromCliAction } from "../../cli/task-complete-transition-command.ts";
@@ -62,7 +63,7 @@ function runTaskLifecycleTransition(
       yield* coordinator.flush("explicit");
       const holder = yield* Effect.tryPromise({
         try: () => context.taskHolderService.holder({ taskId: action.taskId }),
-        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+        catch: preserveWriteErrorOrUnclassified
       });
       if (holder.effectiveHolder) {
         return yield* Effect.fail({
