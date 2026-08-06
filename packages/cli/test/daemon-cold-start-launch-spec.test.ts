@@ -515,7 +515,9 @@ test("transport bind failure after socket ownership does not persist any registr
     assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
     assert.equal(existsSync(`${endpoint}.owner`), false);
   } finally {
+    rmSync(endpoint, { recursive: true, force: true });
     rmSync(fixture.root, { recursive: true, force: true });
+    assert.equal(existsSync(endpoint), false, `test leaked socket endpoint directory: ${endpoint}`);
   }
 });
 
