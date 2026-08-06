@@ -322,6 +322,7 @@ test("provenance session exporter preserves daemon lock owner guidance", async (
     assert.equal(result._tag, "Left");
     if (result._tag !== "Left") return;
     assert.equal(result.left.sessionId, "codex-session-locked");
+    assert.equal(result.left.writeError, error);
     assert.match(result.left.reason, /global write conflict/u);
     assert.match(result.left.reason, /write through daemon/u);
     assert.deepEqual(listObjectFiles(rootDir), []);

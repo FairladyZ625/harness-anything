@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { taskEntityId } from "../../../kernel/src/index.ts";
-import type { WriteCoordinator, WriteOp } from "../../../kernel/src/index.ts";
+import type { WriteCoordinator, WriteError, WriteOp } from "../../../kernel/src/index.ts";
 import { makeLocalLifecycleEngine } from "../src/index.ts";
 import { writeSupersedeTaskDocuments } from "../src/task-writes.ts";
 
@@ -30,6 +30,57 @@ test("supersede document writes use the explicit operation task id", () => {
   assert.equal(enqueued.length, 1);
   assert.equal(enqueued[0]?.entityId, taskEntityId("task-old"));
   assert.equal(enqueued[0]?.kind, "package_supersede");
+});
+
+test("local task create preserves a structured provenance write rejection", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-create-rejection-"));
+  const enqueued: WriteOp[] = [];
+  const rejection = semanticWriteRejection();
+  try {
+    const engine = makeLocalLifecycleEngine({
+      rootDir,
+      coordinator: capturingCoordinator(enqueued),
+      bindCreateProvenance: () => Effect.fail({ reason: rejection.reason, writeError: rejection })
+    });
+
+    const failure = Effect.runSync(Effect.flip(engine.createTask({
+      taskId: executionTaskId,
+      title: "Rejected create",
+      allowManualId: false
+    })));
+
+    assert.equal(failure, rejection);
+    assert.equal(enqueued.length, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("local task supersede preserves a structured provenance write rejection", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-supersede-rejection-"));
+  const enqueued: WriteOp[] = [];
+  const rejection = semanticWriteRejection();
+  try {
+    writeTaskIndex(rootDir, "active");
+    const engine = makeLocalLifecycleEngine({
+      rootDir,
+      coordinator: capturingCoordinator(enqueued),
+      bindCreateProvenance: () => Effect.fail({ reason: rejection.reason, writeError: rejection })
+    });
+
+    const failure = Effect.runSync(Effect.flip(engine.supersedeTask({
+      oldTaskId: executionTaskId,
+      newTaskId: "task_01KX7H00000000000000000001",
+      title: "Rejected supersede",
+      slug: "rejected-supersede",
+      reason: "fixture"
+    })));
+
+    assert.equal(failure, rejection);
+    assert.equal(enqueued.length, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 for (const status of ["in_review", "done"] as const) {
@@ -120,4 +171,13 @@ function writeTaskIndex(rootDir: string, status: "active" | "in_review"): void {
 
 function stableHash(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function semanticWriteRejection(): Extract<WriteError, { readonly _tag: "WriteRejected" }> {
+  return {
+    _tag: "WriteRejected",
+    code: "authored_root_not_isolated",
+    reason: "authored root is not isolated",
+    retryable: false
+  };
 }

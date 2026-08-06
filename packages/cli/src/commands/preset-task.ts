@@ -207,7 +207,8 @@ export function runNewTaskWithPreset(
       } satisfies CliResult;
     }
     const provenance = yield* bindCreateProvenance(provenanceOptions, createdAt).pipe(
-      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => error.writeError
+        ?? ({ _tag: "WriteRejected", taskId, reason: error.reason } satisfies WriteError))
     );
     const index = makeIndex({
       taskId,

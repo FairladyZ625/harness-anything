@@ -152,7 +152,8 @@ function createTask(
     }
     const createdAt = clock().toISOString();
     const provenance = yield* bindProvenance(createdAt).pipe(
-      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => error.writeError
+        ?? ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
     );
     const writes = buildLocalTaskCreateWrites(input, createdAt, provenance);
     yield* writeTaskPackageDocuments(coordinator, stablePayloadHash, input.taskId, writes);
@@ -431,7 +432,8 @@ function supersedeTask(
     const oldIndex = yield* readIndexEffect(rootInput, input.oldTaskId);
     const createdAt = clock().toISOString();
     const provenance = yield* bindProvenance(createdAt).pipe(
-      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId: input.newTaskId, reason: error.reason } satisfies WriteError))
+      Effect.mapError((error) => error.writeError
+        ?? ({ _tag: "WriteRejected", taskId: input.newTaskId, reason: error.reason } satisfies WriteError))
     );
     const newIndex = makeIndex({
       taskId: input.newTaskId,

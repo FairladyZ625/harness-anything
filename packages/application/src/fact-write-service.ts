@@ -92,7 +92,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
       }
       const observedAt = request.observedAt ?? timestamp();
       const provenance = yield* bindCreateProvenance(options, observedAt).pipe(
-        Effect.catchAll((error) => Effect.fail(factRejection(request.ownerTaskId, error.reason)))
+        Effect.catchAll((error) => Effect.fail(error.writeError ?? factRejection(request.ownerTaskId, error.reason)))
       );
       const record: FactRecord = {
         fact_id: factId,

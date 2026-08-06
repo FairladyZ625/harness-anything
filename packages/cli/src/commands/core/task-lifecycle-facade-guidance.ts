@@ -1,5 +1,11 @@
 import type { CommandFailureReceipt, CommandReceipt } from "../../cli/receipt.ts";
+import { CliErrorCode } from "../../cli/error-codes.ts";
 import type { ParsedCommand } from "../../cli/types.ts";
+
+const docSyncUnavailableCodes: ReadonlySet<string> = new Set([
+  CliErrorCode.DaemonBackedPathRequired,
+  CliErrorCode.DaemonUnavailable
+]);
 
 export interface PlannedTaskClaimGuidance {
   readonly severity: "warning";
@@ -25,8 +31,8 @@ export async function dispatchLifecycleFacadeSteps(
       continue;
     }
     if (step.action.kind === "doc-sync"
-      && receipt.error?.code === "journal_unavailable"
-      && /requires the daemon-backed CLI path|HARNESS_DAEMON_MODE=direct/iu.test(receipt.error.hint)) {
+      && receipt.error !== undefined
+      && docSyncUnavailableCodes.has(receipt.error.code)) {
       warnings.push({
         severity: "warning",
         code: "doc_sync_dirty",

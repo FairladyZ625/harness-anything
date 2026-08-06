@@ -41,7 +41,7 @@ export function taskHolderCommandFailure(error: unknown): CliResult {
   return {
     ok: false,
     command: "task-holder",
-    error: cliError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error))
+    error: cliError(CliErrorCode.UnclassifiedCommandFailure, error instanceof Error ? error.message : String(error))
   };
 }
 

@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import {
   type DaemonAdmissionBudget,
   type WriteCoordinator,
+  type WriteError,
   type WriteOp
 } from "@harness-anything/kernel";
 import {
@@ -390,6 +391,60 @@ test("write queue retains independent request traces for separately enqueued ite
   assert.ok(summaries.every(({ requestId }) => /^sha256:[a-f0-9]{24}$/u.test(requestId)));
   assert.ok(summaries.every((summary) => summary.phasesMs["queue-wait"] !== null));
   assert.ok(summaries.every((summary) => summary.phasesMs["durable-flush"] !== null));
+});
+
+test("write queue preserves typed enqueue rejection identity and retryability", async () => {
+  const queue = new DaemonWriteQueue(1, 0, unlimitedAdmissionBudget());
+  const rejection = {
+    _tag: "WriteRejected",
+    code: "enqueue_semantic_rejection",
+    reason: "enqueue rejected by fixture",
+    retryable: true
+  } as const satisfies WriteError;
+  let flushCalled = false;
+
+  await assert.rejects(
+    queue.enqueueInteractive(queueRequest("enqueue-rejected"), () => ({
+      enqueue: () => Effect.fail(rejection),
+      flush: () => Effect.sync(() => {
+        flushCalled = true;
+        return { reason: "explicit" as const, opCount: 1, committed: true };
+      }),
+      recover: Effect.succeed({ replayedOps: 0 })
+    })),
+    (error: unknown) => {
+      assert.deepEqual(error, rejection);
+      return true;
+    }
+  );
+  assert.equal(flushCalled, false);
+});
+
+test("write queue preserves typed flush rejection identity and retryability", async () => {
+  const queue = new DaemonWriteQueue(1, 0, unlimitedAdmissionBudget());
+  const rejection = {
+    _tag: "WriteRejected",
+    code: "flush_semantic_rejection",
+    reason: "flush rejected by fixture",
+    retryable: false
+  } as const satisfies WriteError;
+  let enqueueCount = 0;
+
+  await assert.rejects(
+    queue.enqueueInteractive(queueRequest("flush-rejected"), () => ({
+      enqueue: (operation) => Effect.sync(() => {
+        enqueueCount += 1;
+        return { opId: operation.opId, entityId: operation.entityId, accepted: true as const };
+      }),
+      flush: () => Effect.fail(rejection),
+      recover: Effect.succeed({ replayedOps: 0 })
+    })),
+    (error: unknown) => {
+      assert.deepEqual(error, rejection);
+      return true;
+    }
+  );
+  assert.equal(enqueueCount, 1);
 });
 
 test("untraced background queue work does not inherit the scheduling request trace", async () => {

@@ -77,7 +77,7 @@ test("git common-dir parent is rejected when it is not a registered repo root", 
     const failed = runFrom(fixture.worktreeRoot, ["--json", "task", "list"], fixture.env);
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "journal_unavailable");
+    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
     assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
     assert.match(String(failed.receipt.error?.hint), /git common-dir candidate .* is not registered/iu);
     assert.doesNotMatch(String(failed.receipt.error?.hint), /Start the daemon|recovery escape hatch/iu);
@@ -101,7 +101,7 @@ test("non-git cwd keeps the unregistered-root failure path", async () => {
     const failed = runFrom(outsiderRoot, ["--json", "task", "list"], env);
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "journal_unavailable");
+    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
     assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
     assert.doesNotMatch(String(failed.receipt.error?.hint), /git common-dir candidate/iu);
   } finally {
@@ -128,7 +128,7 @@ test("resolved roots retain the daemon-unavailable recovery hint for real connec
     });
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "journal_unavailable");
+    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
     assert.match(String(failed.receipt.error?.hint), /Daemon unavailable/iu);
     assert.match(String(failed.receipt.error?.hint), /HARNESS_DIRECT_WRITE_REASON=recovery/iu);
   } finally {

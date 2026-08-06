@@ -414,7 +414,7 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote
     ok: false,
     command: receiptCommandKind(command.action),
     error: cliError(
-      CliErrorCode.JournalUnavailable,
+      CliErrorCode.DaemonUnavailable,
       error instanceof CliRootResolutionError
         ? unavailableHint
         : `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
@@ -458,7 +458,7 @@ function directModeRejection(command: ParsedCommand): CommandFailureReceipt {
     ok: false,
     command: receiptCommandKind(command.action),
     error: cliError(
-      CliErrorCode.JournalUnavailable,
+      CliErrorCode.DaemonBackedPathRequired,
       `Direct CLI execution is reserved for operator recovery when the daemon is unavailable or stuck. For the normal single-writer path, remove HARNESS_DAEMON_MODE=direct. To run this command through the recovery escape hatch, use '${directRecoveryCommandLine()}'.`
     )
   });

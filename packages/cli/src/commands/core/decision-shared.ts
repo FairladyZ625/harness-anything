@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  DecisionWriteRejectionCode,
   type DecisionWriteRejected
 } from "@harness-anything/application";
 import {
@@ -48,12 +49,20 @@ export function decisionFailure(command: string, decisionId: string, error: Deci
   if ("_tag" in error && error._tag === "WriteRejected" && error.code === CliErrorCode.AuthorityIngressRejected) {
     return { ok: false, command, decisionId, error: toCliError(error) };
   }
-  const reason = "_tag" in error && error._tag === "DecisionWriteRejected" ? error.reason : JSON.stringify(error);
+  const decisionRejection = "_tag" in error && error._tag === "DecisionWriteRejected" ? error : undefined;
+  const reason = decisionRejection?.reason ?? JSON.stringify(error);
   return {
     ok: false,
     command,
     decisionId,
-    error: cliError(CliErrorCode.DecisionWriteRejected, current && isAcceptEvidenceFloorRejection(command, reason) ? acceptEvidenceFloorHint(current) : reason)
+    error: cliError(
+      CliErrorCode.DecisionWriteRejected,
+      current
+        && command === "decision-accept"
+        && decisionRejection?.code === DecisionWriteRejectionCode.AcceptEvidenceRequired
+        ? acceptEvidenceFloorHint(current)
+        : reason
+    )
   };
 }
 
@@ -76,8 +85,4 @@ export function acceptEvidenceFloorHint(decision: DecisionPackage): string {
   const firstClaim = claimAnchors[0] ?? "C1";
   const endpointText = endpointAnchors.length > 0 ? ` Chosen/rejected anchors (${endpointAnchors.join(", ")}) are relation endpoints, but they do not satisfy the accept evidence floor unless the same anchor id also appears in claims.` : "";
   return `decision_accept requires at least one active evidence relation from a claim anchor. Existing claim anchor(s): ${claimAnchors.join(", ") || "none"}. Run: ha decision relate ${decision.decision_id} --anchor ${firstClaim} --type relates --target task/<task-id> --rationale <text>, then retry accept; or use ha decision accept ${decision.decision_id} --judgment-only <rationale>.${endpointText}`;
-}
-
-function isAcceptEvidenceFloorRejection(command: string, reason: string): boolean {
-  return command === "decision-accept" && reason.includes("decision_accept requires at least one evidence relation from a claim anchor");
 }

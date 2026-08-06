@@ -20,6 +20,7 @@ export interface LocalLifecycleOptions {
 
 export interface CreateProvenanceRejected {
   readonly reason: string;
+  readonly writeError?: WriteError;
 }
 
 export interface LocalWriteCoordinatorOptions {

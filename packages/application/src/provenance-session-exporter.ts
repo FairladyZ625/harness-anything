@@ -61,6 +61,7 @@ export interface ProvenanceSessionExporterRejected {
   readonly sessionId: string;
   readonly code: "transcript_unavailable" | "session_not_found" | "read_failed" | "write_failed";
   readonly reason: string;
+  readonly writeError?: WriteError;
 }
 
 export interface ProvenanceSessionExporter {
@@ -170,7 +171,7 @@ function writeSessionDocument(
         path: target.authoredRelativePath
       })),
       Effect.tapError(() => Effect.sync(() => cleanupRejectedSessionBody(rootInput, session.sessionId, bodyWrite))),
-      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed"))
+      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed", error))
     );
   });
 }
@@ -379,13 +380,15 @@ function sanitizeScalar(value: string): string {
 function sessionRejection(
   sessionId: string,
   reason: string,
-  code: ProvenanceSessionExporterRejected["code"] = "read_failed"
+  code: ProvenanceSessionExporterRejected["code"] = "read_failed",
+  writeError?: WriteError
 ): ProvenanceSessionExporterRejected {
   return {
     _tag: "ProvenanceSessionExporterRejected",
     sessionId,
     code,
-    reason
+    reason,
+    ...(writeError ? { writeError } : {})
   };
 }
 

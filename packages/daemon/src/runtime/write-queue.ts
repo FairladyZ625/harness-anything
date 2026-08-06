@@ -304,7 +304,7 @@ export class DaemonWriteQueue {
       try {
         item.endDurableFlush = item.performanceTrace?.begin("durable-flush");
         for (const op of item.ops) {
-          Effect.runSync(coordinator.enqueue(op));
+          runWriteEffect(coordinator.enqueue(op));
         }
         accepted.push(item);
       } catch (error) {
@@ -320,7 +320,7 @@ export class DaemonWriteQueue {
       opIds: accepted.flatMap((item) => item.ops.map((op) => op.opId))
     };
     try {
-      const flush = () => Effect.runSync(coordinator.flush("explicit"));
+      const flush = () => runWriteEffect(coordinator.flush("explicit"));
       const report = accepted[0]?.runWithRepoWriteTelemetry
         ? accepted[0].runWithRepoWriteTelemetry(flush)
         : flush();
@@ -440,6 +440,12 @@ function sessionKey(sessionId: string | undefined): string {
 function toDaemonQueueWriteError(error: unknown): WriteError {
   if (isDaemonQueueWriteError(error)) return error;
   return { _tag: "JournalUnavailable", cause: error };
+}
+
+function runWriteEffect<Result>(effect: Effect.Effect<Result, WriteError>): Result {
+  const result = Effect.runSync(Effect.either(effect));
+  if (result._tag === "Left") throw result.left;
+  return result.right;
 }
 
 function isDaemonQueueWriteError(error: unknown): error is WriteError {
