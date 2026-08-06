@@ -17,7 +17,18 @@ const allowedProseInspections = [
   "packages/cli/src/daemon/client.ts:/\\bsettings\\.daemon\\b/u.test(hint)"
 ].sort();
 
-test("CLI semantic branches do not reconstruct machine meaning from reason or hint prose", () => {
+// Scope, stated so a green run is not read as more than it is (dec_01KZAHRYNXP1DEMP285MBFHZY6/CH2).
+// This checks one shape in one place: a string method called directly on `.reason` or `.hint`
+// inside packages/cli/src, minus an allowlist. Measured limits, not speculation:
+//   - it does not read packages/adapters/** or packages/daemon/**, where the same semantic loss
+//     occurs through `mapError` reason-only rebuilds and `Effect.runSync` swallowing typed failures;
+//   - one local rename defeats it, with behaviour unchanged
+//     (`error.reason.includes(x)` -> `const details = error.reason; details.includes(x)`);
+//   - the allowlist below is hand-maintained and will rot like any hand-maintained list.
+// The invariant it gestures at -- semantic identity is decided at the throw site, not at the catch
+// site (dec_01KZAF5RDF1EZ4CSAKFEXXSE7J) -- has no repository-wide mechanical guarantee. That was
+// measured and accepted, not overlooked.
+test("no unlisted packages/cli/src site calls a string method directly on an error reason or hint", () => {
   assert.deepEqual(findProseSemanticInspections(), allowedProseInspections);
 });
 
