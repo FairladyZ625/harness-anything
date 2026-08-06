@@ -9,6 +9,11 @@ import {
   spawnLocalDaemon
 } from "../../daemon/src/index.ts";
 import {
+  daemonRootIdentity,
+  daemonRootWatchTerminatesProcess,
+  monitorDaemonRootLifetime
+} from "../../daemon/src/lifecycle/daemon-root-lifetime.ts";
+import {
   defaultDaemonUserRoot,
   pollUntil,
   runDaemonCommand,
@@ -88,6 +93,28 @@ function initializeFixtureWithoutDaemon(rootDir: string): void {
     HARNESS_DIRECT_WRITE_REASON: "recovery"
   });
 }
+
+test("root loss is still detected when the watcher is suppressed", { timeout: 15_000 }, async () => {
+  // Windows suppresses the watcher because watching a disappearing directory kills the process
+  // with 0xC0000409. That leaves the interval as the only detector, so it has to be sufficient
+  // on its own. Forcing the suppressed branch here keeps that provable on every host rather
+  // than only on the Windows runner.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-poll-only-root-"));
+  const monitor = monitorDaemonRootLifetime(rootDir, daemonRootIdentity(rootDir), true);
+  try {
+    assert.equal(monitor.rootAvailable(), true);
+    rmSync(rootDir, { recursive: true, force: true });
+    assert.deepEqual(await monitor.rootLost, { reason: "root-unavailable" });
+  } finally {
+    monitor.stop();
+  }
+});
+
+test("the watcher is suppressed on Windows and kept everywhere else", () => {
+  assert.equal(daemonRootWatchTerminatesProcess("win32"), true);
+  assert.equal(daemonRootWatchTerminatesProcess("darwin"), false);
+  assert.equal(daemonRootWatchTerminatesProcess("linux"), false);
+});
 
 function processIsAlive(pid: number | undefined): boolean {
   if (pid === undefined) return false;

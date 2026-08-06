@@ -34,6 +34,10 @@ export function daemonAutostartRootIdentity(env: NodeJS.ProcessEnv): string | un
   return value ? value : undefined;
 }
 
+export function daemonRootWatchTerminatesProcess(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "win32";
+}
+
 export function daemonRootIdentity(rootDir: string): string | undefined {
   try {
     const stat = statSync(rootDir, { bigint: true });
@@ -45,7 +49,8 @@ export function daemonRootIdentity(rootDir: string): string | undefined {
 
 export function monitorDaemonRootLifetime(
   rootDir: string,
-  expectedIdentity = daemonRootIdentity(rootDir) ?? "missing"
+  expectedIdentity = daemonRootIdentity(rootDir) ?? "missing",
+  watchTerminatesProcess = daemonRootWatchTerminatesProcess()
 ): DaemonRootLifetimeMonitor {
   let watcher: FSWatcher | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -72,14 +77,22 @@ export function monitorDaemonRootLifetime(
 
   inspect();
   if (!stopped) {
-    try {
-      watcher = watch(rootDir, { persistent: false }, inspect);
-      watcher.on("error", () => {
-        watcher?.close();
-        watcher = undefined;
-      });
-    } catch {
-      // The interval is the cross-platform fallback for unavailable watchers.
+    // The watcher is only a latency accelerant over the interval below. On Windows it also
+    // terminates the process: watching a directory that is being removed crashes Node with
+    // STATUS_STACK_BUFFER_OVERRUN (0xC0000409), its __fastfail path, which no `error` handler
+    // or `catch` can observe. Removing the watcher there was proved sufficient by an A/B
+    // control run on CI: with it disabled the autostart child reached steady state instead of
+    // dying. The cost is bounded by daemonRootLifetimePollMs of extra detection latency.
+    if (!watchTerminatesProcess) {
+      try {
+        watcher = watch(rootDir, { persistent: false }, inspect);
+        watcher.on("error", () => {
+          watcher?.close();
+          watcher = undefined;
+        });
+      } catch {
+        // The interval is the cross-platform fallback for unavailable watchers.
+      }
     }
     timer = setInterval(inspect, daemonRootLifetimePollMs);
     timer.unref();
