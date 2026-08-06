@@ -122,7 +122,7 @@ export function deriveStopPointCoverage(manifest, completedStepLabels) {
 export function formatStopPointSummary(coverage) {
   return [
     `Local stop point passed: ${coverage.completed.length} complete manifest gate(s) are green.`,
-    "Change-aware lint and fast/contract tests also ran, but are not reported as complete repository-wide gates.",
+    "Not covered by design: integration and nightly tiers; this stop point runs only fast/contract tests under affected package/tool prefixes, so changes without such a prefix select no Node tests.",
     `CI still runs ${coverage.ciOnly.length} broader or environment-only gate(s): ${coverage.ciOnly.join(", ")}`,
     "Run the omitted set now with: npm run check:ci"
   ].join("\n");

@@ -101,6 +101,27 @@ test("stop-point summary derives completed and omitted gates from the manifest",
   assert.match(formatStopPointSummary(coverage), /npm run check:ci/u);
 });
 
+test("stop-point summary always states uncovered tiers across change shapes", () => {
+  const manifest = {
+    surfaces: { localStop: { gateIds: [] } },
+    gates: []
+  };
+  const changeShapes = [
+    [],
+    ["docs-release/readme.md"],
+    ["tools/run-local-check.mjs"]
+  ];
+
+  for (const changedFiles of changeShapes) {
+    const labels = buildSteps(false, changedFiles).map(([label]) => label);
+    const summary = formatStopPointSummary(deriveStopPointCoverage(manifest, labels));
+    assert.match(
+      summary,
+      /^Not covered by design: integration and nightly tiers; this stop point runs only fast\/contract tests under affected package\/tool prefixes, so changes without such a prefix select no Node tests\.$/mu
+    );
+  }
+});
+
 test("changed-file collection combines merge-base diff and untracked files", () => {
   const calls = [];
   const run = (_command, args) => {
