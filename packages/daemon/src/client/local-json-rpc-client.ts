@@ -1,6 +1,5 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -20,7 +19,10 @@ import {
   type DaemonLaunchConfiguration
 } from "./daemon-launch-configuration.ts";
 import { DaemonRepoRootResolutionError } from "./daemon-repo-root-resolution-error.ts";
-import { daemonSocketNamespaceError } from "../transport/daemon-socket-namespace.ts";
+import {
+  connectUnixSocketWithLegacyFallback,
+  connectUnixSocketWithNamespaceDiagnostic
+} from "./daemon-socket-connection.ts";
 import {
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
@@ -32,6 +34,12 @@ import {
   daemonRootIdentity
 } from "../lifecycle/daemon-root-lifetime.ts";
 import { daemonServerHostEnvironment } from "./daemon-server-host-environment.ts";
+import {
+  daemonAutostartFailureError,
+  daemonAutostartProcessExitedError,
+  spawnDetachedDaemonAutostart,
+  type SpawnedDaemonAutostartProcess
+} from "./daemon-autostart-process.ts";
 
 export {
   createDaemonLaunchConfiguration,
@@ -65,21 +73,10 @@ export const defaultDaemonIdleExitMs = 0;
 export const localDaemonRetryIntervalMs = 100;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
-export class DaemonAutostartTimeoutError extends Error {
-  readonly timeoutMs: number;
-  readonly spawnedPid?: number;
-
-  constructor(timeoutMs: number, lastError: unknown, spawnedPid?: number) {
-    const cause = lastError instanceof Error ? lastError.message : String(lastError ?? "no ready probe completed");
-    super(
-      `DAEMON_AUTOSTART_TIMEOUT: readiness was not confirmed within the normal ${timeoutMs}ms startup budget; `
-      + `the launched process${spawnedPid === undefined ? "" : ` pid ${spawnedPid}`} may still be starting. Last probe: ${cause}`
-    );
-    this.name = "DaemonAutostartTimeoutError";
-    this.timeoutMs = timeoutMs;
-    this.spawnedPid = spawnedPid;
-  }
-}
+export {
+  DaemonAutostartProcessExitedError,
+  DaemonAutostartTimeoutError
+} from "./daemon-autostart-process.ts";
 
 export {
   DaemonJsonRpcRequestTimeoutError,
@@ -134,13 +131,15 @@ export interface LocalDaemonJsonRpcOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-type SpawnLocalDaemon = (target: LocalDaemonTarget, options: LocalDaemonAutostartOptions) => number | void;
+type SpawnLocalDaemonResult = number | void | SpawnedDaemonAutostartProcess;
+type SpawnLocalDaemon = (target: LocalDaemonTarget, options: LocalDaemonAutostartOptions) => SpawnLocalDaemonResult;
 
 interface DaemonStartupFlight {
   readonly startedAt: number;
   deadline: number;
   lastError: unknown;
   spawnedPid?: number;
+  launchStderrPath?: string;
   promise: Promise<void>;
 }
 
@@ -315,8 +314,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
 }
 
 export function spawnLocalDaemon(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): number | undefined {
-  const pid = spawnLocalDaemonImplementation(target, options);
-  return typeof pid === "number" ? pid : undefined;
+  return launchLocalDaemon(target, options).pid;
 }
 
 export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): () => void {
@@ -327,7 +325,10 @@ export function replaceSpawnLocalDaemonForTest(replacement: SpawnLocalDaemon): (
   };
 }
 
-function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemonAutostartOptions): number | undefined {
+function spawnLocalDaemonProcess(
+  target: LocalDaemonTarget,
+  options: LocalDaemonAutostartOptions
+): SpawnedDaemonAutostartProcess {
   const expectedRootIdentity = daemonRootIdentity(target.canonicalRoot) ?? "missing";
   const launchConfiguration = options.launchConfiguration ?? createDaemonLaunchConfiguration({
     target,
@@ -338,20 +339,19 @@ function spawnLocalDaemonProcess(target: LocalDaemonTarget, options: LocalDaemon
     ...(options.execArgv ? { execArgv: options.execArgv } : {}),
     env: options.env ?? process.env
   });
-  const child = spawn(launchConfiguration.execPath, [
-    ...launchConfiguration.execArgv,
-    launchConfiguration.entrypoint,
-    ...launchConfiguration.args
-  ], {
-    detached: true,
-    stdio: "ignore",
+  return spawnDetachedDaemonAutostart({
+    execPath: launchConfiguration.execPath,
+    argv: [
+      ...launchConfiguration.execArgv,
+      launchConfiguration.entrypoint,
+      ...launchConfiguration.args
+    ],
     env: {
       ...daemonServerHostEnvironment(options.env ?? process.env, target),
       [daemonAutostartRootLifetimeEnvironmentVariable]: expectedRootIdentity
-    }
+    },
+    userRoot: target.userRoot
   });
-  child.unref();
-  return child.pid;
 }
 
 async function requestLocalDaemonJsonRpcWithAutostart(
@@ -368,7 +368,10 @@ async function requestLocalDaemonJsonRpcWithAutostart(
     let socket: net.Socket;
     try {
       autostart.onPhase?.("connect-start");
-      socket = await connectUnixSocket(target.socketPath, boundedDeadlineTimeout(connectTimeoutMs, deadline));
+      socket = await connectUnixSocketWithNamespaceDiagnostic(
+        target.socketPath,
+        boundedDeadlineTimeout(connectTimeoutMs, deadline)
+      );
     } catch (error) {
       lastError = error;
       await ensureLocalDaemonStarted(target, autostart, connectTimeoutMs, deadline, autostartTimeoutMs);
@@ -390,7 +393,7 @@ async function requestLocalDaemonJsonRpcWithAutostart(
       autostart.onPhase?.("request-end");
     }
   }
-  throw daemonAutostartTimeoutError(autostartTimeoutMs, lastError);
+  throw daemonAutostartFailureError(autostartTimeoutMs, lastError);
 }
 
 async function ensureLocalDaemonStarted(
@@ -432,7 +435,9 @@ async function spawnAndWaitForLocalDaemon(
   flight: DaemonStartupFlight
 ): Promise<void> {
   autostart.onPhase?.("launch-start");
-  flight.spawnedPid = spawnLocalDaemon(target, autostart);
+  const launch = launchLocalDaemon(target, autostart);
+  flight.spawnedPid = launch.pid;
+  flight.launchStderrPath = launch.launchStderrPath;
   while (Date.now() <= flight.deadline) {
     try {
       await probeLocalDaemonReady(
@@ -444,11 +449,22 @@ async function spawnAndWaitForLocalDaemon(
       return;
     } catch (error) {
       flight.lastError = error;
+      const exited = daemonAutostartProcessExitedError(
+        flight.lastError,
+        flight.spawnedPid,
+        flight.launchStderrPath
+      );
+      if (exited) throw exited;
       const retryDelayMs = Math.min(localDaemonRetryIntervalMs, flight.deadline - Date.now());
       if (retryDelayMs > 0) await delay(retryDelayMs);
     }
   }
-  throw daemonAutostartTimeoutError(flight.deadline - flight.startedAt, flight.lastError, flight.spawnedPid);
+  throw daemonAutostartFailureError(
+    flight.deadline - flight.startedAt,
+    flight.lastError,
+    flight.spawnedPid,
+    flight.launchStderrPath
+  );
 }
 
 async function waitForDaemonStartupFlight(
@@ -460,12 +476,22 @@ async function waitForDaemonStartupFlight(
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) {
     if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-    throw daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError, flight.spawnedPid);
+    throw daemonAutostartFailureError(
+      autostartTimeoutMs,
+      flight.lastError,
+      flight.spawnedPid,
+      flight.launchStderrPath
+    );
   }
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-      reject(daemonAutostartTimeoutError(autostartTimeoutMs, flight.lastError, flight.spawnedPid));
+      reject(daemonAutostartFailureError(
+        autostartTimeoutMs,
+        flight.lastError,
+        flight.spawnedPid,
+        flight.launchStderrPath
+      ));
     }, remainingMs);
     flight.promise.then(
       () => {
@@ -489,7 +515,7 @@ async function probeLocalDaemonReady(
   connectTimeoutMs: number,
   responseTimeoutMs: number
 ): Promise<void> {
-  const socket = await connectUnixSocket(socketPath, connectTimeoutMs);
+  const socket = await connectUnixSocketWithNamespaceDiagnostic(socketPath, connectTimeoutMs);
   const client = new JsonRpcLineClient(socket, socket);
   try {
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, responseTimeoutMs);
@@ -512,37 +538,6 @@ async function requestWithSocket(
     return await client.request(method, params, remaining());
   } finally {
     socket.destroy();
-  }
-}
-
-function connectUnixSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection(socketPath);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      reject(new Error(`timed out connecting to daemon socket: ${socketPath}`));
-    }, timeoutMs);
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      resolve(socket);
-    });
-    socket.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
-}
-
-async function connectUnixSocketWithLegacyFallback(socketPath: string, legacySocketPath: string | undefined, timeoutMs: number): Promise<net.Socket> {
-  try {
-    return await connectUnixSocket(socketPath, timeoutMs);
-  } catch (error) {
-    if (!legacySocketPath || legacySocketPath === socketPath) throw daemonSocketNamespaceError(socketPath, error);
-    try {
-      return await connectUnixSocket(legacySocketPath, timeoutMs);
-    } catch (legacyError) {
-      throw daemonSocketNamespaceError(legacySocketPath, legacyError);
-    }
   }
 }
 
@@ -594,6 +589,10 @@ function readyProbeResponseTimeout(deadline: number): number {
   );
 }
 
-function daemonAutostartTimeoutError(timeoutMs: number, lastError: unknown, spawnedPid?: number): Error {
-  return new DaemonAutostartTimeoutError(timeoutMs, lastError, spawnedPid);
+function launchLocalDaemon(
+  target: LocalDaemonTarget,
+  options: LocalDaemonAutostartOptions
+): SpawnedDaemonAutostartProcess {
+  const launched = spawnLocalDaemonImplementation(target, options);
+  return typeof launched === "number" ? { pid: launched } : launched ?? {};
 }
