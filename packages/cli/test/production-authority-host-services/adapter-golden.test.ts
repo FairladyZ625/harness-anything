@@ -87,7 +87,12 @@ test("all four production ingress adapters retain canonical envelope and receipt
       actor: { ...fixture.actor, roles: ["owner"] },
       executor
     });
-    const capture = async (action: ParsedCommand["action"], executor?: { readonly kind: "agent"; readonly id: string } | null) => {
+    const capturedContent: Record<string, unknown> = {};
+    const capture = async (
+      adapter: string,
+      action: ParsedCommand["action"],
+      executor?: { readonly kind: "agent"; readonly id: string } | null
+    ) => {
       const receipt = await run(action, executor === undefined ? { kind: "agent", id: "codex" } : executor);
       assert.equal(receipt.ok, true, JSON.stringify(receipt));
       const operation = latestAuthorityOperation(fixture.serviceRoot);
@@ -99,25 +104,27 @@ test("all four production ingress adapters retain canonical envelope and receipt
       if (process.env.HARNESS_DEBUG_BATCH5A_ENVELOPE === "1") {
         process.stdout.write(`BATCH5A_ENVELOPE_SHAPE:${JSON.stringify(envelopeShape, bigintReplacer)}\n`);
       }
+      const receiptShape = adapterGoldenShape(authorityOperationShape(receipt));
+      capturedContent[adapter] = { envelope: envelopeShape, receipt: receiptShape };
       return {
         envelope: byteEvidence(envelopeShape),
-        receipt: byteEvidence(adapterGoldenShape(authorityOperationShape(receipt)))
+        receipt: byteEvidence(receiptShape)
       };
     };
 
     const actual = {
-      generic: await capture({
+      generic: await capture("generic", {
         kind: "progress-append",
         taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0",
         text: "batch 5A generic adapter golden",
         dryRun: false
       }),
-      taskClaim: await capture({
+      taskClaim: await capture("taskClaim", {
         kind: "task-claim",
         taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG4",
         execution: true
       }),
-      observedWrite: await capture({
+      observedWrite: await capture("observedWrite", {
         kind: "task-amend",
         taskId: "task_01KXQ4WTA7Q4XJ5GDDRS1YXNK0",
         patches: [{ field: "taskClass", value: "milestone" }]
@@ -141,7 +148,7 @@ test("all four production ingress adapters retain canonical envelope and receipt
       evidenceRelations: [],
       dryRun: false
     });
-    actual.decisionTransition = await capture({
+    actual.decisionTransition = await capture("decisionTransition", {
       kind: "decision-transition",
       transition: "accept",
       decisionId: "dec_BATCH5A_GOLDEN",
@@ -152,6 +159,7 @@ test("all four production ingress adapters retain canonical envelope and receipt
 
     if (process.env.HARNESS_CAPTURE_BATCH5A_GOLDEN === "1") {
       process.stdout.write(`BATCH5A_ADAPTER_GOLDEN_START\n${JSON.stringify(actual, null, 2)}\nBATCH5A_ADAPTER_GOLDEN_END\n`);
+      process.stdout.write(`BATCH5A_ADAPTER_CONTENT_START\n${JSON.stringify(capturedContent, bigintReplacer, 2)}\nBATCH5A_ADAPTER_CONTENT_END\n`);
       return;
     }
     const baseline = JSON.parse(readFileSync(fixtureUrl, "utf8")) as { readonly adapterE2E: unknown };
