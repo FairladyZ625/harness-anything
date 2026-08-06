@@ -26,7 +26,12 @@ export function legacyEntityAttribution(
 
 export function readLegacyPersonIds(rootInput: HarnessLayoutInput): ReadonlySet<string> {
   const peoplePath = `${resolveHarnessLayout(rootInput).authoredRoot}/people.yaml`;
-  if (!localLayoutFileSystem.exists(peoplePath)) return new Set();
+  try {
+    if (!localLayoutFileSystem.exists(peoplePath)) return new Set();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_ACCESS_DENIED") return new Set();
+    throw error;
+  }
   const body = localLayoutFileSystem.readText(peoplePath);
   const ids = [...body.matchAll(/(?:^|\n)\s*(?:-\s*)?personId:\s*["']?([^\s"'#]+)["']?/gu)].map((match) => match[1]!);
   try {

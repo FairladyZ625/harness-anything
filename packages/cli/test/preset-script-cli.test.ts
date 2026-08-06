@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { gitRead, runJson, withTempRoot, writeFile } from "./helpers/preset-script-fixtures.ts";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
@@ -96,6 +96,44 @@ test("CLI check reports decision conformance violations without failing when pol
     assert.equal(passed.report.scriptChecks.some((entry: Record<string, any>) => (
       entry.scriptId === "vertical:software-coding:decision-conformance" &&
       entry.report?.summary?.findingCount === 0
+    )), true);
+  });
+});
+
+test("CLI check runs decision conformance with unsafe entries outside its bounded read scopes", {
+  skip: process.platform === "win32"
+}, () => {
+  withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
+    runJson(rootDir, ["init"]);
+    runJson(rootDir, ["task", "create", "--title", "Bounded Conformance Reads"]);
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_BOUNDED_CONFORMANCE_READS",
+      "--title", "Bounded conformance reads",
+      "--question", "Should the checker ignore unrelated filesystem entries?",
+      "--chosen", "Read only the conformance projection sources",
+      "--rejected", "Read the entire authored and local roots",
+      "--why-not", "Unbounded roots contain unrelated runtime entries"
+    ]);
+    runJson(rootDir, [
+      "decision", "accept", "dec_BOUNDED_CONFORMANCE_READS",
+      "--judgment-only", "Exercise the negative conformance path through the public check command."
+    ]);
+    symlinkSync("missing-unrelated-target", path.join(rootDir, "harness/unrelated-link"));
+    symlinkSync("missing-unrelated-target", path.join(rootDir, ".harness/unrelated-link"));
+
+    const audited = runJson(rootDir, ["check", "--profile", "source-package"]);
+    const conformance = audited.report.scriptChecks.find((entry: Record<string, any>) => (
+      entry.scriptId === "vertical:software-coding:decision-conformance"
+    ));
+
+    assert.equal(conformance?.ok, true);
+    assert.equal(conformance?.report?.schema, "decision-conformance-report/v1");
+    assert.equal(conformance?.report?.summary?.violationCount > 0, true);
+    assert.equal(conformance?.report?.violations?.some((violation: Record<string, unknown>) => (
+      violation.type === "accepted-decision-missing-task-or-defer" &&
+      violation.ref === "decision/dec_BOUNDED_CONFORMANCE_READS"
     )), true);
   });
 });
