@@ -39,6 +39,15 @@ export function publishSeededTaskFixture(authoredRoot: string, taskRoot: string,
   Effect.runSync(coordinator.flush("explicit"));
 }
 
+export function publishSeededTaskFixtureById(
+  authoredRoot: string,
+  taskId: string,
+  packageSlug?: string
+): void {
+  const packageName = packageSlug ? `${taskId}-${packageSlug}` : taskId;
+  publishSeededTaskFixture(authoredRoot, path.join(authoredRoot, "tasks", packageName), taskId);
+}
+
 const fixtureAttribution = {
   actor: {
     principal: { kind: "person" as const, personId: "person_fixture" },

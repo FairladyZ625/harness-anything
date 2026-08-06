@@ -37,6 +37,7 @@ import {
   runRawJsonMaybeFail,
   stopDaemon
 } from "../helpers/daemon-cli.ts";
+import { publishSeededTaskFixtureById } from "../helpers/canonical-task-publication-fixture.ts";
 import {
   authorityEventBodies,
   authorityOperationRecords,
@@ -61,10 +62,11 @@ import {
   verifyExplicitTaskSubmitIngress,
   verifyInferredTaskSubmitIngress
 } from "./task-submit-ingress.ts";
-import { exerciseIdenticalCodeDocForce } from "./code-doc-force-replay.ts";
+import { exerciseIdenticalCodeDocForce, exerciseUnpublishedCloseoutPositiveControl } from "./code-doc-force-replay.ts";
 
-test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async () => {
+test("production service route preserves progress dry-run and publishes canonical task writes", { timeout: 240_000 }, async (context) => {
   const fixture = createFixture();
+  publishSeededTaskFixtureById(fixture.authoredRoot, "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG8", "production-route");
   const userRoot = defaultDaemonUserRoot(fixture.root);
   const env = {
     HARNESS_ACTOR: "agent:codex",
@@ -259,6 +261,15 @@ test("production service route preserves progress dry-run and publishes canonica
       prRef: "https://github.com/example/repo/pull/999",
       reviewerId: "person_alice"
     }));
+    exerciseUnpublishedCloseoutPositiveControl({
+      fixture,
+      taskId: sluggedLifecycleTaskId,
+      taskRoot: sluggedTaskRoot,
+      completionPacketPath,
+      env: sluggedLifecycleEnv,
+      diagnostic: (message) => context.diagnostic(message)
+    });
+
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [
       "task", "complete", sluggedLifecycleTaskId, "--approve", "--from-file", completionPacketPath
     ], sluggedLifecycleEnv);
@@ -369,6 +380,7 @@ test("production service route preserves progress dry-run and publishes canonica
 
 test("production generic canonical ingress accepts and journals one write for every directly compiled kind", async () => {
   const fixture = createFixture();
+  publishSeededTaskFixtureById(fixture.authoredRoot, "task_01KXQ4WTA7Q4XJ5GDDRS1YXNG0");
   const daemon = defaultCliAdapterProvider().createMultiRepoDaemonRuntime({
     repos: [{ repoId: "canonical", rootDir: fixture.repoRoot }],
     materializerPollMs: 5,
