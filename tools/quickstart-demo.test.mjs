@@ -22,7 +22,7 @@ test("quickstart demo runs init to task to fact to graph with the source CLI", (
     assert.equal(result.ok, true);
     assert.equal(result.schema, "quickstart-demo/v1");
     assert.match(result.taskId, /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
-    assert.match(result.factRef, /^fact\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/F-ABCDEF12$/u);
+    assert.match(result.factRef, /^fact\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/F-[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/u);
     assert.equal(result.graphPath.endsWith(".harness/generated/graph-panorama/quickstart.html"), true);
   });
 });
