@@ -46,20 +46,17 @@ try {
   const taskId = assertString(task.taskId, "created task id");
 
   step = "fact record";
-  const factId = options.breakStep === "fact-record" ? "F-BAD" : "F-ABCDEF12";
   const fact = runCli([
     "fact",
     "record",
     "--task",
     taskId,
-    "--id",
-    factId,
     "--statement",
     "The quickstart created a task and recorded a queryable fact.",
     "--source",
     "scripts/quickstart-demo.mjs",
     "--confidence",
-    "high",
+    options.breakStep === "fact-record" ? "invalid" : "high",
     "--memory-class",
     "episodic",
     "--memory-tag",

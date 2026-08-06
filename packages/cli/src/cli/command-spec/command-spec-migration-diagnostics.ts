@@ -12,8 +12,8 @@ import { runWorktreeCommand } from "../../commands/core/worktree.ts";
 export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   {
     "kind": "adopt-multica",
-    "usage": "adopt multica <ref> --task <task-id> [--status <status>] [--title <title>] [--json]",
-    "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--status","description":"Set the external or module status."},{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "adopt multica <ref> --task <task-id> [--status <status>] [--title <title>] [--url <url>] [--json]",
+    "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--status","description":"Set the external or module status."},{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--url","description":"Set the external snapshot URL."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Bind a fresh Multica issue snapshot to a new local task package.",
     "examples": ["harness-anything adopt multica EXT-123 --task task_01ABC --status active --title \"External task\""],
     "parse": parseMigrationArgs,
@@ -171,8 +171,8 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-verify",
-    "usage": "migrate verify <session.json> [--json]",
-    "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "migrate verify <session.json> [--full-cutover] [--json]",
+    "options": [{"flag":"--full-cutover","description":"Request the retired full-cutover path so the command can return its dedicated retirement guidance."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "aliases": ["migrate-verify <session.json> (deprecated, use migrate verify; retires at E77/F6 acceptance)"],
     "aliasDisplay": {"migrate-verify <session.json> (deprecated, use migrate verify; retires at E77/F6 acceptance)":"hidden"},
     "summary": "Verify a legacy migration session file.",

@@ -87,7 +87,7 @@ function commandPathFromUsage(usage: string): ReadonlyArray<string> {
   return pathTokens;
 }
 
-function aliasPathFromDisplay(alias: string): ReadonlyArray<string> {
+export function aliasPathFromDisplay(alias: string): ReadonlyArray<string> {
   const withoutBinary = alias
     .replace(/^harness-anything\s+/u, "")
     .replace(/^ha\s+/u, "");

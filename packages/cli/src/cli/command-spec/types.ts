@@ -76,6 +76,10 @@ export interface CommandSpecDefinition {
   readonly kind: string;
   readonly usage: string;
   readonly options: ReadonlyArray<CommandOptionDefinition>;
+  /** Parser-recognized compatibility inputs intentionally omitted from help. */
+  readonly hiddenOptions?: ReadonlyArray<CommandOptionDefinition>;
+  /** Options whose value may use an equals form such as `--surface=--body`. */
+  readonly inlineValueOptions?: ReadonlyArray<string>;
   readonly aliases?: ReadonlyArray<string>;
   readonly display?: CommandDisplayTier;
   readonly aliasDisplay?: Readonly<Record<string, CommandDisplayTier>>;

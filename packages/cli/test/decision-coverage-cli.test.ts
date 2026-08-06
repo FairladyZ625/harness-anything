@@ -267,7 +267,8 @@ test("CLI decision accept rejects a flag-like judgment-only rationale without ch
     ], false);
 
     assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "missing_reason");
+    assert.equal(result.error?.code, "unknown_option");
+    assert.match(result.error?.hint ?? "", /Unknown option '--note'/u);
     assert.equal(readFileSync(decisionPath, "utf8"), before);
   });
 });

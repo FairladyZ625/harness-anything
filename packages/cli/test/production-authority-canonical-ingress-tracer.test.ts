@@ -223,9 +223,7 @@ test("commit-anchor completion crosses production authority with daemon judgment
     ], env);
     assert.equal(prepublished.status, 0, JSON.stringify(prepublished.receipt));
     assert.equal(prepublished.receipt.ok, true, JSON.stringify(prepublished.receipt));
-    const materialized = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
+    const materialized = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
     assert.equal(materialized.status, 0, JSON.stringify(materialized.receipt));
     assert.equal(materialized.receipt.ok, true, JSON.stringify(materialized.receipt));
     const reconciled = runRawJsonMaybeFail(fixture.repoRoot, [
@@ -233,9 +231,7 @@ test("commit-anchor completion crosses production authority with daemon judgment
       "--commit", fixture.publicHead, "--force"
     ], env);
     assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
-    const witnessMaterialized = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
+    const witnessMaterialized = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
     assert.equal(witnessMaterialized.status, 0, JSON.stringify(witnessMaterialized.receipt));
 
     const completed = runRawJsonMaybeFail(fixture.repoRoot, [

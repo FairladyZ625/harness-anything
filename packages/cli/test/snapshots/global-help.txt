@@ -3,6 +3,12 @@ Alias: ha <kind> [options]
 
 Global options:
   --root DIR         Use DIR as the harness repository root.
+  --authored-root DIR Override the authored harness root.
+  --repo ID          Select the daemon repository route.
+  --actor ACTOR      Attribute the command to an explicit actor.
+  --daemon-mode MODE Override daemon routing with direct, local, or remote.
+  --daemon-profile PROFILE Select the default or isolated daemon profile.
+  --help             Show help for the selected command.
   --json             Emit machine-readable JSON.
 
 Discover: ha <kind> --help | ha capabilities --json

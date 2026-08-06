@@ -106,8 +106,7 @@ for (const [shapeIndex, shape] of recoveryShapes.entries()) {
         const recoveryExecutionId = String(started.executionId);
         makeBindingFinal(taskRoot, recoveryExecutionId);
         const submitted = runJson(rootDir, [
-          "task", "submit", taskId, "--from-file", writeSubmissionPacket(rootDir, shapeIndex),
-          "--execution-id", recoveryExecutionId
+          "task", "submit", taskId, "--from-file", writeSubmissionPacket(rootDir, shapeIndex)
         ], true, actorEnv);
         assert.equal(submitted.ok, true);
         assert.equal(readTaskStatus(taskRoot), "in_review");

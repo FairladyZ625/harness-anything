@@ -42,6 +42,7 @@ import { runTaskCloseoutFacade, runTaskStartFacade } from "./commands/core/task-
 import { isDeclaredLocalMigrationCommand } from "./composition/local-write-scope.ts";
 import { startCliTimingPhase } from "./cli/timing.ts";
 import { readProjectHarnessSettings } from "./commands/settings.ts";
+import { validateCommandOptions } from "./cli/option-claims.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 type ParsedCommandRunner = (command: Parameters<typeof runRegisteredCommand>[0]) => Promise<CommandReceipt | CommandFailureReceipt>;
@@ -54,6 +55,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     );
     await runRepoWriteChildEntrypoint(argv[1]);
     return 0;
+  }
+  const optionValidation = validateCommandOptions(argv);
+  if (!optionValidation.ok) {
+    await appendParseFailureRuntimeEvent(argv, optionValidation.error);
+    emit(toCommandReceipt({ ok: false, command: "parse", error: optionValidation.error }), true);
+    return 2;
   }
   const compoundExit = await runCompoundReceiptExitCommand(argv);
   if (compoundExit !== undefined) return compoundExit;

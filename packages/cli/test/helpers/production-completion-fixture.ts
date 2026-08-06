@@ -103,7 +103,7 @@ export async function withReviewedCompletionFixture(
       residualRisks: []
     }));
     const submitted = runRawJsonMaybeFail(fixture.repoRoot, [
-      "task", "submit", taskId, "--execution-id", executionId, "--from-file", submissionPath
+      "task", "submit", taskId, "--from-file", submissionPath
     ], env);
     assert.equal(submitted.status, 0, JSON.stringify(submitted.receipt));
     if (options.assertReleasedHolder === true) {
@@ -121,9 +121,7 @@ export async function withReviewedCompletionFixture(
         "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/task_plan.md`
       ], env);
       assert.equal(synced.status, 0, JSON.stringify(synced.receipt));
-      const publishedProse = runRawJsonMaybeFail(fixture.repoRoot, [
-        "materializer", "run", "--current-session-only"
-      ], env);
+      const publishedProse = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
       assert.equal(publishedProse.status, 0, JSON.stringify(publishedProse.receipt));
     }
 
@@ -132,9 +130,7 @@ export async function withReviewedCompletionFixture(
       "--commit", fixture.publicHead, "--path", "README.md", "--force"
     ], env);
     assert.equal(reconciled.status, 0, JSON.stringify(reconciled.receipt));
-    const publishedWitness = runRawJsonMaybeFail(fixture.repoRoot, [
-      "materializer", "run", "--current-session-only"
-    ], env);
+    const publishedWitness = runRawJsonMaybeFail(fixture.repoRoot, ["materializer", "run"], env);
     assert.equal(publishedWitness.status, 0, JSON.stringify(publishedWitness.receipt));
 
     const approvalPath = path.join(fixture.root, `${sessionId}-approval.json`);
@@ -206,8 +202,6 @@ export function publishCloseout(
     "doc", "sync", "--submit", "--path", `tasks/${taskId}-production-route/closeout.md`
   ], env);
   assert.equal(syncedCloseout.status, 0, JSON.stringify(syncedCloseout.receipt));
-  const publishedCloseout = runRawJsonMaybeFail(repoRoot, [
-    "materializer", "run", "--current-session-only"
-  ], env);
+  const publishedCloseout = runRawJsonMaybeFail(repoRoot, ["materializer", "run"], env);
   assert.equal(publishedCloseout.status, 0, JSON.stringify(publishedCloseout.receipt));
 }

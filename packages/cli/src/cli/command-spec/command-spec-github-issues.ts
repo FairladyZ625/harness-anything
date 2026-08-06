@@ -5,8 +5,8 @@ import { defineCommandSpecs } from "./types.ts";
 export const githubIssuesCommandSpecs = defineCommandSpecs([
   {
     kind: "external-snapshot",
-    usage: "external snapshot <github|multica> <ref> [--status <status>] [--title <title>] [--json]",
-    options: [{ flag: "--status", description: "Set the Multica snapshot status." }, { flag: "--title", description: "Set the Multica snapshot title." }, { flag: "--json", description: "Emit command-receipt/v2 JSON." }],
+    usage: "external snapshot <github|multica> <ref> [--status <status>] [--title <title>] [--url <url>] [--json]",
+    options: [{ flag: "--status", description: "Set the Multica snapshot status." }, { flag: "--title", description: "Set the Multica snapshot title." }, { flag: "--url", description: "Set the Multica snapshot URL." }, { flag: "--json", description: "Emit command-receipt/v2 JSON." }],
     aliases: ["snapshot github <ref> (deprecated, use external snapshot github)", "snapshot multica <ref> (deprecated, use external snapshot multica)"],
     aliasDisplay: { "snapshot github <ref> (deprecated, use external snapshot github)": "hidden", "snapshot multica <ref> (deprecated, use external snapshot multica)": "hidden" },
     summary: "Read one fresh external-provider snapshot without local or external writes.",
