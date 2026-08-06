@@ -145,7 +145,17 @@ if (mode === "expected-direct-rejection") {
           opId: message.opId,
           phase: "git",
           elapsedMs: 2.5
-        });
+        }).then(() => transport.send({
+          // Same-channel ordering makes this a deterministic test barrier: the
+          // parent cannot observe it before recording the telemetry above.
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "recovery-deferred",
+          outerOpId: `fixture-proceed-stalled:${message.requestId}`,
+          code: "FIXTURE_PROCEED_STALLED",
+          diagnostic: "fixture proceeded request reported git and will remain unresolved"
+        }));
         return;
       }
       if (mode === "crash-after-proceed") {
@@ -161,9 +171,17 @@ if (mode === "expected-direct-rejection") {
           opId: message.opId,
           phase: "git",
           elapsedMs: 2.5
-        });
-        setTimeout(() => {
-          void transport.send({
+        }).then(() => transport.send({
+          // The test advances its modeled observation deadline after this
+          // ordered barrier, before the following terminal can be observed.
+          protocol: repoWriteProtocolType,
+          repoId: message.repoId,
+          generation: message.generation,
+          kind: "recovery-deferred",
+          outerOpId: `fixture-slow-terminal:${message.requestId}`,
+          code: "FIXTURE_SLOW_TERMINAL_READY",
+          diagnostic: "fixture durable request reported git and is ready to publish terminal"
+        })).then(() => transport.send({
             protocol: repoWriteProtocolType,
             repoId: message.repoId,
             generation: message.generation,
@@ -172,8 +190,7 @@ if (mode === "expected-direct-rejection") {
             opId: message.opId,
             outcome: "committed",
             receipt: committedCommandReceipt("slow canonical publication")
-          });
-        }, 60);
+        }));
         return;
       }
       void transport.send({

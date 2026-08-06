@@ -313,13 +313,21 @@ test("connected child that never announces READY is terminated at the readiness 
 });
 
 test("child that swallows PROCEED is replaced after the bounded stall window and recovered by exact lookup", async (context) => {
+  const requestTimeoutMs = 40;
+  const proceededStallTimeoutMs = requestTimeoutMs * 2;
   let forks = 0;
   const timeoutDiagnostics: RepoWriteRequestTimeoutDiagnostic[] = [];
+  let timeoutDiagnostic: RepoWriteRequestTimeoutDiagnostic | undefined;
+  let confirmProceedStalled!: () => void;
+  const proceedStalled = new Promise<void>((resolve) => {
+    confirmProceedStalled = resolve;
+  });
   const supervisor = new RepoWriteProcessSupervisor({
     repoId: "repo-transport",
     generation: 1,
     limits: {
-      requestTimeoutMs: 40
+      requestTimeoutMs,
+      proceededStallTimeoutMs
     },
     spawn: () => {
       forks += 1;
@@ -328,21 +336,39 @@ test("child that swallows PROCEED is replaced after the bounded stall window and
         args: ["swallow-proceed"]
       });
     },
-    onRequestTimeout: (diagnostic) => timeoutDiagnostics.push(diagnostic)
+    onRequestTimeout: (diagnostic) => {
+      timeoutDiagnostic = diagnostic;
+      timeoutDiagnostics.push(diagnostic);
+    },
+    onDiagnostic: (frame) => {
+      if (frame.code === "FIXTURE_PROCEED_STALLED") confirmProceedStalled();
+    }
   });
   context.after(() => supervisor.stop().catch(() => undefined));
 
-  // Boundedness is asserted by awaiting the rejection itself: an unbounded
-  // regression hangs into the runner's per-test timeout instead of racing a
-  // wall-clock budget that slow CI child spawns cannot meet.
-  const outcome = await supervisor.submit(command()).then(
+  await supervisor.start();
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+
+  const pendingOutcome = supervisor.submit(command());
+  const outcome = pendingOutcome.then(
     () => ({ kind: "committed" as const }),
     (error: unknown) => ({ kind: "rejected" as const, error })
   );
+  await proceedStalled;
+  assert.equal(timeoutDiagnostic, undefined);
 
-  assert.equal(outcome.kind, "rejected");
-  assert.ok(outcome.kind === "rejected" && outcome.error instanceof RepoWriteOutcomeUnknownError);
-  assert.equal(outcome.error.code, "REPO_WRITE_STALL_TIMEOUT");
+  context.mock.timers.tick(requestTimeoutMs);
+  assert.equal(timeoutDiagnostic?.watchdogStage, "observation");
+  assert.ok(timeoutDiagnostic);
+  assert.equal(timeoutDiagnostic.deadlineMs, requestTimeoutMs);
+  assert.equal(timeoutDiagnostic.lastTelemetry?.phase, "git");
+
+  context.mock.timers.tick(proceededStallTimeoutMs - requestTimeoutMs);
+  const settledOutcome = await outcome;
+
+  assert.equal(settledOutcome.kind, "rejected");
+  assert.ok(settledOutcome.kind === "rejected" && settledOutcome.error instanceof RepoWriteOutcomeUnknownError);
+  assert.equal(settledOutcome.error.code, "REPO_WRITE_STALL_TIMEOUT");
   assert.equal(forks, 2);
   assert.deepEqual(
     timeoutDiagnostics.map((diagnostic) => [
@@ -352,8 +378,8 @@ test("child that swallows PROCEED is replaced after the bounded stall window and
       diagnostic.lastTelemetry?.phase
     ]),
     [
-      ["observation", 40, timeoutDiagnostics[0]?.opId, "git"],
-      ["escalation", 80, timeoutDiagnostics[0]?.opId, "git"]
+      ["observation", requestTimeoutMs, timeoutDiagnostics[0]?.opId, "git"],
+      ["escalation", proceededStallTimeoutMs, timeoutDiagnostics[0]?.opId, "git"]
     ]
   );
 });
