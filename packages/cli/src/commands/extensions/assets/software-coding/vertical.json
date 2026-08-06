@@ -341,8 +341,14 @@
       "type": "script",
       "command": "scripts/decision-conformance-check.mjs",
       "reads": [
-        "{{paths.authoredRoot}}/**",
-        "{{paths.localRoot}}/**"
+        "{{paths.tasksRoot}}/**",
+        "{{paths.decisionsRoot}}/**",
+        "{{paths.sessionsRoot}}/**",
+        "{{paths.authoredRoot}}/attribution-events/**",
+        "{{paths.authoredRoot}}/authority-attribution-events/v2/**",
+        "{{paths.authoredRoot}}/people*.yaml",
+        "{{paths.localRoot}}/cache/**",
+        "{{paths.localRoot}}/task-holders/**"
       ],
       "writes": [],
       "inputs": {},

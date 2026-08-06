@@ -69,7 +69,7 @@ export interface DeclaredEntitySourceResult {
 
 interface DeclaredEntitySourceCacheEntry {
   readonly result: DeclaredEntitySourceResult;
-  readonly directorySignatures: ReadonlyMap<string, string>;
+  readonly directorySignatures: ReadonlyMap<string, string | null>;
   readonly fileSignatures: ReadonlyMap<string, string>;
 }
 
@@ -495,16 +495,28 @@ function templateMatcher(template: string): { readonly pattern: RegExp; readonly
 function listTemplateFiles(rootPath: string, template: string): {
   readonly files: ReadonlyArray<string>;
   readonly directories: ReadonlyArray<string>;
-  readonly directorySignatures: ReadonlyMap<string, string>;
+  readonly directorySignatures: ReadonlyMap<string, string | null>;
   readonly directoriesVisited: number;
   readonly entriesVisited: number;
 } {
-  if (!localLayoutFileSystem.exists(rootPath)) return { files: [], directories: [], directorySignatures: new Map(), directoriesVisited: 0, entriesVisited: 0 };
   const segments = template.split("/");
+  const dynamicSegmentIndex = segments.findIndex((segment) => segment.includes("{"));
+  const staticPrefixLength = dynamicSegmentIndex < 0 ? 0 : dynamicSegmentIndex;
+  const relativePrefix = segments.slice(0, staticPrefixLength);
+  const traversalRoot = path.join(rootPath, ...relativePrefix);
+  if (!localLayoutFileSystem.exists(traversalRoot)) {
+    return {
+      files: [],
+      directories: [],
+      directorySignatures: new Map([[traversalRoot, null]]),
+      directoriesVisited: 0,
+      entriesVisited: 0
+    };
+  }
   const segmentMatchers = segments.map(templateSegmentMatcher);
   const files: string[] = [];
   const directories: string[] = [];
-  const directorySignatures = new Map<string, string>();
+  const directorySignatures = new Map<string, string | null>();
   let directoriesVisited = 0;
   let entriesVisited = 0;
   function visit(directory: string, segmentIndex: number, relativeSegments: ReadonlyArray<string>): void {
@@ -524,7 +536,7 @@ function listTemplateFiles(rootPath: string, template: string): {
       }
     }
   }
-  visit(rootPath, 0, []);
+  visit(traversalRoot, staticPrefixLength, relativePrefix);
   return { files: files.sort(), directories, directorySignatures, directoriesVisited, entriesVisited };
 }
 
@@ -537,7 +549,7 @@ function sourceCacheEntryMatches(
     (validation === "verify" || pathSignaturesMatch(signatures));
 }
 
-function pathSignaturesMatch(signatures: ReadonlyMap<string, string>): boolean {
+function pathSignaturesMatch(signatures: ReadonlyMap<string, string | null>): boolean {
   for (const [inputPath, expected] of signatures) {
     if (readPathSignature(inputPath) !== expected) return false;
   }
