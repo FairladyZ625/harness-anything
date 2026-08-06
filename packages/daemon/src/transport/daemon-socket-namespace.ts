@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, rmdirSync } from "node:fs";
 
-export function daemonSocketConnectError(socketPath: string, cause: unknown): unknown {
+export function daemonSocketNamespaceError(socketPath: string, cause: unknown): unknown {
   const shape = daemonSocketPathShape(socketPath);
   if (shape !== "directory" && socketErrorCode(cause) !== "EINVAL") return cause;
   const ownership = daemonSocketDirectoryOwnership(socketPath);

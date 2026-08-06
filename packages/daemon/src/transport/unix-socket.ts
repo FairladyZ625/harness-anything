@@ -18,6 +18,7 @@ import type {
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
 import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
 import { gracefullyCloseSocketServer } from "./graceful-socket-shutdown.ts";
+import { daemonSocketNamespaceError } from "./daemon-socket-namespace.ts";
 import {
   authenticateSshAuthorityWireFrame,
   authenticateSshForcedCommandFrame,
@@ -206,7 +207,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     endpoint,
     start: async () => {
       ensurePrivateUnixSocketDirectory(path.dirname(endpoint));
-      rmSync(endpoint, { force: true });
+      removeStaleUnixSocketEndpoint(endpoint);
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(endpoint, () => {
@@ -228,7 +229,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     },
     stop: async () => {
       await gracefullyCloseSocketServer(server, sockets);
-      rmSync(endpoint, { force: true });
+      removeStaleUnixSocketEndpoint(endpoint);
     }
   };
 }
@@ -404,6 +405,14 @@ function safeUnixSocketEndpointId(value: string): string {
 function readNonEmptyPath(value: string | undefined, pathApi: path.PlatformPath = path): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? pathApi.resolve(trimmed) : undefined;
+}
+
+function removeStaleUnixSocketEndpoint(endpoint: string): void {
+  try {
+    rmSync(endpoint, { force: true });
+  } catch (error) {
+    throw daemonSocketNamespaceError(endpoint, error);
+  }
 }
 
 function privateDirectoryError(

@@ -20,7 +20,7 @@ import {
   type DaemonLaunchConfiguration
 } from "./daemon-launch-configuration.ts";
 import { DaemonRepoRootResolutionError } from "./daemon-repo-root-resolution-error.ts";
-import { daemonSocketConnectError } from "./daemon-socket-namespace.ts";
+import { daemonSocketNamespaceError } from "../transport/daemon-socket-namespace.ts";
 import {
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,
@@ -537,11 +537,11 @@ async function connectUnixSocketWithLegacyFallback(socketPath: string, legacySoc
   try {
     return await connectUnixSocket(socketPath, timeoutMs);
   } catch (error) {
-    if (!legacySocketPath || legacySocketPath === socketPath) throw daemonSocketConnectError(socketPath, error);
+    if (!legacySocketPath || legacySocketPath === socketPath) throw daemonSocketNamespaceError(socketPath, error);
     try {
       return await connectUnixSocket(legacySocketPath, timeoutMs);
     } catch (legacyError) {
-      throw daemonSocketConnectError(legacySocketPath, legacyError);
+      throw daemonSocketNamespaceError(legacySocketPath, legacyError);
     }
   }
 }

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { lstatSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -43,6 +43,37 @@ test("unix socket transport stop closes an accepted idle connection without wait
   await clientClosed;
   assert.equal(settled, true);
   assert.equal(socket.destroyed, true);
+});
+
+test("unix socket transport stop applies the shared namespace cleanup to an endpoint directory", async (t) => {
+  if (process.platform === "win32") return;
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-unix-stop-directory-"));
+  const socketPath = path.join(tempDir, "daemon.sock");
+  const transport = createUnixSocketTransportServer({
+    daemonId: "daemon-stop-test",
+    socketPath,
+    createProtocolServer
+  });
+  t.after(() => rmSync(tempDir, { recursive: true, force: true }));
+  await transport.start();
+  rmSync(socketPath, { force: true });
+  mkdirSync(socketPath);
+
+  await assert.rejects(
+    transport.stop(),
+    (error: unknown) => {
+      const message = String(error);
+      assert.match(message, /^Error: DAEMON_SOCKET_NAMESPACE_INVALID:/u);
+      assert.equal(
+        message.includes(`path=${socketPath};shape=directory;owner=unowned;cleanup=removed-empty-directory;`),
+        true,
+        message
+      );
+      assert.match(message, /connectCode=(?:ERR_FS_EISDIR|EISDIR)$/u);
+      return true;
+    }
+  );
+  assert.equal(lstatSync(socketPath, { throwIfNoEntry: false }), undefined);
 });
 
 test("unix socket transport stop flushes a buffered receipt before closing", async () => {
