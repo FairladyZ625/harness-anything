@@ -6,6 +6,78 @@ import path from "node:path";
 import test from "node:test";
 import { checkPackagePolicy } from "./check-package-policy.mjs";
 
+test("package policy rejects package manifests outside the declared workspaces", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-package-policy-"));
+  try {
+    writeJson(root, "package.json", {
+      name: "harness-anything",
+      private: true,
+      workspaces: ["packages/cli"]
+    });
+    writeJson(root, "packages/cli/package.json", {
+      name: "@harness-anything/cli",
+      version: "0.1.0",
+      publishConfig: { access: "public" },
+      repository: { directory: "packages/cli" },
+      engines: { node: ">=24" }
+    });
+    writeJson(root, "packages/unregistered/package.json", {
+      name: "@harness-anything/unregistered",
+      version: "0.1.0",
+      private: true
+    });
+    writeJson(root, "package-lock.json", {
+      packages: {
+        "packages/cli": { name: "@harness-anything/cli", version: "0.1.0" }
+      }
+    });
+
+    const result = checkPackagePolicy(root);
+
+    assert.equal(result.ok, false);
+    assert.match(result.violations.join("\n"), /packages\/unregistered\/package\.json is not covered by a root workspace pattern/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("package policy accepts packages covered by workspaces and the lockfile", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-package-policy-"));
+  try {
+    writeJson(root, "package.json", {
+      name: "harness-anything",
+      private: true,
+      workspaces: ["packages/*"]
+    });
+    writeJson(root, "packages/cli/package.json", {
+      name: "@harness-anything/cli",
+      version: "0.1.0",
+      publishConfig: { access: "public" },
+      repository: { directory: "packages/cli" },
+      engines: { node: ">=24" }
+    });
+    writeJson(root, "packages/registered/package.json", {
+      name: "@harness-anything/registered",
+      version: "0.1.0",
+      private: true
+    });
+    writeJson(root, "package-lock.json", {
+      packages: {
+        "packages/cli": { name: "@harness-anything/cli", version: "0.1.0" },
+        "packages/registered": { name: "@harness-anything/registered", version: "0.1.0" }
+      }
+    });
+
+    const result = checkPackagePolicy(root);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.violations, []);
+    assert.equal(result.workspaceCount, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("package policy derives and rejects an unregistered shell workspace package", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-package-policy-"));
   try {

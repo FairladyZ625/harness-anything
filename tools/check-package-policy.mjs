@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { discoverWorkspacePackages } from "./workspace-packages.mjs";
@@ -12,9 +12,16 @@ export function checkPackagePolicy(root = process.cwd()) {
   const rootPackage = readJson(path.join(root, "package.json"));
   const lockfile = readJson(path.join(root, "package-lock.json"));
   const workspacePackages = discoverWorkspacePackages(root);
+  const workspaceManifestPaths = new Set(workspacePackages.map(({ manifestPath }) => manifestPath));
 
   if (rootPackage.name !== "harness-anything") record("root package name must remain harness-anything");
   if (rootPackage.private !== true) record("root package must remain private until an explicit publish task");
+
+  for (const manifestPath of packageManifestPaths(root)) {
+    if (!workspaceManifestPaths.has(manifestPath)) {
+      record(`${manifestPath} is not covered by a root workspace pattern`);
+    }
+  }
 
   const names = new Map();
   for (const workspacePackage of workspacePackages) {
@@ -65,6 +72,25 @@ function checkPrivateWorkspacePolicy(packageJson, manifestPath, record) {
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
+}
+
+function packageManifestPaths(root) {
+  const packagesRoot = path.join(root, "packages");
+  if (!existsSync(packagesRoot)) return [];
+  const manifests = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === "node_modules") continue;
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && entry.name === "package.json") {
+        manifests.push(path.relative(root, entryPath).split(path.sep).join("/"));
+      }
+    }
+  };
+  visit(packagesRoot);
+  return manifests.sort();
 }
 
 function main() {
