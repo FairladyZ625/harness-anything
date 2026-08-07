@@ -93,18 +93,67 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
       { timeoutMs: 10_000 }
     );
 
+    const staleExpectedPreviousHead = readFileSync(shimCaptured, "utf8").trim();
+    assert.equal(git(fixture.authoredRoot, "rev-parse", "HEAD"), staleExpectedPreviousHead);
+
     const controlledAdvanceHead = publishControlledAuthorityAdvance(fixture.repoRoot);
+    const headAfterControlledAdvance = git(fixture.authoredRoot, "rev-parse", "HEAD");
+    assert.equal(headAfterControlledAdvance, controlledAdvanceHead);
+    assert.notEqual(staleExpectedPreviousHead, headAfterControlledAdvance);
+    assert.equal(
+      git(fixture.authoredRoot, "rev-parse", `${controlledAdvanceHead}^1`),
+      staleExpectedPreviousHead
+    );
+    assert.equal(
+      git(
+        fixture.authoredRoot,
+        "merge-base",
+        "--is-ancestor",
+        staleExpectedPreviousHead,
+        controlledAdvanceHead
+      ),
+      ""
+    );
     writeFileSync(shimRelease, "release\n");
 
     const result = await relate;
     if (process.env.HARNESS_CAPTURE_RECEIPT_HONESTY === "1") {
       process.stdout.write(`RECEIPT_HONESTY_CLI_OUTPUT_START\n${result.stdout}RECEIPT_HONESTY_CLI_OUTPUT_END\n`);
     }
-    const capturedHead = readFileSync(shimCaptured, "utf8").trim();
-    const finalParents = git(fixture.authoredRoot, "rev-list", "--parents", "-n", "1", "HEAD").split(" ").slice(1);
+    const finalHead = git(fixture.authoredRoot, "rev-parse", "HEAD");
+    const finalParents = git(
+      fixture.authoredRoot,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      finalHead
+    ).split(" ").slice(1);
+    assert.equal(finalParents.length, 2);
+    const finalSessionCommit = finalParents[1];
+    assert.ok(finalSessionCommit);
+    const finalSessionParents = git(
+      fixture.authoredRoot,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      finalSessionCommit
+    ).split(" ").slice(1);
     const operation = latestAuthorityOperation(fixture.serviceRoot);
-    assert.notEqual(capturedHead, controlledAdvanceHead);
     assert.equal(finalParents[0], controlledAdvanceHead);
+    assert.deepEqual(finalSessionParents, [controlledAdvanceHead]);
+    assert.equal(
+      git(
+        fixture.authoredRoot,
+        "merge-base",
+        "--is-ancestor",
+        staleExpectedPreviousHead,
+        finalHead
+      ),
+      ""
+    );
+    assert.equal(git(fixture.authoredRoot, "diff", "--quiet", finalHead, finalSessionCommit), "");
     assert.equal(operation.state, "INDETERMINATE", JSON.stringify(operation));
     assert.equal(operation.receipt?.tag, "INDETERMINATE", JSON.stringify(operation));
     assert.equal(result.status, 1, result.stdout);
@@ -112,6 +161,11 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
     const error = result.receipt.error as { readonly code?: unknown; readonly hint?: unknown; readonly context?: unknown } | undefined;
     assert.equal(error?.code, "write_rejected", result.stdout);
     assert.match(String(error?.hint), /publication outcome is indeterminate/iu);
+    assert.match(String(error?.hint), /AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR/u);
+    assert.match(String(error?.hint), new RegExp(`expectedPreviousHead=${staleExpectedPreviousHead}`, "u"));
+    assert.match(String(error?.hint), new RegExp(`head=${finalHead}`, "u"));
+    assert.match(String(error?.hint), new RegExp(`actualParents=${finalParents.join(",")}`, "u"));
+    assert.match(String(error?.hint), new RegExp(`actualSessionParents=${finalSessionParents.join(",")}`, "u"));
     assert.match(String(error?.hint), /actualParents=/u);
     assert.match(String(error?.hint), /mergeTreeMatchesSession=true/u);
     assert.match(String(error?.hint), /inspect[\s\S]*before retrying/iu);
@@ -124,12 +178,39 @@ test("task relate reports an inspect-first indeterminate receipt when canonical 
       opId: (error?.context as { readonly opId?: unknown } | undefined)?.opId,
       evidence: (error?.context as { readonly evidence?: unknown } | undefined)?.evidence
     });
-    assert.match(String((error?.context as { readonly evidence?: unknown } | undefined)?.evidence), /actualParents=/u);
-    assert.match(String((error?.context as { readonly evidence?: unknown } | undefined)?.evidence), /mergeTreeMatchesSession=true/u);
+    const publicationEvidence = String(
+      (error?.context as { readonly evidence?: unknown } | undefined)?.evidence
+    );
+    assert.match(publicationEvidence, new RegExp(`expectedPreviousHead=${staleExpectedPreviousHead}`, "u"));
+    assert.match(publicationEvidence, new RegExp(`head=${finalHead}`, "u"));
+    assert.match(publicationEvidence, new RegExp(`actualParents=${finalParents.join(",")}`, "u"));
+    assert.match(publicationEvidence, new RegExp(`actualSessionParents=${finalSessionParents.join(",")}`, "u"));
+    assert.match(publicationEvidence, /mergeTreeMatchesSession=true/u);
 
     const sourceIndex = readFileSync(path.join(fixture.authoredRoot, "tasks", sourceTaskId, "INDEX.md"), "utf8");
     assert.match(sourceIndex, new RegExp(`relation_id: ${relationId}`, "u"));
     assert.match(sourceIndex, new RegExp(`target: task/${targetTaskId}`, "u"));
+    if (process.env.HARNESS_CAPTURE_CANONICAL_PUBLICATION_RACE === "1") {
+      process.stdout.write([
+        "CANONICAL_PUBLICATION_RACE_EVIDENCE_START",
+        JSON.stringify({
+          expectedPreviousHead: staleExpectedPreviousHead,
+          controlledAdvanceHead,
+          publicationHead: finalHead,
+          publicationParents: finalParents,
+          sessionParents: finalSessionParents,
+          expectedPreviousHeadIsAncestorOfControlledAdvance: true,
+          expectedPreviousHeadIsAncestorOfPublication: true,
+          canonicalMutationPresent: true,
+          validatorCode: "AUTHORITY_CANONICAL_PUBLICATION_NON_LINEAR",
+          receiptCode: error?.code,
+          inspectFirst: true,
+          mergeTreeMatchesSession: true
+        }, null, 2),
+        "CANONICAL_PUBLICATION_RACE_EVIDENCE_END",
+        ""
+      ].join("\n"));
+    }
   } finally {
     writeFileSync(shimRelease, "release\n");
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
