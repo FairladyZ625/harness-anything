@@ -119,10 +119,16 @@ export async function pollDaemonConnectionCount(
   );
 }
 
-export async function stopDaemon(rootDir: string, userRoot = defaultDaemonUserRoot(rootDir)): Promise<void> {
-  const endpoint = localUserDaemonEndpoint(userRoot);
+export async function stopDaemon(
+  rootDir: string,
+  userRoot = defaultDaemonUserRoot(rootDir),
+  runtimeEnv?: Readonly<Record<string, string>>
+): Promise<void> {
+  const endpoint = localUserDaemonEndpoint(userRoot, "default", process.platform, {
+    env: runtimeEnv ?? process.env
+  });
   const ownerPath = daemonOwnerPath(endpoint);
-  const before = daemonStatus(rootDir, userRoot);
+  const before = daemonStatus(rootDir, userRoot, runtimeEnv ?? {});
   const pid = daemonPid(before) ?? daemonOwnerPid(ownerPath);
   if (pid === undefined && !existsSync(endpoint) && !existsSync(ownerPath)) return;
 
@@ -134,6 +140,7 @@ export async function stopDaemon(rootDir: string, userRoot = defaultDaemonUserRo
     }
   } else {
     runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "5000", "--user-root", userRoot, "--json"], {
+      ...runtimeEnv,
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
   }
@@ -150,9 +157,14 @@ export async function stopDaemon(rootDir: string, userRoot = defaultDaemonUserRo
   );
 }
 
-function daemonStatus(rootDir: string, userRoot: string): Record<string, unknown> | undefined {
+function daemonStatus(
+  rootDir: string,
+  userRoot: string,
+  runtimeEnv: Readonly<Record<string, string>>
+): Record<string, unknown> | undefined {
   try {
     return runDaemonCommand(rootDir, ["daemon", "status", "--user-root", userRoot, "--json"], {
+      ...runtimeEnv,
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
   } catch {

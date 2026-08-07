@@ -30,6 +30,7 @@ export {
   daemonServerHostEnvironment,
   daemonUserRoot,
   daemonUserRootForRepo,
+  DaemonAutostartProcessExitedError,
   DaemonAutostartTimeoutError,
   DaemonJsonRpcRequestTimeoutError,
   DaemonJsonRpcResponseError,

@@ -444,7 +444,7 @@ test("autostart bounds a never-responding ready probe by the total startup budge
   const target = makeTarget(socketPath);
   let helloCalls = 0;
   let server: net.Server | undefined;
-  const spawnedPid = 24_680;
+  const spawnedPid = process.pid;
   const restoreSpawn = replaceSpawnLocalDaemonForTest(() => {
     setTimeout(() => {
       void startJsonRpcServer(socketPath, {
