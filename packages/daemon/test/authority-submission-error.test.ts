@@ -42,16 +42,16 @@ import {
 } from "@harness-anything/application";
 import { v2Claims, v2Envelope } from "./authority-v2-fixtures.ts";
 
-test("authority JournalUnavailable errors serialize diagnostic fields without stacks", () => {
-  const failure = new Error("AUTHORITY_PRODUCTION_PUBLICATION_OBSERVATION_MISMATCH") as Error & { code: string };
-  failure.code = "EOBSERVE";
+test("genuine authority journal failures remain JournalUnavailable and serialize without stacks", () => {
+  const failure = new Error("EACCES: authority journal cannot append") as Error & { code: string };
+  failure.code = "EACCES";
   const writeError = authoritySubmissionWriteError(failure);
   assert.deepEqual(writeError, {
     _tag: "JournalUnavailable",
     cause: {
       name: "Error",
-      message: "AUTHORITY_PRODUCTION_PUBLICATION_OBSERVATION_MISMATCH",
-      code: "EOBSERVE"
+      message: "EACCES: authority journal cannot append",
+      code: "EACCES"
     }
   });
   assert.doesNotMatch(JSON.stringify(writeError), /stack/u);
