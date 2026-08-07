@@ -86,6 +86,16 @@ export class AuthorityCompileRejectedError extends Error {
   }
 }
 
+export class AuthorityPublicationOutcomeIndeterminateError extends Error {
+  readonly receipt: Extract<AuthorityOperationReceipt, { readonly tag: "INDETERMINATE" }>;
+
+  constructor(receipt: Extract<AuthorityOperationReceipt, { readonly tag: "INDETERMINATE" }>) {
+    super(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+    this.name = "AuthorityPublicationOutcomeIndeterminateError";
+    this.receipt = receipt;
+  }
+}
+
 export function authorityCompileRejected(cause: unknown): AuthorityCompileRejectedError {
   if (cause instanceof AuthorityCompileRejectedError) return cause;
   const reason = cause instanceof Error ? cause.message : String(cause);
@@ -352,13 +362,32 @@ export function receiptToFlushReport(receipt: AuthorityOperationReceipt, reason:
         receipt.errorCode,
         receipt.errorContext ? { ...receipt.errorContext } : undefined
       );
-      throw new Error(`AUTHORITY_INDETERMINATE:${receipt.reason}`);
+      throw new AuthorityPublicationOutcomeIndeterminateError(receipt);
     }
   }
 }
 
 export function authoritySubmissionWriteError(cause: unknown): WriteError {
   if (isAuthorityWriteError(cause)) return cause;
+  if (cause instanceof AuthorityPublicationOutcomeIndeterminateError) {
+    const receipt = cause.receipt;
+    return authorityWriteRejected(
+      [
+        "Authority publication outcome is indeterminate; the canonical mutation may already be committed.",
+        receipt.reason,
+        `Inspect canonical state for operation ${receipt.opId} before retrying; do not retry this exact command blindly.`
+      ].join(" "),
+      false,
+      "write_rejected",
+      {
+        schema: "authority-publication-outcome-indeterminate/v1",
+        authorityState: "INDETERMINATE",
+        workspaceId: receipt.workspaceId,
+        opId: receipt.opId,
+        evidence: receipt.reason
+      }
+    );
+  }
   if (cause instanceof AuthorityProtocolDamagedError) {
     return authorityWriteRejected(cause.message, false, "PROTOCOL_DAMAGED");
   }

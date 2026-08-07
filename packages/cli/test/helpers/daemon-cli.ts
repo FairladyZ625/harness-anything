@@ -76,6 +76,30 @@ export async function runRawJsonAsync(rootDir: string, args: ReadonlyArray<strin
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
+export async function runRawJsonAsyncMaybeFail(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>> = {}
+): Promise<{ readonly status: number; readonly receipt: Record<string, unknown>; readonly stdout: string; readonly stderr: string }> {
+  const result = await new Promise<{ readonly status: number; readonly stdout: string; readonly stderr: string }>((resolve) => {
+    execFile(
+      process.execPath,
+      [cliEntry, "--root", rootDir, "--json", ...args],
+      { encoding: "utf8", env: daemonTestEnv(rootDir, env) },
+      (error, stdout, stderr) => resolve({
+        status: typeof error?.code === "number" ? error.code : error ? 1 : 0,
+        stdout,
+        stderr
+      })
+    );
+  });
+  assert.equal(stderrWithoutDeprecationWarnings(result.stderr), "");
+  return {
+    ...result,
+    receipt: JSON.parse(result.stdout) as Record<string, unknown>
+  };
+}
+
 export function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
     encoding: "utf8",
