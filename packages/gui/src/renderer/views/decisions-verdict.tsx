@@ -209,6 +209,7 @@ export function VerdictCard({
   readOnly = false,
   decidePending = false,
   initialPendingAction = null,
+  traceSessionDisabled = false,
 }: {
   d: DecisionRow;
   decisions: DecisionRow[];
@@ -225,6 +226,14 @@ export function VerdictCard({
   decidePending?: boolean;
   /** Open the accept/reject/defer rationale panel on mount (keyboard hotkey bridge). */
   initialPendingAction?: DecideAction | null;
+  /**
+   * task_01KX812C0R: declarative disable for the trace-session button. The
+   * underlying coordinator conversation-mining export (E47) is not yet
+   * exposed via IPC. Hard-disable at the DOM level (not a silent no-op) and
+   * surface the deferral reason in the title — mirrors the
+   * archiveTask/openShell declarative-disable form in preload/allowlist.ts.
+   */
+  traceSessionDisabled?: boolean;
 }) {
   const cov = coverageOf(d, facts);
   const derived = derivedTasks(d, relations, tasks);
@@ -453,9 +462,24 @@ export function VerdictCard({
         {d.provenance?.map((p) => (
           <button
             key={p.sessionId}
-            onClick={() => onTrace(p.sessionId)}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-accent hover:bg-surface-raised"
-            title={`runtime: ${p.runtime}\nsessionId: ${p.sessionId}\nboundAt: ${dateLabel(p.boundAt)}`}
+            type="button"
+            data-testid="decision-trace-session"
+            // task_01KX812C0R: declarative disable — the trace callback still
+            // exists so this card stays drop-in compatible with future IPC,
+            // but with traceSessionDisabled the button is hard-disabled at the
+            // DOM level and the title carries the deferral reason. No silent
+            // no-op: a click cannot reach onTrace.
+            disabled={traceSessionDisabled}
+            onClick={() => {
+              if (traceSessionDisabled) return;
+              onTrace(p.sessionId);
+            }}
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-accent hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+            title={
+              traceSessionDisabled
+                ? `${t("views.decisionsView.traceSessionDisabledReason")}\nruntime: ${p.runtime}\nsessionId: ${p.sessionId}\nboundAt: ${dateLabel(p.boundAt)}`
+                : `runtime: ${p.runtime}\nsessionId: ${p.sessionId}\nboundAt: ${dateLabel(p.boundAt)}`
+            }
           >
             <ArrowSquareOut weight="bold" className="text-[11px]" />
             {p.runtime}:{p.sessionId.slice(0, 8)}…

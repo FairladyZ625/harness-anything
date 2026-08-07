@@ -299,10 +299,22 @@ export function ViewSwitch(props: ViewSwitchProps) {
           tasks={tasks}
           relations={relations}
           facts={facts}
+          // task_01KX812C0R · onTraceSession declarative disable. The
+          // coordinator conversation-mining export (E47) is not yet exposed
+          // via IPC, and opening that surface is out of scope for this task
+          // (task_plan §Checkpoint). Rather than passing a silent no-op, we
+          // keep the callback signature (so DecisionsView / VerdictCard stay
+          // drop-in compatible with future IPC) AND mark the button
+          // hard-disabled with a title carrying the deferral reason —
+          // mirroring the archiveTask/openShell declarative-disable form in
+          // preload/allowlist.ts. No dumb button: a click cannot reach the
+          // handler.
           onTraceSession={() => {
-            // coordinator conversation-mining 导出(E47)尚未经 IPC 暴露。
-            // 保留 callback 签名以免 DecisionsView 改型,实际为 noop。
+            // Unreachable while traceSessionDisabled is true (button is
+            // hard-disabled at the DOM level). Kept as a non-throwing stub
+            // so the prop shape stays compatible with the day E47 ships.
           }}
+          traceSessionDisabled
           onDecide={handleDecide}
           decidePending={decideMutation.isPending}
           onCallAgent={handleCallAgent}

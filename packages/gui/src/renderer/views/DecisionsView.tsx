@@ -53,6 +53,7 @@ export function DecisionsView({
   onFocusGraph,
   coverageRows = [],
   focusedDecisionId = null,
+  traceSessionDisabled = false,
 }: {
   decisions: DecisionRow[];
   tasks: TaskRow[];
@@ -70,6 +71,14 @@ export function DecisionsView({
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   /** When set (e.g. from decision pool "Approve here"), jump the cursor to this id. */
   focusedDecisionId?: string | null;
+  /**
+   * task_01KX812C0R · declarative disable for the trace-session button. The
+   * underlying coordinator conversation-mining export (E47) is not yet
+   * exposed via IPC; rather than wiring a silent no-op, we hard-disable the
+   * button at the DOM level and surface the deferral reason in its title.
+   * Mirrors the archiveTask/openShell declarative-disable form.
+   */
+  traceSessionDisabled?: boolean;
 }) {
   const [trace, setTrace] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
@@ -373,6 +382,7 @@ export function DecisionsView({
                   onNavigateDecision={onNavigateDecision}
                   readOnly={readOnly}
                   decidePending={decideBusy}
+                  traceSessionDisabled={traceSessionDisabled}
                 />
               </>
             ) : (
@@ -470,6 +480,11 @@ export function DecisionsView({
  * Wraps VerdictCard so keyboard a/r/d open the rationale panel without a DOM
  * query. Listens for the queue hotkey custom event and remounts the card with
  * initialPendingAction set so the rationale panel opens.
+ *
+ * task_01KX812C0R: traceSessionDisabled (declarative disable for the trace
+ * button) flows through via the {...props} spread below; it must survive the
+ * key-based remount so the disable cannot flicker back to a clickable button
+ * between pulses.
  */
 function HotkeyAwareVerdict(
   props: Omit<ComponentProps<typeof VerdictCard>, "initialPendingAction">,

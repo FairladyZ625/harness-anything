@@ -39,6 +39,8 @@
   "renderer.mutation.taskStatusUpdateFailed": "任务状态更新失败：{error}",
   "renderer.mutation.reviewGateRequested": "已请求 review gate 机判",
   "renderer.mutation.reviewGateRequestFailed": "机判请求失败：{error}",
+  "renderer.mutation.progressAppended": "进展已追加",
+  "renderer.mutation.progressAppendFailed": "进展追加失败：{error}",
   "renderer.mutation.projectionReread": "投影缓存已重读",
   "renderer.mutation.projectionRereadFailed": "投影重读失败：{error}",
   "renderer.mutation.decisionAccepted": "决策已接受",
