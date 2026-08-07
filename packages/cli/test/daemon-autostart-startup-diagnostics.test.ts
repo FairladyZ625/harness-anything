@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
@@ -11,13 +11,14 @@ test("autostart reports the daemon child's real startup failure", { timeout: 30_
   if (process.platform === "win32") return;
   const fixture = createFixture();
   const userRoot = path.join(fixture.root, "autostart-failure-user");
-  const daemon = testDaemonLocation(fixture.root, userRoot);
+  const daemon = testDaemonLocation(userRoot);
   const endpoint = daemon.socketPath;
   mkdirSync(endpoint, { recursive: true });
   writeFileSync(path.join(endpoint, "blocker"), "keep the occupied endpoint non-empty\n", "utf8");
   t.after(() => {
     rmSync(endpoint, { recursive: true, force: true });
     rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(daemon.runtimeRoot, { recursive: true, force: true });
   });
 
   const failed = runRawJsonMaybeFail(fixture.repoRoot, ["task", "list"], daemon.env);
@@ -34,13 +35,14 @@ test("autostart does not describe an exited daemon process as still starting", {
   if (process.platform === "win32") return;
   const fixture = createFixture();
   const userRoot = path.join(fixture.root, "autostart-exited-user");
-  const daemon = testDaemonLocation(fixture.root, userRoot);
+  const daemon = testDaemonLocation(userRoot);
   const endpoint = daemon.socketPath;
   mkdirSync(endpoint, { recursive: true });
   writeFileSync(path.join(endpoint, "blocker"), "keep the occupied endpoint non-empty\n", "utf8");
   t.after(() => {
     rmSync(endpoint, { recursive: true, force: true });
     rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(daemon.runtimeRoot, { recursive: true, force: true });
   });
 
   const failed = runRawJsonMaybeFail(fixture.repoRoot, ["task", "list"], daemon.env);
@@ -58,7 +60,7 @@ test("autostart does not describe an exited daemon process as still starting", {
 test("autostart keeps waiting while a live daemon is slowly starting", { timeout: 45_000 }, async (t) => {
   const fixture = createFixture();
   const userRoot = path.join(fixture.root, "slow-autostart-user");
-  const daemon = testDaemonLocation(fixture.root, userRoot);
+  const daemon = testDaemonLocation(userRoot);
   const preloadPath = path.join(fixture.root, "slow-autostart-preload.mjs");
   const startupDelayMs = 1_200;
   writeFileSync(preloadPath, [
@@ -70,6 +72,7 @@ test("autostart keeps waiting while a live daemon is slowly starting", { timeout
   t.after(async () => {
     await stopDaemon(fixture.repoRoot, userRoot, daemon.runtimeEnv).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(daemon.runtimeRoot, { recursive: true, force: true });
   });
 
   const startedAt = Date.now();
@@ -86,10 +89,11 @@ test("autostart keeps waiting while a live daemon is slowly starting", { timeout
 test("an autostarted daemon stays alive after its calling CLI exits", { timeout: 45_000 }, async (t) => {
   const fixture = createFixture();
   const userRoot = path.join(fixture.root, "detached-autostart-user");
-  const daemon = testDaemonLocation(fixture.root, userRoot);
+  const daemon = testDaemonLocation(userRoot);
   t.after(async () => {
     await stopDaemon(fixture.repoRoot, userRoot, daemon.runtimeEnv).catch(() => undefined);
     rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(daemon.runtimeRoot, { recursive: true, force: true });
   });
 
   const launched = runRawJsonMaybeFail(fixture.repoRoot, ["task", "list"], daemon.env);
@@ -109,12 +113,18 @@ test("an autostarted daemon stays alive after its calling CLI exits", { timeout:
 
 interface TestDaemonLocation {
   readonly socketPath: string;
+  readonly runtimeRoot: string;
   readonly runtimeEnv: Readonly<Record<string, string>>;
   readonly env: Readonly<Record<string, string>>;
 }
 
-function testDaemonLocation(rootDir: string, userRoot: string): TestDaemonLocation {
-  const runtimeDir = path.join(rootDir, ".daemon-runtime");
+function testDaemonLocation(userRoot: string): TestDaemonLocation {
+  // The runtime root must NOT live under the fixture root: that path is deep
+  // enough that the socket beneath it exceeds the AF_UNIX sun_path limit
+  // (108 bytes on Linux, 104 on macOS) and the daemon dies with
+  // `listen EINVAL` before any behaviour under test is reached.
+  const runtimeDir = mkdtempSync("/tmp/ha-run-");
+  chmodSync(runtimeDir, 0o700);
   const runtimeEnv = {
     XDG_RUNTIME_DIR: runtimeDir,
     TMPDIR: runtimeDir
@@ -122,9 +132,14 @@ function testDaemonLocation(rootDir: string, userRoot: string): TestDaemonLocati
   const socketPath = localUserDaemonEndpoint(userRoot, "default", process.platform, {
     env: runtimeEnv
   });
+  assert.ok(
+    socketPath.length < 100,
+    `test socket path is ${socketPath.length} bytes, over the AF_UNIX sun_path budget: ${socketPath}`
+  );
   mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   return {
     socketPath,
+    runtimeRoot: runtimeDir,
     runtimeEnv,
     env: daemonEnv(userRoot, runtimeEnv)
   };
