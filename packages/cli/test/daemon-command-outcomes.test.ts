@@ -8,7 +8,14 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
-import { defaultDaemonUserRoot, runRawJson, withTempRootAsync } from "./helpers/daemon-cli.ts";
+import {
+  defaultDaemonUserRoot,
+  pollUntil,
+  runDaemonCommand,
+  runRawJson,
+  stopDaemon,
+  withTempRootAsync
+} from "./helpers/daemon-cli.ts";
 import { closeServer, listen } from "./helpers/daemon-transport.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -104,15 +111,31 @@ test("an unreachable daemon remains unavailable with the direct recovery guidanc
     initializeFixtureWithoutDaemon(rootDir);
     const unreachableUserRoot = path.join(rootDir, "u".repeat(180));
     const daemon = testDaemonLocation(rootDir, unreachableUserRoot);
-    const result = await runCliFailure(rootDir, ["task", "create", "--title", "Unreachable Write"], {
-      ...testDaemonEnv(daemon),
-      HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "40"
-    });
+    let daemonPid: number | undefined;
+    try {
+      const result = await runCliFailure(rootDir, ["task", "create", "--title", "Unreachable Write"], {
+        ...testDaemonEnv(daemon),
+        HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS: "40"
+      });
 
-    assert.equal(result.error.code, "daemon_unavailable");
-    assert.match(result.error.hint, /Daemon unavailable/iu);
-    assert.match(result.error.hint, /HARNESS_DAEMON_MODE=direct/iu);
-    assert.doesNotMatch(result.error.hint, /outcome is unknown/iu);
+      assert.equal(result.error.code, "daemon_unavailable");
+      assert.match(result.error.hint, /Daemon unavailable/iu);
+      assert.match(result.error.hint, /HARNESS_DAEMON_MODE=direct/iu);
+      assert.doesNotMatch(result.error.hint, /outcome is unknown/iu);
+    } finally {
+      const lateStatus = await pollUntil(
+        () => runDaemonCommand(rootDir, [
+          "daemon", "status", "--user-root", unreachableUserRoot, "--json"
+        ], testDaemonEnv(daemon)),
+        (status) => status.started === true && status.reachable === true,
+        (status, error) => JSON.stringify({ status, error: String(error ?? "") }),
+        { timeoutMs: 15_000 }
+      );
+      daemonPid = typeof lateStatus.pid === "number" ? lateStatus.pid : undefined;
+      await stopDaemon(rootDir, unreachableUserRoot);
+      assert.equal(typeof daemonPid, "number", JSON.stringify(lateStatus));
+    }
+    assert.equal(processIsAlive(daemonPid), false, `test leaked late daemon pid ${String(daemonPid)}`);
   });
 });
 
@@ -224,4 +247,16 @@ async function runCli(
     })
   });
   return JSON.parse(stdout) as { readonly ok: boolean; readonly command: string };
+}
+
+function processIsAlive(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error
+      && (error as { readonly code?: unknown }).code === "ESRCH") return false;
+    throw error;
+  }
 }

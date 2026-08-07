@@ -101,7 +101,6 @@ try {
       gitAuthorEmail: demoAttribution.gitAuthorEmail
     }
   }, null, 2));
-  if (options.cleanup) rmSync(workspace, { recursive: true, force: true });
 } catch (error) {
   console.error(JSON.stringify({
     ok: false,
@@ -111,6 +110,20 @@ try {
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
+} finally {
+  try {
+    runCli(["daemon", "stop", "--timeout-ms", "5000"]);
+  } catch (error) {
+    console.error(JSON.stringify({
+      ok: false,
+      schema: "quickstart-demo/v1",
+      step: "daemon stop",
+      workspace,
+      error: error instanceof Error ? error.message : String(error)
+    }, null, 2));
+    process.exitCode = 1;
+  }
+  if (options.cleanup) rmSync(workspace, { recursive: true, force: true });
 }
 
 function runCli(args) {

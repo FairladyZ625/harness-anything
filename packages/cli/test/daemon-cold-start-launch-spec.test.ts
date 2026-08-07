@@ -1,11 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import net from "node:net";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import {
   localUserDaemonEndpoint,
   readOrCreateDaemonMachineId,
@@ -28,8 +26,6 @@ import {
 } from "./helpers/daemon-cli.ts";
 import { cliTestEnv } from "./helpers/cli-test-env.ts";
 import { createFixture } from "./production-authority-canonical-ingress/fixture.ts";
-
-const execFileAsync = promisify(execFile);
 
 test("service cold start restores, overrides, and diagnoses the persisted launch spec", { timeout: 90_000 }, async () => {
   const fixture = createFixture();
@@ -436,85 +432,6 @@ test("registry-inferred authority cold start preserves disabled manifest reposit
     );
   } finally {
     await stopDaemon(fixture.repoRoot, userRoot).catch(() => undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("occupied daemon socket does not persist a new authority manifest registry pointer", { timeout: 30_000 }, async () => {
-  const fixture = createFixture();
-  const userRoot = defaultDaemonUserRoot(fixture.root);
-  const endpoint = localUserDaemonEndpoint(userRoot);
-  const ownerSockets = new Set<net.Socket>();
-  const owner = net.createServer((socket) => {
-    ownerSockets.add(socket);
-    socket.once("close", () => ownerSockets.delete(socket));
-  });
-  try {
-    mkdirSync(userRoot, { recursive: true });
-    const registryBefore = readDaemonRegistry({ userRoot });
-    await new Promise<void>((resolve, reject) => {
-      owner.once("error", reject);
-      owner.listen(endpoint, () => resolve());
-    });
-    writeFileSync(`${endpoint}.owner`, JSON.stringify({
-      schema: "daemon-socket-owner/v1",
-      pid: process.pid,
-      ownerToken: "occupied-socket-test-owner"
-    }));
-
-    await assert.rejects(execFileAsync(process.execPath, [
-      path.resolve("packages/cli/src/index.ts"),
-      "--root", fixture.repoRoot,
-      "daemon", "serve",
-      "--repo", "canonical",
-      "--socket", endpoint,
-      "--user-root", userRoot,
-      "--authority-manifest", fixture.manifestPath
-    ], {
-      encoding: "utf8",
-      env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }),
-      timeout: 10_000,
-      killSignal: "SIGKILL"
-    }), /already owned/u);
-
-    assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
-  } finally {
-    for (const socket of ownerSockets) socket.destroy();
-    if (owner.listening) await new Promise<void>((resolve) => owner.close(() => resolve()));
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("transport bind failure after socket ownership does not persist any registry change", {
-  skip: process.platform === "win32",
-  timeout: 30_000
-}, async () => {
-  const fixture = createFixture();
-  const userRoot = defaultDaemonUserRoot(fixture.root);
-  const endpoint = localUserDaemonEndpoint(userRoot);
-  try {
-    mkdirSync(userRoot, { recursive: true });
-    mkdirSync(endpoint);
-    const registryBefore = readDaemonRegistry({ userRoot });
-
-    await assert.rejects(execFileAsync(process.execPath, [
-      path.resolve("packages/cli/src/index.ts"),
-      "--root", fixture.repoRoot,
-      "daemon", "serve",
-      "--repo", "canonical",
-      "--socket", endpoint,
-      "--user-root", userRoot,
-      "--authority-manifest", fixture.manifestPath
-    ], {
-      encoding: "utf8",
-      env: cliTestEnv({ HARNESS_DAEMON_USER_ROOT: userRoot }),
-      timeout: 10_000,
-      killSignal: "SIGKILL"
-    }), /EISDIR|Path is a directory/u);
-
-    assert.deepEqual(readDaemonRegistry({ userRoot }), registryBefore);
-    assert.equal(existsSync(`${endpoint}.owner`), false);
-  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

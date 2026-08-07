@@ -24,6 +24,7 @@ test("quickstart demo runs init to task to fact to graph with the source CLI", (
     assert.match(result.taskId, /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
     assert.match(result.factRef, /^fact\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}\/F-[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/u);
     assert.equal(result.graphPath.endsWith(".harness/generated/graph-panorama/quickstart.html"), true);
+    assertIsolatedDaemonStopped(rootDir);
   });
 });
 
@@ -40,6 +41,7 @@ test("quickstart demo fails closed when a middle step is deliberately broken", (
     assert.equal(failure.ok, false);
     assert.equal(failure.step, "fact record");
     assert.match(failure.error, /fact record .*exited non-zero/u);
+    assertIsolatedDaemonStopped(rootDir);
   });
 });
 
@@ -50,6 +52,26 @@ function withTempRoot(fn) {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function assertIsolatedDaemonStopped(rootDir) {
+  const status = JSON.parse(execFileSync(process.execPath, [
+    cliEntry,
+    "--root", rootDir,
+    "--json",
+    "--daemon-profile", "isolated",
+    "daemon", "status"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HARNESS_DAEMON_PROFILE: "isolated"
+    }
+  }));
+  assert.equal(status.started, false, JSON.stringify(status));
+  assert.equal(status.reachable, false, JSON.stringify(status));
+  assert.notEqual(typeof status.pid, "number", JSON.stringify(status));
 }
 
 function parseLastJsonObject(output) {
