@@ -8,6 +8,8 @@ import {
   XCircle,
   ArrowSquareOut,
   Spinner,
+  SealCheck,
+  PaperPlaneRight,
 } from "@phosphor-icons/react";
 import type {
   DecisionRow,
@@ -37,8 +39,9 @@ import { DocTree } from "../components/taskDetail/DocTree";
 import { buildDocTree } from "../model/docTree";
 import { docGroupLabel, inferDocGroup, isRequiredDocGroup } from "../model/docGroups";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
-import { useTaskDetailQuery, useTaskDocumentQuery } from "../task-data";
+import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation, useAppendTaskProgressMutation } from "../task-data";
 import { t } from "../i18n/index.tsx";
+import { useToast } from "../components/MutationToast";
 
 /**
  * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
@@ -142,6 +145,14 @@ export function TaskDetailView({
   const external = isExternal(task);
   // 真实文档清单:从 useTaskDetailQuery 拉,投影本身不内嵌 docs(task-adapter 给空数组)。
   const detailQuery = useTaskDetailQuery(task.taskId);
+  // 任务写动词(task_01KX812C0R):reviewTask / appendTaskProgress 已在 IPC allowlist
+  // 标 shipped 且 hook 已备,这里挂真实入口。遵循 SettingsView.useRebuildGovernanceMutation
+  // 的 view-level 接线范式:repoId 取 task.projectId,toast 统一反馈。
+  // reviewerId 不在前端注入——和 decide 一样,由 daemon 从 socket owner 推导。
+  const showToast = useToast();
+  const reviewMutation = useReviewTaskMutation(task.projectId);
+  const progressMutation = useAppendTaskProgressMutation(task.projectId);
+  const [progressDraft, setProgressDraft] = useState("");
   const realDocs = useMemo<DocEntry[]>(() => {
     const docs = detailQuery.data?.documents ?? [];
     if (docs.length === 0) return task.docs;
@@ -424,6 +435,107 @@ export function TaskDetailView({
                 </span>
                 <p className="rounded-md border border-border bg-surface-raised p-2.5 text-[11px] leading-relaxed text-text-faint">
                   {t("views.taskDetailView.executionReviewCompletionPath")}
+                </p>
+                {/* task_01KX812C0R · reviewTask write verb. Daemon-side reviewTask
+                    reads review.md, parses findings, and emits a typed gate
+                    report. This is NOT a write shortcut for review.md content
+                    (the lifecycle enforcement still stands) — it's the
+                    submit/validate verb for an already-authored review document.
+                    Principal is derived from the daemon socket owner, never
+                    injected here (same authority boundary as decide). */}
+                <button
+                  type="button"
+                  data-testid="task-review-submit"
+                  onClick={() =>
+                    reviewMutation.mutate(
+                      { taskId: task.taskId },
+                      {
+                        onSuccess: () =>
+                          showToast(t("renderer.mutation.reviewGateRequested"), "success"),
+                        onError: (error: Error) =>
+                          showToast(
+                            t("renderer.mutation.reviewGateRequestFailed", { error: error.message }),
+                            "error",
+                          ),
+                      },
+                    )
+                  }
+                  disabled={external || reviewMutation.isPending}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <SealCheck weight="bold" />
+                  {reviewMutation.isPending
+                    ? t("views.taskDetailView.judging")
+                    : t("views.taskDetailView.requestReviewGateReview")}
+                </button>
+                {reviewMutation.isError && (
+                  <p className="text-[11px] leading-relaxed text-danger">
+                    {t("views.taskDetailView.machineJudgmentRequestFailed")}
+                    {(reviewMutation.error as Error)?.message ??
+                      t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
+                  </p>
+                )}
+                <p className="text-[11px] leading-relaxed text-text-faint">
+                  {t("views.taskDetailView.reviewHint")}
+                </p>
+              </div>
+            )}
+
+            {/* task_01KX812C0R · appendTaskProgress write verb. Daemon-side
+                appendTaskProgress appends a timestamped line to progress.md.
+                Available for any non-external task; submit is guarded against
+                empty text so the bridge never sees a no-op write. */}
+            {!external && !isTerminal(task.coordinationStatus) && (
+              <div className="flex flex-col gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                  {t("views.taskDetailView.progressLog")}
+                </span>
+                <textarea
+                  data-testid="task-progress-input"
+                  value={progressDraft}
+                  onChange={(event) => setProgressDraft(event.target.value)}
+                  placeholder={t("views.taskDetailView.progressPlaceholder")}
+                  rows={2}
+                  className="w-full resize-y rounded-md border border-border bg-surface px-2 py-1.5 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
+                />
+                <button
+                  type="button"
+                  data-testid="task-progress-submit"
+                  onClick={() => {
+                    const text = progressDraft.trim();
+                    if (text.length === 0 || progressMutation.isPending) return;
+                    progressMutation.mutate(
+                      { taskId: task.taskId, text },
+                      {
+                        onSuccess: () => {
+                          setProgressDraft("");
+                          showToast(t("renderer.mutation.progressAppended"), "success");
+                        },
+                        onError: (error: Error) =>
+                          showToast(
+                            t("renderer.mutation.progressAppendFailed", { error: error.message }),
+                            "error",
+                          ),
+                      },
+                    );
+                  }}
+                  disabled={progressMutation.isPending || progressDraft.trim().length === 0}
+                  className="inline-flex items-center justify-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[12px] font-semibold text-text hover:border-border-strong hover:text-text active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <PaperPlaneRight weight="bold" className="text-[12px]" />
+                  {progressMutation.isPending
+                    ? t("views.taskDetailView.appendingProgress")
+                    : t("views.taskDetailView.appendProgress")}
+                </button>
+                {progressMutation.isError && (
+                  <p className="text-[11px] leading-relaxed text-danger">
+                    {t("views.taskDetailView.machineJudgmentRequestFailed")}
+                    {(progressMutation.error as Error)?.message ??
+                      t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
+                  </p>
+                )}
+                <p className="text-[11px] leading-relaxed text-text-faint">
+                  {t("views.taskDetailView.appendProgressHint")}
                 </p>
               </div>
             )}
