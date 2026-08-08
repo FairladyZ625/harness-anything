@@ -33,6 +33,15 @@ import {
 } from "./production-authority-lifecycle.ts";
 import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 
+/**
+ * Historical recovery runs before this child announces READY, so it has to fit
+ * inside the parent's READY deadline (`readyTimeoutMs`, default 30_000ms).
+ * A repository whose proceedings all fail recovery would otherwise never reach
+ * the announcement and wedge the daemon into a restart loop that never serves.
+ * Proceedings skipped by this budget stay proceeding and are retried next start.
+ */
+const startupHistoricalRecoveryBudgetMs = 10_000;
+
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
 ): Promise<void> {
@@ -170,7 +179,13 @@ export async function runRepoWriteChildEntrypoint(
     return started.component.recoverCommittedReceipt(outcome.innerOpId);
   };
   const transport = new RepoWriteChildIpcTransport();
+  const startupRecoveryDeadline = Date.now() + startupHistoricalRecoveryBudgetMs;
+  let proceedingsLeftByBudget = 0;
   for (const proceeding of outcomes.listHistoricalProceedings()) {
+    if (Date.now() >= startupRecoveryDeadline) {
+      proceedingsLeftByBudget += 1;
+      continue;
+    }
     try {
       const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
       if (recovery.disposition === "permanently-rejected") {
@@ -201,6 +216,13 @@ export async function runRepoWriteChildEntrypoint(
         diagnostic: boundedRecoveryError(error)
       });
     }
+  }
+  if (proceedingsLeftByBudget > 0) {
+    process.stderr.write(
+      `[repo-write-child] repo=${config.repoId} left ${proceedingsLeftByBudget} historical `
+      + `proceeding(s) unrecovered after the ${startupHistoricalRecoveryBudgetMs}ms startup `
+      + "budget; they remain proceeding and are retried on the next start\n"
+    );
   }
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
