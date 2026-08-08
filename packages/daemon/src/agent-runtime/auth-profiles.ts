@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { RuntimeAuthenticationProfileProjection } from "@harness-anything/application/agent-runtime-control";
+import { resolveCredentials } from "./credential-resolver.ts";
 
 export interface RuntimeAuthStatusResult {
   readonly exitCode: number;
@@ -10,6 +11,7 @@ export interface RuntimeAuthStatusResult {
 export interface RuntimeAuthenticationProbeOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly runStatus?: (kindId: "claude-code" | "codex") => Promise<RuntimeAuthStatusResult>;
+  readonly userRoot?: string;
 }
 
 export async function probeRuntimeAuthenticationProfiles(
@@ -18,6 +20,15 @@ export async function probeRuntimeAuthenticationProfiles(
   const env = options.env ?? process.env;
   const runStatus = options.runStatus ?? ((kindId) => runRuntimeAuthStatus(kindId, env));
   const [claudeStatus, codexStatus] = await Promise.all([runStatus("claude-code"), runStatus("codex")]);
+
+  // Resolve credentials from env or YAML for api-key profiles
+  const claudeApiKeyCreds = options.userRoot
+    ? resolveCredentials("claude-code", "api-key", options.userRoot, env)
+    : { apiKey: env.ANTHROPIC_API_KEY };
+  const codexApiKeyCreds = options.userRoot
+    ? resolveCredentials("codex", "api-key", options.userRoot, env)
+    : { apiKey: env.OPENAI_API_KEY };
+
   return [
     {
       kindId: "claude-code",
@@ -29,7 +40,7 @@ export async function probeRuntimeAuthenticationProfiles(
     {
       kindId: "claude-code",
       profileKind: "api-key",
-      state: configuredEnvironmentValue(env.ANTHROPIC_API_KEY),
+      state: configuredEnvironmentValue(claudeApiKeyCreds.apiKey),
       assurance: "configuration-presence",
       guidance: "Configure ANTHROPIC_API_KEY in the daemon environment."
     },
@@ -43,7 +54,7 @@ export async function probeRuntimeAuthenticationProfiles(
     {
       kindId: "codex",
       profileKind: "api-key",
-      state: configuredEnvironmentValue(env.OPENAI_API_KEY),
+      state: configuredEnvironmentValue(codexApiKeyCreds.apiKey),
       assurance: "configuration-presence",
       guidance: "Configure OPENAI_API_KEY in the daemon environment."
     }

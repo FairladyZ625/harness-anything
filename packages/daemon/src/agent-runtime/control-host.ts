@@ -33,7 +33,7 @@ export function createLocalAgentRuntimeControlHost(rootDir: string): {
       createCodexRuntimeAdapter({ executablePath: () => executablePath("codex"), userRoot: rootDir })
     ],
     store: createFileRuntimeSessionStore(rootDir),
-    authProfiles: probeRuntimeAuthenticationProfiles,
+    authProfiles: () => probeRuntimeAuthenticationProfiles({ userRoot: rootDir }),
     workspaceRoot: rootDir
   });
   const service = makeAgentRuntimeService({
