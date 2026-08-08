@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { VcsCommitAuthor, VcsCommitOptions, VersionControlSystem } from "../../ports/version-control-system.ts";
+import type { PreservedWorktreeEdit, VcsCommitAuthor, VcsCommitOptions, VersionControlSystem } from "../../ports/version-control-system.ts";
 import { VcsCommandError } from "../../ports/version-control-system.ts";
 import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
 import { commitPathsToBranchHeadless } from "./headless-branch-commit.ts";
@@ -231,11 +232,20 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         }
       }
     ),
-    resetWorktreePaths: (repoRoot, ref, paths) => {
-      if (paths.length === 0) return;
+    resetWorktreePaths: (repoRoot, ref, paths, options) => {
+      if (paths.length === 0) return [];
       const refSha = runGit(repoRoot, "rev-parse", ref).trim();
+      const preserved: PreservedWorktreeEdit[] = [];
       for (const relativePath of paths) {
         const absolutePath = path.join(repoRoot, ...relativePath.split("/"));
+        const rescued = preserveDivergentWorktreeEdit({
+          repoRoot,
+          relativePath,
+          absolutePath,
+          restoreRef: options?.restoreRef,
+          preserveDir: options?.preserveDir
+        });
+        if (rescued) preserved.push(rescued);
         let existsAtRef = false;
         try {
           runGit(repoRoot, "cat-file", "-e", `${refSha}:${relativePath}`);
@@ -263,8 +273,42 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
           }
         }
       }
+      return preserved;
     }
   };
+}
+
+function preserveDivergentWorktreeEdit(input: {
+  readonly repoRoot: string;
+  readonly relativePath: string;
+  readonly absolutePath: string;
+  readonly restoreRef: string | undefined;
+  readonly preserveDir: string | undefined;
+}): PreservedWorktreeEdit | undefined {
+  if (!input.restoreRef) return undefined;
+  let worktreeBytes: Buffer;
+  try {
+    worktreeBytes = readFileSync(input.absolutePath);
+  } catch {
+    return undefined;
+  }
+  let restoreBytes: Buffer | undefined;
+  try {
+    restoreBytes = Buffer.from(runGitBytes(input.repoRoot, "cat-file", "blob", `${input.restoreRef}:${input.relativePath}`));
+  } catch {
+    restoreBytes = undefined;
+  }
+  if (restoreBytes && restoreBytes.equals(worktreeBytes)) return undefined;
+  const preserveRoot = input.preserveDir ?? path.join(input.repoRoot, ".harness", "preserved-worktree-edits");
+  const stamp = `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  const target = path.join(preserveRoot, stamp, ...input.relativePath.split("/"));
+  try {
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, worktreeBytes);
+  } catch {
+    return undefined;
+  }
+  return { path: input.relativePath, preservedAt: target };
 }
 
 export function gitProtectedPaths(

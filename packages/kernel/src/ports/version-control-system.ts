@@ -101,7 +101,31 @@ export interface VersionControlSystem {
       readonly onPhase?: (phase: VcsCommitPhase) => void;
     }
   ) => string;
-  readonly resetWorktreePaths: (repoRoot: string, ref: string, paths: ReadonlyArray<string>) => void;
+  readonly resetWorktreePaths: (
+    repoRoot: string,
+    ref: string,
+    paths: ReadonlyArray<string>,
+    options?: {
+      /**
+       * Ref whose content the caller will restore immediately after the reset
+       * (for a materializer merge, the session branch). When the worktree
+       * already matches this ref the reset is content-neutral. When it differs,
+       * the worktree holds an edit that no ref carries, so the reset would
+       * destroy it; such paths are copied aside and reported instead.
+       */
+      readonly restoreRef?: string;
+      readonly preserveDir?: string;
+    }
+  ) => ReadonlyArray<PreservedWorktreeEdit>;
+}
+
+/**
+ * A worktree edit that no ref carried at reset time, copied aside so the reset
+ * could proceed without destroying it.
+ */
+export interface PreservedWorktreeEdit {
+  readonly path: string;
+  readonly preservedAt: string;
 }
 
 export class VcsCommandError extends Error {
