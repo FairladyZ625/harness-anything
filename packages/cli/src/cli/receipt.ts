@@ -83,6 +83,7 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (receipt.command === "completion") return renderCompletionText(receipt);
   if (receipt.command === "capabilities") return renderCapabilitiesText(receipt);
   if (receipt.command === "preset list") return renderPresetListText(receipt);
+  if (receipt.command === "doc status") return renderDocStatusText(receipt);
   return renderSuccessReceiptText(receipt);
 }
 
@@ -152,6 +153,34 @@ function renderPresetListText(receipt: CommandReceipt): string {
     return [`${preset.id} — ${title} — ${description}`];
   });
   return [rows.length > 0 ? rows.join("\n") : "No presets installed.", renderSuccessReceiptText(receipt)].join("\n");
+}
+
+function renderDocStatusText(receipt: CommandReceipt): string {
+  const rows = (receipt.items ?? []).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const dirtyFile = item as {
+      readonly path?: unknown;
+      readonly status?: unknown;
+      readonly unresolvedTouches?: unknown;
+      readonly forbiddenTouches?: unknown;
+    };
+    if (typeof dirtyFile.path !== "string") return [];
+    const details = [
+      ...(Array.isArray(dirtyFile.unresolvedTouches)
+        ? dirtyFile.unresolvedTouches.flatMap((touch) => {
+          if (!touch || typeof touch !== "object" || Array.isArray(touch)) return [];
+          const reason = (touch as { readonly reason?: unknown }).reason;
+          return typeof reason === "string" ? [`unresolved: ${reason}`] : [];
+        })
+        : []),
+      ...(Array.isArray(dirtyFile.forbiddenTouches) && dirtyFile.forbiddenTouches.length > 0
+        ? [`forbidden touch${dirtyFile.forbiddenTouches.length === 1 ? "" : "s"}`]
+        : []),
+      ...(dirtyFile.status === "deleted" ? ["deletion"] : [])
+    ];
+    return [`${dirtyFile.path}${details.length > 0 ? ` — ${details.join("; ")}` : ""}`];
+  });
+  return [rows.length > 0 ? rows.join("\n") : "No dirty files.", renderSuccessReceiptText(receipt)].join("\n");
 }
 
 function receiptWarningCode(value: unknown): string | undefined {
@@ -345,6 +374,7 @@ function summarizeResult(raw: Record<string, unknown>): string {
   const rows = typeof raw.rows === "number" ? raw.rows : undefined;
   const version = typeof raw.version === "string" ? raw.version : undefined;
 
+  if (command === "doc-status") return summarizeDocStatus(raw, rows);
   if (command === "materializer-run") return summarizeMaterializer(raw.report);
   if (command === "new-task" && taskId && packagePath) {
     const report = raw.report;
@@ -361,6 +391,17 @@ function summarizeResult(raw: Record<string, unknown>): string {
   if (rows !== undefined) return `completed ${displayCommand(command).command} with ${rows} row${rows === 1 ? "" : "s"}`;
   if (taskId) return `completed ${displayCommand(command).command} for ${taskId}`;
   return `completed ${displayCommand(command).command}`;
+}
+
+function summarizeDocStatus(raw: Record<string, unknown>, rows: number | undefined): string {
+  const report = raw.report;
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return `doc status: ${rows ?? 0} dirty, 0 blocked`;
+  }
+  const record = report as Record<string, unknown>;
+  const blocked = ["forbiddenTouches", "unresolvedTouches", "deletions"]
+    .reduce((total, key) => total + (Array.isArray(record[key]) ? record[key].length : 0), 0);
+  return `doc status: ${rows ?? 0} dirty, ${blocked} blocked`;
 }
 
 function summarizeMaterializer(report: unknown): string {
@@ -442,7 +483,7 @@ function entityFromData(kind: string | undefined, data: Record<string, unknown>)
 }
 
 function itemsFromData(data: Record<string, unknown>, report: Record<string, unknown> | undefined): ReadonlyArray<unknown> | undefined {
-  for (const key of ["items", "ops", "decisions", "tasks", "templates", "presets", "scripts", "modules", "commands"] as const) {
+  for (const key of ["items", "ops", "decisions", "tasks", "templates", "presets", "scripts", "modules", "commands", "dirtyFiles"] as const) {
     const value = report?.[key] ?? data[key];
     if (Array.isArray(value)) return value;
   }

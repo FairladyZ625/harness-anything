@@ -145,7 +145,7 @@ test("host-prose policies allow undeclared sections without weakening their decl
   }, {
     documents: [index, { path: documentPath, body: managedBody("Plan", "## Purpose", "Old") }]
   }, [policy], [{ kind: "task", semanticDiff: entityRegistry.task.semanticDiff }]),
-  /SEMANTIC_DIFF_AMBIGUOUS:section identity changed/u);
+  /SEMANTIC_DIFF_AMBIGUOUS:.*## Goal/u);
 });
 
 test("all task actions compile to one exact package-hosted StoragePlan", async () => {

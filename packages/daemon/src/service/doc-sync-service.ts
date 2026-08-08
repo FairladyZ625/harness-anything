@@ -131,9 +131,9 @@ export function buildDocSyncSubmitRequest(
   const deletions = report.deletions.filter((entry) => filePaths.has(entry.path));
   if (forbiddenTouches.length > 0 || unresolvedTouches.length > 0 || deletions.length > 0) {
     const scope = selected.size > 0 ? ` for selected path(s): ${[...selected].sort().join(", ")}` : "";
-    const blockers = [...forbiddenTouches.map((touch) => `forbidden:${touch.path}`), ...unresolvedTouches.map((touch) => `unresolved:${touch.path}`), ...deletions.map((entry) => `deletion:${entry.path}`)];
+    const blockers = [...forbiddenTouches.map((touch) => `forbidden:${touch.path}`), ...unresolvedTouches.map((touch) => `unresolved:${touch.path}: ${touch.reason}`), ...deletions.map((entry) => `deletion:${entry.path}`)];
     throw new Error(selected.size === 0
-      ? `Doc sync preview is not ready: ${forbiddenTouches.length} forbidden touch(es), ${unresolvedTouches.length} unresolved touch(es), ${deletions.length} deletion(s). Run 'ha doc status'.`
+      ? `Doc sync preview is not ready: ${forbiddenTouches.length} forbidden touch(es), ${unresolvedTouches.length} unresolved touch(es), ${deletions.length} deletion(s). Blockers: ${blockers.join(", ")}. Run 'ha doc status'.`
       : `Doc sync preview is not ready${scope}: ${blockers.join(", ")}. Only paths in this request are blockers; unrelated dirty paths are excluded. Run 'ha doc status'.`);
   }
   if (!report.baseLedgerSha) throw new Error("Doc sync submit requires an initialized authored Git repository.");

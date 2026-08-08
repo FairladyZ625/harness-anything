@@ -184,7 +184,11 @@ test("doc sync rejects renamed task host-prose skeleton sections", async () => {
     });
 
     assert.equal(validation.ok, false);
-    assert.match(validation.unresolvedTouches[0]?.reason ?? "", /SEMANTIC_DIFF_AMBIGUOUS:section identity changed/u);
+    const reason = validation.unresolvedTouches[0]?.reason ?? "";
+    assert.match(reason, /SEMANTIC_DIFF_AMBIGUOUS:declared section ## Goal disappeared from submitted content .*\(it was deleted or renamed\)/u);
+    assert.match(reason, /keep the declared heading exactly as written/u);
+    assert.match(reason, /edit its body freely/u);
+    assert.match(reason, /new sections are allowed/u);
   });
 });
 

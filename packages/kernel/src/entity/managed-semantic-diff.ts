@@ -101,7 +101,10 @@ function changedRegions(
     for (const section of policy!.sections) {
       const baseHas = hasHeading(baseBody, section.anchor);
       const candidateHas = hasHeading(candidateBody, section.anchor);
-      if (baseHas !== candidateHas) semanticDiffError("SEMANTIC_DIFF_AMBIGUOUS", `section identity changed: ${filePath} ${section.anchor}`);
+      if (baseHas !== candidateHas) semanticDiffError(
+        "SEMANTIC_DIFF_AMBIGUOUS",
+        `declared section ${section.anchor} disappeared from submitted content for ${filePath} (it was deleted or renamed); keep the declared heading exactly as written, edit its body freely, and new sections are allowed`
+      );
       const baseSection = extractMarkdownSection(baseBody, section.anchor);
       const candidateSection = extractMarkdownSection(candidateBody, section.anchor);
       if (baseSection === candidateSection) continue;
