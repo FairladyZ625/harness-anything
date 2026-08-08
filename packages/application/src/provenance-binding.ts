@@ -24,10 +24,25 @@ export function bindCreateProvenance(
         Effect.as(provenance),
         // Optional transcript capture must not make unrelated writes depend on runtime-log availability.
         // Execution submission applies the stricter confirmed-unavailable rule at its finalization boundary.
-        Effect.catchAll((error) => error.code === "transcript_unavailable" || error.code === "read_failed"
+        Effect.catchAll((error) => transcriptCaptureIsOptionallyUnavailable(error)
           ? Effect.succeed(provenance)
           : Effect.fail(error))
       );
     })
   );
+}
+
+/**
+ * A transcript this daemon will not admit is unavailable in the same sense a
+ * missing runtime log is: the capture cannot happen here, and the unrelated
+ * write it was riding along with has no stake in it. Session transcripts grow
+ * without bound while the business write stays small, so an oversized capture
+ * must not be able to fail `task create`. Every other write rejection — fence
+ * loss, conflict, journal failure — still propagates.
+ */
+function transcriptCaptureIsOptionallyUnavailable(error: ProvenanceSessionExporterRejected): boolean {
+  if (error.code === "transcript_unavailable" || error.code === "read_failed") return true;
+  return error.code === "write_failed"
+    && error.writeError?._tag === "WriteRejected"
+    && error.writeError.code === "admission_payload_exceeds_limit";
 }
