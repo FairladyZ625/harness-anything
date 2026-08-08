@@ -160,6 +160,36 @@ test("decision and fact provenance binding preserve the underlying structured wr
   }
 });
 
+test("provenance binding keeps the session pointer when the transcript exceeds the admission limit", async () => {
+  const currentSessionProbe = makeHumanFallbackSessionProbe({
+    now: () => "2026-07-03T00:00:00.000Z"
+  });
+  const oversized = {
+    _tag: "ProvenanceSessionExporterRejected",
+    sessionId: "human-cli-1783036800000",
+    code: "write_failed",
+    reason: "Shared daemon admission payload exceeds the per-request limit",
+    writeError: {
+      _tag: "WriteRejected",
+      code: "admission_payload_exceeds_limit",
+      reason: "Shared daemon admission payload exceeds the per-request limit",
+      retryable: false
+    }
+  } as const satisfies ProvenanceSessionExporterRejected;
+
+  const provenance = await runEffect(bindCreateProvenance({
+    currentSessionProbe,
+    provenanceSessionExporter: failingExporter(oversized)
+  }, "2026-07-03T00:01:00.000Z"));
+
+  // An optional capture too large for this daemon must not fail the write it rode along with.
+  assert.deepEqual(provenance, {
+    runtime: "human",
+    sessionId: "human-cli-1783036800000",
+    boundAt: "2026-07-03T00:01:00.000Z"
+  });
+});
+
 test("automatic provenance binding keeps the session pointer when transcript availability is indeterminate", async () => {
   const rootDir = createHarnessRoot();
   try {
