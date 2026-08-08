@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 
@@ -16,6 +17,18 @@ interface CredentialsYaml {
     readonly apiKey?: string;
     readonly baseUrl?: string;
   }>;
+}
+
+/**
+ * Resolve actual user root where credentials are stored.
+ * Priority: userRoot arg > ~/.harness-production > ~/.harness
+ */
+function resolveActualUserRoot(userRoot: string | undefined): string {
+  if (userRoot) return userRoot;
+  const home = homedir();
+  const production = path.join(home, ".harness-production");
+  const standard = path.join(home, ".harness");
+  return existsSync(production) ? production : standard;
 }
 
 /**
@@ -53,8 +66,11 @@ export function resolveCredentials(
   }
 
   // Priority 2: YAML file
-  const credentialsPath = path.join(userRoot, "agent-runtime-credentials.yaml");
+  const actualUserRoot = resolveActualUserRoot(userRoot);
+  const credentialsPath = path.join(actualUserRoot, "agent-runtime-credentials.yaml");
+  console.error(`[credential-resolver] checking ${credentialsPath} for ${kindId}/${profileKind}`);
   if (!existsSync(credentialsPath)) {
+    console.error(`[credential-resolver] file not found: ${credentialsPath}`);
     return { env: { ...processEnv } };
   }
 
