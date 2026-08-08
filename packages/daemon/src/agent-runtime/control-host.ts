@@ -16,7 +16,7 @@ import { probeRuntimeAuthenticationProfiles } from "./auth-profiles.ts";
 import { createLocalAgentRuntimeDiscoveryProbe } from "./host-discovery.ts";
 import { createFileRuntimeSessionStore } from "./session-store.ts";
 
-export function createLocalAgentRuntimeControlHost(rootDir: string): {
+export function createLocalAgentRuntimeControlHost(rootDir: string, userRoot: string): {
   readonly control: AgentRuntimeControlService;
   readonly inventoryReader: ReturnType<typeof makeAgentRuntimeService>["inventoryProjection"];
 } {
@@ -29,11 +29,11 @@ export function createLocalAgentRuntimeControlHost(rootDir: string): {
   };
   const control = createAgentRuntimeSessionService({
     adapters: [
-      createClaudeCodeRuntimeAdapter({ executablePath: () => executablePath("claude-code"), userRoot: rootDir }),
-      createCodexRuntimeAdapter({ executablePath: () => executablePath("codex"), userRoot: rootDir })
+      createClaudeCodeRuntimeAdapter({ executablePath: () => executablePath("claude-code"), userRoot }),
+      createCodexRuntimeAdapter({ executablePath: () => executablePath("codex"), userRoot })
     ],
     store: createFileRuntimeSessionStore(rootDir),
-    authProfiles: () => probeRuntimeAuthenticationProfiles({ userRoot: rootDir }),
+    authProfiles: () => probeRuntimeAuthenticationProfiles({ userRoot }),
     workspaceRoot: rootDir
   });
   const service = makeAgentRuntimeService({
@@ -44,8 +44,8 @@ export function createLocalAgentRuntimeControlHost(rootDir: string): {
   return { control, inventoryReader: service.inventoryProjection };
 }
 
-export function makeLocalAgentRuntimeControllerOptions(rootDir: string) {
-  const host = createLocalAgentRuntimeControlHost(rootDir);
+export function makeLocalAgentRuntimeControllerOptions(rootDir: string, userRoot: string) {
+  const host = createLocalAgentRuntimeControlHost(rootDir, userRoot);
   return { agentRuntimeInventoryReader: host.inventoryReader, agentRuntimeControl: host.control };
 }
 

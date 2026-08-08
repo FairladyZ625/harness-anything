@@ -463,6 +463,7 @@ function createRepoServiceBinding<
   readonly appendRuntimeEvent: ReturnType<typeof makeLocalAgentHolderServices>["appendRuntimeEvent"];
 } {
   const rootDir = repo.canonicalRoot;
+  const userRoot = statusOptions?.userRoot ?? rootDir;
   const identity = loadRepoIdentity(rootDir, layoutOverrides, statusOptions?.endpoint, statusOptions?.userRoot, hostServices);
   const taskWriter = makeLocalLifecycleEngine({
     rootDir,
@@ -470,7 +471,7 @@ function createRepoServiceBinding<
     coordinator: failClosedReservationReconcilerCoordinator()
   });
   const { appendRuntimeEvent, taskHolderService, agentRuntimeControllerOptions, agentHolderProjection } =
-    makeLocalAgentHolderServices(rootDir, layoutOverrides, runtime);
+    makeLocalAgentHolderServices(rootDir, userRoot, layoutOverrides, runtime);
   const localController = makeLocalControllerService({
     rootDir,
     layoutOverrides,

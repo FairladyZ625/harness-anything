@@ -29,11 +29,6 @@ export async function probeRuntimeAuthenticationProfiles(
     ? resolveCredentials("codex", "api-key", options.userRoot, env)
     : { apiKey: env.OPENAI_API_KEY };
 
-  // DEBUG
-  console.error("DEBUG auth-profiles: userRoot=", options.userRoot);
-  console.error("DEBUG claudeApiKeyCreds:", claudeApiKeyCreds.apiKey ? "FOUND" : "NOT FOUND");
-  console.error("DEBUG codexApiKeyCreds:", codexApiKeyCreds.apiKey ? "FOUND" : "NOT FOUND");
-
   return [
     {
       kindId: "claude-code",

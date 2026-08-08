@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 
@@ -20,25 +19,13 @@ interface CredentialsYaml {
 }
 
 /**
- * Resolve actual user root where credentials are stored.
- * Priority: userRoot arg > ~/.harness-production > ~/.harness
- */
-function resolveActualUserRoot(userRoot: string | undefined): string {
-  if (userRoot) return userRoot;
-  const home = homedir();
-  const production = path.join(home, ".harness-production");
-  const standard = path.join(home, ".harness");
-  return existsSync(production) ? production : standard;
-}
-
-/**
  * Resolve API credentials and endpoint for an agent runtime profile.
  *
  * Priority: process.env > credentials YAML file > empty
  *
  * @param kindId - Runtime kind (claude-code / codex)
  * @param profileKind - Profile kind (api-key / subscription-account / etc)
- * @param userRoot - Daemon user root (e.g. ~/.harness-production)
+ * @param userRoot - User root directory (e.g. ~/.harness-production)
  * @param processEnv - Process environment (usually process.env)
  * @returns Resolved credentials with env object to pass to AdapterOptions
  */
@@ -66,11 +53,8 @@ export function resolveCredentials(
   }
 
   // Priority 2: YAML file
-  const actualUserRoot = resolveActualUserRoot(userRoot);
-  const credentialsPath = path.join(actualUserRoot, "agent-runtime-credentials.yaml");
-  console.error(`[credential-resolver] checking ${credentialsPath} for ${kindId}/${profileKind}`);
+  const credentialsPath = path.join(userRoot, "agent-runtime-credentials.yaml");
   if (!existsSync(credentialsPath)) {
-    console.error(`[credential-resolver] file not found: ${credentialsPath}`);
     return { env: { ...processEnv } };
   }
 
