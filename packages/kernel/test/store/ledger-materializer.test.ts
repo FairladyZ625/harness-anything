@@ -37,7 +37,10 @@ test("WriteCoordinator commits session-routed writes to a session branch", () =>
     assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "master");
     assert.equal(git(rootDir, "branch", "--list", "sessions/codex-session-1").trim(), "sessions/codex-session-1");
     assert.match(git(rootDir, "log", "master..sessions/codex-session-1", "--oneline"), /op-session-branch/u);
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/note.md")), false);
+    // The zero-checkout publisher preserves the worktree: the file written by
+    // applyRecord stays visible. It is NOT yet on trunk — only on the session
+    // branch — until the materializer merges.
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/note.md")), true);
   });
 });
 
@@ -67,7 +70,7 @@ test("session publication defers projection notification until materializer merg
     assert.ok(postCommitPhases.includes("projection-hash-start"));
     assert.ok(postCommitPhases.includes("projection-hash-done"));
     assert.deepEqual(projectionChanges, []);
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-deferred-projection/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-deferred-projection/INDEX.md")), true);
 
     const materialized = runLedgerMaterializer(rootDir);
     assert.equal(materialized.merged, 1);
@@ -95,7 +98,7 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
     assert.equal(dryRun.dryRun, true);
     assert.equal(dryRun.merged, 0);
     assert.equal(dryRun.branches.find((branch) => branch.branch === "sessions/codex-session-2")?.status, "would_merge");
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-2/note.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-2/note.md")), true);
 
     const progress: string[] = [];
     const merged = runLedgerMaterializer(rootDir, {

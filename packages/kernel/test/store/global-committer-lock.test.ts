@@ -672,6 +672,8 @@ function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
     sessionBranches: () => [],
     commitsNotInTrunk: () => [],
     changedFilesBetween: () => [],
-    resetQuiet: () => undefined
+    resetQuiet: () => undefined,
+    commitPathsToBranch: () => `fake-branch-head-${commitCount}`,
+    resetWorktreePaths: () => undefined
   };
 }

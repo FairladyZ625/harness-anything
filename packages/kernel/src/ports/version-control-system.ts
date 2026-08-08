@@ -89,6 +89,19 @@ export interface VersionControlSystem {
   readonly commitsNotInTrunk: (repoRoot: string, trunkBranch: string, branch: string) => ReadonlyArray<string>;
   readonly changedFilesBetween: (repoRoot: string, before: string, after: string) => ReadonlyArray<string>;
   readonly resetQuiet: (repoRoot: string, pathspecs: ReadonlyArray<string>) => void;
+  readonly commitPathsToBranch: (
+    repoRoot: string,
+    input: {
+      readonly branchName: string;
+      readonly baseBranchName: string;
+      readonly stagePaths: ReadonlyArray<string>;
+      readonly excludePaths: ReadonlySet<string>;
+      readonly message: string;
+      readonly author?: VcsCommitAuthor;
+      readonly onPhase?: (phase: VcsCommitPhase) => void;
+    }
+  ) => string;
+  readonly resetWorktreePaths: (repoRoot: string, ref: string, paths: ReadonlyArray<string>) => void;
 }
 
 export class VcsCommandError extends Error {

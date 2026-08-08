@@ -179,6 +179,12 @@ function materializeBranches(
     const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
       ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
     vcs.checkout(repoRoot, trunkBranch);
+    // The zero-checkout publisher preserves user-authored content in the
+    // worktree. git merge refuses when local changes (tracked modifications
+    // or untracked files) would be overwritten by the merge. Revert only the
+    // paths this merge will touch to trunk state so the merge proceeds; the
+    // merge immediately restores the session's content for those paths.
+    vcs.resetWorktreePaths(repoRoot, trunkBranch, vcs.changedFilesBetween(repoRoot, trunkBranch, branch));
     const beforeMergeHead = vcs.currentHead(repoRoot);
     let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
     try {

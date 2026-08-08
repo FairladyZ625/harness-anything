@@ -6,6 +6,7 @@ import path from "node:path";
 import type { VcsCommitAuthor, VcsCommitOptions, VersionControlSystem } from "../../ports/version-control-system.ts";
 import { VcsCommandError } from "../../ports/version-control-system.ts";
 import { resolveGitMaxBufferBytes } from "../../runtime/operational-limits.ts";
+import { commitPathsToBranchHeadless } from "./headless-branch-commit.ts";
 import { commitWithScopedIndex, nullDelimitedGitPaths } from "./scoped-index-commit.ts";
 
 const gitMaxBuffer = resolveGitMaxBufferBytes();
@@ -211,6 +212,57 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     resetQuiet: (repoRoot, pathspecs) => {
       if (pathspecs.length === 0) return;
       runGit(repoRoot, "reset", "-q", "--", ...pathspecs);
+    },
+    commitPathsToBranch: (repoRoot, input) => commitPathsToBranchHeadless(
+      repoRoot,
+      input,
+      {
+        runGitBytes,
+        runGitWithInput,
+        runGitWithEnvironment,
+        runGitWithInputEnvironment,
+        fileSystem: {
+          exists: existsSync,
+          lstat: lstatSync,
+          readFile: readFileSync,
+          readLink: readlinkSync,
+          makeTemporaryDirectory: (prefix) => mkdtempSync(path.join(tmpdir(), prefix)),
+          removeTemporaryDirectory: (inputPath) => rmSync(inputPath, { recursive: true, force: true })
+        }
+      }
+    ),
+    resetWorktreePaths: (repoRoot, ref, paths) => {
+      if (paths.length === 0) return;
+      const refSha = runGit(repoRoot, "rev-parse", ref).trim();
+      for (const relativePath of paths) {
+        const absolutePath = path.join(repoRoot, ...relativePath.split("/"));
+        let existsAtRef = false;
+        try {
+          runGit(repoRoot, "cat-file", "-e", `${refSha}:${relativePath}`);
+          existsAtRef = true;
+        } catch {
+          // Path does not exist in ref — it will be removed below.
+        }
+        if (existsAtRef) {
+          try {
+            runGit(repoRoot, "checkout", ref, "--", relativePath);
+          } catch {
+            // If checkout fails (e.g. path is a directory in ref), skip —
+            // the merge will surface any real conflict.
+          }
+        } else {
+          try {
+            runGit(repoRoot, "reset", "-q", "HEAD", "--", relativePath);
+          } catch {
+            // Path may not be in the index; ignore.
+          }
+          try {
+            rmSync(absolutePath, { force: true });
+          } catch {
+            // Worktree file may already be gone; ignore.
+          }
+        }
+      }
     }
   };
 }
