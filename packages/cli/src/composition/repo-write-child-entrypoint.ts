@@ -34,13 +34,22 @@ import {
 import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 
 /**
- * Historical recovery runs before this child announces READY, so it has to fit
- * inside the parent's READY deadline (`readyTimeoutMs`, default 30_000ms).
- * A repository whose proceedings all fail recovery would otherwise never reach
- * the announcement and wedge the daemon into a restart loop that never serves.
- * Proceedings skipped by this budget stay proceeding and are retried next start.
+ * Everything before READY must fit inside the parent's READY deadline
+ * (`readyTimeoutMs`, default 30_000ms), so this caps the child's *total* time to
+ * announcement rather than just the recovery loop. Measured on a wedged daemon,
+ * the work preceding recovery alone consumed 20.1-29.9s, so a fixed recovery
+ * budget cannot keep the total under the deadline — the budget has to be
+ * whatever time is still left. Recovery therefore gets the remainder of this cap
+ * and nothing more; proceedings it does not reach stay proceeding and are
+ * retried on the next start. The margin below the parent default absorbs spawn
+ * and IPC latency the child cannot observe.
  */
-const startupHistoricalRecoveryBudgetMs = 10_000;
+const startupReadyBudgetMs = 25_000;
+
+/** Time this child may still spend on historical recovery before announcing READY. */
+function remainingStartupRecoveryBudgetMs(): number {
+  return Math.max(0, startupReadyBudgetMs - Math.round(process.uptime() * 1000));
+}
 
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
@@ -179,7 +188,8 @@ export async function runRepoWriteChildEntrypoint(
     return started.component.recoverCommittedReceipt(outcome.innerOpId);
   };
   const transport = new RepoWriteChildIpcTransport();
-  const startupRecoveryDeadline = Date.now() + startupHistoricalRecoveryBudgetMs;
+  const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
+  const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
   let proceedingsLeftByBudget = 0;
   for (const proceeding of outcomes.listHistoricalProceedings()) {
     if (Date.now() >= startupRecoveryDeadline) {
@@ -220,8 +230,9 @@ export async function runRepoWriteChildEntrypoint(
   if (proceedingsLeftByBudget > 0) {
     process.stderr.write(
       `[repo-write-child] repo=${config.repoId} left ${proceedingsLeftByBudget} historical `
-      + `proceeding(s) unrecovered after the ${startupHistoricalRecoveryBudgetMs}ms startup `
-      + "budget; they remain proceeding and are retried on the next start\n"
+      + `proceeding(s) unrecovered after spending the ${startupRecoveryBudgetMs}ms still left `
+      + `of the ${startupReadyBudgetMs}ms startup budget; they remain proceeding and are `
+      + "retried on the next start\n"
     );
   }
   const operation = new ProductionRepoWriteOperationHost({
