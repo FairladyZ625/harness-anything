@@ -50,6 +50,47 @@ export class DaemonAutostartProcessExitedError extends Error {
   }
 }
 
+/**
+ * PLT-Honest: raised by the autostart circuit breaker after N consecutive
+ * daemon deaths on the same socket. The message is written so an operator
+ * (or an agent following it verbatim) reads an honest stop condition instead
+ * of being silently fed back into the resurrection chain. It deliberately
+ * does NOT suggest `ha daemon restart` or `HARNESS_DAEMON_MODE=direct`,
+ * because the breaker fires on the death side (not on slow start), and a
+ * blind restart is the action that kept killing the user's recovering
+ * daemon today.
+ */
+export class DaemonAutostartCircuitOpenError extends Error {
+  readonly maxConsecutiveFailures: number;
+  readonly consecutiveFailures: number;
+  readonly retryAfterMs: number;
+  readonly socketPath: string;
+
+  constructor(
+    maxConsecutiveFailures: number,
+    consecutiveFailures: number,
+    retryAfterMs: number,
+    socketPath: string,
+    lastCause: unknown
+  ) {
+    const cause = errorMessage(lastCause, "no probe completed");
+    super(
+      `DAEMON_AUTOSTART_CIRCUIT_OPEN: stopped autostarting after ${consecutiveFailures} consecutive daemon`
+      + ` startup failures on socket ${socketPath} (limit ${maxConsecutiveFailures}). The breaker is honest`
+      + ` about giving up rather than silently feeding an infinite respawn loop. Last failure: ${cause}.`
+      + ` Do NOT run 'ha daemon restart' — that kills whatever is recovering. Next: inspect the startup log`
+      + ` (see DAEMON_AUTOSTART_PROCESS_EXITED for the launch log path) or 'ha daemon status --json'; once`
+      + ` the cause is fixed, retry and the breaker resets on the first successful startup.`
+      + `${retryAfterMs > 0 ? ` Autostart will retry in ${Math.round(retryAfterMs / 1000)}s unless reset.` : ""}`
+    );
+    this.name = "DaemonAutostartCircuitOpenError";
+    this.maxConsecutiveFailures = maxConsecutiveFailures;
+    this.consecutiveFailures = consecutiveFailures;
+    this.retryAfterMs = retryAfterMs;
+    this.socketPath = socketPath;
+  }
+}
+
 export function spawnDetachedDaemonAutostart(
   input: DetachedDaemonAutostartInput
 ): SpawnedDaemonAutostartProcess {
@@ -98,7 +139,7 @@ function daemonAutostartLaunchStderrPath(userRoot: string): string {
   );
 }
 
-function daemonProcessIsAlive(pid: number): boolean {
+export function daemonProcessIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

@@ -67,6 +67,14 @@ export async function runDaemonControl(
   kind: DaemonControlKind
 ): Promise<Record<string, unknown>> {
   if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
+  // PLT-Honest: 'ha daemon restart' on a daemon that is honestly still starting
+  // is the exact action that killed the user's recovering daemon today. The
+  // restart RPC can be accepted as soon as the main JSON-RPC socket accepts a
+  // connection, which happens BEFORE the writer child finishes cold start — so
+  // a naive restart mid-warm-up drains and respawns, throwing away 60-90s of
+  // ledger load for nothing. Refuse here when the endpoint is owned by a live
+  // process that is not yet serving status.
+  if (kind === "restart") await refuseRestartWhileStarting(input);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
   const replacementTimeoutMs = daemonReplacementTimeoutMs(input.args);
   const replacementSettlingTimeoutMs = daemonReplacementSettlingTimeoutMs(input.args);
@@ -201,6 +209,46 @@ function validateAcceptedControlReceipt(
     || receipt.operationId.length === 0) {
     throw new Error(`${method} did not return daemon-control-accepted/v1`);
   }
+}
+
+/**
+ * PLT-Honest: refuse `ha daemon restart` when the endpoint is owned by a live
+ * process that is not yet serving status. The running daemon process opens
+ * its accept socket early in startup; a restart RPC that lands in that window
+ * drains and respawns, discarding the in-progress cold start. This is the
+ * exact action the user ran today to kill a daemon that was ~30s from ready.
+ *
+ * The check is best-effort: if ownership cannot be determined we proceed,
+ * because silently refusing a legitimate restart is its own dishonesty. The
+ * hard guarantee belongs at the autostart circuit breaker; this guard is a
+ * defense-in-depth against the most damaging operator action.
+ */
+async function refuseRestartWhileStarting(input: DaemonControlCommandInput): Promise<void> {
+  const lifecycle = input.daemonControlLifecycle ?? defaultDaemonControlLifecycle(input);
+  const target = lifecycle.target;
+  const owner = lifecycle.probeEndpointOwner?.(target);
+  if (owner?.pid === undefined || !owner.alive) return;
+  // The endpoint has a LIVE owner. If that owner is already serving status, it
+  // is honestly ready and a restart is the operator's informed choice. Only
+  // refuse when status is unreachable — i.e. the process is up but not ready.
+  let statusReachable: boolean;
+  try {
+    const probe = await lifecycle.probeStatus(target);
+    statusReachable = probe !== undefined && !("rpcError" in (probe as Record<string, unknown>));
+  } catch {
+    statusReachable = false;
+  }
+  if (statusReachable) return;
+  const customEndpoint = readOption(input.args, "--socket");
+  const endpointDesc = customEndpoint
+    ? `custom endpoint ${quoteDaemonRecoveryArgument(customEndpoint)}`
+    : `the daemon socket (${target.socketPath})`;
+  throw new Error(
+    `DAEMON_RESTART_REFUSED_STARTING: a live process pid ${owner.pid} owns ${endpointDesc} but is not yet serving status, so it is honestly still starting (cold start on a large ledger can take 60-90s).`
+    + " Restarting now would drain and respawn this process, discarding its in-progress startup — this is the action that killed a recovering daemon in today's incident."
+    + " Do NOT restart. Wait for readiness with 'ha daemon status --json' (poll until pid is reported and reachable), then retry restart if you still need it."
+    + " If you have confirmed the process is wedged (not progressing) and intentionally want to force a restart, stop it explicitly with 'ha daemon stop' first so the action is deliberate and auditable."
+  );
 }
 
 function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): DaemonControlLifecycle {

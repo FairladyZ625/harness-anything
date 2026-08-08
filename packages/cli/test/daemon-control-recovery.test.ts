@@ -72,13 +72,21 @@ test("restart adopts a live replacement that becomes ready after the normal star
   const progress: string[] = [];
   let probes = 0;
   let replacementStarts = 0;
+  // The pre-RPC restart guard (refuseRestartWhileStarting) probes the endpoint
+  // owner once before any restart RPC. The first probe represents the
+  // pre-restart state: unoccupied, so the guard passes. Subsequent probes
+  // observe the replacement pid 84 during the post-RPC replacement phase.
+  let ownerProbes = 0;
   const lifecycle: DaemonControlLifecycle = {
     target,
     probeStatus: async () => {
       probes += 1;
       return probes === 1 ? undefined : daemonStatus(84);
     },
-    probeEndpointOwner: () => ({ pid: 84, alive: true }),
+    probeEndpointOwner: () => {
+      ownerProbes += 1;
+      return ownerProbes === 1 ? undefined : { pid: 84, alive: true };
+    },
     ownerIsAlive: (pid) => pid === 84,
     isReadinessTimeout: (error) => error instanceof DaemonAutostartTimeoutError,
     readinessTimeoutPid: (error) => error instanceof DaemonAutostartTimeoutError ? error.spawnedPid : undefined,
@@ -106,10 +114,16 @@ test("restart stops a live unreachable replacement at the settling cap before re
   let replacementAlive = true;
   let replacementStarts = 0;
   const stoppedPids: number[] = [];
+  // Pre-RPC guard probes owner first; first probe = pre-restart unoccupied so
+  // the guard passes; subsequent probes observe the replacement pid 84.
+  let ownerProbes = 0;
   const lifecycle: DaemonControlLifecycle = {
     target,
     probeStatus: async () => undefined,
-    probeEndpointOwner: () => replacementAlive ? { pid: 84, alive: true } : undefined,
+    probeEndpointOwner: () => {
+      ownerProbes += 1;
+      return ownerProbes === 1 ? undefined : (replacementAlive ? { pid: 84, alive: true } : undefined);
+    },
     ownerIsAlive: (pid) => pid === 84 && replacementAlive,
     isReadinessTimeout: (error) => error instanceof DaemonAutostartTimeoutError,
     readinessTimeoutPid: (error) => error instanceof DaemonAutostartTimeoutError ? error.spawnedPid : undefined,

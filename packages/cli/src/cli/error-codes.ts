@@ -25,6 +25,15 @@ export const CliErrorCode = {
   DaemonGenerationFenced: "DAEMON_GENERATION_FENCED",
   DaemonQueueDrainTimeout: "daemon_queue_drain_timeout",
   DaemonRequestOutcomeUnknown: "daemon_request_outcome_unknown",
+  // PLT-Honest: daemon_unavailable used to be the only signal for every
+  // failure to reach the daemon, including "it is honestly still starting".
+  // That conflation is what made today's hint recommend `ha daemon restart`
+  // — the action that killed the user's recovering daemon. The two codes
+  // below split the honest states out without touching the existing
+  // daemon_unavailable entry (another worker is repurposing it for
+  // root-resolution failure).
+  DaemonStarting: "daemon_starting",
+  DaemonNotPresent: "daemon_not_present",
   DaemonUnavailable: "daemon_unavailable",
   DecodeFailed: "decode_failed",
   DecisionReadFailed: "decision_read_failed",
@@ -266,6 +275,8 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.DaemonQueueDrainTimeout]: { category: "domain", defaultHint: "Daemon control requires the write queue to drain within the deadline, but in-flight operations failed to settle in time. Run `ha daemon status --json`, inspect the reported queue operation tuples, resolve or recover them, then retry the control request." },
   [CliErrorCode.DaemonRequestOutcomeUnknown]: { category: "domain", defaultHint: "The daemon request timed out, so its outcome is unknown and the write may already have taken effect. Verify the target entity before deciding whether to retry; for task writes, run `ha task list` or `ha task show <task-id>`." },
   [CliErrorCode.DaemonUnavailable]: { category: "domain", defaultHint: "The daemon-backed request was rejected because the daemon is unavailable to the CLI. Run `ha daemon status --json`, start or restore the reported daemon, then retry; use the receipt's direct recovery command only for an explicit recovery." },
+  [CliErrorCode.DaemonStarting]: { category: "domain", defaultHint: "The daemon-backed write is blocked because the daemon is still starting; cold start on a large ledger can take 60-90s. Do NOT run 'ha daemon restart' — that kills the recovering daemon. Wait, then poll 'ha daemon status --json' until ready." },
+  [CliErrorCode.DaemonNotPresent]: { category: "domain", defaultHint: "The daemon-backed write was rejected because no daemon process is running for this repo. Start one with 'ha daemon start --service', then retry." },
   [CliErrorCode.DecodeFailed]: { category: "extension", defaultHint: "The registry value was rejected because it could not be decoded with the declared schema. Run `ha doctor --json`, correct the reported registry entry, then retry the original command." },
   [CliErrorCode.DecisionReadFailed]: { category: "command", defaultHint: "The Decision document is missing or unreadable. Run `ha decision list --json` to select an existing Decision, then retry the original decision command with that id." },
   [CliErrorCode.DecisionBodyFileReadFailed]: { category: "parse", defaultHint: "The Decision `--body-file` is missing or unreadable. Verify `<path>` names a readable Markdown file, then rerun the original `ha decision ... --body-file <path>` command." },

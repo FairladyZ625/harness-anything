@@ -36,10 +36,14 @@ import {
 import { daemonServerHostEnvironment } from "./daemon-server-host-environment.ts";
 import {
   daemonAutostartFailureError,
-  daemonAutostartProcessExitedError,
   spawnDetachedDaemonAutostart,
   type SpawnedDaemonAutostartProcess
 } from "./daemon-autostart-process.ts";
+import {
+  boundedDeadlineTimeout,
+  createDaemonAutostartFlightManager,
+  delay
+} from "./daemon-autostart-flight.ts";
 
 export {
   createDaemonLaunchConfiguration,
@@ -74,9 +78,11 @@ export const localDaemonRetryIntervalMs = 100;
 const minimumReadyProbeResponseTimeoutMs = 500;
 
 export {
+  DaemonAutostartCircuitOpenError,
   DaemonAutostartProcessExitedError,
   DaemonAutostartTimeoutError
 } from "./daemon-autostart-process.ts";
+export { resetDaemonAutostartCircuit } from "./daemon-autostart-circuit.ts";
 
 export {
   DaemonJsonRpcRequestTimeoutError,
@@ -134,17 +140,16 @@ export interface LocalDaemonJsonRpcOptions {
 type SpawnLocalDaemonResult = number | void | SpawnedDaemonAutostartProcess;
 type SpawnLocalDaemon = (target: LocalDaemonTarget, options: LocalDaemonAutostartOptions) => SpawnLocalDaemonResult;
 
-interface DaemonStartupFlight {
-  readonly startedAt: number;
-  deadline: number;
-  lastError: unknown;
-  spawnedPid?: number;
-  launchStderrPath?: string;
-  promise: Promise<void>;
-}
-
-const daemonStartupFlights = new Map<string, DaemonStartupFlight>();
 let spawnLocalDaemonImplementation: SpawnLocalDaemon = spawnLocalDaemonProcess;
+
+// PLT-Honest: the autostart flight manager owns single-flight dedup AND the
+// resurrection-chain guard (join a live spawned pid; open the breaker after N
+// genuine deaths). Created once with launchLocalDaemon + tuning constants.
+const daemonAutostartFlight = createDaemonAutostartFlightManager<LocalDaemonTarget, LocalDaemonAutostartOptions>({
+  launchLocalDaemon: (target, options) => launchLocalDaemon(target, options),
+  localDaemonRetryIntervalMs,
+  minimumReadyProbeResponseTimeoutMs
+});
 
 export function daemonIdForRoot(rootDir: string): string {
   return `repo-${createHash("sha256").update(rootDir).digest("hex").slice(0, 16)}`;
@@ -374,7 +379,7 @@ async function requestLocalDaemonJsonRpcWithAutostart(
       );
     } catch (error) {
       lastError = error;
-      await ensureLocalDaemonStarted(target, autostart, connectTimeoutMs, deadline, autostartTimeoutMs);
+      await daemonAutostartFlight.ensureLocalDaemonStarted(target, autostart, connectTimeoutMs, deadline, autostartTimeoutMs);
       continue;
     }
     try {
@@ -394,134 +399,6 @@ async function requestLocalDaemonJsonRpcWithAutostart(
     }
   }
   throw daemonAutostartFailureError(autostartTimeoutMs, lastError);
-}
-
-async function ensureLocalDaemonStarted(
-  target: LocalDaemonTarget,
-  autostart: LocalDaemonAutostartOptions,
-  connectTimeoutMs: number,
-  deadline: number,
-  autostartTimeoutMs: number
-): Promise<void> {
-  const existing = daemonStartupFlights.get(target.socketPath);
-  if (existing) {
-    if (Date.now() >= existing.deadline) {
-      daemonStartupFlights.delete(target.socketPath);
-    } else {
-      existing.deadline = Math.max(existing.deadline, deadline);
-      return waitForDaemonStartupFlight(target.socketPath, existing, deadline, autostartTimeoutMs);
-    }
-  }
-
-  const flight: DaemonStartupFlight = {
-    startedAt: Date.now(),
-    deadline,
-    lastError: undefined,
-    promise: Promise.resolve()
-  };
-  flight.promise = spawnAndWaitForLocalDaemon(target, autostart, connectTimeoutMs, flight);
-  daemonStartupFlights.set(target.socketPath, flight);
-  flight.promise.then(
-    () => clearDaemonStartupFlight(target.socketPath, flight),
-    () => clearDaemonStartupFlight(target.socketPath, flight)
-  );
-  return waitForDaemonStartupFlight(target.socketPath, flight, deadline, autostartTimeoutMs);
-}
-
-async function spawnAndWaitForLocalDaemon(
-  target: LocalDaemonTarget,
-  autostart: LocalDaemonAutostartOptions,
-  connectTimeoutMs: number,
-  flight: DaemonStartupFlight
-): Promise<void> {
-  autostart.onPhase?.("launch-start");
-  const launch = launchLocalDaemon(target, autostart);
-  flight.spawnedPid = launch.pid;
-  flight.launchStderrPath = launch.launchStderrPath;
-  while (Date.now() <= flight.deadline) {
-    try {
-      await probeLocalDaemonReady(
-        target.socketPath,
-        boundedDeadlineTimeout(connectTimeoutMs, flight.deadline),
-        readyProbeResponseTimeout(flight.deadline)
-      );
-      autostart.onPhase?.("ready");
-      return;
-    } catch (error) {
-      flight.lastError = error;
-      const exited = daemonAutostartProcessExitedError(
-        flight.lastError,
-        flight.spawnedPid,
-        flight.launchStderrPath
-      );
-      if (exited) throw exited;
-      const retryDelayMs = Math.min(localDaemonRetryIntervalMs, flight.deadline - Date.now());
-      if (retryDelayMs > 0) await delay(retryDelayMs);
-    }
-  }
-  throw daemonAutostartFailureError(
-    flight.deadline - flight.startedAt,
-    flight.lastError,
-    flight.spawnedPid,
-    flight.launchStderrPath
-  );
-}
-
-async function waitForDaemonStartupFlight(
-  socketPath: string,
-  flight: DaemonStartupFlight,
-  deadline: number,
-  autostartTimeoutMs: number
-): Promise<void> {
-  const remainingMs = deadline - Date.now();
-  if (remainingMs <= 0) {
-    if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-    throw daemonAutostartFailureError(
-      autostartTimeoutMs,
-      flight.lastError,
-      flight.spawnedPid,
-      flight.launchStderrPath
-    );
-  }
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (deadline >= flight.deadline) clearDaemonStartupFlight(socketPath, flight);
-      reject(daemonAutostartFailureError(
-        autostartTimeoutMs,
-        flight.lastError,
-        flight.spawnedPid,
-        flight.launchStderrPath
-      ));
-    }, remainingMs);
-    flight.promise.then(
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
-  });
-}
-
-function clearDaemonStartupFlight(socketPath: string, flight: DaemonStartupFlight): void {
-  if (daemonStartupFlights.get(socketPath) === flight) daemonStartupFlights.delete(socketPath);
-}
-
-async function probeLocalDaemonReady(
-  socketPath: string,
-  connectTimeoutMs: number,
-  responseTimeoutMs: number
-): Promise<void> {
-  const socket = await connectUnixSocketWithNamespaceDiagnostic(socketPath, connectTimeoutMs);
-  const client = new JsonRpcLineClient(socket, socket);
-  try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, responseTimeoutMs);
-  } finally {
-    socket.destroy();
-  }
 }
 
 async function requestWithSocket(
@@ -569,24 +446,6 @@ function tryRegisterCanonicalRepo(rootDir: string, userRoot: string): DaemonRegi
 
 function daemonTarget(input: LocalDaemonTarget): LocalDaemonTarget {
   return input;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function boundedDeadlineTimeout(timeoutMs: number, deadline: number): number {
-  return Math.max(1, Math.min(timeoutMs, deadline - Date.now()));
-}
-
-function readyProbeResponseTimeout(deadline: number): number {
-  const remainingMs = Math.max(1, deadline - Date.now());
-  // Give a live-but-loaded daemon meaningful response time while reserving
-  // half of an ample startup budget for another bounded probe.
-  return Math.min(
-    remainingMs,
-    Math.max(minimumReadyProbeResponseTimeoutMs, Math.floor(remainingMs / 2))
-  );
 }
 
 function launchLocalDaemon(

@@ -33,6 +33,13 @@ import {
   type HarnessLayoutOverrides
 } from "@harness-anything/kernel";
 import { CliErrorCode, cliError } from "../cli/error-codes.ts";
+import {
+  classifyLocalDaemonLifecycle,
+  daemonUnavailableReceipt,
+  directRecoveryCommandLine
+} from "./daemon-lifecycle-classification.ts";
+
+export { classifyLocalDaemonLifecycle, directRecoveryCommandLine };
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import { toCommandReceipt } from "../cli/receipt.ts";
 import { receiptCommandKind } from "../cli/receipt-command-kind.ts";
@@ -57,7 +64,7 @@ import {
 
 const docSyncHostServices = { resolveDeclaredManagedSectionPolicy, resolveManagedSectionPolicy };
 import { readProjectHarnessSettings } from "../commands/settings.ts";
-import { readRemoteConfig, remoteDaemonSshArgs, remoteDaemonUnavailableHint, type RemoteDaemonConfig } from "./remote-config.ts";
+import { readRemoteConfig, remoteDaemonSshArgs, type RemoteDaemonConfig } from "./remote-config.ts";
 import { isDeclaredLocalMigrationCommand } from "../composition/local-write-scope.ts";
 import { startCliTimingPhase } from "../cli/timing.ts";
 import { daemonRequestTimeoutReceipt } from "./request-outcome.ts";
@@ -407,18 +414,6 @@ async function runWithLineClient(
   }
 }
 
-function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote?: RemoteDaemonConfig): CommandFailureReceipt {
-  const unavailableHint = remote
-    ? remoteDaemonUnavailableHint(remote)
-    : `Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'. If the daemon is stuck and this write must be recovered locally, run '${directRecoveryCommandLine()}'.`;
-  const receipt = toCommandReceipt({
-    ok: false,
-    command: receiptCommandKind(command.action),
-    error: cliError(CliErrorCode.DaemonUnavailable, `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`)
-  });
-  if (receipt.ok) throw new Error("daemon unavailable receipt unexpectedly succeeded");
-  return receipt;
-}
 
 function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAttributionError): CommandFailureReceipt {
   const receipt = toCommandReceipt({
@@ -460,20 +455,6 @@ function directModeRejection(command: ParsedCommand): CommandFailureReceipt {
   });
   if (receipt.ok) throw new Error("direct-mode rejection unexpectedly succeeded");
   return receipt;
-}
-
-export function directRecoveryCommandLine(argv: ReadonlyArray<string> = process.argv.slice(2)): string {
-  const args = withoutOption(argv, "--daemon-mode");
-  const renderedArgs = args.map(shellQuote).join(" ");
-  return `HARNESS_DAEMON_MODE=direct HARNESS_DIRECT_WRITE_REASON=recovery ha${renderedArgs ? ` ${renderedArgs}` : " <command>"}`;
-}
-
-function withoutOption(argv: ReadonlyArray<string>, option: string): ReadonlyArray<string> {
-  return argv.filter((arg, index) => arg !== option && argv[index - 1] !== option);
-}
-
-function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function isInitializedHarness(command: ParsedCommand): boolean {

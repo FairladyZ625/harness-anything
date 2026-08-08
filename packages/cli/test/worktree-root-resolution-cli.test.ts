@@ -154,7 +154,13 @@ test("non-git directory reports a non-harness root without worktree wording", as
   }
 });
 
-test("resolved roots retain the daemon-unavailable recovery hint for real connection failures", async () => {
+test("resolved roots report an honest daemon_starting state when autostart spawns a live process under a tiny budget", async () => {
+  // PLT-Honest: the endpoint starts as an empty directory, which the autostart
+  // namespace logic repairs, and autostart spawns a real daemon. Under the
+  // tiny 30ms budget the spawned process is still alive (Node is booting), so
+  // the honest classification is daemon_starting — never daemon_unavailable
+  // with a direct-mode hint that would send an operator to kill the recovering
+  // daemon. The previous assertion encoded the old, dangerous conflation.
   if (process.platform === "win32") return;
   const containerRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-unavailable-root-"));
   const canonicalRoot = path.join(containerRoot, "canonical");
@@ -172,9 +178,10 @@ test("resolved roots retain the daemon-unavailable recovery hint for real connec
     });
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
-    assert.match(String(failed.receipt.error?.hint), /Daemon unavailable/iu);
-    assert.match(String(failed.receipt.error?.hint), /HARNESS_DIRECT_WRITE_REASON=recovery/iu);
+    assert.equal(failed.receipt.error?.code, "daemon_starting");
+    assert.match(String(failed.receipt.error?.hint), /still starting/iu);
+    assert.match(String(failed.receipt.error?.hint), /Do NOT use HARNESS_DAEMON_MODE=direct/u, "direct mode must be explicitly prohibited");
+    assert.match(String(failed.receipt.error?.hint), /Do NOT run 'ha daemon restart'/u, "restart must be explicitly prohibited");
   } finally {
     rmSync(endpoint, { recursive: true, force: true });
     rmSync(`${endpoint}.owner`, { force: true });
