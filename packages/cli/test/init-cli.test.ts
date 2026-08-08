@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -80,6 +80,49 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(architectureGuide, /MCP/u);
     assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/model")), false);
+  });
+});
+
+test("CLI init bootstraps local canonical authority for the repository", () => {
+  withTempRoot((rootDir) => {
+    const userRoot = `${rootDir}-daemon-user`;
+    try {
+      const result = runJson(rootDir, ["init"], {
+        HARNESS_BOOTSTRAP_AUTHORITY: "1",
+        HARNESS_DAEMON_USER_ROOT: userRoot
+      });
+
+      assert.equal(result.ok, true);
+      const projectPeoplePath = path.join(rootDir, "harness/people.yaml");
+      assert.equal(existsSync(projectPeoplePath), true);
+      assert.match(readFileSync(projectPeoplePath, "utf8"), /^schema: harness-people\/v1$/mu);
+      assert.equal(existsSync(path.join(rootDir, "harness/persons.yaml")), false);
+
+      const registry = JSON.parse(readFileSync(path.join(userRoot, "registry.json"), "utf8")) as {
+        readonly repos: ReadonlyArray<{ readonly canonicalRoot: string; readonly authorityManifestPath?: string }>;
+      };
+      const canonicalRoot = realpathSync(rootDir);
+      const registeredRepo = registry.repos.find((repo) => repo.canonicalRoot === canonicalRoot);
+      assert.ok(registeredRepo?.authorityManifestPath);
+      const manifest = JSON.parse(readFileSync(registeredRepo.authorityManifestPath, "utf8")) as {
+        readonly schema: string;
+        readonly serviceStateRoot: string;
+        readonly repos: ReadonlyArray<{ readonly canonicalRoot: string; readonly keyRegistryPath: string; readonly keyStateDirectory: string }>;
+      };
+      assert.equal(manifest.schema, "authority-production-composition/v1");
+      const authorityRepo = manifest.repos.find((repo) => repo.canonicalRoot === canonicalRoot);
+      assert.ok(authorityRepo);
+      assert.equal(existsSync(authorityRepo.keyRegistryPath), true);
+      assert.equal(
+        readdirSync(path.join(authorityRepo.keyStateDirectory, "private-keys")).filter((entry) => entry.endsWith(".pk8")).length,
+        1
+      );
+      assert.equal(result.report.authorityBootstrap.manifestPath, registeredRepo.authorityManifestPath);
+      assert.equal(result.report.authorityBootstrap.peoplePath, "harness/people.yaml");
+      assert.match(runGitText(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), /people\.yaml/u);
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true });
+    }
   });
 });
 

@@ -8,6 +8,7 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { resolveLocalCliBootstrapAuthor } from "../../composition/actor-attribution.ts";
 import { daemonUserRootForRepo, ensureMachinePeopleRoster } from "@harness-anything/daemon";
+import { bootstrapInitAuthority, type InitAuthorityBootstrapReport } from "./init-authority.ts";
 
 const initSmokeTitle = "Harness onboarding smoke";
 const initSmokeSlug = "harness-onboarding-smoke";
@@ -17,11 +18,35 @@ export const runInitCommand: CommandRunner = (context, command) => {
   return Effect.sync(() => {
     try {
       const author = resolveLocalCliBootstrapAuthor(process.env, command.actor);
-      const result = initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, author);
-      if (result.ok && (!process.env.NODE_TEST_CONTEXT || process.env.HARNESS_BOOTSTRAP_MACHINE_IDENTITY === "1")) {
-        ensureMachinePeopleRoster(daemonUserRootForRepo(context.rootDir, process.env), author);
-      }
-      return result;
+      const bootstrapAuthority = !process.env.NODE_TEST_CONTEXT || process.env.HARNESS_BOOTSTRAP_AUTHORITY === "1";
+      const bootstrapMachineIdentity = bootstrapAuthority
+        || !process.env.NODE_TEST_CONTEXT
+        || process.env.HARNESS_BOOTSTRAP_MACHINE_IDENTITY === "1";
+      const initialized = initializeHarness(
+        context.layoutInput,
+        action.addNpmScripts,
+        action.projectName,
+        author,
+        {},
+        bootstrapAuthority
+      );
+      if (!initialized.ok || !bootstrapMachineIdentity) return initialized;
+      const userRoot = daemonUserRootForRepo(context.rootDir, process.env);
+      const machinePeoplePath = ensureMachinePeopleRoster(userRoot, author);
+      if (!bootstrapAuthority) return initialized;
+      const authorityBootstrap = bootstrapInitAuthority({
+        rootDir: context.rootDir,
+        userRoot,
+        machinePeoplePath
+      });
+      if (authorityBootstrap.schema === "init-authority-bootstrap/skipped") return initialized;
+      return {
+        ...initialized,
+        report: {
+          ...initInitializationReport(initialized),
+          authorityBootstrap
+        }
+      } satisfies CliResult;
     } catch (error) {
       return {
         ok: false,
@@ -77,6 +102,7 @@ function verifySmokeProjection(context: Parameters<CommandRunner>[0], result: Cl
       agentsPath: "AGENTS.md"
     },
     ...(initializationReport ? { isolation: initializationReport.isolation } : {}),
+    ...(initializationReport?.authorityBootstrap ? { authorityBootstrap: initializationReport.authorityBootstrap } : {}),
     configureVerify: {
       smokeTaskId,
       smokeTaskTitle: initSmokeTitle,
@@ -174,6 +200,7 @@ function smokeFailure(context: Parameters<CommandRunner>[0], result: CliResult, 
         agentsPath: "AGENTS.md"
       },
       ...(initializationReport ? { isolation: initializationReport.isolation } : {}),
+      ...(initializationReport?.authorityBootstrap ? { authorityBootstrap: initializationReport.authorityBootstrap } : {}),
       configureVerify: {
         smokeTaskId,
         smokeTaskTitle: initSmokeTitle,
@@ -195,9 +222,12 @@ function initRelativePath(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
-function initInitializationReport(result: CliResult): { readonly isolation?: unknown } | undefined {
+function initInitializationReport(result: CliResult): {
+  readonly isolation?: unknown;
+  readonly authorityBootstrap?: InitAuthorityBootstrapReport;
+} | undefined {
   const report = result.report;
   return report && typeof report === "object" && !Array.isArray(report)
-    ? report as { readonly isolation?: unknown }
+    ? report as { readonly isolation?: unknown; readonly authorityBootstrap?: InitAuthorityBootstrapReport }
     : undefined;
 }

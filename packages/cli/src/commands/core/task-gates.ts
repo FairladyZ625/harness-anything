@@ -10,6 +10,7 @@ import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholde
 import { runExecutionReview } from "./task-execution-review.ts";
 import { runExecutionConsent } from "./task-execution-consent.ts";
 import { taskLifecycleResultToCliResult } from "./task-gate-receipt.ts";
+import { authorityPlannerUnavailableHint } from "./authority-planner-unavailable.ts";
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-consent-record" | "task-review-execution" | "task-complete" }>;
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskGateAction;
@@ -49,7 +50,9 @@ function runTaskLifecycleTransition(
         taskId: action.taskId,
         error: cliError(
           CliErrorCode.WriteRejected,
-          "Task completion dry-run is blocked because the canonical authority planner is unavailable; no completion requirement was evaluated."
+          authorityPlannerUnavailableHint(
+            "Task completion dry-run is blocked because the canonical authority planner is unavailable; no completion requirement was evaluated."
+          )
         )
       } satisfies CliResult);
     }
@@ -102,7 +105,9 @@ function runTaskLifecycleTransition(
       taskId: action.taskId,
       error: cliError(
         CliErrorCode.WriteRejected,
-        "Task completion requires the daemon-planned canonical transition submission; direct recovery cannot recreate that authority."
+        authorityPlannerUnavailableHint(
+          "Task completion requires the daemon-planned canonical transition submission, but the canonical authority planner is unavailable."
+        )
       )
     } satisfies CliResult);
   }

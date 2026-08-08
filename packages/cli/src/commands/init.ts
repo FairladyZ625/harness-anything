@@ -4,6 +4,7 @@ import path from "node:path";
 import type { HarnessLayoutInput } from "@harness-anything/kernel";
 import type { VcsCommitAuthor } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { ensureProjectPeopleRoster } from "@harness-anything/daemon";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { resolveActiveVertical } from "./extensions/active-vertical.ts";
@@ -23,7 +24,8 @@ export function initializeHarness(
   addNpmScripts = false,
   projectName?: string,
   commitAuthor?: VcsCommitAuthor,
-  gitRuntime: InitGitRuntime = {}
+  gitRuntime: InitGitRuntime = {},
+  bootstrapAuthority = false
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
@@ -50,6 +52,7 @@ export function initializeHarness(
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
   materializeRepositoryScaffold(rootInput, vertical);
+  if (bootstrapAuthority && commitAuthor) ensureProjectPeopleRoster(layout.authoredRoot, commitAuthor);
   const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot, commitAuthor, gitRuntime);
   warnings.push(...isolation.warnings);
   const packagePath = path.join(layout.rootDir, "package.json");

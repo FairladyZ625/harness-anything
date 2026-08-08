@@ -123,6 +123,9 @@ test("task complete dry-run blocks when the canonical authority planner is unava
     assert.equal(preview.ok, false, JSON.stringify(preview));
     assert.equal(preview.error.code, "write_rejected");
     assert.match(preview.error.hint, /canonical authority planner is unavailable/iu);
+    assert.match(preview.error.hint, /authority manifest.+harness\/people\.yaml.+authority key registry/iu);
+    assert.match(preview.error.hint, /ha init.+ha daemon stop.+ha daemon start --service/iu);
+    assert.doesNotMatch(preview.error.hint, /direct recovery/iu);
     assert.equal(existsSync(path.join(rootDir, chain.packagePath, "reviews")), false);
     assert.match(readFileSync(path.join(rootDir, chain.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
   });

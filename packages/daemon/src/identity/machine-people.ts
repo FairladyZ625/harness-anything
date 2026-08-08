@@ -8,10 +8,23 @@ export function ensureMachinePeopleRoster(
   userRoot: string,
   author: { readonly name: string; readonly email: string }
 ): string {
-  const peoplePath = path.join(userRoot, "people.yaml");
+  return ensureLocalPeopleRoster(path.join(userRoot, "people.yaml"), author);
+}
+
+export function ensureProjectPeopleRoster(
+  authoredRoot: string,
+  author: { readonly name: string; readonly email: string }
+): string {
+  return ensureLocalPeopleRoster(path.join(authoredRoot, "people.yaml"), author);
+}
+
+function ensureLocalPeopleRoster(
+  peoplePath: string,
+  author: { readonly name: string; readonly email: string }
+): string {
   if (existsSync(peoplePath)) return peoplePath;
   const personId = machinePersonId(author);
-  mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+  mkdirSync(path.dirname(peoplePath), { recursive: true, mode: 0o700 });
   try {
     writeFileSync(peoplePath, [
       "schema: harness-people/v1",
