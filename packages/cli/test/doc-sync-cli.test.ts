@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -74,6 +74,43 @@ test("CLI doc status reports prose candidates and forbidden structured touches",
     assert.equal(rejected.error.code, "write_rejected");
     assert.match(rejected.error.hint, /preview is not ready/u);
     assert.notEqual(gitStatus(harnessRoot), "");
+  });
+});
+
+test("CLI doc sync exposes renamed anchor diagnostics and still accepts the restored anchor", async () => {
+  await withTempRoot(async (rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
+    const taskRoot = path.join(harnessRoot, "tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    seedWriteRoadRegistry(rootDir);
+    writeFileSync(path.join(harnessRoot, "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  identity:",
+      "    personId: person_doc_sync",
+      "    displayName: Doc Sync User",
+      ""
+    ].join("\n"));
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex());
+    writeFileSync(path.join(taskRoot, "task_plan.md"), taskPlan("Original prose."));
+    initHarnessGit(harnessRoot);
+
+    const renamedPlan = taskPlan("Updated prose.").replace("## Goal", "## Purpose");
+    writeFileSync(path.join(taskRoot, "task_plan.md"), renamedPlan);
+    const rejected = runJson(rootDir, ["doc", "sync", "--submit"], false);
+    assert.match(rejected.error?.hint ?? "", /## Goal/u);
+    assert.match(rejected.error?.hint ?? "", /deleted or renamed/u);
+
+    const statusText = runText(rootDir, ["doc", "status"]);
+    assert.match(statusText, new RegExp(`tasks/${taskId}/task_plan\\.md`));
+    assert.match(statusText, /SEMANTIC_DIFF_AMBIGUOUS.*## Goal/u);
+    assert.match(statusText, /summary="doc status: 1 dirty, 1 blocked"/u);
+
+    writeFileSync(path.join(taskRoot, "task_plan.md"), taskPlan("Updated prose."));
+    const submitted = runJson(rootDir, ["doc", "sync", "--submit"]);
+    assert.equal(submitted.ok, true);
+    assert.equal(submitted.report.status, "accepted");
   });
 });
 
@@ -441,4 +478,13 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function runText(rootDir: string, args: ReadonlyArray<string>): string {
+  const result = spawnSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
+    encoding: "utf8",
+    env: cliTestEnv({ CODEX_THREAD_ID: "doc-sync-cli-test", HARNESS_ACTOR: "agent:doc-sync-cli-test", HARNESS_GIT_AUTHOR_NAME: "Harness Test", HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test", HARNESS_DAEMON_MODE: "fixture", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"), HARNESS_DAEMON_IDLE_MS: "250", GIT_CONFIG_GLOBAL: "/dev/null" })
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
 }
