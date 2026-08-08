@@ -697,3 +697,40 @@ const schemaTuple = {
   wire: 2, event: 2, receipt: 2, digest: 2, policy: 1,
   commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1, localState: 1, applyJournal: 1
 } as const;
+
+test("task supersede declares every replacement document so no touched path escapes the minted portable-path scopes", async () => {
+  const oldTaskId = "task_OLD";
+  const newTaskId = "task_NEW";
+  const oldIndexPath = `tasks/${oldTaskId}/INDEX.md`;
+  const oldSnapshot = snapshot(taskIndex(oldTaskId, "planned"));
+  const writes = [
+    { taskId: oldTaskId, path: "INDEX.md", body: taskIndex(oldTaskId, "planned", "archived") },
+    { taskId: newTaskId, path: "INDEX.md", body: taskIndex(newTaskId, "planned") },
+    { taskId: newTaskId, path: "task_plan.md", body: "# Plan\n" },
+    { taskId: newTaskId, path: "artifacts/.gitkeep", body: "" },
+    {
+      taskId: newTaskId,
+      path: "relations.md",
+      body: `task/${newTaskId} supersedes task/${oldTaskId}\n`
+    }
+  ];
+  const oldRef = ref("task", `task/${oldTaskId}`);
+  const newRef = ref("task", `task/${newTaskId}`);
+  const compiler = makeTaskDecisionModuleSemanticCompilerV2({
+    state: authorityState(new Map([[key(oldRef), base("task-v2")]]), new Map([[oldIndexPath, oldSnapshot]]))
+  });
+  const compiled = await compiler.compile(envelope(
+    { schema: "task.supersede/v1", taskId: oldTaskId, replacementTaskId: newTaskId, writes },
+    [present(oldRef, "task-v2"), absent(newRef)],
+    [cas(oldIndexPath, oldSnapshot)]
+  ));
+  const plan = compileRegistryMutationPlan(registry, compiled.mutationPlan);
+
+  // The production intent mints one exact portable-path resource scope per
+  // observed write. Any touched path outside that set is TOKEN_PATH_SCOPE_DENIED
+  // at admission, which is how a fresh task became unsupersedable.
+  const mintedScopes = new Set(writes.map((write) => `tasks/${write.taskId}/${write.path}`));
+  const uncovered = plan.storagePlan.touchedPaths.filter((touched) => !mintedScopes.has(touched));
+  assert.deepEqual(uncovered, [], `uncovered touched paths: ${uncovered.join(", ")}`);
+  assert.ok(plan.storagePlan.touchedPaths.includes(`tasks/${newTaskId}/relations.md`));
+});
