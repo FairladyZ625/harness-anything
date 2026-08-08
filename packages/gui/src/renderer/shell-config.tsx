@@ -9,6 +9,7 @@ import {
   GitBranch,
   FirstAidKit,
   ClipboardText,
+  Robot,
 } from "@phosphor-icons/react";
 import { t } from "./i18n/index.tsx";
 
@@ -30,7 +31,8 @@ export type ViewId =
   | "graph"
   | "presets"
   | "adapters"
-  | "settings";
+  | "settings"
+  | "agentRuntime";
 
 // 项目首页仍含原型事件数据；catalog 管理面已改走 daemon snapshot。
 export const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
@@ -46,6 +48,7 @@ export const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode; 
   { id: "factTriage", get label() { return t("renderer.shellConfig.factTriage"); }, icon: <FirstAidKit weight="duotone" /> },
   { id: "executions", get label() { return t("renderer.shellConfig.evidenceExecution"); }, icon: <ClipboardText weight="duotone" />, isNew: true },
   { id: "graph", get label() { return t("renderer.shellConfig.graph"); }, icon: <Graph weight="duotone" /> },
+  { id: "agentRuntime", get label() { return t("renderer.shellConfig.agentRuntime"); }, icon: <Robot weight="duotone" />, isNew: true },
 ];
 
 export const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
@@ -66,4 +69,5 @@ export const VIEW_LABEL: Record<ViewId, string> = {
   get presets() { return t("renderer.shellConfig.presetVertical"); },
   get adapters() { return t("renderer.shellConfig.engineAdapter"); },
   get settings() { return t("renderer.shellConfig.settings"); },
+  get agentRuntime() { return t("renderer.shellConfig.agentRuntime"); },
 };

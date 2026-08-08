@@ -22,6 +22,7 @@ const VIEW_NEEDS: Readonly<Record<ViewId, ReadonlyArray<PerspectiveDataNeed>>> =
   presets: ["catalog"],
   adapters: ["catalog"],
   settings: [],
+  agentRuntime: [],
 };
 
 export function needsForView(view: ViewId): ReadonlySet<PerspectiveDataNeed> {

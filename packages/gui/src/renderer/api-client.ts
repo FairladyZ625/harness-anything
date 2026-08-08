@@ -50,37 +50,22 @@ import {
   type TerminalOutputReadSuccess,
   type TerminalSessionInfo
 } from "./terminal-api-client.ts";
+import { createAgentRuntimeClient } from "./agent-runtime-api-client.ts";
 import { withRepoId, type RepoScopedPayload } from "./repo-scope.ts";
 export type { RepoScopedPayload } from "./repo-scope.ts";
 
 export type { TerminalOutputReadSuccess, TerminalSessionInfo };
 
 type HarnessBridgeMethod =
-  | "getDaemonLogs"
-  | "getDaemonStatus"
-  | "restartDaemon"
-  | "getCatalogSnapshot"
-  | "getTasks"
-  | "getTaskDetail"
-  | "getTaskDocument"
-  | "getRelationGraph"
-  | "getTriadicProjection"
-  | "getDecisions"
-  | "getDecisionDetail"
-  | "proposeDecision"
-  | "acceptDecision"
-  | "rejectDecision"
-  | "deferDecision"
-  | "getTaskFacts"
-  | "getFacts"
-  | "getTaskExecutions"
-  | "getExecutions"
-  | "getExecutionEvidencePage"
-  | "getExecutionDetail"
-  | "setTaskStatus"
-  | "reviewTask"
-  | "appendTaskProgress"
-  | "rebuildGovernance"
+  | "getDaemonLogs" | "getDaemonStatus" | "restartDaemon" | "getCatalogSnapshot"
+  | "getTasks" | "getTaskDetail" | "getTaskDocument" | "getRelationGraph"
+  | "getTriadicProjection" | "getDecisions" | "getDecisionDetail"
+  | "proposeDecision" | "acceptDecision" | "rejectDecision" | "deferDecision"
+  | "getTaskFacts" | "getFacts" | "getTaskExecutions" | "getExecutions"
+  | "getExecutionEvidencePage" | "getExecutionDetail" | "setTaskStatus"
+  | "reviewTask" | "appendTaskProgress" | "rebuildGovernance"
+  | "getAgentRuntimeProfiles" | "getAgentRuntimeStatus" | "getAgentRuntimeEvents"
+  | "getAgentRuntimeResult" | "spawnAgentRuntime"
   | "terminalCreate" | "terminalList" | "terminalGet" | "terminalAttach"
   | "terminalDetach" | "terminalTerminate" | "terminalWrite" | "terminalRead"
   | "terminalResize" | "terminalExit";
@@ -89,6 +74,11 @@ type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Pr
   readonly capabilities?: unknown;
   readonly watchProjectionChanges?: (repoId: string) => Promise<{ readonly mode: "push" | "polling"; readonly diagnostic?: string }>;
   readonly onProjectionChanged?: (listener: (notification: import("./projection-notifications.ts").RendererProjectionNotification) => void) => () => void;
+  readonly writeAgentRuntimeCredentials?: (payload: {
+    readonly kindId: "claude-code" | "codex";
+    readonly apiKey: string;
+    readonly baseUrl?: string;
+  }) => Promise<{ readonly ok: true; readonly path: string } | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } }>;
 };
 
 declare global {
@@ -273,6 +263,13 @@ export const harnessClient = {
     const result = await invokeBridge("rebuildGovernance", withRepoId(null, repoId));
     return readTaskListResult(result);
   },
+  ...createAgentRuntimeClient(invokeBridge, (payload) => {
+    const writer = window.harness?.writeAgentRuntimeCredentials;
+    if (typeof writer !== "function") {
+      return Promise.resolve({ ok: false, error: { code: "credential_writer_unavailable", hint: "Credential writer is unavailable in this build." } });
+    }
+    return writer(payload);
+  }),
   ...createTerminalClient(invokeBridge)
 };
 

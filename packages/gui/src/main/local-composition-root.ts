@@ -181,6 +181,21 @@ export async function resolveGuiDaemonTransport(
   return { kind: "local-ipc", endpoint: "auto" };
 }
 
+/**
+ * The user root the daemon itself resolved. Credential writes must land here,
+ * not on a guessed default, or the daemon reads a different file than the GUI
+ * wrote.
+ */
+export async function resolveGuiDaemonUserRoot(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides
+): Promise<string> {
+  const resolvedRootDir = path.resolve(rootDir);
+  validateProjectPath(resolvedRootDir, ".");
+  const daemonSettings = await loadDaemonSettingsModule();
+  return daemonSettings.readDaemonUserRoot(process.env, resolvedRootDir, layoutOverrides);
+}
+
 export async function resolveGuiDaemonNotificationTarget(
   rootDir: string,
   layoutOverrides?: HarnessLayoutOverrides
