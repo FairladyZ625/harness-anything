@@ -89,6 +89,43 @@ export interface VersionControlSystem {
   readonly commitsNotInTrunk: (repoRoot: string, trunkBranch: string, branch: string) => ReadonlyArray<string>;
   readonly changedFilesBetween: (repoRoot: string, before: string, after: string) => ReadonlyArray<string>;
   readonly resetQuiet: (repoRoot: string, pathspecs: ReadonlyArray<string>) => void;
+  readonly commitPathsToBranch: (
+    repoRoot: string,
+    input: {
+      readonly branchName: string;
+      readonly baseBranchName: string;
+      readonly stagePaths: ReadonlyArray<string>;
+      readonly excludePaths: ReadonlySet<string>;
+      readonly message: string;
+      readonly author?: VcsCommitAuthor;
+      readonly onPhase?: (phase: VcsCommitPhase) => void;
+    }
+  ) => string;
+  readonly resetWorktreePaths: (
+    repoRoot: string,
+    ref: string,
+    paths: ReadonlyArray<string>,
+    options?: {
+      /**
+       * Ref whose content the caller will restore immediately after the reset
+       * (for a materializer merge, the session branch). When the worktree
+       * already matches this ref the reset is content-neutral. When it differs,
+       * the worktree holds an edit that no ref carries, so the reset would
+       * destroy it; such paths are copied aside and reported instead.
+       */
+      readonly restoreRef?: string;
+      readonly preserveDir?: string;
+    }
+  ) => ReadonlyArray<PreservedWorktreeEdit>;
+}
+
+/**
+ * A worktree edit that no ref carried at reset time, copied aside so the reset
+ * could proceed without destroying it.
+ */
+export interface PreservedWorktreeEdit {
+  readonly path: string;
+  readonly preservedAt: string;
 }
 
 export class VcsCommandError extends Error {

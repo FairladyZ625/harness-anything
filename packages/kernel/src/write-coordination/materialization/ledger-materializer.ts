@@ -2,7 +2,7 @@ import path from "node:path";
 import { parseAuthorityBatchCommitMessage } from "../../integrity/authority-batch-integrity.ts";
 import type { HarnessLayoutInput } from "../../layout/index.ts";
 import { resolveHarnessLayout } from "../../layout/index.ts";
-import type { VersionControlSystem } from "../../ports/version-control-system.ts";
+import type { VersionControlSystem, PreservedWorktreeEdit } from "../../ports/version-control-system.ts";
 import { updateTaskProjectionIncrementally } from "../../projection/sqlite-task-incremental-projection.ts";
 import type { IncrementalProjectionDiagnostic, IncrementalProjectionPhase } from "../../projection/sqlite-task-incremental-projection.ts";
 import { countAttributionProjectionRows } from "../../projection/sqlite-attribution-projection.ts";
@@ -35,6 +35,7 @@ export interface LedgerMaterializerBranchReport {
   readonly nextCommand?: string;
   readonly conflictPaths?: ReadonlyArray<string>;
   readonly preservedArtifacts?: ReadonlyArray<PreservedMachineArtifact>;
+  readonly preservedWorktreeEdits?: ReadonlyArray<PreservedWorktreeEdit>;
 }
 
 export interface LedgerMaterializerReport {
@@ -179,6 +180,23 @@ function materializeBranches(
     const mergeMessage = semanticMergeMessage(commits, repoRoot, branch, vcs)
       ?? `materializer: merge session ${branch.slice("sessions/".length)}`;
     vcs.checkout(repoRoot, trunkBranch);
+    // The zero-checkout publisher preserves user-authored content in the
+    // worktree. git merge refuses when local changes (tracked modifications
+    // or untracked files) would be overwritten by the merge. Revert only the
+    // paths this merge will touch to trunk state so the merge proceeds; the
+    // merge immediately restores the session's content for those paths.
+    // `restoreRef` is what makes the reset non-destructive: for a path whose
+    // worktree bytes already equal the session branch, the merge restores the
+    // identical content, so resetting changes nothing observable. A path that
+    // differs from the session branch carries an edit no ref holds — authored
+    // after the submission — and resetting would destroy it. Those are copied
+    // aside and reported rather than discarded or allowed to wedge the merge.
+    const preservedWorktreeEdits = vcs.resetWorktreePaths(
+      repoRoot,
+      trunkBranch,
+      vcs.changedFilesBetween(repoRoot, trunkBranch, branch),
+      { restoreRef: branch }
+    );
     const beforeMergeHead = vcs.currentHead(repoRoot);
     let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
     try {
@@ -234,7 +252,8 @@ function materializeBranches(
       commitCount: commits.length,
       status: "merged",
       commits,
-      ...(preservedArtifacts.length > 0 ? { preservedArtifacts } : {})
+      ...(preservedArtifacts.length > 0 ? { preservedArtifacts } : {}),
+      ...(preservedWorktreeEdits.length > 0 ? { preservedWorktreeEdits } : {})
     });
     if (reachedBranchLimit(processed, maxBranches)) break;
   }
