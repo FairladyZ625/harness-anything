@@ -3,19 +3,31 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 
+export type CanonicalHarnessRootResolution =
+  | { readonly root: string; readonly source: "local-layout"; readonly isHarnessRepository: boolean }
+  | { readonly root: string; readonly source: "git-common-dir"; readonly canonicalRoot: string; readonly isHarnessRepository: true }
+  | { readonly root: string; readonly source: "git-common-dir-unresolved"; readonly canonicalRoot: string; readonly isHarnessRepository: false };
+
 export function resolveCanonicalHarnessRoot(input: HarnessLayoutInput): string {
+  return resolveCanonicalHarnessRootResolution(input).root;
+}
+
+export function resolveCanonicalHarnessRootResolution(input: HarnessLayoutInput): CanonicalHarnessRootResolution {
   const layout = resolveHarnessLayout(input);
-  if (layout.configPath) return layout.rootDir;
+  if (layout.configPath) return { root: layout.rootDir, source: "local-layout", isHarnessRepository: true };
 
   const gitFilePath = path.join(layout.rootDir, ".git");
-  if (!isFile(gitFilePath)) return layout.rootDir;
+  if (!isFile(gitFilePath)) return { root: layout.rootDir, source: "local-layout", isHarnessRepository: false };
   const gitDir = linkedWorktreeGitDir(gitFilePath);
-  if (!gitDir) return layout.rootDir;
+  if (!gitDir) return { root: layout.rootDir, source: "local-layout", isHarnessRepository: false };
   const commonDir = linkedWorktreeCommonDir(gitDir);
-  if (!commonDir) return layout.rootDir;
+  if (!commonDir) return { root: layout.rootDir, source: "local-layout", isHarnessRepository: false };
 
-  const canonicalLayout = resolveHarnessLayout(path.dirname(commonDir));
-  return canonicalLayout.configPath ? canonicalLayout.rootDir : layout.rootDir;
+  const canonicalRoot = path.dirname(commonDir);
+  const canonicalLayout = resolveHarnessLayout(canonicalRoot);
+  return canonicalLayout.configPath
+    ? { root: canonicalLayout.rootDir, source: "git-common-dir", canonicalRoot, isHarnessRepository: true }
+    : { root: layout.rootDir, source: "git-common-dir-unresolved", canonicalRoot, isHarnessRepository: false };
 }
 
 function linkedWorktreeGitDir(gitFilePath: string): string | undefined {

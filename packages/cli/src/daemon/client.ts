@@ -66,9 +66,9 @@ import {
   CliRootResolutionError,
   commandForRootResolution,
   resolveCommandRoot,
-  rootResolutionUnavailableHint,
   withRootResolution
 } from "./root-resolution.ts";
+import { rootResolutionUnavailableReceipt } from "./root-resolution-receipt.ts";
 
 export {
   daemonIdForRoot,
@@ -239,6 +239,9 @@ export async function runCommandThroughDaemon(
     if (error instanceof DaemonJsonRpcResponseError) {
       return daemonRequestFailureReceipt(command, error);
     }
+    if (error instanceof CliRootResolutionError) {
+      return rootResolutionUnavailableReceipt(command, error);
+    }
     return daemonUnavailableReceipt(command, error, config.mode === "remote" ? config.remote : undefined);
   }
 }
@@ -405,20 +408,13 @@ async function runWithLineClient(
 }
 
 function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote?: RemoteDaemonConfig): CommandFailureReceipt {
-  const unavailableHint = error instanceof CliRootResolutionError
-    ? rootResolutionUnavailableHint(error.resolution)
-    : remote
+  const unavailableHint = remote
     ? remoteDaemonUnavailableHint(remote)
     : `Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'. If the daemon is stuck and this write must be recovered locally, run '${directRecoveryCommandLine()}'.`;
   const receipt = toCommandReceipt({
     ok: false,
     command: receiptCommandKind(command.action),
-    error: cliError(
-      CliErrorCode.DaemonUnavailable,
-      error instanceof CliRootResolutionError
-        ? unavailableHint
-        : `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
-    )
+    error: cliError(CliErrorCode.DaemonUnavailable, `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`)
   });
   if (receipt.ok) throw new Error("daemon unavailable receipt unexpectedly succeeded");
   return receipt;

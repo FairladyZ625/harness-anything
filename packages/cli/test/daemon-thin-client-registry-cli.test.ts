@@ -34,7 +34,12 @@ test("daemon client fails unregistered cwd in multi-repo registry with register 
 
     assert.notEqual(failed.status, 0);
     assert.equal(failed.receipt.ok, false);
-    assert.match(((failed.receipt.error as Record<string, unknown>).hint as string), /ha daemon repo register --repo-id <id> --root/u);
+    const hint = (failed.receipt.error as Record<string, unknown>).hint as string;
+    assert.ok(
+      hint.includes(`ha daemon repo register --root ${outsiderRoot}`),
+      `register hint must name the unregistered root verbatim; got: ${hint}`
+    );
+    assert.ok(!/<id>/u.test(hint), `register hint must not leave an unfilled placeholder; got: ${hint}`);
   });
 });
 
