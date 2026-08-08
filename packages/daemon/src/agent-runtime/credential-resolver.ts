@@ -43,42 +43,37 @@ export function resolveCredentials(
   const envKeyName = kindId === "claude-code" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
   const envBaseUrlName = kindId === "claude-code" ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL";
 
-  // Priority 1: environment variables
-  if (processEnv[envKeyName]) {
-    return {
-      apiKey: processEnv[envKeyName],
-      baseUrl: processEnv[envBaseUrlName],
-      env: { ...processEnv }
-    };
+  // Resolve API key: env > YAML > empty
+  let apiKey = processEnv[envKeyName];
+  let baseUrl = processEnv[envBaseUrlName];
+
+  // If API key not in env, try YAML
+  if (!apiKey) {
+    const credentialsPath = path.join(userRoot, "agent-runtime-credentials.yaml");
+    if (existsSync(credentialsPath)) {
+      try {
+        const content = readFileSync(credentialsPath, "utf-8");
+        const yaml = YAML.parse(content) as CredentialsYaml;
+        const profile = yaml.profiles?.find((p) => p.kindId === kindId && p.profileKind === profileKind);
+        if (profile) {
+          apiKey = profile.apiKey;
+          // Base URL from YAML only if not in env
+          if (!baseUrl) baseUrl = profile.baseUrl;
+        }
+      } catch {
+        // YAML parse error or file unreadable: continue with env values
+      }
+    }
   }
 
-  // Priority 2: YAML file
-  const credentialsPath = path.join(userRoot, "agent-runtime-credentials.yaml");
-  if (!existsSync(credentialsPath)) {
-    return { env: { ...processEnv } };
-  }
-
-  let yaml: CredentialsYaml;
-  try {
-    const content = readFileSync(credentialsPath, "utf-8");
-    yaml = YAML.parse(content) as CredentialsYaml;
-  } catch {
-    return { env: { ...processEnv } };
-  }
-
-  const profile = yaml.profiles?.find((p) => p.kindId === kindId && p.profileKind === profileKind);
-  if (!profile?.apiKey) {
-    return { env: { ...processEnv } };
-  }
-
-  // Build env with credentials from YAML
+  // Build env with resolved credentials
   const env = { ...processEnv };
-  if (profile.apiKey) env[envKeyName] = profile.apiKey;
-  if (profile.baseUrl) env[envBaseUrlName] = profile.baseUrl;
+  if (apiKey) env[envKeyName] = apiKey;
+  if (baseUrl) env[envBaseUrlName] = baseUrl;
 
   return {
-    apiKey: profile.apiKey,
-    baseUrl: profile.baseUrl,
+    apiKey,
+    baseUrl,
     env
   };
 }
