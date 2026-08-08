@@ -60,7 +60,9 @@ test("direct recovery mode refuses to recreate the deleted task-complete facade"
     assert.equal(existsSync(path.join(rootDir, "harness/sessions", `${fixture.sessionId}.md`)), true);
     const rejected = runJson(rootDir, closeoutCommands[1], false, fixture.env);
     assert.equal(rejected.error.code, "write_rejected");
-    assert.match(rejected.error.hint, /daemon-planned canonical transition.+direct recovery cannot recreate/iu);
+    assert.match(rejected.error.hint, /daemon-planned canonical transition.+canonical authority planner is unavailable/iu);
+    assert.match(rejected.error.hint, /ha init.+ha daemon stop.+ha daemon start --service/iu);
+    assert.doesNotMatch(rejected.error.hint, /direct recovery/iu);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     const reviewsRoot = path.join(taskRoot, "reviews");
     assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);
@@ -80,7 +82,9 @@ test("direct recovery never derives owner approval outside the daemon planner", 
 
     assert.equal(rejected.error.code, "write_rejected");
     assert.doesNotMatch(rejected.error.code, /execution_review_required/iu);
-    assert.match(rejected.error.hint, /daemon-planned canonical transition.+direct recovery cannot recreate/iu);
+    assert.match(rejected.error.hint, /daemon-planned canonical transition.+canonical authority planner is unavailable/iu);
+    assert.match(rejected.error.hint, /ha init.+ha daemon stop.+ha daemon start --service/iu);
+    assert.doesNotMatch(rejected.error.hint, /direct recovery/iu);
     assert.match(readFileSync(path.join(rootDir, fixture.packagePath, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
     const reviewsRoot = path.join(rootDir, fixture.packagePath, "reviews");
     assert.equal(existsSync(reviewsRoot) ? readdirSync(reviewsRoot).length : 0, 0);

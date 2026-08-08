@@ -20,7 +20,8 @@ export * from "./authority/production/production-authority-script-ingest.ts";
 export * from "./authority/production/production-authority-semantic-compiler.ts";
 export * from "./authority/production/production-authority-task-claim-intent.ts";
 export {
-  ensureMachinePeopleRoster
+  ensureMachinePeopleRoster,
+  ensureProjectPeopleRoster
 } from "./identity/machine-people.ts";
 export {
   daemonIdForRoot,

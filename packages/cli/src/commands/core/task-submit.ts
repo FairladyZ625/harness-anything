@@ -9,6 +9,7 @@ import { taskSubmitTransitionCommandFromCliAction } from "../../cli/task-submit-
 import { commandExecutionSaga } from "./task-holder-execution-saga.ts";
 import { executionSubmitSuccessResult } from "./task-holder-submit-result.ts";
 import { taskHolderPrincipal } from "./task-holder-support.ts";
+import { authorityPlannerUnavailableHint } from "./authority-planner-unavailable.ts";
 
 export const runTaskSubmitCommand: CommandRunner = (context, command) => runExecutionSubmit(
   context,
@@ -40,7 +41,9 @@ function runExecutionSubmit(
       taskId: action.taskId,
       error: cliError(
         CliErrorCode.WriteRejected,
-        "Task submission requires the daemon-planned canonical transition submission; direct recovery cannot recreate that authority."
+        authorityPlannerUnavailableHint(
+          "Task submission requires the daemon-planned canonical transition submission, but the canonical authority planner is unavailable."
+        )
       )
     } satisfies CliResult);
   }
