@@ -30,27 +30,19 @@ import {
   type DecisionStatePayloadV2,
   type TaskAppendPayloadV2,
   type TaskAmendPayloadV2,
-  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDocumentPayloadV2,
-  type TaskDeletePayloadV2,
   type TaskRelatePayloadV2,
-  type TaskReopenPayloadV2,
-  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
-import {
-  type AuthoritySemanticCompilerV2,
-  type RegistryEntityRefV2
-} from "./semantic-mutation-envelope-v2.ts";
+import { type AuthoritySemanticCompilerV2 } from "./semantic-mutation-envelope-v2.ts";
 import {
   semanticAdmissionV2 as admission,
   semanticMutationPlanV2 as taskDecisionModulePlan,
   verifySemanticBaseCasV2,
   verifySemanticPathCasV2
 } from "./semantic-authority-helpers-v2.ts";
-import type { HostedDocumentSnapshotV2 } from "./fact-relation-semantic-compiler-v2.ts";
 import {
   compileDecisionAmendV2,
   compileDecisionRelationReplaceV2,
@@ -79,7 +71,7 @@ import {
   taskDecisionModuleEntityRef,
   taskDecisionModulePath as taskPath
 } from "./task-decision-module-refs.ts";
-import { parseTaskIndex, sameTaskLifecycleCore } from "./task-index-v2.ts";
+import { parseTaskIndex } from "./task-index-v2.ts";
 import { enteringExecutionWip } from "./task-wip-policy.ts";
 import { taskTransitionAlreadySatisfiedVerifierV1 } from "./task-transition-already-satisfied-v1.ts";
 import type {
@@ -88,7 +80,7 @@ import type {
   TaskDecisionModuleSemanticCompilerV2Options
 } from "./task-decision-module-semantic-compiler-types.ts";
 import { taskReturnToIdeaPublicationRevalidation } from "./task-return-to-idea-policy.ts";
-import { taskExecutionAdmissionPublicationRevalidation, type TaskExecutionAdmissionPortsV1 } from "./task-execution-admission-policy.ts";
+import { taskExecutionAdmissionPublicationRevalidation } from "./task-execution-admission-policy.ts";
 
 export {
   encodeTaskDecisionModuleCommandPayloadV2,
@@ -106,15 +98,11 @@ export {
   type ModuleUnregisterPayloadV2,
   type TaskAppendPayloadV2,
   type TaskAmendPayloadV2,
-  type TaskArchivePayloadV2,
   type TaskCreatePayloadV2,
   type TaskDecisionModuleCommandPayloadV2,
   type TaskDecisionModuleTypedCommandV2,
   type TaskDocumentPayloadV2,
-  type TaskDeletePayloadV2,
   type TaskRelatePayloadV2,
-  type TaskReopenPayloadV2,
-  type TaskSupersedePayloadV2,
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 
