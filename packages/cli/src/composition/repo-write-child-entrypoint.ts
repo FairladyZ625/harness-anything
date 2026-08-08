@@ -33,6 +33,24 @@ import {
 } from "./production-authority-lifecycle.ts";
 import { makeDaemonReservationReconciler } from "@harness-anything/daemon";
 
+/**
+ * Everything before READY must fit inside the parent's READY deadline
+ * (`readyTimeoutMs`, default 30_000ms), so this caps the child's *total* time to
+ * announcement rather than just the recovery loop. Measured on a wedged daemon,
+ * the work preceding recovery alone consumed 20.1-29.9s, so a fixed recovery
+ * budget cannot keep the total under the deadline — the budget has to be
+ * whatever time is still left. Recovery therefore gets the remainder of this cap
+ * and nothing more; proceedings it does not reach stay proceeding and are
+ * retried on the next start. The margin below the parent default absorbs spawn
+ * and IPC latency the child cannot observe.
+ */
+const startupReadyBudgetMs = 25_000;
+
+/** Time this child may still spend on historical recovery before announcing READY. */
+function remainingStartupRecoveryBudgetMs(): number {
+  return Math.max(0, startupReadyBudgetMs - Math.round(process.uptime() * 1000));
+}
+
 export async function runRepoWriteChildEntrypoint(
   encodedConfig: string | undefined
 ): Promise<void> {
@@ -170,7 +188,14 @@ export async function runRepoWriteChildEntrypoint(
     return started.component.recoverCommittedReceipt(outcome.innerOpId);
   };
   const transport = new RepoWriteChildIpcTransport();
+  const startupRecoveryBudgetMs = remainingStartupRecoveryBudgetMs();
+  const startupRecoveryDeadline = Date.now() + startupRecoveryBudgetMs;
+  let proceedingsLeftByBudget = 0;
   for (const proceeding of outcomes.listHistoricalProceedings()) {
+    if (Date.now() >= startupRecoveryDeadline) {
+      proceedingsLeftByBudget += 1;
+      continue;
+    }
     try {
       const recovery = await recoveryGate.recoverHistoricalProceeding(proceeding);
       if (recovery.disposition === "permanently-rejected") {
@@ -201,6 +226,14 @@ export async function runRepoWriteChildEntrypoint(
         diagnostic: boundedRecoveryError(error)
       });
     }
+  }
+  if (proceedingsLeftByBudget > 0) {
+    process.stderr.write(
+      `[repo-write-child] repo=${config.repoId} left ${proceedingsLeftByBudget} historical `
+      + `proceeding(s) unrecovered after spending the ${startupRecoveryBudgetMs}ms still left `
+      + `of the ${startupReadyBudgetMs}ms startup budget; they remain proceeding and are `
+      + "retried on the next start\n"
+    );
   }
   const operation = new ProductionRepoWriteOperationHost({
     repoId: config.repoId,
