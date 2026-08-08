@@ -34,7 +34,8 @@ export function createLocalAgentRuntimeControlHost(rootDir: string, userRoot: st
     ],
     store: createFileRuntimeSessionStore(rootDir),
     authProfiles: () => probeRuntimeAuthenticationProfiles({ userRoot }),
-    workspaceRoot: rootDir
+    workspaceRoot: rootDir,
+    userRoot
   });
   const service = makeAgentRuntimeService({
     discovery,

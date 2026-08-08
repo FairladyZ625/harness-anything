@@ -48,6 +48,7 @@ export interface AgentRuntimeSessionServiceOptions {
   readonly createId?: () => string;
   readonly now?: () => string;
   readonly workspaceRoot?: string;
+  readonly userRoot?: string;
 }
 
 export function createAgentRuntimeSessionService(
@@ -90,8 +91,8 @@ export function createAgentRuntimeSessionService(
         return failure("runtime_authentication_required", profile?.guidance ?? `Configure ${payload.authenticationProfileKind} for ${payload.kindId}.`);
       }
       // Resolve credentials to capture effectiveBaseUrl for audit
-      const credentials = options.workspaceRoot
-        ? resolveCredentials(payload.kindId, payload.authenticationProfileKind, options.workspaceRoot, process.env)
+      const credentials = options.userRoot
+        ? resolveCredentials(payload.kindId, payload.authenticationProfileKind, options.userRoot, process.env)
         : { baseUrl: undefined };
       let handle: RuntimeAdapterProcess;
       try {
