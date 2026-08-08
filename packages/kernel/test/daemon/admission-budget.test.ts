@@ -80,7 +80,7 @@ test("admission distinguishes temporary capacity pressure from a payload that ca
       error: {
         _tag: "WriteRejected",
         code: "admission_payload_exceeds_limit",
-        reason: "Shared daemon admission payload exceeds the per-request limit (operations: requested 4, limit 3; bytes: requested 301, limit 300). Split the batch or reduce the payload, then submit each smaller request.",
+        reason: "Shared daemon admission payload exceeds the per-request limit (operations: requested 4, limit 3; bytes: requested 301, limit 300). Split the batch or reduce the payload, then submit each smaller request. A single payload that cannot be split needs a larger 'settings.daemon.admission.maxBytes'.",
         retryable: false
       }
     };

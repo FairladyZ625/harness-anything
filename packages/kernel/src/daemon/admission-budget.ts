@@ -119,13 +119,64 @@ function payloadExceedsLimitError(operations: number, operationLimit: number, by
   return {
     _tag: "WriteRejected",
     code: "admission_payload_exceeds_limit",
-    reason: `Shared daemon admission payload exceeds the per-request limit (operations: requested ${operations}, limit ${operationLimit}; bytes: requested ${bytes}, limit ${byteLimit}). Split the batch or reduce the payload, then submit each smaller request.`,
+    reason: `Shared daemon admission payload exceeds the per-request limit (operations: requested ${operations}, limit ${operationLimit}; bytes: requested ${bytes}, limit ${byteLimit}). Split the batch or reduce the payload, then submit each smaller request. A single payload that cannot be split needs a larger 'settings.daemon.admission.maxBytes'.`,
     retryable: false
   };
 }
 
+const jsonNullBytes = 4;
+
+/**
+ * Charges a request the bytes it actually occupies.
+ *
+ * Binary payloads are charged their real `byteLength`. Measuring them with
+ * `JSON.stringify` inflates the charge several fold — a `Buffer` renders as
+ * `{"type":"Buffer","data":[12,34,...]}` (~3.6x) and a bare `Uint8Array` as
+ * `{"0":12,"1":34,...}` (~11.5x) — which both reserves capacity that is not
+ * needed and makes the `admission_payload_exceeds_limit` message untrue about
+ * how large the request was. Everything else is charged its exact JSON
+ * encoding, so non-binary payloads keep the meaning they already had.
+ */
 export function daemonAdmissionBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value) ?? "null", "utf8");
+  return admissionValueBytes(value) ?? jsonNullBytes;
+}
+
+function admissionValueBytes(value: unknown): number | undefined {
+  // Only objects can be binary, so primitives take the cheap path first.
+  if (value === null || typeof value !== "object") return admissionJsonBytes(value);
+  const binary = admissionBinaryBytes(value);
+  if (binary !== undefined) return binary;
+  // `toJSON` owners (Date, and anything else that renders itself) are charged
+  // the encoding they actually produce rather than their internal slots.
+  if (typeof (value as { readonly toJSON?: unknown }).toJSON === "function") return admissionJsonBytes(value);
+  if (Array.isArray(value)) {
+    let total = 2;
+    for (let index = 0; index < value.length; index += 1) {
+      if (index > 0) total += 1;
+      total += admissionValueBytes(value[index]) ?? jsonNullBytes;
+    }
+    return total;
+  }
+  let total = 2;
+  let separators = -1;
+  for (const [key, entry] of Object.entries(value)) {
+    const measured = admissionValueBytes(entry);
+    if (measured === undefined) continue;
+    separators += 1;
+    total += Buffer.byteLength(JSON.stringify(key), "utf8") + 1 + measured;
+  }
+  return total + Math.max(0, separators);
+}
+
+function admissionBinaryBytes(value: object): number | undefined {
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  return undefined;
+}
+
+function admissionJsonBytes(value: unknown): number | undefined {
+  const json = JSON.stringify(value);
+  return json === undefined ? undefined : Buffer.byteLength(json, "utf8");
 }
 
 function assertLimits(limits: DaemonAdmissionBudgetLimits): void {
