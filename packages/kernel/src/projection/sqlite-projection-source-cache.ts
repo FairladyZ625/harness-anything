@@ -4,21 +4,15 @@ import { Effect } from "effect";
 import { sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { readFrontmatter } from "../markdown/frontmatter.ts";
 import {
-  attributionEventSourceLayoutIdentity,
   captureAttributionEventSourcePersistentCache,
-  decodeUnionAttributionEventBody,
-  restoreAttributionEventSourcePersistentCache,
-  type AttributionEventSourcePersistentCache
+  decodeUnionAttributionEventBody
 } from "../local/attribution-event-source.ts";
 import {
   captureMarkdownSourcePersistentCache,
-  readMarkdownSource,
-  restoreMarkdownSourcePersistentCache,
-  type MarkdownSourcePersistentCache,
-  type TaskProjectionSourceHashInput
+  readMarkdownSource
 } from "./sqlite-task-source.ts";
+import { projectionDatabaseFileSignature } from "./sqlite-projection-database-signature.ts";
 import { runSqlite, runSqliteReadonly } from "./sqlite-projection-store.ts";
 import {
   applyProjectionSourceCacheStoredChange,
@@ -217,19 +211,48 @@ export function refreshProjectionSourceCacheAfterIncrementalChange(input: {
   );
 }
 
+/**
+ * A projection generation reads this snapshot more than once per write (the
+ * authored-source baseline warm start and the incremental updater both need it),
+ * and on a large ledger one read is seconds of SQLite plus body verification.
+ * The snapshot is a pure function of the database file, so it is memoized under
+ * that file's stat signature: any projection write changes the signature and
+ * retires the entry.
+ */
+const projectionSourceCacheReads = new Map<string, {
+  readonly signature: string;
+  readonly snapshot: ProjectionSourceCacheSnapshot;
+}>();
+const projectionSourceCacheReadLimit = 4;
+
 export function readProjectionSourceCacheSnapshot(projectionPath: string): ProjectionSourceCacheSnapshot {
-  return runSqliteReadonly(projectionPath, Effect.gen(function* () {
+  const signature = projectionDatabaseFileSignature(projectionPath);
+  const memoized = signature === null ? undefined : projectionSourceCacheReads.get(projectionPath);
+  if (memoized && memoized.signature === signature) return memoized.snapshot;
+  const snapshot = runSqliteReadonly(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`BEGIN`;
     try {
-      const snapshot = projectionSourceCacheSnapshot(yield* readProjectionSourceCacheRows(sql));
+      const rows = projectionSourceCacheSnapshot(yield* readProjectionSourceCacheRows(sql));
       yield* sql`COMMIT`;
-      return snapshot;
+      return rows;
     } catch (error) {
       yield* sql`ROLLBACK`;
       throw error;
     }
   }));
+  // Only memoize a read that observed a single stable database generation; a
+  // concurrent projection write during the read leaves the snapshot unattributable.
+  if (signature !== null && projectionDatabaseFileSignature(projectionPath) === signature) {
+    projectionSourceCacheReads.delete(projectionPath);
+    projectionSourceCacheReads.set(projectionPath, { signature, snapshot });
+    while (projectionSourceCacheReads.size > projectionSourceCacheReadLimit) {
+      const oldest = projectionSourceCacheReads.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      projectionSourceCacheReads.delete(oldest);
+    }
+  }
+  return snapshot;
 }
 
 export function readProjectionSourceCacheBody(
@@ -241,93 +264,6 @@ export function readProjectionSourceCacheBody(
     const sql = yield* SqlClient.SqlClient;
     return yield* readProjectionSourceCacheStoredBody(sql, cacheKindValue, sourcePath);
   }));
-}
-
-export function restoreProjectionSourceCacheSnapshot(
-  rootInput: HarnessLayoutInput,
-  snapshot: ProjectionSourceCacheSnapshot
-): {
-  readonly valid: boolean;
-  readonly task: "fresh" | "stale";
-  readonly attribution: "fresh" | "stale";
-} {
-  try {
-    const layout = resolveHarnessLayout(rootInput);
-    const metadata = new Map(snapshot.metadata.map((row) => [row.cacheKind, JSON.parse(row.payloadJson) as Record<string, unknown>]));
-    const taskMetadata = requiredMetadata(metadata, "task");
-    const attributionMetadata = requiredMetadata(metadata, "attribution");
-    const taskLayoutIdentity = [layout.rootDir, layout.authoredRoot, layout.tasksRoot, layout.decisionsRoot].join("\0");
-    if (taskMetadata.layoutIdentity !== taskLayoutIdentity ||
-        attributionMetadata.layoutIdentity !== attributionEventSourceLayoutIdentity(rootInput)) {
-      return { valid: true, task: "stale", attribution: "stale" };
-    }
-    const taskFiles = snapshot.files.filter((row) => row.cacheKind === "task");
-    const taskInputs: TaskProjectionSourceHashInput[] = taskFiles
-      .map((row) => ({
-        kind: row.sourceKind,
-        sourcePath: row.sourcePath,
-        body: row.body,
-        statSignature: row.statSignature,
-        contentSha256: row.contentSha256
-      }))
-      .sort(compareTaskSourceInputs);
-    const task: MarkdownSourcePersistentCache = {
-      schema: "markdown-source-cache/v1",
-      layoutIdentity: String(taskMetadata.layoutIdentity),
-      result: {
-        entries: taskFiles.filter((row) => row.sourceKind === "task-index").map((row) => ({
-          taskId: row.ownerId ?? path.basename(path.dirname(row.sourcePath)),
-          indexPath: row.sourcePath,
-          body: row.body,
-          frontmatter: readFrontmatter(row.body) ?? "",
-          statSignature: row.statSignature
-        })),
-        hash: taskSourceHash(taskInputs),
-        warnings: Array.isArray(taskMetadata.warnings) ? taskMetadata.warnings as MarkdownSourcePersistentCache["result"]["warnings"] : [],
-        sourceInputs: taskInputs
-      },
-      fileSignatures: taskFiles.map((row) => ({ relativePath: row.sourcePath, signature: row.statSignature })),
-      directorySignatures: snapshot.watches
-        .filter((row) => row.cacheKind === "task")
-        .map((row) => ({ relativePath: row.sourcePath, signature: row.statSignature }))
-    };
-    const attributionFiles = snapshot.files.filter((row) => row.cacheKind === "attribution");
-    const attribution: AttributionEventSourcePersistentCache = {
-      schema: "attribution-event-source-cache/v1",
-      layoutIdentity: String(attributionMetadata.layoutIdentity),
-      source: {
-        inputs: attributionFiles.map((row) => ({
-          relativePath: attributionSourceRelativePath(layout, row.sourcePath),
-          sourcePath: row.sourcePath,
-          body: row.body,
-          statSignature: row.statSignature,
-          contentSha256: row.contentSha256,
-          ...(row.ownerId ? { eventId: row.ownerId } : {})
-        })),
-        hash: stablePayloadHash({
-          schema: "attribution-event-source/v3",
-          inputs: attributionFiles.map((row) => ({
-            relativePath: attributionSourceRelativePath(layout, row.sourcePath),
-            contentSha256: row.contentSha256
-          }))
-        })
-      },
-      signatures: [
-        ...attributionFiles.map((row) => ({ relativePath: row.sourcePath, signature: row.statSignature })),
-        ...snapshot.watches
-          .filter((row) => row.cacheKind === "attribution")
-          .map((row) => ({ relativePath: row.sourcePath, signature: row.statSignature }))
-      ]
-    };
-    const taskRestore = restoreMarkdownSourcePersistentCache(rootInput, task);
-    const attributionRestore = restoreAttributionEventSourcePersistentCache(rootInput, attribution);
-    if (taskRestore === "invalid" || attributionRestore === "invalid") {
-      return { valid: false, task: "stale", attribution: "stale" };
-    }
-    return { valid: true, task: taskRestore, attribution: attributionRestore };
-  } catch {
-    return { valid: false, task: "stale", attribution: "stale" };
-  }
 }
 
 export function replaceProjectionSourceCacheRows(
@@ -388,24 +324,7 @@ export function updateProjectionSourceCacheSnapshot(
   }));
 }
 
-function attributionSourceRelativePath(
-  layout: ReturnType<typeof resolveHarnessLayout>,
-  sourcePath: string
-): string {
-  const absolutePath = path.resolve(layout.rootDir, sourcePath);
-  const legacyRelative = path.relative(layout.attributionEventsRoot, absolutePath);
-  if (isRegisteredAttributionRootPath(legacyRelative)) return legacyRelative.split(path.sep).join("/");
-  const authorityRelative = path.relative(layout.authorityAttributionEventsV2Root, absolutePath);
-  if (isRegisteredAttributionRootPath(authorityRelative)) return `authority-v2/${authorityRelative.split(path.sep).join("/")}`;
-  throw new Error(`attribution source path is outside registered roots: ${sourcePath}`);
-}
 
-function isRegisteredAttributionRootPath(relativePath: string): boolean {
-  return relativePath.length > 0
-    && relativePath !== ".."
-    && !relativePath.startsWith(`..${path.sep}`)
-    && !path.isAbsolute(relativePath);
-}
 
 function projectionSourceCacheSnapshot(input: {
   readonly files: ReadonlyArray<ProjectionSourceCacheFileRow>;
@@ -488,14 +407,6 @@ function metadataRow(cacheKind: ProjectionSourceCacheKind, payload: unknown): Pr
   };
 }
 
-function requiredMetadata(
-  rows: ReadonlyMap<ProjectionSourceCacheKind, Record<string, unknown>>,
-  kind: ProjectionSourceCacheKind
-): Record<string, unknown> {
-  const row = rows.get(kind);
-  if (!row) throw new Error(`projection source cache metadata missing: ${kind}`);
-  return row;
-}
 
 function assertCacheKinds(kinds: ReadonlyArray<ProjectionSourceCacheKind>): void {
   if (kinds.length !== 2 || new Set(kinds).size !== 2 || !kinds.includes("task") || !kinds.includes("attribution")) {
@@ -518,22 +429,7 @@ function compareCachePaths(
   return cachePathKey(left).localeCompare(cachePathKey(right));
 }
 
-function compareTaskSourceInputs(left: TaskProjectionSourceHashInput, right: TaskProjectionSourceHashInput): number {
-  const leftRank = left.kind === "task-index" ? 0 : 1;
-  const rightRank = right.kind === "task-index" ? 0 : 1;
-  return leftRank - rightRank || left.sourcePath.localeCompare(right.sourcePath);
-}
 
-function taskSourceHash(inputs: ReadonlyArray<TaskProjectionSourceHashInput>): string {
-  return `sha256:${sha256Text(JSON.stringify({
-    schema: "task-projection-source/v2",
-    inputs: inputs.map(({ kind, sourcePath, body, contentSha256 }) => ({
-      kind,
-      sourcePath,
-      contentSha256: contentSha256 ?? sha256Text(body)
-    }))
-  }))}`;
-}
 
 function sameFileRow(left: ProjectionSourceCacheFileRow | undefined, right: ProjectionSourceCacheFileRow): boolean {
   return left !== undefined &&
