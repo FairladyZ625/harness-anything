@@ -189,6 +189,7 @@ export class ProductionRepoWriteOperationHost<
       this.options.hostServices,
       {
         resolveAuthoritySubmissionV2: () => binding,
+        authorityCutoverControl: this.options.authorityComponent.cutoverControl,
         ...(this.options.conflictMarkerPreflight ? {
           conflictMarkerPreflight: this.options.conflictMarkerPreflight
         } : {})

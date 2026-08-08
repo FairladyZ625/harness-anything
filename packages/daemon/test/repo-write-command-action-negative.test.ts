@@ -11,20 +11,27 @@ import {
   commandClassForCliActionKind,
   repoCommandRunClassifiedActionKinds
 } from "../src/protocol/method-registry.ts";
+import { isAuthorityCutoverAction } from "../src/authority/authority-cutover-command.ts";
 
-test("application action authority exactly covers every classified CLI writer kind", () => {
+test("application action authority exactly covers every CLI kind routed to the writer child", () => {
   const classifiedWriterKinds = repoCommandRunClassifiedActionKinds
     .filter((kind) => kind !== "task-complete" && kind !== "task-submit")
     .filter((kind) => {
       const commandClass = commandClassForCliActionKind(kind);
-      return commandClass === "repo-write" || commandClass === "arbiter";
+      // Authority cutover controls are admin-class yet still cross the child
+      // boundary: a production daemon keeps no authority engine of its own, so
+      // the controls must reach the child that owns it. Deriving the expected
+      // set from the same predicate the router uses keeps both sides together.
+      return commandClass === "repo-write"
+        || commandClass === "arbiter"
+        || isAuthorityCutoverAction({ kind });
     })
     .sort();
   assert.deepEqual([...repoWriteCommandActionKinds].sort(), classifiedWriterKinds);
 });
 
-test("all 63 classified CLI writer actions reject a wrong wire shape", async (t) => {
-  assert.equal(repoWriteCommandActionKinds.length, 63);
+test("all 70 classified CLI writer actions reject a wrong wire shape", async (t) => {
+  assert.equal(repoWriteCommandActionKinds.length, 70);
   for (const commandName of repoWriteCommandActionKinds) {
     await t.test(commandName, () => {
       assert.throws(() => decodeRepoWriteParentMessage(frame(commandName, {

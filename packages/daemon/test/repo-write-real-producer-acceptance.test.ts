@@ -44,7 +44,7 @@ test("every CLI repo-write producer survives normalization, DTO decode, and IPC 
           ? closeoutArgs()
           : spec.kind === "record-fact"
             ? recordFactArgs()
-            : shellSplit(spec.examples[0]!).slice(1),
+            : cutoverDigestArgs(spec.kind) ?? shellSplit(spec.examples[0]!).slice(1),
         root
       );
       produced.push(spec.kind);
@@ -132,6 +132,23 @@ function closeoutArgs(): ReadonlyArray<string> {
       ci: "passed"
     })
   ];
+}
+
+// Cutover controls that pin a digest publish `<sha256>` as their documented
+// placeholder, which is deliberately unparseable. Supply a real digest here so
+// the producer still crosses the same parse/normalize/IPC path as its peers.
+function cutoverDigestArgs(kind: string): ReadonlyArray<string> | undefined {
+  const digest = "a".repeat(64);
+  if (kind === "authority-cutover-boundary") {
+    return ["authority", "cutover", "boundary", "--id", "sme-v2", "--equality", "equality_1", "--expected-v2-tuple-digest", digest];
+  }
+  if (kind === "authority-cutover-freeze") {
+    return ["authority", "cutover", "freeze", "--reason", "forward fix", "--boundary-receipt-digest", digest];
+  }
+  if (kind === "authority-cutover-re-enable") {
+    return ["authority", "cutover", "re-enable", "--boundary", "sme-v2", "--freeze-receipt-digest", digest, "--equality", "equality_2", "--forward-fix", "fix/w6-1"];
+  }
+  return undefined;
 }
 
 function recordFactArgs(): ReadonlyArray<string> {
