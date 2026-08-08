@@ -49,7 +49,7 @@
     "electron": "43.2.0",
     "electron-builder": "^26.15.3",
     "jsdom": "^26.1.0",
-    "playwright-core": "1.61.1",
+    "playwright-core": "1.62.1",
     "tailwindcss": "^4.3.2",
     "vite": "8.1.5",
     "vitest": "4.1.10"
