@@ -52,6 +52,10 @@ export interface AgentRuntimeSessionStatus {
     readonly taskId?: string;
     readonly executionId?: string;
   };
+  readonly spawnMetadata?: {
+    readonly profileKind: string;
+    readonly effectiveBaseUrl?: string;
+  };
 }
 
 export interface AgentRuntimeSessionResult {
