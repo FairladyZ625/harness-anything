@@ -1,13 +1,18 @@
 import path from "node:path";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
-import { resolveCanonicalHarnessRoot } from "@harness-anything/daemon";
+import { resolveCanonicalHarnessRootResolution } from "@harness-anything/daemon";
 import { createHarnessRuntimeContext } from "@harness-anything/kernel";
 
 export interface CliRootResolution {
   readonly requestedRoot: string;
   readonly root: string;
-  readonly source: "explicit-override" | "local-cwd" | "git-common-dir";
+  readonly source: "explicit-override" | "local-cwd" | "git-common-dir" | "git-common-dir-unresolved";
+  readonly isHarnessRepository: boolean;
+  readonly linkedWorktree?: {
+    readonly canonicalRoot: string;
+    readonly isHarnessRepository: boolean;
+  };
 }
 
 export class CliRootResolutionError extends Error {
@@ -22,11 +27,27 @@ export class CliRootResolutionError extends Error {
 
 export function resolveCommandRoot(command: ParsedCommand): CliRootResolution {
   const requestedRoot = path.resolve(command.rootDir);
-  const root = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(requestedRoot, command.layoutOverrides));
+  const canonical = resolveCanonicalHarnessRootResolution(createHarnessRuntimeContext(requestedRoot, command.layoutOverrides));
+  const root = canonical.root;
   const source = command.rootResolutionSource === "explicit-override"
     ? "explicit-override"
-    : path.resolve(root) === requestedRoot ? "local-cwd" : "git-common-dir";
-  return { requestedRoot, root, source };
+    : canonical.source === "git-common-dir-unresolved"
+      ? "git-common-dir-unresolved"
+      : path.resolve(root) === requestedRoot ? "local-cwd" : "git-common-dir";
+  return {
+    requestedRoot,
+    root,
+    source,
+    isHarnessRepository: canonical.isHarnessRepository,
+    ...(canonical.source === "git-common-dir" || canonical.source === "git-common-dir-unresolved"
+      ? {
+          linkedWorktree: {
+            canonicalRoot: canonical.canonicalRoot,
+            isHarnessRepository: canonical.source === "git-common-dir"
+          }
+        }
+      : {})
+  };
 }
 
 export function commandForRootResolution(command: ParsedCommand, resolution: CliRootResolution): ParsedCommand {
@@ -36,11 +57,21 @@ export function commandForRootResolution(command: ParsedCommand, resolution: Cli
 }
 
 export function rootResolutionUnavailableHint(resolution: CliRootResolution): string {
-  if (resolution.source === "git-common-dir") {
-    return `Could not resolve a registered harness repo root: git common-dir candidate ${JSON.stringify(resolution.root)} is not registered. Pass --root <canonical-root>, or register that candidate with 'ha daemon repo register --repo-id <id> --root ${quoteRootArgument(resolution.root)}'.`;
+  if (resolution.linkedWorktree) {
+    const canonicalRoot = resolution.linkedWorktree.canonicalRoot;
+    const root = quoteRootArgument(canonicalRoot);
+    const location = `Detected current directory ${JSON.stringify(resolution.requestedRoot)} inside a linked Git worktree; its canonical repository is ${JSON.stringify(canonicalRoot)}.`;
+    if (!resolution.linkedWorktree.isHarnessRepository) {
+      return `${location} The canonical repository is not an initialized harness repository because harness/harness.yaml was not found. Initialize the canonical repository with \`ha --root ${root} init\`, then register it with \`ha daemon repo register --root ${root}\`. To create a task there after initialization, run \`ha --root ${root} task create --title "<title>"\`.`;
+    }
+    return `${location} The canonical repository is an initialized harness repository, but it is not registered. Register the canonical repository with \`ha daemon repo register --root ${root}\`. To create a task there, run \`ha --root ${root} task create --title "<title>"\`.`;
   }
-  const origin = resolution.source === "explicit-override" ? "the explicit --root override" : "the current directory";
-  return `Could not resolve a registered harness repo root from ${origin} ${JSON.stringify(resolution.requestedRoot)}. Pass --root <canonical-root>, or register it with 'ha daemon repo register --repo-id <id> --root ${quoteRootArgument(resolution.requestedRoot)}'.`;
+  const root = quoteRootArgument(resolution.root);
+  const origin = resolution.source === "explicit-override" ? "The explicit --root override" : "The current directory";
+  if (!resolution.isHarnessRepository) {
+    return `${origin} ${JSON.stringify(resolution.requestedRoot)} is not an initialized harness repository because harness/harness.yaml was not found. Initialize it with \`ha --root ${root} init\`, then register it with \`ha daemon repo register --root ${root}\`. To create a task there after initialization, run \`ha --root ${root} task create --title "<title>"\`.`;
+  }
+  return `${origin} ${JSON.stringify(resolution.requestedRoot)} resolves to an initialized harness repository, but it is not registered. Register it with \`ha daemon repo register --root ${root}\`. To create a task there, run \`ha --root ${root} task create --title "<title>"\`.`;
 }
 
 export function withRootResolution<T extends CommandReceipt | CommandFailureReceipt>(receipt: T, resolution: CliRootResolution): T {

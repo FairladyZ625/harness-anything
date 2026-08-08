@@ -15,7 +15,11 @@ const cliEntry = path.resolve("packages/cli/src/index.ts");
 test("worktree commands derive a registered canonical root from git common-dir", async () => {
   const fixture = createWorktreeFixture("registered", true, true);
   try {
-    const created = runRawJson(fixture.canonicalRoot, ["task", "create", "--title", "Worktree Root"]);
+    const created = runRawJson(
+      fixture.canonicalRoot,
+      ["task", "create", "--title", "Worktree Root"],
+      { HARNESS_DAEMON_USER_ROOT: "" }
+    );
     const taskId = receiptData(created).taskId;
     assert.equal(typeof taskId, "string");
 
@@ -66,7 +70,7 @@ test("explicit root override wins over a registered git common-dir candidate", a
   }
 });
 
-test("git common-dir parent is rejected when it is not a registered repo root", async () => {
+test("linked worktree reports its unregistered canonical harness root with actionable commands", async () => {
   const fixture = createWorktreeFixture("unregistered", false);
   const registeredRoot = path.join(fixture.containerRoot, "registered-root");
   mkdirSync(registeredRoot, { recursive: true });
@@ -77,9 +81,14 @@ test("git common-dir parent is rejected when it is not a registered repo root", 
     const failed = runFrom(fixture.worktreeRoot, ["--json", "task", "list"], fixture.env);
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
-    assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
-    assert.match(String(failed.receipt.error?.hint), /git common-dir candidate .* is not registered/iu);
+    const hint = String(failed.receipt.error?.hint);
+    const canonicalRoot = realpathSync.native(fixture.canonicalRoot);
+    assert.equal(failed.receipt.error?.code, "harness_root_unresolved");
+    assert.match(hint, /detected current directory .* inside a linked Git worktree/iu);
+    assert.match(hint, new RegExp(`canonical repository is ${escapeRegExp(JSON.stringify(canonicalRoot))}`, "u"));
+    assert.match(hint, /canonical repository is an initialized harness repository, but it is not registered/iu);
+    assert.match(hint, new RegExp(`ha daemon repo register --root ${escapeRegExp(canonicalRoot)}`, "u"));
+    assert.match(hint, new RegExp(`ha --root ${escapeRegExp(canonicalRoot)} task create --title`, "u"));
     assert.doesNotMatch(String(failed.receipt.error?.hint), /Start the daemon|recovery escape hatch/iu);
   } finally {
     await stopDaemon(registeredRoot, fixture.userRoot);
@@ -87,7 +96,36 @@ test("git common-dir parent is rejected when it is not a registered repo root", 
   }
 });
 
-test("non-git cwd keeps the unregistered-root failure path", async () => {
+test("linked worktree preserves its canonical repository when that repository is not a harness root", async () => {
+  const fixture = createWorktreeFixture("not-harness", false, false, false);
+  const registeredRoot = path.join(fixture.containerRoot, "registered-root");
+  mkdirSync(registeredRoot, { recursive: true });
+  try {
+    initializeNestedHarnessRepo(registeredRoot);
+    registerRepo(registeredRoot, fixture.userRoot, "registered", fixture.env);
+
+    const failed = runFrom(fixture.worktreeRoot, ["--json", "task", "list"], fixture.env);
+
+    assert.notEqual(failed.status, 0, failed.diagnostic);
+    const hint = String(failed.receipt.error?.hint);
+    const canonicalRoot = realpathSync.native(fixture.canonicalRoot);
+    const worktreeRoot = realpathSync.native(fixture.worktreeRoot);
+    assert.equal(failed.receipt.error?.code, "harness_root_unresolved");
+    assert.match(hint, /detected current directory .* inside a linked Git worktree/iu);
+    assert.match(hint, new RegExp(`canonical repository is ${escapeRegExp(JSON.stringify(canonicalRoot))}`, "u"));
+    assert.match(hint, /canonical repository is not an initialized harness repository/iu);
+    assert.match(hint, /harness\/harness\.yaml was not found/iu);
+    assert.match(hint, new RegExp(`ha --root ${escapeRegExp(canonicalRoot)} init`, "u"));
+    assert.match(hint, new RegExp(`ha daemon repo register --root ${escapeRegExp(canonicalRoot)}`, "u"));
+    assert.match(hint, new RegExp(`ha --root ${escapeRegExp(canonicalRoot)} task create --title`, "u"));
+    assert.equal(hint.includes(`ha daemon repo register --root ${worktreeRoot}`), false);
+  } finally {
+    await stopDaemon(registeredRoot, fixture.userRoot);
+    await cleanupFixture(fixture);
+  }
+});
+
+test("non-git directory reports a non-harness root without worktree wording", async () => {
   const containerRoot = mkdtempSync(path.join(tmpdir(), "ha-non-git-root-"));
   const registeredRoot = path.join(containerRoot, "registered-root");
   const outsiderRoot = path.join(containerRoot, "outsider");
@@ -101,9 +139,15 @@ test("non-git cwd keeps the unregistered-root failure path", async () => {
     const failed = runFrom(outsiderRoot, ["--json", "task", "list"], env);
 
     assert.notEqual(failed.status, 0, failed.diagnostic);
-    assert.equal(failed.receipt.error?.code, "daemon_unavailable");
-    assert.match(String(failed.receipt.error?.hint), /could not resolve a registered harness repo root/iu);
-    assert.doesNotMatch(String(failed.receipt.error?.hint), /git common-dir candidate/iu);
+    const hint = String(failed.receipt.error?.hint);
+    const resolvedOutsiderRoot = realpathSync.native(outsiderRoot);
+    assert.equal(failed.receipt.error?.code, "harness_root_unresolved");
+    assert.match(hint, /current directory .* is not an initialized harness repository/iu);
+    assert.match(hint, /harness\/harness\.yaml was not found/iu);
+    assert.match(hint, new RegExp(`ha --root ${escapeRegExp(resolvedOutsiderRoot)} init`, "u"));
+    assert.match(hint, new RegExp(`ha daemon repo register --root ${escapeRegExp(resolvedOutsiderRoot)}`, "u"));
+    assert.match(hint, new RegExp(`ha --root ${escapeRegExp(resolvedOutsiderRoot)} task create --title`, "u"));
+    assert.doesNotMatch(hint, /worktree|git common-dir/iu);
   } finally {
     await stopDaemon(registeredRoot, userRoot);
     rmSync(containerRoot, { recursive: true, force: true });
@@ -146,8 +190,13 @@ interface WorktreeFixture {
   readonly env: NodeJS.ProcessEnv;
 }
 
-function createWorktreeFixture(name: string, registerCanonical = true, useProjectDaemonRoot = false): WorktreeFixture {
-  const containerRoot = mkdtempSync(path.join(tmpdir(), `ha-worktree-root-${name}-`));
+function createWorktreeFixture(
+  name: string,
+  registerCanonical = true,
+  useProjectDaemonRoot = false,
+  initializeCanonical = true
+): WorktreeFixture {
+  const containerRoot = realpathSync.native(mkdtempSync(path.join(tmpdir(), `ha-worktree-root-${name}-`)));
   const canonicalRoot = path.join(containerRoot, "canonical");
   const worktreeRoot = path.join(containerRoot, "worktree");
   const userRoot = path.join(containerRoot, "user-daemon");
@@ -157,7 +206,7 @@ function createWorktreeFixture(name: string, registerCanonical = true, useProjec
   writeFileSync(path.join(canonicalRoot, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
   runGit(canonicalRoot, "add", ".gitignore");
   runGit(canonicalRoot, "commit", "-m", "seed worktree fixture");
-  initializeNestedHarnessRepo(canonicalRoot);
+  if (initializeCanonical) initializeNestedHarnessRepo(canonicalRoot);
   if (useProjectDaemonRoot) writeProjectDaemonRoot(canonicalRoot, "../user-daemon");
   if (registerCanonical) registerRepo(canonicalRoot, userRoot, "canonical", env);
   runGit(canonicalRoot, "worktree", "add", "--detach", worktreeRoot);
@@ -221,6 +270,10 @@ function receiptData(receipt: Record<string, any>): Record<string, any> {
 
 function receiptRootResolution(receipt: Record<string, any>): unknown {
   return receipt.details?.rootResolution;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function daemonEnv(homeRoot: string, userRoot?: string): NodeJS.ProcessEnv {
