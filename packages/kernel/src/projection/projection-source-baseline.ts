@@ -2,6 +2,7 @@ import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout, type HarnessLayout } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import { warmStartProjectionSourceCaches } from "./projection-source-cache-warm-start.ts";
 import { readDeclaredSourceManifestRows } from "./sqlite-declared-source-manifest.ts";
 import { updateTaskProjectionIncrementally } from "./sqlite-task-incremental-projection.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
@@ -66,6 +67,11 @@ function captureAuthoredProjectionSource(rootInput: HarnessLayoutInput) {
   } catch {
     // A missing or invalid generated manifest is not authoritative; source capture still proceeds.
   }
+  // A cold writer child otherwise re-reads every authored source before it can
+  // name the generation it is about to advance. Seeding the source caches from
+  // the persisted projection turns that read into a re-stat; the fingerprint is
+  // still computed from sources whose signatures were verified against disk.
+  warmStartProjectionSourceCaches(rootInput, projectionPath);
   return captureProjectionSourceFingerprint(rootInput, hints);
 }
 

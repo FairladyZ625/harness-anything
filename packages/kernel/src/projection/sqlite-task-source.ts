@@ -82,11 +82,22 @@ export function captureMarkdownSourcePersistentCache(
   };
 }
 
+/**
+ * Validating a persisted cache re-hashes every authored body. The verdict depends
+ * only on the payload, so a payload this process has already accepted is not
+ * re-verified when the same object is restored again; freshness against disk is
+ * still re-evaluated on every restore.
+ */
+const acceptedMarkdownPersistentCaches = new WeakSet<MarkdownSourcePersistentCache>();
+
 export function restoreMarkdownSourcePersistentCache(
   rootInput: HarnessLayoutInput,
   persisted: MarkdownSourcePersistentCache
 ): PersistentSourceCacheRestore {
-  if (!validPersistentMarkdownSource(persisted)) return "invalid";
+  if (!acceptedMarkdownPersistentCaches.has(persisted)) {
+    if (!validPersistentMarkdownSource(persisted)) return "invalid";
+    acceptedMarkdownPersistentCaches.add(persisted);
+  }
   const layout = resolveHarnessLayout(rootInput);
   const cacheKey = markdownSourceCacheKey(layout);
   if (persisted.layoutIdentity !== cacheKey) return "stale";

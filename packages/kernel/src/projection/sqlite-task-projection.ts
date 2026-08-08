@@ -33,10 +33,10 @@ import {
   captureProjectionSourceCacheSnapshot,
   readProjectionSourceCacheSnapshot,
   replaceProjectionSourceCacheRows,
-  restoreProjectionSourceCacheSnapshot,
   updateProjectionSourceCacheSnapshot,
   type ProjectionSourceCacheSnapshot
 } from "./sqlite-projection-source-cache.ts";
+import { restoreProjectionSourceCacheSnapshot } from "./sqlite-projection-source-cache-restore.ts";
 import {
   readCachedProjectionValidation,
   rememberProjectionValidation
