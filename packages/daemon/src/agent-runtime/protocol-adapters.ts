@@ -1,5 +1,7 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { spawn } from "node:child_process";
+import type { AgentRuntimeSpawnPayload } from "@harness-anything/application/agent-runtime-control";
+import { resolveCredentials } from "./credential-resolver.ts";
 import type {
   RuntimeAdapterProcess,
   RuntimeAdapterProcessEvent,
@@ -33,6 +35,7 @@ interface AdapterOptions {
   readonly executablePath: string | (() => Promise<string>);
   readonly spawnChild?: RuntimeChildSpawner;
   readonly env?: NodeJS.ProcessEnv;
+  readonly userRoot?: string;
 }
 
 export function createClaudeCodeRuntimeAdapter(options: AdapterOptions): RuntimeProtocolAdapter {
@@ -47,8 +50,11 @@ export function createClaudeCodeRuntimeAdapter(options: AdapterOptions): Runtime
       resize: false,
       events: true
     },
-    spawn: async (payload) => {
+    spawn: async (payload: AgentRuntimeSpawnPayload) => {
       const executablePath = await resolveExecutablePath(options.executablePath);
+      const credentials = options.userRoot
+        ? resolveCredentials("claude-code", payload.authenticationProfileKind, options.userRoot, options.env ?? process.env)
+        : { env: options.env ?? process.env };
       const args = [
         "--print",
         "--verbose",
@@ -57,7 +63,7 @@ export function createClaudeCodeRuntimeAdapter(options: AdapterOptions): Runtime
         ...(payload.resumeProviderSessionId ? ["--resume", payload.resumeProviderSessionId] : []),
         payload.prompt
       ];
-      const child = spawnRuntimeChild(options, executablePath, args, payload.cwd);
+      const child = spawnRuntimeChild({ ...options, env: credentials.env }, executablePath, args, payload.cwd);
       const events = eventChannel();
       let providerSessionId = payload.resumeProviderSessionId;
       readJsonLines(child.stdout, (message) => {
@@ -87,9 +93,12 @@ export function createCodexRuntimeAdapter(options: AdapterOptions): RuntimeProto
       resize: false,
       events: true
     },
-    spawn: async (payload) => {
+    spawn: async (payload: AgentRuntimeSpawnPayload) => {
       const executablePath = await resolveExecutablePath(options.executablePath);
-      const child = spawnRuntimeChild(options, executablePath, ["app-server", "--listen", "stdio://"], payload.cwd);
+      const credentials = options.userRoot
+        ? resolveCredentials("codex", payload.authenticationProfileKind, options.userRoot, options.env ?? process.env)
+        : { env: options.env ?? process.env };
+      const child = spawnRuntimeChild({ ...options, env: credentials.env }, executablePath, ["app-server", "--listen", "stdio://"], payload.cwd);
       const events = eventChannel();
       const write = (message: unknown) => child.stdin.write(`${JSON.stringify(message)}\n`);
       readJsonLines(child.stdout, (message) => {

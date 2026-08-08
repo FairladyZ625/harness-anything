@@ -13,7 +13,8 @@
     "@harness-anything/adapter-local": "0.1.0",
     "@harness-anything/api-contracts": "0.1.0",
     "@harness-anything/application": "0.1.0",
-    "@harness-anything/kernel": "0.1.0"
+    "@harness-anything/kernel": "0.1.0",
+    "yaml": "^2.9.0"
   },
   "optionalDependencies": {
     "node-pty": "^1.1.0"

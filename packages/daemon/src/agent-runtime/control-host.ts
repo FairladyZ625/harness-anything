@@ -29,8 +29,8 @@ export function createLocalAgentRuntimeControlHost(rootDir: string): {
   };
   const control = createAgentRuntimeSessionService({
     adapters: [
-      createClaudeCodeRuntimeAdapter({ executablePath: () => executablePath("claude-code") }),
-      createCodexRuntimeAdapter({ executablePath: () => executablePath("codex") })
+      createClaudeCodeRuntimeAdapter({ executablePath: () => executablePath("claude-code"), userRoot: rootDir }),
+      createCodexRuntimeAdapter({ executablePath: () => executablePath("codex"), userRoot: rootDir })
     ],
     store: createFileRuntimeSessionStore(rootDir),
     authProfiles: probeRuntimeAuthenticationProfiles,
