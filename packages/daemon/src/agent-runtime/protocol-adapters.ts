@@ -1,6 +1,5 @@
 // @slice-activation PLT-Boundary W1 exposes this module through the package root API.
 import { spawn } from "node:child_process";
-import type { AgentRuntimeSpawnPayload } from "@harness-anything/application/agent-runtime-control";
 import { resolveCredentials } from "./credential-resolver.ts";
 import type {
   RuntimeAdapterProcess,
@@ -50,7 +49,7 @@ export function createClaudeCodeRuntimeAdapter(options: AdapterOptions): Runtime
       resize: false,
       events: true
     },
-    spawn: async (payload: AgentRuntimeSpawnPayload) => {
+    spawn: async (payload) => {
       const executablePath = await resolveExecutablePath(options.executablePath);
       const credentials = options.userRoot
         ? resolveCredentials("claude-code", payload.authenticationProfileKind, options.userRoot, options.env ?? process.env)
@@ -93,7 +92,7 @@ export function createCodexRuntimeAdapter(options: AdapterOptions): RuntimeProto
       resize: false,
       events: true
     },
-    spawn: async (payload: AgentRuntimeSpawnPayload) => {
+    spawn: async (payload) => {
       const executablePath = await resolveExecutablePath(options.executablePath);
       const credentials = options.userRoot
         ? resolveCredentials("codex", payload.authenticationProfileKind, options.userRoot, options.env ?? process.env)
