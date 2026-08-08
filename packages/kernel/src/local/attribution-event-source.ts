@@ -60,11 +60,22 @@ export function captureAttributionEventSourcePersistentCache(
   };
 }
 
+/**
+ * Validating a persisted cache decodes and re-verifies every event body, which is
+ * the single most expensive step of a cold restore. The verdict depends only on the
+ * payload, so a payload this process has already accepted is not re-verified when
+ * the same object is restored again (freshness is still re-checked against disk).
+ */
+const acceptedAttributionPersistentCaches = new WeakSet<AttributionEventSourcePersistentCache>();
+
 export function restoreAttributionEventSourcePersistentCache(
   rootInput: HarnessLayoutInput,
   persisted: AttributionEventSourcePersistentCache
 ): AttributionSourceCacheRestore {
-  if (!validPersistentAttributionCache(persisted)) return "invalid";
+  if (!acceptedAttributionPersistentCaches.has(persisted)) {
+    if (!validPersistentAttributionCache(persisted)) return "invalid";
+    acceptedAttributionPersistentCaches.add(persisted);
+  }
   const layout = resolveHarnessLayout(rootInput);
   const layoutIdentity = attributionEventSourceLayoutIdentity(rootInput);
   if (persisted.layoutIdentity !== layoutIdentity) return "stale";

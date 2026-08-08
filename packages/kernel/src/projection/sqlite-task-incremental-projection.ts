@@ -26,9 +26,9 @@ import {
   buildProjectionSourceCacheChange,
   readProjectionSourceCacheBody,
   readProjectionSourceCacheSnapshot,
-  refreshProjectionSourceCacheAfterIncrementalChange,
-  restoreProjectionSourceCacheSnapshot
+  refreshProjectionSourceCacheAfterIncrementalChange
 } from "./sqlite-projection-source-cache.ts";
+import { restoreProjectionSourceCacheSnapshot } from "./sqlite-projection-source-cache-restore.ts";
 import { compareRows, hashExactRows, hashExactSortedRows, readMarkdownSource, sourcePath, taskEntryToRow } from "./sqlite-task-source.ts";
 import {
   rebuildTaskProjection
